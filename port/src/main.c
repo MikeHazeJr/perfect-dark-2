@@ -512,6 +512,41 @@ int main(int argc, const char **argv)
 		(void)chr_anim_emitted; (void)chr_anim_failures;
 	}
 
+	/* Catalog universality pivot Step 3 audio half (2026-05-03): emit
+	 * per-asset .pdsfx / .pdvoice / .pdsong ZIP compounds at
+	 * data/<romid>/audio/{sfx,voice,music}/.
+	 *
+	 * Walks the leaf SFX bank (sfxctl + sfxtbl segments) for sfx + voice;
+	 * a leaf goes to .pdsfx if no russ-mapping points it at a voice
+	 * audioconfig slot, .pdvoice otherwise (Slice 10 retag predicate).
+	 * Walks the seqtable in the sequences segment for songs.
+	 *
+	 * Reads from disk-migrated segments populated by romdataInit; the
+	 * preprocess stage (segaudio.c::preprocessALBankFile +
+	 * preprocessSequences) byte-swaps the bank file + seqtable to native
+	 * before this emitter sees them. Idempotent on subsequent boots
+	 * (existing files skipped via size check).
+	 *
+	 * Per Mike's Q-3 ruling: "Catalog is not complete unless it is
+	 * COMPLETE." This block closes the audio side of Step 3; the
+	 * remaining Step 3 classes (.pdui / .pdfont / .pdlang / .pdscenario)
+	 * ship as Step 3b in a follow-up worktree.
+	 *
+	 * Per Mike's Q-2: a weapon's shootsound accepts a .pdvoice ID just
+	 * as readily as a .pdsfx one. Voice classification at extract time
+	 * is recoverable -- the playback layer reads pd_kind at resolve
+	 * time and routes to the right decoder. */
+	{
+		s32 sfx_emitted   = romExtractAllPdsfx(0);
+		s32 voice_emitted = romExtractAllPdvoice(0);
+		s32 song_emitted  = romExtractAllPdsong(0);
+		s32 sfx_failures   = romExtractParityCheckPdsfx();
+		s32 voice_failures = romExtractParityCheckPdvoice();
+		s32 song_failures  = romExtractParityCheckPdsong();
+		(void)sfx_emitted; (void)voice_emitted; (void)song_emitted;
+		(void)sfx_failures; (void)voice_failures; (void)song_failures;
+	}
+
 	// Phase 8: Build O(1) runtime→catalog-ID caches (mp body/head, stage, weapon, model).
 	// Must run after all catalog entries are registered.
 	catalogBuildRuntimeCaches();

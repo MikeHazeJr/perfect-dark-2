@@ -206,6 +206,101 @@ s32 romExtractAllPdanimChr(s32 force_rewrite);
  * Returns: count of chr animations that failed parity (0 = pass). */
 s32 romExtractParityCheckPdanimChr(void);
 
+/* ============================================================
+ * Catalog universality pivot Step 3 audio half (2026-05-03).
+ *
+ * Per-asset emitters for the byte-payload audio classes:
+ *   .pdsfx     ZIP compound (one per leaf SFX in the SFX bank that is
+ *              NOT classified as voice via the slot-7 predicate from
+ *              Slice 10)
+ *   .pdvoice   ZIP compound (one per leaf SFX classified as voice via
+ *              g_AudioRussMappings + s_audioConfigIsVoice predicate;
+ *              same audio bytes as a .pdsfx, distinct kind so modders
+ *              can target voice content separately per Q-2)
+ *   .pdsong    ZIP compound (one per sequencer entry in the sequences
+ *              segment seqtable)
+ *
+ * Output paths under data/<romid>/:
+ *   audio/sfx/<id>.pdsfx
+ *   audio/voice/<id>.pdvoice
+ *   audio/music/<id>.pdsong
+ *
+ * Catalog ID format follows feedback_human_readable_ids:
+ *   .pdsfx    base:sfx_<lowered_symbol>  (e.g. base:sfx_launch_rocket)
+ *             OR  base:sfx_<NNNN>        (4-digit hex, Q-4 Bucket 2)
+ *   .pdvoice  base:voice_<NNNN>          (always hex; symbolic names
+ *             are SFX-shaped so curation later can rename per actor)
+ *   .pdsong   base:song_<NNNN>           (4-digit hex; curation maps
+ *             to track_dark_combat etc. in a follow-up pass)
+ *
+ * Boot order requirement: must run AFTER romdataInit (segments
+ * populated + preprocessSegments byte-swapped the audio bank +
+ * sequence table headers AND remapped them to the disk-migrated
+ * buffers) AND AFTER romExtractAllSegments (so the source segs
+ * files exist on disk). Wire alongside Step 3a in port/src/main.c.
+ *
+ * Server build: each function returns 0 immediately (no audio
+ * segments populated; no russ-mapping linkage; nothing to extract).
+ *
+ * Per Mike's Q-3 ruling: "Catalog is not complete unless it is
+ * COMPLETE. IT IS FOUNDATIONAL TO EVERYTHING." Step 3 audio half
+ * (sfx + voice + song) closes the audio side of that ruling. The
+ * remaining Step 3 classes (.pdui, .pdfont, .pdlang, .pdscenario)
+ * ship as Step 3b in a follow-up worktree.
+ *
+ * Per Mike's Q-2 (audio type-tolerance): a weapon's shootsound
+ * field accepts a .pdvoice ID just as readily as a .pdsfx one.
+ * Misclassification at extract time is recoverable -- the audio
+ * playback layer reads pd_kind at resolve time and routes to the
+ * right decoder. Voice classification here is the slot-predicate
+ * heuristic from Slice 10 (audioconfig 1/2/3/47/48/60/62 = voice).
+ * ============================================================ */
+
+/* Step 3 audio: emit one .pdsfx ZIP compound per leaf SFX entry that
+ * is NOT classified as voice. Walks the post-preprocess ALBankFile
+ * via the disk-migrated sfxctl segment (instrument 0's soundArray
+ * iteration). Sample bytes are sliced from the disk-migrated sfxtbl
+ * segment per ALSound's ALWaveTable.base / .len fields.
+ *
+ * Idempotent: skips files that already exist with non-zero size unless
+ * force_rewrite is non-zero. Per-file failures emit
+ * LOUDFAIL.EXTRACT.PDSFX but do not abort the walk.
+ *
+ * Returns: count of files newly written; -1 on infrastructure failure
+ * (segment lookup, data dir creation, etc.). */
+s32 romExtractAllPdsfx(s32 force_rewrite);
+
+/* Step 3 audio: emit one .pdvoice ZIP compound per leaf SFX entry
+ * that IS classified as voice via g_AudioRussMappings +
+ * s_audioConfigIsVoice (slots 1/2/3/47/48/60/62 per Slice 10).
+ *
+ * Same ALBankFile walker as romExtractAllPdsfx but with the inverse
+ * filter; manifest carries actor="unknown" pending a curation pass
+ * (Step 5 cleanup) that maps voice slots to actor names.
+ *
+ * Returns: count of files newly written; -1 on infrastructure failure. */
+s32 romExtractAllPdvoice(s32 force_rewrite);
+
+/* Step 3 audio: emit one .pdsong ZIP compound per entry in the
+ * sequences-segment seqtable. Walks the byte-swapped struct seqtable
+ * at the head of the disk-migrated sequences segment; sequence bytes
+ * are sliced from segment offset entry.romaddr for entry.binlen
+ * bytes.
+ *
+ * Returns: count of files newly written; -1 on infrastructure failure. */
+s32 romExtractAllPdsong(s32 force_rewrite);
+
+/* Step 3 audio parity checks (Q-5 ruling). Re-read each emitted ZIP,
+ * verify envelope (pd_kind / pd_schema_version / id) + key scalar
+ * fields (source_index / sample_rate_hz / data_size) round-trip the
+ * source bank/table entry. Failures emit LOADER.UNIVERSAL.PARITY_FAIL
+ * with diagnostic detail. Same structural integrity contract as
+ * romExtractParityCheckPdanimChr; full field-by-field round-trip is
+ * Step 4. Returns: count of files that failed parity (0 = pass). */
+s32 romExtractParityCheckPdsfx(void);
+s32 romExtractParityCheckPdvoice(void);
+s32 romExtractParityCheckPdsong(void);
+
 #ifdef __cplusplus
 }
 #endif

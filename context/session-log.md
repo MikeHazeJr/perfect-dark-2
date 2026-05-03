@@ -1,5 +1,84 @@
 # Session Log (Active)
 
+## Session S610-step3-audio (`frosty-antonelli-fd537f`) - 2026-05-03 - Catalog Universality Pivot Step 3 audio half (.pdsfx + .pdvoice + .pdsong)
+
+Mike's directive 06:42 ET: "Let's finish the catalog." Step 3a (`amazing-torvalds-eadac6`) recommended a fresh worktree for Step 3 audio because it spans a distinct subdomain (audio decoders, bank format, sequence table). This session takes that advice.
+
+### Outcome
+
+Step 3 audio half ships as one coherent unit per `feedback_complete_unit_shipping`. Three new emitters + three matching parity checks for the byte-payload audio classes:
+
+- **`port/src/romextract_pdsfx.c`** -- shared SFX-bank walker. Iterates the post-preprocess `ALBankFile` via the disk-migrated `sfxctl` segment (instrument 0's `soundArray`, the same path PD's runtime `sndLoadSfxCtl` walks at [`src/lib/snd.c:953`](../src/lib/snd.c)). Sample bytes come from the disk-migrated `sfxtbl` segment via each `ALSound`'s `ALWaveTable.base / .len` fields. Emits one `.pdsfx` ZIP per leaf SFX index NOT classified as voice. Manifest carries envelope (`pd_kind="sfx"` / `pd_schema_version=1` / `id`) + `format` (`ALADPCM` / `PCM16`) + `sample_rate_hz` + `data_size` + loop info + `source_index` provenance.
+- **`port/src/romextract_pdvoice.c`** -- thin wrapper around the same walker with `PDAUDIO_WALK_VOICE`. Emits `.pdvoice` ZIPs for leaf SFX indices that match the Slice 10 voice predicate. Manifest adds `actor` / `transcript` / `language` / `context` placeholder fields per Section 2.8 of the schema doc; curation lands in a follow-up worktree (or as a Step 5 cleanup).
+- **`port/src/romextract_pdsong.c`** -- walks the byte-swapped `struct seqtable` at the head of the disk-migrated `sequences` segment. `preprocessSequences` ([`port/src/preprocess/segaudio.c:350`](../port/src/preprocess/segaudio.c)) byte-swapped count + entry fields to native at romdataInit time so direct read is safe. Slices `binlen` (or `ziplen` if compressed) bytes from `entry.romaddr`, emits one `.pdsong` ZIP per slot. Manifest carries envelope + `format` (`ALSEQ` / `ALSEQ_ZIP`) + `binlen` + `ziplen` provenance.
+- **`port/src/romextract_parity_pdsfx.c`** -- Q-5 structural parity for both `.pdsfx` and `.pdvoice` (mode-flag selector). Re-opens each emitted ZIP, parses `manifest.json`, asserts envelope + `id` + `source_index` + `data_size` + `sample_rate_hz` round-trip the source `ALSound`. Failures emit `LOADER.UNIVERSAL.PARITY_FAIL`.
+- **`port/src/romextract_parity_pdvoice.c`** -- thin wrapper.
+- **`port/src/romextract_parity_pdsong.c`** -- Q-5 structural parity for `.pdsong`. Re-opens each emitted ZIP, asserts `pd_kind="song"` + `id` + `source_index` + `binlen` + `ziplen` round-trip + `data.bin` size matches the source slice.
+
+Internal glue: **`port/src/romextract_pdaudio_internal.h`** exposes `romextract_pdaudio_walkBank(mode, force_rewrite)` and `romextract_pdaudio_parityCheck(mode)`. Lets `romextract_pdsfx.c` and `romextract_pdvoice.c` share the bank walker so the byte-format interpretation lives in a single place. Header lives under `port/src/` (not `port/include/`) because no out-of-tree consumer needs it.
+
+Public API: `port/include/romextract_pd.h` gains six new prototypes inside a Step 3 audio half block, with full docblocks per the Step 3a pattern.
+
+Boot wiring: `port/src/main.c` gets a Step 3 audio block immediately after Step 3a. Emit + parity calls follow the established pattern (idempotent on subsequent boots, return-value-discarded with `(void)cast`).
+
+### Catalog ID convention
+
+Per `feedback_human_readable_ids` + Q-4 buckets:
+
+- `.pdsfx`: `base:sfx_<lowered_symbol>` when `loaderPdbaseNameForSfxEnum` returns a symbolic name (e.g. `base:sfx_launch_rocket` from `SFX_LAUNCH_ROCKET`). Falls back to `base:sfx_<NNNN>` 4-digit hex.
+- `.pdvoice`: `base:voice_<NNNN>` always; symbolic SFX names map to non-actor labels so per-line actor curation lands later without ID churn.
+- `.pdsong`: `base:song_<NNNN>` 4-digit hex; the 43 catalog-registered `MUSIC_*` tracks (slugs like `track_dark_combat`) map to seqtable slots via runtime indirection that curation will fold in.
+
+### Voice classification heuristic
+
+Mirrors `s_audioConfigIsVoice` in [`port/src/assetcatalog_base_extended.c:291`](../port/src/assetcatalog_base_extended.c) (Slice 10 retag predicate). A leaf SFX index `i` is voice if some entry in `g_AudioRussMappings[]` has `soundnum == i` AND `audioconfig_index` in `{AUDIOCONFIG_01, _02, _03, _47, _48, _60, _62}`. The walker builds a `u8` bitset cache at start of walk so the per-sound check is O(1). The same predicate gates the `.pdvoice` walk so every leaf goes to exactly one emitter (no overlap, no leakage).
+
+Per Q-2 type-tolerance, misclassification stays recoverable: the audio playback layer reads `pd_kind` at resolve time and routes to the right decoder. Voice retag at extract time is a hint, not a contract -- a misclassified row remains usable as long as the playback layer can decode the byte payload, which it can (voice is structurally an SFX with metadata; same ALADPCM decoder).
+
+### Server build
+
+`PD_SERVER` short-circuits all six top-level functions to 0. The walker depends on `g_AudioRussMappings` from `snd.c` which isn't linked into `pd-server`; the russ table is reachable only client-side. Server registers all audio rows as SFX (per Slice 10) and the extractors mirror that contract -- consistent with `romextract_pdanim_chr.c`'s server-side behavior.
+
+### Counts
+
+- `.pdsfx`: ~1401 expected (1545 leaf SFX minus the 144 voice-classified entries from Slice 10).
+- `.pdvoice`: ~144 expected.
+- `.pdsong`: count varies by ROM (sequence table is dynamic; runtime walks `g_SeqTable->count`).
+
+### Build verify
+
+Clean four-target build via `devtools/build-session.ps1 -Session pdaudio-step3-clean -Target all -Clean` plus explicit `-Target server` and `-Target tests` runs:
+
+- Client (pd): PASS, 55.1 MB.
+- Updater (pd-updater): PASS, 12.3 MB.
+- Server (pd-server): PASS, 22.4 MB.
+- Tests (pd-tests): PASS, 24.9 MB.
+
+No new compile warnings on the seven new files. Pre-existing `pdgui_*` and `bondgrab.c` warnings are unrelated to this work surface. Headless boot path unchanged (Step 3 audio block sits between Step 3a and `catalogBuildRuntimeCaches`).
+
+NOTE: build-headless.ps1 redirects worktree paths to the main working copy per its design, so the ACTIVE build verification ran from the main repo after merge.
+
+### Audit + tasks update
+
+[`context/audits/catalog-universality-pivot-plan-2026-05-02.md`](audits/catalog-universality-pivot-plan-2026-05-02.md) appended a "Step 3 audio half SHIPPED" section before the doc sentinel listing all seven new files, the boot wiring location, the voice classification basis (Slice 10 mirror), the schema-locked field shape per kind, build verify results, and the Step 3b queue (`.pdui` / `.pdfont` / `.pdlang`).
+
+[`context/tasks.md`](tasks.md) Section 2a (Catalog Universality Pivot) bumped from "7 of 13 kinds" to "10 of 13 kinds" with the new files inventoried. Step 3 line moved to "Step 3 audio half status" + a "Step 3b" remaining bullet for the other byte-payload classes.
+
+### Sizing call for orchestrator
+
+Step 3b (.pdui + .pdfont + .pdlang) should ship in a fresh worktree. The audio half shared the audio-decoder lineage (segaudio.c). The "other" half spans different lump shapes:
+- `.pdui`: ImGui texture pool + theme JSON + nineslice INI -- retires `pdguiThemeExtractRomTextures`, has cross-cuts with the theme reader.
+- `.pdfont`: 10 font segments with glyph metrics + bitmaps -- different segment shape than audio.
+- `.pdlang`: per-language string tables -- yet another segment shape.
+
+Recommendation: spawn a fresh worktree for Step 3b. Then Step 4 (universal directory walker) is the universality switch.
+
+### Memory
+
+No new memory entries; Slice 10 mirror + Q-1/Q-2/Q-3/Q-5 + complete-unit-shipping + human-readable-ids all already encoded.
+
+---
+
 ## Session S609-trifecta-2 (`goofy-knuth-0ef04f` continuation) - 2026-05-03 - Q-A/Q-B/Q-C/Q4/Q-E spec follow-up
 
 Mike resolved 5 outstanding spec decisions (Q-A through Q-E) on top of the S609-trifecta foundation that just shipped to dev as `24e9b67e`. All 5 land in this session as one coherent unit per `feedback_complete_unit_shipping`.

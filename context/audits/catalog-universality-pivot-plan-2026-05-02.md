@@ -1050,6 +1050,76 @@ For decisions that have been made before implementation begins:
 
 ---
 
+---
+
+## Step 3 audio half SHIPPED 2026-05-03 (worktree `frosty-antonelli-fd537f`)
+
+**What landed:** the audio side of Step 3. Three new emitters + three matching parity checks for the byte-payload audio classes:
+
+- `port/src/romextract_pdsfx.c` -- shared SFX-bank walker. Iterates the post-preprocess `ALBankFile` via the disk-migrated `sfxctl` segment (instrument 0's `soundArray`), reads sample bytes from `sfxtbl`, emits one `.pdsfx` ZIP per leaf SFX index NOT classified as voice. Manifest carries envelope + `format` (`ALADPCM` / `PCM16`) + `sample_rate_hz` + `data_size` + loop info + `source_index` provenance.
+- `port/src/romextract_pdvoice.c` -- thin wrapper around the same walker with `PDAUDIO_WALK_VOICE`. Emits `.pdvoice` ZIPs for leaf SFX indices that match the Slice 10 voice predicate (`g_AudioRussMappings` slot in `{1, 2, 3, 47, 48, 60, 62}`). Manifest adds `actor` / `transcript` / `language` / `context` placeholder fields per Section 2.8; curation lands in a follow-up.
+- `port/src/romextract_pdsong.c` -- walks the byte-swapped `struct seqtable` at the head of the disk-migrated `sequences` segment, slices `binlen` (or `ziplen` if compressed) bytes from `entry.romaddr`, emits one `.pdsong` ZIP per slot. Manifest carries envelope + `format` (`ALSEQ` / `ALSEQ_ZIP`) + `binlen` + `ziplen` provenance.
+- `port/src/romextract_parity_pdsfx.c` -- Q-5 structural parity for both `.pdsfx` and `.pdvoice` (mode-flag selector). Re-opens each emitted ZIP, parses `manifest.json`, asserts envelope + `id` + `source_index` + `data_size` + `sample_rate_hz` round-trip the source `ALSound`. Failures emit `LOADER.UNIVERSAL.PARITY_FAIL`.
+- `port/src/romextract_parity_pdvoice.c` -- thin wrapper.
+- `port/src/romextract_parity_pdsong.c` -- Q-5 structural parity for `.pdsong`. Re-opens each emitted ZIP, asserts `pd_kind="song"` + `id` + `source_index` + `binlen` + `ziplen` round-trip, plus `data.bin` size matches the source slice.
+
+Internal glue:
+
+- `port/src/romextract_pdaudio_internal.h` -- private header exposing `romextract_pdaudio_walkBank(mode, force_rewrite)` and `romextract_pdaudio_parityCheck(mode)`. Lets `romextract_pdsfx.c` and `romextract_pdvoice.c` share the bank walker so the byte-format interpretation is in a single place. Header lives under `port/src/` (not `port/include/`) because no out-of-tree consumer needs it.
+
+Public API: `port/include/romextract_pd.h` gains six new prototypes (`romExtractAllPdsfx` / `Pdvoice` / `Pdsong` plus `romExtractParityCheckPdsfx` / `Pdvoice` / `Pdsong`) inside a Step 3 audio half block.
+
+Boot wiring: `port/src/main.c` gets a Step 3 audio block immediately after Step 3a. Emit + parity calls follow the established pattern (idempotent on subsequent boots, return-value-discarded with `(void)cast`).
+
+**Catalog ID convention** (per `feedback_human_readable_ids` + Q-4 buckets):
+
+- `.pdsfx`: `base:sfx_<lowered_symbol>` when `loaderPdbaseNameForSfxEnum` returns a symbolic name (e.g. `base:sfx_launch_rocket` from `SFX_LAUNCH_ROCKET`). Falls back to `base:sfx_<NNNN>` 4-digit hex.
+- `.pdvoice`: `base:voice_<NNNN>` always; symbolic SFX names map to non-actor labels so per-line actor curation lands later without ID churn.
+- `.pdsong`: `base:song_<NNNN>` 4-digit hex; the 43 catalog-registered `MUSIC_*` tracks (slugs like `track_dark_combat`) map to seqtable slots via runtime indirection that curation will fold in as a Step 5 cleanup.
+
+**Voice classification heuristic** (Slice 10 predicate, mirrored from `port/src/assetcatalog_base_extended.c::s_audioConfigIsVoice`):
+
+A leaf SFX index `i` is voice if some entry in `g_AudioRussMappings[]` has `soundnum == i` AND `audioconfig_index` in `{AUDIOCONFIG_01, _02, _03, _47, _48, _60, _62}`. The walker builds a u8 bitset cache at start of walk so the per-sound check is O(1). The same predicate gates the `.pdvoice` walk so every leaf goes to exactly one emitter.
+
+Per Q-2 type-tolerance, misclassification stays recoverable: the audio playback layer reads `pd_kind` at resolve time and routes to the right decoder. Voice retag at extract time is a hint, not a contract.
+
+**Server build (PD_SERVER):** all six functions short-circuit to 0. The walker depends on `g_AudioRussMappings` from `snd.c` which isn't linked into `pd-server`; the russ table is reachable only client-side. Server registers all audio rows as SFX (per Slice 10) and the extractors mirror that contract.
+
+**Counts emitted (NTSC final ROM, expected):**
+
+- `.pdsfx`: ~1401 (1545 leaf SFX minus 144 voice-classified entries per Slice 10).
+- `.pdvoice`: ~144 (the Slice 10 retag count).
+- `.pdsong`: count varies by ROM (sequence table is dynamic; runtime walks `g_SeqTable->count`).
+
+**Build verify:** clean four-target build via `devtools/build-session.ps1`. PASS for client (54.8-55.1 MB), updater (12.3 MB), server (22.4 MB), tests (24.7-24.9 MB). No new compile warnings on the six new files. Headless boot path unchanged (Step 3 audio block sits between Step 3a and `catalogBuildRuntimeCaches`).
+
+**Files added** (7 new files, ~1100 lines):
+
+- `port/src/romextract_pdaudio_internal.h` (~70 lines)
+- `port/src/romextract_pdsfx.c` (~480 lines, includes the shared walker)
+- `port/src/romextract_pdvoice.c` (~30 lines, wrapper)
+- `port/src/romextract_pdsong.c` (~270 lines)
+- `port/src/romextract_parity_pdsfx.c` (~360 lines, includes shared parity walker)
+- `port/src/romextract_parity_pdvoice.c` (~20 lines, wrapper)
+- `port/src/romextract_parity_pdsong.c` (~210 lines)
+
+**Files modified:**
+
+- `port/include/romextract_pd.h` -- 6 new prototypes + Step 3 audio block docblock (~95 new lines).
+- `port/src/main.c` -- Step 3 audio block (~35 new lines).
+
+**State after this commit:** 10 of 13 universality kinds emitted. Remaining: `.pdui` / `.pdfont` / `.pdlang` (Step 3b -- planned for follow-up worktree). `.pdscenario` already shipped in Step 2.
+
+**Step 3b queue (next ship):**
+
+- `port/src/romextract_pdui.c` -- replaces `pdguiThemeExtractRomTextures` ([port/fast3d/pdgui_theme.cpp:2424](../../port/fast3d/pdgui_theme.cpp:2424)) with a `.pdui` ZIP compound emit. Risk: theme system reads loose files today; `.pdui` ship coordinates with the theme reader migration.
+- `port/src/romextract_pdfont.c` -- per-face font extraction from the 10 font segments (`bankgothic`, `zurich`, `tahoma`, `numeric`, `handelgothic*`, `ocra*`, `jpn*`).
+- `port/src/romextract_pdlang.c` -- per-language string-table extraction from the lang segments.
+
+**Sizing call for orchestrator:** Step 3b should ship as a separate coherent unit. The audio half shared the audio-decoder lineage (segaudio.c); the "other" half spans different lump shapes (ImGui texture pool for ui, font glyph metrics, language string tables). Recommend routing Step 3b to a fresh worktree.
+
+---
+
 ## 8. Sentinel
 
 This audit ends here. If a future reader sees content past this line, the document was modified after the original draft.
