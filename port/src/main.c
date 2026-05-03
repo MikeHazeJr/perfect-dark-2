@@ -18,6 +18,7 @@
 #include "fs.h"
 #include "romdata.h"
 #include "romextract.h"
+#include "romextract_pd.h"
 #include "config.h"
 #include "modmgr.h"
 #include "modelcatalog.h"
@@ -440,6 +441,27 @@ int main(int argc, const char **argv)
 			 * confirms PASS. */
 			loaderPdbaseRunParityCheckArenas();
 		}
+	}
+
+	/* Catalog universality pivot Step 1 (2026-05-02): emit per-asset
+	 * .pdwpn / .pdmesh / .pdanim files at data/<romid>/<class>/.
+	 *
+	 * Reads from the loader_pdbase pool populated above; writes per-asset
+	 * compound files in the universality format. Idempotent on subsequent
+	 * boots (existing files skipped via size check). Per Mike's Q-5 ruling
+	 * the parity check runs immediately after to validate the emit; the
+	 * parity period closes at Step 5 when base/*.pdbase retires.
+	 *
+	 * Boot order: loader pools must be populated (above) AND the source
+	 * .bin files must exist on disk (Pass A.2 ran earlier in romdataInit
+	 * area). Both conditions hold here. */
+	{
+		s32 wpn_emitted = romExtractAllPdwpn(0);
+		s32 mesh_emitted = romExtractAllPdmesh(0);
+		s32 anim_emitted = romExtractAllPdanim(0);
+		s32 parity_failures = romExtractParityCheckPdwpn();
+		(void)wpn_emitted; (void)mesh_emitted; (void)anim_emitted;
+		(void)parity_failures;
 	}
 
 	// Phase 8: Build O(1) runtime→catalog-ID caches (mp body/head, stage, weapon, model).

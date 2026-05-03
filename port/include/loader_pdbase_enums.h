@@ -42,6 +42,13 @@ s32 loaderPdbaseResolveSfxEnum(const char *name, s32 fallback);
 s32 loaderPdbaseResolveLangEnum(const char *name, s32 fallback);
 s32 loaderPdbaseResolveFileEnum(const char *name, s32 fallback);
 
+/* Catalog universality pivot Step 1: reverse lookup (value -> name).
+ * Returns NULL if no match. Linear scan; emit-time use only. */
+const char *loaderPdbaseNameForAnimEnum(s32 value);
+const char *loaderPdbaseNameForSfxEnum(s32 value);
+const char *loaderPdbaseNameForLangEnum(s32 value);
+const char *loaderPdbaseNameForFileEnum(s32 value);
+
 #ifdef __cplusplus
 }
 #endif

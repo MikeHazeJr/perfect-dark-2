@@ -81,6 +81,19 @@ const struct noisesettings         *loaderPdbaseGetDefaultNoise(void);
 const struct aibotweaponpreference *loaderPdbaseGetBotPref(s32 idx);
 s32 loaderPdbaseGetWeaponsRegistered(void);
 
+/* Catalog universality pivot Step 1: per-weapon catalog ID getter.
+ * Returns the catalog ID captured from the .pdbase `id` field, or NULL
+ * if not set. The .pdwpn emitter uses this for envelope + filename. */
+const char *loaderPdbaseGetWeaponCatalogId(s32 idx);
+
+/* Catalog universality pivot Step 1: animation-pool walking accessors
+ * for the .pdanim / .pdwpn emitters. */
+s32         loaderPdbaseGetAnimationCount(void);
+const char *loaderPdbaseGetAnimationName(s32 idx);
+s32         loaderPdbaseGetAnimationOpcodes(s32 idx,
+                const struct guncmd **out_cmds, s32 *out_count);
+const char *loaderPdbaseAnimationNameForCmds(const struct guncmd *cmds);
+
 /* S484-followup-3 (2026-05-01): pool-range + canary accessors for the
  * fire-time recoil crash investigation. See loader_pdbase.c for full
  * rationale; bondgun.c's recoil-block instrumentation uses these to

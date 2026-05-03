@@ -95,6 +95,10 @@ typedef struct {
 
 static struct weapon                  s_Weapons[CATALOG_MGR_WEAPON_COUNT];
 static struct aibotweaponpreference   s_BotPrefs[CATALOG_MGR_WEAPON_COUNT];
+/* Catalog universality pivot Step 1: per-weapon catalog ID captured
+ * from the .pdbase JSON "id" field. Used by the .pdwpn emitter to
+ * stamp per-asset filenames + envelope `id`. Populated in parseWeapon. */
+static char                           s_WeaponCatalogIds[CATALOG_MGR_WEAPON_COUNT][64];
 static struct guncmd                  s_Guncmds[POOL_GUNCMDS];
 static struct gunviscmd               s_Gunviscmds[POOL_GUNVISCMDS];
 static struct modelpartvisibility     s_Partvis[POOL_PARTVIS];
@@ -201,6 +205,62 @@ const struct aibotweaponpreference *loaderPdbaseGetBotPref(s32 idx)
 }
 
 s32 loaderPdbaseGetWeaponsRegistered(void) { return s_WeaponsRegistered; }
+
+/* Catalog universality pivot Step 1: per-weapon catalog ID getter.
+ * Returns the string captured from the .pdbase JSON `id` field, or
+ * NULL if loader is inactive / idx out of range / no id was set. */
+const char *loaderPdbaseGetWeaponCatalogId(s32 idx)
+{
+	if (!s_LoaderActive) return NULL;
+	if (idx < 0 || idx >= CATALOG_MGR_WEAPON_COUNT) return NULL;
+	if (s_WeaponCatalogIds[idx][0] == '\0') return NULL;
+	return s_WeaponCatalogIds[idx];
+}
+
+/* Catalog universality pivot Step 1: animation pool accessors.
+ * The .pdanim emitter (port/src/romextract_pdanim.c) walks the
+ * animation table to write one .pdanim file per recorded animation.
+ * Index 0..count-1; out_cmds points into the pool, out_count is
+ * the opcode array length. Returns 1 on success, 0 if loader is
+ * inactive or idx is out of range. */
+s32 loaderPdbaseGetAnimationCount(void)
+{
+	return s_LoaderActive ? s_AnimationsUsed : 0;
+}
+
+const char *loaderPdbaseGetAnimationName(s32 idx)
+{
+	if (!s_LoaderActive) return NULL;
+	if (idx < 0 || idx >= s_AnimationsUsed) return NULL;
+	return s_Animations[idx].name;
+}
+
+s32 loaderPdbaseGetAnimationOpcodes(s32 idx, const struct guncmd **out_cmds,
+                                     s32 *out_count)
+{
+	if (!s_LoaderActive) return 0;
+	if (idx < 0 || idx >= s_AnimationsUsed) return 0;
+	if (out_cmds) *out_cmds = &s_Guncmds[s_Animations[idx].cmd_offset];
+	if (out_count) *out_count = s_Animations[idx].cmd_count;
+	return 1;
+}
+
+/* Resolve a guncmd* pointer back to the animation name it belongs to.
+ * Used by the .pdwpn emitter to convert struct weapon's anim pointers
+ * (equip_animation, unequip_animation, etc.) to symbolic catalog IDs.
+ * Returns the name (not a copy) on success, or NULL if the pointer
+ * does not match any registered animation start. */
+const char *loaderPdbaseAnimationNameForCmds(const struct guncmd *cmds)
+{
+	s32 i;
+	if (!s_LoaderActive || cmds == NULL) return NULL;
+	for (i = 0; i < s_AnimationsUsed; i++) {
+		if (&s_Guncmds[s_Animations[i].cmd_offset] == cmds) {
+			return s_Animations[i].name;
+		}
+	}
+	return NULL;
+}
 
 /* S484-followup-3 (2026-05-01): pool-range accessors for the
  * fire-time recoil crash investigation. Bondgun's recoil-block
@@ -1430,6 +1490,7 @@ static void parseWeapon(jstream_t *s)
 	struct weapon w;
 	struct aibotweaponpreference bp;
 	s32 bp_present = 0;
+	char catalog_id[64] = {0};
 	memset(&w, 0, sizeof(w));
 	memset(&bp, 0, sizeof(bp));
 	w.aimsettings = &s_DefaultAim;  /* default fallback */
@@ -1441,7 +1502,7 @@ static void parseWeapon(jstream_t *s)
 		if (s->cur.kind != JT_COLON) continue;
 		jstream_advance(s);
 
-		if      (jstream_str_eq(&key, "id")) jstream_skip_value(s);
+		if      (jstream_str_eq(&key, "id")) jread_string_buf(s, catalog_id, sizeof(catalog_id));
 		else if (jstream_str_eq(&key, "symbol")) jstream_skip_value(s);
 		else if (jstream_str_eq(&key, "weapon_id")) weapon_id = jread_int(s, -1);
 		else if (jstream_str_eq(&key, "hi_model")) w.hi_model = (u16)jread_enum_or_int(s, JREF_FILE, 0, "weapon.hi_model");
@@ -1535,6 +1596,9 @@ static void parseWeapon(jstream_t *s)
 	if (weapon_id >= 0 && weapon_id < CATALOG_MGR_WEAPON_COUNT) {
 		s_Weapons[weapon_id] = w;
 		if (bp_present) s_BotPrefs[weapon_id] = bp;
+		strncpy(s_WeaponCatalogIds[weapon_id], catalog_id,
+			sizeof(s_WeaponCatalogIds[weapon_id]) - 1);
+		s_WeaponCatalogIds[weapon_id][sizeof(s_WeaponCatalogIds[weapon_id]) - 1] = '\0';
 		s_WeaponsRegistered++;
 
 		/* S484-followup-4 diag (2026-05-01): per-weapon name dump.
