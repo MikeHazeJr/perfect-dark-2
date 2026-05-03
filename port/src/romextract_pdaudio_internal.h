@@ -52,14 +52,6 @@ typedef enum {
  */
 s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite);
 
-/**
- * Re-walk the leaf SFX bank in mode-filter form and verify each
- * emitted ZIP's manifest envelope + key scalar fields round-trip the
- * source bank entry. Same Q-5 structural-integrity contract as the
- * other parity checks. Returns the count of mismatched files.
- */
-s32 romextract_pdaudio_parityCheck(pdaudio_walk_mode_t mode);
-
 #ifdef __cplusplus
 }
 #endif

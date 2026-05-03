@@ -261,12 +261,6 @@ s32 romExtractAllPdvoice(s32 force_rewrite);
  * Returns: count of files newly written; -1 on infrastructure failure. */
 s32 romExtractAllPdsong(s32 force_rewrite);
 
-/* Voice + song parity checks (byte-level structural integrity). The
- * sfx parity check retired with the loader_pool migration; voice +
- * song are byte-stream-only and their parity is preserved. */
-s32 romExtractParityCheckPdvoice(void);
-s32 romExtractParityCheckPdsong(void);
-
 /* ============================================================
  * Catalog universality pivot Step 3b part 1 (2026-05-03).
  *
@@ -328,11 +322,6 @@ s32 romExtractAllPdfont(s32 force_rewrite);
  * failure. */
 s32 romExtractAllPdlang(s32 force_rewrite);
 
-/* Font parity check (byte-level structural integrity). The lang parity
- * check retired with the loader_pool migration; font remains as the
- * byte-stream-only check. */
-s32 romExtractParityCheckPdfont(void);
-
 /* ============================================================
  * Catalog universality pivot Step 3b part 2 (2026-05-03).
  *
@@ -391,18 +380,6 @@ s32 romExtractParityCheckPdfont(void);
  * fires later from pdguiThemeCheckExtract in the render-loop fallback
  * trigger. -1 reserved for infrastructure failure (data dir creation). */
 s32 romExtractAllPdui(s32 force_rewrite);
-
-/* Step 3b part 2 parity check (Q-5 ruling). Re-walks the canonical
- * 14-texture list, opens each .pdui ZIP, parses manifest.json, and
- * verifies envelope + id + texture_count + source_index round-trip the
- * source descriptor. Missing files are treated as skip (not failure)
- * because the .pdui emitter is deferred to the render-loop on first
- * launch and parity at the boot main.c block runs before .pdui files
- * exist. Failures emit LOADER.UNIVERSAL.PARITY_FAIL with diagnostic
- * detail. Same structural integrity contract as the audio half + part
- * 1; full field-by-field round-trip arrives at Step 4 with the
- * universal loader. */
-s32 romExtractParityCheckPdui(void);
 
 #ifdef __cplusplus
 }
