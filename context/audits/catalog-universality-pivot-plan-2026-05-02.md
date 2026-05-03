@@ -1543,8 +1543,203 @@ No new compile warnings.
 
 ### Followups (not in scope for this ship)
 
-1. **Empty-pool-on-clean-BYOR root-cause fix** -- pre-ship `.pd<ext>` files OR add ROM-direct extraction. Without one of these, the pool-dependent catalog manager getters return NULL on truly clean install and stage load fails. Mike's existing dev install + the release-bundled `data/` skeleton currently do NOT carry the per-asset content (verified empty in Mike's `Build/data/`), so this affects all post-Step-5 fresh installs.
+1. **Empty-pool-on-clean-BYOR root-cause fix** -- closed by the BYOR Completion ship below.
 2. **`pdvoice skipped=1545`** -- russ table or audioconfig predicate downstream issue.
 3. **`run-pd-tests.ps1` harness** -- `Property 'Count' cannot be found` error blocks suite execution via the wrapper.
 
 DOC_END_2026-05-03_POST_PIVOT_TRIAGE_SHIPPED
+
+---
+
+## BYOR Completion SHIPPED (2026-05-03, focused-poitras-97c1d4)
+
+Closes followup #1 above. Per Mike's 15:42 ET ruling: BYOR is a hard
+constraint, never a tradeoff. Ship as ONE coherent unit covering all
+metadata kinds via Option B (authoring source-of-truth files). No mixed
+pattern.
+
+### What shipped
+
+**5 authoring source-of-truth files** (`port/src/*data_authored.c` plus
+matching headers in `port/include/`):
+
+| File | Source recovered from | Records |
+|------|-----------------------|---------|
+| `weapondata_authored.c` | `git show f670bd06^:src/game/invitems.c` (5789 lines) + `g_AibotWeaponPreferences` from `src/game/botinv.c` | 86 weapons + 87 bot prefs + `g_WeaponDataCatalogIds[]` slug table |
+| `animdata_authored.c` | thin iteration table over `invanim_*[]` arrays defined alongside weapons | 110 weapon animations |
+| `headdata_authored.c` | head subset of historical `g_HeadsAndBodies[]` (`unk00_01 == 1`) | 84 heads (75 named + 9 SP) |
+| `bodydata_authored.c` | body subset of historical `g_HeadsAndBodies[]` (`unk00_01 == 0` + `filenum != 0`) | 68 bodies (63 named + 5 SP), with `handfilenum` |
+| `arenadata_authored.c` | `g_MpArenas[]` plus `s_ArenaNames` + `s_ArenaGroupMap` (was inline in `assetcatalog_base.c`) | 47 arenas with slug + category + load_mode columns |
+
+Each header documents allowed includers explicitly. Engine code may NOT
+include any `*data_authored.h`; engine reads route through the catalog.
+
+**6 emitter refactors** (`port/src/romextract_pd*.c`):
+
+- `romextract_pdwpn.c` walks `g_WeaponData[]`, no pool dep.
+- `romextract_pdanim.c` walks `g_AnimData[]`, no pool dep.
+- `romextract_pdhead.c` walks `g_HeadData[]`, no pool dep.
+- `romextract_pdbody.c` walks `g_BodyData[]`, no pool dep.
+- `romextract_pdarena.c` walks `g_ArenaData[]`, no pool dep. Inherits the
+  `.pdscenario` ZIP emit on the same loop (per-stage `.bin` files come from
+  Pass A.2 disk segments via `romExtractRelPathForFilenum`).
+- `romextract_pdmesh.c` extended: walks weapon hi/lo + head mesh + body
+  mesh + body hand mesh from authoring tables. Emits a unified pdmesh
+  superset so cross-references from `.pdwpn` / `.pdhead` / `.pdbody`
+  resolve. Seen-cap raised from 256 to 512 to fit the new coverage.
+
+**Engine-side catalog migrations** (catalog internals only -- the
+perimeter outside catalog was already routed through catalog APIs per
+the CLAUDE.md "allowed read-sites" rule):
+
+- `assetcatalog_base.c`: bodies / heads / arenas registration loops walk
+  `g_BodyData` / `g_HeadData` / `g_ArenaData` via
+  `bodyDataLookupByBodynum` / `headDataLookupByHeadnum` / direct
+  iteration. SP loop walks the authored tables for entries not in
+  `g_MpHeads` / `g_MpBodies`. Inline `s_ArenaNames` + `s_ArenaGroupMap`
+  retired (now in `arenadata_authored.c` per-record).
+- `assetcatalog_api.c`: 5 handfilenum/filenum sentinel checks routed
+  through the lookup helpers.
+- `assetcatalog_base_extended.c`: hand-model probe walks `g_BodyData[i]`
+  instead of `g_HeadsAndBodies[i]`.
+- `catalog_mgr_heads.c` / `catalog_mgr_bodies.c`: `s_populateFromLegacy`
+  renamed to `s_populateFromAuthored`, reads from the lookup helpers.
+  Loader pool override path retained for mod-supplied `.pdhead` /
+  `.pdbody` content (F12 path).
+- `modelcatalog.c`: `catalogInit` walks `g_HeadData` + `g_BodyData`
+  (sparse-keyed by historical headnum/bodynum index for `s_Catalog[]`
+  consumer compat). `catalogValidateOne` no longer writes back to
+  `g_HeadsAndBodies[].modeldef`; modeldef cache is fully manager-owned
+  (catalog_mgr_heads / bodies F3 invariant carried through to retirement).
+
+**Engine-side retirements**:
+
+- `src/game/modeldata/robot.c`: `g_HeadsAndBodies[152]` array body
+  retired. File reduced to skeleton tables + `var8007dae4` hat positions
+  (kept; consumed directly by chr-modeling layer). Header comment
+  documents the retirement and points to the authoring files.
+- `src/game/mplayer/setup.c`: `g_MpArenas[47]` array body retired.
+  Surrounding mp_* helpers untouched.
+- `src/include/data.h`: `extern struct headorbody g_HeadsAndBodies[152]`
+  + `extern struct mparena g_MpArenas[]` decls retired with comment
+  pointers to the authoring-file replacements.
+- `port/src/server_stubs.c`: server-side mirrors of both arrays retired
+  (server links the head/body/arena authoring files via the explicit
+  CMake source list update; weapon/anim authoring stays client-only).
+
+**Build wiring**:
+
+- `CMakeLists.txt`: added `port/src/headdata_authored.c`,
+  `bodydata_authored.c`, `arenadata_authored.c` to the `SRC_SERVER`
+  explicit source list (the server registers heads/bodies/arenas via the
+  same `assetcatalog_base.c` loop and needs the authoring tables linked).
+  Weapon + anim authoring files stay client-only via the GLOB; the
+  server doesn't link `struct weapon` / `struct guncmd` machinery.
+
+**Test pin updates**:
+
+- `tests/test_catalog_provider_static.cpp`: hand-model probe pin updated
+  from `g_HeadsAndBodies[i].handfilenum` to `g_BodyData[i].handfilenum`.
+  Companion `catalogSetPrimaryRomFilenum` pin replaced with
+  `catalogBindPrimaryFromDiskOrRom` (the disk-or-ROM bind helper that
+  superseded the direct ROM-only call).
+- `tests/test_arena_direct_reads_audit.cpp`: tests rewritten as positive
+  pins on `arenadata_authored.c` content + `assetcatalog_base.c` walk
+  pattern + `setup.c` retirement marker. Old `g_MpArenas[]` presence
+  pins retired.
+
+### Build verify
+
+`devtools/build-session.ps1 -Session byor1 -Target {all,server,tests}`:
+
+- Client: PASS, **55.2 MB** (25s)
+- Updater: PASS, **12.3 MB** (1s)
+- Server: PASS (7s)
+- Tests: PASS (16s, exe size ~25 MB validates link clean)
+
+No new compile warnings.
+
+### Pipeline shape
+
+Before the BYOR-completion ship (post-Step-5 broken state):
+
+```
+ROM -> g_RomFile -> [extract & verify] -> data/<romid>/segs/*.bin (Pass A.2/B/C)
+                                       -> data/<romid>/files/<n>.bin
+
+       loader_pool (empty after Step 5 retired .pdbase parser)
+              |
+              v
+       romextract_pd{wpn,anim,head,body,arena} emit 0 files (pool empty)
+              |
+              v
+       catalog walker scans data/<romid>/<kind>/*.pd<ext> -> 0 entries registered
+              |
+              v
+       AV crash on stage load (catalog has no head/body/arena/weapon entries)
+```
+
+After the BYOR-completion ship:
+
+```
+ROM -> g_RomFile -> [extract & verify] -> data/<romid>/segs/*.bin (Pass A.2/B/C)
+                                       -> data/<romid>/files/<n>.bin
+
+       g_WeaponData[]   <- weapondata_authored.c (baked into binary)
+       g_AnimData[]     <- animdata_authored.c
+       g_HeadData[]     <- headdata_authored.c
+       g_BodyData[]     <- bodydata_authored.c
+       g_ArenaData[]    <- arenadata_authored.c
+              |
+              v
+       romextract_pd{wpn,anim,head,body,arena,mesh,scenario} walk authoring
+       tables + Pass A.2 disk segments to emit per-asset .pd<ext> files
+       under data/<romid>/{weapons,animations,heads,bodies,arenas,meshes,scenarios}/
+              |
+              v
+       catalog walker scans data/<romid>/<kind>/*.pd<ext> -> N entries registered
+       (loader_pool populated as F12 override path for mod content)
+              |
+              v
+       Catalog manager serves heads/bodies/arenas/weapons to the engine
+              |
+              v
+       Stage loads, MP setup populates, etc. -- all routed through catalog.
+```
+
+No `.pdbase` aggregates anywhere. No pre-shipped per-asset files. No
+extracted assets in repo or release. BYOR contract holds end-to-end.
+
+### Smoke verify (Mike-runnable)
+
+The clean-install smoke verify is a manual playtest:
+
+1. `rm -rf "<install dir>/data/<romid>/"` (e.g.
+   `~/Downloads/Perfect Dark 2.0/data/data/`)
+2. Run `PerfectDark.exe`.
+3. Expected log lines:
+   - `LOADER.UNIVERSAL.SUMMARY: scanned=N registered=N` for N > 0 with all
+     13 kinds populated.
+   - Per-kind `romextract pd<kind>: written=K skipped=0 failed=0 total=K`
+     for K matching the authored counts (86 / 110 / 84 / 68 / 47 / etc.).
+4. Expected directory population: `data/<romid>/{weapons,animations,heads,bodies,arenas,scenarios,meshes,...}/`
+   each have the expected per-asset files.
+5. Stage load proceeds without the AV crash.
+
+If any per-kind count drifts from authored expectations or the AV
+returns, the failure localises to a single emitter or a catalog
+registration miscompare against the authoring table.
+
+### Files changed (count summary)
+
+- 5 new `.c` authoring files plus 5 new `.h` headers
+- 6 emitters refactored (no pool deps)
+- 6 catalog files migrated (`assetcatalog_base`, `assetcatalog_api`,
+  `assetcatalog_base_extended`, `catalog_mgr_heads`,
+  `catalog_mgr_bodies`, `modelcatalog`)
+- 3 engine retirements (`robot.c`, `setup.c`, `server_stubs.c`)
+- 1 header retirement (`data.h` externs)
+- 2 test pin updates
+- 1 `CMakeLists.txt` update (server source list)
+
+DOC_END_2026-05-03_BYOR_COMPLETION_SHIPPED
