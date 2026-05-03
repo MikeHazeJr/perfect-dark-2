@@ -1,5 +1,53 @@
 # Session Log (Active)
 
+## Session S606b (`nervous-wilson-8a55a7`) - 2026-05-02 PM - unblock 3 stale text-pin failures
+
+Mike's directive (verbatim): "And fix our failed test stuff -- not hide it by removing the failing tests, that's a wild decision."
+
+Three pre-existing failures listed at session-log line 257-258 + 1885 (called out as "known noise"). Fixed root cause for each, no test removed/skipped/tag-suppressed.
+
+### Failure 1 -- `test_catalog_provider_static.cpp:580` (testscenarios.c "MP setup/manifest path" pin)
+
+Root cause: comment in [`port/src/testscenarios.c:248-252`](../port/src/testscenarios.c:248) was line-wrapped across "MP\n\t * setup/manifest path", so `swarmBlock.find("MP setup/manifest path")` returned npos. Comment content was intact and correct -- the swarm block does call `matchStart()` to own the MP setup/manifest path; only the line wrap broke the pin. Likely incidental reflow during S594h-Unit-C swarm canvas-arena-reject work.
+
+Fix: reflow the comment so the phrase is contiguous on one line. Moved "MP" from end of line 251 to start of line 252. No semantic change.
+
+### Failure 2 -- `test_cutscene_layer.cpp:330` (netDisconnect SCENE_EVENT_DISCONNECT pin)
+
+Root cause: legitimate refactor. The literal `sceneFire(SCENE_EVENT_DISCONNECT, NULL)` call was centralized out of `netDisconnect()` into [`sceneStageTransitionPrepare()` at port/src/scene_transition.c:41](../port/src/scene_transition.c:41). `netDisconnect` at [port/src/net/net.c:1338](../port/src/net/net.c:1338) now calls `sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_DISCONNECT | SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL, "netDisconnect")`, which triggers the fire transitively. The actual `sceneFire(SCENE_EVENT_DISCONNECT, NULL)` is already pinned by [`test_scene_dispatch.cpp:288`](../tests/test_scene_dispatch.cpp:288).
+
+Fix: replace the literal-call assertion in test_cutscene_layer with two assertions that verify netDisconnect routes through the helper with the disconnect flag (`SCENE_STAGE_TRANSITION_DISCONNECT`) and the helper call (`sceneStageTransitionPrepare(`). Cross-reference comment notes that the fire itself is pinned in test_scene_dispatch. Spirit preserved: disconnect path triggers SCENE_EVENT_DISCONNECT.
+
+### Failure 3 -- `test_connectcode.cpp:272` (qc-tests.md `REQUIRE(in.good())` failure)
+
+Root cause: legitimate file move. `context/qc-tests.md` was archived to `_old/qc-tests.md` in commit `7d654073` (Phase 3B Step 7 context rebuild). File still exists with full content (228 lines, 16541 bytes); the positive pins ("connect code only", "UI never displays the decoded raw IP:port", "Rejected as an invalid connect code") are present at lines 15-17 of `_old/qc-tests.md`. Roadmap and audits still reference the checklist by name, so the gate's intent (no raw-IP join language reintroduction) remains valid.
+
+Fix: update the test path from `context/qc-tests.md` to `_old/qc-tests.md`. Added comment noting the archive location and that future moves back into `context/` should update the path.
+
+### Verification
+
+After merge to dev (commit `fa17e662`), built tests via `devtools/build-session.ps1 -Target tests -Session test-pin-fixes2` (PASS 32s, pd-tests.exe 24.9 MB). Ran the three target tests:
+
+- `swarm debug scenarios enter through match setup`: 10/10 assertions PASS
+- `cutscene lifecycle wiring: central paths all fire scene events`: 20/20 assertions PASS (added 2 new assertions, 1 removed = net +1)
+- `connectcode QC gate: checklist does not reintroduce raw-IP join expectations`: 8/8 assertions PASS
+
+Subset run with `~[inputlayer]` (skipping the pre-existing inputlayer crash, see B-312 below) shows: only the **4 known pre-existing failures remain** (`test_loader_pdbase_scan.cpp:228, 287` and `test_catalog_provider_static.cpp:468, 537`). My three are off the list. No new failures introduced.
+
+### Discovered (out of scope, logged for follow-up)
+
+**B-312 -- pd-tests segfault when running multiple `[inputlayer]` tests in sequence.** Single test runs pass; full suite SIGSEGVs after `tests/test_input_layer_stack.cpp:264` (test "inputlayer: payload is threaded into on_push" passed) and before/within test at line 267 ("inputlayer: top type returns LAYER_TYPE_COUNT when stack empty"). Crash reproduces in any multi-test invocation that includes both. Likely a state leak between tests (insufficient `resetWorld()` cleanup, stale callback pointer, or similar). Suite was completing on dev before recent input-layer scaffolding commits (last clean reference: session-log:854 "510 cases / 5 pre-existing failures"). Logged at `context/bugs.md` for typed-input-layer follow-up; not part of S606b scope.
+
+### Auto-merge
+
+Per standing rule. Worktree commit `706b5319`. Pre-merge dev HEAD `92a723d4`. Post-merge `fa17e662` (ort strategy, no conflicts). 3 files, +15 / -4. Post-merge file line counts match worktree pre-merge exactly (testscenarios.c 316, test_cutscene_layer.cpp 521, test_connectcode.cpp 319).
+
+### Files touched
+
+- [`port/src/testscenarios.c`](../port/src/testscenarios.c) -- comment reflow only (line 251-252)
+- [`tests/test_cutscene_layer.cpp`](../tests/test_cutscene_layer.cpp) -- assertion update at line 330 area
+- [`tests/test_connectcode.cpp`](../tests/test_connectcode.cpp) -- file path update at line 278
+
 ## Session S593h-followup-2 (`distracted-hamilton-430172` continuation) - 2026-05-02 PM - swarm bot speed cap
 
 Mike's directive (verbatim): "the skedar guys in our benchmark are WAY too fast right now. Fix that"
