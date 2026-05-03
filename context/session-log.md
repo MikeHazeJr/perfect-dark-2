@@ -1,5 +1,56 @@
 # Session Log (Active)
 
+## Session S593g-followup (`distracted-hamilton-430172` continuation) - 2026-05-02 PM - integrated-head data + scale bump
+
+Mike's 2026-05-02 19:46 playtest crashed transitioning the swarm benchmark from 128 to 256 bots. Build/pd-client.log ended abruptly at 02:15.50 mid-line during a `head_canon=NULL` warning flood (769 lines in 16 seconds). Four findings reported, audited as one coherent restoration.
+
+### Root cause
+
+The S593g body.c warning gate at [src/game/body.c:416](../../src/game/body.c:416) reads `!catalogGetBodyIsComplete(bodynum)` to suppress the warning for integrated-head bodies. The C-side gate is still correct, but the underlying data is wrong: the original game's `g_HeadsAndBodies[]` only marks Dr Caroll (bodynum 107) with `unk00_01==1`. Skedar (92), EyeSpy (108), MiniSkedar (123), and SkedarKing (147) all have integrated head geometry but were flagged `unk00_01==0`.
+
+The S593g session log claimed `Skedar / Dr Caroll / EyeSpy carry unk00_01==1` -- that was an incorrect assumption, and it's why the swarm test (which spawns 256 Skedars per cycle) continued flooding the log even after the gate landed. 256 sysLogPrintf -> fopen/fwrite/fclose calls in one frame is the IO-saturation that crashed the spawn flood.
+
+### Fix shipped (commit 9139f1e8 + merge fd3e5e53)
+
+Two changes as one coherent restoration:
+
+1. [`devtools/extract_bodies_pdbase.py`](../../devtools/extract_bodies_pdbase.py): add `INTEGRATED_HEAD_BODYNUMS = {92, 108, 123, 147}` override set. The extractor reads the original C data verbatim then overrides `unk00_01=1` at emission time for these bodynums.
+2. [`base/bodies.pdbase`](../../base/bodies.pdbase): regenerated. 5 entries now flagged integrated-head (DrCaroll + Skedar + EyeSpy + MiniSkedar + SkedarKing) instead of just DrCaroll.
+
+This aligns the data with the existing PC-port menu code at [src/game/mplayer/setup.c:2457](../../src/game/mplayer/setup.c:2457) which already lists "Dr Caroll, Eye Spy, Skedar, etc." as integrated-head bodies.
+
+### Bot scale bump (same merge)
+
+[`port/src/swarm_test.c::swarm_pick_scale`](../../port/src/swarm_test.c:213): range bumped from `[0.2, 0.6)` to `[0.35, 0.65)`. Squared bias preserved so most bots cluster near 0.35-0.45 with occasional larger silhouettes for visual variety. Per Mike's feedback "a bit too small".
+
+### Other findings audited and confirmed not regressed
+
+- **Weapon equip**: Mike's "broken again" report was a misread of the `TESTSCEN.SWARM.WPN` diag at 01:52.55. masterload=0 was a single-frame snapshot before the load chain ran. By 01:55.31 weapon 22 (FARSIGHT) is fully equipped (`visible=1 inuse=1 state=5 sm=2 masterload=4`) and firing.
+- **`base:skedar (83) -> ROM`**: misleading log line in [port/src/assetcatalog_api.c:1095](../../port/src/assetcatalog_api.c:1095). The `-> ROM` notation means "catalog resolved, returning filenum=N" -- it does NOT indicate runtime ROM hit. Post-Pass-C the runtime ROM is freed at boot. Out of scope for this commit; rename to `:resolved` is a low-priority follow-up.
+- **Falcon 2 secondary text**: fixed by 68fb0ae3 (Phase 2 Commit 4), in dev tip already.
+- **Recoil cross-variant crash**: fixed by eb8ef03f (S484-followup-4), in dev tip already.
+- **Farsight SFX voiceline**: fixed by 614d6484 (S484-followup-5), in dev tip already.
+
+### Build verify (queued via build-session.ps1)
+
+| Target | Session | Status | Notes |
+|---|---|---|---|
+| CLIENT | sweep1 | PASS 28s | PerfectDark.exe |
+| UPDATER | sweep1 | PASS 1s | Updater.exe |
+| SERVER | sweep1s | PASS 8s | 8948d23c link breakage already cleared by recent Pass C / closeout fixes |
+| TESTS | sweep1t | PASS 18s | `[catalog-mgr-body]` filter exit=0 (predicate-only tests, data-independent) |
+
+### Auto-merge
+
+Per standing rule. Pre-merge dev HEAD `75740ec4`. Worktree commit `9139f1e8`. Post-merge `fd3e5e53` (ort strategy, no conflicts). 3 files, +48 / -9. Post-merge file checksums match worktree exactly.
+
+### Next playtest should show
+
+- Zero `head_canon=NULL` WARNINGs during swarm cycle for Skedar / EyeSpy / MiniSkedar / SkedarKing spawns (DrCaroll was already gated).
+- Log no longer terminates abruptly during 256-bot spawn batch.
+- 128 -> 256 cycle transition completes cleanly; cycler reaches 256 alive and recycles back to 4.
+- Bots visibly larger (range 0.35-0.65 vs prior 0.2-0.6).
+
 ## Session S606 (`catalog-slice12-passc`) - 2026-05-02 PM - B-306 Pass C FileProvider preprocess gap
 
 Mike's playtest of the B-305 fix #2 binary unblocked catalog init but surfaced a second crash one boot phase later: `0xc0000005` at PC offset `+0x3ba918` inside `modelPromoteNodeOffsetsToPointers`, called from `setupCreateDoor -> setupLoadModeldef -> modeldefLoadToNewFromHandle -> modeldefLoadFromHandle -> assetLoadToNew`.  Decoded via objdump on the live binary; full stack: `+0x3bab11 modelPromoteOffsetsToPointers`, `+0xf05f9 modeldefFinalizeLoadedWithSizes`, `+0xf07a3 modeldefLoadFromHandle`, `+0xf0993 modeldefLoadToNewFromHandle`, `+0x16e2fd setupLoadModeldef`, `+0x169ddd setupCreateDoor`, `+0x16b4a3 setupCreateProps`, `+0xcaf28 lvReset`.
