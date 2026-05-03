@@ -29,6 +29,8 @@
 #include <string.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <SDL.h>
+#include <SDL_atomic.h>
 #include <PR/ultratypes.h>
 
 #include "fs.h"
@@ -43,6 +45,13 @@
  * APIs are no-ops when the channel isn't initialised (e.g. dedicated
  * server, or any future caller that runs the extract path post-boot). */
 #include "boot_progress.h"
+
+/* Engine Phase 3 (2026-05-03): the verify pass fans out across the boot
+ * pool's worker threads.  Workers pull file numbers from a shared cursor
+ * and SHA-256 hash the on-disk bytes in parallel.  See
+ * context/designs/engine/startup-acceleration.md (Phase 3) for the
+ * threading model and correctness invariants. */
+#include "boot_pool.h"
 
 /* Pass D (2026-05-02): self-heal hardening surfaces user-facing toasts
  * for hash-mismatch quarantine + recovery outcomes.  Toast headers live
@@ -500,15 +509,270 @@ s32 romExtractAllFiles(void)
  * is a best-effort baseline; if the on-disk content was corrupted
  * BEFORE A.4 shipped, the baseline pins the corruption and only
  * a forced re-extract (e.g. delete `data/<romid>/files/`) recovers.
+ *
+ * ========================================================================
+ * Engine Phase 3 (2026-05-03): parallel verify pass.
+ * ========================================================================
+ *
+ * The serial loop above ran ~8s on Mike's machine: SHA-256 + 8 KiB
+ * streaming reads of 2011 files in lockstep.  Phase 3 fans the per-file
+ * work out across the boot pool's worker threads.
+ *
+ * Threading model:
+ *   - Shared cursor `next_file_num` (mutex-protected) is the work queue.
+ *     Each worker pulls one file at a time -- avoids static partitioning
+ *     so a slow file doesn't stall a worker's batch.
+ *   - Per-thread accumulators (verify_thread_state_t).  No shared write
+ *     contention inside the per-file work.  Workers merge their counters
+ *     and event list into the batch under the mutex when their drain ends.
+ *   - Failure events deferred: workers append (kind, name, recovered)
+ *     records to thread-local lists; the manager replays them serially
+ *     after all workers complete so the existing s_PerFileToastsEmitted
+ *     cap stays correct.  Per-file LOUDFAIL log lines still fire from
+ *     workers (sysLogPrintf is mutex-protected).
+ *   - The manager (bootRunCatalogWork) runs on a boot-pool worker
+ *     thread; it cannot call bootPoolWaitIdle (would deadlock waiting
+ *     on its own in_flight slot).  We use a per-batch latch instead.
+ *   - Manager dispatches (worker_count - 1) verifyWorkerFn jobs and
+ *     calls verifyWorkerFn directly to saturate the pool.  When
+ *     worker_count == 1 the manager is the only worker -- still
+ *     correct, no fan-out speedup.
+ *
+ * Reentrancy audit (per startup-acceleration.md Phase 1+3):
+ *   - sha256HashFile / sha256Hash / sha256ToHex: stack-local ctx, own FILE*.
+ *   - fsFullPath / fsFileOpenWrite / fsFileLoad: out-buffer form (Phase 1).
+ *   - sysLoudFailf / sysLogPrintf: mutex-protected.
+ *   - sysMemAlloc / sysMemFree: SDL mutex registered at boot.
+ *   - romdataFileGetData / romdataFileGetSize: safe AFTER
+ *     romExtractAllFiles loaded every slot; the SRC_UNLOADED branch
+ *     does not fire on second visit.
+ *   - rename() / mkdir() on per-file paths: independent across files.
  */
+
+#define VERIFY_EVENT_KIND_LEN 16
+#define VERIFY_EVENT_NAME_LEN 96
+#define VERIFY_THREAD_EVENT_CAP 32
+#define VERIFY_BATCH_EVENT_CAP  256
+
+typedef struct {
+    char kind[VERIFY_EVENT_KIND_LEN];
+    char name[VERIFY_EVENT_NAME_LEN];
+    int  recovered;  /* 1 = recovered, 0 = unrecoverable */
+} verify_event_t;
+
+typedef struct {
+    int verified;
+    int corrected;
+    int baselined;
+    int skippedEmpty;
+    int failed;
+    int event_count;
+    verify_event_t events[VERIFY_THREAD_EVENT_CAP];
+} verify_thread_state_t;
+
+typedef struct {
+    /* Shared work cursor.  Workers pull next_file_num++ under the mutex
+     * until it reaches max_file_num.  One file per pull keeps load
+     * balanced across workers. */
+    int        next_file_num;
+    int        max_file_num;
+    SDL_mutex *mutex;
+
+    /* Aggregated counters merged from each worker's thread-local state
+     * once that worker drains. */
+    int verified;
+    int corrected;
+    int baselined;
+    int skippedEmpty;
+    int failed;
+
+    /* Aggregated event list for deferred toast emission. */
+    verify_event_t events[VERIFY_BATCH_EVENT_CAP];
+    int            event_count;
+
+    /* Atomic running total of files processed.  Workers push the value
+     * to the boot progress channel every 32 files so the overlay bar
+     * advances visibly without per-file mutex contention. */
+    SDL_atomic_t files_done;
+
+    /* Worker-completion latch.  Initialised to total participant count
+     * (dispatched workers + the manager itself).  Each worker
+     * decrements after merging; the last one signals cv_done. */
+    int       workers_remaining;
+    SDL_cond *cv_done;
+} verify_batch_t;
+
+static void s_verifyAppendEvent(verify_thread_state_t *th, const char *kind,
+                                const char *name, int recovered)
+{
+    if (th->event_count >= VERIFY_THREAD_EVENT_CAP) return;
+    verify_event_t *e = &th->events[th->event_count++];
+    strncpy(e->kind, kind, VERIFY_EVENT_KIND_LEN - 1);
+    e->kind[VERIFY_EVENT_KIND_LEN - 1] = '\0';
+    if (name) {
+        strncpy(e->name, name, VERIFY_EVENT_NAME_LEN - 1);
+        e->name[VERIFY_EVENT_NAME_LEN - 1] = '\0';
+    } else {
+        e->name[0] = '\0';
+    }
+    e->recovered = recovered;
+}
+
+/* Per-file verify body.  Equivalent to one iteration of the original
+ * serial loop, but operates entirely on thread-local accumulators so
+ * concurrent workers do not contend on shared writes. */
+static void s_verifyOneFile(s32 fileNum, verify_thread_state_t *th)
+{
+    u8  *romData = romdataFileGetData(fileNum);
+    s32  romSize = romdataFileGetSize(fileNum);
+    if (romData == NULL || romSize <= 0) {
+        th->skippedEmpty++;
+        return;
+    }
+
+    char outRel[ROMEXTRACT_PATH_LEN];
+    s32  relLen = romExtractBuildRelPath(fileNum, outRel, (s32)sizeof(outRel));
+    if (relLen <= 0 || relLen >= (s32)sizeof(outRel)) {
+        th->failed++;
+        return;
+    }
+
+    char outFullBuf[FS_MAXPATH + 1];
+    const char *outFull = fsFullPath(outRel, outFullBuf, sizeof(outFullBuf));
+    if (outFull == NULL || outFull[0] == '\0') {
+        th->failed++;
+        return;
+    }
+
+    /* Skip files that don't exist on disk yet (caller should run
+     * romExtractAllFiles first; verify is per-file, not first-run). */
+    struct stat st;
+    if (stat(outFull, &st) != 0) {
+        th->skippedEmpty++;
+        return;
+    }
+
+    /* Hash the on-disk file. */
+    u8 diskDigest[SHA256_DIGEST_SIZE];
+    if (sha256HashFile(outFull, diskDigest) != 0) {
+        sysLoudFailf("LOAD",
+            "sha256HashFile failed for \"%s\"; re-extracting", outFull);
+        romExtractQuarantine(outRel, outFull);
+        FILE *f = fsFileOpenWrite(outRel);
+        if (f) {
+            fwrite(romData, 1, (size_t)romSize, f);
+            fclose(f);
+            romExtractWriteSidecar(outRel, romData, (u32)romSize);
+            th->corrected++;
+            s_verifyAppendEvent(th, "File", romExtractBasename(outRel), 1);
+        } else {
+            th->failed++;
+            s_verifyAppendEvent(th, "File", romExtractBasename(outRel), 0);
+        }
+        return;
+    }
+    char diskHex[SHA256_HEX_SIZE];
+    sha256ToHex(diskDigest, diskHex);
+
+    char sideHex[SHA256_HEX_SIZE];
+    if (!romExtractReadSidecar(outRel, sideHex)) {
+        /* Legacy file from pre-A.4 extraction: write a baseline
+         * sidecar from the current on-disk content's hash. */
+        romExtractWriteSidecar(outRel, romData, (u32)romSize);
+        th->baselined++;
+        return;
+    }
+
+    if (strncmp(diskHex, sideHex, 64) != 0) {
+        sysLoudFailf("LOAD",
+            "SHA-256 mismatch on \"%s\" (expected %s, got %s); "
+            "quarantining + re-extracting",
+            outFull, sideHex, diskHex);
+        romExtractQuarantine(outRel, outFull);
+
+        FILE *f = fsFileOpenWrite(outRel);
+        if (f == NULL) {
+            sysLoudFailf("LOAD",
+                "re-extract fopen failed for \"%s\"", outFull);
+            th->failed++;
+            s_verifyAppendEvent(th, "File", romExtractBasename(outRel), 0);
+            return;
+        }
+        size_t wrote = fwrite(romData, 1, (size_t)romSize, f);
+        fclose(f);
+        if (wrote != (size_t)romSize) {
+            sysLoudFailf("LOAD",
+                "re-extract short write for \"%s\"", outFull);
+            th->failed++;
+            s_verifyAppendEvent(th, "File", romExtractBasename(outRel), 0);
+            return;
+        }
+        romExtractWriteSidecar(outRel, romData, (u32)romSize);
+        th->corrected++;
+        s_verifyAppendEvent(th, "File", romExtractBasename(outRel), 1);
+        return;
+    }
+
+    th->verified++;
+}
+
+/* Boot-pool worker: drains the verify batch.  Pulls one file at a time
+ * from the shared cursor; merges thread-local results into the batch
+ * once the cursor is exhausted. */
+static void s_verifyWorkerFn(void *arg)
+{
+    verify_batch_t *b = (verify_batch_t *)arg;
+    verify_thread_state_t th;
+    memset(&th, 0, sizeof(th));
+
+    for (;;) {
+        s32 fileNum;
+        SDL_LockMutex(b->mutex);
+        if (b->next_file_num >= b->max_file_num) {
+            SDL_UnlockMutex(b->mutex);
+            break;
+        }
+        fileNum = b->next_file_num++;
+        SDL_UnlockMutex(b->mutex);
+
+        s_verifyOneFile(fileNum, &th);
+
+        /* Push global progress every 32 files; bar redraws at ~30Hz so
+         * sub-32 granularity is not visible to the user. */
+        int done = SDL_AtomicAdd(&b->files_done, 1) + 1;
+        if ((done & 0x1f) == 0) {
+            bootProgressUpdate(done, b->max_file_num);
+        }
+    }
+
+    /* Merge thread-local results into the batch.  One mutex acquisition
+     * per worker (not per file) keeps contention negligible. */
+    SDL_LockMutex(b->mutex);
+    b->verified     += th.verified;
+    b->corrected    += th.corrected;
+    b->baselined    += th.baselined;
+    b->skippedEmpty += th.skippedEmpty;
+    b->failed       += th.failed;
+
+    int copy = th.event_count;
+    if (b->event_count + copy > VERIFY_BATCH_EVENT_CAP) {
+        copy = VERIFY_BATCH_EVENT_CAP - b->event_count;
+    }
+    if (copy > 0) {
+        memcpy(&b->events[b->event_count], th.events,
+               (size_t)copy * sizeof(verify_event_t));
+        b->event_count += copy;
+    }
+
+    b->workers_remaining--;
+    if (b->workers_remaining == 0) {
+        SDL_CondSignal(b->cv_done);
+    }
+    SDL_UnlockMutex(b->mutex);
+}
+
 s32 romExtractVerifyAll(void)
 {
-    s32 verified = 0;
-    s32 corrected = 0;
-    s32 skippedEmpty = 0;
-    s32 baselined = 0;
-    s32 failed = 0;
-
     if (g_RomFile == NULL || g_RomFileSize == 0) {
         sysLogPrintf(LOG_NOTE,
             "ROMEXTRACT.VERIFY: g_RomFile not loaded (server build); skipping.");
@@ -520,124 +784,83 @@ s32 romExtractVerifyAll(void)
 
     bootProgressUpdate(0, ROMEXTRACT_MAX_FILES);
 
-    for (s32 fileNum = 1; fileNum < ROMEXTRACT_MAX_FILES; fileNum++) {
-        /* SHA-256 hash + sidecar compare per file is the dominant boot
-         * cost (~8s for 2011 files).  Push a progress update every 32
-         * files so the overlay bar visibly advances. */
-        if ((fileNum & 0x1f) == 0) {
-            bootProgressUpdate(fileNum, ROMEXTRACT_MAX_FILES);
-        }
+    /* worker_count is the boot pool's thread count (cores - 2).  We
+     * dispatch (worker_count - 1) parallel jobs and run one worker
+     * inline on the manager so the pool is fully saturated.  Floor 1
+     * keeps the architecture working on minimal hardware. */
+    int worker_count = bootPoolGetWorkerCount();
+    if (worker_count < 1) worker_count = 1;
 
-        u8  *romData = romdataFileGetData(fileNum);
-        s32  romSize = romdataFileGetSize(fileNum);
-        if (romData == NULL || romSize <= 0) {
-            skippedEmpty++;
-            continue;
-        }
+    verify_batch_t batch;
+    memset(&batch, 0, sizeof(batch));
+    batch.next_file_num     = 1;
+    batch.max_file_num      = ROMEXTRACT_MAX_FILES;
+    batch.mutex             = SDL_CreateMutex();
+    batch.cv_done           = SDL_CreateCond();
+    batch.workers_remaining = worker_count;
+    SDL_AtomicSet(&batch.files_done, 0);
 
-        char outRel[ROMEXTRACT_PATH_LEN];
-        s32  relLen = romExtractBuildRelPath(fileNum, outRel, (s32)sizeof(outRel));
-        if (relLen <= 0 || relLen >= (s32)sizeof(outRel)) {
-            failed++;
-            continue;
-        }
-
-        char outFullBuf[FS_MAXPATH + 1];
-        const char *outFull = fsFullPath(outRel, outFullBuf, sizeof(outFullBuf));
-        if (outFull == NULL || outFull[0] == '\0') {
-            failed++;
-            continue;
-        }
-
-        /* Skip files that don't exist on disk yet (caller should run
-         * romExtractAllFiles first; verify is per-file, not first-run). */
-        struct stat st;
-        if (stat(outFull, &st) != 0) {
-            skippedEmpty++;
-            continue;
-        }
-
-        /* Hash the on-disk file. */
-        u8 diskDigest[SHA256_DIGEST_SIZE];
-        if (sha256HashFile(outFull, diskDigest) != 0) {
-            sysLoudFailf("LOAD",
-                "sha256HashFile failed for \"%s\"; re-extracting", outFull);
-            romExtractQuarantine(outRel, outFull);
-            FILE *f = fsFileOpenWrite(outRel);
-            if (f) {
-                fwrite(romData, 1, (size_t)romSize, f);
-                fclose(f);
-                romExtractWriteSidecar(outRel, romData, (u32)romSize);
-                corrected++;
-                s_emitPerFileRecoverToast("File",
-                    romExtractBasename(outRel));
-            } else {
-                failed++;
-                s_emitPerFileFailToast("File",
-                    romExtractBasename(outRel));
-            }
-            continue;
-        }
-        char diskHex[SHA256_HEX_SIZE];
-        sha256ToHex(diskDigest, diskHex);
-
-        char sideHex[SHA256_HEX_SIZE];
-        if (!romExtractReadSidecar(outRel, sideHex)) {
-            /* Legacy file from pre-A.4 extraction: write a baseline
-             * sidecar from the current on-disk content's hash. */
-            romExtractWriteSidecar(outRel, romData, (u32)romSize);
-            baselined++;
-            continue;
-        }
-
-        if (strncmp(diskHex, sideHex, 64) != 0) {
-            sysLoudFailf("LOAD",
-                "SHA-256 mismatch on \"%s\" (expected %s, got %s); "
-                "quarantining + re-extracting",
-                outFull, sideHex, diskHex);
-            romExtractQuarantine(outRel, outFull);
-
-            FILE *f = fsFileOpenWrite(outRel);
-            if (f == NULL) {
-                sysLoudFailf("LOAD",
-                    "re-extract fopen failed for \"%s\"", outFull);
-                failed++;
-                s_emitPerFileFailToast("File",
-                    romExtractBasename(outRel));
-                continue;
-            }
-            size_t wrote = fwrite(romData, 1, (size_t)romSize, f);
-            fclose(f);
-            if (wrote != (size_t)romSize) {
-                sysLoudFailf("LOAD",
-                    "re-extract short write for \"%s\"", outFull);
-                failed++;
-                s_emitPerFileFailToast("File",
-                    romExtractBasename(outRel));
-                continue;
-            }
-            romExtractWriteSidecar(outRel, romData, (u32)romSize);
-            corrected++;
-            s_emitPerFileRecoverToast("File",
-                romExtractBasename(outRel));
-            continue;
-        }
-
-        verified++;
+    /* Dispatch (worker_count - 1) parallel workers.  When worker_count
+     * is 1, dispatch nothing -- the manager runs everything inline. */
+    for (int w = 0; w < worker_count - 1; w++) {
+        bootPoolEnqueue(s_verifyWorkerFn, &batch);
     }
+
+    /* Manager participates so the pool stays saturated and the
+     * worker_count == 1 case still drains.  CANNOT use bootPoolWaitIdle
+     * here -- this thread is one of the pool's workers and would
+     * deadlock waiting on its own in_flight slot. */
+    s_verifyWorkerFn(&batch);
+
+    /* Wait for any still-running parallel workers to finish.  cv_done
+     * is signalled by the last worker to merge its results. */
+    SDL_LockMutex(batch.mutex);
+    while (batch.workers_remaining > 0) {
+        SDL_CondWait(batch.cv_done, batch.mutex);
+    }
+    SDL_UnlockMutex(batch.mutex);
+
+    /* Pull merged outcomes off the batch into named locals so the log
+     * line + aggregate update read the same as the segment-side path
+     * (the structural pin that test_romextract_passd.cpp checks). */
+    s32 verified     = batch.verified;
+    s32 corrected    = batch.corrected;
+    s32 baselined    = batch.baselined;
+    s32 skippedEmpty = batch.skippedEmpty;
+    s32 failed       = batch.failed;
 
     sysLogPrintf(LOG_NOTE,
         "ROMEXTRACT.VERIFY: verified=%d, corrected=%d, baselined=%d, "
         "skipped_empty=%d, failed=%d",
         verified, corrected, baselined, skippedEmpty, failed);
 
+    /* Replay deferred per-file events SERIALLY so the existing
+     * s_PerFileToastsEmitted cap remains correct.  Per-file LOUDFAIL
+     * log lines already fired inside the workers (sysLogPrintf is
+     * mutex-protected) so every failure is in the log; the toast
+     * cap is intentional UX (don't flood the player). */
+    for (int i = 0; i < batch.event_count; i++) {
+        const verify_event_t *e = &batch.events[i];
+        if (e->recovered) {
+            s_emitPerFileRecoverToast(e->kind, e->name);
+        } else {
+            s_emitPerFileFailToast(e->kind, e->name);
+        }
+    }
+
     /* Pass D aggregates: validated = verified + baselined (both clean
      * from the user's perspective; baselined is a one-shot legacy
      * upgrade); recovered = corrected; unrecoverable = failed. */
-    s_AggValidated += verified + baselined;
-    s_AggRecovered += corrected;
+    s_AggValidated     += verified + baselined;
+    s_AggRecovered     += corrected;
     s_AggUnrecoverable += failed;
 
+    /* Final progress push so the bar reaches the phase end before
+     * EndPhase claims the full weight. */
+    bootProgressUpdate(ROMEXTRACT_MAX_FILES, ROMEXTRACT_MAX_FILES);
+
+    SDL_DestroyMutex(batch.mutex);
+    SDL_DestroyCond(batch.cv_done);
     return corrected;
 }
 

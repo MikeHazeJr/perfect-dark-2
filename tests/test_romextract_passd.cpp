@@ -143,9 +143,13 @@ TEST_CASE("passd: per-file recover + fail toast helpers wired to verify paths",
 	REQUIRE(countOccurrences(src, "s_emitPerFileFailToast(") >= 2u);
 
 	/* Toast title prefixes distinguish file-class from segment-class
-	 * outcomes so the player can tell what was corrupted. */
-	REQUIRE(src.find("s_emitPerFileRecoverToast(\"File\",") != std::string::npos);
-	REQUIRE(src.find("s_emitPerFileFailToast(\"File\",") != std::string::npos);
+	 * outcomes so the player can tell what was corrupted.  The file
+	 * verify path tags events with kind "File" via s_verifyAppendEvent
+	 * inside Phase 3's parallel workers; the manager replays them
+	 * serially after the join so the toast cap stays correct.  The
+	 * segment verify path emits "Segment" toasts inline (only ~12
+	 * segments, no parallelism benefit). */
+	REQUIRE(src.find("s_verifyAppendEvent(th, \"File\",") != std::string::npos);
 	REQUIRE(src.find("s_emitPerFileRecoverToast(\"Segment\",") != std::string::npos);
 	REQUIRE(src.find("s_emitPerFileFailToast(\"Segment\",") != std::string::npos);
 }
