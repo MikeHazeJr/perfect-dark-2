@@ -98,28 +98,79 @@ fan-out -- Phase 3 just changes who pushes the per-file updates.
 
 ## Build verify
 
-Pending merge to dev (worktree path detected by `build-headless.ps1` redirects
-the configure step to the main checkout, so the build verify must run after
-the worktree merge to dev brings the new files into `perfect_dark-mike/`).
+Clean four-target build via queued `devtools/build-session.ps1` after the
+worktree merge to dev (the build script intentionally redirects worktree
+paths to the main checkout, so the verify runs against dev's HEAD):
 
-Expected sizes (matching the c107 baseline with ~10-50 KB delta from the new
-modules):
+- `pd` (client): 55.5 MB (+0.3 MB vs c107 baseline for the new modules)
+- `pd-updater`: 12.3 MB
+- `pd-server`: 22.4 MB
+- `pd-tests`: 24.6 MB
 
-- `pd` (client): ~55.3 MB
-- `pd-updater`: ~12.3 MB
-- `pd-server`: ~22.4 MB
-- `pd-tests`: ~24.6 MB
+Two compile fixups landed during build verify and were merged as separate
+follow-up commits:
+- `62f1b002`: `pdgui_bootoverlay.cpp` was missing `#include <PR/gbi.h>`,
+  which `gfx_api.h`'s `gfx_run(Gfx*)` declaration needs.
+- `8f992873`: `gfx_api.h` lacked `extern "C"` guards, so C++ callers
+  outside `gfx_pc.cpp` (the new boot overlay) saw mangled prototypes
+  while the implementation symbols were C-linkage. Added the standard
+  `#ifdef __cplusplus extern "C" { ... }` block.
 
 ## Smoke verify
 
-Pending: launch `PerfectDark.exe` from the post-merge build directory with a
-`pd.ntsc-final.z64` ROM in place, observe:
+Ran `PerfectDark.exe --no-update-check` against a clean install
+(`pd.ntsc-final.z64` only, no extracted `data/<romid>/`). Boot log
+confirms the full Phase 2 flow:
 
-- `BOOT_POOL: spawned N worker thread(s) ...` log line at startup.
-- `BOOT_OVERLAY: ready` log line.
-- Overlay bar visible on screen; advances during the verify pass.
-- `BOOT_OVERLAY: dismissed (visible for X.XXs)` log line at end of boot.
-- Game proceeds to title screen normally (no regression).
+```
+[00:00.47] BOOT_POOL: spawned 14 worker thread(s) (override=0, physical_cores_detected=16)
+[00:00.47] BOOT_OVERLAY: ready
+[00:00.72] ROMEXTRACT: starting first-launch extraction ...
+[00:02.85] ROMEXTRACT: complete. wrote=2011 ...
+[00:02.85] ROMEXTRACT.VERIFY: scanning data/ntsc-final/files/
+[00:03.08] ROMEXTRACT.VERIFY: verified=2011 ...
+[00:03.08] ROMEXTRACT.SEGS: starting ...
+[00:03.16] ROMEXTRACT.SEGS: complete. wrote=26 ...
+[00:03.22] ROMEXTRACT.SEGS.VERIFY: verified=26 ...
+[00:06.44] BOOT_OVERLAY: dismissed (visible for 5.98s)
+```
+
+What this verifies:
+
+- 14 worker threads spawned per Mike Q1 (16 physical cores - 2 reserved
+  for main + manager), exactly as designed.
+- Boot overlay is ready before any catalog work begins (so the first
+  visible state is "Ready window with bar at 0%", not "Not Responding").
+- The full extract / verify / segment / catalog work runs on the worker
+  thread (5.98 s of overlay-visible time on a clean install).
+- Overlay dismissed cleanly when `bootProgressMarkComplete` fires.
+- No log corruption from concurrent main + worker logging
+  (sysLogPrintf mutex holds).
+
+### Pre-existing post-boot regression (UNRELATED to Phase 2)
+
+After the boot overlay dismissed, mainProc -> setupCreateProps -> reset
+functions hits a 0xc0000005 access violation. This crash:
+
+- Reproduces against the **pre-Phase-2 BYOR completion** build (verified
+  by running the binary built before Phase 2 merge against the same ROM
+  + data layout: same crash signature at the same call site).
+- Does **not** reproduce against pre-BYOR-completion binaries (e.g.
+  `pivot-load` from 2026-05-03 13:00 boots cleanly to title and runs to
+  the 24 s timeout with character preview activity).
+
+The regression therefore lives in the BYOR completion changes
+(commits 33bce92c..b73ab6b0, merged at ab0a6fe7) -- the per-asset
+emitter refactor or the `g_HeadsAndBodies` retirement broke the
+post-boot stage prop reset path. Phase 2's worker-thread reorder did
+not introduce it; the crash sits behind the boot overlay's dismissal
+in the existing main-thread code path that Phase 2 did not touch.
+
+Action: file as a separate triage item (BYOR completion follow-up).
+Phase 2's user-visible UX deliverable is intact -- the window is
+responsive, the bar visibly progresses during the 6 s of catalog work,
+and the overlay dismisses on completion. Phase 3's verify-pass
+parallelization can proceed against this Phase 2 baseline.
 
 ## What Phase 3 picks up
 
