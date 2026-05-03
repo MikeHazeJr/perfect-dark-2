@@ -625,6 +625,35 @@ Numbered steps, each a coherent unit of implementation work. Sequenced to minimi
 
 ---
 
+### Step 3a: character animations (REQUIRED per Q-3)
+
+**Goal:** break the monolithic character animation lump (`data/<romid>/segs/animations.bin`) into per-animation `.pdanim` files. This is required within catalog scope per Mike's 2026-05-02 directive ("Catalog is not complete unless it is COMPLETE. IT IS FOUNDATIONAL TO EVERYTHING.").
+
+**What:**
+
+- Walk the character animation index (today consumed via `preprocessAnimations` at [port/src/preprocess/](../../port/src/preprocess/)) and identify each animation's symbolic name (`ANIM_*` constants).
+- `port/src/romextract_pdanim_chr.c` (sibling to `_pdanim.c` from Step 1 which handles weapon anims): for each character animation, emit `data/<romid>/animations/base_<anim_name>.pdanim`.
+- Curation table `port/src/romextract_curation_chr_anims.c`: per-anim metadata (frame rate, loop flag, transition rules) sourced from existing animation index.
+- Loader extension: the existing `.pdanim` parser from Step 1 must accept a `category` field distinguishing `weapon_animation` from `character_animation` so the right pool slot fills.
+- Boot wiring: `romExtractAllPdanimChr()` after `romExtractAllPdanim()`.
+
+**Risk assessment:**
+
+- Moderate. Character animations are large (the segment file is multi-MB) and the index is dense. Possibility: per-anim splitting reveals seams where animations share underlying data.
+- Cross-cuts: model code that loads animations at runtime (chraction.c, body.c, etc.) reads through filenum; provided the catalog router stays the same, consumers should not notice.
+
+**Test strategy:**
+
+- Per-anim emitter test: extract one character animation, parse it back, assert byte-equivalent reconstruction.
+- Manual smoke: spawn a character, observe idle / run / death animations play correctly.
+- LOUDFAIL: `LOUDFAIL.EXTRACT.PDANIM_CHR.<reason>`.
+
+**Rollback:** revert the new files + boot wiring; character animations continue loading from the segment file.
+
+**Deliverable:** every character animation is a per-asset `.pdanim` file. The segment file `data/<romid>/segs/animations.bin` may stay alongside as bytes-of-record (the underlying frame data is still ROM-derived); the per-anim file is the catalog entry point.
+
+---
+
 ### Step 3: byte-payload classes (audio, scenarios, ui, fonts, lang)
 
 **Goal:** extend extraction to the classes that today flow through `data/<romid>/files/*.bin` + `data/<romid>/segs/*.bin` directly without going through `.pdbase`. These are the ROM-1:1 byte payloads listed in Section 1.7.
@@ -807,11 +836,12 @@ The numbered sequence is ordered to:
 
 1. Prove the pattern on the heaviest class first (Step 1 weapons), because if weapons works the rest is mechanical.
 2. Lighter metadata classes follow (Step 2: heads + bodies + arenas).
-3. Byte-payload classes follow (Step 3), because they touch different code (preprocess functions) and shouldn't block the metadata work.
-4. Loader switch (Step 4) gates the universality realization. Comes after all emitters exist so the on-disk content is complete.
-5. Cleanup (Step 5) once Step 4 has stuck for at least one playtest cycle.
-6. Mod uplift (Step 6) is independent of the base content migration; can run in parallel with Steps 4-5 if a parallel session is available.
-7. Mod authoring tools (Step 7) is the polish lane.
+3. Character animations (Step 3a) prove the `.pdanim` parser works for both weapon and character contexts. Required per Q-3 within catalog scope.
+4. Byte-payload classes (Step 3) follow because they touch different code (preprocess functions) and shouldn't block the metadata work.
+5. Loader switch (Step 4) gates the universality realization. Comes after all emitters exist so the on-disk content is complete.
+6. Cleanup (Step 5) once Step 4 has stuck for at least one playtest cycle.
+7. Mod uplift (Step 6) is independent of the base content migration; can run in parallel with Steps 4-5 if a parallel session is available.
+8. Mod authoring tools (Step 7) is the polish lane.
 
 ---
 
@@ -876,15 +906,20 @@ Mitigation: update test names + assertions as part of Step 4. Treat existing tes
 | 6 | Easy: revert walker | Mods authored with `.pd*` files become unloadable until re-revert |
 | 7 | Easy: revert tool extension | No impact on runtime |
 
-### 5.4 Things this audit deliberately leaves open
+### 5.4 Open questions, RESOLVED 2026-05-02
 
-These are not recommendations; they are open questions that need Mike's call before a step lands.
+These were the open questions surfaced for Mike's call. All five were answered and folded into the Step 0 schema lock-down doc at [designs/catalog/universality-pivot-schemas.md](../designs/catalog/universality-pivot-schemas.md).
 
-- **Q-1: schema for `.pdscenario`.** Combined ZIP holding bg + tiles + setup, or separate sibling files joined by reference? Recommendation in Section 2.3 was "separate"; Mike to confirm.
-- **Q-2: `pd_kind` taxonomy granularity.** Is voice a separate kind from SFX, or does voice ride a generic SFX kind with an `is_voice: true` flag? Recommendation: separate kind (matches Mike's directive to break voice out from SFX in [audits/rom-extraction-audit-2026-04-30.md](rom-extraction-audit-2026-04-30.md) Section 3.16.3).
-- **Q-3: animation kind.** Today weapons.pdbase carries 110 animation records as a top-level array; under the per-asset model each becomes a `.pdanim`. Should character animations (which today live in `data/<romid>/segs/animations.bin`) also become per-anim `.pdanim` files? Possibility: yes, for symmetry. Possibility: no, character animations are lower-priority and the segment file works. Recommendation: scope character anims as a Step 3 follow-up; weapon anims definitely become `.pdanim` in Step 1.
-- **Q-4: catalog ID generation for unnamed slots.** Today `data/<romid>/files/G_<XXXX>.bin` exists for ROM file slots without names. Under the per-asset model, what catalog ID do unnamed slots get? Recommendation: extractor mints `base:rom_g_<XXXX>` IDs; or skip them entirely if the runtime doesn't reference them.
-- **Q-5: parity period duration.** F12 of the weapons gate ran a parity check that compared loader-pool to legacy `g_Weapons[]`. Under the pivot, parity is between the new `.pdwpn` extraction output and the existing `weapons.pdbase` content. Should this run permanently (cheap insurance) or just during the parity period (cleaner final code)? Recommendation: parity period only (mirrors F12 retiring at F13).
+- **Q-1: schema for `.pdscenario` (RESOLVED: unified).** A stage is a single ZIP archive holding all five components (geometry, walkable surfaces / tiles, mission setup, MP setup, tile data) plus a manifest. Modders load one file; in-client UI handles the loading smoothly. Mike's call: "Modding will mostly occur in-client, and so users will load one and it will load it smoothly."
+- **Q-2: `pd_kind` granularity for audio (RESOLVED: separate kinds, type-tolerant references).** Voice gets its own `.pdvoice` kind distinct from `.pdsfx`. PLUS: any audio-consumption site in the engine accepts either kind at the reference. A modder making "weapon fire sound = a voice line" works because the weapon's `fire_sound` field accepts a `.pdvoice` catalog ID just as readily as a `.pdsfx` one. Document this as an architectural invariant in the schema doc: audio refs are type-tolerant.
+- **Q-3: character animations (RESOLVED: REQUIRED within catalog scope).** Mike verbatim: "DO NOT DEFER beyond the scope of the catalog work. Catalog is not complete unless it is COMPLETE. IT IS FOUNDATIONAL TO EVERYTHING." Weapon anims still go first in Step 1 to prove the pattern; character animations follow as a required Step 3a sub-step before catalog universality is declared done.
+- **Q-4: catalog ID for unnamed ROM slots (RESOLVED: investigate first, then drop or name).** Three buckets:
+  1. Zero references found by grep audit. Bucket as junk; do not extract.
+  2. Has references but purpose obscure. Investigate the consumer code, infer the asset class from how it's loaded, name appropriately (e.g. `base:tex_unknown_004f` if loaded as a texture).
+  3. Has references with clear purpose. Name properly (`base:tex_carrington_logo` or similar).
+  
+  Each unnamed slot's disposition is documented in an appendix produced as part of Step 1 emitter work.
+- **Q-5: parity period duration (RESOLVED: parity only, retired with `.pdbase` deletion).** Same shape as the F12 to F13 weapons migration: parity check runs while both formats coexist; gets removed at the step where `.pdbase` is deleted from the repo (Step 5). Mike validates after each migration step before the parity check retires.
 
 ---
 
@@ -899,51 +934,66 @@ Each session is approximately one focused work block (3-6 hours of effort, one d
 | 0. Schema lock-down | 1 | Yes | Doc + sign-off |
 | 1. Weapons emitter | 2-3 | Yes | Heaviest class; one session for curation table generation, one for emitter, possibly one for parity test |
 | 2. Heads + bodies + arenas emitters | 2 | Yes | Lighter; pattern from Step 1 |
-| 3. Byte-payload extractors | 4-6 | Partial | Each class is a separate sub-step. SFX + music + voice in one. Scenarios + tiles + segments in another. UI + fonts + lang in another. `.pdscenario` is the hardest sub-step. |
+| 3a. Character animations (Q-3 required) | 1-2 | Yes | Reuses `.pdanim` parser from Step 1. Adds chr-anim curation table + per-anim emitter. Catalog completeness gate. |
+| 3. Byte-payload extractors | 4-6 | Partial | Each class is a separate sub-step. SFX + music + voice in one. Scenarios + tiles + segments in another (unified `.pdscenario` ZIP per Q-1). UI + fonts + lang in another. |
 | 4. Loader directory walker | 2 | Yes | Loader rewrite + boot order shift + parity test |
-| 5. Retire `.pdbase` archives | 1 | No | Cleanup + doc updates |
+| 5. Retire `.pdbase` archives | 1 | No | Cleanup + doc updates. Parity check retires here per Q-5. |
 | 6. Mod system uplift | 2-3 | No | Independent lane |
 | 7. In-client mod authoring | 3+ | No | Polish lane; out of scope for the core pivot |
 
-**Critical path total: 8-12 sessions.** Steps 0, 1, 2, 4, 5 in sequence. Step 3 byte-payload classes can run in parallel with Step 4 if a parallel session is available (different files + functions); recommendation is sequential to avoid cross-cuts.
+**Critical path total: 9-14 sessions** (Mike's Q-3 expansion adds 1-2 sessions for character anims to the prior 8-12). Steps 0, 1, 2, 3a, 4, 5 in sequence. Step 3 byte-payload classes can run in parallel with Step 4 if a parallel session is available (different files + functions); recommendation is sequential to avoid cross-cuts.
 
-**Full-pivot total (including Steps 6-7): 13-18 sessions.**
+**Full-pivot total (including Steps 6-7): 14-20 sessions.**
+
+**Catalog completeness gate (per Q-3):** the catalog is not declared complete until Steps 0 through 5 ship. Character anims (Step 3a) is REQUIRED, not deferrable. Byte-payload classes (Step 3) are required for `.pdscenario` / `.pdsfx` / `.pdvoice` / `.pdsong` because those classes have catalog rows that must populate. Mod system uplift (Step 6) is universality-relevant but is outside catalog completeness because mods extend an already-complete catalog.
 
 ### 6.2 Critical path dependencies
 
 ```
-Step 0 (schema)
+Step 0 (schema lock-down)
    |
    v
-Step 1 (weapons emitter) ----+
-   |                          |
-   v                          |
-Step 2 (heads+bodies+arenas)  |
-   |                          |
-   |   Step 3 byte-payloads <-+ (can run in parallel with Step 4)
-   |       |
-   v       v
-Step 4 (loader switch)
+Step 1 (weapons emitter)
    |
    v
-Step 5 (cleanup)
+Step 2 (heads+bodies+arenas emitters)
    |
    v
-Step 6 (mod system uplift; can defer indefinitely)
+Step 3a (character animations, REQUIRED per Q-3)
+   |
+   +---> Step 3 byte-payloads (audio / scenarios / ui / fonts / lang)
+   |        (can run in parallel with Step 4 if scope allows)
+   v
+Step 4 (loader directory walker; the universality switch)
    |
    v
-Step 7 (mod authoring tools; defer)
+Step 5 (retire .pdbase + parity check)
+   |
+   v
+[CATALOG UNIVERSALITY COMPLETE]
+   |
+   v
+Step 6 (mod system uplift; independent lane)
+   |
+   v
+Step 7 (in-client mod authoring; polish lane)
 ```
 
 Step 4 is the lock-in. After Step 4 ships, `data/<romid>/<class>/*.pd<ext>` is the runtime source of truth. Before Step 4, the new emitters produce output that the runtime ignores.
 
-### 6.3 Risk-weighted recommendation
+### 6.3 Recommendation (per Mike's catalog completeness directive)
 
-If Mike wants the universality finish line ASAP: ship Steps 0, 1, 2, 4, 5 only. Defer Step 3 byte-payloads as a follow-up lane (the catalog universality is principled if the metadata classes are universal; the byte-payload classes can stay loose `.bin` until later without breaking the principle). This is 6-9 sessions to the universality finish line for base game content.
+Mike's Q-3 directive: catalog is not complete unless it is COMPLETE. The "ship metadata only and defer byte-payloads" path the prior version of this section recommended is OBSOLETE. Steps 0 through 5 (including 3a) are the catalog completeness lane and run as a single sequenced campaign. Steps 6 and 7 are the modding-side complement and follow.
 
-If Mike wants total completeness: Steps 0 to 7 in sequence, 13-18 sessions, possibly more if `.pdscenario` rabbit-holes.
+Sequencing strategy:
 
-Recommendation: ship Steps 0, 1, 2, 4, 5 first as one lane (call it "Catalog Universality Phase 1"). Validate at full playtest. Then consider Step 3 + Step 6 as a follow-up lane based on observed pain points (e.g. modders requesting `.pdsfx` authoring before audio scope is committed).
+1. Step 0 schema lock-down (this session is producing the schema doc).
+2. Steps 1 and 2 prove the metadata pipeline (weapons, heads, bodies, arenas).
+3. Step 3a extends the `.pdanim` parser to character animations (catalog completeness).
+4. Step 3 brings the byte-payload classes (audio, scenarios, ui, fonts, lang) into the universal model. Unified `.pdscenario` ZIP per Q-1; type-tolerant audio refs per Q-2.
+5. Step 4 flips the loader; parity check runs alongside per Q-5.
+6. Step 5 retires `.pdbase` and the parity check after Mike's playtest validates the new path.
+7. Steps 6 and 7 follow as the modding-side track.
 
 ### 6.4 Comparison to prior catalog work
 
@@ -962,6 +1012,7 @@ Per [procedures.md](../procedures.md): every step that touches code must `.\devt
 
 - Step 1: `pivot-wpn`
 - Step 2: `pivot-meta`
+- Step 3a: `pivot-anim-chr`
 - Step 3 sub-steps: `pivot-audio`, `pivot-stage`, `pivot-ui`, etc.
 - Step 4: `pivot-load`
 - Step 5: `pivot-clean`
@@ -992,10 +1043,10 @@ For the architectural backdrop:
 - [pillars/modding.md](../pillars/modding.md) `.pdmod` archive format + network distribution.
 - [constraints.md](../constraints.md) catalog identity invariants (catalog ID strings at all interface boundaries, etc.).
 
-For decisions that should be made before implementation begins:
+For decisions that have been made before implementation begins:
 
-- Q-1 through Q-5 in Section 5.4. Each needs Mike's call.
-- Step 0 schema doc must land first.
+- Q-1 through Q-5 RESOLVED 2026-05-02; see Section 5.4 above.
+- Step 0 schema lock-down doc lands at [designs/catalog/universality-pivot-schemas.md](../designs/catalog/universality-pivot-schemas.md) and is the binding reference for all subsequent steps.
 
 ---
 
