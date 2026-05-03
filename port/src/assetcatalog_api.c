@@ -1092,7 +1092,7 @@ s32 catalogGetBodyFilenumByIndex(s32 bodynum)
 
     id = catalogBodyIdByBodynum(bodynum);
     if (id && catalogResolveBody(id, &result)) {
-        sysLogPrintf(LOG_VERBOSE, "CATALOG: %s (%d) → ROM", id, result.filenum);
+        sysLogPrintf(LOG_VERBOSE, "CATALOG: %s (%d) → base", id, result.filenum);
         return result.filenum;
     }
     sysLogPrintf(LOG_ERROR,
@@ -1114,7 +1114,7 @@ s32 catalogGetHeadFilenumByIndex(s32 headnum)
 
     id = catalogHeadIdByHeadnum(headnum);
     if (id && catalogResolveHead(id, &result)) {
-        sysLogPrintf(LOG_VERBOSE, "CATALOG: %s (%d) → ROM", id, result.filenum);
+        sysLogPrintf(LOG_VERBOSE, "CATALOG: %s (%d) → base", id, result.filenum);
         return result.filenum;
     }
     sysLogPrintf(LOG_ERROR,
@@ -1208,7 +1208,7 @@ s32 catalogGetModelFilenumByModelnum(s32 modelnum)
     if (id) {
         e = assetCatalogResolve(id);
         if (e) {
-            sysLogPrintf(LOG_VERBOSE, "CATALOG: %s (%d) → ROM", id, e->source_filenum);
+            sysLogPrintf(LOG_VERBOSE, "CATALOG: %s (%d) → base", id, e->source_filenum);
             return e->source_filenum;
         }
     }

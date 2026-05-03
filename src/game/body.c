@@ -246,7 +246,15 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		             bodymodeldef->scale, bodynum, catalogGetBodyFilenumByIndex(bodynum)); /* SA-5f */
 		bodymodeldef->scale = 1.0f;
 	} else {
-		sysLogPrintf(LOG_NOTE, "body0f02ce8c: bodynum %d (file 0x%04x) modeldef->scale=%.2f",
+		/* S593h-followup-4 (2026-05-03): demoted from LOG_NOTE to
+		 * LOG_VERBOSE. The line is per-spawn diagnostic (one per
+		 * bodyAllocateModel call); under default --verbose=off it is
+		 * dropped, under verbose=on it still surfaces. Was contributing
+		 * 256+ lines per swarm cycle to log IO load. The "→ base"
+		 * rename in catalogGetBodyFilenumByIndex (assetcatalog_api.c)
+		 * lands in the same merge so verbose runs see the renamed
+		 * notation. */
+		sysLogPrintf(LOG_VERBOSE, "body0f02ce8c: bodynum %d (file 0x%04x) modeldef->scale=%.2f",
 		             bodynum, catalogGetBodyFilenumByIndex(bodynum), bodymodeldef->scale); /* SA-5f */
 	}
 
