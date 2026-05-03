@@ -48,8 +48,11 @@
 #include "constants.h"
 #include "loader_pdbase.h"
 #include "loader_pdbase_enums.h"
+#include "assetcatalog.h"  /* Catalog Gate 3 Arenas F12: parity check walks ASSET_ARENA rows */
 #include "catalog_mgr_weapons.h"
 #include "catalog_mgr_heads.h"  /* Catalog Gate 3 F9: heads pool integration */
+#include "catalog_mgr_bodies.h"  /* Catalog Gate 3 Bodies F9: bodies pool integration */
+#include "catalog_mgr_arenas.h"  /* Catalog Gate 3 Arenas F9: arenas pool integration */
 #include "system.h"
 #include "fs.h"
 
@@ -144,6 +147,28 @@ static s32 s_WeaponsRegistered;
 static head_data_t s_HeadsPool[CATALOG_MGR_HEAD_COUNT];
 static s32 s_HeadsLoaderActive;
 static s32 s_HeadsRegistered;
+
+/* ------------------------------------------------------------------ */
+/* Catalog Gate 3 Bodies F9: bodies-side pool, parallel to heads.     */
+/* base/bodies.pdbase per audit decision I.6. F9 ships the pool +     */
+/* accessors as a scaffold; F11 ships the extractor + archive; F12    */
+/* implements parseBody() and toggles s_BodiesLoaderActive on success. */
+/* ------------------------------------------------------------------ */
+
+static body_data_t s_BodiesPool[CATALOG_MGR_BODY_COUNT];
+static s32 s_BodiesLoaderActive;
+static s32 s_BodiesRegistered;
+
+/* ------------------------------------------------------------------ */
+/* Catalog Gate 3 Arenas F9: arenas-side pool, parallel to heads + bodies. */
+/* base/arenas.pdbase per audit decision I.6. F9 ships the pool +     */
+/* accessors as a scaffold; F11 ships the extractor + archive; F12    */
+/* implements parseArena() and toggles s_ArenasLoaderActive on success. */
+/* ------------------------------------------------------------------ */
+
+static arena_data_t s_ArenasPool[CATALOG_MGR_ARENA_COUNT];
+static s32 s_ArenasLoaderActive;
+static s32 s_ArenasRegistered;
 
 /* ------------------------------------------------------------------ */
 /* Public accessors (consumed by catalog_mgr_weapons.c)               */
@@ -856,6 +881,28 @@ static struct inventory_ammo *parseAmmoIfPresent(jstream_t *s)
 	return out;
 }
 
+/* True iff struct_name is in the shoot-subclass family (or empty,
+ * meaning "_struct" was omitted in the JSON and the writer trusts
+ * the field set to imply variant). The shoot subclasses share the
+ * weaponfunc_shoot byte layout from offset 0x14 onward; writes to
+ * out->ss.base.* are byte-correct for any of them. Non-shoot
+ * variants (throw / melee / special / device) have unrelated layouts
+ * past the shared weaponfunc base struct, so a write through the
+ * shoot view would corrupt their fields.
+ *
+ * S484-followup-4 fixed the recoverytime60 / damage / unk24 /
+ * projectilemodelnum / unk44 / speed cross-variant writes; this
+ * helper extends the same discipline to every remaining shoot-only
+ * field write inside parseWeaponFunc. */
+static int weaponFuncStructIsShootFamily(const char *struct_name)
+{
+	if (struct_name[0] == '\0') return 1;
+	if (strcmp(struct_name, "weaponfunc_shootsingle") == 0) return 1;
+	if (strcmp(struct_name, "weaponfunc_shootauto") == 0) return 1;
+	if (strcmp(struct_name, "weaponfunc_shootprojectile") == 0) return 1;
+	return 0;
+}
+
 /* Parse a function record. The "_struct" key tells us which subclass
  * to populate. Returns a pointer (cast to void*) suitable for
  * struct weapon's functions[i] slot. */
@@ -979,35 +1026,104 @@ static void *parseWeaponFunc(jstream_t *s)
 				out->me.damage = v;
 			}
 		}
-		else if (jstream_str_eq(&key, "spread"))      out->ss.base.spread       = jread_float(s, 0);
+		else if (jstream_str_eq(&key, "spread")) {
+			f32 v = jread_float(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.spread = v;
+			}
+		}
 		else if (jstream_str_eq(&key, "unk24")) {
 			/* S484-followup-4: variant-specific offsets.
 			 *   weaponfunc_shoot.unk24  @ 0x34 (s8)
 			 *   weaponfunc_melee.unk24  @ 0x30 (u32)
 			 * Different fields, different offsets, different sizes. */
 			s32 v = jread_int(s, 0);
-			if (struct_name[0] == '\0'
-					|| strcmp(struct_name, "weaponfunc_shootsingle") == 0
-					|| strcmp(struct_name, "weaponfunc_shootauto") == 0
-					|| strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+			if (weaponFuncStructIsShootFamily(struct_name)) {
 				out->ss.base.unk24 = (s8)v;
 			} else if (strcmp(struct_name, "weaponfunc_melee") == 0) {
 				out->me.unk24 = (u32)v;
 			}
 		}
-		else if (jstream_str_eq(&key, "unk25")) out->ss.base.unk25 = (s8)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "unk26")) out->ss.base.unk26 = (s8)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "unk27")) out->ss.base.unk27 = (s8)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "recoildist"))  out->ss.base.recoildist  = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "recoilangle")) out->ss.base.recoilangle = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "slidemax"))    out->ss.base.slidemax    = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "impactforce")) out->ss.base.impactforce = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "duration60"))  out->ss.base.duration60  = (u8)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "shootsound"))  out->ss.base.shootsound  = (u16)jread_enum_or_int(s, JREF_SFX, 0, "weaponfunc.shootsound");
-		else if (jstream_str_eq(&key, "penetration")) out->ss.base.penetration = (u8)jread_int(s, 0);
-		/* shootauto extension */
-		else if (jstream_str_eq(&key, "initialrpm"))  out->sa.initialrpm = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "maxrpm"))      out->sa.maxrpm     = jread_float(s, 0);
+		/* Catalog coverage audit (2026-05-01) Section 4.4 closure:
+		 * gate the remaining shoot-only field writes on struct_name so a
+		 * non-shoot variant's JSON cannot corrupt fields at the same
+		 * byte offset in another union member. Same discipline as
+		 * unk24 / recoverytime60 / damage from S484-followup-4. */
+		else if (jstream_str_eq(&key, "unk25")) {
+			s32 v = jread_int(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.unk25 = (s8)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "unk26")) {
+			s32 v = jread_int(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.unk26 = (s8)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "unk27")) {
+			s32 v = jread_int(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.unk27 = (s8)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "recoildist")) {
+			f32 v = jread_float(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.recoildist = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "recoilangle")) {
+			f32 v = jread_float(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.recoilangle = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "slidemax")) {
+			f32 v = jread_float(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.slidemax = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "impactforce")) {
+			f32 v = jread_float(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.impactforce = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "duration60")) {
+			s32 v = jread_int(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.duration60 = (u8)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "shootsound")) {
+			s32 v = jread_enum_or_int(s, JREF_SFX, 0, "weaponfunc.shootsound");
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.shootsound = (u16)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "penetration")) {
+			s32 v = jread_int(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.penetration = (u8)v;
+			}
+		}
+		/* shootauto extension -- gated on weaponfunc_shootauto so a
+		 * non-shootauto JSON record cannot stomp on offsets 0x40-0x51
+		 * of another union variant (Section 4.4 closure). */
+		else if (jstream_str_eq(&key, "initialrpm")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootauto") == 0) {
+				out->sa.initialrpm = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "maxrpm")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootauto") == 0) {
+				out->sa.maxrpm = v;
+			}
+		}
 		else if (jstream_str_eq(&key, "vibrationstart") || jstream_str_eq(&key, "vibrationmax")) {
 			s32 is_max = jstream_str_eq(&key, "vibrationmax");
 			if (s->cur.kind == JT_NULL) { jstream_advance(s); }
@@ -1024,7 +1140,9 @@ static void *parseWeaponFunc(jstream_t *s)
 					if (s->cur.kind == JT_COMMA) jstream_advance(s);
 				}
 				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
-				if (s_VibrationsUsed > reserved) {
+				if (s_VibrationsUsed > reserved
+						&& (struct_name[0] == '\0'
+							|| strcmp(struct_name, "weaponfunc_shootauto") == 0)) {
 					if (is_max) out->sa.vibrationmax = arr;
 					else        out->sa.vibrationstart = arr;
 				}
@@ -1032,8 +1150,18 @@ static void *parseWeaponFunc(jstream_t *s)
 				jstream_skip_value(s);
 			}
 		}
-		else if (jstream_str_eq(&key, "turretaccel")) out->sa.turretaccel = (s8)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "turretdecel")) out->sa.turretdecel = (s8)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "turretaccel")) {
+			s32 v = jread_int(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootauto") == 0) {
+				out->sa.turretaccel = (s8)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "turretdecel")) {
+			s32 v = jread_int(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootauto") == 0) {
+				out->sa.turretdecel = (s8)v;
+			}
+		}
 		/* shootprojectile extension */
 		else if (jstream_str_eq(&key, "projectilemodelnum")) {
 			/* S484-followup-4: variant-specific offsets.
@@ -1055,24 +1183,91 @@ static void *parseWeaponFunc(jstream_t *s)
 			else if (strcmp(struct_name, "weaponfunc_melee") == 0) out->me.unk44 = jread_float(s, 0);
 			else jstream_skip_value(s);
 		}
-		else if (jstream_str_eq(&key, "scale"))         out->sp.scale       = jread_float(s, 0);
+		/* shootprojectile-only fields (Section 4.4): gate so a non-sp
+		 * variant's JSON cannot stomp other variants' fields at the
+		 * same offsets in the union. */
+		else if (jstream_str_eq(&key, "scale")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->sp.scale = v;
+			}
+		}
 		else if (jstream_str_eq(&key, "speed") && struct_name[0]) {
 			if (strcmp(struct_name, "weaponfunc_shootprojectile") == 0) out->sp.speed = jread_int(s, 0);
 			else jstream_skip_value(s);
 		}
-		else if (jstream_str_eq(&key, "unk50"))         out->sp.unk50       = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "traveldist"))    out->sp.traveldist  = jread_int(s, 0);
-		else if (jstream_str_eq(&key, "timer60"))       out->sp.timer60     = jread_int(s, 0);
-		else if (jstream_str_eq(&key, "reflectangle"))  out->sp.reflectangle = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "soundnum"))      out->sp.soundnum    = (s16)jread_enum_or_int(s, JREF_SFX, 0, "weaponfunc.soundnum");
+		else if (jstream_str_eq(&key, "unk50")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->sp.unk50 = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "traveldist")) {
+			s32 v = jread_int(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->sp.traveldist = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "timer60")) {
+			s32 v = jread_int(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->sp.timer60 = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "reflectangle")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->sp.reflectangle = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "soundnum")) {
+			/* shootprojectile.soundnum @ 0x60 (s16) vs special.soundnum
+			 * @ 0x1c (u16). Special variant is matched explicitly below
+			 * with a stricter else-if; this branch handles shootprojectile
+			 * (and any unspecified variant for backwards compat). */
+			s32 v = jread_enum_or_int(s, JREF_SFX, 0, "weaponfunc.soundnum");
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->sp.soundnum = (s16)v;
+			}
+		}
 		/* throw extension */
-		else if (jstream_str_eq(&key, "activatetime60")) out->tw.activatetime60 = (s16)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "activatetime60")) {
+			s32 v = jread_int(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_throw") == 0) {
+				out->tw.activatetime60 = (s16)v;
+			}
+		}
 		/* melee extension */
-		else if (jstream_str_eq(&key, "range"))         out->me.range  = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "unk1c"))         out->me.unk1c  = (u32)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "unk20"))         out->me.unk20  = (u32)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "unk28"))         out->me.unk28  = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "unk2c"))         out->me.unk2c  = jread_float(s, 0);
+		else if (jstream_str_eq(&key, "range")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_melee") == 0) {
+				out->me.range = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "unk1c")) {
+			s32 v = jread_int(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_melee") == 0) {
+				out->me.unk1c = (u32)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "unk20")) {
+			s32 v = jread_int(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_melee") == 0) {
+				out->me.unk20 = (u32)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "unk28")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_melee") == 0) {
+				out->me.unk28 = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "unk2c")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_melee") == 0) {
+				out->me.unk2c = v;
+			}
+		}
 		else if (jstream_str_eq(&key, "unk30"))         out->me.unk30  = jread_float(s, 0);
 		else if (jstream_str_eq(&key, "unk34"))         out->me.unk34  = jread_float(s, 0);
 		else if (jstream_str_eq(&key, "unk38"))         out->me.unk38  = jread_float(s, 0);
@@ -1457,6 +1652,135 @@ static void parseHead(jstream_t *s)
 }
 
 /* ------------------------------------------------------------------ */
+/* Catalog Gate 3 Bodies F12: body record parser.  Parallels parseHead. */
+/* ------------------------------------------------------------------ */
+
+static void parseBody(jstream_t *s)
+{
+	if (s->cur.kind != JT_LBRACE) { jstream_skip_value(s); return; }
+	jstream_advance(s);
+
+	body_data_t b;
+	memset(&b, 0, sizeof(b));
+	b.scale = 1.0f;
+	b.animscale = 1.0f;
+	s32 bodynum = -1;
+
+	while (s->cur.kind != JT_RBRACE && s->cur.kind != JT_EOF) {
+		if (s->cur.kind != JT_STRING) { jstream_advance(s); continue; }
+		jtok_t key = s->cur;
+		jstream_advance(s);
+		if (s->cur.kind != JT_COLON) continue;
+		jstream_advance(s);
+
+		if      (jstream_str_eq(&key, "id")) {
+			jread_string_buf(s, b.catalog_id, sizeof(b.catalog_id));
+		}
+		else if (jstream_str_eq(&key, "bodynum"))       bodynum = jread_int(s, -1);
+		else if (jstream_str_eq(&key, "ismale"))        b.ismale        = (u8)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "unk00_01"))      b.unk00_01      = (u8)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "canvaryheight")) b.canvaryheight = (u8)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "type"))          b.type          = (u8)jread_headbodytype(s);
+		else if (jstream_str_eq(&key, "height"))        b.height        = (u16)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "filenum"))       b.filenum       = (u16)jread_enum_or_int(s, JREF_FILE, 0, "body.filenum");
+		else if (jstream_str_eq(&key, "scale"))         b.scale         = jread_float(s, 1.0f);
+		else if (jstream_str_eq(&key, "animscale"))     b.animscale     = jread_float(s, 1.0f);
+		else if (jstream_str_eq(&key, "handfilenum"))   b.handfilenum   = (u16)jread_enum_or_int(s, JREF_FILE, 0, "body.handfilenum");
+		else jstream_skip_value(s);
+		if (s->cur.kind == JT_COMMA) jstream_advance(s);
+	}
+	if (s->cur.kind == JT_RBRACE) jstream_advance(s);
+
+	if (bodynum < 0 || bodynum >= CATALOG_MGR_BODY_COUNT) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.BODY.RESOLVE_FAIL: bodynum=%d out of range [0,%d)",
+			bodynum, CATALOG_MGR_BODY_COUNT);
+		return;
+	}
+	b.bodynum = (s16)bodynum;
+	s_BodiesPool[bodynum] = b;
+	s_BodiesRegistered++;
+}
+
+/* ------------------------------------------------------------------ */
+/* Catalog Gate 3 Arenas F12: arena record parser. Parallels parseHead /  */
+/* parseBody. The .pdbase archive emits stagenum / name_langid as       */
+/* integers (Path B for these large enum families); load_mode stays      */
+/* symbolic and is resolved via the inline 3-entry helper.               */
+/* ------------------------------------------------------------------ */
+
+static s32 s_resolveArenaLoadMode(const char *name)
+{
+	if (!name || !name[0]) return 0;
+	if (strcmp(name, "ARENA_LOADMODE_PLAYABLE") == 0) return 0;
+	if (strcmp(name, "ARENA_LOADMODE_CANVAS")   == 0) return 1;
+	return -1;
+}
+
+static s32 jread_arena_load_mode(jstream_t *s)
+{
+	if (s->cur.kind == JT_STRING) {
+		char buf[64];
+		jread_string_buf(s, buf, sizeof(buf));
+		s32 v = s_resolveArenaLoadMode(buf);
+		if (v < 0) {
+			sysLogPrintf(LOG_NOTE,
+				"LOADER.PDBASE.ARENA.FIELD_UNKNOWN: load_mode=\"%s\" (defaulting to 0)",
+				buf);
+			return 0;
+		}
+		return v;
+	}
+	return jread_int(s, 0);
+}
+
+static void parseArena(jstream_t *s)
+{
+	if (s->cur.kind != JT_LBRACE) { jstream_skip_value(s); return; }
+	jstream_advance(s);
+
+	arena_data_t a;
+	memset(&a, 0, sizeof(a));
+	s32 arena_index = -1;
+
+	while (s->cur.kind != JT_RBRACE && s->cur.kind != JT_EOF) {
+		if (s->cur.kind != JT_STRING) { jstream_advance(s); continue; }
+		jtok_t key = s->cur;
+		jstream_advance(s);
+		if (s->cur.kind != JT_COLON) continue;
+		jstream_advance(s);
+
+		if      (jstream_str_eq(&key, "id")) {
+			jread_string_buf(s, a.catalog_id, sizeof(a.catalog_id));
+		}
+		else if (jstream_str_eq(&key, "arena_index"))     arena_index       = jread_int(s, -1);
+		else if (jstream_str_eq(&key, "slug")) {
+			jread_string_buf(s, a.slug, sizeof(a.slug));
+		}
+		else if (jstream_str_eq(&key, "category")) {
+			jread_string_buf(s, a.category, sizeof(a.category));
+		}
+		else if (jstream_str_eq(&key, "stagenum"))        a.stagenum        = (s16)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "requirefeature"))  a.requirefeature  = (u8)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "name_langid"))     a.name_langid     = jread_int(s, 0);
+		else if (jstream_str_eq(&key, "load_mode"))       a.load_mode       = (u8)jread_arena_load_mode(s);
+		else jstream_skip_value(s);
+		if (s->cur.kind == JT_COMMA) jstream_advance(s);
+	}
+	if (s->cur.kind == JT_RBRACE) jstream_advance(s);
+
+	if (arena_index < 0 || arena_index >= CATALOG_MGR_ARENA_COUNT) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.RESOLVE_FAIL: arena_index=%d out of range [0,%d)",
+			arena_index, CATALOG_MGR_ARENA_COUNT);
+		return;
+	}
+	a.arena_index = (s16)arena_index;
+	s_ArenasPool[arena_index] = a;
+	s_ArenasRegistered++;
+}
+
+/* ------------------------------------------------------------------ */
 /* Top-level parser                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -1502,6 +1826,30 @@ static void parseTopLevel(jstream_t *s)
 				jstream_advance(s);
 				while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
 					parseHead(s);
+					if (s->cur.kind == JT_COMMA) jstream_advance(s);
+				}
+				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
+			}
+		}
+		else if (jstream_str_eq(&key, "bodies")) {
+			/* Catalog Gate 3 Bodies F12: bodies section in base/bodies.pdbase. */
+			if (s->cur.kind != JT_LBRACK) { jstream_skip_value(s); }
+			else {
+				jstream_advance(s);
+				while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
+					parseBody(s);
+					if (s->cur.kind == JT_COMMA) jstream_advance(s);
+				}
+				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
+			}
+		}
+		else if (jstream_str_eq(&key, "arenas")) {
+			/* Catalog Gate 3 Arenas F12: arenas section in base/arenas.pdbase. */
+			if (s->cur.kind != JT_LBRACK) { jstream_skip_value(s); }
+			else {
+				jstream_advance(s);
+				while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
+					parseArena(s);
 					if (s->cur.kind == JT_COMMA) jstream_advance(s);
 				}
 				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
@@ -1614,6 +1962,78 @@ void loaderPdbaseScan(const char *dir, loader_pdbase_result_t *out)
 		local.heads_registered = s_HeadsRegistered;
 	}
 
+	/* Catalog Gate 3 Bodies F12: scan + parse base/bodies.pdbase. */
+	{
+		char body_path[512];
+		snprintf(body_path, sizeof(body_path), "%s/bodies.pdbase", dir);
+		s32 body_size = 0;
+		char *body_src = (char *)fsFileLoad(body_path, (u32 *)&body_size);
+		if (body_src != NULL) {
+			jstream_t bs;
+			memset(&bs, 0, sizeof(bs));
+			bs.src = body_src;
+			bs.pos = body_src;
+			bs.end = body_src + body_size;
+			bs.line = 1;
+			jstream_advance(&bs);
+			parseTopLevel(&bs);
+
+			if (bs.error) {
+				sysLogPrintf(LOG_WARNING,
+					"LOADER.PDBASE.BODY.SCAN_FAIL: parse error in %s near line %d",
+					body_path, bs.line);
+				local.scan_failures++;
+			}
+
+			sysLogPrintf(LOG_NOTE,
+				"LOADER.PDBASE.BODY.OK: dir=%s bodies=%d size=%d",
+				dir, s_BodiesRegistered, body_size);
+			local.archives_scanned++;
+			sysMemFree(body_src);
+		} else {
+			sysLogPrintf(LOG_NOTE,
+				"LOADER.PDBASE.BODY.OK: dir=%s no bodies.pdbase (parity period)",
+				dir);
+		}
+		local.bodies_registered = s_BodiesRegistered;
+	}
+
+	/* Catalog Gate 3 Arenas F12: scan + parse base/arenas.pdbase. */
+	{
+		char arena_path[512];
+		snprintf(arena_path, sizeof(arena_path), "%s/arenas.pdbase", dir);
+		s32 arena_size = 0;
+		char *arena_src = (char *)fsFileLoad(arena_path, (u32 *)&arena_size);
+		if (arena_src != NULL) {
+			jstream_t as;
+			memset(&as, 0, sizeof(as));
+			as.src = arena_src;
+			as.pos = arena_src;
+			as.end = arena_src + arena_size;
+			as.line = 1;
+			jstream_advance(&as);
+			parseTopLevel(&as);
+
+			if (as.error) {
+				sysLogPrintf(LOG_WARNING,
+					"LOADER.PDBASE.ARENA.SCAN_FAIL: parse error in %s near line %d",
+					arena_path, as.line);
+				local.scan_failures++;
+			}
+
+			sysLogPrintf(LOG_NOTE,
+				"LOADER.PDBASE.ARENA.OK: dir=%s arenas=%d size=%d",
+				dir, s_ArenasRegistered, arena_size);
+			local.archives_scanned++;
+			sysMemFree(arena_src);
+		} else {
+			sysLogPrintf(LOG_NOTE,
+				"LOADER.PDBASE.ARENA.OK: dir=%s no arenas.pdbase (parity period)",
+				dir);
+		}
+		local.arenas_registered = s_ArenasRegistered;
+	}
+
 	if (out) *out = local;
 }
 
@@ -1713,6 +2133,201 @@ s32 loaderPdbaseBuildHeadManager(void)
 		"LOADER.PDBASE.HEAD.OK: manager active, heads=%d (expected=%d)",
 		s_HeadsRegistered, CATALOG_MGR_HEAD_COUNT);
 	return s_HeadsRegistered;
+}
+
+/* ================================================================== */
+/* Catalog Gate 3 Bodies F9 / F11 / F12: bodies-side loader            */
+/*                                                                    */
+/* Parallel to the heads loader above. F9 ships these accessors as    */
+/* scaffold (active flag stays 0, all accessors return NULL until F12 */
+/* implements parseBody + flips the flag).                             */
+/* ================================================================== */
+
+s32 loaderPdbaseBodiesActive(void)
+{
+	return s_BodiesLoaderActive;
+}
+
+const body_data_t *loaderPdbaseGetBody(s32 idx)
+{
+	if (idx < 0 || idx >= CATALOG_MGR_BODY_COUNT) return NULL;
+	if (!s_BodiesLoaderActive) return NULL;
+	return &s_BodiesPool[idx];
+}
+
+s32 loaderPdbaseGetBodiesRegistered(void)
+{
+	return s_BodiesRegistered;
+}
+
+s32 loaderPdbaseBuildBodyManager(void)
+{
+	if (s_BodiesRegistered <= 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOADER.PDBASE.BODY.OK: build skipped (no records loaded -- F9 scaffold)");
+		return 0;
+	}
+	s_BodiesLoaderActive = 1;
+	sysLogPrintf(LOG_NOTE,
+		"LOADER.PDBASE.BODY.OK: manager active, bodies=%d (expected=%d)",
+		s_BodiesRegistered, CATALOG_MGR_BODY_COUNT);
+	return s_BodiesRegistered;
+}
+
+/* ================================================================== */
+/* Catalog Gate 3 Arenas F9 / F11 / F12: arenas-side loader            */
+/*                                                                    */
+/* Parallel to the heads / bodies loaders above. F9 ships these       */
+/* accessors as scaffold (active flag stays 0, all accessors return    */
+/* NULL until F12 implements parseArena + flips the flag).             */
+/* ================================================================== */
+
+s32 loaderPdbaseArenasActive(void)
+{
+	return s_ArenasLoaderActive;
+}
+
+const arena_data_t *loaderPdbaseGetArena(s32 idx)
+{
+	if (idx < 0 || idx >= CATALOG_MGR_ARENA_COUNT) return NULL;
+	if (!s_ArenasLoaderActive) return NULL;
+	return &s_ArenasPool[idx];
+}
+
+s32 loaderPdbaseGetArenasRegistered(void)
+{
+	return s_ArenasRegistered;
+}
+
+s32 loaderPdbaseBuildArenaManager(void)
+{
+	if (s_ArenasRegistered <= 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOADER.PDBASE.ARENA.OK: build skipped (no records loaded -- F9 scaffold)");
+		return 0;
+	}
+	s_ArenasLoaderActive = 1;
+	sysLogPrintf(LOG_NOTE,
+		"LOADER.PDBASE.ARENA.OK: manager active, arenas=%d (expected=%d)",
+		s_ArenasRegistered, CATALOG_MGR_ARENA_COUNT);
+	return s_ArenasRegistered;
+}
+
+/* Catalog Gate 3 Arenas F12: parity check.
+ *
+ * Walks ASSET_ARENA catalog rows (populated from g_MpArenas[] +
+ * s_ArenaNames[] + s_ArenaGroupMap[] at registration time) and compares
+ * each row's data to the corresponding loader pool slot. Mismatches log
+ * LOADER.PDBASE.ARENA.PARITY_FAIL: with the field that differed; the
+ * function returns the count of failing arenas so callers can decide
+ * whether to abort.
+ *
+ * Runs at startup after loaderPdbaseBuildArenaManager. F13 retires the
+ * parity bridge and this check becomes redundant -- but for the F12
+ * parity period it is the canonical "loader output matches legacy
+ * authoring data" test.
+ */
+struct s_ArenaParityCtx {
+	s32 mismatch_count;
+	s32 row_count;
+};
+
+static void s_arenaParityCheckCb(const asset_entry_t *e, void *userdata)
+{
+	struct s_ArenaParityCtx *ctx = (struct s_ArenaParityCtx *)userdata;
+	s32 idx;
+	const arena_data_t *pool;
+	const char *catalog_slug;
+
+	if (e == NULL || e->type != ASSET_ARENA) return;
+	idx = e->runtime_index;
+	if (idx < 0 || idx >= CATALOG_MGR_ARENA_COUNT) return;
+
+	ctx->row_count++;
+	pool = &s_ArenasPool[idx];
+
+	/* Pool slot must have been populated by parseArena. If it wasn't,
+	 * the catalog has an arena row that the .pdbase did not cover. */
+	if (pool->catalog_id[0] == '\0') {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: catalog row id=\"%s\" idx=%d "
+			"has no matching .pdbase record",
+			e->id, idx);
+		ctx->mismatch_count++;
+		return;
+	}
+
+	if (strcmp(pool->catalog_id, e->id) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d id mismatch "
+			"catalog=\"%s\" pool=\"%s\"",
+			idx, e->id, pool->catalog_id);
+		ctx->mismatch_count++;
+	}
+	if ((s32)pool->stagenum != (s32)e->ext.arena.stagenum) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d stagenum mismatch "
+			"catalog=0x%02x pool=0x%02x",
+			idx, e->ext.arena.stagenum, pool->stagenum);
+		ctx->mismatch_count++;
+	}
+	if ((u32)pool->requirefeature != (u32)e->ext.arena.requirefeature) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d requirefeature mismatch "
+			"catalog=%u pool=%u",
+			idx, (u32)e->ext.arena.requirefeature, (u32)pool->requirefeature);
+		ctx->mismatch_count++;
+	}
+	if ((s32)pool->name_langid != (s32)e->ext.arena.name_langid) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d name_langid mismatch "
+			"catalog=0x%04x pool=0x%04x",
+			idx, e->ext.arena.name_langid, pool->name_langid);
+		ctx->mismatch_count++;
+	}
+	if ((u32)pool->load_mode != (u32)e->ext.arena.load_mode) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d load_mode mismatch "
+			"catalog=%u pool=%u",
+			idx, (u32)e->ext.arena.load_mode, (u32)pool->load_mode);
+		ctx->mismatch_count++;
+	}
+	if (strcmp(pool->category, e->category) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d category mismatch "
+			"catalog=\"%s\" pool=\"%s\"",
+			idx, e->category, pool->category);
+		ctx->mismatch_count++;
+	}
+	/* Slug parity: the slug component of the catalog ID must equal the
+	 * pool's stored slug. Comparing the full catalog_id already covers
+	 * this implicitly, so we skip the explicit slug comparison to avoid
+	 * double-reporting. */
+}
+
+s32 loaderPdbaseRunParityCheckArenas(void)
+{
+	struct s_ArenaParityCtx ctx;
+
+	if (!s_ArenasLoaderActive) {
+		sysLogPrintf(LOG_NOTE,
+			"LOADER.PDBASE.ARENA.OK: parity check skipped (loader not active)");
+		return 0;
+	}
+	ctx.mismatch_count = 0;
+	ctx.row_count = 0;
+	assetCatalogIterateByType(ASSET_ARENA, s_arenaParityCheckCb, &ctx);
+
+	if (ctx.mismatch_count == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOADER.PDBASE.ARENA.OK: parity check PASS (%d arenas)",
+			ctx.row_count);
+	} else {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: %d mismatches across %d arenas",
+			ctx.mismatch_count, ctx.row_count);
+	}
+	return ctx.mismatch_count;
 }
 
 

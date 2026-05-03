@@ -37,6 +37,7 @@
 #include "game/challenge.h"  /* unlock-state filter for assetCatalogIterateUnlockedByType */
 #include "catalog_checked.h"  /* INV-1: pure validators backing _Checked accessors */
 #include "catalog_mgr_heads.h"  /* Catalog Gate 3 F2: head accessors route through manager */
+#include "catalog_mgr_bodies.h"  /* Catalog Gate 3 Bodies F2: body accessors route through manager */
 #if !defined(PD_SERVER)
 #include "game/modeldef.h"
 #include "lib/rng.h"  /* P3: rngRandom for catalogPickRandomHeadIdForBody (client-only) */
@@ -1312,46 +1313,59 @@ asset_data_handle_t catalogGetModelHandle(s32 modelnum)
  * O(1).  All bounds-checked, return 0 / 1.0f on out-of-range index.
  * ------------------------------------------------------------------------- */
 
+/* Catalog Gate 3 Bodies F2: route body field reads through the manager.
+ * The manager pool (s_Bodies[]) mirrors g_HeadsAndBodies[] during the
+ * F1-F12 parity period; F12 swaps the data source to base/bodies.pdbase.
+ * Tier-2 callers (body.c HEADBODYTYPE checks, bot.c speed scaling,
+ * botmgr.c voice line gender, chraction.c animation gender, integrated-
+ * head guards across the four picker UIs) inherit through these
+ * accessors without source changes. */
+
 s32 catalogGetBodyIsMale(s32 bodynum)
 {
-    if (bodynum < 0 || bodynum >= 152) { return 0; }
-    return (s32)g_HeadsAndBodies[bodynum].ismale;
+    const body_data_t *b = catalogManagerGetBodyByIndex(bodynum);
+    return b ? (s32)b->ismale : 0;
 }
 
 s32 catalogGetBodyType(s32 bodynum)
 {
-    if (bodynum < 0 || bodynum >= 152) { return 0; }
-    return (s32)g_HeadsAndBodies[bodynum].type;
+    const body_data_t *b = catalogManagerGetBodyByIndex(bodynum);
+    return b ? (s32)b->type : 0;
 }
 
 s32 catalogGetBodyHeight(s32 bodynum)
 {
-    if (bodynum < 0 || bodynum >= 152) { return 0; }
-    return (s32)g_HeadsAndBodies[bodynum].height;
+    const body_data_t *b = catalogManagerGetBodyByIndex(bodynum);
+    return b ? (s32)b->height : 0;
 }
 
 f32 catalogGetBodyAnimScale(s32 bodynum)
 {
-    if (bodynum < 0 || bodynum >= 152) { return 1.0f; }
-    return g_HeadsAndBodies[bodynum].animscale;
+    const body_data_t *b = catalogManagerGetBodyByIndex(bodynum);
+    return b ? b->animscale : 1.0f;
 }
 
 s32 catalogGetBodyCanVaryHeight(s32 bodynum)
 {
-    if (bodynum < 0 || bodynum >= 152) { return 0; }
-    return (s32)g_HeadsAndBodies[bodynum].canvaryheight;
+    const body_data_t *b = catalogManagerGetBodyByIndex(bodynum);
+    return b ? (s32)b->canvaryheight : 0;
 }
 
 s32 catalogGetBodyIsComplete(s32 bodynum)
 {
-    if (bodynum < 0 || bodynum >= 152) { return 0; }
-    return (s32)g_HeadsAndBodies[bodynum].unk00_01;
+    /* S593g warning gate (body.c:417) reads through this accessor.
+     * The integrated-head invariant (Skedar / Dr Caroll / EyeSpy =>
+     * unk00_01 == 1 for body slots) is preserved across the F2 routing:
+     * the manager copies unk00_01 from g_HeadsAndBodies during the
+     * parity-period mirror and from base/bodies.pdbase post-F12. */
+    const body_data_t *b = catalogManagerGetBodyByIndex(bodynum);
+    return b ? (s32)b->unk00_01 : 0;
 }
 
 s32 catalogGetBodyHandFilenum(s32 bodynum)
 {
-    if (bodynum < 0 || bodynum >= 152) { return 0; }
-    return (s32)g_HeadsAndBodies[bodynum].handfilenum;
+    const body_data_t *b = catalogManagerGetBodyByIndex(bodynum);
+    return b ? (s32)b->handfilenum : 0;
 }
 
 /* Catalog Gate 3 F2: route head field reads through the manager.
@@ -1434,17 +1448,12 @@ s32 catalogGetMpWeaponSecAmmoQty(s32 mpweapon_idx)
 #if !defined(PD_SERVER)
 struct modeldef *catalogGetBodyModeldef(s32 bodynum)
 {
-    const char *id;
-    const asset_entry_t *e;
-    if (bodynum < 0 || bodynum >= 152) { return NULL; }
-    if (!g_HeadsAndBodies[bodynum].modeldef) {
-        id = catalogBodyIdByBodynum(bodynum);
-        e = id ? assetCatalogResolve(id) : NULL;
-        g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNewFromHandle(
-                catalogGetBodyHandle(bodynum),
-                e ? e->source_filenum : -1);
-    }
-    return g_HeadsAndBodies[bodynum].modeldef;
+    /* Catalog Gate 3 Bodies F3: manager owns the body modeldef cache.
+     * The pool slot s_Bodies[bodynum].modeldef holds the lazy-loaded
+     * pointer; manager handles the bounds checks.  This accessor is the
+     * legacy entry point kept for caller compatibility (body.c,
+     * player.c, pdgui_skin_uv.cpp, netmanifest.c). */
+    return catalogManagerGetBodyModeldef(bodynum);
 }
 
 struct modeldef *catalogGetHeadModeldef(s32 headnum)
@@ -1460,9 +1469,10 @@ struct modeldef *catalogGetHeadModeldef(s32 headnum)
 
 void catalogResetBodyModeldef(s32 bodynum)
 {
-    if (bodynum >= 0 && bodynum < 152) {
-        g_HeadsAndBodies[bodynum].modeldef = NULL;
-    }
+    /* Catalog Gate 3 Bodies F3: manager owns the body modeldef cache slot.
+     * Routes through catalogManagerResetBodyModeldef which clears the
+     * pool slot s_Bodies[bodynum].modeldef. */
+    catalogManagerResetBodyModeldef(bodynum);
 }
 
 void catalogResetHeadModeldef(s32 headnum)
@@ -1475,15 +1485,12 @@ void catalogResetHeadModeldef(s32 headnum)
 
 void catalogResetAllModeldefs(void)
 {
-    s32 i;
-    /* Catalog Gate 3 F4 (decision I.4 Option B): reset manager-owned
-     * head modeldef caches first, then continue the legacy walk for
-     * bodies-side caches.  Bodies session removes the legacy walk
-     * once the bodies-side cache also lives in a manager pool. */
+    /* Catalog Gate 3 Bodies F4: both head and body modeldef caches now
+     * live on their respective manager pools.  The legacy walk over
+     * g_HeadsAndBodies[].modeldef is retired -- bodies F4 closes the
+     * heads F4 deferral.  Each manager owns its slot of the cache. */
     catalogManagerResetAllHeadModeldefs();
-    for (i = 0; g_HeadsAndBodies[i].filenum != 0; i++) {
-        g_HeadsAndBodies[i].modeldef = NULL;
-    }
+    catalogManagerResetAllBodyModeldefs();
 }
 
 /* -------------------------------------------------------------------------
@@ -1602,7 +1609,8 @@ s32 catalogGetBodyAnimScaleChecked(s32 bodynum, f32 *out_value)
         }
         return 0;
     }
-    if (out_value) { *out_value = g_HeadsAndBodies[bodynum].animscale; }
+    /* Catalog Gate 3 Bodies F2: route through manager. */
+    if (out_value) { *out_value = catalogGetBodyAnimScale(bodynum); }
     return 1;
 }
 
@@ -1622,7 +1630,8 @@ s32 catalogGetBodyHandFilenumChecked(s32 bodynum, s32 *out_value)
         }
         return 0;
     }
-    if (out_value) { *out_value = (s32)g_HeadsAndBodies[bodynum].handfilenum; }
+    /* Catalog Gate 3 Bodies F2: route through manager. */
+    if (out_value) { *out_value = catalogGetBodyHandFilenum(bodynum); }
     return 1;
 }
 

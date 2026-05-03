@@ -126,7 +126,7 @@ endif()
 # GitHub release prerelease flag, not by the version number itself.
 set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
 set(VERSION_SEM_MINOR 0 CACHE STRING "Semantic version minor")
-set(VERSION_SEM_PATCH 183 CACHE STRING "Semantic version revision")
+set(VERSION_SEM_PATCH 189 CACHE STRING "Semantic version revision")
 
 set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
 
@@ -660,6 +660,20 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_heads.c
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_heads_pure.c
 
+  # Catalog Gate 3 Bodies F1: catalog manager for character bodies.
+  # assetcatalog_api.c (F2) routes catalogGetBodyX accessors through the
+  # manager, so the server build needs this link too. Manager file is
+  # PD_SERVER-aware (modeldef lazy-load gated).
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_bodies.c
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_bodies_pure.c
+
+  # Catalog Gate 3 Arenas F1: catalog manager for MP arenas.
+  # The pd-server build includes the manager so loader_pdbase.c
+  # (which links into pd-server's manager-side accessors) compiles
+  # cleanly. Manager has no modeldef cache, no rng dependency.
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_arenas.c
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_arenas_pure.c
+
   # INV-4: pure helpers for matchOptionsForceBit / matchOptionsRestoreUserOriginal.
   # matchsetup.c references them at matchStart restore; without this
   # source link pd-server would fail.
@@ -989,6 +1003,40 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_heads_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_mgr_heads_api.cpp
 
+  # Catalog Gate 3 Bodies F1: catalog manager for character bodies (pure validators).
+  # Live router lives in port/src/catalog_mgr_bodies.c and pulls in
+  # g_HeadsAndBodies[]; only the pure layer is linked here so pd-tests
+  # stays globals-free.
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_bodies_pure.c
+  ${CMAKE_SOURCE_DIR}/tests/test_catalog_mgr_bodies_api.cpp
+
+  # Catalog Gate 3 Arenas F1: catalog manager for MP arenas (pure validators).
+  # Live router lives in port/src/catalog_mgr_arenas.c and walks
+  # ASSET_ARENA catalog rows; only the pure layer is linked here so
+  # pd-tests stays globals-free.
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_arenas_pure.c
+  ${CMAKE_SOURCE_DIR}/tests/test_catalog_mgr_arenas_api.cpp
+
+  # Catalog Gate 3 Arenas F11 + F12: pin the .pdbase archive shape +
+  # the parser / parity-check static contract. Static-text grep against
+  # base/arenas.pdbase + port/src/loader_pdbase.c + catalog_mgr_arenas.c
+  # + main.c.
+  ${CMAKE_SOURCE_DIR}/tests/test_loader_pdbase_arenas.cpp
+
+  # Catalog Gate 3 Arenas F13: grep-guard test. Pins that no NEW
+  # direct g_MpArenas[idx].field reads exist outside the registration
+  # loop in assetcatalog_base.c and the static literal definitions
+  # (setup.c + server_stubs.c). The 2026-04-26 selector-pool migration
+  # eliminated the live-UI consumers; the 2026-05-02 Gate 3 data
+  # migration retired the parity bridge.
+  ${CMAKE_SOURCE_DIR}/tests/test_arena_direct_reads_audit.cpp
+
+  # Catalog Phase 3 Pass B Slice 10 (2026-05-02): voice retag
+  # static-text pins. Verifies the seven voice-config slot set,
+  # the registration loop's category-passing shape, the PD_SERVER
+  # guard, and the g_NumAudioRussMappings symbol surface.
+  ${CMAKE_SOURCE_DIR}/tests/test_audio_voice_retag.cpp
+
   # S484 F2: pin weaponFindById's migration to the catalog manager.
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_findbyid_migrated.cpp
 
@@ -998,6 +1046,18 @@ set(SRC_TESTS
 
   # S484 F10: pin the .pdbase loader scaffold's static contract.
   ${CMAKE_SOURCE_DIR}/tests/test_loader_pdbase_scan.cpp
+
+  # Phase 3 Pass B Slice 13: pin UI chrome paths to base/ui/textures.
+  # Static-text grep against pdgui_theme.cpp + pdgui_theme.h.  Audit at
+  # context/audits/catalog-phase3-passb-slice13-uichrome-2026-05-02.md.
+  ${CMAKE_SOURCE_DIR}/tests/test_uichrome_paths_pin.cpp
+
+  # Phase 3 Pass D: pin self-heal hardening surfaces.  Static-text grep
+  # against romextract.{c,h} + main.c locks the LOUDFAIL.LOAD channel,
+  # the DATA INTEGRITY summary line, the data/_quarantine/ migration,
+  # the toast-emit cap, and the boot wiring order.  Audit at
+  # context/audits/catalog-phase3-passd-self-heal-2026-05-02.md.
+  ${CMAKE_SOURCE_DIR}/tests/test_romextract_passd.cpp
 )
 
 add_executable(pd-tests ${SRC_TESTS})

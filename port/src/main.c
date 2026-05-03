@@ -17,6 +17,7 @@
 #include "inputctx.h"
 #include "fs.h"
 #include "romdata.h"
+#include "romextract.h"
 #include "config.h"
 #include "modmgr.h"
 #include "modelcatalog.h"
@@ -55,6 +56,8 @@
 #include "assetcatalog_cache.h"
 #include "loader_pdbase.h"
 #include "catalog_mgr_heads.h"
+#include "catalog_mgr_bodies.h"
+#include "catalog_mgr_arenas.h"
 #include "game/stagetable.h"
 #include "game/chr.h"
 
@@ -277,6 +280,66 @@ int main(int argc, const char **argv)
 	// We proceed in all cases; this is an integrity check, not a gate.
 	catalogCacheVerifyRom(g_RomName, NULL);
 
+	/* Phase 3 Pass A.2 (2026-05-02): first-launch ROM file extraction.
+	 * Walks the ROM file table and writes each non-empty file slot to
+	 * data/<romid>/files/<name>.bin.  Idempotent (skips files already
+	 * extracted with matching size).  Subsequent Phase 3 slices migrate
+	 * per-class catalog bindings from RomProvider to FileProvider so
+	 * the runtime reads from disk; once every class is on disk Pass C
+	 * retires the runtime ROM mapping entirely.
+	 *
+	 * Order: AFTER romdataInit (g_RomFile + fileSlots populated) and
+	 * BEFORE assetCatalogScanComponents (so extracted bytes are pure
+	 * ROM, not mod-overridden).  Pass A.4 will add SHA-256 verification
+	 * + quarantine + re-extract on top of the size-only idempotency
+	 * check that ships here. */
+	romExtractAllFiles();
+
+	/* Phase 3 Pass A.4 (2026-05-02): hash-verify-on-launch self-heal.
+	 * Scans data/<romid>/files/ sidecars, checks each .bin against its
+	 * stored SHA-256, quarantines + re-extracts mismatches.  Emits
+	 * LOUDFAIL.LOAD on any corruption found.  Idempotent and cheap on
+	 * a clean install. */
+	romExtractVerifyAll();
+
+	/* Phase 3 Pass B Slices 2/5/6/8/11 (2026-05-02): segment extraction.
+	 * Walk every loaded ROM segment (sfxctl/sfxtbl, seqctl/seqtbl,
+	 * sequences, animations, fonts, mp* tables, textures, copyright)
+	 * and write to data/<romid>/segs/<name>.bin.  romdataInitSegment
+	 * already prefers the per-romid path on subsequent boots so the
+	 * runtime reads segments from disk.  This covers Slice 2 (SFX
+	 * bank), Slice 5 (character sounds), Slice 6 (animations), Slice 8
+	 * (prop sounds), Slice 11 (music sequences) in one infrastructure
+	 * push because they all share the segment loader path.
+	 *
+	 * Note: must run AFTER romdataInit (segments populated) but the
+	 * order vs assetCatalogRegisterBaseGame doesn't matter for segments
+	 * because segments are not catalog-bound at the per-asset level
+	 * (they're loaded en bloc by the segment loader). */
+	romExtractAllSegments();
+	romExtractVerifyAllSegments();
+
+	/* Phase 3 Pass D (2026-05-02): emit the aggregated boot integrity
+	 * report.  Single LOG_NOTE line summarising files+segs verified,
+	 * re-extracted, and unrecoverable.  If non-zero corruption was
+	 * found, defers a system toast that romExtractToastDrain (called
+	 * after gameInit) will surface to the player.  Pure read of the
+	 * counters populated by the verify pair above; safe to run before
+	 * the Pass C ROM release. */
+	romExtractEmitBootIntegrityReport();
+
+	/* Phase 3 Pass C (2026-05-02): drop the in-memory ROM mapping.
+	 * Pass A.2/A.4 + Pass B segment extract/verify guarantee every byte
+	 * needed by the runtime is already on disk under data/<romid>/.
+	 * romdataReleaseRom migrates SRC_ROM segments to heap-backed copies
+	 * loaded from disk, NULLs out the lazy fileSlot pointers that
+	 * referenced g_RomFile + ofs, then frees g_RomFile.  Subsequent
+	 * romdataFileLoad calls route SRC_UNLOADED slots through the
+	 * per-romid extracted file path; the legacy SRC_ROM fallback
+	 * LOUD-FAILs because g_RomFile is NULL.  Architectural finish line
+	 * for catalog migration: the runtime never touches the ROM directly. */
+	romdataReleaseRom();
+
 	netInit();
 
 	g_ValidGbcRomFound = romdataCheckGbcRom();
@@ -300,6 +363,20 @@ int main(int argc, const char **argv)
 	// 3. Scan mod _components/ directories and register INI-described assets
 	assetCatalogInit();
 	assetCatalogRegisterBaseGame();
+	/* Catalog coverage audit (2026-05-01) Section 3.A closure: register
+	 * the per-stage scene file IDs (bg / tile / pads / setup / mpsetup)
+	 * carried on g_Stages[] as ASSET_MODEL entries with source_filenum
+	 * binding. Without this, romdataFileLoad's catalogResolveFile path
+	 * cannot route mod overrides for stage scene files (a player ship
+	 * a custom map cannot replace its BG geometry, collision data, or
+	 * mission setup script through the standard mod mechanism). See
+	 * assetCatalogRegisterStageSceneFiles docblock for full rationale.
+	 *
+	 * Order: AFTER assetCatalogRegisterBaseGame so g_Stages is populated
+	 * AND ASSET_MAP entries exist; BEFORE catalogLoadInit so the new
+	 * source_filenum bindings land in the s_FilenumOverride[] reverse
+	 * index on its single build pass. */
+	assetCatalogRegisterStageSceneFiles();
 	{
 		const char *modsdir = modmgrGetModsDir();
 		if (modsdir) {
@@ -314,6 +391,16 @@ int main(int argc, const char **argv)
 	// s_Heads[152] mirror from g_HeadsAndBodies[] for the parity-period
 	// bridge. F12 swaps the data source to base/heads.pdbase pool.
 	catalogManagerHeadInit();
+
+	// Catalog Gate 3 Bodies F1: body manager init. Builds the parallel
+	// s_Bodies[152] mirror from g_HeadsAndBodies[] for the parity-period
+	// bridge. F12 swaps the data source to base/bodies.pdbase pool.
+	catalogManagerBodyInit();
+
+	// Catalog Gate 3 Arenas F1: arena manager init. Walks ASSET_ARENA
+	// catalog rows and populates s_Arenas[47] for the parity-period
+	// bridge. F12 swaps the data source to base/arenas.pdbase pool.
+	catalogManagerArenaInit();
 
 	// S484 F13: scan base/*.pdbase + populate the catalog manager's typed
 	// weapon pools. Manager accessors are pool-backed once
@@ -339,6 +426,19 @@ int main(int argc, const char **argv)
 		}
 		if (pdb_result.heads_registered > 0) {
 			loaderPdbaseBuildHeadManager();
+		}
+		if (pdb_result.bodies_registered > 0) {
+			loaderPdbaseBuildBodyManager();
+		}
+		if (pdb_result.arenas_registered > 0) {
+			loaderPdbaseBuildArenaManager();
+			/* Catalog Gate 3 Arenas F12: compare loader pool fields
+			 * against ASSET_ARENA catalog rows (which were populated
+			 * from g_MpArenas[] + s_ArenaNames[] + s_ArenaGroupMap[]).
+			 * Mismatches log LOADER.PDBASE.ARENA.PARITY_FAIL: lines.
+			 * F13 retires the parity bridge once Mike's playtest
+			 * confirms PASS. */
+			loaderPdbaseRunParityCheckArenas();
 		}
 	}
 
@@ -372,7 +472,11 @@ int main(int argc, const char **argv)
 	}
 
 	sysLogPrintf(LOG_NOTE, "memp heap at %p - %p", g_MempHeap, g_MempHeap + g_MempHeapSize);
-	sysLogPrintf(LOG_NOTE, "rom  file at %p - %p", g_RomFile, g_RomFile + g_RomFileSize);
+	if (g_RomFile) {
+		sysLogPrintf(LOG_NOTE, "rom  file at %p - %p", g_RomFile, g_RomFile + g_RomFileSize);
+	} else {
+		sysLogPrintf(LOG_NOTE, "rom  file released (Phase 3 Pass C): runtime reads disk-only");
+	}
 
 	/* NOTE: catalogValidateAll() was previously here, but it calls
 	 * modeldefLoadToNew() -> mempAlloc() which requires the pool system.
@@ -426,6 +530,16 @@ int main(int argc, const char **argv)
 			g_PlayerConfigsArray[i].options |= OPTION_FORWARDPITCH;
 		}
 	}
+
+	/* Phase 3 Pass D (2026-05-02): drain the boot-deferred toast queue.
+	 * romExtractVerifyAll / romExtractVerifyAllSegments populated the
+	 * queue if they detected hash-mismatch + recovery / unrecoverable
+	 * outcomes earlier in boot.  romExtractEmitBootIntegrityReport may
+	 * have queued an aggregate toast as well.  Replay them now with
+	 * fresh enqueued_ms timestamps so the toast renderer (kicks in once
+	 * mainProc enters its loop) shows them as fresh notifications.
+	 * Server build: no-op. */
+	romExtractToastDrain();
 
 	mainProc();
 

@@ -484,3 +484,30 @@ asset_data_handle_t fileProviderHandle(const char *path)
     return h;
 }
 const char *fileProviderPath(asset_data_handle_t h)          { (void)h; return NULL; }
+
+/* --- Catalog Gate 3 Bodies close-out (2026-05-02): restore pd-server link.
+ * The shared assetcatalog_base*.c registration code calls into client-only
+ * subsystems that the server source list never compiles. Each of these
+ * call sites is reached at startup but the server skips
+ * assetCatalogRegisterBaseGame entirely (no ROM data), so these stubs
+ * simply satisfy the linker. None of them is reachable from server_main. */
+
+/* romextract.c -- client only; server has no ROM to extract. */
+s32 romExtractRelPathForFilenum(s32 fileNum, char *outRel, s32 outRelLen)
+{
+	(void)fileNum; (void)outRel; (void)outRelLen;
+	return 0;
+}
+
+/* lang.c -- client only; server has no language banks loaded. */
+s32 langGetFileId(s32 bank) { (void)bank; return -1; }
+
+/* catalog_mgr_weapons.c -- client only; server has no weapon data table. */
+struct weapon;
+struct weapon *catalogManagerGetWeaponByIndex(s32 weapon_id) { (void)weapon_id; return NULL; }
+s32 catalogManagerWeaponCount(void) { return 0; }
+
+/* bondgun.c g_CartFileNums[] -- client only; server has no cart casing
+ * model registration. assetcatalog_base_extended.c declares the extern
+ * but the registration loop is reachable only via assetCatalogRegisterBaseGame. */
+u16 g_CartFileNums[1] = {0};

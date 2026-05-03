@@ -26,18 +26,25 @@
  */
 
 #include <PR/ultratypes.h>
+#include <stddef.h>
 #include <string.h>
 #include <stdio.h>
 #include "types.h"
 #include "constants.h"
 #include "assetcatalog.h"
+#include "fs.h"          /* Phase 3 Pass B: fsFullPath probe of extracted file */
+#include "romextract.h"  /* Phase 3 Pass B: romExtractRelPathForFilenum */
 #include "system.h"
 #include "data.h"
 #include "game/mplayer/scenarios.h"
 #include "game/lang.h"
 /* S484-followup (2026-05-01): weapon model file registration reads
- * hi_model / lo_model out of the loader-populated weapon pool. */
+ * hi_model / lo_model out of the loader-populated weapon pool.
+ * Client-only: pd-server doesn't link catalog_mgr_weapons.c (the loader
+ * pool is never populated server-side), so guard the include too. */
+#if !defined(PD_SERVER)
 #include "catalog_mgr_weapons.h"
+#endif
 
 /* Catalog universality sweep (2026-04-27): externs for sources that
  * carry the unlock-state fields the catalog now mirrors.  Layer A
@@ -225,9 +232,80 @@ static const struct {
  * Per sfx.h comment: "There are 1545 (0x609) sound effects in the bank."
  * The high-bit mapped entries (SFX_8000+) are internal aliases remapped by
  * snd.c and are not registered as separate catalog entries.
- * category = 0 (AUDIO_CAT_SFX) for all base SFX entries.
+ *
+ * Per Phase 3 Pass B Slice 10 (2026-05-02), entries whose russ-id falls
+ * inside g_AudioRussMappings[] AND whose audioconfig is one of the seven
+ * voice-only slots register as AUDIO_CAT_VOICE; remaining base SFX
+ * register as AUDIO_CAT_SFX (category = 0). See
+ * context/audits/catalog-phase3-slice10-voice-retag-2026-05-02.md
+ * for the full inventory + the criteria.
+ *
+ * Phase 3 Pass B Slice 12 close-out (2026-05-02): the SFX alias range
+ * (0x8000+) deliberately stays unregistered.  Mods can already override
+ * leaf-level SFX through the 1545 ASSET_AUDIO entries below; alias-
+ * range IDs decode to (confignum + russ-mapping) inside snd.c
+ * BEFORE catalogResolveSound runs, so leaf-level overrides automati-
+ * cally apply to the post-mapping result.  Direct alias override
+ * would require growing LOAD_MAX_SOUNDS from 4096 to 65536 (256 KB
+ * array) plus parallel-index plumbing for marginal value with no
+ * live use case.  Mike's named "Farsight fire SFX plays a voiceline"
+ * regression closed via Phase 2 Commit 4 (L_GUN regen, dev 68fb0ae3)
+ * + S484-followup-5 (SFX enum drift).  See coverage audit
+ * context/audits/catalog-coverage-audit-2026-05-01.md Section 3.D
+ * (ACCEPTED LIMIT) and Phase 3 plan
+ * context/designs/catalog/catalog-rom-once-phase3-plan-2026-05-02.md
+ * Slice 12 for the architectural rationale.
  */
 #define NUM_BASE_SFX_ENTRIES 1545
+
+/* ========================================================================
+ * Phase 3 Pass B Slice 10 (2026-05-02): voice retag predicate.
+ *
+ * The russ table at src/lib/snd.c:178 maps russ-id (0..0x01bc) to
+ * { soundnum, audioconfig_index }. Seven of the audioconfig slots are
+ * exclusively used by voice content (per the russ-table inline comments
+ * and config-flag patterns; see audit Section B.2). Catalog SFX entries
+ * whose runtime_index lies in the russ-table range AND whose paired
+ * audioconfig is one of these seven slots get tagged AUDIO_CAT_VOICE
+ * instead of the default AUDIO_CAT_SFX.
+ *
+ * The slot enumerator names live in src/lib/snd.c::enum audioconfig_e
+ * which is file-local; this TU mirrors the integer literals here. The
+ * enum is dense sequential and stable per snd.c:105-176.
+ *
+ * AUDIOCONFIG_62 only exists on NTSC-1.0+ builds; the russ entries
+ * that reference it are gated on the same VERSION macro, so the
+ * predicate's #if guard keeps version determinism.
+ * ======================================================================== */
+#if !defined(PD_SERVER)
+#ifndef AUDIOCONFIG_01
+#define AUDIOCONFIG_01 1
+#define AUDIOCONFIG_02 2
+#define AUDIOCONFIG_03 3
+#define AUDIOCONFIG_47 47
+#define AUDIOCONFIG_48 48
+#define AUDIOCONFIG_60 60
+#define AUDIOCONFIG_62 62
+#endif
+
+static s32 s_audioConfigIsVoice(s32 audioconfig_idx)
+{
+	switch (audioconfig_idx) {
+	case AUDIOCONFIG_01:
+	case AUDIOCONFIG_02:
+	case AUDIOCONFIG_03:
+	case AUDIOCONFIG_47:
+	case AUDIOCONFIG_48:
+	case AUDIOCONFIG_60:
+#if VERSION >= VERSION_NTSC_1_0
+	case AUDIOCONFIG_62:
+#endif
+		return 1;
+	default:
+		return 0;
+	}
+}
+#endif /* !PD_SERVER */
 
 /* ========================================================================
  * Music Track Table (base game)
@@ -540,13 +618,32 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 		count += n;
 	}
 
-	/* ---- audio ---- */
+	/* ---- audio (SFX + Phase 3 Slice 10 voice retag) ---- */
 	{
-		s32 n = 0;
+#if !defined(PD_SERVER)
+		/* The russ table lives in src/lib/snd.c which is client-only.
+		 * Server builds get plain SFX classification for every entry;
+		 * pd-server has no audio runtime and never consults the
+		 * voice/SFX distinction. */
+		const s32 russCount = g_NumAudioRussMappings;
+#else
+		const s32 russCount = 0;
+#endif
+		s32 sfx_n = 0;
+		s32 voice_n = 0;
 		for (s32 i = 0; i < NUM_BASE_SFX_ENTRIES; i++) {
 			snprintf(idbuf, sizeof(idbuf), "base:sfx_%04x", i);
+			s32 category = AUDIO_CAT_SFX;
+#if !defined(PD_SERVER)
+			if (i < russCount &&
+				s_audioConfigIsVoice((s32)g_AudioRussMappings[i].audioconfig_index)) {
+				category = AUDIO_CAT_VOICE;
+			}
+#else
+			(void)russCount;
+#endif
 			asset_entry_t *e = assetCatalogRegisterAudio(
-				idbuf, i, "", 0, 0, "");
+				idbuf, i, "", category, 0, "");
 			if (!e) {
 				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register audio %s", idbuf);
 				continue;
@@ -555,10 +652,13 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = i;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
-			n++;
+			if (category == AUDIO_CAT_VOICE) voice_n++;
+			else                              sfx_n++;
 		}
-		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base audio entries (SFX)", n);
-		count += n;
+		sysLogPrintf(LOG_NOTE,
+			"assetcatalog: registered %d base audio entries (%d SFX + %d VOICE)",
+			sfx_n + voice_n, sfx_n, voice_n);
+		count += sfx_n + voice_n;
 	}
 
 	/* ---- music tracks (AUDIO_CAT_MUSIC) ---- */
@@ -702,9 +802,9 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = i;
 			e->source_filenum = (s32)g_ModelStates[i].fileid;
-			/* Asset Provider: base prop models are served by RomProvider. */
+			/* Phase 3 Pass B Slice 7: disk-or-ROM bind for prop models. */
 			if (e->source_filenum > 0) {
-				catalogSetPrimaryRomFilenum(e, e->source_filenum);
+				catalogBindPrimaryFromDiskOrRom(e, e->source_filenum);
 			}
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
@@ -758,7 +858,8 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = -handfilenum;
 			e->source_filenum = handfilenum;
-			catalogSetPrimaryRomFilenum(e, e->source_filenum);
+			/* Phase 3 Pass B Slice 4 (hand model variant): disk-or-ROM bind. */
+			catalogBindPrimaryFromDiskOrRom(e, e->source_filenum);
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
@@ -768,7 +869,22 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 		count += n;
 	}
 
-	/* ---- lang banks (Phase 3: manifest-based lang loading) ---- */
+	/* ---- lang banks (Phase 3: manifest-based lang loading) ----
+	 *
+	 * Catalog coverage audit (2026-05-01) Section 3.E closure: bind
+	 * each ASSET_LANG entry to its ROM source filenum via
+	 * langGetFileId(bank_id) so catalogResolveFile picks them up in
+	 * the s_FilenumOverride[] reverse index.  Without this, mods
+	 * cannot override language banks: a mod that ships a replacement
+	 * weapon-name string table or scenario briefing translation has
+	 * no way to redirect lang.c's assetLoadRomToNew(langGetFileId(...))
+	 * call to a mod-supplied file.
+	 *
+	 * The bank_id-to-filenum map (g_LangFiles[bank] + JPN offset)
+	 * lives in src/game/lang.c.  Calling langGetFileId at registration
+	 * time pins the binding.  langGetFileNumOffset depends on g_Jpn
+	 * which is decided before assetCatalogRegisterBaseGameExtended
+	 * runs, so the offset is stable here. */
 	{
 		s32 n = 0;
 		s32 i;
@@ -785,9 +901,17 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->ext.lang.bank_id = s_BaseLangBanks[i].bank_id;
 			/* ENABLED not LOADED: langLoad() must be called explicitly */
 			e->load_state = ASSET_STATE_ENABLED; e->ref_count = 0;
+			/* Section 3.E closure: bind to ROM filenum so mods can
+			 * override individual language banks via the standard
+			 * romdataFileLoad mod-override path. */
+			s32 fnum = langGetFileId(s_BaseLangBanks[i].bank_id);
+			if (fnum > 0) {
+				/* Phase 3 Pass B Slice 3: disk-or-ROM bind for lang banks. */
+				catalogBindPrimaryFromDiskOrRom(e, fnum);
+			}
 			n++;
 		}
-		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base lang banks", n);
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base lang banks (with source_filenum)", n);
 		count += n;
 	}
 
@@ -854,6 +978,11 @@ s32 assetCatalogRegisterBaseGameExtended(void)
  * to the bondgun.c throttle), not silently routed through ROM. Pressure
  * stays on the registration side to be complete.
  */
+/* Client-only: depends on catalogManager* (catalog_mgr_weapons.c) and
+ * g_CartFileNums (bondgun.c), neither of which is in the pd-server source
+ * list. The function is called only from port/src/main.c after the loader
+ * populates the weapon pool, which never happens on a dedicated server. */
+#if !defined(PD_SERVER)
 extern u16 g_CartFileNums[];
 
 s32 assetCatalogRegisterWeaponModelFiles(void)
@@ -912,7 +1041,9 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 			 * -handfilenum, max ~16-bit) untouched. */
 			e->runtime_index = -(100000 + fnum);
 			e->source_filenum = fnum;
-			catalogSetPrimaryRomFilenum(e, fnum);
+			/* Phase 3 Pass B Slice 1: disk-or-ROM bind for weapon /
+			 * cart model files. */
+			catalogBindPrimaryFromDiskOrRom(e, fnum);
 			e->load_state = ASSET_STATE_LOADED;
 			e->ref_count = ASSET_REF_BUNDLED;
 			registered++;
@@ -953,7 +1084,9 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 			e->enabled = 1;
 			e->runtime_index = -(100000 + fnum);
 			e->source_filenum = fnum;
-			catalogSetPrimaryRomFilenum(e, fnum);
+			/* Phase 3 Pass B Slice 1: disk-or-ROM bind for weapon /
+			 * cart model files. */
+			catalogBindPrimaryFromDiskOrRom(e, fnum);
 			e->load_state = ASSET_STATE_LOADED;
 			e->ref_count = ASSET_REF_BUNDLED;
 			registered++;
@@ -964,5 +1097,121 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 		"assetcatalog: registered %d weapon-pipeline model files (ASSET_MODEL); "
 		"skipped %d already-registered, %d zero filenums",
 		registered, skipped_dup, skipped_zero);
+	return registered;
+}
+#endif /* !PD_SERVER */
+
+/* ========================================================================
+ * Catalog coverage audit (2026-05-01) Section 3.A:
+ * stage scene file registration
+ * ========================================================================
+ *
+ * The stagetableentry struct carries five per-stage file IDs:
+ *   bgfileid       -- BG geometry segment (read by bg.c::bgLoadFile)
+ *   tilefileid     -- collision tile data (read by tilesreset.c)
+ *   padsfileid     -- collision pad placement (read by setup.c)
+ *   setupfileid    -- SP mission setup script (read by setup.c)
+ *   mpsetupfileid  -- MP setup script (read by setup.c, MP-class stages)
+ *
+ * Each is a ROM filenum. Pre-this-pass none had a catalog entry, so
+ * `catalogResolveFile(filenum)` returned no override and mods could
+ * not redirect any of these per-stage scene assets.
+ *
+ * Closure: walk g_Stages[] and register each non-zero scene-file ID
+ * as ASSET_MODEL with `source_filenum` binding plus
+ * `catalogSetPrimaryRomFilenum`. Same pattern as
+ * assetCatalogRegisterWeaponModelFiles (cartridge / hand / hi+lo
+ * model files). The discriminator is the catalog ID slug
+ * ("base:stage_<class>_<filenum>") so a future migration to dedicated
+ * ASSET_BG / ASSET_TILES / ASSET_PADS / ASSET_SETUP types can rename
+ * without breaking on-wire identity (these IDs are not referenced from
+ * mods or saves today).
+ *
+ * Negative `runtime_index` keeps clear of g_ModelStates[] MODEL_*
+ * indices and the hand / weapon / cart model schemes (which already
+ * use -(100000 + fnum)). Stage scene files use -(200000 + fnum) to
+ * separate the namespace.
+ *
+ * Idempotent: dedup against any existing ASSET_MODEL with same
+ * source_filenum. Multiple stages may share files (e.g. mod stages
+ * pointing at base BG); the first registration wins, subsequent
+ * stages see the existing entry and skip.
+ *
+ * Server build: g_NumStages == 0 server-side per stageTableInit guard,
+ * so the function returns early with zero registrations.
+ *
+ * No legacy ROM fallback in consumers. The existing romdataFileLoad
+ * plumbing already consults catalogResolveFile, so this registration
+ * alone is sufficient to enable mod overrides for stage scene files.
+ * Strict-handle migration of the five consumer call sites is a
+ * separate hardening pass tracked in the audit doc.
+ */
+s32 assetCatalogRegisterStageSceneFiles(void)
+{
+	char idbuf[CATALOG_ID_LEN];
+	s32 registered = 0;
+	s32 skipped_dup = 0;
+	s32 skipped_zero = 0;
+
+	if (g_NumStages <= 0) {
+		/* Server build (no ROM data) or stage table not yet built. */
+		return 0;
+	}
+
+	struct {
+		const char *slug;
+		size_t      offset; /* offsetof in stagetableentry, declared inline below */
+	} kFileSlots[5] = {
+		{ "bg",      offsetof(struct stagetableentry, bgfileid)      },
+		{ "tile",    offsetof(struct stagetableentry, tilefileid)    },
+		{ "pads",    offsetof(struct stagetableentry, padsfileid)    },
+		{ "setup",   offsetof(struct stagetableentry, setupfileid)   },
+		{ "mpsetup", offsetof(struct stagetableentry, mpsetupfileid) },
+	};
+
+	for (s32 si = 0; si < g_NumStages; si++) {
+		const struct stagetableentry *st = &g_Stages[si];
+		for (s32 fi = 0; fi < 5; fi++) {
+			const u16 *p = (const u16 *)((const u8 *)st + kFileSlots[fi].offset);
+			const s32 fnum = (s32)*p;
+
+			if (fnum <= 0) {
+				skipped_zero++;
+				continue;
+			}
+
+			asset_data_handle_t existing =
+				catalogHandleBySourceFilenum(ASSET_MODEL, fnum);
+			if (!assetHandleIsNull(existing)) {
+				skipped_dup++;
+				continue;
+			}
+
+			snprintf(idbuf, sizeof(idbuf),
+				"base:stage_%s_%04x", kFileSlots[fi].slug, (u32)fnum);
+			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
+			if (!e) {
+				sysLogPrintf(LOG_ERROR,
+					"assetcatalog: failed to register stage scene file %s",
+					idbuf);
+				continue;
+			}
+			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1;
+			e->enabled = 1;
+			e->runtime_index = -(200000 + fnum);
+			/* Phase 3 Pass B Slice 9: disk-or-ROM bind for stage
+			 * scene files (bg / tile / pads / setup / mpsetup). */
+			catalogBindPrimaryFromDiskOrRom(e, fnum);
+			e->load_state = ASSET_STATE_LOADED;
+			e->ref_count = ASSET_REF_BUNDLED;
+			registered++;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"assetcatalog: registered %d stage scene files across %d stages "
+		"(ASSET_MODEL); skipped %d already-registered, %d zero filenums",
+		registered, g_NumStages, skipped_dup, skipped_zero);
 	return registered;
 }

@@ -243,6 +243,16 @@ typedef struct asset_entry {
              *      arenas so the user can fly around without anything
              *      triggering / dying / cutscenes playing. */
             u8  load_mode;
+            /* Catalog Gate 3 Arenas F7: archive-relative resolution.
+             * Empty until the loader populates them at startup. Non-empty
+             * means the arena record lives in base/arenas.pdbase at the
+             * given offset/size; loader_pdbase populates these at scan
+             * time and the manager s_get checks loaderPdbaseArenasActive
+             * to decide which source to read. Mirrors the heads / bodies
+             * F7 fields. */
+            char pdbase_path[128];
+            u32  pdbase_offset;
+            u32  pdbase_size;
         } arena;
         struct {
             s16 bodynum;               /* global body ID in g_HeadsAndBodies[] */
@@ -270,6 +280,17 @@ typedef struct asset_entry {
              * Future subdivisions (e.g. splitting DEFAULT into neck-variant
              * sub-buckets) land as data edits here; no code changes needed. */
             char rig_class[32];
+            /* Catalog Gate 3 Bodies F7: archive-relative resolution.
+             * Empty string means the body lives in the legacy
+             * g_HeadsAndBodies[] table (parity-period source). Non-empty
+             * means the body record lives in base/bodies.pdbase at the
+             * given offset/size; loader_pdbase populates these at scan
+             * time and the manager s_get checks loaderPdbaseBodiesActive
+             * to decide which source to read.  Mirrors the heads F7
+             * fields. */
+            char pdbase_path[128];
+            u32  pdbase_offset;
+            u32  pdbase_size;
         } body;
         struct {
             s16 headnum;               /* global head ID in g_HeadsAndBodies[] */
@@ -868,6 +889,25 @@ void catalogSetPrimaryFile(asset_entry_t *entry, const char *path);
 void catalogSetPrimaryRomFilenum(asset_entry_t *entry, s32 filenum);
 void catalogSetOverride(asset_entry_t *entry, asset_data_handle_t handle);
 void catalogClearOverride(asset_entry_t *entry);
+
+/* Phase 3 Pass B (2026-05-02): convenience binder for every Phase 3
+ * slice that migrates a base-game ASSET_* entry from RomProvider to
+ * FileProvider.
+ *
+ * Behaviour:
+ *   1. Compute the canonical extracted-file relative path for the
+ *      given ROM filenum via romExtractRelPathForFilenum.
+ *   2. Probe whether the file actually exists on disk now.
+ *   3. If yes: bind FileProvider via catalogSetPrimaryFile.
+ *   4. If no:  fall back to RomProvider via catalogSetPrimaryRomFilenum
+ *      (defensive -- pre-A.2 boot or server build with NULL g_RomFile).
+ *
+ * Pass A.4 self-heal guarantees the file exists with valid SHA-256
+ * by the time gameplay loads run, so the FileProvider branch wins
+ * on every steady-state boot.  RomProvider fallback is only used
+ * during the transient pre-A.2 cohort or in server builds.
+ */
+void catalogBindPrimaryFromDiskOrRom(asset_entry_t *entry, s32 filenum);
 
 /**
  * Effective load source for an entry — `override` if non-null, otherwise

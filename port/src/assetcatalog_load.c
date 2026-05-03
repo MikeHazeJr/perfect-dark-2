@@ -203,11 +203,23 @@ CatalogResolveResult catalogResolveFile(s32 filenum)
     }
 
     r.catalog_id = idx;
-    if (!e->bundled) {
+    /* Phase 3 Pass B (2026-05-02): disk-load routing now considers
+     * the source.primary provider, not just the bundled flag.  An
+     * entry whose primary handle is FileProvider routes to disk
+     * regardless of bundled state -- this is how base-game content
+     * migrates from RomProvider to FileProvider per slice without
+     * requiring a separate "bundled-on-disk" flag.  is_mod_override
+     * keeps its name for backward compat with consumers that just
+     * check the boolean to decide "do I have a disk path"; the more
+     * accurate name would be is_disk_load.  Renaming is a follow-up. */
+    if (!e->bundled || e->source.primary.provider == fileProvider()) {
         r.path           = entryGetFilePath(e);
-        r.is_mod_override = 1;
+        if (r.path) {
+            r.is_mod_override = 1;
+        }
     }
-    /* bundled: path=NULL, is_mod_override=0 — caller uses ROM */
+    /* Otherwise: bundled with RomProvider primary (or null primary);
+     * caller falls through to the legacy ROM read path. */
     return r;
 }
 
@@ -232,9 +244,12 @@ CatalogResolveResult catalogResolveTexture(s32 texnum)
     }
 
     r.catalog_id = idx;
-    if (!e->bundled) {
+    /* Phase 3 Pass B: same disk-load broadening as catalogResolveFile. */
+    if (!e->bundled || e->source.primary.provider == fileProvider()) {
         r.path           = entryGetFilePath(e);
-        r.is_mod_override = 1;
+        if (r.path) {
+            r.is_mod_override = 1;
+        }
     }
     return r;
 }
@@ -260,9 +275,12 @@ CatalogResolveResult catalogResolveAnim(s32 animnum)
     }
 
     r.catalog_id = idx;
-    if (!e->bundled) {
+    /* Phase 3 Pass B: same disk-load broadening as catalogResolveFile. */
+    if (!e->bundled || e->source.primary.provider == fileProvider()) {
         r.path           = entryGetFilePath(e);
-        r.is_mod_override = 1;
+        if (r.path) {
+            r.is_mod_override = 1;
+        }
     }
     return r;
 }
@@ -288,9 +306,12 @@ CatalogResolveResult catalogResolveSound(s32 soundnum)
     }
 
     r.catalog_id = idx;
-    if (!e->bundled) {
+    /* Phase 3 Pass B: same disk-load broadening as catalogResolveFile. */
+    if (!e->bundled || e->source.primary.provider == fileProvider()) {
         r.path           = entryGetFilePath(e);
-        r.is_mod_override = 1;
+        if (r.path) {
+            r.is_mod_override = 1;
+        }
     }
     return r;
 }

@@ -502,7 +502,9 @@ static const uint32_t *s_activePal(void)
 /* =========================================================================
  * PNG file loading (minimal — loads RGBA from raw RGBA32 .tga files)
  *
- * The base-ui mod stores pre-extracted ROM textures as uncompressed TGA.
+ * The base UI chrome textures (data/ui/textures) are extracted from the
+ * user-supplied ROM at first launch (BYOR tier) and stored as
+ * uncompressed TGA.
  * We load the raw pixel data directly (skip the 18-byte TGA header).
  * ========================================================================= */
 
@@ -892,7 +894,7 @@ static void cjson_skip_value(chrome_jparse *j)
  *
  * Parses mod.json components[] for { "type": "ui" } entries and calls
  * s_registerModTexture for each catalog_id/path pair found.  Overrides
- * are applied on top of the base-ui textures already loaded by
+ * are applied on top of the base UI chrome textures already loaded by
  * pdguiThemeLateInit, and re-applied when modmgrApplyChanges runs.
  * ========================================================================= */
 
@@ -1714,8 +1716,9 @@ const char *pdguiThemeGetTitleBarStyleName(s32 style)
 
 /**
  * Late init: called after texInit()/texReset() have run.
- * Loads UI textures from the base-ui mod (TGA files) or generates
- * procedural fallbacks. Registers all theme textures in the catalog.
+ * Loads UI textures from data/ui/textures (TGA files extracted from
+ * the user-supplied ROM at first launch, BYOR tier) or generates
+ * procedural fallbacks.  Registers all theme textures in the catalog.
  */
 void pdguiThemeLateInit(void)
 {
@@ -1725,37 +1728,44 @@ void pdguiThemeLateInit(void)
     s_ThemeLateInitDone = true;
 
     sysLogPrintf(LOG_NOTE,
-        "PDGUI theme: late init — loading UI textures from base-ui mod");
+        "PDGUI theme: late init - loading UI chrome textures from data/ui/textures");
 
-    /* Texture table: catalog_id → mod file path → procedural fallback */
+    /* Texture table: catalog_id -> on-disk path -> procedural fallback.
+     * On-disk path is data/ui/textures/<name>.tga (BYOR tier; ROM
+     * extraction populates it at first launch.  See Phase 3 Pass B
+     * Slice 13, 2026-05-02 -- corrected from the initial base/ miss-
+     * classification: ROM-extracted content never ships, so it lives
+     * in the BYOR data/ tier alongside the per-romid segs.)
+     * Procedural fallback fires only when the on-disk file is missing
+     * AND the extraction pass has not yet populated it. */
     static const struct {
         const char *catalog_id;
-        const char *mod_path;
+        const char *disk_path;
         const char *proc_name;
         uint32_t    proc_w, proc_h;
     } k_UiTextures[] = {
-        { "base:ui_bg_haze",    "mods/base-ui/textures/ui_bg_haze.tga",    "haze",     64, 64 },
-        { "base:ui_particles",  "mods/base-ui/textures/ui_particles.tga",  "solid",     1,  1 },
-        { "base:ui_noise_sm",   "mods/base-ui/textures/ui_noise_sm.tga",   "noise_sm", 16, 16 },
-        { "base:ui_noise_lg",   "mods/base-ui/textures/ui_noise_lg.tga",   "noise_lg", 16, 16 },
-        { "base:ui_grad_bar",   "mods/base-ui/textures/ui_grad_bar.tga",   "solid",     2,  8 },
-        { "base:ui_mirror_tile","mods/base-ui/textures/ui_mirror_tile.tga", "solid",     8,  8 },
-        { "base:ui_dot_tile",   "mods/base-ui/textures/ui_dot_tile.tga",   "solid",     8,  8 },
-        { "base:ui_nuke",       "mods/base-ui/textures/ui_nuke.tga",       "noise_lg", 64, 64 },
-        { "base:ui_bg_alt",     "mods/base-ui/textures/ui_bg_alt.tga",     "noise_lg", 64, 64 },
-        { "base:ui_deco",       "mods/base-ui/textures/ui_deco.tga",       "solid",    32, 32 },
-        { "base:ui_icon_a",     "mods/base-ui/textures/ui_icon_a.tga",     "solid",    14, 14 },
-        { "base:ui_icon_b",     "mods/base-ui/textures/ui_icon_b.tga",     "solid",    11, 11 },
-        { "base:ui_icon_c",     "mods/base-ui/textures/ui_icon_c.tga",     "solid",    14, 14 },
+        { "base:ui_bg_haze",    "data/ui/textures/ui_bg_haze.tga",    "haze",     64, 64 },
+        { "base:ui_particles",  "data/ui/textures/ui_particles.tga",  "solid",     1,  1 },
+        { "base:ui_noise_sm",   "data/ui/textures/ui_noise_sm.tga",   "noise_sm", 16, 16 },
+        { "base:ui_noise_lg",   "data/ui/textures/ui_noise_lg.tga",   "noise_lg", 16, 16 },
+        { "base:ui_grad_bar",   "data/ui/textures/ui_grad_bar.tga",   "solid",     2,  8 },
+        { "base:ui_mirror_tile","data/ui/textures/ui_mirror_tile.tga", "solid",     8,  8 },
+        { "base:ui_dot_tile",   "data/ui/textures/ui_dot_tile.tga",   "solid",     8,  8 },
+        { "base:ui_nuke",       "data/ui/textures/ui_nuke.tga",       "noise_lg", 64, 64 },
+        { "base:ui_bg_alt",     "data/ui/textures/ui_bg_alt.tga",     "noise_lg", 64, 64 },
+        { "base:ui_deco",       "data/ui/textures/ui_deco.tga",       "solid",    32, 32 },
+        { "base:ui_icon_a",     "data/ui/textures/ui_icon_a.tga",     "solid",    14, 14 },
+        { "base:ui_icon_b",     "data/ui/textures/ui_icon_b.tga",     "solid",    11, 11 },
+        { "base:ui_icon_c",     "data/ui/textures/ui_icon_c.tga",     "solid",    14, 14 },
     };
 
     unsigned loaded = 0, procedural = 0;
     for (unsigned i = 0; i < sizeof(k_UiTextures) / sizeof(k_UiTextures[0]); i++) {
         /* Try loading from mod file first */
         uint32_t w = 0, h = 0;
-        GLuint gl_id = s_loadTgaTexture(k_UiTextures[i].mod_path, &w, &h);
+        GLuint gl_id = s_loadTgaTexture(k_UiTextures[i].disk_path, &w, &h);
         if (gl_id) {
-            sysLogPrintf(LOG_NOTE, "PDGUI theme: '%s' ← mod file (%ux%u)",
+            sysLogPrintf(LOG_NOTE, "PDGUI theme: '%s' <- disk file (%ux%u)",
                          k_UiTextures[i].catalog_id, w, h);
 
             asset_entry_t *e = assetCatalogRegister(k_UiTextures[i].catalog_id, ASSET_UI);
@@ -2159,7 +2169,7 @@ void pdguiThemeDrawScanlineFg(float x, float y, float w, float h)
  * ROM Texture Extraction Tool
  *
  * Extracts UI textures from ROM via texLoadFromConfig(), decodes to RGBA32,
- * and writes as uncompressed TGA files to mods/base-ui/textures/.
+ * and writes as uncompressed TGA files to data/ui/textures/.
  * Also writes PNG files (minimal uncompressed PNG, no zlib dependency)
  * and default 9-slice JSON definitions for panel/button textures.
  *
@@ -2531,7 +2541,7 @@ void pdguiThemeExtractRomTextures(void)
 
         /* Write TGA */
         char path[256];
-        snprintf(path, sizeof(path), "mods/base-ui/textures/%s.tga", k_Extracts[i].filename);
+        snprintf(path, sizeof(path), "data/ui/textures/%s.tga", k_Extracts[i].filename);
 
         if (s_writeTga(path, s_ExtractBuf, w, h)) {
             sysLogPrintf(LOG_NOTE,
@@ -2542,7 +2552,7 @@ void pdguiThemeExtractRomTextures(void)
 
         /* Also write PNG for mod portability */
         char png_path[256];
-        snprintf(png_path, sizeof(png_path), "mods/base-ui/textures/%s.png", k_Extracts[i].filename);
+        snprintf(png_path, sizeof(png_path), "data/ui/textures/%s.png", k_Extracts[i].filename);
         if (s_writePng(png_path, s_ExtractBuf, w, h)) {
             sysLogPrintf(LOG_NOTE,
                 "PDGUI extract: [%d] '%s' → %s (PNG)", idx, k_Extracts[i].filename, png_path);
@@ -2551,7 +2561,7 @@ void pdguiThemeExtractRomTextures(void)
         /* Write default 9-slice definition for panel-sized textures */
         if (w >= 16 && h >= 16) {
             char ns_path[256];
-            snprintf(ns_path, sizeof(ns_path), "mods/base-ui/textures/%s.9slice.json",
+            snprintf(ns_path, sizeof(ns_path), "data/ui/textures/%s.9slice.json",
                      k_Extracts[i].filename);
             if (s_writeNinesliceJson(ns_path, w, h)) {
                 sysLogPrintf(LOG_NOTE,
@@ -2562,7 +2572,7 @@ void pdguiThemeExtractRomTextures(void)
     }
 
     sysLogPrintf(LOG_NOTE,
-        "PDGUI extract: ROM pass done — %u textures extracted to mods/base-ui/textures/",
+        "PDGUI extract: ROM pass done - %u textures extracted to data/ui/textures/",
         extracted);
 
     /* Second pass: generate procedural fallbacks for any TGAs that ROM
@@ -2593,7 +2603,7 @@ void pdguiThemeExtractRomTextures(void)
     unsigned fallback_count = 0;
     for (unsigned i = 0; i < sizeof(k_Fallbacks) / sizeof(k_Fallbacks[0]); i++) {
         char path[256];
-        snprintf(path, sizeof(path), "mods/base-ui/textures/%s.tga",
+        snprintf(path, sizeof(path), "data/ui/textures/%s.tga",
                  k_Fallbacks[i].filename);
 
         /* Check if TGA was already written by the ROM extraction pass */
@@ -2716,30 +2726,30 @@ static void s_generateModernUiTextures(void)
 }
 
 /**
- * List of all expected base-ui TGA filenames (must stay in sync with
+ * List of all expected base UI chrome TGA filenames (must stay in sync with
  * k_UiTextures[] in pdguiThemeLateInit and k_Extracts[] in
  * pdguiThemeExtractRomTextures).
  */
 static const char *k_ExpectedBaseUiTgas[] = {
-    "mods/base-ui/textures/ui_bg_haze.tga",
-    "mods/base-ui/textures/ui_particles.tga",
-    "mods/base-ui/textures/ui_noise_sm.tga",
-    "mods/base-ui/textures/ui_noise_lg.tga",
-    "mods/base-ui/textures/ui_grad_bar.tga",
-    "mods/base-ui/textures/ui_mirror_tile.tga",
-    "mods/base-ui/textures/ui_dot_tile.tga",
-    "mods/base-ui/textures/ui_nuke.tga",
-    "mods/base-ui/textures/ui_bg_alt.tga",
-    "mods/base-ui/textures/ui_deco.tga",
-    "mods/base-ui/textures/ui_icon_a.tga",
-    "mods/base-ui/textures/ui_icon_b.tga",
-    "mods/base-ui/textures/ui_icon_c.tga",
+    "data/ui/textures/ui_bg_haze.tga",
+    "data/ui/textures/ui_particles.tga",
+    "data/ui/textures/ui_noise_sm.tga",
+    "data/ui/textures/ui_noise_lg.tga",
+    "data/ui/textures/ui_grad_bar.tga",
+    "data/ui/textures/ui_mirror_tile.tga",
+    "data/ui/textures/ui_dot_tile.tga",
+    "data/ui/textures/ui_nuke.tga",
+    "data/ui/textures/ui_bg_alt.tga",
+    "data/ui/textures/ui_deco.tga",
+    "data/ui/textures/ui_icon_a.tga",
+    "data/ui/textures/ui_icon_b.tga",
+    "data/ui/textures/ui_icon_c.tga",
 };
 static const unsigned k_NumExpectedBaseUiTgas =
     sizeof(k_ExpectedBaseUiTgas) / sizeof(k_ExpectedBaseUiTgas[0]);
 
 /**
- * Check if ALL base-ui mod textures exist.  Returns true only if every
+ * Check if ALL base UI chrome textures exist.  Returns true only if every
  * expected TGA file is present and non-empty.
  */
 static bool s_baseUiTexturesExist(void)
@@ -3183,7 +3193,7 @@ void pdguiChromeInitializeBaseMod(void)
 }
 
 /**
- * Frame check: auto-extract base-ui textures from ROM if they don't exist,
+ * Frame check: auto-extract base UI chrome textures from ROM if they don't exist,
  * or run extraction/generation when CLI flags are set.
  * Called from pdguiRender() each frame until done.
  */
@@ -3196,7 +3206,7 @@ void pdguiThemeCheckExtract(void)
 
     s_checked = true;
 
-    /* Auto-extract: if ANY base-ui textures are missing, run extraction from
+    /* Auto-extract: if ANY base UI chrome textures are missing, run extraction from
      * ROM data.  This handles both first-launch (all missing) and partial
      * extraction (e.g. ui_particles.tga missing while others exist).
      * The extraction pipeline writes all TGAs, then we reload the theme. */
@@ -3206,7 +3216,7 @@ void pdguiThemeCheckExtract(void)
 
         if (n_missing > 0) {
             sysLogPrintf(LOG_NOTE,
-                "PDGUI theme: %u of %u base-ui TGAs missing (mask=0x%llx) — "
+                "PDGUI theme: %u of %u base UI chrome TGAs missing (mask=0x%llx) - "
                 "auto-extracting from ROM",
                 n_missing, k_NumExpectedBaseUiTgas,
                 (unsigned long long)missing_mask);
@@ -3218,63 +3228,18 @@ void pdguiThemeCheckExtract(void)
                 }
             }
 
-            fsCreateDir("mods");
-            fsCreateDir("mods/base-ui");
-            fsCreateDir("mods/base-ui/textures");
-
-            /* Write mod.json manifest so the mod manager recognizes this as
-             * a proper mod. The theme config in here drives palette, scanlines,
-             * and background texture selection. */
-            {
-                static const char k_ModJson[] =
-                    "{\n"
-                    "    \"name\": \"base-ui\",\n"
-                    "    \"display_name\": \"Perfect Dark Base UI\",\n"
-                    "    \"version\": \"1.0.0\",\n"
-                    "    \"description\": \"Original N64 UI textures extracted from ROM.\",\n"
-                    "    \"author\": \"Rare / PD2 Team\",\n"
-                    "    \"category\": \"ui\",\n"
-                    "    \"bundled\": true,\n"
-                    "    \"enabled\": true,\n"
-                    "    \"components\": [\n"
-                    "        {\n"
-                    "            \"type\": \"ui\",\n"
-                    "            \"textures\": [\n"
-                    "                { \"catalog_id\": \"base:ui_bg_haze\",     \"path\": \"textures/ui_bg_haze.tga\" },\n"
-                    "                { \"catalog_id\": \"base:ui_particles\",   \"path\": \"textures/ui_particles.tga\" },\n"
-                    "                { \"catalog_id\": \"base:ui_noise_sm\",    \"path\": \"textures/ui_noise_sm.tga\" },\n"
-                    "                { \"catalog_id\": \"base:ui_noise_lg\",    \"path\": \"textures/ui_noise_lg.tga\" },\n"
-                    "                { \"catalog_id\": \"base:ui_grad_bar\",    \"path\": \"textures/ui_grad_bar.tga\" },\n"
-                    "                { \"catalog_id\": \"base:ui_mirror_tile\", \"path\": \"textures/ui_mirror_tile.tga\" },\n"
-                    "                { \"catalog_id\": \"base:ui_dot_tile\",    \"path\": \"textures/ui_dot_tile.tga\" },\n"
-                    "                { \"catalog_id\": \"base:ui_nuke\",        \"path\": \"textures/ui_nuke.tga\" },\n"
-                    "                { \"catalog_id\": \"base:ui_bg_alt\",      \"path\": \"textures/ui_bg_alt.tga\" },\n"
-                    "                { \"catalog_id\": \"base:ui_deco\",        \"path\": \"textures/ui_deco.tga\" },\n"
-                    "                { \"catalog_id\": \"base:ui_icon_a\",      \"path\": \"textures/ui_icon_a.tga\" },\n"
-                    "                { \"catalog_id\": \"base:ui_icon_b\",      \"path\": \"textures/ui_icon_b.tga\" },\n"
-                    "                { \"catalog_id\": \"base:ui_icon_c\",      \"path\": \"textures/ui_icon_c.tga\" }\n"
-                    "            ]\n"
-                    "        }\n"
-                    "    ],\n"
-                    "    \"theme\": {\n"
-                    "        \"default_palette\": 1,\n"
-                    "        \"background_texture\": \"base:ui_bg_haze\",\n"
-                    "        \"scanline_enabled\": true,\n"
-                    "        \"scanline_alpha\": 0.5,\n"
-                    "        \"tint_strength\": 0.0,\n"
-                    "        \"text_glow_intensity\": 0.6\n"
-                    "    }\n"
-                    "}\n";
-
-                FILE *jf = fsFileOpenWrite("mods/base-ui/mod.json");
-                if (jf) {
-                    fwrite(k_ModJson, 1, sizeof(k_ModJson) - 1, jf);
-                    fclose(jf);
-                    sysLogPrintf(LOG_NOTE, "PDGUI theme: wrote mods/base-ui/mod.json");
-                } else {
-                    sysLogPrintf(LOG_WARNING, "PDGUI theme: could not write mod.json");
-                }
-            }
+            /* Phase 3 Pass B Slice 13 (2026-05-02, corrected): UI chrome
+             * textures are extracted from the user-supplied ROM at first
+             * launch and now live under data/ui/textures/ (the BYOR tier
+             * alongside per-romid segs), not under mods/ (the user-overlay
+             * tier) and not under base/ (the project-authored tier --
+             * ROM-extracted content never ships).  The mod-manifest write
+             * that previously made base-ui look like a mod is dropped:
+             * data/ is not a mod, and the catalog ID -> path mapping is
+             * owned by k_UiTextures[] in pdguiThemeLateInit. */
+            fsCreateDir("data");
+            fsCreateDir("data/ui");
+            fsCreateDir("data/ui/textures");
 
             /* Extract ROM textures to TGA files (writes ALL textures, not
              * just missing ones — idempotent overwrites are fine) */

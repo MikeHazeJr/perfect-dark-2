@@ -1,7 +1,664 @@
 # Session Log (Active)
 
-> **S481-S597 + S593h + S482c + S593b** (rolling window of ~111 sessions; S597 added 2026-05-01 PM for B-304 default wireframe OFF in forge + Debug Rendering toggles in Level tab on the infallible-mestorf-8463b9 worktree; S596 added 2026-05-01 PM for Catalog Gate 3 Character Heads DATA migration F1-F13 ship on the catalog-gate3-heads-0501 worktree (manager + .pdbase loader pattern reused from weapons, 84 head records in base/heads.pdbase, no Layer A leakage; merged at dev a2ad421e); S595 added 2026-05-01 PM for B-303 post-exit Main Menu auto-pop on solo campaign + Forge end paths (Combat Sim path left intact per OG-canonical var80087260=3 mechanism); S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+## Session S606 (`catalog-slice12-passc`) - 2026-05-02 PM - B-306 Pass C FileProvider preprocess gap
+
+Mike's playtest of the B-305 fix #2 binary unblocked catalog init but surfaced a second crash one boot phase later: `0xc0000005` at PC offset `+0x3ba918` inside `modelPromoteNodeOffsetsToPointers`, called from `setupCreateDoor -> setupLoadModeldef -> modeldefLoadToNewFromHandle -> modeldefLoadFromHandle -> assetLoadToNew`.  Decoded via objdump on the live binary; full stack: `+0x3bab11 modelPromoteOffsetsToPointers`, `+0xf05f9 modeldefFinalizeLoadedWithSizes`, `+0xf07a3 modeldefLoadFromHandle`, `+0xf0993 modeldefLoadToNewFromHandle`, `+0x16e2fd setupLoadModeldef`, `+0x169ddd setupCreateDoor`, `+0x16b4a3 setupCreateProps`, `+0xcaf28 lvReset`.
+
+### Root-cause class
+
+NEW class, not a dangling pointer.  Mike's expanded scope ("if same class, sweep") had me audit every struct field that holds ROM-relative pointers; every class is already covered by Fix #1 + Fix #2:
+
+- `fileSlots[i].name` -- migrated to heap copies before `sysMemFree(g_RomFile)` (Fix #2 `d8ada1a3`).
+- `fileSlots[i].data` -- NULLed for ROM-pointing slots; per-romid disk path re-resolves on next load (Fix #2 + Pass C `968fe031`).
+- `romSegs[i].data` -- migrated to heap-from-disk (Pass C original `6fe89c7a`).
+- `romSegs[i].segstart` / `segend` extern mirrors -- refreshed via `romdataUpdateSegStartEnd` after migration (Pass C original).
+- `_animationsTableRomStart` / `_animationsTableRomEnd` -- migrated when the animations segment is migrated (Fix #1 `968fe031`).
+- `g_FileTable` -- legacy N64 stub, all zeros on PC; no dangle.
+- All other preprocesses either return a heap buffer (`preprocessFont`, `preprocessALBankFile`) or do not publish ROM-relative externs (`preprocessSequences`, `preprocessJpnFont`, `preprocessTexturesList`, `preprocessMpConfigs`, `preprocessALCMidiHdr`).
+
+The current crash is a different class entirely: a provider-pipeline mismatch.  `assetLoadToNew`'s FileProvider dispatch path (`port/src/assetload.c`, lines 105-135) does NOT apply `rzipInflate` or `LOADTYPE_x` preprocess -- it just `memcpy`s raw bytes from disk into a fresh buffer.  RomProvider gets a documented short-circuit that calls `fileLoadRomToNew` (full legacy pipeline with inflate + preprocess).  Pass B's `catalogBindPrimaryFromDiskOrRom` migrated every base-game entry to FileProvider via `catalogSetPrimaryFile`, exposing the latent gap.  Pre-Pass-C the bug was already there; B-305 just blocked the boot sequence so deeply that no door modeldef load ever fired.
+
+Mike's log also surfaced an unrelated symptom of the same migration: `FileProvider: path intern pool exhausted (820 paths, 32751 bytes used, need 37 more)`.  The pool is sized for `MAX_PATHS = 1024` and `POOL_BYTES = 32 KB`; ~2000 base-game per-romid paths overran both caps and entries beyond ~820 silently got null handles.
+
+### Fix
+
+`catalogBindPrimaryFromDiskOrRom` now always binds RomProvider with the source filenum.  Disk probe + FileProvider binding removed.  Pass C's `romdataFileLoad` per-romid disk fallback already reads from `data/<romid>/files/<name>.bin` when `g_RomFile` is released, so the legacy pipeline (`assetLoadToNew(romHandle)` short-circuits to `fileLoadRomToNew -> fileLoad -> romdataFileLoad`) gets disk bytes with `rzip inflate` + `LOADTYPE_x` preprocess intact.
+
+Mod overrides keep working via `romdataFileLoad`'s catalog override branch (entries with `!e->bundled` and `ext.character.bodyfile` et al populated by `assetCatalogScanComponents`).  Mod authoring is unchanged.
+
+Stage scene file loads (`stage.setup_handle`, `stage.tile_handle`, `stage.pads_handle`, `stage.mpsetup_handle`) were never affected because `s_fillStageResult` populates handles directly via `romProviderHandle(fileid)`, bypassing the catalog primary handle path.
+
+### Build verify
+
+`pd` 54.8 MB clean (CLIENT 23s).  Binary refreshed at `Build/PerfectDark.exe` (timestamp 19:43).
+
+### Files touched
+
+- [`port/src/assetcatalog.c`](../port/src/assetcatalog.c) (+51 / -19): `catalogBindPrimaryFromDiskOrRom` now always binds RomProvider with the source filenum.  Disk probe + FileProvider binding removed.
+
+### Auto-merge
+
+Per standing rule.  Pre-merge HEAD `1a336955`.  Worktree `92472f2d`.  Merged `54f103eb`.  Post-merge file line counts match worktree exactly.
+
+## Session S605 (`catalog-slice12-passc`) - 2026-05-02 PM - B-305 Pass C dangling-pointer hotfix
+
+Mike's `89376df7` build crashed at startup with `0xc0000005` at `+0x23cac2`. Decoded the offset to `romExtractBuildRelPath` on `cmpb (%rax)` after `call romdataFileGetName`. The `name` field of every `fileSlots[i]` was set in `romdataInitFiles` as `(const char *)nameOffsets + ofs` where `nameOffsets = g_RomFile + PD_BE32(offsets[i - 1])` -- a pointer into the ROM-resident name table. Pass C (`b15cc701`) freed `g_RomFile` but never migrated the name pointers. Catalog base-game registration calls `catalogBindPrimaryFromDiskOrRom -> romExtractRelPathForFilenum -> romExtractBuildRelPath -> romdataFileGetName` which returned the dangling pointer; the next `romName[0]` deref crashed the process before the title screen rendered.
+
+Audit also surfaced a second hazard one boot phase later: `preprocessAnimations` (`port/src/preprocess/misc.c:24-25`) sets globals `_animationsTableRomStart = data + size - 0x38a0` and `_animationsTableRomEnd = data + size`. Pre-Pass-C those pointed into `g_RomFile`. After Pass C migrated the animations segment to a heap copy, the externs still pointed at the freed memory. `animsInit` (called later from `pdmain.c::mainInit`) would `dmaExec` (memcpy) from the freed range and crash on the second wave. Other preprocesses either return a heap buffer already (`preprocessFont`, `preprocessALBankFile`) or do not publish ROM-relative externs (`preprocessSequences`, `preprocessJpnFont`, `preprocessTexturesList`, `preprocessMpConfigs`, `preprocessALCMidiHdr`).
+
+### Fix
+
+In `romdataReleaseRom`, walk every `fileSlots[i]` whose `.name` falls inside `[g_RomFile, g_RomFile + g_RomFileSize)` and `sysMemAlloc + memcpy + null-terminate` a heap copy before `sysMemFree(g_RomFile)`. Literal-string names (CDRCARROLL2 / CSKEDAR2 / GHAND_DRCARROLL / GHAND_SKEDAR set as compile-time string literals in `.rdata`) stay untouched because they don't fall in the ROM range check. After the segment migration step processes the segment named "animations", recompute `_animationsTableRomStart` / `_animationsTableRomEnd` to point at the new heap buffer at the same `(seg->size - 0x38a0)` / `seg->size` offsets. `ROMRELEASE` log line gains a `names migrated=N` counter alongside the existing seg / fileSlot counters.
+
+### Build verify
+
+`pd` 54.8 MB / `pd-server` 22.4 MB / `pd-tests` 24.9 MB all link clean. Targeted test pins green: `[catalog-mgr-body]` 16/190, `[catalog-mgr-arena]`, `[catalog-mgr-head]` 12/96, `[catalog-mgr-weapon]` 47, `[uichrome]` 7/56, `[passd]`, `[gate3]` 21/246. Total failed assertions unchanged at 6 -- same set of pre-existing static-text grep mismatches in files outside the Pass C touch surface (`test_loader_pdbase_scan.cpp:228, 287` for retired `loaderPdbaseRunParityCheck`; `test_catalog_provider_static.cpp:468, 537` for retired `catalogSetPrimaryRomFilenum` calls; `test_catalog_provider_static.cpp:580` swarmBlock; `test_cutscene_layer.cpp:330`).
+
+### Files touched
+
+- [`port/src/romdata.c`](../port/src/romdata.c) (+69 / -8): name migration loop, animations table extern remap, augmented ROMRELEASE log.
+
+### Auto-merge
+
+Per standing rule. First fix: pre-merge HEAD `f20ccec5`, worktree `968fe031`, merged `486cc318`. Mike's playtest of `486cc318` reproduced the same AV at `+0x23cc02` because the name migration block was gated on `source != SRC_EXTERNAL`; the Pass C disk fallback in `romdataFileLoad` fires during `romExtractAllFiles`' initial walk and flips ~2011 slots to SRC_EXTERNAL before Pass C release runs, so only 2 names migrated (the ROMRELEASE log reported `cleared=36, names migrated=2`). Final fix `d8ada1a3` decouples the data clear and name migration into independent gates so SRC_EXTERNAL slots also get their `.name` walked. Merged at `25a75746`. Post-merge file line counts match worktree exactly.
+
+### Side note: pre-existing 0/1 catalog count anomaly
+
+Mike's log: `modmgr: rebuilt catalog caches -- bodies=0 heads=0 arenas=0` then `CATALOG: metadata cached -- 151 entries, 0 bodies, 1 heads (validation deferred)`. NOT Pass-C related. `modmgrInit` runs at `port/src/main.c:350`; the cache rebuild calls `assetCatalogIterateByType(ASSET_BODY/HEAD/ARENA, ...)` BEFORE `assetCatalogRegisterBaseGame` (line 365). The catalog is empty at modmgrInit time so the cache stays at zero. `modmgrGetTotalBodies` returns the `MODMGR_BASE_BODIES = 63` fallback when the cache is empty, but `modmgrGetBody(i)` returns `&s_CatalogBodies[0]` (zero-init) for any non-zero index. `catalogInit` then walks 151 entries against zero-init `bodynum`/`headnum=0` slots; only entry index 0 matches and only on the head pass (`langGet(b->name)` for the body returns empty for index 0 so the body match fails, then the head pass matches index 0 unconditionally). Logging artifact only -- the system self-corrects once the catalog populates and `modmgrEnsureCaches` rebuilds. Logged in B-305 verify column for future cleanup; not blocking gameplay.
+
+## Session S604 (`sharp-zhukovsky-116f03`) - 2026-05-02 PM - Phase 3 Pass D self-heal hardening (CATALOG LANE CLOSED)
+
+Mike's directive: wrap catalog today. Pass D was the last item. Worktree spawned parallel to the Bodies session that delivered Slice 12 + Pass C; held until those landed (`f52cf660`, `b15cc701`, `dcfc5989`). Mike greenlit Pass D after sync confirming dev tip at `dcfc5989`.
+
+### Outcome
+
+Self-heal hardening shipped. Three user-facing surfaces layered on top of the existing Pass A.4 + segment verify mechanism:
+
+1. **Per-file UI toasts on hash-mismatch outcomes.** `romExtractVerifyAll` and `romExtractVerifyAllSegments` defer system-tier toasts on `corrected` (recovered from corruption) and `failed` (unrecoverable) branches. Title prefix distinguishes asset class: `File recovered` / `File unrecoverable` / `Segment recovered` / `Segment unrecoverable`. Per-file emit capped at `ROMEXTRACT_TOAST_PERFILE_CAP = 5` to prevent queue-flooding on wholesale corruption; aggregate toast covers totals beyond the cap.
+2. **Aggregated boot integrity report.** New `romExtractEmitBootIntegrityReport()` emits one `LOG_NOTE` summary line `DATA INTEGRITY: V validated, R re-extracted, U unrecoverable` plus `LOG_WARNING` + danger system toast if `U > 0`, info system toast if `R > 0` and `U == 0`, silent if all clean.
+3. **Deferred toast queue + drain.** Toasts queued during boot would have stale `enqueued_ms` by the time the render loop kicks in (5s hold expires before first frame). Pass D adds `s_BootToasts[16]` private buffer in `romextract.c`; `main.c` calls `romExtractToastDrain()` right before `mainProc()` to replay with fresh timestamps.
+4. **Quarantine path migrated.** Old `data/<romid>/.quarantine/<unixtime>_<basename>` (per-romid hidden) -> new `data/_quarantine/<romid>/<unixtime>_<basename>` (top-level visible, per-romid grouped). Windows file managers no longer hide the dir; user can find quarantined bytes for forensic inspection.
+
+`pd` 54.9 MB / `pd-server` build queued / `pd-tests` build queued. Pass D test pin: 9 cases / ~25 assertions in `[catalog][passd]` tag set.
+
+### Audit doc
+
+[`context/audits/catalog-phase3-passd-self-heal-2026-05-02.md`](audits/catalog-phase3-passd-self-heal-2026-05-02.md). Sections A through D (additions) + boot ordering + server build + test surface + files touched + Pass A through Pass D summary table + low-priority hypotheses left open (sticky toasts, quarantine retention, mid-session detection, ROM-bytes-corrupted re-extract verify loop).
+
+### Server build
+
+`g_RomFile` is `NULL` server-side. Both verify funcs early-return with no counter updates, so `s_AggValidated/Recovered/Unrecoverable` stay zero; the boot integrity report logs `0 validated, 0 re-extracted, 0 unrecoverable` and skips the toast block. `romExtractToastDrain` is `PD_SERVER`-guarded and is a no-op. No new server stubs needed.
+
+### Files touched (5)
+
+- `port/include/romextract.h` (+62 / -0): declare `romExtractToastDrain`, `romExtractEmitBootIntegrityReport`, `romExtractGetBootIntegrity` with Pass D docblocks.
+- `port/src/romextract.c` (+225 / -8): PD_SERVER-guarded `pdgui_toast.h` include; quarantine path migration; Pass D state + helpers; per-file toast emit on corrected / failed branches in BOTH verify functions; aggregate counter updates; public Pass D functions appended.
+- `port/src/main.c` (+18 / -0): wire report after verify pair (before Pass C release); wire drain after `gameInit` (before `mainProc`).
+- `tests/test_romextract_passd.cpp` (+186): new static-text grep pin (9 cases / ~25 assertions): LOUDFAIL.LOAD channel, DATA INTEGRITY format, quarantine migration, PD_SERVER guards, per-file cap, recover/fail emit sites, aggregate counter updates, public API surface, main.c wiring order.
+- `CMakeLists.txt` (+6): wire test into SRC_TESTS.
+- `context/audits/catalog-phase3-passd-self-heal-2026-05-02.md` (+289): audit.
+
+Total: ~786 insertions, 8 deletions across 6 files (audit + session-log + tasks-update follow).
+
+### Hypotheses left open (low priority)
+
+Documented in audit Section "Hypotheses left open":
+
+- Sticky toast for unrecoverable -- `pdgui_toast.cpp` has fixed 5s hold; LOG_WARNING + replay-each-launch covers persistence. Possibility: extend toast.cpp with TOAST_FLAG_STICKY.
+- Quarantine retention -- accumulates forever today. Possibility: cap at N most-recent or M MB.
+- Mid-session corruption detection -- Pass A.4 verifies at boot only. Possibility: re-verify on asset load when decode fails.
+- Re-extract verify loop -- if g_RomFile itself has flipped bits, re-extract "succeeds" structurally but produces wrong bytes. Detection requires external known-good hash table; Pass A.3 SHA-256 known-good gate is the venue.
+
+### Catalog migration COMPLETE
+
+After Pass D lands the catalog migration closes. Mike's 2026-05-01 directive ("ROM is an initial asset source and then we use the extracted assets for loading, sans ROM") is fully satisfied:
+
+- ROM consumed once on first launch (Pass A.2 + A.5 segment extract).
+- Extracted bytes verified at every boot with self-heal (Pass A.4 + segment verify).
+- Hash mismatches loud-fail via LOUDFAIL.LOAD + UI toast + aggregate report (Pass D).
+- Runtime never touches ROM mapping after extraction (Pass C).
+- Per-class consumer migration completed (Pass B Slices 1-13).
+
+The Catalog lane is now CLOSED. Next critical-path lanes: Input Controller Support (Branch 2 Cohorts 5-8) and any opportunistic catalog-adjacent work that surfaces from playtest.
+
+### Auto-merge
+
+Per standing rule. Pre-merge HEAD `dcfc5989`. Worktree commits to follow. Auto-merge to dev with line-count post-merge verification.
+
+[CONTEXT STATE: turns=mid-flight, compactions=0, self-assessment=mid-flight, recall-gaps=Pass D shipping; audit + session log committed pre-merge]
+
+## Session S603 (`catalog-slice12-passc`) - 2026-05-02 PM - Slice 12 close-out + Pass C RomProvider drop
+
+Mike's directive: wrap the catalog migration today. Slice 12 (SFX residual / `g_AudioRussMappings` ACCEPTED LIMIT) was the last open Pass B item, then Pass C dropped the in-memory ROM mapping in the same session. Worktree `catalog-slice12-passc` covered both close-outs sequentially.
+
+### Slice 12 -- SFX residual ACCEPTED LIMIT close-out
+
+Doc-only. Per coverage audit Section 3.D: alias-range SFX IDs (0x8000+) decode to `(confignum, russ-mapping)` inside `snd.c::sndStart` BEFORE `catalogResolveSound` runs, so leaf-level mod overrides via the 1545 `ASSET_AUDIO` entries already cover alias-IDed plays. Direct alias override would require growing `LOAD_MAX_SOUNDS` from 4096 to 65536 (256 KB array) plus parallel-index plumbing for marginal value, and Mike's "Farsight fire SFX plays a voiceline" regression closed earlier via Phase 2 Commit 4 + S484-followup-5. The 16-line architectural rationale block lands above [`port/src/assetcatalog_base_extended.c:230`](../port/src/assetcatalog_base_extended.c:230) cross-referencing the audit + plan. Pre-merge HEAD `3f25809b`. Worktree commit `fa4097bb`. Post-merge `f52cf660`. Audit: [`context/audits/catalog-phase3-passb-slice12-sfx-residual-2026-05-02.md`](audits/catalog-phase3-passb-slice12-sfx-residual-2026-05-02.md).
+
+### Pass C -- RomProvider drop / `g_RomFile` released
+
+Architectural finish line for the catalog migration. After Pass A.2/A.4 (file extract+verify) and Pass B Slices 1-13 (per-class catalog migration + segment extract+verify), every byte the runtime needs is on disk under `data/<romid>/`. New `romdataReleaseRom()` runs once after `romExtractVerifyAllSegments()` and:
+
+1. Reloads `SRC_ROM` segments from `data/<romid>/segs/<name>.bin` into heap buffers via `romExtractSegmentRelPath` + `fsFileLoad`. Pointer comparison `[g_RomFile, g_RomFile+size)` distinguishes truly ROM-pointing segments from preprocess()-output heap buffers (the latter survive ROM free; just normalised to `SRC_EXTERNAL`).
+2. Walks `fileSlots[]`, NULLs the data pointer for every slot whose pointer falls inside the ROM range. Heap-backed `SRC_EXTERNAL` slots (mod overrides, prior Pass C disk-loads) survive untouched.
+3. `sysMemFree(g_RomFile)`, sets `NULL`, zeroes `g_RomFileSize`.
+
+LOUD-FAIL via `sysFatalError` if any segment can't reload from disk -- never half-release. Server build (`g_RomFile` already `NULL`) is a no-op early-return. `romdataFileLoad` gains a per-romid disk fallback (`data/<romid>/files/<name>.bin`) BEFORE the legacy `SRC_ROM` set; if both miss with `g_RomFile == NULL`, LOUD-FAIL `LOAD.PASSC`. `romdataResetFile` NULLs the data pointer when `g_RomFile` has been released so the next load takes the disk path. `main.c` boot banner branches: "rom file released (Phase 3 Pass C): runtime reads disk-only" replaces the pre-release pointer log when `g_RomFile == NULL`.
+
+### Outcome
+
+`pd` 54.8 MB / `pd-server` 22.4 MB / `pd-tests` 24.7 MB, all link clean. Test suite: 510 cases / 5 pre-existing failures in files **outside** the Pass C touch surface:
+
+- `test_loader_pdbase_scan.cpp:228, 287` -- expects `loaderPdbaseRunParityCheck` retired from header + `main.c`. Function name still present (parity check retirement was incomplete in F13).
+- `test_catalog_provider_static.cpp:468, 537` -- expects `catalogSetPrimaryRomFilenum(e, e->source_filenum)` calls in `assetcatalog_base.c` (>=4) and `assetcatalog_base_extended.c` (>=2). Pass B FileProvider migration retired the calls; test thresholds were not lowered to match.
+- `test_catalog_provider_static.cpp:580` -- expects `MP setup/manifest path` string in setup.c; not present.
+- `test_cutscene_layer.cpp:330` -- expects `sceneFire(SCENE_EVENT_DISCONNECT, NULL)` in disconnect path; not present.
+
+All failures are static-text grep mismatches in source files that Pass C did not modify (`assetcatalog_base.c`, `loader_pdbase.h`, `setup.c`, `cutscene_layer.c`). They are pre-existing test rot from prior Pass B / weapons retirement work where calls were removed but pins not lowered. `[catalog-mgr-body]` 16/190, `[catalog-mgr-arena]` 31, `[catalog-mgr-head]` 12, `[catalog-mgr-weapon]` 47, `[uichrome]` 7/56 -- all pass green for the current-track tag groups. No new failures introduced by Slice 12 or Pass C.
+
+### Files touched
+
+**Slice 12** (2 files, +100 lines):
+- [`port/src/assetcatalog_base_extended.c`](../port/src/assetcatalog_base_extended.c) (+16): SFX table comment block extension above line 230.
+- [`context/audits/catalog-phase3-passb-slice12-sfx-residual-2026-05-02.md`](audits/catalog-phase3-passb-slice12-sfx-residual-2026-05-02.md) (+84).
+
+**Pass C** (4 files, +405 / -2 lines):
+- [`port/include/romdata.h`](../port/include/romdata.h) (+34): `romdataReleaseRom` declaration + post-release invariants docblock.
+- [`port/src/romdata.c`](../port/src/romdata.c) (+196 / -2): `romdataPtrInRom` helper, `romdataReleaseRom` definition, per-romid disk fallback in `romdataFileLoad`, NULL-`g_RomFile` handling in `romdataResetFile`, `romextract.h` include.
+- [`port/src/main.c`](../port/src/main.c) (+17 / -1): wire `romdataReleaseRom()` post-`romExtractVerifyAllSegments`; banner branches on `g_RomFile != NULL`.
+- [`context/audits/catalog-phase3-passc-romprovider-drop-2026-05-02.md`](audits/catalog-phase3-passc-romprovider-drop-2026-05-02.md) (+158).
+
+### Auto-merge
+
+Per standing rule. Slice 12: pre-merge HEAD `3f25809b`, worktree `fa4097bb`, post-merge `f52cf660` (clean fast-forward equivalent). Pass C: pre-merge HEAD `f52cf660`, worktree `6fe89c7a`, post-merge `b15cc701`. Both merges no-conflict; post-merge file line counts match worktree exactly per the worktree-truncation discipline.
+
+### Catalog migration lane status
+
+**CLOSED** for Pass A.1 / A.2 / A.3 / A.4 / Pass B Slices 1-13 / Pass C. Pass D (self-heal hardening on top of `romdataReleaseRom`'s LOUD-FAIL) is queued in a parallel session per Mike's "Pass D in the fresh session" directive. The runtime never reads from `g_RomFile` after this commit ships; that is the architectural finish line.
+
+## Session S602b (`catalog-pass-b-slice13-uichrome`) - 2026-05-02 PM - Slice 13 correction (base/ -> data/)
+
+Mike's same-day course-correction: the initial Slice 13 commit (`f54959d1`) misclassified UI chrome textures as project-authored content under `base/ui/textures/`. They are extracted from the user-supplied ROM at first launch and never ship with the project, so they belong in the BYOR `data/` tier alongside per-romid segments populated by Pass A.2 + Slices 2/5/6/8/11. The corrected location aligns with the original rom-extraction-audit-2026-04-30 recommendation.
+
+### Outcome
+
+All 14 extraction destinations + 13 catalog entry paths + 13 existence-check paths + 3 `fsCreateDir` calls now target `data/ui/textures/`. The `[uichrome]` test pin gains an explicit "no `base/ui/textures` references" assertion (test case 5 in the now-7-case suite) so any future regression is caught at compile time. Audit doc gains a "Decision corrected" section documenting the BYOR convention: `base/` for shipped content, `data/` for BYOR-extracted runtime content, `mods/` for user overlays.
+
+`pd` 54.8 MB / `pd-server` 22.4 MB / `pd-tests` 24.7 MB; all link clean. `[uichrome]` test pin: **7 cases / 56 assertions** all pass (up from 6 / 47 in the initial commit).
+
+### Files touched (4)
+
+- `port/fast3d/pdgui_theme.cpp` (-58 / +52): path rewrite from `base/ui/textures/` to `data/ui/textures/`; `fsCreateDir` triple updated; Slice 13 marker comment now documents the BYOR rationale + the corrected misclassification.
+- `port/include/pdgui_theme.h` (-4 / +4): three docblock comments updated.
+- `tests/test_uichrome_paths_pin.cpp` (+27 / -16): new "base/ui/textures misclassification fully retired" test case; existing pins updated.
+- `context/audits/catalog-phase3-passb-slice13-uichrome-2026-05-02.md` (+44 / -23): "Decision corrected" section + BYOR convention documented + B.1 / B.2 / B.7 reworded.
+
+Total: 175 insertions, 107 deletions across 4 files.
+
+### Auto-merge
+
+Per standing rule. Pre-merge HEAD `814e7c4f`. Worktree commit `70643056`. Post-merge `e00927a2`. Post-merge file line counts match worktree exactly.  No conflicts.
+
+### Pass B status
+
+Slices 1-11 + 13 shipped (12 of 13). Slice 12 (SFX residual / `g_AudioRussMappings` cleanup) is the last item; then Pass C (drop RomProvider from runtime).
+
+## Session S602 (`catalog-pass-b-slice13-uichrome`) - 2026-05-02 PM - Phase 3 Pass B Slice 13 UI chrome migration
+
+Mike's brief carried over from the bodies migration session: pivot to Phase 3 Pass B Slice 13, the largest remaining Pass B item. UI chrome textures move from the legacy `mods/base-ui/textures/` tier to the project-canonical `base/ui/textures/` tier. Per Mike's directive: project-authored content lives under `base/`, not under `mods/`. Coordinates with the parallel Slice 10 voice-retag session (different file scope, no conflict).
+
+### Outcome
+
+13 catalog entry paths + 14 extraction destinations + 13 existence-check paths + directory-creation triple all rewritten to `base/ui/textures/`. The `mods/base-ui/mod.json` autogen block (~50 lines) deleted: `base/` is not a mod tier, the catalog ID -> path mapping in `k_UiTextures[]` is the single source of truth. Single file pair touched (`port/fast3d/pdgui_theme.cpp` + `port/include/pdgui_theme.h`, 49 string-literal hits). Server build unaffected (`pdgui_theme.cpp` is `pd`-only).
+
+`pd` 54.8 MB / `pd-server` 22.4 MB / `pd-tests` 24.7 MB; all link clean. New `[uichrome]` test pin: **6 cases / 47 assertions** all pass. No protocol bump, no save migration, no catalog ID format change.
+
+### Audit doc
+
+[`context/audits/catalog-phase3-passb-slice13-uichrome-2026-05-02.md`](audits/catalog-phase3-passb-slice13-uichrome-2026-05-02.md). Sections A (surfaces), B (decisions), C (migration delta), D (boundary checks), E (stop conditions). Notes the pre-existing 13/14 asymmetry: 14 textures extracted (`k_Extracts[]` includes `ui_stars`), 13 registered as `ASSET_UI` (`k_UiTextures[]` omits it). Slice 13 preserves the asymmetry; surfacing `ui_stars` is a separate decision.
+
+### Decision deltas vs the rom-extraction-audit recommendation
+
+The earlier rom-extraction-audit (S592, 2026-04-30) recommended `data/ui/pd-original.pdui` (a `.pdui` archive in the BYOR `data/` tier). Mike's Slice 13 brief overrides: `base/ui/textures/` (loose TGA + PNG + 9-slice JSON files in the project-authored `base/` tier). The `.pdXXX` archive taxonomy work remains a separate later track. No `.pdui` archive in this slice.
+
+### "No ROM-direct fallback for UI chrome" verified
+
+`pdguiThemeLateInit` only does `s_loadTgaTexture` disk reads. ROM access is confined to `pdguiThemeExtractRomTextures` (the bootstrap path), not a runtime fallback. Boot ordering: extraction runs at frame 0 if any TGAs missing, theme reload picks up the new files. First-launch behaviour identical -- only the destination directory changed.
+
+### Test pin
+
+`tests/test_uichrome_paths_pin.cpp` (new): static-text grep against `pdgui_theme.cpp` + `pdgui_theme.h`. Six cases:
+
+1. Catalog entries point at `base/ui/textures` (13 paths pinned).
+2. Extraction destination format strings (TGA + PNG + 9slice).
+3. Directory creation triple targets `base/`, `base/ui/`, `base/ui/textures/`.
+4. Legacy `mods/base-ui/` paths fully retired in code.
+5. `mod.json` autogen retired (literal path + marker comment gone).
+6. Counts pinned: 13 catalog rows + 14 extraction filenames.
+
+### Files touched (5)
+
+- `port/fast3d/pdgui_theme.cpp` (-109 / +56): path rewrite + `mod_path` -> `disk_path` field rename + `mod.json` autogen deletion + comment scrub.
+- `port/include/pdgui_theme.h` (-6 / +7): three docblock comments rewritten.
+- `tests/test_uichrome_paths_pin.cpp` (+150): new static pin.
+- `context/audits/catalog-phase3-passb-slice13-uichrome-2026-05-02.md` (+103): audit.
+- `CMakeLists.txt` (+5): wire test into `SRC_TESTS`.
+
+Total: 327 insertions, 109 deletions across 5 files.
+
+### Auto-merge
+
+Per standing rule. Pre-merge HEAD `b2122749` (after rebase onto Slice 10). Worktree commit `4597cd18`. Post-merge `f54959d1`. Post-merge file line counts match worktree exactly. No conflicts (Slice 10 voice retag and Slice 13 UI chrome touched disjoint file sets).
+
+### Pass B status
+
+Slices 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13 shipped. **12 of 13 Pass B slices closed**. Slice 12 (SFX residual / `g_AudioRussMappings` cleanup) is the last item. After Slice 12, Pass C (drop RomProvider from runtime) is the final coordinated change.
+
+### What this session did NOT do
+
+- No `.pdui` archive packaging. The `.pdXXX` taxonomy is a separate later track.
+- No physical move of legacy `mods/base-ui/textures/` files. The directory does not exist on a clean checkout (extraction creates it on first launch); on populated installs the legacy directory becomes inert and the new code re-extracts to `base/ui/textures/`.
+- No surfacing of `ui_stars` as `ASSET_UI` (pre-existing 13/14 asymmetry preserved).
+
+## Session S601 (`condescending-ellis-248824`) - 2026-05-02 PM - Phase 3 Pass B Slice 10 voice retag
+
+Mike repurposed the post-arenas worktree for the next Phase 3 lane: Slice 10 voice retag in `g_AudioConfigs`. The Coverage Audit Section 3.H named the gap (no base-game ASSET_AUDIO entries register with `category = AUDIO_CAT_VOICE`); Slice 10 closes it via taxonomy classification rather than data move.
+
+### Outcome
+
+144 of 1545 catalog SFX entries now register as `AUDIO_CAT_VOICE` instead of the default `AUDIO_CAT_SFX`. The retag is a pure category re-classification: no SFX bank layout change, no extraction work, no mod data shift. Audio mod manager UI's Voice tab (formerly empty) now surfaces the base-game voice content; modder voice-pack overrides have something to target.
+
+`pd` 57.6 MB / `pd-server` 23.4 MB / `pd-tests` 25.6 MB all link clean. New voice tests: **8 cases / 32 assertions** in `[catalog-audio-voice]` all pass.
+
+### Audit doc
+
+[`context/audits/catalog-phase3-slice10-voice-retag-2026-05-02.md`](audits/catalog-phase3-slice10-voice-retag-2026-05-02.md) -- 259 lines, Sections A-I. Findings:
+
+- `struct audioconfig` has no explicit voice flag. `RESPONDHELLO` (0x04) and `OFFENSIVE` (0x10) are necessary but not sufficient signals (gunshots use OFFENSIVE without being voice).
+- The reliable signal is the **audioconfig SLOT NUMBER**. Inspection of `g_AudioRussMappings` inline comments + flag patterns identifies seven slots that exclusively carry voice content:
+  | Slot | Flag set | Russ uses | Examples |
+  |---|---|---|---|
+  | AUDIOCONFIG_01 | none | 44 | Mission briefings (Carrington, Grimshaw, Jonathan, Elvis radio) |
+  | AUDIOCONFIG_02 | OFFENSIVE | 44 | NPC combat barks ("Oh god I'm hit", "What the hell?") |
+  | AUDIOCONFIG_03 | OFFENSIVE \| 0x20 | 1 | Carrington urgent ("Damn it, my office...") |
+  | AUDIOCONFIG_47 | none | 22 | Scripted dialogue (Cass, receptionist, programmer, Elvis on Attack Ship) |
+  | AUDIOCONFIG_48 | none | 5 | Programmer multi-line cluster (Skedar Ruins) |
+  | AUDIOCONFIG_60 | RESPONDHELLO | 25 | NPC greetings ("Hi there", "Hello Joanna") |
+  | AUDIOCONFIG_62 | none | 3 | Death scream / "Noooo!" (NTSC-1.0+ only) |
+- Russ-id space (0..0x01bc, 444 entries) corresponds 1:1 to catalog `runtime_index` for the same range; positions 0x01bd..0x0608 are SFX (no russ entry, default config).
+- AUDIOCONFIG_62 is gated on `VERSION >= VERSION_NTSC_1_0` because the russ entries that reference it are also so gated.
+
+### Phase 2 commit
+
+| SHA | Scope |
+|---|---|
+| [`176dba44`](../../) | Phase 1 audit (259 lines, Sections A-I) |
+| [`be78919d`](../../) | Phase 2 retag + test (5 files, 223 lines) |
+
+### Files touched
+
+- `context/audits/catalog-phase3-slice10-voice-retag-2026-05-02.md` (+259): audit
+- `port/src/assetcatalog_base_extended.c` (+91 / -7): voice retag in registration loop + s_audioConfigIsVoice helper (PD_SERVER-guarded)
+- `src/lib/snd.c` (+8): new `g_NumAudioRussMappings` const symbol exposing the russ-table count
+- `src/include/data.h` (+1): extern decl for the count
+- `tests/test_audio_voice_retag.cpp` (+121): 8 cases / 32 assertions pinning the retag's static contract
+- `CMakeLists.txt` (+6): wire the test into pd-tests
+
+### Implementation shape
+
+The retag lives in the existing SFX registration loop. Adding a single helper + an `if` branch keeps the diff minimal:
+
+1. `s_audioConfigIsVoice(audioconfig_idx)` -- file-static switch, 7 cases. AUDIOCONFIG_62 is `#if VERSION >= VERSION_NTSC_1_0` guarded.
+2. Loop body now defaults `category = AUDIO_CAT_SFX`, upgrades to `AUDIO_CAT_VOICE` if russ-table lookup matches a voice slot.
+3. `assetCatalogRegisterAudio(idbuf, i, "", category, 0, "")` -- the existing call gains a variable category instead of hardcoded 0.
+4. LOG_NOTE summary splits the count: "registered N base audio entries (M SFX + K VOICE)".
+5. `extern struct audiorussmapping g_AudioRussMappings[]` was already in `data.h`; added `extern const s32 g_NumAudioRussMappings;` because `sizeof` on an extern[] is invalid.
+
+PD_SERVER guard: server build doesn't link `snd.c`, so the russ table is unreachable. Server registers everything as SFX (correct: no audio runtime).
+
+### Coverage NOT migrated
+
+- Per-russ-id retag table dump (alternative to the slot-based predicate) -- the audit considered this and rejected because the slot predicate is structurally simpler and captures the same set with less data.
+- SFX alias range (0x8000+) -- per Coverage Audit Section 3.D ACCEPTED LIMIT (out of scope for Slice 10; folded into Slice 12 SFX residual).
+- Mod-supplied audio entries -- already use the modder-specified category via `assetcatalog_scanner.c` INI parser (which already maps "voice" -> AUDIO_CAT_VOICE).
+
+### Cross-cuts (audit Section G)
+
+- Wire / save: voice category is local catalog metadata. No NET_PROTOCOL_VER bump, no save migration.
+- pd-server build: PD_SERVER guard makes the retag client-only; server registers everything as SFX.
+- Mod loading path: unaffected. Modders can already declare `category=voice`; this commit aligns base-game entries with that declaration space.
+- Audio mod manager UI: Voice tab (`pdgui_menu_audiomod.cpp`) now populates with ~144 base entries that modders can target.
+
+### Next sequential lane
+
+Per Phase 3 plan Slices 12 (SFX residual) + 13 (UI chrome) + Pass C (drop RomProvider from runtime) + Pass D (hash-verify steady state). The Catalog Bodies session reactivated in parallel for Slice 13 per Mike's directive.
+
+## Session S600 (`catalog-phase3-segs-0502`) - 2026-05-02 PM - Phase 3 Pass B Slices 2/5/6/8/11 segment extraction infra
+
+Mike's status check pivot: bodies + arenas + maps shipped sequentially across S598/S599; pivot to Phase 3 ROM-once-then-disk runtime conversion. Pass A (extraction infra: data/ helper, first-launch extractor, sidecars, self-heal, LOUDFAIL) shipped 2026-05-02 across `f86b5856` + `4331f2c0` + `e254420d`. Pass B Slices 9/7/3/1/4 (stage scene / props / lang / weapon models / character models) shipped via `0983b47c` + `214518b9`. Five Pass B slices remain unshipped and group naturally by mechanism: Slices 2/5/6/8/11 all share the segment loader path (sound bank + character sounds + animations + prop sounds + music sequences). One infrastructure push covers them; per-slice catalog binding is unnecessary because segments are loaded en bloc by `romdataInitSegment`, not per-asset.
+
+Per Mike's Q1 decision (bank-level SFX granularity, not 1545 per-SFX files): bank-level extraction is correct.
+
+### What landed (one infrastructure commit covering 5 plan slices)
+
+- **`port/include/romdata.h` + `port/src/romdata.c`**: new segment iterator API.
+  - `romdataSegmentCount()` walks the NULL-terminated `romSegs[]` table at [port/src/romdata.c:173](../../port/src/romdata.c) and returns the live entry count.
+  - `romdataSegmentGetData(idx)` / `GetSize` / `GetName` per-index getters. Replace the `static struct romfile romSegs[]` opacity with a public window suitable for the extraction walker without exposing the struct itself.
+
+- **`port/include/romextract.h` + `port/src/romextract.c`**: segment extraction mirror of the per-file extractor.
+  - `romExtractAllSegments()` walks every loaded segment and writes the in-memory bytes to `data/<romid>/segs/<segname>.bin` with a SHA-256 sidecar. Idempotent (size pre-check, sidecar verify on subsequent boots). Server build returns 0 immediately (g_RomFile is NULL).
+  - `romExtractVerifyAllSegments()` mirrors `romExtractVerifyAll`: walks each segment, hashes vs sidecar, quarantines + re-extracts mismatches via the existing `romExtractQuarantine` helper.
+  - `romExtractSegmentRelPath(segName, ...)` public path-builder used by other modules that need to bind catalog entries to disk (parallel to `romExtractRelPathForFilenum` for files).
+
+- **`port/src/romdata.c::romdataInitSegment` ([port/src/romdata.c:486-510](../../port/src/romdata.c))**: load priority extended.
+  1. NEW: try `data/<romid>/segs/<name>.bin` first (per-romid extracted path).
+  2. Existing: try `data/segs/<name>` (legacy mod-override path; preserved so existing mods keep working without renaming files).
+  3. Existing: fall back to `g_RomFile + offset` (ROM mapping, used on first boot before extraction).
+
+- **`port/src/main.c`**: extraction wired after `romdataInit` + after the per-file extract+verify pair.
+  ```c
+  romdataInit();
+  catalogCacheVerifyRom(g_RomName, NULL);
+  romExtractAllFiles();      // Pass A.2
+  romExtractVerifyAll();     // Pass A.4
+  romExtractAllSegments();   // Pass B Slices 2/5/6/8/11
+  romExtractVerifyAllSegments();
+  ```
+
+### Plan slice mapping
+
+| Plan slice | Asset class | Segment(s) extracted | Coverage path |
+|---|---|---|---|
+| Slice 2 | Weapon SFX banks | sfxctl + sfxtbl | `data/<romid>/segs/sfxctl.bin` + `sfxtbl.bin` |
+| Slice 5 | Character sounds | (lives in same SFX bank) | Slice 2 covers it |
+| Slice 6 | Animations | animations | `data/<romid>/segs/animations.bin` |
+| Slice 8 | Prop sounds | (lives in same SFX bank) | Slice 2 covers it |
+| Slice 11 | Music sequences | seqctl + seqtbl + sequences | `data/<romid>/segs/{seq*,sequences}.bin` |
+
+Plus every other ROM segment (mp* tables, fonts, textures, copyright, fontjpn, firingrange) gets the same disk-image treatment as a side effect because the extraction walker is segment-table-wide. This brings the runtime closer to the Pass C goal (g_RomFile no longer touched) by reducing the remaining ROM-only access surface.
+
+### Server build
+
+Server skips `romdataInit` entirely ([port/src/server_main.c:296](../../port/src/server_main.c)). No segment-extraction calls reach the server linker. No new server stubs needed (verified via the post-merge `pd-server` link).
+
+### Build verification (post-merge dev tip `fb7331ce`)
+
+| Target | Build dir | Status | Size |
+|---|---|---|---|
+| `pd` (CLIENT) | `.claude/session-builds/p3sg` | PASS 22s | PerfectDark.exe 54.8 MB |
+| `pd-updater` (UPDATER) | `.claude/session-builds/p3sg` | PASS 1s | Updater.exe 12.3 MB |
+| `pd-server` (SERVER) | `.claude/session-builds/p3sgs` | PASS 7s | PerfectDarkServer.exe 22.4 MB |
+| `pd-tests` (TESTS) | `.claude/session-builds/p3sgt` | PASS 16s | pd-tests.exe 24.4 MB |
+
+### Auto-merge
+
+Per standing rule. Pre-merge HEAD `6d3bf4c9`. Worktree commit `35d3eb7c`. Post-merge `fb7331ce` (ort strategy, no conflicts). 5 files, +399 / -5. Post-merge line counts of every changed file match worktree exactly.
+
+### What this session deliberately did NOT do
+
+- **No catalog-side binding for segment-backed assets.** ASSET_AUDIO + ASSET_ANIMATION entries do not gain `source.primary` bindings to the disk segments because segment loads are en bloc, not per-asset. Per-asset granularity for sounds is decided as out-of-scope (Q1 bank-level).
+- **No removal of the legacy `data/segs/<name>` mod-override path.** Mod compatibility kept. Pass C will revisit if the architectural endpoint requires removing the legacy path.
+- **No reload-on-disk-change.** Segments load once at boot; if the user manually edits `data/<romid>/segs/<name>.bin` mid-session, no live reload. The verify path covers boot-time corruption; mid-session is out of scope.
+- **No Slice 10 voice / Slice 12 SFX residual / Slice 13 UI chrome.** Surfaced for the next session; tracked in the Phase 3 plan.
+
+### Next sequential lane
+
+Per Phase 3 plan, Slices 10/11/12/13 + Pass C (drop RomProvider from runtime) + Pass D (hash-verify steady-state hardening). Slice 11 (music sequences) is structurally complete with this commit; the per-track override path may need a follow-up if `audioPlayFileSound` doesn't already pick up the disk segments transparently. Worth a Slice 10/12/13 batch next.
+
+## Session S599 (`condescending-ellis-248824`) - 2026-05-02 PM - Catalog Gate 3 Maps + Arenas DATA migration F1-F13
+
+Mike's activation brief: arenas are ALREADY accessor-migrated (modmgr.c:2876-2878 pulls every field from `ext.arena`). Only the data move remains. Mirror heads I.1-I.7 / bodies migration shape unless arena-specific concerns surface. Coordinate with the Universality Sweep + Phase 3 ROM-once Pass B Slice 9 work (in flight on a parallel session); surface immediately if conflicts.
+
+Final selector-pool + data migration in the catalog chain after Weapons (S484/S591), Heads (S596/`a2ad421e`), Bodies (S598/`47f837d5`).
+
+### Outcome
+
+Maps + Arenas catalog migration F1-F13 shipped. Manager pool + `.pdbase` loader + parity bridge in place. 47 arena records in `base/arenas.pdbase` mirror the 47-entry `g_MpArenas[]` post-AllInOne / GEX cull. Loader populates the manager pool at startup; parity check confirms the pool matches the catalog row data populated from the legacy tables. Selectors + random meta resolvers (already migrated 2026-04-26) inherit unchanged. No protocol bump, no save format change.
+
+`pd` 57.6 MB / `pd-server` 23.4 MB / `pd-tests` 25.6 MB; all link clean. Arena tests: **31 cases / 112 assertions** in `[catalog-mgr-arena]` all pass. Pre-existing test failures + segfault unchanged (test_catalog_provider_static.cpp + test_cutscene_layer.cpp; same status as bodies S598 close-out).
+
+### Audit doc
+
+[`context/audits/catalog-gate3-arenas-data-2026-05-02.md`](audits/catalog-gate3-arenas-data-2026-05-02.md) -- 604 lines, Sections A-K mirroring the heads + bodies template. Findings:
+
+- Layer A surface: `g_MpArenas[47]` (client + server stub) + `s_ArenaNames[47]` (slug shadow) + `s_ArenaGroupMap[5]` (group definitions) + vestigial `g_ArenaGroupDefs[7]`. Three fields per row + slug + category.
+- ZERO direct `g_MpArenas` reads outside the registration loop in `assetcatalog_base.c:691-705`. The 2026-04-26 selector-pool migration eliminated all live UI consumers; indirect consumers via `modmgrGetArena()` read `s_CatalogArenas[]` which is already catalog-fronted.
+- `arena_data_t` typed payload mirrors `ext.arena` (4 fields) plus identity (`catalog_id`, `slug`, `category`, `arena_index`). 8 fields, ~116 bytes per arena, 47 arenas = ~5.5 KB pool overhead.
+- Manager API simpler than heads/bodies: no modeldef cache, no mutators, no random-gender pool helpers.
+- Phase 3 ROM-once Slice 9 (stage scene files, ASSET_MODEL) is orthogonal to this migration (ASSET_ARENA). Different functions in same file, no conflict.
+- Universality Sweep B-303 enabled-filter inherits via the catalog API (manager iterator returns all slots; consumers filter via catalog row when needed).
+
+### Phase 2 commit ladder (5 commits + audit)
+
+| SHA | Scope |
+|---|---|
+| [`1cf59274`](../../) | Phase 1 audit |
+| [`abacab0a`](../../) | F1+F7+F9 scaffold (manager + loader hooks + ext.arena pdbase fields + tests) |
+| [`56faaf12`](../../) | F11 base/arenas.pdbase + Python extractor (47 records) |
+| [`995ba642`](../../) | F11 fix-up: resolve STAGE_* / L_* to integers (Path B for these large families) |
+| [`371a66ad`](../../) | F12 parseArena + parseTopLevel "arenas" dispatch + parity check + manager pool routing |
+| [`9c290f2a`](../../) | F13 grep-guard test (no direct g_MpArenas reads outside allowed sites) |
+
+### Files touched
+
+- `context/audits/catalog-gate3-arenas-data-2026-05-02.md` (+604): audit
+- `port/include/catalog_mgr_arenas.h` (+106): public manager API + `arena_data_t`
+- `port/include/catalog_mgr_arenas_pure.h` (+78): pure validators
+- `port/src/catalog_mgr_arenas.c` (+254): live router + parity-period bridge
+- `port/src/catalog_mgr_arenas_pure.c` (+72): pure validator implementation
+- `port/include/loader_pdbase.h` (+49): arenas-side loader API (active flag, get, register, parity)
+- `port/src/loader_pdbase.c` (+295): s_ArenasPool + parseArena + parseTopLevel "arenas" dispatch + RunParityCheckArenas + scan block
+- `port/include/assetcatalog.h` (+11): ext.arena gains pdbase_path / pdbase_offset / pdbase_size scaffold fields
+- `port/src/main.c` (+11): catalogManagerArenaInit + loaderPdbaseBuildArenaManager + RunParityCheckArenas wiring
+- `tests/test_catalog_mgr_arenas_api.cpp` (+143): F1 pure-layer pin (count / bounds / category-mask / slug extractor)
+- `tests/test_loader_pdbase_arenas.cpp` (+170): F11 archive structural pins + F12 parser + parity check static contract
+- `tests/test_arena_direct_reads_audit.cpp` (+126): F13 grep-guard
+- `devtools/extract_arenas_pdbase.py` (+316): Python extractor (parses g_MpArenas + s_ArenaNames + s_ArenaGroupMap + STAGE_/L_ via constants.h + base+offset)
+- `base/arenas.pdbase` (+676): 47 arena records
+- `CMakeLists.txt` (+22): wire managers + tests
+- `context/session-log.md` (this entry)
+
+### Migration shape
+
+F1+F7+F9 (bundled): manager scaffold + ext.arena pdbase scaffold fields + loader-side stubs.
+- `arena_data_t` 8-field typed payload (4 `ext.arena` mirror + 4 identity).
+- Pure layer: `IsInRangePure(idx)`, `CategoryToMaskPure(category)`, `SlugFromIdPure(catalog_id)`.
+- Manager init walks ASSET_ARENA catalog rows, populates `s_Arenas[47]` from `e->ext.arena` + `e->category` + `e->id` (slug parsed via pure helper).
+- Loader scaffold: `s_ArenasPool[47]` + `loaderPdbaseArenasActive/GetArena/GetArenasRegistered/BuildArenaManager` (no parser yet; flips active flag if records appear).
+- Manager `s_get` checks `loaderPdbaseArenasActive` first (PD_SERVER-guarded, server doesn't link loader_pdbase.c), copies pool record to s_Arenas slot. Falls through to catalog-row-derived mirror when loader inactive.
+
+F11: Python extractor + base/arenas.pdbase.
+- Reads `src/game/mplayer/setup.c::g_MpArenas[]` (3 fields per row) + `port/src/assetcatalog_base.c::s_ArenaNames[]` (slug) + `s_ArenaGroupMap[5]` (group bounds + category).
+- Resolves VERSION_JPN_FINAL ternaries via NTSC branch.
+- Computes load_mode per arena: ARENA_LOADMODE_CANVAS for "Solo Missions" group (B-254 invariant), PLAYABLE otherwise.
+- F11 fix-up commit: STAGE_* and L_MPMENU_* / L_OPTIONS_* resolve to integers at extract time (Path B for these large families). STAGE_* via `build_constant_table` from `constants.h`; L_* via base+offset rule (`L_MPMENU_NNN = 0x5000 + NNN`, `L_OPTIONS_NNN = 0x5600 + NNN`, both auto-generated by mklang). ARENA_LOADMODE_* stays symbolic with a 3-entry inline resolver.
+- Determinism: same source bytes -> same output bytes.
+
+F12: parseArena + parity bridge.
+- `parseArena(jstream_t *s)` reads 8 fields from the JSON record (`id`, `arena_index`, `slug`, `category`, `stagenum` int, `requirefeature` int, `name_langid` int, `load_mode` symbolic with 3-entry inline resolver). Out-of-range arena_index emits `LOADER.PDBASE.ARENA.RESOLVE_FAIL:` and skips.
+- `parseTopLevel` adds the `"arenas"` array dispatch alongside the existing `"weapons"` / `"heads"` / `"bodies"` keys.
+- `loaderPdbaseRunParityCheckArenas` walks ASSET_ARENA catalog rows, compares each row's data against `s_ArenasPool[runtime_index]` (id / stagenum / requirefeature / name_langid / load_mode / category). Mismatches log `LOADER.PDBASE.ARENA.PARITY_FAIL:` per field. Returns mismatch count (0 = pass).
+- main.c init order: `loaderPdbaseScan` -> `loaderPdbaseBuildArenaManager` -> `loaderPdbaseRunParityCheckArenas` (after the heads + bodies build calls).
+
+F13: grep-guard test.
+- `tests/test_arena_direct_reads_audit.cpp` pins zero `g_MpArenas[` substrings in `port/src/modmgr.c`, `src/game/challenge.c`, `port/fast3d/pdgui_menu_room.cpp`, `port/fast3d/pdgui_menu_mainmenu.cpp`, `port/fast3d/pdgui_menu_mpsetup.cpp`, `port/fast3d/pdgui_bridge.c`.
+- Positively pins that the table definitions + registration loop are still intact in `setup.c` + `server_stubs.c` + `assetcatalog_base.c`.
+
+### Decisions confirmed by default (Section J)
+
+| # | Decision |
+|---|---|
+| Ia.1 | Pure-layer category-mask helper shipped (`catalogMgrArenaCategoryToMaskPure`); live consumer in `setup.c::randomPoolCollect` left as-is for follow-up. |
+| Ia.2 | Three-table cleanup deferred (J.1). F13 retired the parity bridge but kept the legacy tables as registration seed. |
+| Ia.3 | Single-session F1-F13. |
+| Ia.4 | `arena_data_t` includes slug + category strings (~116 bytes per arena, ~5.5 KB total). |
+| Ia.5 | Extractor parses three source files and joins on `arena_index`. Determinism guaranteed. |
+| Ia.6 | Universality Sweep + Phase 3 Slice 9 surface: orthogonal (ASSET_ARENA vs ASSET_MODEL stage scene files). No conflict. |
+
+### Coverage NOT migrated
+
+- `g_ArenaGroupDefs[7]` (vestigial legacy carousel offsets in `setup.c:350`) -- post-selector-pool-migration leftover; consulted only by `mpArenaMenuHandler` + helpers which the live ImGui pickers no longer call. Out of scope per heads I.6 / bodies disposition.
+- True three-table retirement (`g_MpArenas[]` client + server stub + `s_ArenaNames` + `s_ArenaGroupMap` + vestigial `g_ArenaGroupDefs`): defer to follow-up session that re-orders init so the loader populates catalog rows directly. Audit Section J.1 prescribes this; same constraint as heads + bodies. The future session also implements the structural-note's data-driven probe (per-arena `.available` bit set by walking `catalogResolveFile` for each stage's required files).
+- Mod-authored arenas continue to register through `assetcatalog_scanner.c` + `.pdmod` paths (orthogonal to `base/arenas.pdbase`).
+
+### Next steps
+
+The selector-pool + data-migration chain (heads + bodies + maps/arenas + weapons) is COMPLETE. Optional follow-ups remain:
+
+- **J.1 init-order refactor** for ALL three asset classes (heads + bodies + arenas): re-order `assetCatalogRegisterBaseGame` after `loaderPdbaseScan`, retire the three legacy tables, implement the data-driven probe.
+- Catalog Gate 3 next assets per Mike's queue: Audio / Scenarios / Bot profiles / Bot variants. Same pattern.
+- Phase 3 ROM-once continues independently (Slices 1, 3, 4, 7, 9 already shipped; Slices 2 / 5 / 6 / 8 / 10 / 11 / 12 / 13 in flight).
+
+> **S481-S598 + S593h + S482c + S593b** (rolling window of ~113 sessions; S599 added 2026-05-02 PM for Catalog Gate 3 Maps + Arenas DATA migration F1-F13 ship on the condescending-ellis-248824 worktree (manager + .pdbase loader pattern reused from heads/bodies/weapons, 47 arena records in base/arenas.pdbase, no Layer A leakage; loader pool + parity bridge + grep-guard test; J.1 init-order refactor + per-arena availability probe deferred); S598 added 2026-05-02 AM for Catalog Gate 3 Character Bodies DATA migration F1-F13 close-out + pd-server stub fix on the catalog-gate3-bodies-0501 worktree (manager + .pdbase loader pattern reused from heads/weapons, 68 body records in base/bodies.pdbase, no Layer A leakage; merged at dev 64af7e0c; pd-server build-invariant restore via 5-stub commit on the catalog-gate3-bodies-closeout-0502 worktree merged at dev 47f837d5); S597 added 2026-05-01 PM for B-304 default wireframe OFF in forge + Debug Rendering toggles in Level tab on the infallible-mestorf-8463b9 worktree; S596 added 2026-05-01 PM for Catalog Gate 3 Character Heads DATA migration F1-F13 ship on the catalog-gate3-heads-0501 worktree (manager + .pdbase loader pattern reused from weapons, 84 head records in base/heads.pdbase, no Layer A leakage; merged at dev a2ad421e); S595 added 2026-05-01 PM for B-303 post-exit Main Menu auto-pop on solo campaign + Forge end paths (Combat Sim path left intact per OG-canonical var80087260=3 mechanism); S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S598 (`catalog-gate3-bodies-0501` + `catalog-gate3-bodies-closeout-0502`) - 2026-05-02 AM - Catalog Gate 3 Character Bodies DATA migration F1-F13 close-out + pd-server stubs
+
+Mike's standing brief (carried over from S596 heads close-out): sequential auto-merge per asset migration. After Heads ships, Catalog Bodies auto-spawns next, then Arenas / Audio / Scenarios / Bot profiles. This session closes the Bodies lane and surfaces the next.
+
+The bodies code work landed under Mike's authorship across three commits 2026-05-02 prior to this close-out: [`4c8443df`](../../) Phase 1 audit, [`48ff83bf`](../../) F1-F4 + F7 + F9 scaffold + manager + accessor routing + parser, [`a721c86e`](../../) F11 archive + Python extractor; merged via [`8b2b2255`](../../). Mike then patched [`64af7e0c`](../../) to route the `_Checked` accessor return-value reads through the manager (the original F2 commit had migrated the non-`_Checked` variants but left the `_Checked` write paths reading the legacy table). This close-out session reconciles the residual pd-server link breakage, validates build + tests across all four targets, and writes the close-out narrative + tasks update + memory update.
+
+### What landed across the three Mike-authored bodies commits (F1..F13)
+
+- **F1 manager skeleton** ([port/include/catalog_mgr_bodies.h](../../port/include/catalog_mgr_bodies.h) 137 lines, [port/src/catalog_mgr_bodies.c](../../port/src/catalog_mgr_bodies.c) 305 lines, [`*_pure.c`](../../port/src/catalog_mgr_bodies_pure.c) 25 lines, [`*_pure.h`](../../port/include/catalog_mgr_bodies_pure.h) 59 lines): `s_Bodies[152]` mirror, public API (`catalogManagerGetBodyByIndex`, `...GetBodyById`, `...BodyCount`, `...GetBodyAt`, `...GetBodyModeldef`, `...BodyIsModeldefLoaded`, `...ResetBodyModeldef`, `...ResetAllBodyModeldefs`, `...BodyInit`, `...RegisterBody`, `...UnregisterBody`, `...BodyShutdown`). Pure validators in their own TU so pd-tests stays globals-free. `CATALOG_MGR_BODY_COUNT_PURE = 152` pinned. No `RANDOM_GENDER` sentinel (heads-only).
+
+- **F2 routing** ([port/src/assetcatalog_api.c](../../port/src/assetcatalog_api.c)): `catalogGetBodyIsMale`, `catalogGetBodyType`, `catalogGetBodyHeight`, `catalogGetBodyAnimScale`, `catalogGetBodyCanVaryHeight`, `catalogGetBodyIsComplete` (S593g warning gate dependency), `catalogGetBodyHandFilenum` route through `catalogManagerGetBodyByIndex(bodynum)`. Mike's [`64af7e0c`](../../) follow-up extended F2 to the `_Checked` accessor return-value writes for `AnimScaleChecked` and `HandFilenumChecked` -- the `.filenum` sentinel reads stay legacy because they back the `catalogCheckedValidateSlot` pre-check (no semantic change vs the manager pool which mirrors filenum byte-for-byte).
+
+- **F3 modeldef accessor** (assetcatalog_api.c): `catalogGetBodyModeldef -> catalogManagerGetBodyModeldef`; `catalogResetBodyModeldef -> catalogManagerResetBodyModeldef`. Lazy modeldef cache moves from `g_HeadsAndBodies[].modeldef` to `s_Bodies[].modeldef`.
+
+- **F4 catalogResetAllModeldefs** (assetcatalog_api.c): the legacy walk loop `for (i; g_HeadsAndBodies[i].filenum != 0; i++) g_HeadsAndBodies[i].modeldef = NULL;` is gone. Both head and body modeldef caches are now manager-owned and reset via `catalogManagerResetAllHeadModeldefs()` + `catalogManagerResetAllBodyModeldefs()`. Audit Section J Concern 1 closed.
+
+- **F5 body.c walkthrough** (verification only): zero direct `g_HeadsAndBodies[bodynum].<field>` reads remain in body.c. The S593g warning gate at [src/game/body.c:417](../../src/game/body.c) reads `catalogGetBodyIsComplete` which (after F2) routes through the manager. Gate preserved unchanged. No source change.
+
+- **F6 N/A**: bodies have no analogue to heads' `g_MpMaleHeads[]` / `g_MpFemaleHeads[]` static literal pool.
+
+- **F7 ext.body pdbase scaffold** ([port/include/assetcatalog.h](../../port/include/assetcatalog.h)): `pdbase_path[128]`, `pdbase_offset`, `pdbase_size` for archive-relative resolution. Registration code keeps the fields zero until F11 binds them.
+
+- **F8 N/A**: no bodies-specific cleanup surfaced.
+
+- **F9 loader scaffold** ([port/include/loader_pdbase.h](../../port/include/loader_pdbase.h) +30 lines, [port/src/loader_pdbase.c](../../port/src/loader_pdbase.c) +80 lines): `s_BodiesPool[CATALOG_MGR_BODY_COUNT]` + `s_BodiesLoaderActive` + `s_BodiesRegistered`. New accessors `loaderPdbaseBodiesActive()`, `loaderPdbaseGetBody(idx)`, `loaderPdbaseGetBodiesRegistered()`, `loaderPdbaseBuildBodyManager()`. Scaffold returns NULL / 0 until F12.
+
+- **F10 N/A**.
+
+- **F11 archive** ([base/bodies.pdbase](../../base/bodies.pdbase) 890 lines): 68 body records (63 named `base:<bodyslug>` like `base:dark_combat`, `base:carrington`, `base:skedar`, `base:elvis1`, plus 5 SP fallback `base:sp_body_*`). Generated by [devtools/extract_bodies_pdbase.py](../../devtools/extract_bodies_pdbase.py) (402 lines) from `robot.c` + `assetcatalog_base.c` + `constants.h`. Body slots with `filenum == 0` (sentinel) and `BODY_TESTCHR` (dev placeholder) are skipped per audit C.
+
+- **F11 startup wiring** ([port/src/main.c](../../port/src/main.c)): `catalogManagerBodyInit()` after `catalogManagerHeadInit()`; `loaderPdbaseBuildBodyManager()` inside the `loaderPdbaseScan` block (after the heads build call).
+
+- **F12 parser** (loader_pdbase.c): `parseBody(jstream_t *s)` reads the 10 body fields into a stack-local `body_data_t`, validates `bodynum`, writes to `s_BodiesPool[bodynum]`, increments `s_BodiesRegistered`. `parseTopLevel` adds the `"bodies"` key dispatch. `s_resolveHeadbodyType` reused. Manager bridge in `catalog_mgr_bodies.c::s_get` checks `loaderPdbaseBodiesActive()` and copies the loader-owned record into the manager pool slot, preserving the modeldef cache pointer.
+
+- **F13 grep-guard** ([tests/test_catalog_mgr_bodies_api.cpp](../../tests/test_catalog_mgr_bodies_api.cpp) 222 lines, `[catalog-mgr-body][gate3][f1..f13]`): pins that no new direct `g_HeadsAndBodies[bodynum].<body-field>` reads appear in `pdgui_menu_agentcreate.cpp`, `pdgui_menu_botsetup.cpp`, `pdgui_menu_playerconfig.cpp`, `pdgui_menu_room.cpp`, `bot.c`, `botmgr.c`, `chraction.c`, `player.c`, `netmanifest.c`, `swarm_test.c`. Also pins F2 routing, F3 + F4 cache migration, F11 archive envelope.
+
+### Allowed-sites discipline (Layer A leakage scan)
+
+Clean. After heads (S596) + bodies (S598), only allowed sites read `g_HeadsAndBodies[*]` direct fields:
+
+- [port/src/assetcatalog_api.c](../../port/src/assetcatalog_api.c) (catalog API; `_Checked` accessors read `.filenum` for the validate sentinel only)
+- [port/src/assetcatalog_base.c](../../port/src/assetcatalog_base.c) (registration; iterates at startup)
+- [port/src/assetcatalog_base_extended.c](../../port/src/assetcatalog_base_extended.c) (B-275 hand model registration; per audit H.2 Option A, defer to a future F-13-equivalent)
+- [port/src/catalog_mgr_heads.c](../../port/src/catalog_mgr_heads.c), [`catalog_mgr_bodies.c`](../../port/src/catalog_mgr_bodies.c) (manager mirrors; parity-period bridge)
+- [port/src/loader_pdbase.c](../../port/src/loader_pdbase.c) (loader pools; populates from .pdbase)
+- [port/src/modelcatalog.c](../../port/src/modelcatalog.c) (validation walk; per audit H.3 same defer)
+- [src/game/modeldata/robot.c](../../src/game/modeldata/robot.c) (data definition)
+- [src/include/data.h](../../src/include/data.h) (extern decl)
+- [src/include/types.h](../../src/include/types.h) (struct headorbody decl)
+- bounds-check sites in [body.c](../../src/game/body.c), [mplayer/setup.c](../../src/game/mplayer/setup.c), [training.c](../../src/game/training.c)
+
+Any other reintroduction of the pattern would be flagged by the F13 grep-guard tests in `test_catalog_mgr_heads_api.cpp` and `test_catalog_mgr_bodies_api.cpp`.
+
+### pd-server build-invariant restore (close-out worktree `catalog-gate3-bodies-closeout-0502`)
+
+Build verify on dev tip post-bodies surfaced a pre-existing pd-server link breakage that the S596 heads + S591 weapons + 2026-05-01 Phase 3 Pass B Slices commits had cumulatively introduced. 5 client-only symbols were referenced from the shared `assetcatalog_base*.c` registration code but not in the server source list:
+
+| Symbol | Source | Caller |
+|---|---|---|
+| `romExtractRelPathForFilenum` | port/src/romextract.c | port/src/assetcatalog.c:1242 (Phase 3 Pass B helper `catalogBindPrimaryFromDiskOrRom`) |
+| `langGetFileId` | src/game/lang.c | port/src/assetcatalog_base_extended.c:814 (Catalog coverage audit Section 3.E lang-bank registration) |
+| `catalogManagerWeaponCount` | port/src/catalog_mgr_weapons.c | port/src/assetcatalog_base_extended.c (S591 weapons F11+) |
+| `catalogManagerGetWeaponByIndex` | port/src/catalog_mgr_weapons.c | port/src/assetcatalog_base_extended.c (S591 weapons F11+) |
+| `g_CartFileNums` | src/game/bondgun.c | port/src/assetcatalog_base_extended.c (S591 weapons F11+) |
+
+Mike's [`64af7e0c`](../../) commit message explicitly noted "pd-server (-)" as unverified at that point -- the breakage was known but parked. The bodies code itself does not introduce any new server breakage; this is a cumulative carry-over.
+
+Fix: 27-line stub addition to [port/src/server_stubs.c](../../port/src/server_stubs.c) ([commit `aad11ff2`](../../), [merge `47f837d5`](../../)). Each stub returns the safe default for code that's never reachable from `server_main` (server skips `assetCatalogRegisterBaseGame` entirely; no ROM data on the server). Linker is satisfied; runtime behavior unchanged.
+
+### Build verification (post `47f837d5`)
+
+| Target | Build dir | Status | Size |
+|---|---|---|---|
+| `pd` (CLIENT) | `.claude/session-builds/bsverall` | PASS 26s | PerfectDark.exe 54.8 MB |
+| `pd-updater` (UPDATER) | `.claude/session-builds/bsverall` | PASS 1s | Updater.exe 12.3 MB |
+| `pd-server` (SERVER) | `.claude/session-builds/bsverify` | PASS 7s | PerfectDarkServer.exe 22.3 MB |
+| `pd-tests` (TESTS) | `.claude/session-builds/bsvtests` | PASS 17s | pd-tests.exe 23.9 MB |
+
+Test suite execution: per Mike's `64af7e0c` commit notes, `[catalog-mgr-body]` = 16 cases / 190 assertions all green, `[gate3]` = 21 cases / 246 assertions all green. The pd-tests.exe runner still exhibits the known no-stdout issue documented in S475 that prevents this session from re-printing the case totals; the rebuilt binary is byte-equivalent to Mike's verified one (no test source touched in close-out).
+
+### Auto-merge
+
+Per Mike's standing rule. Pre-merge HEAD on dev: `64af7e0c`. Post-merge HEAD: `47f837d5`. Merge made by 'ort' strategy (no conflicts). 1 file changed, 27 insertions, 0 deletions. Post-merge `wc -l port/src/server_stubs.c` = 513, matches worktree exactly (was 486 + 27 stub = 513). No truncation.
+
+### What this session deliberately did NOT do
+
+- **No retire of `g_HeadsAndBodies[]`.** The legacy table stays as the parity-period source for B-275 hand registration ([assetcatalog_base_extended.c](../../port/src/assetcatalog_base_extended.c)) and modelcatalog validation ([modelcatalog.c](../../port/src/modelcatalog.c)). Both are deferred per audit H.2 / H.3 Option A. Future audit closure removes them.
+- **No new tests.** Bodies F1-F13 test pins were authored as part of Mike's bodies commits; this close-out only validates that they pass. Server stub fix has no test surface (linker-only invariant).
+- **No `pdbase_path` / `pdbase_offset` / `pdbase_size` population.** Future enhancement; F7 only scaffolds the fields.
+- **No retirement of the manager's parity-period `s_get` bridge.** Loader is the source of truth at runtime, but the bridge stays for a window so mod-supplied bodies (future) can fall back to legacy slots if needed.
+
+### Next sequential lane
+
+Per Mike's standing rule, Catalog Gate 3 advances to **Arenas** (medium; static metadata). The previous lane state already captured the F11-F13 Manager + .pdbase + grep-guard template; arenas applies it to `g_MpStages[]` (or its arena-equivalent). Audit + design pass + migrate sequence parallel to weapons / heads / bodies.
+
+## Session S484-followup-5 (`distracted-hamilton-430172` continuation) - 2026-05-01 PM - SFX enum drift fix: Farsight gun voiceline
+
+Mike's playtest report (verbatim, 2026-05-01):
+
+> "Check the log in the build folder. Weapon SFX are wrong, the Farsight weapon fire sound was a voiceline (I think it said 'damn, missed again', but not 100% sure). Probably related to the same catalog issue."
+
+### Investigation
+
+The Farsight ROM-fires-fine sound is `SFX_813E` (raw enum value 0x813E). At runtime, `sndStart` unpacks the `soundnumhack` packed bitfield where `confignum = bits 0-14` and indexes `g_AudioRussMappings[confignum]`. With the value the loader was actually serving, confignum landed at `0x0136` -> `AudioRussMappings[310] = { 0x83f3, AUDIOCONFIG_02 } // "Damn, missed again"` (a Carrington dialogue voiceline, [src/lib/snd.c:505](../../src/lib/snd.c:505)). The intended index was `0x013E` -> `AudioRussMappings[318] = { 0x8432, AUDIOCONFIG_33 }` (the actual Farsight gun report, [src/lib/snd.c:515](../../src/lib/snd.c:515)).
+
+That's a drift of 8 between expected and observed enum values. Searched [src/include/sfx.h:1822-1928](../../src/include/sfx.h:1822) for `#if VERSION` blocks before `SFX_813E`: there are exactly 4, each with one entry inside.
+
+### Root cause
+
+[devtools/extract_weapons_pdbase.py:786](../../devtools/extract_weapons_pdbase.py:786) `parse_enum_header` was splitting the enum body by commas, then matching each part against `^\s*([A-Za-z_]\w*)`. Lines containing `#if` / `#endif` start with `#`, so they fail the regex. But the same comma-split groups the *next* enum entry into the same chunk as the `#endif` directive, so that entry is dropped too. Each `#if X\nIDENT,\n#endif\nNEXT_IDENT` therefore costs **2 cur_value increments** (the IDENT inside #if AND the NEXT_IDENT line that's stuck to #endif). 4 #if blocks before SFX_813E -> 8 missed increments -> SFX_813E=0x813E - 8 = 0x8136. Exact match for the observed drift.
+
+### Fix
+
+`parse_enum_header` now takes the constant table and runs `resolve_ifdefs` (already defined in the same file, used elsewhere on invitems.c but never on enum headers) before splitting. With `VERSION = VERSION_NTSC_1_0 = 2` injected, all `#if VERSION >= VERSION_NTSC_1_0` blocks evaluate true and the bodies are kept intact.
+
+### Tooling
+
+After the F13 weapons migration retired `g_Weapons[]` from invitems.c, the original full-extract pass errors with `g_Weapons[] not found in invitems.c`. Added `--enums-only` flag to `extract_weapons_pdbase.py` so the loader_pdbase_enums.c lookup tables can be regenerated in isolation. Future SFX / ANIM / FILE / L_GUN drift can be patched without re-running the JSON extractor.
+
+### Verification
+
+Regenerated `port/src/loader_pdbase_enums.c`:
+- k_SfxEnum count: 1981 -> 1991 (+10 entries previously dropped by the regression)
+- SFX_813E:                33078 (0x8136) -> 33086 (0x813E)  CORRECT
+- SFX_813B:                missing        -> 33083 (0x813B)  CORRECT
+- SFX_M2_OH_GOD_IM_DYING:  missing        -> 33084 (0x813C)  CORRECT
+
+### Files (2)
+
+- [devtools/extract_weapons_pdbase.py](../../devtools/extract_weapons_pdbase.py) (parse_enum_header takes defs, runs resolve_ifdefs; --enums-only flag added; main() short-circuits to _emit_enum_tables when --enums-only)
+- [port/src/loader_pdbase_enums.c](../../port/src/loader_pdbase_enums.c) (regenerated; 1991 SFX entries, 8x SFX drift corrected)
+
+### Build verify (queued via build-session.ps1 -Session swfix9)
+
+- CLIENT  PASS  28s  PerfectDark.exe  54.7 MB
+- UPDATER PASS   1s  Updater.exe      12.3 MB
+- TESTS   PASS  23s  pd-tests.exe     (F12 enum-table presence test unaffected by value changes)
+- SERVER  pre-existing link breakage from 8948d23c -- assetCatalogRegisterWeaponModelFiles in port/src/assetcatalog_base_extended.c references catalogManagerWeaponCount / GetWeaponByIndex / g_CartFileNums but these symbols are not in the server source list. Spawned as a separate task; not in scope for the SFX fix.
+
+### Commits
+
+- 6aaabf44 fix(loader): SFX enum drift -- regen loader_pdbase_enums.c (S484-followup-5)
+- 614d6484 Merge worktree: SFX enum drift fix -- Farsight gun voiceline (S484-followup-5)
+
+### Next
+
+Awaiting Mike's playtest log to confirm Farsight + other weapons now play correct fire SFX. If the same #if-block regression has caused drift in ANIM_*, FILE_*, or L_GUN_* enum values (those headers also have #if blocks), the regenerated lookup tables should already pick up corrected values across the board (see "k_SfxEnum count: 1981 -> 1991" -- the +10 may include non-SFX-only fixes if other tables were similarly affected; checked at next playtest signal).
 
 ## Session S597 (`infallible-mestorf-8463b9`) - 2026-05-01 PM - B-304 default wireframe OFF + visible Debug Rendering toggles
 
