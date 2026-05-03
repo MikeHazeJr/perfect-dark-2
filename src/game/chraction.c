@@ -15479,6 +15479,13 @@ struct prop *chrSpawnAtCoord(s32 bodynum, s32 headnum, struct coord *pos, RoomNu
 					chr->headnum = headnum;
 					chr->bodynum = bodynum;
 					chr->race = bodyGetRace(chr->bodynum);
+					/* B-314 (2026-05-03): allocate chr->unk348[] for
+					 * RACE_ROBOT bodies (BODY_CHICROB). Same gap as
+					 * botmgr.c::botCreate -- this AI-spawn path also
+					 * lacked the init that bodyAllocateChr inlined.
+					 * propsRenderBeams (propobj.c ~11723) NULL-derefs
+					 * without it. No-op for non-robot bodies. */
+					bodyInitChrBeams(chr, chr->bodynum);
 					chr->flags = 0;
 					chr->flags2 = 0;
 #if VERSION >= VERSION_NTSC_1_0
