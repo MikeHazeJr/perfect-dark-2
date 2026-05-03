@@ -327,7 +327,12 @@ TEST_CASE("cutscene lifecycle wiring: central paths all fire scene events", "[cu
 
     const std::string disconnect = functionBlock(net, "netDisconnect");
     REQUIRE_FALSE(disconnect.empty());
-    REQUIRE(disconnect.find("sceneFire(SCENE_EVENT_DISCONNECT, NULL)") != std::string::npos);
+    /* The literal sceneFire(SCENE_EVENT_DISCONNECT, NULL) call was
+     * centralized into sceneStageTransitionPrepare (port/src/scene_transition.c)
+     * and is pinned there by test_scene_dispatch.cpp. Here we verify
+     * netDisconnect routes through that helper with the disconnect flag. */
+    REQUIRE(disconnect.find("SCENE_STAGE_TRANSITION_DISCONNECT") != std::string::npos);
+    REQUIRE(disconnect.find("sceneStageTransitionPrepare(") != std::string::npos);
 
     REQUIRE(cmake.find("src/lib/main.c") == std::string::npos);
     REQUIRE(cmake.find("port/src/pdmain.c") == std::string::npos);
