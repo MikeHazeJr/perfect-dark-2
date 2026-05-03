@@ -44,11 +44,20 @@ This preserves bootstrap fields like `model_file` (set by base register to bind 
 
 ### Server build
 
-The walker is unconditional: builds and links into both client and server targets. The server already participates in the catalog (stage / map / mode / mod-distribution semantics), so its catalog rows benefit from the walker's overlay just as the client's do. No `PD_SERVER` guards on any of the 17 new files.
+Walker source has no `PD_SERVER` guards, but the `pd-server` target uses an explicit `SRC_SERVER` curated source list (CMakeLists.txt:743) that does NOT pull `port/src/loader_walker*.c` into the link. Server has its own startup path (no `port/src/main.c`) and registers catalog rows through its own paths; the walker is therefore client-only at this step. If a future server-side need arises, the files are ready to add to `SRC_SERVER` without ifdef adjustments.
+
+The `pd-tests` target (also explicit-list) likewise omits the walker; tests pin the static contracts of the per-asset emitters and `.pdbase` loader directly.
 
 ### Build verify
 
-Clean four-target build via `devtools/build-session.ps1` AFTER the worktree merge to dev (build-headless.ps1 redirects worktree paths to the main working copy, so verification of new files requires merge-first). 15 new `.obj` files (1 scaffold + 1 dispatch + 13 per-kind) compile into both client and server. No new compile warnings.
+Clean four-target build via `devtools/build-session.ps1` AFTER the worktree merge to dev `bf881e26` (build-headless.ps1 redirects worktree paths to the main working copy, so verification of new files requires merge-first):
+
+- Client (pd, PerfectDark.exe): PASS, **55.3 MB**
+- Updater (pd-updater, Updater.exe): PASS, **12.3 MB**
+- Server (pd-server, PerfectDarkServer.exe): PASS, **22.4 MB**
+- Tests (pd-tests, pd-tests.exe): PASS, **24.9 MB**
+
+15 new `.obj` files (1 scaffold + 1 dispatch + 13 per-kind) compile into the client target. No new compile warnings.
 
 ### Files added (15 new files, ~1100 lines)
 

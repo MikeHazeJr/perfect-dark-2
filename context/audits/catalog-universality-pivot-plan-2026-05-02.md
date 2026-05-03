@@ -1281,17 +1281,19 @@ The `.pdbase` parser block (`loaderPdbaseScan` + `loaderPdbaseBuild*Manager`) ea
 
 ### Server build
 
-The walker is unconditional: it builds and links into both client and server targets. The server already participates in the catalog (stage / map / mode / mod-distribution semantics), so its catalog rows benefit from the walker's overlay just as the client's do. No `PD_SERVER` guards on any of the 17 new files.
+The walker is unconditional source (no `PD_SERVER` guards on any of the 17 new files), but the `pd-server` target uses an explicit `SRC_SERVER` curated source list ([CMakeLists.txt:743](../../CMakeLists.txt:743)) that does NOT pull `port/src/loader_walker*.c` into the link. The server has its own startup path (no `port/src/main.c`) and registers catalog rows through its own paths; the walker is therefore client-only at this step. If a future server-side need arises, the files are ready to add to `SRC_SERVER` without `PD_SERVER` ifdef adjustments.
+
+The `pd-tests` target (also explicit-list) likewise omits the walker; tests pin the static contracts of the per-asset emitters and `.pdbase` loader directly.
 
 ### Build verify
 
-Clean four-target build via `devtools/build-session.ps1`:
-- Client (pd): PASS
-- Updater (pd-updater): PASS
-- Server (pd-server): PASS
-- Tests (pd-tests): PASS
+Clean four-target build via `devtools/build-session.ps1` after merging worktree to dev (`bf881e26`):
+- Client (pd, PerfectDark.exe): PASS, **55.3 MB**
+- Updater (pd-updater, Updater.exe): PASS, **12.3 MB**
+- Server (pd-server, PerfectDarkServer.exe): PASS, **22.4 MB**
+- Tests (pd-tests, pd-tests.exe): PASS, **24.9 MB**
 
-15 new `.obj` files (1 scaffold + 1 dispatch + 13 per-kind) compile into both client and server. No new compile warnings.
+15 new `.obj` files (1 scaffold + 1 dispatch + 13 per-kind) compile into the client target. No new compile warnings.
 
 ### Files added (15 new files, ~1100 lines)
 
