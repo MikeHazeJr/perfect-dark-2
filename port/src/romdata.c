@@ -1033,11 +1033,11 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 			} else if (r.catalog_id >= 0) {
 				{
 					const asset_entry_t *ce = assetCatalogGetByIndex(r.catalog_id);
-					sysLogPrintf(LOG_NOTE, "CATALOG: %s (%d) → ROM",
+					sysLogPrintf(LOG_NOTE, "CATALOG: %s (%d) → base",
 					             ce ? ce->id : "?", fileNum);
 				}
 			} else {
-				sysLogPrintf(LOG_VERBOSE, "CATALOG: file %d → ROM (not cataloged)", fileNum);
+				sysLogPrintf(LOG_VERBOSE, "CATALOG: file %d → base (not cataloged)", fileNum);
 			}
 		}
 

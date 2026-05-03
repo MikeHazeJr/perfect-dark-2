@@ -62,9 +62,9 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 			sysLogPrintf(LOG_WARNING, "MOD: texture %d catalog override failed (%s), falling back to legacy path",
 			             (s32)num, r.path);
 		} else if (r.catalog_id >= 0) {
-			sysLogPrintf(LOG_NOTE, "CATALOG: tex %d → ROM (entry %d)", (s32)num, r.catalog_id);
+			sysLogPrintf(LOG_NOTE, "CATALOG: tex %d → base (entry %d)", (s32)num, r.catalog_id);
 		} else {
-			sysLogPrintf(LOG_VERBOSE, "CATALOG: tex %d → ROM (not cataloged)", (s32)num);
+			sysLogPrintf(LOG_VERBOSE, "CATALOG: tex %d → base (not cataloged)", (s32)num);
 		}
 	}
 
@@ -129,9 +129,9 @@ void *modAnimationLoadData(u16 num)
 			sysLogPrintf(LOG_WARNING, "MOD: animation %d catalog override failed (%s), falling back to legacy path",
 			             (s32)num, r.path);
 		} else if (r.catalog_id >= 0) {
-			sysLogPrintf(LOG_NOTE, "CATALOG: anim %d → ROM (entry %d)", (s32)num, r.catalog_id);
+			sysLogPrintf(LOG_NOTE, "CATALOG: anim %d → base (entry %d)", (s32)num, r.catalog_id);
 		} else {
-			sysLogPrintf(LOG_VERBOSE, "CATALOG: anim %d → ROM (not cataloged)", (s32)num);
+			sysLogPrintf(LOG_VERBOSE, "CATALOG: anim %d → base (not cataloged)", (s32)num);
 		}
 	}
 
