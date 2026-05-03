@@ -660,11 +660,11 @@
     },
     {
       "id": "c105", "title": "Empty-pool-on-clean-BYOR root-cause fix (followup)",
-      "description": "B-318 gate removal breaks the deadlock at the gate level but pool-dependent emitters still emit 0 files on truly clean BYOR install -- there is no source data anywhere (Step 5 retired .pdbase aggregate; no ROM-direct extraction path for weapon/head/body/arena/anim metadata). Two reasonable paths: (1) pre-ship .pd<ext> files in source tree via one-off conversion of recovered .pdbase JSON in .claude/session-builds/*/data/base/*.pdbase; (2) add a ROM-direct extraction path. Without one of these, post-Step-5 fresh installs cannot start a stage.",
-      "pillar": "catalog", "column": "backlog", "order": 110000,
+      "description": "SHIPPED 2026-05-03 (focused-poitras-97c1d4) at dev `ab0a6fe7`. Closed by BYOR completion via Option B (5 *data_authored.c source-of-truth files; emitters walk authoring tables; 6 catalog files migrated; engine arrays retired). Pipeline: ROM -> disk segments + binary-baked g_*Data[] -> emitters write per-asset .pd<ext> -> walker registers in catalog -> catalog serves engine. BYOR contract holds end-to-end. Build verify clean four-target via `build-session.ps1 -Session byor1`. See context/tasks.md section 2c.",
+      "pillar": "catalog", "column": "done", "order": 110000,
       "priority": 1,
-      "notes": "Acknowledged in audit doc Step 5 'First-boot regression note (accepted)'. B-318 surfaced this as a critical-path blocker for clean install playtest.", "flag": null, "flagged_at": null,
-      "created": "2026-05-03T15:00:00Z", "updated": "2026-05-03T15:00:00Z"
+      "notes": "Closed by BYOR Completion ship 2026-05-03 at dev ab0a6fe7. Note: post-boot AV in challengesInit (B-323) was a separate Pass C side-effect, not a BYOR issue -- tracked at c112.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T15:00:00Z", "updated": "2026-05-03T18:43:00Z"
     },
     {
       "id": "c106", "title": "pdvoice skipped=1545 russ-table investigation (followup)",
@@ -714,6 +714,14 @@
       "priority": 3,
       "notes": "Sequential after Phase 4 lands on dev (Mike Q6 2026-05-03). Spec at context/designs/engine/startup-acceleration.md Phase 5.", "flag": null, "flagged_at": null,
       "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c112", "title": "B-323 post-boot AV in challengesInit (Pass C side-effect, N64-vs-PC stride)",
+      "description": "SHIPPED 2026-05-03 (competent-saha-a202bb). Mike's playtest of dev 1363ee75 AVs at boot inside challengesInit() -- bcopy/memcpy+146 from a dmaExecWithAutoAlign over-read in src/game/challenge.c::challengeLoadConfig. Root cause: PC sizeof(struct mpconfig) = 4596 and sizeof(struct mpstrings) = 680 used as both stride and read length, but on-disk segment is laid out with N64 sizes (mpstrings 320 bytes/entry); MAX_BOTS grew 8 -> 32. Pre-Pass-C the over-read landed in adjacent ROM bytes inside the contiguous 32 MB g_RomFile -- harmless. Post-Pass-C (S607, dev b15cc701) each segment is its own heap allocation; over-read AVs. g_MpChallenges[0].confignum=14 makes the very first call attempt a 4596-byte read at offset 14*4596=64344, ~60 KB past the 4576-byte segment. Fix: (1) Remove mpconfigs dmaExec entirely (data was always overwritten by mpconfig->config = g_MpConfigs[confignum] -- dead code). (2) Replace mpstrings dmaExec with bcopy of N64_MPSTRINGS_SIZE=320 bytes from confignum*320, into the head of the PC mpstrings struct (description[200] + aibotnames[0..7] = 320 bytes matches N64 layout exactly), with bzero of the whole PC struct first to leave aibotnames[8..31] zeroed. Bots 9..32 fall back to legacy g_BotConfigsArray naming. Build verify clean four-target via build-session.ps1 -Session b323: client 55.5 MB, updater 12.3 MB, server 22.4 MB, tests 24.6 MB. Audit append in context/audits/catalog-universality-pivot-plan-2026-05-02.md 'BYOR post-boot AV triaged' section. Bug ledger entry at B-323. Note: NOT a BYOR-completion issue -- this AV exists in BOTH pre-BYOR and post-BYOR builds; the user's prompt framing was inaccurate.",
+      "pillar": "catalog", "column": "done", "order": 130000,
+      "priority": 1,
+      "notes": "Worktree competent-saha-a202bb. SHA pending merge. B-323 in bugs.md.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T18:00:00Z", "updated": "2026-05-03T18:43:00Z"
     }
   ]
 }

@@ -371,14 +371,53 @@ bool challengeIsCompletedByChrWithNumPlayersBySlot(s32 mpchrnum, s32 slot, s32 n
 
 #define BTYPE uintptr_t
 
+/* B-323 (2026-05-03): N64 segment vs PC struct sizing mismatch.
+ *
+ * Both mpconfigs and mpstrings ROM segments were laid out using N64
+ * struct sizes:
+ *   - N64 sizeof(struct mpconfig)  built around simulants[8]
+ *   - N64 sizeof(struct mpstrings) = 200 (description) + 8*15 (aibot names)
+ *                                  = 320 bytes per entry
+ * The PC port grew MAX_BOTS from 8 to 32, so PC sizeof became:
+ *   - PC sizeof(struct mpconfig)  ~= 0x11f4 (4596 bytes per entry)
+ *   - PC sizeof(struct mpstrings) =  680 bytes per entry
+ *
+ * The historical legacy code multiplied confignum by PC sizeof to compute
+ * segment offsets, which only happened to "work" pre-Pass-C because the
+ * mpconfigs/mpstrings segments were embedded in the contiguous 32 MB
+ * g_RomFile blob -- any over-read landed in adjacent ROM bytes that were
+ * later overwritten by `mpconfig->config = g_MpConfigs[confignum]` and
+ * the strings memcpy. Pass C (S607, 2026-05-02) migrated each segment to
+ * its own heap allocation; the over-read now walks off the end of an
+ * isolated buffer and AVs in memcpy.
+ *
+ * Structural fix:
+ *   1. Remove the mpconfigs dmaExec entirely. The data was always
+ *      overwritten by `mpconfig->config = g_MpConfigs[confignum]`, so
+ *      the read was dead. The `buffer` argument is still used as the
+ *      ALIGN16 storage backing for the returned mpconfigfull *.
+ *   2. Read mpstrings using N64 entry size (320 bytes) at N64-spaced
+ *      offsets into the first 320 bytes of the PC mpstrings struct
+ *      (description[200] + aibotnames[0..7]). The trailing aibotnames
+ *      [8..31] are zeroed via bzero. This matches the on-disk segment
+ *      layout exactly and recovers description text + the first 8 bot
+ *      names; bots 9..32 fall back to legacy g_BotConfigsArray naming
+ *      when no name is supplied.
+ *
+ * Pre-fix: AV at memcpy during challengesInit's first iteration --
+ * g_MpChallenges[0].confignum = MPCONFIG_CHALLENGE01 = 14; PC over-read
+ * tried to memcpy 4596 bytes from segment offset 14*4596 = 64344, but
+ * the segment heap allocation is only 4576 + 64 padding = 4640 bytes.
+ * Post-fix: the mpconfigs segment is no longer read; mpstrings reads
+ * the correct N64-sized window for any confignum in [0, 43].
+ */
+#define N64_MPSTRINGS_SIZE 320 /* description[200] + aibotnames[8][15] */
+
 struct mpconfigfull *challengeLoadConfig(s32 confignum, u8 *buffer, s32 len)
 {
 	struct mpconfigfull *mpconfig;
-	u8 buffer2[sizeof(struct mpstrings) + 40];
-	struct mpstrings *loadedstrings;
 	BTYPE bank;
 	u32 language_id = langGetFileNumOffset();
-	extern u8 EXT_SEG _mpconfigsSegmentRomStart;
 	extern struct mpstrings EXT_SEG _mpstringsESegmentRomStart;
 	extern struct mpstrings EXT_SEG _mpstringsJSegmentRomStart;
 	extern struct mpstrings EXT_SEG _mpstringsPSegmentRomStart;
@@ -406,15 +445,25 @@ struct mpconfigfull *challengeLoadConfig(s32 confignum, u8 *buffer, s32 len)
 		{ (BTYPE)REF_SEG _mpstringsISegmentRomStart, (BTYPE)REF_SEG _mpstringsISegmentRomEnd },
 	};
 
-	// Load mpconfigs
-	mpconfig = dmaExecWithAutoAlign(buffer, (BTYPE)REF_SEG _mpconfigsSegmentRomStart + confignum * sizeof(struct mpconfig), sizeof(struct mpconfig));
+	(void)len;
 
-	// Load mpstrings
-	bank = banks[language_id][0];
-	loadedstrings = dmaExecWithAutoAlign(buffer2, bank + confignum * sizeof(struct mpstrings), sizeof(struct mpstrings));
+	/* Align caller-supplied buffer to 16 for the returned mpconfigfull *.
+	 * The N64 dmaExecWithAutoAlign produced the same alignment via DMA
+	 * mechanics; we keep the contract so callers' reserved buffer space
+	 * (sizeof(struct mpconfigfull) + 16) holds the result. */
+	mpconfig = (struct mpconfigfull *)((uintptr_t)ALIGN16((uintptr_t)buffer));
 
+	/* mpconfig data: source from compile-time g_MpConfigs[]. */
 	mpconfig->config = g_MpConfigs[confignum];
-	mpconfig->strings = *loadedstrings;
+
+	/* mpstrings: read 320 bytes (N64 sizeof) from offset confignum*320
+	 * into the head of the PC struct (description[200] + aibotnames[0..7]),
+	 * zeroing the trailing aibotnames[8..31]. */
+	bzero(&mpconfig->strings, sizeof(mpconfig->strings));
+	bank = banks[language_id][0];
+	bcopy((const void *)(bank + confignum * N64_MPSTRINGS_SIZE),
+	      &mpconfig->strings,
+	      N64_MPSTRINGS_SIZE);
 
 	return mpconfig;
 }

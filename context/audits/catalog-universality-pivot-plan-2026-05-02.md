@@ -1743,3 +1743,179 @@ registration miscompare against the authoring table.
 - 1 `CMakeLists.txt` update (server source list)
 
 DOC_END_2026-05-03_BYOR_COMPLETION_SHIPPED
+
+---
+
+## BYOR post-boot AV triaged (2026-05-03, competent-saha-a202bb)
+
+Mike's playtest of his current install (`dev 1363ee75`) AVs at boot
+inside `challengesInit()`. Stack: `bcopy/memcpy` invoked via `dmaStart`
+from `dmaExecWithAutoAlign` in [src/game/challenge.c:410](../../src/game/challenge.c:410)
+(pre-fix line). Backtrace (NTSC final, MinGW build):
+
+```
+#00 memcpy+146                   (in libc / kernelbase)
+#01 PerfectDark.exe + 0x1e9cab   <- dmaStart -> bcopy
+#02 PerfectDark.exe + 0x3b6bd4   <- dmaExec
+#03 PerfectDark.exe + 0x3b6bfb   <- dmaExecWithAutoAlign
+#04 PerfectDark.exe + 0x3b6c59
+#05 PerfectDark.exe + 0x05e9d4   <- challengeLoadConfig
+#06 PerfectDark.exe + 0x05eac7   <- challengeLoad
+#07 PerfectDark.exe + 0x05fd60   <- challengesInit
+#08 ...                          <- mainInit
+```
+
+Last log line before AV: `VERBOSE: INIT: challengesInit...` -- no
+breadcrumb yet, no per-loop progress; the AV happens on the first
+iteration of the `g_MpChallenges` loop.
+
+### Root cause
+
+`challengeLoadConfig` at [src/game/challenge.c:374-419](../../src/game/challenge.c:374)
+read both mpconfigs and mpstrings ROM segments using PC `sizeof` for
+both per-entry stride AND per-entry length:
+
+```c
+mpconfig = dmaExecWithAutoAlign(buffer,
+    (BTYPE)REF_SEG _mpconfigsSegmentRomStart + confignum * sizeof(struct mpconfig),
+    sizeof(struct mpconfig));
+loadedstrings = dmaExecWithAutoAlign(buffer2,
+    bank + confignum * sizeof(struct mpstrings),
+    sizeof(struct mpstrings));
+```
+
+The on-disk segment data is laid out using N64 binary struct sizes:
+
+| Struct        | N64 sizeof | PC sizeof | Drift driver           |
+|---|---|---|---|
+| `struct mpconfig`  | ~152 bytes (8 bots)  | 0x11f4 = 4596 (32 bots)  | `MAX_BOTS` 8 -> 32 |
+| `struct mpstrings` | 320 bytes (200 + 8*15) | 680 bytes (200 + 32*15) | `aibotnames[MAX_BOTS][15]` |
+
+The mpconfigs ROM segment is `0x11e0 = 4576` bytes total per
+[port/src/romdata.c:126](../../port/src/romdata.c:126); the mpstrings
+segments are `0x3700 = 14080` bytes per
+[port/src/romdata.c:127](../../port/src/romdata.c:127). Both segments
+hold many entries in N64 layout, but the PC code treats them as if
+they had PC-sized entries.
+
+`g_MpChallenges[0].confignum = MPCONFIG_CHALLENGE01 = 0x0e = 14`
+([src/include/constants.h:2725](../../src/include/constants.h:2725)),
+so the very first call computes `_mpconfigsSegmentRomStart + 14 * 4596 = +64344`
+which is `~60 KB` past the segment end. Pre-Pass-C this landed inside
+the contiguous 32 MB `g_RomFile` blob and the read produced garbage
+that was harmlessly overwritten by `mpconfig->config = g_MpConfigs[confignum]`
+on the next line. Post-Pass-C (S607, dev `b15cc701`) each segment is
+its own heap allocation with 64 bytes of read-ahead padding; the
+over-read walks off the end of an isolated buffer and AVs.
+
+This is a Pass C side-effect that S607's read-ahead padding only
+addresses for confignum 0; any confignum > 0 with PC-sized stride is
+out of bounds. The AV was masked at the time because Mike's then-current
+install hadn't exercised the post-Pass-C boot path with the challenge loop.
+
+### What was already true and stayed true
+
+The mpconfig segment data had been fully redundant on PC for a long time:
+the call site overwrites `mpconfig->config = g_MpConfigs[confignum]`
+(static compile-time array in
+[src/game/mpconfigs.c:6](../../src/game/mpconfigs.c:6)) immediately
+after the dmaExec. The dmaExec was reading data nobody used. Removing
+it changes runtime semantics of the mpconfig path by zero. Only
+`mpconfig->strings` had a live data dependency on the segment.
+
+### Fix
+
+Single-file structural change at [src/game/challenge.c:372-469](../../src/game/challenge.c:372):
+
+1. Remove the mpconfigs `dmaExec` entirely. The call site uses `buffer`
+   only as ALIGN16 storage backing for the returned `struct mpconfigfull *`;
+   the new code aligns the buffer directly with `ALIGN16((uintptr_t)buffer)`
+   and assigns `mpconfig->config = g_MpConfigs[confignum]` as before.
+   The `extern u8 EXT_SEG _mpconfigsSegmentRomStart;` declaration is
+   dropped from the function. The segment itself stays loaded at boot
+   (no production consumers); a future cleanup can retire it from the
+   ROMSEG_LIST in [port/src/romdata.c:122-149](../../port/src/romdata.c:122)
+   if desired.
+2. Replace the mpstrings `dmaExec` with N64-sized reads. The new code
+   defines `N64_MPSTRINGS_SIZE = 320`, `bzero`s the entire PC mpstrings
+   struct (zeros aibotnames[8..31] which the N64 segment never had),
+   then `bcopy`s 320 bytes from `bank + confignum * 320` into the head
+   of the PC struct. The first 320 bytes of the PC layout are
+   description[200] + aibotnames[0..7] (positions 0..7 at offsets
+   200, 215, 230, ... 305 -- aibotnames[i] is at offset 200 + i*15),
+   matching the N64 layout exactly. Bots 9..32 fall back to legacy
+   `g_BotConfigsArray` naming when no segment-sourced name is supplied.
+
+```c
+mpconfig = (struct mpconfigfull *)((uintptr_t)ALIGN16((uintptr_t)buffer));
+mpconfig->config = g_MpConfigs[confignum];
+
+bzero(&mpconfig->strings, sizeof(mpconfig->strings));
+bank = banks[language_id][0];
+bcopy((const void *)(bank + confignum * N64_MPSTRINGS_SIZE),
+      &mpconfig->strings, N64_MPSTRINGS_SIZE);
+```
+
+The MPCONFIG enum max is `MPCONFIG_CHALLENGE30 = 0x2b = 43`. Reading
+320 bytes from offset 43*320 = 13760 and reading 320 bytes ends at
+14080 -- exactly the segment end. Within-bounds for every legal
+confignum value.
+
+### Why "AV in setupCreateProps -> reset functions" framing was off
+
+The triage prompt described the AV as "during stage load" at
+"setupCreateProps -> reset functions". The actual log shows the AV
+at `challengesInit` BEFORE any stage is loaded -- the boot stage
+indicator is `0x26` (title screen), not a playable mp arena. The
+"setupCreateProps" framing was a misremembered prior triage; the
+fix here lives entirely in the boot init path and never touches
+setup.c / propobj.c / spawn pipelines.
+
+### Why pre-BYOR vs BYOR completion is irrelevant for this AV
+
+Mike's installed binary (`dev 1363ee75` per pd-client.log line 1) is
+PRE-BYOR completion. The BYOR completion ship at `ab0a6fe7` did not
+touch [src/game/challenge.c](../../src/game/challenge.c) -- this AV
+exists in BOTH pre-BYOR and post-BYOR builds. The triage prompt's
+framing that "BYOR completion was supposed to fully resolve" the AV
+was inaccurate; BYOR completion only addressed the empty-pool-on-clean-BYOR
+issue, not the challenge segment overflow. The Pass C SHA from S607
+(`b15cc701`) is the actual ancestor that introduced the AV.
+
+### Propagation check (other dmaExecWithAutoAlign callers)
+
+Three other call sites use `dmaExecWithAutoAlign` and were checked
+against the same N64-vs-PC sizing pattern:
+
+- [src/game/training.c:422](../../src/game/training.c:422) reads the
+  firingrange segment using `len = end - start` computed at runtime --
+  i.e., the actual segment length. No PC-vs-N64 stride mismatch and
+  no over-read possible.
+- [src/lib/anim.c:148](../../src/lib/anim.c:148) reads animations with
+  caller-supplied `len`. Animation frame data sizing is not affected
+  by `MAX_BOTS` or any other PC-grown constant; the segment is 6.5 MB
+  and per-anim `len` is bounded by the animation table.
+- [port/src/romdata.c:744](../../port/src/romdata.c:744) is only a
+  comment, no actual call.
+
+So the AV class is bounded to challengeLoadConfig.
+
+### Files changed
+
+- [src/game/challenge.c](../../src/game/challenge.c) net +49 / -9 lines
+
+### Build verify
+
+Queued via `devtools/build-session.ps1 -Session b323 -Target all`.
+Result captured below in tasks.md kanban + bugs.md entry; smoke verify
+follows on Mike's next install.
+
+### Status
+
+B-323 logged in [bugs.md](../bugs.md). Smoke verify is Mike-runnable
+once a fresh build hits his install: `rm -rf <install>/data/<romid>/`,
+run `PerfectDark.exe`, expect boot to proceed past `challengesInit`
+without AV; the new mpstrings read pulls description text + 8 bot
+names per challenge for confignums 14..43.
+
+DOC_END_2026-05-03_BYOR_POST_BOOT_AV_TRIAGED
