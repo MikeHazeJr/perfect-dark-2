@@ -1,5 +1,57 @@
 # Session Log (Active)
 
+## Session S593h-followup-2 (`distracted-hamilton-430172` continuation) - 2026-05-02 PM - swarm bot speed cap
+
+Mike's directive (verbatim): "the skedar guys in our benchmark are WAY too fast right now. Fix that"
+
+### Investigation
+
+[`botCalculateMaxSpeed`](../../src/game/bot.c:1738) at src/game/bot.c:1738-1789. The function computes `speed = (catalogGetBodyHeight / 159) * 0.002830188 + 1.0` (around 1.003 for Skedar height=159), then applies a type/difficulty multiplier:
+
+- BOTTYPE_TURTLE: 3.5x
+- **BOTTYPE_SPEED: 14.0x** (the swarm config branch)
+- else: difficulty switch (BOTDIFF_MEAT=5.0x ... BOTDIFF_DARK=11.2x)
+
+When `type == BOTTYPE_SPEED`, the difficulty switch is **skipped**. So swarm Skedars run at exactly 14x natural speed -- not the "14x * 11.2x DARK" Mike's framing implied. The "inverse-scale" effect is purely perceptual: smaller bots cover more body-lengths/sec visually but world-units/sec is identical. No code applies a scale-driven speed multiplier.
+
+`grep BOTTYPE_SPEED` returned exactly two consumers:
+
+1. `port/src/swarm_test.c::s_SwarmBotConfig` (the swarm test, intentional).
+2. `src/game/mplayer/mplayer.c:2230` -- the OG MP "Speed Simulant" preset (Mike's existing MP balance).
+
+### Fix shipped (commit 44faea84 + merge df7f4fc8)
+
+Surgical cap gated on the swarm-lock marker `chr->hidden & 0x00040000` (CHRHFLAG set by swarm_test.c at spawn). After the type/difficulty multiplier and before the crouch / near-waypoint reductions:
+
+```c
+if ((chr->hidden & 0x00040000) && speed > 5.0f) {
+    speed = 5.0f;
+}
+```
+
+Hard ceiling rather than a multiplier so downstream reductions (squat 0.35x, duck 0.5x, near-waypoint 0.5x) still scale relative to the capped base. The MP "Speed Simulant" preset keeps its OG 14x balance untouched.
+
+5.0f sits at the midpoint of Mike's suggested 4-6x range; tuneable from the bot.c constant if Mike wants to adjust further after playtest.
+
+### Build verify (queued via build-session.ps1)
+
+| Target | Session | Status |
+|---|---|---|
+| CLIENT | swspd1 | PASS 29s |
+| UPDATER | swspd1 | PASS 1s |
+| SERVER | swspd1s | PASS 8s |
+| TESTS | swspd1t | PASS 17s |
+
+### Auto-merge
+
+Per standing rule. Pre-merge dev HEAD `10627d7e`. Worktree commit `44faea84`. Post-merge `df7f4fc8` (ort strategy, no conflicts). 1 file, +21 / -0. Post-merge file checksum matches worktree exactly.
+
+### Next playtest should show
+
+- Swarm Skedars feel "fast and aggressive" rather than "WAY too fast". Visual perception remains brisk thanks to small-scale rendering, but world-distance closure rate is closer to a normal Hard simulant than a Speed simulant.
+- MP "Speed Simulant" preset (non-swarm) unaffected -- still 14x as Mike's existing balance defines.
+- If Mike wants further tuning, the constant `5.0f` at bot.c:1791 (after this merge) is the single dial.
+
 ## Session S593g-followup (`distracted-hamilton-430172` continuation) - 2026-05-02 PM - integrated-head data + scale bump
 
 Mike's 2026-05-02 19:46 playtest crashed transitioning the swarm benchmark from 128 to 256 bots. Build/pd-client.log ended abruptly at 02:15.50 mid-line during a `head_canon=NULL` warning flood (769 lines in 16 seconds). Four findings reported, audited as one coherent restoration.
