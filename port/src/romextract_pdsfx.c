@@ -63,9 +63,14 @@
  * our shared walker switches between "EXTRACT.PDSFX" and
  * "EXTRACT.PDVOICE" at runtime, so we build an equivalent expansion
  * with %s for the channel name. Same LOG_WARNING level + "LOUDFAIL."
- * prefix; same single sysLogPrintf surface for log filters to grep. */
+ * prefix; same single sysLogPrintf surface for log filters to grep.
+ *
+ * The ##__VA_ARGS__ GNU extension elides the leading comma when no
+ * variadic args are passed (e.g. LOUD_FAILF_RT(ch, "msg"); has no
+ * trailing comma artifact). GCC supports it; this codebase already
+ * builds under GCC/MinGW so the extension is available. */
 #define LOUD_FAILF_RT(channel, fmt, ...) \
-	sysLogPrintf(LOG_WARNING, "LOUDFAIL.%s: " fmt, channel, __VA_ARGS__)
+	sysLogPrintf(LOG_WARNING, "LOUDFAIL.%s: " fmt, channel, ##__VA_ARGS__)
 
 /* The bank file format is described in include/PR/libaudio.h plus
  * the post-preprocess form in port/src/preprocess/segaudio.c. Stored
