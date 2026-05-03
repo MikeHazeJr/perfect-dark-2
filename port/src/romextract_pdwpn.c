@@ -19,8 +19,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <SDL.h>
 #include <PR/ultratypes.h>
 
+#include "boot_pool.h"
+#include "boot_progress.h"
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -543,6 +546,50 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 }
 
 /* ------------------------------------------------------------------ */
+/* Engine Phase 4 fan-out                                              */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+	const char  *weapons_dir;
+	s32          force_rewrite;
+	s32          count;
+	SDL_atomic_t written;
+	SDL_atomic_t skipped;
+	SDL_atomic_t failed;
+	SDL_atomic_t processed;
+} pdwpn_fanout_ctx_t;
+
+static void s_pdwpnWork(int i, void *user)
+{
+	pdwpn_fanout_ctx_t *c = (pdwpn_fanout_ctx_t *)user;
+	if (i < 0 || i >= c->count) return;
+
+	const struct weapon *wpn = g_WeaponData[i];
+	if (!wpn) {
+		SDL_AtomicAdd(&c->skipped, 1);
+		goto progress;
+	}
+
+	const char *catalog_id = g_WeaponDataCatalogIds[i];
+	const struct aibotweaponpreference *bp = (i < g_BotPrefDataCount)
+		? &g_BotPrefData[i] : NULL;
+
+	s32 r = s_emitOneWeapon(i, wpn, bp, catalog_id,
+	                        c->weapons_dir, c->force_rewrite);
+	if (r > 0)       SDL_AtomicAdd(&c->written, 1);
+	else if (r == 0) SDL_AtomicAdd(&c->skipped, 1);
+	else             SDL_AtomicAdd(&c->failed,  1);
+
+progress:
+	{
+		int done = SDL_AtomicAdd(&c->processed, 1) + 1;
+		if ((done & 0x07) == 0 || done == c->count) {
+			bootProgressUpdate(done, c->count);
+		}
+	}
+}
+
+/* ------------------------------------------------------------------ */
 /* Public entry point                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -569,24 +616,23 @@ s32 romExtractAllPdwpn(s32 force_rewrite)
 		return -1;
 	}
 
-	s32 written = 0;
-	s32 skipped = 0;
-	s32 failed = 0;
+	pdwpn_fanout_ctx_t wctx;
+	memset(&wctx, 0, sizeof(wctx));
+	wctx.weapons_dir   = weapons_dir;
+	wctx.force_rewrite = force_rewrite;
+	wctx.count         = g_WeaponDataCount;
+	SDL_AtomicSet(&wctx.written,   0);
+	SDL_AtomicSet(&wctx.skipped,   0);
+	SDL_AtomicSet(&wctx.failed,    0);
+	SDL_AtomicSet(&wctx.processed, 0);
 
-	for (s32 i = 0; i < g_WeaponDataCount; i++) {
-		const struct weapon *wpn = g_WeaponData[i];
-		if (!wpn) continue;
+	bootProgressUpdate(0, g_WeaponDataCount);
+	bootPoolForRangeBlocking(0, g_WeaponDataCount, s_pdwpnWork, &wctx);
+	bootProgressUpdate(g_WeaponDataCount, g_WeaponDataCount);
 
-		const char *catalog_id = g_WeaponDataCatalogIds[i];
-		const struct aibotweaponpreference *bp = (i < g_BotPrefDataCount)
-			? &g_BotPrefData[i] : NULL;
-
-		s32 r = s_emitOneWeapon(i, wpn, bp, catalog_id,
-		                        weapons_dir, force_rewrite);
-		if (r > 0)       written++;
-		else if (r == 0) skipped++;
-		else             failed++;
-	}
+	s32 written = SDL_AtomicGet(&wctx.written);
+	s32 skipped = SDL_AtomicGet(&wctx.skipped);
+	s32 failed  = SDL_AtomicGet(&wctx.failed);
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdwpn: written=%d skipped=%d failed=%d total=%d",

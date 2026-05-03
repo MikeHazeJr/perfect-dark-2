@@ -51,6 +51,34 @@ void bootPoolEnqueue(boot_pool_job_fn fn, void *arg);
  * we're waiting on, or it deadlocks). */
 void bootPoolWaitIdle(void);
 
+/* Engine Phase 4 (2026-05-03): per-index range fan-out.
+ *
+ * Fan out [begin, end) across the boot pool.  The caller's thread
+ * participates as a worker (manager-runs-inline pattern from the Phase 3
+ * verify pass), so the call is synchronous: it returns when every index
+ * has been processed.
+ *
+ * Workers pull indices from a shared mutex-protected cursor; one mutex
+ * acquisition per pulled index, no contention inside the callback.
+ *
+ * Contract:
+ *   - `fn(i, ctx)` is invoked exactly once per i in [begin, end).
+ *   - `ctx` is shared across all worker invocations; the callback owns
+ *     synchronization for any shared writes (atomics, mutex, etc.).
+ *   - Order is unspecified; callbacks run concurrently across workers.
+ *   - MUST be called from the catalog-work manager thread (which is
+ *     itself a pool worker) or from the main thread when the pool is
+ *     idle.  Calling from another active pool worker would deadlock.
+ *   - When the pool has only 1 worker (minimal hardware), execution
+ *     stays serial on the calling thread and remains correct.
+ *   - `begin >= end` or `fn == NULL` is a no-op.
+ *
+ * Pattern reference: port/src/romextract.c::romExtractVerifyAll (Phase 3
+ * verify pass) for shared-cursor + manager-inline. */
+typedef void (*boot_pool_range_fn)(int index, void *ctx);
+void bootPoolForRangeBlocking(int begin, int end,
+                               boot_pool_range_fn fn, void *ctx);
+
 #ifdef __cplusplus
 }
 #endif

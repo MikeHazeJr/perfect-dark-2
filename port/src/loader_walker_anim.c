@@ -50,11 +50,12 @@ static s32 s_register(const char *manifest, size_t manifest_len,
             target_body[0] ? target_body : NULL);
         if (!e) return -1;
 
+        /* Engine Phase 4: walker callbacks may run from boot-pool
+         * workers; re-resolve under-lock via the helper instead of
+         * dereferencing `e` (could dangle if a concurrent register
+         * triggered a realloc). */
         if (category[0]) {
-            size_t n = strlen(category);
-            if (n >= sizeof(e->category)) n = sizeof(e->category) - 1;
-            memcpy(e->category, category, n);
-            e->category[n] = '\0';
+            assetCatalogSetCategoryById(id, category);
         }
     }
 

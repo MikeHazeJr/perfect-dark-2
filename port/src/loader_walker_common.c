@@ -21,9 +21,12 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <SDL.h>
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "boot_pool.h"
+#include "boot_progress.h"
 #include "fs.h"
 #include "loader_walker_common.h"
 #include "modarchive.h"
@@ -207,6 +210,122 @@ static s32 s_loadManifest(const char *rel_path,
 /* Public scan                                                        */
 /* ------------------------------------------------------------------ */
 
+/* Engine Phase 4 (2026-05-03): per-file work for the walker scaffold.
+ *
+ * Phase 1 (single-thread): readdir + collect every matching filename
+ * into an array of relative paths.  This stays serial because POSIX
+ * `readdir` is not reentrant on the same DIR* and the directory listing
+ * is small (1208 chr anims is the largest kind, every other is < 100).
+ *
+ * Phase 2 (parallel via boot pool): each per-file worker loads the
+ * manifest, parses the envelope, and dispatches to the per-kind
+ * register callback.  Catalog + loader_pool mutexes serialize the
+ * register/parse hot paths; the manifest extract + ZIP unpack +
+ * envelope JSON parse run fully concurrent.
+ *
+ * Counters live in a shared batch struct (mutex-guarded merge once
+ * the workers drain) so the existing log line shape stays byte-
+ * identical with the serial Phase 2/3 output. */
+
+typedef struct {
+    char path[FS_MAXPATH];
+} walker_relpath_t;
+
+typedef struct {
+    walker_relpath_t                  *paths;
+    s32                                path_count;
+    const loader_walker_kind_desc_t   *desc;
+    loader_walker_register_fn          register_fn;
+
+    SDL_mutex                         *mutex;
+    s32                                entries_scanned;
+    s32                                entries_registered;
+    s32                                envelope_failures;
+    s32                                register_failures;
+
+    SDL_atomic_t                       processed;
+} walker_scan_ctx_t;
+
+static void s_walkerOneFile(int idx, void *user_ctx)
+{
+    walker_scan_ctx_t *ctx = (walker_scan_ctx_t *)user_ctx;
+    if (idx < 0 || idx >= ctx->path_count) return;
+
+    const char *rel_path = ctx->paths[idx].path;
+
+    /* Per-file local accumulators; merged into the batch below. */
+    s32 lscan = 1, lreg = 0, lenv = 0, lregfail = 0;
+
+    char *manifest = NULL;
+    size_t manifest_len = 0;
+    mod_archive_t *arc = NULL;
+    if (!s_loadManifest(rel_path, &manifest, &manifest_len, &arc)) {
+        sysLoudFailf("LOAD.UNIVERSAL.PARSE_FAIL",
+            "manifest unreadable for kind=%s file=\"%s\"",
+            ctx->desc->kind_str, rel_path);
+        lenv++;
+        goto merge;
+    }
+
+    char kind_buf[32];
+    char id_buf[128];
+    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "pd_kind",
+                                      kind_buf, sizeof(kind_buf))) {
+        sysLoudFailf("LOAD.UNIVERSAL.PARSE_FAIL",
+            "missing pd_kind in \"%s\"", rel_path);
+        lenv++;
+        goto cleanup;
+    }
+    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "id",
+                                      id_buf, sizeof(id_buf))) {
+        sysLoudFailf("LOAD.UNIVERSAL.PARSE_FAIL",
+            "missing id in \"%s\"", rel_path);
+        lenv++;
+        goto cleanup;
+    }
+    if (strcmp(kind_buf, ctx->desc->kind_str) != 0) {
+        sysLoudFailf("LOAD.SCHEMA.KIND_MISMATCH",
+            "expected pd_kind=\"%s\" got \"%s\" in \"%s\"",
+            ctx->desc->kind_str, kind_buf, rel_path);
+        lenv++;
+        goto cleanup;
+    }
+
+    /* Non-destructive overlay default; pool kinds (weapon/head/body/arena
+     * + animation) set always_invoke so the per-kind callback runs even
+     * for already-registered IDs and populates the loader_pool payload. */
+    if (!ctx->desc->always_invoke && assetCatalogResolve(id_buf) != NULL) {
+        lreg++;
+        goto cleanup;
+    }
+
+    s32 r = ctx->register_fn(manifest, manifest_len, kind_buf, id_buf, rel_path);
+    if (r > 0)      lreg++;
+    else if (r < 0) lregfail++;
+    /* r == 0 is a benign skip. */
+
+cleanup:
+    if (arc) modArchiveClose(arc);
+    if (manifest) sysMemFree(manifest);
+
+merge:
+    {
+        SDL_LockMutex(ctx->mutex);
+        ctx->entries_scanned    += lscan;
+        ctx->entries_registered += lreg;
+        ctx->envelope_failures  += lenv;
+        ctx->register_failures  += lregfail;
+        SDL_UnlockMutex(ctx->mutex);
+    }
+
+    /* Push progress every 16 files so the bar moves visibly without
+     * burning the progress channel mutex per file. */
+    int done = SDL_AtomicAdd(&ctx->processed, 1) + 1;
+    if ((done & 0x0f) == 0 || done == ctx->path_count) {
+        bootProgressUpdate(done, ctx->path_count);
+    }
+}
+
 s32 loaderWalkerScanKind(
     const char                       *tier_dir,
     const loader_walker_kind_desc_t  *desc,
@@ -239,7 +358,20 @@ s32 loaderWalkerScanKind(
         return 0;
     }
 
+    /* Phase 1: collect every matching relpath into a heap array.  Cap
+     * grows geometrically; the largest realistic kind is chr animations
+     * with 1208 entries. */
     size_t ext_len = strlen(desc->extension);
+    s32 cap = 64;
+    s32 count = 0;
+    walker_relpath_t *paths = (walker_relpath_t *)malloc(
+        (size_t)cap * sizeof(walker_relpath_t));
+    if (!paths) {
+        closedir(dp);
+        if (out_result) *out_result = local;
+        return 0;
+    }
+
     struct dirent *de;
     while ((de = readdir(dp)) != NULL) {
         const char *name = de->d_name;
@@ -248,74 +380,51 @@ s32 loaderWalkerScanKind(
         if (nlen <= ext_len) continue;
         if (strcmp(name + nlen - ext_len, desc->extension) != 0) continue;
 
-        char rel_path[FS_MAXPATH];
-        snprintf(rel_path, sizeof(rel_path), "%s/%s", dir_path, name);
-
-        local.entries_scanned++;
-
-        char *manifest = NULL;
-        size_t manifest_len = 0;
-        mod_archive_t *arc = NULL;
-        if (!s_loadManifest(rel_path, &manifest, &manifest_len, &arc)) {
-            sysLoudFailf("LOAD.UNIVERSAL.PARSE_FAIL",
-                "manifest unreadable for kind=%s file=\"%s\"",
-                desc->kind_str, rel_path);
-            local.envelope_failures++;
-            continue;
+        if (count >= cap) {
+            s32 new_cap = cap * 2;
+            walker_relpath_t *grow = (walker_relpath_t *)realloc(paths,
+                (size_t)new_cap * sizeof(walker_relpath_t));
+            if (!grow) break;
+            paths = grow;
+            cap = new_cap;
         }
-
-        char kind_buf[32];
-        char id_buf[128];
-        if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "pd_kind",
-                                          kind_buf, sizeof(kind_buf))) {
-            sysLoudFailf("LOAD.UNIVERSAL.PARSE_FAIL",
-                "missing pd_kind in \"%s\"", rel_path);
-            local.envelope_failures++;
-            goto next;
-        }
-        if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "id",
-                                          id_buf, sizeof(id_buf))) {
-            sysLoudFailf("LOAD.UNIVERSAL.PARSE_FAIL",
-                "missing id in \"%s\"", rel_path);
-            local.envelope_failures++;
-            goto next;
-        }
-        if (strcmp(kind_buf, desc->kind_str) != 0) {
-            sysLoudFailf("LOAD.SCHEMA.KIND_MISMATCH",
-                "expected pd_kind=\"%s\" got \"%s\" in \"%s\"",
-                desc->kind_str, kind_buf, rel_path);
-            local.envelope_failures++;
-            goto next;
-        }
-
-        /* Non-destructive overlay (default): if the catalog already
-         * carries this id (registered by assetCatalogRegisterBaseGame +
-         * RegisterStageSceneFiles + RegisterWeaponModelFiles +
-         * ScanComponents before the walker runs), count it as success
-         * without touching the existing row -- existing in-binary
-         * registrations carry fields (model_file, langid pairings,
-         * etc.) the .pd* envelope does not always re-supply.
-         *
-         * Pool kinds (weapon / head / body / arena) opt out via
-         * desc->always_invoke so loader_pool can populate the typed
-         * payload from .pd* content regardless of how the catalog row
-         * was created. Their callbacks must internally guard against
-         * destructive row overwrite (assetCatalogResolve check). */
-        if (!desc->always_invoke && assetCatalogResolve(id_buf) != NULL) {
-            local.entries_registered++;
-            goto next;
-        }
-
-        s32 r = register_fn(manifest, manifest_len, kind_buf, id_buf, rel_path);
-        if (r > 0)      local.entries_registered++;
-        else if (r < 0) local.register_failures++;
-        /* r == 0 is a benign skip. */
-
-next:
-        if (arc) modArchiveClose(arc);
-        if (manifest) sysMemFree(manifest);
+        snprintf(paths[count].path, sizeof(paths[count].path),
+                 "%s/%s", dir_path, name);
+        count++;
     }
     closedir(dp);
+
+    if (count == 0) {
+        free(paths);
+        sysLogPrintf(LOG_NOTE,
+            "LOADER.UNIVERSAL.OK: kind=%s scanned=0 registered=0 "
+            "envelope_failures=0 register_failures=0",
+            desc->kind_str);
+        if (out_result) *out_result = local;
+        return 0;
+    }
+
+    /* Phase 2: fan out per-file work across the boot pool. */
+    walker_scan_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.paths              = paths;
+    ctx.path_count         = count;
+    ctx.desc               = desc;
+    ctx.register_fn        = register_fn;
+    ctx.mutex              = SDL_CreateMutex();
+    SDL_AtomicSet(&ctx.processed, 0);
+
+    bootProgressUpdate(0, count);
+    bootPoolForRangeBlocking(0, count, s_walkerOneFile, &ctx);
+    bootProgressUpdate(count, count);
+
+    SDL_DestroyMutex(ctx.mutex);
+    free(paths);
+
+    local.entries_scanned    = ctx.entries_scanned;
+    local.entries_registered = ctx.entries_registered;
+    local.envelope_failures  = ctx.envelope_failures;
+    local.register_failures  = ctx.register_failures;
 
     sysLogPrintf(LOG_NOTE,
         "LOADER.UNIVERSAL.OK: kind=%s scanned=%d registered=%d "

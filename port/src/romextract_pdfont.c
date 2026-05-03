@@ -30,8 +30,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <SDL.h>
 #include <PR/ultratypes.h>
 
+#include "boot_pool.h"
+#include "boot_progress.h"
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -195,6 +198,33 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 	return 1;
 }
 
+#if !defined(PD_SERVER)
+/* Engine Phase 4: per-font fan-out. */
+typedef struct {
+	const char  *fonts_dir;
+	s32          force_rewrite;
+	s32          count;
+	SDL_atomic_t written;
+	SDL_atomic_t skipped;
+	SDL_atomic_t failed;
+	SDL_atomic_t processed;
+} pdfont_fanout_ctx_t;
+
+static void s_pdfontWork(int i, void *user)
+{
+	pdfont_fanout_ctx_t *c = (pdfont_fanout_ctx_t *)user;
+	if (i < 0 || i >= c->count) return;
+
+	s32 r = s_emitOneFont(k_FontFaces[i], c->fonts_dir, c->force_rewrite);
+	if (r > 0)       SDL_AtomicAdd(&c->written, 1);
+	else if (r == 0) SDL_AtomicAdd(&c->skipped, 1);
+	else             SDL_AtomicAdd(&c->failed,  1);
+
+	int done = SDL_AtomicAdd(&c->processed, 1) + 1;
+	if (done == c->count) bootProgressUpdate(done, c->count);
+}
+#endif
+
 s32 romExtractAllPdfont(s32 force_rewrite)
 {
 #if defined(PD_SERVER)
@@ -216,16 +246,23 @@ s32 romExtractAllPdfont(s32 force_rewrite)
 		return -1;
 	}
 
-	s32 written = 0;
-	s32 skipped = 0;
-	s32 failed = 0;
+	pdfont_fanout_ctx_t fctx;
+	memset(&fctx, 0, sizeof(fctx));
+	fctx.fonts_dir     = fonts_dir;
+	fctx.force_rewrite = force_rewrite;
+	fctx.count         = (s32)K_FONT_FACE_COUNT;
+	SDL_AtomicSet(&fctx.written,   0);
+	SDL_AtomicSet(&fctx.skipped,   0);
+	SDL_AtomicSet(&fctx.failed,    0);
+	SDL_AtomicSet(&fctx.processed, 0);
 
-	for (size_t i = 0; i < K_FONT_FACE_COUNT; i++) {
-		s32 r = s_emitOneFont(k_FontFaces[i], fonts_dir, force_rewrite);
-		if (r > 0)        written++;
-		else if (r == 0)  skipped++;
-		else              failed++;
-	}
+	bootProgressUpdate(0, (s32)K_FONT_FACE_COUNT);
+	bootPoolForRangeBlocking(0, (int)K_FONT_FACE_COUNT, s_pdfontWork, &fctx);
+	bootProgressUpdate((s32)K_FONT_FACE_COUNT, (s32)K_FONT_FACE_COUNT);
+
+	s32 written = SDL_AtomicGet(&fctx.written);
+	s32 skipped = SDL_AtomicGet(&fctx.skipped);
+	s32 failed  = SDL_AtomicGet(&fctx.failed);
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdfont: written=%d skipped=%d failed=%d "

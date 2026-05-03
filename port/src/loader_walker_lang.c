@@ -23,13 +23,11 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     asset_entry_t *e = assetCatalogRegister(id, ASSET_LANG);
     if (!e) return -1;
 
+    /* Engine Phase 4: lock-safe category fill via helper. */
     char category[32];
     if (loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "category",
                                      category, sizeof(category))) {
-        size_t n = strlen(category);
-        if (n >= sizeof(e->category)) n = sizeof(e->category) - 1;
-        memcpy(e->category, category, n);
-        e->category[n] = '\0';
+        assetCatalogSetCategoryById(id, category);
     }
     return 1;
 }
