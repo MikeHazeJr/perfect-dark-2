@@ -1,5 +1,70 @@
 # Session Log (Active)
 
+## Session S609-trifecta (`goofy-knuth-0ef04f`) - 2026-05-03 - Combat Sim B-315 fix + universal grammar foundation (B-317)
+
+Mike's playtest after the v2 grammar doc shipped at `403e7f1f` surfaced three issues that needed to ship as one coherent unit per `feedback_complete_unit_shipping`:
+
+1. **B-315** -- Combat Sim auto-pushes "Advanced Options" (Game Setup) modal on entry; B does not dismiss; z-order broken; controller nav stuck.
+2. **B-316** -- Exception starting a match in Combat Sim (no captured log).
+3. **B-317** -- Combat Sim controller input does not match the v2 spec just shipped (doc-only, no implementation).
+
+### What landed
+
+**B-315 fix.** Root cause traced to sticky `g_Vars.usingadvsetup` (set by `menudialogMpGameSetup` OPEN at `setup.c:5537`, cleared only by the legacy CS dialog tick at `setup.c:5857` -- which never runs as the active dialog after the modern Room overlay landed). Stale flag triggered `menutick.c:255` CITRAINING block to call `func0f17fcb0()` and stack `g_MpAdvancedSetupMenuDialog` ON TOP of `pdguiSoloRoomOpen`'s Room overlay. Fix: clear `usingadvsetup=false` + `mpquickteam=NONE` in `menuhandlerMainMenuCombatSimulator` (`src/game/mainmenu.c:4937`) so a fresh CS entry is a clean entry through the modern Room. Bug entry added with full repro + post-fix verify steps.
+
+**B-317 foundation pass.** Implements the cross-cutting machinery for the v2 grammar in Combat Sim:
+
+- **Rule 10 lift.** New rule in `context/designs/input-menu/menu-input-interaction-grammar.md`: focusable elements with no defined directional binding for an axis are SKIPPED during focus traversal in that axis -- focus does not stop on dead nodes. Generalises CC1 (section headers / dividers non-focusable) into a per-direction membership predicate. Three implementation strategies documented (mark non-focusable, per-direction NoNav, bindings-manifest gate).
+- **Action constants per Q3.** `ACTION_MENU_CONTEXT` (X) and `ACTION_MENU_SOCIAL` (Y) aliases added in `port/include/actionmap.h`. New `ACTION_MENU_SECTION_PREV` (=105) and `ACTION_MENU_SECTION_NEXT` (=106) enums for Rule 8 LT/RT section-jump.
+- **IMC bindings.** LT (`JOFS_LTRIG`) + Home (`VKL_HOME`) bound to `ACTION_MENU_SECTION_PREV`; RT (`JOFS_RTRIG`) + End (`VKL_END`) bound to `ACTION_MENU_SECTION_NEXT`. Bindings landed on both `g_ImcMenu` and `g_ImcPauseMenu` for parity. New actions added to the gameplay-only allowlist in `actionIsGameplayOnly` (return 0 = menu-owned, not gameplay-only).
+- **Helpers.** `pdguiMenuSectionPrevPressed()` / `pdguiMenuSectionNextPressed()` exposed in `pdgui_nav.h` / `.c`.
+- **Combat Sim Room wiring.** Y press at the top of `pdguiRoomScreenRender` (sibling to the existing LB/RB tab cycle handler) opens the social overlay via `pdguiFriendsSocialOpen` (idempotent; checks `pdguiFriendsSocialIsOpen` first). LT/RT on the Combat Sim tab arms `s_RoomPlayerSectionJumpPending` (= -1 / +1). `renderPlayerPanel` consumes the pending flag: walks the sorted unified row list to find first-row indices for each team, locates the currently-focused team via cached `s_FocusedTeamCached` (updated by `IsItemFocused` at row-PopID time), computes target team (current +/- direction; clamp to first/last per Rule 1+8 no-wrap boundary), and arms `ImGui::SetKeyboardFocusHere(0)` BEFORE the row's Selectable when the target row is reached. One-shot consume after dispatch.
+- **Pure-C test mirror.** `tests/actionmap_pure.h` gains `AMP_ACTION_MENU_SECTION_PREV/NEXT`; `tests/actionmap_pure.c` adds them to the menu-owned allowlist in `ampIsGameplayOnly`.
+
+**B-316 NOT shipped.** Build/pd-client.log (May 3 04:56) is a clean swarm benchmark with NO FATAL / ACCESS_VIOLATION / EXCEPTION entries -- the log Mike's playtest produced is not on disk for this trifecta. Per `feedback_no_half_measures` and Mike's "follow the evidence, don't assume" rule: cannot root-cause without a captured crash log. Surfaced via kanban c083 (blocked column, pillar=catalog) for a fresh session once Mike supplies the log.
+
+### Per-element CS bindings deferred (kanban c086)
+
+Mike's directive included "Implement the per-element bindings from `combat-simulator-binding-doc.md`" -- 30 controls across 8 categories with 18 input cells each (~540 binding cells). The foundation pass delivers Rule 10, the Q3 action constants, and the LT/RT/Y screen-level wiring; the per-element pass (per-row X context popups, left-panel section-jump, Start jump-to-Start-Match for right-panel rows, A+B convergence on Back to Menu, CC4 Y-Social glyph chrome, CC2 NavFlattened audit on theme editor, CC5 shared popup builder for right-click + X) is downstream work tracked as kanban c086. Per `feedback_complete_unit_shipping` and Mike's escape valve "Self-assess context honestly -- if the trifecta turns out to require deeper investigation than expected, ship what's coherent and surface for me to spawn fresh on what remains" -- the foundation IS the coherent unit.
+
+### Files changed (9)
+
+| File | Lines | What |
+|------|-------|------|
+| [`context/designs/input-menu/menu-input-interaction-grammar.md`](designs/input-menu/menu-input-interaction-grammar.md) | +33 / -1 | Rule 10 (skip-empty-bindings) lifted into universal grammar; rule-count header bumped to 10. |
+| [`port/include/actionmap.h`](../port/include/actionmap.h) | +21 / -2 | `ACTION_MENU_SECTION_PREV/NEXT` enums (=105/106); `ACTION_MENU_CONTEXT` (X) and `ACTION_MENU_SOCIAL` (Y) aliases per Q3. |
+| [`port/src/actionmap.cpp`](../port/src/actionmap.cpp) | +33 / -4 | LT/RT + Home/End bindings on `g_ImcMenu` + `g_ImcPauseMenu`; section actions added to gameplay-only allowlist. |
+| [`port/include/pdgui_nav.h`](../port/include/pdgui_nav.h) | +9 | `pdguiMenuSectionPrevPressed/NextPressed` helper declarations. |
+| [`port/src/pdgui_nav.c`](../port/src/pdgui_nav.c) | +10 | Helper implementations. |
+| [`port/fast3d/pdgui_menu_room.cpp`](../port/fast3d/pdgui_menu_room.cpp) | +114 | `s_RoomPlayerSectionJumpPending` state; Y press opens social overlay; LT/RT poll arms team jump on Combat Sim tab; `renderPlayerPanel` consumes via SetKeyboardFocusHere on next/prev team's first row; `s_FocusedTeamCached` tracks current team. |
+| [`src/game/mainmenu.c`](../src/game/mainmenu.c) | +27 | B-315 fix: clear `usingadvsetup` and `mpquickteam` in CS main-menu handler with rationale block. |
+| [`tests/actionmap_pure.h`](../tests/actionmap_pure.h) | +2 | `AMP_ACTION_MENU_SECTION_PREV/NEXT` enums in pure-C mirror. |
+| [`tests/actionmap_pure.c`](../tests/actionmap_pure.c) | +2 | Section actions added to `ampIsGameplayOnly` menu-owned allowlist. |
+
+### Kanban
+
+- c082 = B-315 fix (done, pillar=input)
+- c083 = B-316 (blocked, pillar=catalog) -- needs log
+- c084 = B-317 foundation (done, pillar=input)
+- c085 = Rule 10 lift (done, pillar=input)
+- c086 = B-317 follow-up (per-element CS bindings + left-panel section-jump, backlog, pillar=input)
+
+Notes reference worktree commit `bd87a394` (post-merge dev SHA TBD).
+
+### Build verify (planned)
+
+Queued via `devtools/build-session.ps1 -Session goofy317 -Target all` after the kanban + context commit. Targets: client + updater + server + tests. Per `feedback_zero_dll`: zero new dynamic deps. Per `feedback_queued_build_exclusive`: through the queued tool, never direct cmake/ninja.
+
+### Auto-merge (planned)
+
+Per `feedback_auto_merge_by_default`: dry-run + line-count snapshot + merge `claude/goofy-knuth-0ef04f` -> `dev` -> post-merge line-count verify -> build verify dev -> session cleanup. Pre-merge dev HEAD: `403e7f1f`. Pre-merge worktree HEAD: `bd87a394` (code) + (kanban+context commit pending).
+
+### [CONTEXT STATE]
+
+Will surface the `[CONTEXT STATE: turns=N, compactions=N, self-assessment=mid-flight, recall-gaps=...]` annotation when the trifecta lands and merges to dev.
+
+---
+
 ## Session S603-step3a (`amazing-torvalds-eadac6`) - 2026-05-03 - Catalog Universality Pivot Step 3a (character animations)
 
 Per Mike's "Catalog is not complete unless it is COMPLETE. IT IS FOUNDATIONAL TO EVERYTHING." directive: closes Q-3 by emitting one `.pdanim` ZIP compound per chr animation entry in `data/<romid>/segs/animations.bin`. Companion to Step 1 (weapon-animation gunscript opcodes, plain JSON). Both share the `pd_kind: "animation"` envelope; the `category` field discriminates -- `"weapon_animation"` for opcodes, `"character_animation"` for frame data.

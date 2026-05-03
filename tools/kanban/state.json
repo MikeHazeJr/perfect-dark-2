@@ -544,6 +544,46 @@
       "priority": 4,
       "notes": "", "flag": null, "flagged_at": null,
       "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c082", "title": "B-315: Combat Sim auto-pushes Game Setup modal on entry",
+      "description": "Sticky g_Vars.usingadvsetup=true (set by menudialogMpGameSetup OPEN, cleared only by the legacy CS dialog tick which never runs as the active dialog after the modern Room overlay landed) caused menutick.c CITRAINING block to call func0f17fcb0() and stack g_MpAdvancedSetupMenuDialog ON TOP of pdguiSoloRoomOpen's Room overlay. B did not dismiss (z-order race), controller nav got stuck. Fix: clear usingadvsetup=false + mpquickteam=NONE in menuhandlerMainMenuCombatSimulator (mainmenu.c:4937) so a fresh CS entry is a clean entry through the modern Room.",
+      "pillar": "input", "column": "done", "order": 23000,
+      "priority": 2,
+      "notes": "Worktree commit bd87a394. Merged to dev (SHA pending). File: src/game/mainmenu.c:4937.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c083", "title": "B-316: Exception starting Combat Sim match (NEEDS LOG)",
+      "description": "Mike playtested Combat Sim and got an exception starting a match. The most recent Build/pd-client.log (May 3 04:56) is a clean swarm benchmark with NO FATAL or ACCESS_VIOLATION entries -- it does not capture this crash. Cannot root-cause without a fresh log. Hypothesis classes (per Mike's framing): catalog-related null lookup post Pass C / Pass D / Step 2 / Step 3a; Pass C segment over-read (B-307 / B-313 fixed but related class possible); chic-robot bot init regression (B-314 fixed at 62aacd74). Surface: re-run playtest with freshest binary, capture pd-client.log, attach crash signature so the matchStart -> mpStartMatch -> stage-load path can be traced.",
+      "pillar": "catalog", "column": "blocked", "order": 24000,
+      "priority": 1,
+      "notes": "Blocked on fresh crash log. Build/pd-client.log at trifecta time was a swarm benchmark, not a CS playtest. Hand off to fresh session once Mike supplies the log.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c084", "title": "B-317: Wire universal grammar v2 into Combat Sim (foundation pass)",
+      "description": "Foundation pass for the v2 grammar in Combat Sim Room. Rule 10 skip-empty-bindings lifted into grammar doc. ACTION_MENU_CONTEXT (X) + ACTION_MENU_SOCIAL (Y) aliases added per Q3. ACTION_MENU_SECTION_PREV/NEXT enums + LT/RT + Home/End bindings on g_ImcMenu and g_ImcPauseMenu. pdguiMenuSectionPrevPressed/NextPressed helpers exposed in pdgui_nav. Wired in Combat Sim Room: Y opens social overlay (idempotent), LT/RT arms s_RoomPlayerSectionJumpPending which renderPlayerPanel consumes via SetKeyboardFocusHere on next/prev team's first row (no-wrap boundary). Q1 (LB/RB tab cycle) was already conformant via pdguiMenuTabPrevPressed/NextPressed at room.cpp:3666. Per-element CS bindings tracked in c086.",
+      "pillar": "input", "column": "done", "order": 25000,
+      "priority": 2,
+      "notes": "Worktree commit bd87a394. Merged to dev (SHA pending). Files: actionmap.h, actionmap.cpp, pdgui_nav.h, pdgui_nav.c, pdgui_menu_room.cpp, actionmap_pure.h/c.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c085", "title": "Rule 10 (skip-empty-bindings) lifted into universal grammar",
+      "description": "New Rule 10 in menu-input-interaction-grammar.md: focusable elements with no defined directional binding for an axis are SKIPPED during focus traversal in that axis -- focus does not stop on dead nodes. Generalises CC1 (section headers / dividers non-focusable) into a per-direction membership predicate. Three implementation strategies documented (mark non-focusable, per-direction NoNav, bindings-manifest gate). Source: Mike's directive 2026-05-03 'The things where I didn't put input should be skipped when navigating'. Codified as a v2 universal rule alongside the existing Rule 1 column-traversal semantic.",
+      "pillar": "input", "column": "done", "order": 26000,
+      "priority": 3,
+      "notes": "Worktree commit bd87a394. Doc only. Foundational for the per-element CS implementation (c086) and downstream menu conformance audits.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c086", "title": "B-317 follow-up: per-element CS bindings + left-panel section-jump",
+      "description": "Downstream pass after the c084 foundation. Implement every per-element binding in combat-simulator-binding-doc.md: per-row X context popups for player rows + Add Bot, left-panel LT/RT section-jump (arena -> gametype -> limits -> weapons -> options), Start jump-to-Start-Match for right-panel rows, A+B convergence on the Back to Menu link, CC4 Y-Social glyph chrome (pdguiSocialGlyph helper + per-menu opt-in), CC2 NavFlattened audit on theme editor, CC5 shared popup builder for right-click + X. Validate Rule 10 skip-empty traversal across every focusable widget. Test_actionmap pin for ACTION_MENU_SECTION_PREV/NEXT classification.",
+      "pillar": "input", "column": "backlog", "order": 27000,
+      "priority": 3,
+      "notes": "Foundation for this card landed via c084 (worktree bd87a394). Spec at context/designs/input-menu/combat-simulator-binding-doc.md.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
     }
   ]
 }
