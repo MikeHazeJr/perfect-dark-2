@@ -554,8 +554,10 @@ s32 romExtractAllPdwpn(s32 force_rewrite)
 	}
 
 	/* Ensure data/<romid>/weapons/ exists. */
+	char dataDirBuf[FS_MAXPATH + 1];
 	char weapons_dir[FS_MAXPATH];
-	snprintf(weapons_dir, sizeof(weapons_dir), "%s/weapons", fsDataDir());
+	snprintf(weapons_dir, sizeof(weapons_dir), "%s/weapons",
+		fsDataDir(dataDirBuf, sizeof(dataDirBuf)));
 	if (!fsCreateDir(weapons_dir)) {
 		sysLoudFailf("EXTRACT.PDWPN",
 			"fsCreateDir(\"%s\") failed", weapons_dir);

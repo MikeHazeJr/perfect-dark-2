@@ -783,7 +783,8 @@ void audioNetworkMusicTick(void)
 			/* Resolve file path and play locally */
 			const asset_entry_t *ae = assetCatalogResolve(next);
 			if (ae && ae->ext.audio.file_path[0]) {
-				const char *fpath = fsFullPath(ae->ext.audio.file_path);
+				char fpathBuf[FS_MAXPATH + 1];
+				const char *fpath = fsFullPath(ae->ext.audio.file_path, fpathBuf, sizeof(fpathBuf));
 				modMusicPlay(fpath ? fpath : ae->ext.audio.file_path);
 			}
 
@@ -867,7 +868,8 @@ void audioMusicSyncReceive(const char *track_id, u32 match_clock_offset_ms)
 		audioSetModTrackId(track_id);
 		const asset_entry_t *ae = assetCatalogResolve(track_id);
 		if (ae && ae->ext.audio.file_path[0]) {
-			const char *fpath = fsFullPath(ae->ext.audio.file_path);
+			char fpathBuf[FS_MAXPATH + 1];
+			const char *fpath = fsFullPath(ae->ext.audio.file_path, fpathBuf, sizeof(fpathBuf));
 			modMusicPlay(fpath ? fpath : ae->ext.audio.file_path);
 			/* Late-join: skip ahead to the host's current offset so
 			 * the listener doesn't replay 30 seconds of intro. */

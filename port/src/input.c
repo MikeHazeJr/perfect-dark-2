@@ -564,7 +564,8 @@ s32 inputInit(void)
 
 	// try to load controller db from an external file in the save folder
 	if (fsFileSize("$S/" CONTROLLERDB_FNAME)) {
-		const char *dbpath = fsFullPath("$S/" CONTROLLERDB_FNAME);
+		char dbpathBuf[FS_MAXPATH + 1];
+		const char *dbpath = fsFullPath("$S/" CONTROLLERDB_FNAME, dbpathBuf, sizeof(dbpathBuf));
 		const s32 dbcount = SDL_GameControllerAddMappingsFromFile(dbpath);
 		if (dbcount >= 0) {
 			sysLogPrintf(LOG_NOTE, "input: added %d controller mappings from %s", dbcount, dbpath);

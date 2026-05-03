@@ -260,19 +260,10 @@ static void rescan(void)
 
     /* Match modmgr search order for mods/ roots. */
     char cands[4][FONTMOD_PATH_LEN];
-    {
-        const char *p = fsFullPath("$E/../mods");
-        snprintf(cands[0], sizeof(cands[0]), "%s", p ? p : "");
-    }
+    fsFullPath("$E/../mods", cands[0], sizeof(cands[0]));
     snprintf(cands[1], sizeof(cands[1]), "%s", "mods");
-    {
-        const char *p = fsFullPath("$E/mods");
-        snprintf(cands[2], sizeof(cands[2]), "%s", p ? p : "");
-    }
-    {
-        const char *p = fsFullPath("mods");
-        snprintf(cands[3], sizeof(cands[3]), "%s", p ? p : "");
-    }
+    fsFullPath("$E/mods", cands[2], sizeof(cands[2]));
+    fsFullPath("mods",    cands[3], sizeof(cands[3]));
 
     for (int i = 0; i < 4; i++) {
         if (!cands[i][0]) continue;

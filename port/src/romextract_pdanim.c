@@ -209,8 +209,10 @@ s32 romExtractAllPdanim(s32 force_rewrite)
 		return -1;
 	}
 
+	char dataDirBuf[FS_MAXPATH + 1];
 	char anims_dir[FS_MAXPATH];
-	snprintf(anims_dir, sizeof(anims_dir), "%s/animations", fsDataDir());
+	snprintf(anims_dir, sizeof(anims_dir), "%s/animations",
+		fsDataDir(dataDirBuf, sizeof(dataDirBuf)));
 	if (!fsCreateDir(anims_dir)) {
 		sysLoudFailf("EXTRACT.PDANIM",
 			"fsCreateDir(\"%s\") failed", anims_dir);

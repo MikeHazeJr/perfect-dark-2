@@ -40,7 +40,10 @@ extern "C" {
 
 void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
 void sysLogPrintf(s32 level, const char *fmt, ...);
-const char *fsFullPath(const char *relPath);
+const char *fsFullPath(const char *relPath, char *out, size_t outSize);
+#ifndef FS_MAXPATH
+#define FS_MAXPATH 1024
+#endif
 
 /* audio.c */
 s32  audioPlayFileSound(const char *path, u16 volume, u8 pan);
@@ -267,12 +270,10 @@ static bool copyFile(const char *src, const char *dst)
      * lands in the correct game directory regardless of CWD.  Source paths
      * from the file browser are already absolute. */
     const char *resolvedDst = dst;
-    char absDst[FS_MAXPATH];
+    char absDst[FS_MAXPATH + 1];
     if (dst[0] != '/' && dst[0] != '\\' && !(dst[0] && dst[1] == ':')) {
-        const char *full = fsFullPath(dst);
-        if (full) {
-            strncpy(absDst, full, FS_MAXPATH - 1);
-            absDst[FS_MAXPATH - 1] = '\0';
+        const char *full = fsFullPath(dst, absDst, sizeof(absDst));
+        if (full && full[0]) {
             resolvedDst = absDst;
         }
     }
@@ -359,11 +360,12 @@ static bool importAudioFile(const char *filePath, const char *displayName,
         return false;
     }
 
-    /* Write audio.ini — resolve through fsFullPath for correct location */
+    /* Write audio.ini -- resolve through fsFullPath for correct location */
     char iniPath[FS_MAXPATH];
     snprintf(iniPath, sizeof(iniPath), "%s/audio.ini", modDir);
-    const char *absIniPath = fsFullPath(iniPath);
-    FILE *f = fopen(absIniPath ? absIniPath : iniPath, "w");
+    char absIniPathBuf[FS_MAXPATH + 1];
+    const char *absIniPath = fsFullPath(iniPath, absIniPathBuf, sizeof(absIniPathBuf));
+    FILE *f = fopen((absIniPath && absIniPath[0]) ? absIniPath : iniPath, "w");
     if (!f) {
         snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
                  "Import failed: could not write audio.ini");

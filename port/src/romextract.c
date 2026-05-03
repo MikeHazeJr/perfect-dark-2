@@ -216,7 +216,8 @@ static void romExtractQuarantine(const char *binRel, const char *binFull)
         "data/_quarantine/%s/%lld_%s",
         VERSION_ROMID, (long long)time(NULL), base);
 
-    const char *destFull = fsFullPath(destRel);
+    char destFullBuf[FS_MAXPATH + 1];
+    const char *destFull = fsFullPath(destRel, destFullBuf, sizeof(destFullBuf));
     if (destFull == NULL || destFull[0] == '\0') {
         sysLoudFailf("LOAD",
             "quarantine path resolution failed for \"%s\"", destRel);
@@ -411,7 +412,8 @@ s32 romExtractAllFiles(void)
             continue;
         }
 
-        const char *outFull = fsFullPath(outRel);
+        char outFullBuf[FS_MAXPATH + 1];
+        const char *outFull = fsFullPath(outRel, outFullBuf, sizeof(outFullBuf));
         if (outFull == NULL || outFull[0] == '\0') {
             sysLoudFailf("EXTRACT",
                 "fsFullPath returned empty for \"%s\"", outRel);
@@ -517,7 +519,8 @@ s32 romExtractVerifyAll(void)
             continue;
         }
 
-        const char *outFull = fsFullPath(outRel);
+        char outFullBuf[FS_MAXPATH + 1];
+        const char *outFull = fsFullPath(outRel, outFullBuf, sizeof(outFullBuf));
         if (outFull == NULL || outFull[0] == '\0') {
             failed++;
             continue;
@@ -697,7 +700,8 @@ s32 romExtractAllSegments(void)
             continue;
         }
 
-        const char *outFull = fsFullPath(outRel);
+        char outFullBuf[FS_MAXPATH + 1];
+        const char *outFull = fsFullPath(outRel, outFullBuf, sizeof(outFullBuf));
         if (outFull == NULL || outFull[0] == '\0') {
             sysLoudFailf("EXTRACT",
                 "fsFullPath returned empty for seg \"%s\"", outRel);
@@ -777,7 +781,8 @@ s32 romExtractVerifyAllSegments(void)
             continue;
         }
 
-        const char *outFull = fsFullPath(outRel);
+        char outFullBuf[FS_MAXPATH + 1];
+        const char *outFull = fsFullPath(outRel, outFullBuf, sizeof(outFullBuf));
         if (outFull == NULL || outFull[0] == '\0') {
             failed++;
             continue;

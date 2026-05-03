@@ -1404,29 +1404,16 @@ static void modmgrScanDirectory(void)
 	// - ./mods (current working directory)
 	// - $E/mods (mods alongside exe)
 	// - base-dir fallback (often data/mods)
-	// fsFullPath returns a static pointer so we must copy before calling again.
 	const char *modsdir = NULL;
 	DIR *dir = NULL;
 	char candidateBufs[4][512];
 	const char *candidates[4];
 
-	{
-		const char *p = fsFullPath("$E/../" MODMGR_MODS_DIR);
-		strncpy(candidateBufs[0], p ? p : "", sizeof(candidateBufs[0]));
-		candidateBufs[0][sizeof(candidateBufs[0]) - 1] = '\0';
-	}
+	fsFullPath("$E/../" MODMGR_MODS_DIR, candidateBufs[0], sizeof(candidateBufs[0]));
 	strncpy(candidateBufs[1], "./" MODMGR_MODS_DIR, sizeof(candidateBufs[1]));
 	candidateBufs[1][sizeof(candidateBufs[1]) - 1] = '\0';
-	{
-		const char *p = fsFullPath("$E/" MODMGR_MODS_DIR);
-		strncpy(candidateBufs[2], p ? p : "", sizeof(candidateBufs[2]));
-		candidateBufs[2][sizeof(candidateBufs[2]) - 1] = '\0';
-	}
-	{
-		const char *p = fsFullPath(MODMGR_MODS_DIR);
-		strncpy(candidateBufs[3], p ? p : "", sizeof(candidateBufs[3]));
-		candidateBufs[3][sizeof(candidateBufs[3]) - 1] = '\0';
-	}
+	fsFullPath("$E/" MODMGR_MODS_DIR, candidateBufs[2], sizeof(candidateBufs[2]));
+	fsFullPath(MODMGR_MODS_DIR,       candidateBufs[3], sizeof(candidateBufs[3]));
 	candidates[0] = candidateBufs[0];
 	candidates[1] = candidateBufs[1];
 	candidates[2] = candidateBufs[2];
@@ -1660,7 +1647,8 @@ static void modmgrBuildEnabledList(void)
 
 static void modmgrSaveModsEnabledJson(void)
 {
-	const char *path = fsFullPath(MODS_ENABLED_JSON_PATH);
+	char pathBuf[FS_MAXPATH + 1];
+	const char *path = fsFullPath(MODS_ENABLED_JSON_PATH, pathBuf, sizeof(pathBuf));
 	if (!path) return;
 
 	FILE *f = fopen(path, "w");
@@ -1687,7 +1675,8 @@ static void modmgrSaveModsEnabledJson(void)
 
 static bool modmgrLoadModsEnabledJson(void)
 {
-	const char *path = fsFullPath(MODS_ENABLED_JSON_PATH);
+	char pathBuf[FS_MAXPATH + 1];
+	const char *path = fsFullPath(MODS_ENABLED_JSON_PATH, pathBuf, sizeof(pathBuf));
 	if (!path) return false;
 
 	u32 filesize = 0;

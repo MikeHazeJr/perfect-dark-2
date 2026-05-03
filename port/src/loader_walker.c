@@ -40,18 +40,14 @@ s32 loaderWalkerLoadAll(loader_walker_result_t *out)
     memset(&local, 0, sizeof(local));
     if (out) memset(out, 0, sizeof(*out));
 
-    const char *tier_dir = fsDataDir();
-    if (!tier_dir || !tier_dir[0]) {
+    char data_root[FS_MAXPATH + 1];
+    fsDataDir(data_root, sizeof(data_root));
+    if (!data_root[0]) {
         sysLogPrintf(LOG_NOTE,
             "LOADER.UNIVERSAL.OK: skipped (no data dir; first-launch pre-extract)");
         if (out) *out = local;
         return 0;
     }
-
-    /* The path returned by fsDataDir is a static buffer that subsequent
-     * calls may overwrite; capture into a local before further work. */
-    char data_root[FS_MAXPATH];
-    snprintf(data_root, sizeof(data_root), "%s", tier_dir);
 
     sysLogPrintf(LOG_NOTE,
         "LOADER.UNIVERSAL.OK: walking %s/<kind>/*.pd<ext> for 13 universality kinds",

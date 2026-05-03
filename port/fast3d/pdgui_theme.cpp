@@ -1520,11 +1520,14 @@ static void s_scanChromeStylesInDir(const char *dir_path, int allow_recurse)
 
 static void s_scanModChromeStyles(void)
 {
+    char buf0[FS_MAXPATH + 1];
+    char buf2[FS_MAXPATH + 1];
+    char buf3[FS_MAXPATH + 1];
     const char *roots[] = {
-        fsFullPath("$E/../mods"),
+        fsFullPath("$E/../mods", buf0, sizeof(buf0)),
         "mods",
-        fsFullPath("$E/mods"),
-        fsFullPath("mods"),
+        fsFullPath("$E/mods",    buf2, sizeof(buf2)),
+        fsFullPath("mods",       buf3, sizeof(buf3)),
     };
 
     for (int ri = 0; ri < 4; ri++) {
@@ -1851,8 +1854,10 @@ static const struct PduiEntry k_PduiEntries[] = {
 static int s_pduiRelPath(const struct PduiEntry *e, char *out, size_t out_size)
 {
     if (!e || !out || !out_size) return 0;
+    char dataDirBuf[FS_MAXPATH + 1];
     int n = snprintf(out, out_size, "%s/%s/%s.pdui",
-                     fsDataDir(), PDUI_OUT_DIR, e->file_slug);
+                     fsDataDir(dataDirBuf, sizeof(dataDirBuf)),
+                     PDUI_OUT_DIR, e->file_slug);
     return (n > 0 && (size_t)n < out_size) ? 1 : 0;
 }
 
@@ -1893,7 +1898,10 @@ void pdguiThemeLateInit(void)
         uint32_t w = 0, h = 0;
 
         /* Open the .pdui ZIP and try to read texture.tga. */
-        const char *full = (fsFileSize(rel_path) > 0) ? fsFullPath(rel_path) : NULL;
+        char fullBuf[FS_MAXPATH + 1];
+        const char *full = (fsFileSize(rel_path) > 0)
+            ? fsFullPath(rel_path, fullBuf, sizeof(fullBuf))
+            : NULL;
         if (full && full[0]) {
             mod_archive_t *arc = modArchiveOpen(full);
             if (arc) {
@@ -2619,7 +2627,8 @@ static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
     snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
 
     /* Atomic ZIP write. */
-    const char *full = fsFullPath(rel_path);
+    char fullBuf[FS_MAXPATH + 1];
+    const char *full = fsFullPath(rel_path, fullBuf, sizeof(fullBuf));
     if (!full || !full[0]) {
         sysLoudFailf("EXTRACT.PDUI",
             "fsFullPath empty for '%s'", rel_path);
@@ -2684,9 +2693,10 @@ extern "C" int pdguiThemeEmitPduiZips(int force)
         return -1;
     }
 
+    char dataDirBuf[FS_MAXPATH + 1];
     char ui_dir[FS_MAXPATH];
     snprintf(ui_dir, sizeof(ui_dir),
-             "%s/%s", fsDataDir(), PDUI_OUT_DIR);
+             "%s/%s", fsDataDir(dataDirBuf, sizeof(dataDirBuf)), PDUI_OUT_DIR);
     if (!fsCreateDir(ui_dir)) {
         sysLoudFailf("EXTRACT.PDUI",
             "fsCreateDir(\"%s\") failed", ui_dir);

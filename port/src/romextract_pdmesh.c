@@ -164,7 +164,8 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	}
 
 	/* Open ZIP writer (atomic temp + rename via modArchive). */
-	const char *dst_full = fsFullPath(dst_rel);
+	char dst_full_buf[FS_MAXPATH + 1];
+	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
 	if (!dst_full || !dst_full[0]) {
 		sysLoudFailf("EXTRACT.PDMESH",
 			"fsFullPath failed for \"%s\"", dst_rel);
@@ -185,7 +186,8 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 
-	const char *src_full = fsFullPath(src_rel);
+	char src_full_buf[FS_MAXPATH + 1];
+	const char *src_full = fsFullPath(src_rel, src_full_buf, sizeof(src_full_buf));
 	if (!src_full || !src_full[0]) {
 		sysLoudFailf("EXTRACT.PDMESH",
 			"fsFullPath failed for source \"%s\"", src_rel);
@@ -243,8 +245,10 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 		return -1;
 	}
 
+	char dataDirBuf[FS_MAXPATH + 1];
 	char meshes_dir[FS_MAXPATH];
-	snprintf(meshes_dir, sizeof(meshes_dir), "%s/meshes", fsDataDir());
+	snprintf(meshes_dir, sizeof(meshes_dir), "%s/meshes",
+		fsDataDir(dataDirBuf, sizeof(dataDirBuf)));
 	if (!fsCreateDir(meshes_dir)) {
 		sysLoudFailf("EXTRACT.PDMESH",
 			"fsCreateDir(\"%s\") failed", meshes_dir);

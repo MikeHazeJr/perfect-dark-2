@@ -406,7 +406,8 @@ static s32 s_emitOneSound(s32 sfx_idx,
 		return -1;
 	}
 
-	const char *dst_full = fsFullPath(dst_rel);
+	char dst_full_buf[FS_MAXPATH + 1];
+	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
 	if (!dst_full || !dst_full[0]) {
 		LOUD_FAILF_RT(channel, "fsFullPath empty for \"%s\"", dst_rel);
 		return -1;
@@ -500,19 +501,22 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 		return -1;
 	}
 
+	char dataDirBuf[FS_MAXPATH + 1];
+	const char *dataDir = fsDataDir(dataDirBuf, sizeof(dataDirBuf));
+
 	/* B-320 (2026-05-03): create the parent audio/ dir before the leaf
 	 * audio/sfx or audio/voice subdir. _mkdir does not create intermediate
 	 * directories on Windows, so the leaf create silently failed with ENOENT
 	 * pre-fix and every modArchiveBegin downstream blew up. */
 	char audio_parent[FS_MAXPATH];
-	snprintf(audio_parent, sizeof(audio_parent), "%s/audio", fsDataDir());
+	snprintf(audio_parent, sizeof(audio_parent), "%s/audio", dataDir);
 	if (!fsCreateDir(audio_parent)) {
 		LOUD_FAILF_RT(channel, "fsCreateDir(\"%s\") failed", audio_parent);
 		return -1;
 	}
 
 	char out_dir[FS_MAXPATH];
-	snprintf(out_dir, sizeof(out_dir), "%s/%s", fsDataDir(), out_subdir);
+	snprintf(out_dir, sizeof(out_dir), "%s/%s", dataDir, out_subdir);
 	if (!fsCreateDir(out_dir)) {
 		LOUD_FAILF_RT(channel, "fsCreateDir(\"%s\") failed", out_dir);
 		return -1;

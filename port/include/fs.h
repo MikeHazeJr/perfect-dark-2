@@ -12,7 +12,24 @@ extern "C" {
 
 s32 fsInit(void);
 
-const char *fsFullPath(const char *relPath);
+/* fsFullPath: resolves relPath against base/mod/save/exe/home dirs and
+ * the active asset catalog + modmgr registry. Writes the resolved path
+ * into out (capped at outSize, including NUL). Always null-terminates
+ * when outSize > 0. Returns out for chaining; never returns NULL.
+ *
+ * Contract:
+ *   - Caller owns the buffer. A stack buffer of FS_MAXPATH + 1 bytes
+ *     is sufficient for any input.
+ *   - Thread-safe: no static state. Multiple threads may resolve in
+ *     parallel as long as each passes its own out buffer.
+ *   - Common pattern:
+ *       char buf[FS_MAXPATH + 1];
+ *       FILE *f = fopen(fsFullPath(rel, buf, sizeof(buf)), "rb");
+ *
+ * Phase 1 of context/designs/engine/startup-acceleration.md
+ * (2026-05-03) replaced the prior static-buffer signature so the boot
+ * pipeline can fan out file I/O across worker threads. */
+const char *fsFullPath(const char *relPath, char *out, size_t outSize);
 
 s32 fsPathIsAbsolute(const char *path);
 s32 fsPathIsCwdRelative(const char *path);
@@ -40,16 +57,20 @@ s32 fsCreateDir(const char *path);
  * context/designs/catalog/catalog-rom-once-phase3-plan-2026-05-02.md
  * for the full architecture.
  *
- * fsDataPathFor(rel) returns "data/<romid>/<rel>" suitable for passing
- * to catalogSetPrimaryFile / fsFileLoad / fileProviderHandle.  Output
- * lives in a static buffer that the next call may overwrite -- callers
- * must consume the pointer before calling again.  NOT thread-safe.
+ * Phase 1 of startup-acceleration (2026-05-03) replaced the prior
+ * static-buffer signatures so these are thread-safe. Caller-owned
+ * buffer; out is always null-terminated when outSize > 0. Returns
+ * out for chaining; never NULL.
  *
- * fsDataDir() returns "data/<romid>" suitable for passing to
- * fsCreateDir or as a directory walk root.  Same static-buffer
- * caveat. */
-const char *fsDataDir(void);
-const char *fsDataPathFor(const char *rel);
+ * fsDataPathFor(rel, out, outSize) writes "data/<romid>/<rel>"
+ * suitable for passing to catalogSetPrimaryFile / fsFileLoad /
+ * fileProviderHandle. If rel is NULL or empty, equivalent to
+ * fsDataDir(out, outSize). Strips a leading slash from rel.
+ *
+ * fsDataDir(out, outSize) writes "data/<romid>" suitable for passing
+ * to fsCreateDir or as a directory walk root. */
+const char *fsDataDir(char *out, size_t outSize);
+const char *fsDataPathFor(const char *rel, char *out, size_t outSize);
 
 /* Ensure the data/<romid>/ directory exists. Idempotent. Returns 1 on
  * success (directory exists or was created), 0 on failure. */

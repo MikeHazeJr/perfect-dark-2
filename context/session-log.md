@@ -1,5 +1,95 @@
 # Session Log (Active)
 
+## Session S615 (`bold-chaplygin-e3b96e`) - 2026-05-03 - Engine Phase 1: fs.c path-buffer refactor
+
+Mike's directive: "See what we can do about speeding up our startup ... Any reason we can't multi-thread the process?" After Q1 to Q6 resolution, this session delivers Phase 1 of the startup-acceleration design: the prerequisite refactor for any boot-pipeline parallelization. Lands in parallel with S614 (B-318/319/320/321/322 triage) per Mike Q5; merge resolved 5 conflicts (fs.c B-319, pdsfx + pdsong B-320, kanban renumber c107-c111, session-log).
+
+### Outcome
+
+`fsFullPath`, `fsDataDir`, `fsDataPathFor` migrated from static-return-buffer contract to caller-owned `(out, outSize)` form. The previous static buffers in `port/src/fs.c:69, 470, 477` made these functions unsafe for concurrent callers because two threads would trash each other's path mid-resolution. The new contract is thread-safe by construction: each caller passes a stack buffer, the function writes the resolved path into it, and returns the same pointer for chaining.
+
+### Architecture
+
+New API contract (canonical reference in `port/include/fs.h`):
+
+```c
+const char *fsFullPath(const char *relPath, char *out, size_t outSize);
+const char *fsDataDir(char *out, size_t outSize);
+const char *fsDataPathFor(const char *rel, char *out, size_t outSize);
+```
+
+- Always null-terminates `out` when `outSize > 0`.
+- Returns `out` (or empty fallback string if outSize is 0) so callers can chain into `fopen`, `stat`, `_mkdir` etc. with minimal disruption.
+- Stack buffer of `FS_MAXPATH + 1` bytes is sufficient for any input.
+
+Migration cookbook (used across all 32 caller files):
+
+- `fopen(fsFullPath(p), "rb")` becomes `char buf[FS_MAXPATH + 1]; fopen(fsFullPath(p, buf, sizeof(buf)), "rb")`.
+- `const char *path = fsFullPath(rel)` becomes `char path[FS_MAXPATH + 1]; fsFullPath(rel, path, sizeof(path));` (variable becomes the buffer itself).
+- `strncpy(dst, fsFullPath(rel), n)` becomes `fsFullPath(rel, dst, n)` (write directly to dst, no copy needed).
+- Multi-call sites that previously had explicit "static-buffer caveat -- copy out before next call" comments (server_bans.c, modmgr.c, modarchive_bench.c, pdgui_font_mod.cpp, pdgui_theme.cpp, pdgui_theme_loader.cpp) now use independent per-call buffers; the caveat goes away.
+
+Internal callers within fs.c (fsFileLoad, fsFileLoadTo, fsFileSize, fsFileOpenWrite, fsFileOpenRead, fsCreateDir, fsDataDirEnsure) declare their own stack buffers; their public contracts unchanged.
+
+### Merge resolutions (S614 conflicts)
+
+S614's catalog-triage landed first at dev `a61e61e3`. My Phase 1 then merged on top with these resolutions:
+
+- `port/src/fs.c::fsCreateDir` -- merged S614's B-319 success-semantics (returns 1 / 0 instead of raw POSIX int) with my new `fsFullPath(path, buf, size)` signature. Result: stack buffer + B-319 logic in one function.
+- `port/src/romextract_pdsfx.c` and `_pdsong.c` -- merged S614's B-320 audio parent-dir create with my new `fsDataDir(buf, size)` signature. Result: single `dataDirBuf` is computed once, then passed to both the B-320 audio parent create and the leaf subdir create.
+- `tools/kanban/state.json` -- both branches added c100-c104. Renumbered my Engine phases to c107-c111 since dev's B-318 to B-322 cards already occupied c100-c106.
+- `context/session-log.md` -- this entry now lives ahead of S614; renamed S614 to S615.
+
+### Files modified
+
+39 files; net delta +362 / -228:
+
+- `port/include/fs.h` (new contract docblock + signatures).
+- `port/include/loader_walker_common.h` (doc reference).
+- `port/src/fs.c` (definitions + internal callers + merged B-319).
+- `port/src/assetcatalog_cache.c`, `audio.c`, `input.c`, `libultra.c`, `loader_walker.c`, `loader_walker_common.c`, `modarchive_bench.c`, `modmgr.c`, `modmusic.c`, `mpsetups.c`, `playerstats.c`, `romdata.c`, `romextract.c`, `romextract_pdanim.c`, `romextract_pdanim_chr.c`, `romextract_pdarena.c`, `romextract_pdbody.c`, `romextract_pdfont.c`, `romextract_pdhead.c`, `romextract_pdlang.c`, `romextract_pdmesh.c`, `romextract_pdsfx.c` (merged B-320), `romextract_pdsong.c` (merged B-320), `romextract_pdwpn.c`, `savefile.c`, `scenario_save.c`, `server_bans.c`, `server_main.c`, `updater.c`.
+- `port/fast3d/pdgui_font_mod.cpp`, `pdgui_menu_audiomod.cpp`, `pdgui_skin_editor.cpp`, `pdgui_theme.cpp`, `pdgui_theme_loader.cpp`.
+- `context/designs/engine/startup-acceleration.md` (added 2026-05-03; new file in the merge).
+- `tools/kanban/state.json` (Engine phases at c107-c111; c107 done, c108 marked ready).
+
+### Build verify
+
+Clean four-target build via `devtools/build-session.ps1 -Session bold-fs1`:
+
+- Client (pd, PerfectDark.exe): PASS, **55.2 MB** (26s).
+- Updater (pd-updater, Updater.exe): PASS, **12.3 MB** (1s).
+- Server (pd-server, PerfectDarkServer.exe): PASS, **22.4 MB** (7s).
+- Tests (pd-tests, pd-tests.exe): PASS, **24.6 MB** (18s).
+
+No new compile warnings.
+
+### What is now possible
+
+- Phase 2 of the startup-acceleration design (thread pool + progress channel + boot overlay) can land safely on top: worker threads can resolve paths concurrently without trashing each other's state.
+- Phase 3 (parallel verify pass) can fan out per-file SHA-256 hashing to N - 2 workers without touching `fs.c` again.
+- Future code wanting to do parallel file I/O has a thread-safe primitive at the bottom of the stack.
+
+### Test status
+
+Build clean across all four targets. Pre-existing source-grep test failures (`test_uichrome_paths_pin.cpp:73,84,94,151`, `test_catalog_provider_static.cpp:468,537`) are unrelated to this refactor (tests do not reference any fs symbols; failures are drift from earlier unrelated refactors looking for strings that no longer exist after Step 5). The terminal segfault in pd-tests is pre-existing in the same set; no regression.
+
+### Resolutions captured (Mike, 2026-05-03)
+
+Six approval decisions on the startup-acceleration design were captured in the same context commit (`faa5bbcb`) before Phase 1 work began:
+
+- Q1: workers scale to physical cores; main + manager + (N - 2) workers; pd.ini override for diagnostics.
+- Q2: plain progress bar + status label, PD-themed via pdgui_theme tokens.
+- Q3: Phase 1 is one big merge with extensive context.
+- Q4: walker concurrency is fully parallel with structural fix to assetCatalog + loader_pool (Phase 4 carries this).
+- Q5: Phases 1 to 3 in parallel with the in-flight B-318 fix.
+- Q6: phases ship sequentially, each as its own merge. This session ships only Phase 1.
+
+### Next
+
+Phase 2 (thread pool + progress channel + boot overlay) ready to start in a fresh worktree once Mike green-lights this Phase 1 merge. Spec at [context/designs/engine/startup-acceleration.md](designs/engine/startup-acceleration.md) Phase 2 + kanban c108.
+
+---
+
 ## Session S614 (`gallant-booth-6f996f`) - 2026-05-03 - Catalog Universality Post-Pivot Triage (B-318/319/320/321/322)
 
 Mike's directive: ship 5 bugs from the playtest of the catalog universality build as ONE coherent unit. Per `feedback_complete_unit_shipping`, all five fixes land in the same commit + auto-merge.

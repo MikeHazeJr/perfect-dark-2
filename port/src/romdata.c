@@ -756,7 +756,8 @@ s32 romdataReleaseRom(void)
 		 * use sysMemAlloc with PASSC_SEG_PADDING bytes of slack and
 		 * stat + raw fread to fill, instead of fsFileLoad. */
 		const u32 PASSC_SEG_PADDING = 0x40;
-		const char *segFull = fsFullPath(segPath);
+		char segFullBuf[FS_MAXPATH + 1];
+		const char *segFull = fsFullPath(segPath, segFullBuf, sizeof(segFullBuf));
 		if (segFull == NULL || segFull[0] == '\0') {
 			sysFatalError("LOAD.PASSC: segment \"%s\" path resolution failed", seg->name);
 			return -1;

@@ -189,7 +189,8 @@ static s32 s_emitOneSong(s32 slot_idx,
 		return -1;
 	}
 
-	const char *dst_full = fsFullPath(dst_rel);
+	char dst_full_buf[FS_MAXPATH + 1];
+	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
 	if (!dst_full || !dst_full[0]) {
 		sysLoudFailf("EXTRACT.PDSONG",
 			"fsFullPath empty for \"%s\"", dst_rel);
@@ -294,11 +295,14 @@ s32 romExtractAllPdsong(s32 force_rewrite)
 		return -1;
 	}
 
+	char dataDirBuf[FS_MAXPATH + 1];
+	const char *dataDir = fsDataDir(dataDirBuf, sizeof(dataDirBuf));
+
 	/* B-320 (2026-05-03): create the parent audio/ dir before the leaf
 	 * audio/music subdir. _mkdir does not create intermediate directories
 	 * on Windows. */
 	char audio_parent[FS_MAXPATH];
-	snprintf(audio_parent, sizeof(audio_parent), "%s/audio", fsDataDir());
+	snprintf(audio_parent, sizeof(audio_parent), "%s/audio", dataDir);
 	if (!fsCreateDir(audio_parent)) {
 		sysLoudFailf("EXTRACT.PDSONG",
 			"fsCreateDir(\"%s\") failed", audio_parent);
@@ -306,7 +310,7 @@ s32 romExtractAllPdsong(s32 force_rewrite)
 	}
 
 	char out_dir[FS_MAXPATH];
-	snprintf(out_dir, sizeof(out_dir), "%s/%s", fsDataDir(), PDSONG_OUT_DIR);
+	snprintf(out_dir, sizeof(out_dir), "%s/%s", dataDir, PDSONG_OUT_DIR);
 	if (!fsCreateDir(out_dir)) {
 		sysLoudFailf("EXTRACT.PDSONG",
 			"fsCreateDir(\"%s\") failed", out_dir);

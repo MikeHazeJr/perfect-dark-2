@@ -109,8 +109,10 @@ s32 romExtractAllPdhead(s32 force_rewrite)
 		return -1;
 	}
 
+	char dataDirBuf[FS_MAXPATH + 1];
 	char heads_dir[FS_MAXPATH];
-	snprintf(heads_dir, sizeof(heads_dir), "%s/heads", fsDataDir());
+	snprintf(heads_dir, sizeof(heads_dir), "%s/heads",
+		fsDataDir(dataDirBuf, sizeof(dataDirBuf)));
 	if (!fsCreateDir(heads_dir)) {
 		sysLoudFailf("EXTRACT.PDHEAD",
 			"fsCreateDir(\"%s\") failed", heads_dir);

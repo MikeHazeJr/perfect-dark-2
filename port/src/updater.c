@@ -1177,12 +1177,9 @@ void updaterInit(void)
 	 * fall back to the fs-canonical exe directory established by fsInit().  Also log
 	 * the resolved paths for post-mortem diagnostics in bug reports. */
 	if (!s_Updater.installDir[0]) {
-		const char *edir = fsFullPath("$E/");
+		char edirbuf[FS_MAXPATH + 1];
+		const char *edir = fsFullPath("$E/", edirbuf, sizeof(edirbuf));
 		if (edir && edir[0] && edir[0] != '$') {
-			/* Snapshot — fsFullPath uses a static buffer, overwritten by each call */
-			char edirbuf[512];
-			strncpy(edirbuf, edir, sizeof(edirbuf) - 1);
-			edirbuf[sizeof(edirbuf) - 1] = '\0';
 			/* Strip trailing slash */
 			size_t el = strlen(edirbuf);
 			while (el > 0 && (edirbuf[el-1] == '/' || edirbuf[el-1] == '\\')) {

@@ -115,8 +115,10 @@ s32 romExtractAllPdbody(s32 force_rewrite)
 		return -1;
 	}
 
+	char dataDirBuf[FS_MAXPATH + 1];
 	char bodies_dir[FS_MAXPATH];
-	snprintf(bodies_dir, sizeof(bodies_dir), "%s/bodies", fsDataDir());
+	snprintf(bodies_dir, sizeof(bodies_dir), "%s/bodies",
+		fsDataDir(dataDirBuf, sizeof(dataDirBuf)));
 	if (!fsCreateDir(bodies_dir)) {
 		sysLoudFailf("EXTRACT.PDBODY",
 			"fsCreateDir(\"%s\") failed", bodies_dir);
