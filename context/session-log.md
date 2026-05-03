@@ -1,5 +1,78 @@
 # Session Log (Active)
 
+## Session S610b-step3b-part1 (`frosty-antonelli-fd537f` continuation) - 2026-05-03 - Catalog Universality Pivot Step 3b part 1 (.pdfont + .pdlang)
+
+Mike's directive 2026-05-03: "Get us to completion." Worktree repurposed for Step 3b after Step 3 audio half shipped. Fresh-spawn channel timed out at MCP layer, so the orchestrator routed the continuation back to the same worktree.
+
+### Outcome
+
+12 of 13 universality kinds emitted (was 10). Step 3b ships in two parts; part 1 is the raw-payload wrapper side (`.pdfont` + `.pdlang`). Part 2 (`.pdui` + theme reader cross-cut) sized as its own coherent unit.
+
+- **`port/src/romextract_pdfont.c`** -- walks 10 NTSC font face segments and emits one `.pdfont` ZIP per face. Reads raw bytes from `data/<romid>/segs/<face>.bin` (Pass A) and wraps with manifest envelope. Catalog ID `base:font_<facename>`. Step 4 universal loader runs `preprocessFont` at load time so the emitter does not duplicate the preprocess pass.
+- **`port/src/romextract_pdlang.c`** -- walks `g_LangFiles[1..68]` and emits one `.pdlang` ZIP per bank. Reads raw bytes from `data/<romid>/files/<sanitized>.bin` (Pass A). Bank name extracted from `FILE_L<NAME>E` enum string via `loaderPdbaseNameForFileEnum` (e.g. `FILE_LGUNE` -> `gun`). Stage category derived from bank ID range. Catalog ID `base:lang_<bank>_en` for NTSC; PAL/JPN locales extension folds in as a Step 5 cleanup or follow-up worktree.
+- **`port/src/romextract_parity_pdfont.c`** + **`_parity_pdlang.c`** -- Q-5 structural parity. Re-opens each emitted ZIP, parses `manifest.json`, asserts envelope + key scalar fields round-trip the source file/segment.
+
+Public API: `port/include/romextract_pd.h` gains four new prototypes inside a Step 3b part 1 block. Boot wiring in `port/src/main.c` immediately after the Step 3 audio block.
+
+### Why split Step 3b into two parts
+
+Per `feedback_complete_unit_shipping`, Step 3b naturally splits along risk class:
+
+- **Part 1 (this commit)**: `.pdfont` + `.pdlang`. Raw-payload byte-wrapper emitters with zero consumer cross-cut. Loader migration (Step 4) handles the consumer side later.
+- **Part 2 (follow-up)**: `.pdui` + theme reader migration. Cross-cuts the GL render path because `pdguiThemeExtractRomTextures` (the writer at `port/fast3d/pdgui_theme.cpp:2424`) and `pdguiThemeLateInit` (the reader at `port/fast3d/pdgui_theme.cpp:1723`) both need rewriting in the same unit. UI bugs are silent at build time and surface only at runtime; bundling that risk class with the simple wrappers would conflate two failure modes.
+
+The split mirrors the Step 3 audio half / Step 3b split: ship coherent risk-class chunks. Audio decoder lineage shipped together; raw-payload wrappers shipped together; cross-cut piece ships in its own unit.
+
+### Build verify
+
+Clean four-target build via `devtools/build-session.ps1`:
+
+- Client (pd): PASS, ~55 MB. All four new `.obj` files compiled into the link.
+- Updater (pd-updater): PASS, 12.3 MB.
+- Server (pd-server): PASS, 22.4 MB. Server-build short-circuits per `PD_SERVER` guards.
+- Tests (pd-tests): PASS, 24.9 MB.
+
+No new compile warnings on the four new files.
+
+### Counts (NTSC final ROM, expected)
+
+- `.pdfont`: 10 face segments (bankgothic / zurich / tahoma / numeric / handelgothic{xs,sm,md,lg} / ocra{md,lg}).
+- `.pdlang`: 68 bank entries (English locale only this ship).
+
+### Files added (4 new files, ~1131 lines)
+
+- `port/src/romextract_pdfont.c` (~230 lines)
+- `port/src/romextract_pdlang.c` (~310 lines)
+- `port/src/romextract_parity_pdfont.c` (~230 lines)
+- `port/src/romextract_parity_pdlang.c` (~280 lines)
+
+### Files modified
+
+- `port/include/romextract_pd.h` -- 4 new prototypes + Step 3b part 1 docblock.
+- `port/src/main.c` -- Step 3b part 1 block (~30 new lines).
+- `context/audits/catalog-universality-pivot-plan-2026-05-02.md` -- Step 3b part 1 SHIPPED section.
+- `context/tasks.md` -- Section 2a bumped from "10 of 13" to "12 of 13".
+- `context/session-log.md` -- this entry.
+
+### Sizing call for orchestrator
+
+Step 3b part 2 (the `.pdui` + theme reader migration) ships in a fresh worktree. The migration shape:
+
+- Add memory-variant TGA helpers (`s_writeTgaToMem` / `s_loadTgaFromMem`) to `port/fast3d/pdgui_theme.cpp`.
+- Replace `pdguiThemeExtractRomTextures` body with `.pdui`-emitting walker (one `.pdui` per texture in `k_Extracts[]`, ~14 entries).
+- Add `port/src/romextract_pdui.c` thin C wrapper that calls the new C++ emitter via an `extern "C"` API.
+- Rewrite `pdguiThemeLateInit` to read texture bytes from `.pdui` ZIPs via `modArchiveOpen` + `modArchiveExtractAlloc`, replacing the current `s_loadTgaTexture(disk_path)` calls.
+- Bake nineslice metadata into the per-texture manifest (deprecate the standalone `.9slice.json`).
+- Stop calling the legacy loose-files writers (`s_writeTga` / `s_writePng` / `s_writeNinesliceJson`) -- leave them as dead-code that Step 5 cleanup removes.
+
+After `.pdui`: 13 of 13 emitted. Step 4 (universal directory walker) is the universality switch.
+
+### Memory
+
+No new memory entries. Step 3b confirmed the established Step 3a pattern works for raw-payload wrappers; no new feedback to encode.
+
+---
+
 ## Session S610-step3-audio (`frosty-antonelli-fd537f`) - 2026-05-03 - Catalog Universality Pivot Step 3 audio half (.pdsfx + .pdvoice + .pdsong)
 
 Mike's directive 06:42 ET: "Let's finish the catalog." Step 3a (`amazing-torvalds-eadac6`) recommended a fresh worktree for Step 3 audio because it spans a distinct subdomain (audio decoders, bank format, sequence table). This session takes that advice.
