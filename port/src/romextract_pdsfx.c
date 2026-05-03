@@ -58,6 +58,15 @@
 #include "sha256.h"
 #include "system.h"
 
+/* Runtime-channel form of sysLoudFailf. The system.h macro requires a
+ * string literal for klass so it can do compile-time concatenation;
+ * our shared walker switches between "EXTRACT.PDSFX" and
+ * "EXTRACT.PDVOICE" at runtime, so we build an equivalent expansion
+ * with %s for the channel name. Same LOG_WARNING level + "LOUDFAIL."
+ * prefix; same single sysLogPrintf surface for log filters to grep. */
+#define LOUD_FAILF_RT(channel, fmt, ...) \
+	sysLogPrintf(LOG_WARNING, "LOUDFAIL.%s: " fmt, channel, __VA_ARGS__)
+
 /* The bank file format is described in include/PR/libaudio.h plus
  * the post-preprocess form in port/src/preprocess/segaudio.c. Stored
  * pointer fields are (uintptr_t)-cast offsets into the same sfxctl
@@ -244,7 +253,7 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	/* Resolve wavetable. wavetable is stored as offset within ctl. */
 	u32 wt_off = s_offsetFromPointer(snd->wavetable);
 	if (wt_off + sizeof(ALWaveTable) > ctl_size) {
-		sysLoudFailf(channel,
+		LOUD_FAILF_RT(channel,
 			"sfx_idx=%d wavetable offset 0x%x + sizeof past ctl size 0x%x",
 			sfx_idx, (unsigned)wt_off, (unsigned)ctl_size);
 		return -1;
@@ -259,7 +268,7 @@ static s32 s_emitOneSound(s32 sfx_idx,
 		return 0;
 	}
 	if (sample_off + sample_len > tbl_size) {
-		sysLoudFailf(channel,
+		LOUD_FAILF_RT(channel,
 			"sfx_idx=%d sample range 0x%x..0x%x past tbl size 0x%x",
 			sfx_idx, (unsigned)sample_off,
 			(unsigned)(sample_off + sample_len), (unsigned)tbl_size);
@@ -387,26 +396,26 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			sym ? sym : "");
 	}
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
-		sysLoudFailf(channel,
+		LOUD_FAILF_RT(channel,
 			"manifest.json snprintf truncated for sfx_idx=%d", sfx_idx);
 		return -1;
 	}
 
 	const char *dst_full = fsFullPath(dst_rel);
 	if (!dst_full || !dst_full[0]) {
-		sysLoudFailf(channel, "fsFullPath empty for \"%s\"", dst_rel);
+		LOUD_FAILF_RT(channel, "fsFullPath empty for \"%s\"", dst_rel);
 		return -1;
 	}
 
 	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
 	if (!aw) {
-		sysLoudFailf(channel, "modArchiveBegin failed for \"%s\"", dst_full);
+		LOUD_FAILF_RT(channel, "modArchiveBegin failed for \"%s\"", dst_full);
 		return -1;
 	}
 
 	if (modArchiveAddFileMem(aw, "manifest.json",
 	                          manifest_buf, (u32)manifest_len) != 0) {
-		sysLoudFailf(channel,
+		LOUD_FAILF_RT(channel,
 			"AddFileMem manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		return -1;
@@ -415,7 +424,7 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	if (modArchiveAddFileMem(aw, "sample.bin",
 	                          (const char *)(tbl_data + sample_off),
 	                          sample_len) != 0) {
-		sysLoudFailf(channel,
+		LOUD_FAILF_RT(channel,
 			"AddFileMem sample.bin failed for \"%s\" (sfx_idx=%d len=%u)",
 			dst_full, sfx_idx, (unsigned)sample_len);
 		modArchiveAbort(aw);
@@ -441,7 +450,7 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	}
 
 	if (modArchiveFinish(aw) != 0) {
-		sysLoudFailf(channel, "modArchiveFinish failed for \"%s\"", dst_full);
+		LOUD_FAILF_RT(channel, "modArchiveFinish failed for \"%s\"", dst_full);
 		return -1;
 	}
 
@@ -475,21 +484,21 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 	}
 
 	if (ctl_size < sizeof(ALBankFile)) {
-		sysLoudFailf(channel,
+		LOUD_FAILF_RT(channel,
 			"sfxctl size %u smaller than ALBankFile header",
 			(unsigned)ctl_size);
 		return -1;
 	}
 
 	if (!fsDataDirEnsure()) {
-		sysLoudFailf(channel, "fsDataDirEnsure failed");
+		LOUD_FAILF_RT(channel, "fsDataDirEnsure failed");
 		return -1;
 	}
 
 	char out_dir[FS_MAXPATH];
 	snprintf(out_dir, sizeof(out_dir), "%s/%s", fsDataDir(), out_subdir);
 	if (!fsCreateDir(out_dir)) {
-		sysLoudFailf(channel, "fsCreateDir(\"%s\") failed", out_dir);
+		LOUD_FAILF_RT(channel, "fsCreateDir(\"%s\") failed", out_dir);
 		return -1;
 	}
 
@@ -499,14 +508,14 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 	 * (src/lib/snd.c around line 970). */
 	const ALBankFile *bf = (const ALBankFile *)ctl_data;
 	if (bf->bankCount < 1) {
-		sysLoudFailf(channel, "ALBankFile bankCount=%d (<1)",
+		LOUD_FAILF_RT(channel, "ALBankFile bankCount=%d (<1)",
 			(int)bf->bankCount);
 		return -1;
 	}
 
 	u32 bank_off = s_offsetFromPointer(bf->bankArray[0]);
 	if (bank_off + sizeof(ALBank) > ctl_size) {
-		sysLoudFailf(channel,
+		LOUD_FAILF_RT(channel,
 			"bank[0] offset 0x%x past ctl size 0x%x",
 			(unsigned)bank_off, (unsigned)ctl_size);
 		return -1;
@@ -515,14 +524,14 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 	s32 sample_rate = bank->sampleRate > 0 ? bank->sampleRate : 22050;
 
 	if (bank->instCount < 1) {
-		sysLoudFailf(channel, "ALBank instCount=%d (<1)",
+		LOUD_FAILF_RT(channel, "ALBank instCount=%d (<1)",
 			(int)bank->instCount);
 		return -1;
 	}
 
 	u32 inst_off = s_offsetFromPointer(bank->instArray[0]);
 	if (inst_off + sizeof(ALInstrument) > ctl_size) {
-		sysLoudFailf(channel,
+		LOUD_FAILF_RT(channel,
 			"inst[0] offset 0x%x past ctl size 0x%x",
 			(unsigned)inst_off, (unsigned)ctl_size);
 		return -1;
@@ -531,7 +540,7 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 
 	s32 sound_count = inst->soundCount;
 	if (sound_count <= 0) {
-		sysLoudFailf(channel, "ALInstrument soundCount=%d (<=0)",
+		LOUD_FAILF_RT(channel, "ALInstrument soundCount=%d (<=0)",
 			sound_count);
 		return -1;
 	}
@@ -543,7 +552,7 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 	if (inst_off + sizeof(ALInstrument)
 	    + (size_t)(sound_count - 1) * sizeof(uintptr_t)
 	    > ctl_size) {
-		sysLoudFailf(channel,
+		LOUD_FAILF_RT(channel,
 			"inst soundArray spans past ctl size (count=%d off=0x%x)",
 			sound_count, (unsigned)inst_off);
 		return -1;
@@ -554,7 +563,7 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 	 * point past it. */
 	u8 *voice_cache = sysMemZeroAlloc((u32)sound_count);
 	if (!voice_cache) {
-		sysLoudFailf(channel, "sysMemZeroAlloc(%d) failed for voice cache",
+		LOUD_FAILF_RT(channel, "sysMemZeroAlloc(%d) failed for voice cache",
 			sound_count);
 		return -1;
 	}
@@ -575,7 +584,7 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 
 		u32 snd_off = s_offsetFromPointer(inst->soundArray[i]);
 		if (snd_off + sizeof(ALSound) > ctl_size) {
-			sysLoudFailf(channel,
+			LOUD_FAILF_RT(channel,
 				"sound[%d] offset 0x%x past ctl size 0x%x",
 				i, (unsigned)snd_off, (unsigned)ctl_size);
 			failed++;
