@@ -932,13 +932,42 @@ foreach ($t in $targets) {
     if (-not $buildOk) { $anyFail = $true }
 
     # Post-build addin copy (client only)
+    #
+    # B-326 (2026-05-03): ROM file (*.z64) goes to install root, not
+    # $BuildDir/data/. Post B-321 the binary's fsFileLoad searches at $E
+    # (the EXE directory) with DEFAULT_BASEDIR_NAME=".", so any *.z64
+    # under $BuildDir/data/ is dead bytes the client never reads.
     if ($buildOk -and $t -eq "client") {
         $dataDir = Join-Path $AddinDir "data"
         if (Test-Path $dataDir) {
             Write-Header "Post-Build: Copy Addin Files"
             try {
-                Copy-Item $dataDir -Destination $BuildDir -Recurse -Force
-                Write-Ok "  Copied addin\data -> $BuildDir"
+                # Place *.z64 anywhere in addin tree at install root.
+                Get-ChildItem -Path $dataDir -Filter "*.z64" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+                    $destRom = Join-Path $BuildDir $_.Name
+                    try { Copy-Item -Path $_.FullName -Destination $destRom -Force -ErrorAction Stop } catch {}
+                }
+                # Mirror data/ to $BuildDir/data/ but skip *.z64 so they do
+                # not duplicate at the wrong location. Use robocopy for
+                # filtered copy where available; fall back to file-walk.
+                $dstData = Join-Path $BuildDir "data"
+                if (-not (Test-Path $dstData)) { New-Item -ItemType Directory -Path $dstData -Force | Out-Null }
+                $robocopy = Get-Command robocopy.exe -ErrorAction SilentlyContinue
+                $copied = $false
+                if ($null -ne $robocopy) {
+                    & robocopy.exe $dataDir $dstData /E /XO /XF "*.z64" /NFL /NDL /NJH /NJS /NP | Out-Null
+                    if ($LASTEXITCODE -le 7) { $copied = $true }
+                }
+                if (-not $copied) {
+                    Get-ChildItem -Path $dataDir -Recurse -File -ErrorAction Stop | Where-Object { $_.Extension -ne ".z64" } | ForEach-Object {
+                        $rel = $_.FullName.Substring($dataDir.Length).TrimStart('\','/')
+                        $dest = Join-Path $dstData $rel
+                        $destDir = Split-Path $dest -Parent
+                        if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+                        Copy-Item -Path $_.FullName -Destination $dest -Force -ErrorAction SilentlyContinue
+                    }
+                }
+                Write-Ok "  Copied addin\data -> $BuildDir (ROM at install root)"
             } catch {
                 Write-Warn "  Addin copy failed (non-fatal): $($_.Exception.Message)"
             }

@@ -722,6 +722,14 @@
       "priority": 1,
       "notes": "Worktree competent-saha-a202bb. SHA pending merge. B-323 in bugs.md.", "flag": null, "flagged_at": null,
       "created": "2026-05-03T18:00:00Z", "updated": "2026-05-03T18:43:00Z"
+    },
+    {
+      "id": "c113", "title": "B-324 / B-325 / B-326 walker-after-emitters reorder + Dev Window ROM placement",
+      "description": "SHIPPED 2026-05-03 (gifted-bohr-62309b). Three-bug coherent ship from Mike's playtest 2026-05-03 20:40 ET on dev 232d05ea (BYOR completion + Phase 3 + B-323 build). B-324 (CRITICAL): bgunCalculateBlend AV at bondgun.c:3526 dereferencing NULL weapon returned by weaponFindById(0). Stack via addr2line: bgunCalculateBlend -> bgunReset (bondgunreset.c:231) -> lvReset (lv.c:618) -> mainLoop -> mainProc -> main. B-325 (HIGH, root cause of B-324): universal walker ran BEFORE per-asset emitters in bootRunCatalogWork (port/src/main.c). On a clean install per-asset directories were empty when the walker scanned them; walker registered 0; s_LoaderActive stayed 0 for the entire boot; loaderPoolGetWeapon returned NULL for every index; weaponFindById returned NULL; bgunCalculateBlend AVed. Fix: reordered boot phases so all 13 emitters run BEFORE BOOT_PHASE_WALKER. The walker block (with its loaderPoolIsActive() -> assetCatalogRegisterWeaponModelFiles() follow-up) now sits between BOOT_PHASE_EMIT_UI and BOOT_PHASE_BUILD_CACHES. Boot progress accumulator is order-independent (completed_mask bitmask in s_computeOverall_locked); Phase 5 weight caching unaffected. Propagation check: emitters do not depend on loaderPoolIsActive (walk binary-baked g_*Data[] tables per BYOR completion); the 5 pool consumers all NULL-check correctly -- no reader-side fixes needed. No defensive NULL check at the AV site (per feedback_no_half_measures). B-326 (MED): Dev Window v2 + build-headless post-build addin copy placed pd.<romid>.z64 at <BuildDir>\\data\\ instead of <BuildDir>\\ (install root). Post B-321 (DEFAULT_BASEDIR_NAME=\".\") the binary expects ROM at <install_root>/. release.ps1 was already correct; dev-window-v2.ps1::Copy-AddinFiles and build-headless.ps1 post-build addin copy were not -- propagation check fired, both fixed. New flow: sweep ..\\post-batch-addin\\data\\*.z64 to install root first; mirror the rest of data\\ to <BuildDir>\\data\\ with *.z64 excluded (robocopy /XF \"*.z64\"; Get-ChildItem fallback). Build verify clean four-target via build-session.ps1 -Session b324 -Target all/server/tests: client 55.5 MB, updater 12.3 MB, server 22.4 MB, tests 24.6 MB.",
+      "pillar": "catalog", "column": "done", "order": 131000,
+      "priority": 1,
+      "notes": "Worktree gifted-bohr-62309b. SHA pending merge. B-324 / B-325 / B-326 in bugs.md. Audit at context/audits/catalog-universality-walker-order-2026-05-03.md. Single coherent unit ship.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T20:50:00Z", "updated": "2026-05-03T21:00:00Z"
     }
   ]
 }

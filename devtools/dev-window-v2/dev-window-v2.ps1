@@ -1413,23 +1413,50 @@ function Copy-AddinFiles {
     # ROM. Mirroring would wipe those extracts every build, forcing a
     # fresh extraction every launch. Switch to /E (preserve extras) +
     # non-destructive Copy-Item fallback.
+    #
+    # B-326 (2026-05-03): ROM file (*.z64) lives at install root, not
+    # Build/data/. Post B-321 the binary's fsFileLoad searches at $E
+    # (the EXE directory aka install root) with DEFAULT_BASEDIR_NAME=".",
+    # so any *.z64 under Build/data/ is dead bytes the client never reads.
+    # Sweep *.z64 anywhere in the addin tree and place them at $BuildDir
+    # next to PerfectDark.exe; exclude them from the data/ copy below so
+    # they do not duplicate.
     $parentDir = Split-Path $script:ProjectRoot -Parent
     $srcData = Join-Path $parentDir "post-batch-addin" | Join-Path -ChildPath "data"
     $dstData = Join-Path $script:BuildDir "data"
     if (-not (Test-Path $srcData)) { return }
     if (-not (Test-Path $dstData)) { New-Item -ItemType Directory -Path $dstData -Force | Out-Null }
+
+    # B-326: ROM file(s) go to install root. Find any *.z64 anywhere in
+    # the addin source tree and copy them up to $BuildDir, which is where
+    # the binary's fsFileLoad searches. Done before the data copy so even
+    # if that step fails the ROM still lands in the right place.
+    try {
+        Get-ChildItem -Path $srcData -Filter "*.z64" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            $destRom = Join-Path $script:BuildDir $_.Name
+            try { Copy-Item -Path $_.FullName -Destination $destRom -Force -ErrorAction Stop } catch {}
+        }
+    } catch {}
+
     try {
         $robocopy = Get-Command robocopy.exe -ErrorAction SilentlyContinue
         if ($null -ne $robocopy) {
             $robocopyPath = if ($robocopy.Path) { $robocopy.Path } elseif ($robocopy.Source) { $robocopy.Source } else { "robocopy.exe" }
             # /E copies subdirs incl. empty (non-destructive); /XO skips
             # files that already exist at dest with same/newer timestamp.
-            & $robocopyPath $srcData $dstData /E /XO /NFL /NDL /NJH /NJS /NP | Out-Null
+            # /XF "*.z64" excludes ROM files (handled above for install root).
+            & $robocopyPath $srcData $dstData /E /XO /XF "*.z64" /NFL /NDL /NJH /NJS /NP | Out-Null
             if ($LASTEXITCODE -le 7) { return }
         }
         # Fallback (no robocopy): file-by-file copy that overwrites but
-        # does NOT delete extras at the destination.
-        Copy-Item -Path (Join-Path $srcData "*") -Destination $dstData -Recurse -Force -ErrorAction Stop
+        # does NOT delete extras at the destination. Skip *.z64 (handled above).
+        Get-ChildItem -Path $srcData -Recurse -File -ErrorAction Stop | Where-Object { $_.Extension -ne ".z64" } | ForEach-Object {
+            $rel = $_.FullName.Substring($srcData.Length).TrimStart('\','/')
+            $dest = Join-Path $dstData $rel
+            $destDir = Split-Path $dest -Parent
+            if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+            Copy-Item -Path $_.FullName -Destination $dest -Force -ErrorAction SilentlyContinue
+        }
     } catch {}
 }
 
