@@ -137,6 +137,19 @@ Closes the "Empty-pool-on-clean-BYOR" followup from section 2b. Per Mike's hard 
 
 **Audit**: [audits/catalog-universality-pivot-plan-2026-05-02.md](audits/catalog-universality-pivot-plan-2026-05-02.md) "BYOR Completion SHIPPED" section.
 
+### 2e. Walker-after-emitters reorder + Dev Window ROM placement SHIPPED (2026-05-03, gifted-bohr-62309b)
+
+Three-bug coherent ship from Mike's playtest of `dev 232d05ea` (BYOR completion + Phase 3 + B-323 build). The Step-5 + post-pivot universal walker order had a structural deadlock that B-318's gate removal could not fix on a clean install.
+
+- **B-324** (CRITICAL) -- AV at boot: `bgunCalculateBlend` (bondgun.c:3526) dereferences NULL `weapon` returned by `weaponFindById(0)`. Stack via addr2line: `bgunCalculateBlend` -> `bgunReset` (bondgunreset.c:231) -> `lvReset` (lv.c:618) -> `mainLoop` -> `mainProc` -> `main`. Caused by B-325.
+- **B-325** (HIGH) -- Walker ran BEFORE emitters in `bootRunCatalogWork` ([port/src/main.c:154](../../port/src/main.c:154)). On a clean install the per-asset directories were empty when the walker scanned them; the walker registered 0 entries; `s_LoaderActive` stayed 0; `loaderPoolGetWeapon` returned NULL for every index for the entire boot; `weaponFindById` returned NULL; `bgunCalculateBlend` AVed. Fix: reordered so all 13 emitters run BEFORE `BOOT_PHASE_WALKER`, which now sits between `BOOT_PHASE_EMIT_UI` and `BOOT_PHASE_BUILD_CACHES`. `assetCatalogRegisterWeaponModelFiles()` (which iterates the populated weapon pool) stays inside the walker block. Boot progress accumulator is order-independent (`completed_mask` bitmask). Phase 5 weight caching unaffected.
+- **B-326** (MED) -- Dev Window v2 + `build-headless.ps1` post-build addin copy placed `pd.<romid>.z64` at `<BuildDir>\data\` instead of `<BuildDir>\` (install root). Post B-321 (`DEFAULT_BASEDIR_NAME = "."`) the binary's `fsFileLoad(g_RomName, ...)` searches at `$E` (install root). `release.ps1` was already correct; `dev-window-v2.ps1::Copy-AddinFiles` and `build-headless.ps1` were not. Both now sweep `..\post-batch-addin\data\*.z64` to install root first, then mirror the rest of `data\` to `<BuildDir>\data\` with `*.z64` excluded.
+
+Build verify clean four-target via `build-session.ps1 -Session b324 -Target all/server/tests`: client 55.5 MB, updater 12.3 MB, server 22.4 MB, tests 24.6 MB. Audit: [audits/catalog-universality-walker-order-2026-05-03.md](audits/catalog-universality-walker-order-2026-05-03.md). Bug ledger entries B-324 / B-325 / B-326 in [bugs.md](bugs.md).
+
+**Followups (out of scope for this ship):**
+- Mike's existing dev install (`Build/`) already has `pd.ntsc-final.z64` at install root manually; the fix protects future fresh dev builds (and the smoke verify will confirm boot reaches title without AV on existing data).
+
 ### 2d. BYOR post-boot AV (B-323) SHIPPED (2026-05-03, competent-saha-a202bb)
 
 Mike's playtest of the current install AVs at boot inside `challengesInit()` -- `bcopy/memcpy+146` from a `dmaExecWithAutoAlign` over-read in [src/game/challenge.c::challengeLoadConfig](../../src/game/challenge.c). Note: this AV exists in BOTH pre-BYOR and post-BYOR builds; the user's prompt framing that "BYOR completion was supposed to fully resolve" the AV was inaccurate. The actual ancestor is Pass C (S607, dev `b15cc701`, 2026-05-02), which moved each ROM segment to its own heap allocation -- exposing a long-latent N64-vs-PC struct-stride mismatch that pre-Pass-C had hidden inside the contiguous 32 MB g_RomFile.

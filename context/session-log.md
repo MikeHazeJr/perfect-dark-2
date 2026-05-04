@@ -1,5 +1,59 @@
 # Session Log (Active)
 
+## Session (`gifted-bohr-62309b`) - 2026-05-03 - Walker-after-emitters reorder + Dev Window ROM placement
+
+Three-bug coherent ship from Mike's playtest 2026-05-03 20:40 ET on `dev 232d05ea` (BYOR completion + Phase 3 + B-323 build). The boot AV at `bgunCalculateBlend` resolves to a structural deadlock in the catalog universality walker order that B-318's gate removal could not fix on a clean install.
+
+### Outcome
+
+Three surgical edits, single coherent unit per `feedback_complete_unit_shipping`:
+
+1. **B-324 / B-325 root cause fix** ([port/src/main.c](../../port/src/main.c)): the universal walker (`loaderWalkerLoadAll`) ran BEFORE the per-asset emitters in `bootRunCatalogWork`. On a clean install the per-asset directories were empty when the walker scanned them; walker registered 0 entries; `s_LoaderActive` stayed 0; `loaderPoolGetWeapon` returned NULL for every index for the entire boot; `weaponFindById(0)` returned NULL; `bgunCalculateBlend` AVed dereferencing `weapon->sway`. Fix reorders the boot phases so all 13 emitters run BEFORE `BOOT_PHASE_WALKER`. The walker block (with its `loaderPoolIsActive() -> assetCatalogRegisterWeaponModelFiles()` follow-up) now sits between `BOOT_PHASE_EMIT_UI` and `BOOT_PHASE_BUILD_CACHES`. Boot progress accumulator is order-independent (`completed_mask` bitmask in `s_computeOverall_locked`); Phase 5 weight caching is unaffected. Propagation check: emitters do not depend on `loaderPoolIsActive` (they walk binary-baked `g_*Data[]` authoring tables per BYOR completion); the 5 pool consumers all NULL-check the pool result correctly. No defensive NULL check at the AV site -- per `feedback_no_half_measures`, structural reorder fixes the class.
+
+2. **B-326 Dev Window v2 + build-headless ROM placement** ([devtools/dev-window-v2/dev-window-v2.ps1](../../devtools/dev-window-v2/dev-window-v2.ps1) + [devtools/build-headless.ps1](../../devtools/build-headless.ps1)): post B-321 (`DEFAULT_BASEDIR_NAME = "."`) the binary's `fsFileLoad(g_RomName, ...)` searches at `$E` (EXE directory aka install root), so `pd.<romid>.z64` belongs at `<BuildDir>\` (next to the exe), not `<BuildDir>\data\`. `release.ps1` was already correct (excludes `*.z64` from data copy + writes `put_your_rom_here.txt` at install root). `Copy-AddinFiles` and `build-headless.ps1` post-build addin copy were both still placing the ROM at `<BuildDir>\data\` -- propagation check fired, both fixed in the same commit. New flow: sweep `..\post-batch-addin\data\*.z64` (recursive) to `<BuildDir>\` first; then mirror the rest of `data\` to `<BuildDir>\data\` with `*.z64` excluded (robocopy `/XF "*.z64"`; no-robocopy fallback uses Get-ChildItem filter).
+
+### Resolution path
+
+Decoded the AV via `addr2line` on the dev `232d05ea` `PerfectDark.exe`:
+- `+0x2410c -> bgunCalculateBlend` at bondgun.c:3526 (`f32 sway = weapon->sway`).
+- `+0x3428d -> bgunReset` at bondgunreset.c:231 (`bgunCalculateBlend(HAND_RIGHT)` series).
+- `+0xcadf7 -> lvReset` at lv.c:618 (the per-player reset loop calling `bgunReset()`).
+
+`weaponFindById(0)` traced to `catalogManagerGetWeaponByIndex(0) -> loaderPoolGetWeapon(0) -> NULL` because `s_LoaderActive == 0`. `s_LoaderActive` flips to 1 only when the walker registers >= 1 .pd<ext> file. Mike's pd-client.log showed `LOADER.UNIVERSAL.SUMMARY: scanned=0 ... active=0` at 00:05.43 then `romextract pdwpn: written=86` at 00:05.47 onwards -- walker ran BEFORE the writers, so the pool never finalised.
+
+### Build verify
+
+Clean four-target via `devtools\build-session.ps1 -Session b324`:
+
+- Client (pd, PerfectDark.exe): **PASS, 55.5 MB (32s)**
+- Updater (pd-updater, Updater.exe): **PASS, 12.3 MB (1s)**
+- Server (pd-server, PerfectDarkServer.exe): **PASS, 22.4 MB (9s)**
+- Tests (pd-tests, pd-tests.exe): **PASS, 24.6 MB (24s)**
+
+No new compile warnings.
+
+### Files modified
+
+- `port/src/main.c` (+16 net): walker block moved from line 205 to line 268, after BOOT_PHASE_EMIT_UI; comment + reasoning added.
+- `devtools/dev-window-v2/dev-window-v2.ps1` (+30 net): `Copy-AddinFiles` rewritten.
+- `devtools/build-headless.ps1` (+31 net): post-build addin copy rewritten with the same pattern.
+- `tools/kanban/state.json` (c113 added: B-324/B-325/B-326 SHIPPED).
+- `context/audits/catalog-universality-walker-order-2026-05-03.md` (new audit).
+- `context/bugs.md` (+3 entries: B-324, B-325, B-326).
+- `context/tasks.md` (new section 2e).
+- `context/session-log.md` (this entry).
+
+### Coordination notes
+
+`local_3ebd2c6e` was in flight on Phases 4+5 (already shipped at dev `ea434127`). No conflict on `port/src/main.c::bootRunCatalogWork` (Phases 4+5 added internal concurrency; this triage rearranged the phase order at the same call site -- both safe to land sequentially).
+
+### What is now possible
+
+- BYOR clean-install boot works end-to-end: catalog row registration (binary-baked `g_*Data[]`) -> emitters write per-asset `.pd<ext>` -> walker reads the populated dirs -> `loaderPoolFinalize` flips active=1 -> catalog managers route through populated typed payload -> `weaponFindById` etc. return valid pointers -> stage init's `bgunReset` succeeds -> game reaches title screen.
+- Dev Window v2 + build-headless builds now place the ROM at install root automatically, matching the post-B-321 install layout. New developers / CI workflows can build from a pristine source tree without manual ROM placement.
+
+---
+
 ## Session (`hardcore-leavitt-20fefd`) - 2026-05-03 - Engine Phase 5: per-launch weight caching + telemetry
 
 Continuation of the Phase 4 ship in the same session per Mike's "Do 4 + 5 and the triage in one go." Phase 5 is polish + measurements: weight self-tuning + a diagnostic `Boot.Telemetry` flag.

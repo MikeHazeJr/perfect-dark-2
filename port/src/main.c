@@ -202,16 +202,16 @@ static void bootRunCatalogWork(void *arg)
 	catalogManagerArenaInit();
 	bootProgressEndPhase();
 
-	bootProgressBeginPhase(BOOT_PHASE_WALKER);
-	{
-		loader_walker_result_t walker_result;
-		loaderWalkerLoadAll(&walker_result);
-		(void)walker_result;
-		if (loaderPoolIsActive()) {
-			assetCatalogRegisterWeaponModelFiles();
-		}
-	}
-	bootProgressEndPhase();
+	/* B-325 (2026-05-03): emitters run BEFORE the walker, not after. The
+	 * walker reads `data/<romid>/<kind>/*.pd<ext>` and populates loader_pool
+	 * typed payload (struct weapon, struct head, etc.). On a fresh install
+	 * the per-asset dirs are empty until the emitters write them. Running
+	 * the walker first leaves loader_pool inactive (s_LoaderActive=0), so
+	 * catalogManagerGetWeaponByIndex returns NULL for every index -- which
+	 * is what caused B-324 (bgunCalculateBlend AV: NULL weapon->sway).
+	 *
+	 * Order is now: emit -> walk -> register weapon model files (depends on
+	 * the weapon pool being populated) -> build caches. */
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_WPN);
 	(void)romExtractAllPdwpn(0);
@@ -263,6 +263,17 @@ static void bootRunCatalogWork(void *arg)
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_UI);
 	(void)romExtractAllPdui(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_WALKER);
+	{
+		loader_walker_result_t walker_result;
+		loaderWalkerLoadAll(&walker_result);
+		(void)walker_result;
+		if (loaderPoolIsActive()) {
+			assetCatalogRegisterWeaponModelFiles();
+		}
+	}
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_BUILD_CACHES);
