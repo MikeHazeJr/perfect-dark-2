@@ -1,5 +1,54 @@
 # Session Log (Active)
 
+## Session (`adoring-turing-a53052`) - 2026-05-12 - CLI panel refinements: one prompt, dirty-guard modal, no-scroll layout (c127)
+
+Mike used the c125 / c127 panel and surfaced four problems: (1) the LAUNCH button was hidden by the always-docked Run Tests / Run Game bottom bar; (2) the panel had too many text inputs - one prompt textbox would be enough; (3) action buttons could overwrite manually typed content without confirmation; (4) the layout needed scrolling at default window size. c127 addresses all four.
+
+### Change
+
+**RUN TESTS / RUN GAME moved off the always-docked bottom bar** (which lived outside the TabControl and shadowed every tab's bottom content) and into the BUILD tab as a secondary hero pair right below the BUILD / RELEASE pair. CLI / LOG / DOCS tabs no longer have that bar at all, which uncovers the CLI tab's LAUNCH button.
+
+**CLI tab consolidated to a single canonical prompt textbox.** `TxtCliBugId`, `TxtCliBranch`, `TxtCliPreview` are removed from XAML and from `$namedElements`. Action buttons now rewrite `TxtCliPrompt` in place with a template = prefix + empty body slot + cards block + standing rules. The caret lands at the body-slot position so the user types into it immediately. LAUNCH sends `TxtCliPrompt.Text` verbatim - no separate compose step.
+
+**`Show-CliInputDialog`** is a new small WPF modal (parented to `$window`, ResizeMode=NoResize, centered on owner) that collects action-specific inputs. Bug Fix asks for B-NNN (required - empty bails); Review asks for optional branch (empty allowed, defaults to selected-cards scope). Enter submits, Esc cancels. Last value remembered in `$script:CliBugIdMemory` / `$script:CliBranchMemory` so re-clicking the same action prefills with the previous value.
+
+**Dirty-state tracking + overwrite-confirmation modal.** `$script:CliLastAppliedTemplate` stores the exact text the most recent action click produced. `TxtCliPrompt.TextChanged` fires `Update-CliPromptDirtyState` which compares the current text to the stored template and sets `$script:CliPromptDirty`. A small `(custom)` badge next to the PROMPT header surfaces the flag visually. When the user clicks a new action button while the prompt is dirty, `Confirm-CliOverwriteIfDirty` shows a standard `MessageBox.Show` modal with OK / Cancel buttons - Cancel keeps the text and the active-action label unchanged.
+
+**No-scroll default layout.** Outer `ScrollViewer` removed from the CLI tab body. Layout is now a DockPanel with `LastChildFill="True"`; header + action row docked Top, launch row docked Bottom, the prompt+cards Grid is the last child and absorbs remaining vertical space. At the window's `MinHeight="940"` default, every CLI control fits without scrolling.
+
+### Verification
+
+Three probes at `.claude/scratch/probe-cli-panel-*.ps1` re-run after the refactor:
+
+- **XAML probe** asserts 18 c127 named elements present (`LblCliPromptDirty` new), 3 removed names absent (`TxtCliBugId`, `TxtCliBranch`, `TxtCliPreview`), and `BtnRunTests` / `BtnRunGame` still present (moved, not deleted). PASS.
+- **Compose probe** rewritten for the new flow: 21 assertions cover (1) Goal template into empty prompt, (2) user-edit dirty fires, (3) re-apply same action returns to clean, (4) Plan multi-line prefix, (5) Bug Fix B-999 with regression-test path, (6) Review with branch override, (7) Review default scope, (8) Custom leading blank body slot, (9) cards block reflects selection, (10) em-dash hygiene, (11) ARCHIVE language present. PASS.
+- **Launch probe** spawns dev-window-v2.ps1 for 8 s without crash and closes cleanly. PASS.
+
+PowerShell AST parse clean. Em-dash count on every new/modified file = 0.
+
+### Files modified / added
+
+- `devtools/dev-window-v2/dev-window-v2.ps1`: removed docked Run Tests / Run Game bar; added new Run Tests + Run Game row inside BUILD tab; rebuilt CLI tab body (single prompt, no preview pane, no Bug ID/Branch row, bottom-docked launch row); dropped 3 names from `$namedElements`, added `LblCliPromptDirty`; rewrote Section 14a (`Get-CliWrappingPrefix`/`Get-CliWrappingSuffix` now take bug-id and branch as parameters, new `Show-CliInputDialog`, `Build-CliActionTemplate`, `Apply-CliActionTemplate`, `Update-CliPromptDirtyState`, `Confirm-CliOverwriteIfDirty`, rewritten `Set-CliAction` with dialog + dirty flow, simplified `Build-CliComposedPrompt`); Section 21 init no longer auto-applies a template at cold start (was triggering the dialog flow on the first window load); Section 17 event wiring updated.
+- `context/designs/devwindow-claude-cli-panel.md`: header block updated to mention c127 refinements; UI map rewritten for the simplified layout; new section on dirty tracking + overwrite confirmation; action-button table updated to template-rewrite-in-place semantics; new section "Why no separate preview pane".
+- `context/tasks.md` (+~30 lines): new lane 2j entry.
+- `tools/kanban/state.json` (+~26 lines): c127 card with `pending_completion`.
+- `.claude/sprint-reports/sprint-c127-cli-refinements.md` (NEW): per the c125 sprint-report contract.
+- `.claude/scratch/probe-cli-panel-{xaml,compose}.ps1`: updated to assert the new control set and the new flow.
+
+### Decisions
+
+- **Action button click overwrites the prompt with a fresh template** (rather than wrapping the user's existing text). Mike's wording "overwrite custom prompt?" implies destructive replacement, which is what this model does. The body slot is empty after a template apply - the user types into it - and the dirty flag tracks divergence from the empty-body template.
+- **`Show-CliInputDialog` over `Microsoft.VisualBasic.Interaction.InputBox`** for Bug Fix / Review input collection. The custom WPF dialog matches the dev-window theme and is parented to `$window` so it modal-blocks correctly. Adds ~75 lines of XAML + glue.
+- **No auto-apply of Goal template on tab open**. The c125 init hook called `Set-CliAction "Goal"` which (under the new model) would inject the template at cold start. Changed to set the active-action label only, leaving `TxtCliPrompt` empty until the user types or clicks a button.
+
+### Not in scope
+
+- Saved prompt presets (still on the future-extensions list in the design doc).
+- Sprint-report history pane inside the CLI tab.
+- Batch operations, skill awareness.
+
+---
+
 ## Session (`agitated-montalcini-a6f836`) - 2026-05-12 - Dispatch state-freshness hooks (c126)
 
 Mike's directive (via the Dispatch orchestrator): implement structural fix #2 of four (#1 / #3 / #4 are encoded in auto-memory `feedback_dispatch_orchestrator_workflow.md`). External enforcement via Claude Code hooks that block a turn from completing if it claims state (kanban / session / "currently active" facts) without a same-turn read of the relevant state surface. The orchestrator drifted off the in-memory contract four times in one day; this card adds an external process layer the agent cannot bypass.

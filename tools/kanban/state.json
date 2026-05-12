@@ -1748,6 +1748,30 @@
       "flagged_at": null,
       "created": "2026-04-27",
       "updated": "2026-05-12"
+    },
+    {
+      "id": "c127",
+      "title": "CLI panel refinements - one prompt, dirty-guard modal, no-scroll layout, Run buttons moved",
+      "description": "Mike feedback after using c125: the LAUNCH button was hidden behind the always-docked Run Tests / Run Game bottom bar; the panel had too many text inputs (prompt + bug-id + branch + preview pane); action buttons could overwrite manually typed content without confirmation; default window size required scrolling. c127 (1) moves Run Tests / Run Game off the always-docked bottom bar into the BUILD tab as a secondary hero pair below BUILD / RELEASE, (2) consolidates the CLI tab to a single canonical prompt textbox - drops TxtCliBugId, TxtCliBranch, TxtCliPreview, (3) action buttons now rewrite TxtCliPrompt in place with template = prefix + body slot + cards + standing rules; the caret lands at the body slot for immediate typing, (4) adds Show-CliInputDialog (small WPF modal parented to dev-window) for Bug Fix and Review input collection - Cancel aborts the action click, last value remembered per session, (5) tracks dirty state via CliLastAppliedTemplate vs TxtCliPrompt.Text - on action click if dirty, shows MessageBox 'Overwrite custom prompt?' - Cancel preserves text and the active-action label, (6) the (custom) dirty-state badge appears next to PROMPT header when dirty, clears when clean, (7) tab content fits at the default window height (MinHeight=940) without an outer ScrollViewer.",
+      "pillar": "tooling",
+      "column": "active",
+      "order": 159000,
+      "priority": 2,
+      "notes": "Files touched: devtools/dev-window-v2/dev-window-v2.ps1 (XAML: removed docked Run Tests/Run Game bar, added new Run Tests + Run Game row inside BUILD tab, rebuilt CLI tab body with single prompt + cards split + bottom-docked LAUNCH row, dropped TxtCliBugId/TxtCliBranch/TxtCliPreview from $namedElements, added LblCliPromptDirty; Section 14a: Get-CliWrappingPrefix/Suffix now take bug-id and branch as parameters, new Show-CliInputDialog WPF modal, new Build-CliActionTemplate / Apply-CliActionTemplate / Update-CliPromptDirtyState / Confirm-CliOverwriteIfDirty, rewritten Set-CliAction with dialog + dirty flow, simplified Build-CliComposedPrompt to TxtCliPrompt.Text passthrough; Section 21 init no longer applies a template at cold start; Section 17 event wiring updated to drop preview-update calls and add the dirty-tracking handler). Probes: probe-cli-panel-xaml.ps1 PASS (18 named elements present + 3 removed names confirmed absent + Run Tests/Run Game still present after move), probe-cli-panel-compose.ps1 PASS (21 assertions covering Goal/Plan/Investigate/BugFix/Review/Custom templates + dirty + clean re-apply + cards block + em-dash hygiene + archive language), probe-cli-panel-launch.ps1 PASS (8s smoke).",
+      "flag": null,
+      "flagged_at": null,
+      "pending_completion": {
+        "marked_at": "2026-05-12T15:50:00Z",
+        "marked_by": "claude-code-cli-session-adoring-turing-a53052",
+        "summary": "Run Tests / Run Game moved into BUILD tab; CLI tab consolidated to single prompt with overwrite-confirmation modal and small WPF input dialog for Bug Fix / Review; LAUNCH visible at default window size without scrolling.",
+        "evidence_refs": [
+          "context/designs/devwindow-claude-cli-panel.md",
+          "devtools/dev-window-v2/dev-window-v2.ps1",
+          ".claude/sprint-reports/sprint-c127-cli-refinements.md"
+        ]
+      },
+      "created": "2026-05-12T15:30:00Z",
+      "updated": "2026-05-12T15:50:00Z"
     }
   ]
 }

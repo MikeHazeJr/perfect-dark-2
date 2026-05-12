@@ -880,23 +880,9 @@ function Refresh-LatestRelease {
             </DockPanel>
         </Border>
 
-        <!-- Bottom Bar: Run Game + Run Tests (light theme; sized as
-             secondary actions, not hero. Buttons command attention via
-             color + width, not font shouting). -->
-        <Border DockPanel.Dock="Bottom" Background="#FFFFFF" BorderBrush="#C0C8D2" BorderThickness="0,1,0,0" Padding="14,12">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="14"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Button x:Name="BtnRunTests" Content="RUN TESTS" Style="{StaticResource GoldBtn}"
-                        FontSize="28" FontWeight="Bold" Padding="20,16" MinHeight="78" Grid.Column="0"
-                        ToolTip="Build (if needed) and run pd-tests; output streams to the Log tab."/>
-                <Button x:Name="BtnRunGame" Content="RUN GAME" Style="{StaticResource GreenBtn}"
-                        FontSize="28" FontWeight="Bold" Padding="20,16" MinHeight="78" Grid.Column="2"/>
-            </Grid>
-        </Border>
+        <!-- (c127 2026-05-12) Run Tests / Run Game were here as an always-docked
+             bottom bar. They now live inside the BUILD tab so they no longer
+             obscure the CLI tab's LAUNCH button (or any other tab's content). -->
 
         <!-- Tab Control (light theme; PD cyan accent on the selected tab) -->
         <TabControl x:Name="TabControl" Background="#ECEEF2" BorderThickness="0" Padding="0">
@@ -958,6 +944,23 @@ function Refresh-LatestRelease {
                             <TextBlock x:Name="TxtRelease" Text="RELEASE" TextAlignment="Center"
                                        FontSize="32" FontWeight="Bold" LineHeight="36"/>
                         </Button>
+                    </Grid>
+
+                    <!-- Run Tests + Run Game (c127 2026-05-12: moved from the
+                         always-docked bottom bar into the BUILD tab so they no
+                         longer obscure the CLI tab's LAUNCH button). Sized as
+                         a secondary hero pair beneath BUILD/RELEASE. -->
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="14"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="BtnRunTests" Content="RUN TESTS" Style="{StaticResource GoldBtn}"
+                                FontSize="28" FontWeight="Bold" Padding="20,16" MinHeight="78" Grid.Column="0"
+                                ToolTip="Build (if needed) and run pd-tests; output streams to the Log tab."/>
+                        <Button x:Name="BtnRunGame" Content="RUN GAME" Style="{StaticResource GreenBtn}"
+                                FontSize="28" FontWeight="Bold" Padding="20,16" MinHeight="78" Grid.Column="2"/>
                     </Grid>
 
                     <!-- Utility Buttons Row: one row, sits directly under the
@@ -1169,164 +1172,147 @@ function Refresh-LatestRelease {
                  with card context + standing rules, launch interactively in a
                  new console or headless (-p) with output to the Log tab. -->
             <TabItem Header="CLI">
-              <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0">
-                <DockPanel Margin="14,12,14,12" LastChildFill="False">
+                <DockPanel Margin="14,12,14,12" LastChildFill="True">
 
                     <!-- Header strip -->
                     <Border DockPanel.Dock="Top" Background="#FFFFFF" CornerRadius="3"
-                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="16,12" Margin="0,0,0,12">
+                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="14,8" Margin="0,0,0,10">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="CLAUDE CLI" Foreground="#0078A8" FontFamily="Consolas"
-                                       FontSize="28" FontWeight="Bold" Margin="0,0,18,0"/>
-                            <Rectangle Width="1" Fill="#C0C8D2" Margin="0,4"/>
-                            <TextBlock Text="composed prompts for Claude Code" Foreground="#7A8898"
-                                       FontFamily="Segoe UI" FontSize="24" FontWeight="Bold" Margin="18,0,0,0"
+                                       FontSize="24" FontWeight="Bold" Margin="0,0,14,0"/>
+                            <Rectangle Width="1" Fill="#C0C8D2" Margin="0,2"/>
+                            <TextBlock Text="action buttons wrap the prompt in place. Click LAUNCH to send."
+                                       Foreground="#7A8898"
+                                       FontFamily="Segoe UI" FontSize="20" FontWeight="Bold" Margin="14,0,0,0"
                                        VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
 
-                    <!-- Action row -->
+                    <!-- Action row (c127: single-row layout, smaller padding so the
+                         whole CLI tab fits at the default window size). -->
                     <Border DockPanel.Dock="Top" Background="#FFFFFF" CornerRadius="3"
-                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="12,10" Margin="0,0,0,12">
+                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="10,8" Margin="0,0,0,10">
                         <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <TextBlock Text="ACTION" Foreground="#7A8898" FontFamily="Consolas"
-                                           FontSize="22" FontWeight="Bold" Margin="0,0,12,0"
+                                           FontSize="20" FontWeight="Bold" Margin="0,0,10,0"
                                            VerticalAlignment="Center"/>
-                                <Button x:Name="BtnCliActionGoal" Content="Goal" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                <Button x:Name="BtnCliActionGoal" Content="Goal" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
+                                        FontSize="22" Padding="14,8" MinHeight="44"
                                         ToolTip="Wrap as /goal. Use for autonomous run-to-completion."/>
-                                <Button x:Name="BtnCliActionPlan" Content="Plan" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                <Button x:Name="BtnCliActionPlan" Content="Plan" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
+                                        FontSize="22" Padding="14,8" MinHeight="44"
                                         ToolTip="Plan without executing code. Returns a structured plan."/>
-                                <Button x:Name="BtnCliActionInvestigate" Content="Investigate" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                <Button x:Name="BtnCliActionInvestigate" Content="Investigate" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
+                                        FontSize="22" Padding="14,8" MinHeight="44"
                                         ToolTip="Read-only diagnostic. Report findings only, no modifications."/>
-                                <Button x:Name="BtnCliActionBugFix" Content="Bug Fix" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
-                                        ToolTip="Fix bug B-NNN. Writes regression test first, then fix."/>
-                                <Button x:Name="BtnCliActionReview" Content="Review" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
-                                        ToolTip="Code review scoped to selected cards' files or a branch."/>
-                                <Button x:Name="BtnCliActionCustom" Content="Custom" Style="{StaticResource ToolBtn}" Margin="0,0,16,0"
+                                <Button x:Name="BtnCliActionBugFix" Content="Bug Fix" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
+                                        FontSize="22" Padding="14,8" MinHeight="44"
+                                        ToolTip="Fix bug B-NNN. Prompts for the bug ID, then writes regression test first."/>
+                                <Button x:Name="BtnCliActionReview" Content="Review" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
+                                        FontSize="22" Padding="14,8" MinHeight="44"
+                                        ToolTip="Code review. Prompts for optional branch name."/>
+                                <Button x:Name="BtnCliActionCustom" Content="Custom" Style="{StaticResource ToolBtn}" Margin="0,0,14,0"
+                                        FontSize="22" Padding="14,8" MinHeight="44"
                                         ToolTip="No wrapping. Sends prompt verbatim with only the standing-rules suffix."/>
-                                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,4,16,4"/>
+                                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,2,12,2"/>
                                 <TextBlock x:Name="LblCliActiveAction" Text="active: Goal" Foreground="#0078A8"
-                                           FontFamily="Consolas" FontSize="24" FontWeight="Bold"
+                                           FontFamily="Consolas" FontSize="22" FontWeight="Bold"
                                            VerticalAlignment="Center"/>
                             </StackPanel>
                         </ScrollViewer>
                     </Border>
 
-                    <!-- Bug ID + Branch (visible only for Bug Fix / Review) -->
-                    <Border DockPanel.Dock="Top" Background="#FFFFFF" CornerRadius="3"
-                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="12,10" Margin="0,0,0,12">
+                    <!-- Launch controls (c127: docked at the BOTTOM so LAUNCH is
+                         always visible regardless of how much vertical room the
+                         middle prompt + cards row gets). LastChildFill on the
+                         outer DockPanel hands the remaining space to the grid. -->
+                    <Border DockPanel.Dock="Bottom" Background="#FFFFFF" CornerRadius="3"
+                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="10,8" Margin="0,10,0,0">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="Bug ID:" Foreground="#7A8898" FontFamily="Consolas"
-                                       FontSize="22" FontWeight="Bold" Margin="0,0,8,0"
+                            <TextBlock Text="MODE:" Foreground="#7A8898" FontFamily="Consolas"
+                                       FontSize="20" FontWeight="Bold" Margin="0,0,8,0"
                                        VerticalAlignment="Center"/>
-                            <TextBox x:Name="TxtCliBugId" Width="200" Background="#F5F7FA" Foreground="#1A2434"
-                                     BorderBrush="#C0C8D2" Padding="6,4"
-                                     FontFamily="Consolas" FontSize="24" Margin="0,0,18,0"/>
-                            <TextBlock Text="Branch:" Foreground="#7A8898" FontFamily="Consolas"
-                                       FontSize="22" FontWeight="Bold" Margin="0,0,8,0"
-                                       VerticalAlignment="Center"/>
-                            <TextBox x:Name="TxtCliBranch" Width="300" Background="#F5F7FA" Foreground="#1A2434"
-                                     BorderBrush="#C0C8D2" Padding="6,4"
-                                     FontFamily="Consolas" FontSize="24"/>
+                            <RadioButton x:Name="RdoCliModeInteractive" Content="Interactive (new console)"
+                                         IsChecked="True" GroupName="CliMode"
+                                         Foreground="#1A2434" FontFamily="Segoe UI" FontSize="22" FontWeight="Bold"
+                                         VerticalAlignment="Center" Margin="0,0,16,0"/>
+                            <RadioButton x:Name="RdoCliModeHeadless" Content="Headless (-p, log)"
+                                         GroupName="CliMode"
+                                         Foreground="#1A2434" FontFamily="Segoe UI" FontSize="22" FontWeight="Bold"
+                                         VerticalAlignment="Center" Margin="0,0,20,0"/>
+                            <Button x:Name="BtnCliLaunch" Content="LAUNCH" Style="{StaticResource GreenBtn}"
+                                    Padding="22,10" FontSize="24" Margin="0,0,8,0"/>
+                            <Button x:Name="BtnCliCopy" Content="Copy Prompt" Style="{StaticResource ToolBtn}"
+                                    Padding="18,10" FontSize="22" MinHeight="44" Margin="0,0,8,0"/>
+                            <Button x:Name="BtnCliReset" Content="Reset" Style="{StaticResource ToolBtn}"
+                                    Padding="18,10" FontSize="22" MinHeight="44"/>
                         </StackPanel>
                     </Border>
 
-                    <!-- Prompt + Cards row (60/40 split) -->
-                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12" Height="420">
+                    <!-- Prompt + Cards row (60/40 split). c127: this is the only
+                         middle content now; the preview pane + Bug ID/Branch row
+                         are gone. The prompt textbox is the single canonical
+                         source of what LAUNCH will send. Action buttons rewrite
+                         it in place (with overwrite confirmation if dirty). -->
+                    <Grid Margin="0,0,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="3*" MinWidth="500"/>
                             <ColumnDefinition Width="12"/>
-                            <ColumnDefinition Width="2*" MinWidth="400"/>
+                            <ColumnDefinition Width="2*" MinWidth="380"/>
                         </Grid.ColumnDefinitions>
 
                         <!-- Prompt textbox -->
                         <Border Grid.Column="0" Background="#FFFFFF" CornerRadius="3"
-                                BorderBrush="#C0C8D2" BorderThickness="1" Padding="12,10">
+                                BorderBrush="#C0C8D2" BorderThickness="1" Padding="10,8">
                             <DockPanel>
-                                <TextBlock DockPanel.Dock="Top" Text="PROMPT" Foreground="#7A8898"
-                                           FontFamily="Consolas" FontSize="22" FontWeight="Bold"
-                                           Margin="0,0,0,6"/>
+                                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                                    <TextBlock Text="PROMPT" Foreground="#7A8898"
+                                               FontFamily="Consolas" FontSize="20" FontWeight="Bold"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="LblCliPromptDirty" DockPanel.Dock="Right"
+                                               Text="" Foreground="#A06A10"
+                                               FontFamily="Consolas" FontSize="20" FontWeight="Bold"
+                                               VerticalAlignment="Center" TextAlignment="Right"/>
+                                </DockPanel>
                                 <TextBox x:Name="TxtCliPrompt" Background="#FFFFFF" Foreground="#1A2434"
                                          BorderBrush="#C0C8D2" Padding="8,6" AcceptsReturn="True"
                                          AcceptsTab="True" TextWrapping="Wrap"
                                          VerticalScrollBarVisibility="Auto"
-                                         FontFamily="Consolas" FontSize="24"/>
+                                         FontFamily="Consolas" FontSize="22"/>
                             </DockPanel>
                         </Border>
 
                         <!-- Cards list -->
                         <Border Grid.Column="2" Background="#FFFFFF" CornerRadius="3"
-                                BorderBrush="#C0C8D2" BorderThickness="1" Padding="12,10">
+                                BorderBrush="#C0C8D2" BorderThickness="1" Padding="10,8">
                             <DockPanel>
-                                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
                                     <TextBlock Text="CARDS" Foreground="#7A8898"
-                                               FontFamily="Consolas" FontSize="22" FontWeight="Bold"
+                                               FontFamily="Consolas" FontSize="20" FontWeight="Bold"
                                                VerticalAlignment="Center"/>
                                     <Button x:Name="BtnCliCardsRefresh" Content="Refresh"
                                             Style="{StaticResource ToolBtn}" DockPanel.Dock="Right"
-                                            Padding="14,6" MinHeight="44" FontSize="22" Margin="6,0,0,0"/>
+                                            Padding="12,4" MinHeight="36" FontSize="20" Margin="6,0,0,0"/>
                                     <TextBox x:Name="TxtCliCardSearch" Background="#FFFFFF" Foreground="#4A5868"
                                              BorderBrush="#C0C8D2" Padding="6,4" Margin="8,0,0,0"
-                                             FontFamily="Consolas" FontSize="22"
+                                             FontFamily="Consolas" FontSize="20"
                                              Tag="Search..." FontStyle="Italic"/>
                                 </DockPanel>
                                 <TextBlock x:Name="LblCliSelectedCards" DockPanel.Dock="Bottom"
                                            Text="Selected: (none)" Foreground="#0078A8"
-                                           FontFamily="Consolas" FontSize="22" FontWeight="Bold"
-                                           Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                           FontFamily="Consolas" FontSize="20" FontWeight="Bold"
+                                           Margin="0,4,0,0" TextWrapping="Wrap"/>
                                 <ListBox x:Name="LstCliCards" Background="#FFFFFF" Foreground="#1A2434"
                                          BorderBrush="#C0C8D2" BorderThickness="1"
-                                         FontFamily="Consolas" FontSize="22"
+                                         FontFamily="Consolas" FontSize="20"
                                          SelectionMode="Multiple"
                                          ScrollViewer.VerticalScrollBarVisibility="Auto"/>
                             </DockPanel>
                         </Border>
                     </Grid>
 
-                    <!-- Composed prompt preview -->
-                    <Border DockPanel.Dock="Top" Background="#F5F7FA" CornerRadius="3"
-                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="12,10" Margin="0,0,0,12">
-                        <DockPanel>
-                            <TextBlock DockPanel.Dock="Top" Text="COMPOSED PROMPT (read-only)"
-                                       Foreground="#7A8898" FontFamily="Consolas" FontSize="22"
-                                       FontWeight="Bold" Margin="0,0,0,6"/>
-                            <TextBox x:Name="TxtCliPreview" Background="#FFFFFF" Foreground="#1A2434"
-                                     BorderBrush="#C0C8D2" Padding="8,6" IsReadOnly="True"
-                                     AcceptsReturn="True" TextWrapping="Wrap"
-                                     VerticalScrollBarVisibility="Auto"
-                                     HorizontalScrollBarVisibility="Auto"
-                                     FontFamily="Consolas" FontSize="22"
-                                     Height="200"/>
-                        </DockPanel>
-                    </Border>
-
-                    <!-- Launch controls -->
-                    <Border DockPanel.Dock="Top" Background="#FFFFFF" CornerRadius="3"
-                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="12,10">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="MODE:" Foreground="#7A8898" FontFamily="Consolas"
-                                       FontSize="22" FontWeight="Bold" Margin="0,0,10,0"
-                                       VerticalAlignment="Center"/>
-                            <RadioButton x:Name="RdoCliModeInteractive" Content="Interactive (new console)"
-                                         IsChecked="True" GroupName="CliMode"
-                                         Foreground="#1A2434" FontFamily="Segoe UI" FontSize="24" FontWeight="Bold"
-                                         VerticalAlignment="Center" Margin="0,0,18,0"/>
-                            <RadioButton x:Name="RdoCliModeHeadless" Content="Headless (-p, log)"
-                                         GroupName="CliMode"
-                                         Foreground="#1A2434" FontFamily="Segoe UI" FontSize="24" FontWeight="Bold"
-                                         VerticalAlignment="Center" Margin="0,0,24,0"/>
-                            <Button x:Name="BtnCliLaunch" Content="LAUNCH" Style="{StaticResource GreenBtn}"
-                                    Padding="22,12" FontSize="26" Margin="0,0,8,0"/>
-                            <Button x:Name="BtnCliCopy" Content="Copy Prompt" Style="{StaticResource ToolBtn}"
-                                    Padding="20,12" Margin="0,0,8,0"/>
-                            <Button x:Name="BtnCliReset" Content="Reset" Style="{StaticResource ToolBtn}"
-                                    Padding="20,12"/>
-                        </StackPanel>
-                    </Border>
-
                 </DockPanel>
-              </ScrollViewer>
             </TabItem>
         </TabControl>
     </DockPanel>
@@ -1356,8 +1342,8 @@ $namedElements = @(
     "DocList","DocContent",
     "BtnCliActionGoal","BtnCliActionPlan","BtnCliActionInvestigate","BtnCliActionBugFix",
     "BtnCliActionReview","BtnCliActionCustom","LblCliActiveAction",
-    "TxtCliBugId","TxtCliBranch","TxtCliPrompt","TxtCliCardSearch","LstCliCards",
-    "LblCliSelectedCards","BtnCliCardsRefresh","TxtCliPreview",
+    "TxtCliPrompt","LblCliPromptDirty","TxtCliCardSearch","LstCliCards",
+    "LblCliSelectedCards","BtnCliCardsRefresh",
     "RdoCliModeInteractive","RdoCliModeHeadless","BtnCliLaunch","BtnCliCopy","BtnCliReset"
 )
 foreach ($name in $namedElements) {
@@ -2983,12 +2969,16 @@ function Start-Build {
 # Design doc: context\designs\devwindow-claude-cli-panel.md
 # ============================================================================
 
-$script:CliActiveAction      = "Goal"       # one of: Goal, Plan, Investigate, BugFix, Review, Custom
-$script:CliCardsCache        = @()           # all active+backlog cards from kanban
-$script:CliSelectedCardIds   = @()           # ids of selected cards (preserved across filter)
-$script:CliPreviewDebounce   = $false
-$script:CliClaudeExe         = $null         # resolved on first use
-$script:CliPreallocatedRange = "c126-c130"   # default reservation hint for spawned sessions
+$script:CliActiveAction        = "Goal"     # one of: Goal, Plan, Investigate, BugFix, Review, Custom
+$script:CliCardsCache          = @()         # all active+backlog cards from kanban
+$script:CliSelectedCardIds     = @()         # ids of selected cards (preserved across filter)
+$script:CliClaudeExe           = $null       # resolved on first use
+$script:CliPreallocatedRange   = "c126-c130" # default reservation hint for spawned sessions
+$script:CliLastAppliedTemplate = ""          # c127: text the last action click produced
+$script:CliPromptDirty         = $false      # c127: true when TxtCliPrompt diverges from template
+$script:CliBugIdMemory         = ""          # c127: last entered B-NNN, prefilled on Bug Fix
+$script:CliBranchMemory        = ""          # c127: last entered branch, prefilled on Review
+$script:CliDialogResult        = $null       # c127: stash for modal input dialog return value
 
 function Get-CliClaudeExe {
     if ($script:CliClaudeExe) { return $script:CliClaudeExe }
@@ -3091,34 +3081,20 @@ function Sync-CliSelectedCardsFromListBox {
     Update-CliSelectedCardLabel
 }
 
-function Set-CliAction([string]$action) {
-    $script:CliActiveAction = $action
-    if ($null -ne $ui["LblCliActiveAction"]) {
-        $ui["LblCliActiveAction"].Text = "active: " + $action
-    }
-    Update-CliPreview
-}
-
-function Get-CliWrappingPrefix([string]$action) {
+function Get-CliWrappingPrefix {
+    param([string]$action, [string]$bugId, [string]$branch)
     switch ($action) {
         "Goal"        { return "/goal " }
         "Plan"        { return "Plan the following without executing any code. Output a structured plan:`n`n" }
         "Investigate" { return "Investigate the following. Do not modify code. Report findings only:`n`n" }
         "BugFix"      {
-            $bug = "B-NNN"
-            if ($ui["TxtCliBugId"] -and $ui["TxtCliBugId"].Text) {
-                $b = $ui["TxtCliBugId"].Text.Trim()
-                if ($b -ne "") { $bug = $b }
-            }
+            $bug = if ($bugId -and $bugId.Trim() -ne "") { $bugId.Trim() } else { "B-NNN" }
             return ("Fix bug " + $bug + ": ")
         }
         "Review"      {
-            $branch = ""
-            if ($ui["TxtCliBranch"] -and $ui["TxtCliBranch"].Text) {
-                $branch = $ui["TxtCliBranch"].Text.Trim()
-            }
-            if ($branch -ne "") {
-                return ("Review the following. Scope: branch " + $branch + ":`n`n")
+            $b = if ($branch) { $branch.Trim() } else { "" }
+            if ($b -ne "") {
+                return ("Review the following. Scope: branch " + $b + ":`n`n")
             }
             return "Review the following. Scope: selected cards' affected files:`n`n"
         }
@@ -3127,16 +3103,99 @@ function Get-CliWrappingPrefix([string]$action) {
     return ""
 }
 
-function Get-CliWrappingSuffix([string]$action) {
+function Get-CliWrappingSuffix {
+    param([string]$action, [string]$bugId)
     if ($action -eq "BugFix") {
-        $bug = "B-NNN"
-        if ($ui["TxtCliBugId"] -and $ui["TxtCliBugId"].Text) {
-            $b = $ui["TxtCliBugId"].Text.Trim()
-            if ($b -ne "") { $bug = $b }
-        }
+        $bug = if ($bugId -and $bugId.Trim() -ne "") { $bugId.Trim() } else { "B-NNN" }
         return ("`n`nWrite or update the regression test at tools/smoke-verify/tests/bugs/" + $bug + ".json first, then fix until it passes.")
     }
     return ""
+}
+
+function Show-CliInputDialog {
+    # Small modal WPF input dialog. Returns the entered string, OR $null if the
+    # user cancelled. Allows empty input by default (the consumer decides whether
+    # that is valid). Parented to $window so it modal-blocks the dev-window.
+    param(
+        [string]$Title       = "Input",
+        [string]$Prompt      = "Value:",
+        [string]$DefaultText = "",
+        [string]$Placeholder = ""
+    )
+
+    [xml]$dlgXaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="$Title"
+        Width="520" Height="200"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="#ECEEF2"
+        TextElement.FontFamily="Segoe UI"
+        TextElement.FontSize="20"
+        TextElement.FontWeight="Bold"
+        TextElement.Foreground="#1A2434">
+    <Grid Margin="18,16,18,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" x:Name="DlgPrompt"
+                   Foreground="#1A2434" FontSize="20" FontWeight="Bold"
+                   Margin="0,0,0,8" TextWrapping="Wrap"/>
+        <TextBox Grid.Row="1" x:Name="DlgInput"
+                 Background="#FFFFFF" Foreground="#1A2434"
+                 BorderBrush="#C0C8D2" BorderThickness="1" Padding="8,6"
+                 FontFamily="Consolas" FontSize="22"/>
+        <TextBlock Grid.Row="2" x:Name="DlgPlaceholder"
+                   Foreground="#7A8898" FontFamily="Segoe UI" FontSize="18"
+                   Margin="0,6,0,0" TextWrapping="Wrap"/>
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button x:Name="BtnDlgOk" Content="OK" Width="100" Height="40"
+                    Background="#0078A8" Foreground="#FFFFFF" BorderThickness="0"
+                    FontSize="20" FontWeight="Bold" Margin="0,0,8,0"/>
+            <Button x:Name="BtnDlgCancel" Content="Cancel" Width="100" Height="40"
+                    Background="#FFFFFF" Foreground="#1A2434"
+                    BorderBrush="#B0B8C2" BorderThickness="1"
+                    FontSize="20" FontWeight="Bold"/>
+        </StackPanel>
+    </Grid>
+</Window>
+"@
+
+    $reader = New-Object System.Xml.XmlNodeReader $dlgXaml
+    $dlg = [Windows.Markup.XamlReader]::Load($reader)
+    $dlg.Owner = $window
+
+    $dlg.FindName("DlgPrompt").Text      = $Prompt
+    $dlg.FindName("DlgInput").Text       = $DefaultText
+    $dlg.FindName("DlgPlaceholder").Text = $Placeholder
+
+    $script:CliDialogResult = $null
+    $dlg.FindName("BtnDlgOk").Add_Click({
+        $script:CliDialogResult = $dlg.FindName("DlgInput").Text
+        $dlg.Close()
+    }.GetNewClosure())
+    $dlg.FindName("BtnDlgCancel").Add_Click({
+        $script:CliDialogResult = $null
+        $dlg.Close()
+    }.GetNewClosure())
+    $dlg.Add_KeyDown({
+        param($s, $e)
+        if ($e.Key -eq [System.Windows.Input.Key]::Return) {
+            $script:CliDialogResult = $dlg.FindName("DlgInput").Text
+            $dlg.Close()
+        } elseif ($e.Key -eq [System.Windows.Input.Key]::Escape) {
+            $script:CliDialogResult = $null
+            $dlg.Close()
+        }
+    }.GetNewClosure())
+    $dlg.FindName("DlgInput").Focus() | Out-Null
+    [void]$dlg.ShowDialog()
+    return $script:CliDialogResult
 }
 
 function Build-CliCardsContextBlock {
@@ -3184,42 +3243,144 @@ function Build-CliStandingRulesBlock {
 "@
 }
 
-function Build-CliComposedPrompt {
-    $action = $script:CliActiveAction
-    $userText = ""
-    if ($ui["TxtCliPrompt"]) { $userText = $ui["TxtCliPrompt"].Text }
-    if ($null -eq $userText) { $userText = "" }
+function Build-CliActionTemplate {
+    # c127: action buttons rewrite TxtCliPrompt in place. This function returns
+    # the EMPTY-BODY template (prefix + suffix + cards block + standing rules)
+    # that the action click drops into the prompt textbox. The user then fills
+    # in the body slot directly. LAUNCH sends TxtCliPrompt.Text verbatim.
+    param([string]$action, [string]$bugId, [string]$branch)
 
-    $prefix = Get-CliWrappingPrefix $action
-    $suffix = Get-CliWrappingSuffix $action
+    $prefix = Get-CliWrappingPrefix -action $action -bugId $bugId -branch $branch
+    $suffix = Get-CliWrappingSuffix -action $action -bugId $bugId
 
     $cardsBlock = Build-CliCardsContextBlock
-    $standing = Build-CliStandingRulesBlock
+    $standing   = Build-CliStandingRulesBlock
 
     $parts = @()
-    $parts += ($prefix + $userText + $suffix)
+    $parts += ($prefix + "" + $suffix)
     if ($cardsBlock -ne "") { $parts += ""; $parts += $cardsBlock }
     $parts += ""
     $parts += $standing
     return ($parts -join "`n")
 }
 
-function Update-CliPreview {
-    if ($null -eq $ui["TxtCliPreview"]) { return }
-    try {
-        $ui["TxtCliPreview"].Text = Build-CliComposedPrompt
-    } catch {}
+function Build-CliComposedPrompt {
+    # c127: TxtCliPrompt IS the composed prompt. Action buttons populate it with
+    # the template; the user types into the body slot directly. LAUNCH sends
+    # whatever TxtCliPrompt currently holds. No separate compose-on-the-fly.
+    if ($ui["TxtCliPrompt"]) { return ([string]$ui["TxtCliPrompt"].Text) }
+    return ""
+}
+
+function Update-CliPromptDirtyState {
+    # Compare current prompt text against the last applied template. Anything
+    # different = the user has manually edited. The action-button click flow
+    # checks this flag to decide whether to ask for overwrite confirmation.
+    if ($null -eq $ui["TxtCliPrompt"]) { $script:CliPromptDirty = $false; return }
+    $now = [string]$ui["TxtCliPrompt"].Text
+    $script:CliPromptDirty = ($now -ne $script:CliLastAppliedTemplate)
+    if ($null -ne $ui["LblCliPromptDirty"]) {
+        $ui["LblCliPromptDirty"].Text = if ($script:CliPromptDirty) { "(custom)" } else { "" }
+    }
+}
+
+function Apply-CliActionTemplate {
+    # Build the template for the requested action, write it into TxtCliPrompt,
+    # and mark the panel clean (TxtCliPrompt now matches CliLastAppliedTemplate).
+    # Bug ID / branch are read from the per-action memory variables which were
+    # already populated by Show-CliInputDialog upstream (or left at last value
+    # if user is re-clicking the same action).
+    param([string]$action, [string]$bugId, [string]$branch)
+
+    $template = Build-CliActionTemplate -action $action -bugId $bugId -branch $branch
+    $script:CliLastAppliedTemplate = $template
+    if ($ui["TxtCliPrompt"]) {
+        $ui["TxtCliPrompt"].Text = $template
+        # Move the caret to the body-slot position (right after the prefix line)
+        # so the user can immediately start typing their prompt body.
+        try {
+            $prefix = Get-CliWrappingPrefix -action $action -bugId $bugId -branch $branch
+            $ui["TxtCliPrompt"].SelectionStart  = $prefix.Length
+            $ui["TxtCliPrompt"].SelectionLength = 0
+            $ui["TxtCliPrompt"].Focus() | Out-Null
+        } catch {}
+    }
+    Update-CliPromptDirtyState
+}
+
+function Confirm-CliOverwriteIfDirty {
+    # Returns $true if it is safe to overwrite TxtCliPrompt (clean, or user said
+    # OK to overwrite); $false if user cancelled and the action click should
+    # bail out without changing anything.
+    param([string]$newActionLabel)
+    if (-not $script:CliPromptDirty) { return $true }
+    $msg = ("Your prompt has been manually edited. Overwrite with the new " + $newActionLabel + " template?")
+    $res = [System.Windows.MessageBox]::Show(
+        $msg,
+        "Overwrite custom prompt?",
+        [System.Windows.MessageBoxButton]::OKCancel,
+        [System.Windows.MessageBoxImage]::Question)
+    return ($res -eq [System.Windows.MessageBoxResult]::OK)
+}
+
+function Set-CliAction([string]$action) {
+    # c127: action button click handler. Asks for action-specific inputs (Bug
+    # Fix -> B-NNN, Review -> optional branch) via small modal dialogs. Then
+    # checks the dirty flag and asks for overwrite confirmation before rewriting
+    # TxtCliPrompt with the new template. The active-action label always lands
+    # on the newly chosen action only if the overwrite (or input) was confirmed
+    # -- a cancelled click leaves the panel state unchanged.
+
+    $bugId  = $script:CliBugIdMemory
+    $branch = $script:CliBranchMemory
+
+    if ($action -eq "BugFix") {
+        $entered = Show-CliInputDialog `
+            -Title       "Bug Fix" `
+            -Prompt      "Bug ID (e.g. B-999):" `
+            -DefaultText $script:CliBugIdMemory `
+            -Placeholder "Required. The fix wrap and regression-test path use this ID."
+        if ($null -eq $entered) { return }
+        $bugId = $entered.Trim()
+        if ($bugId -eq "") { return }
+        $script:CliBugIdMemory = $bugId
+    }
+    elseif ($action -eq "Review") {
+        $entered = Show-CliInputDialog `
+            -Title       "Review" `
+            -Prompt      "Branch (optional):" `
+            -DefaultText $script:CliBranchMemory `
+            -Placeholder "Leave blank to scope to the selected cards' affected files."
+        if ($null -eq $entered) { return }
+        $branch = $entered.Trim()
+        $script:CliBranchMemory = $branch
+    }
+
+    if (-not (Confirm-CliOverwriteIfDirty -newActionLabel $action)) {
+        return
+    }
+
+    $script:CliActiveAction = $action
+    if ($null -ne $ui["LblCliActiveAction"]) {
+        $ui["LblCliActiveAction"].Text = "active: " + $action
+    }
+    Apply-CliActionTemplate -action $action -bugId $bugId -branch $branch
 }
 
 function Reset-CliPanel {
     if ($ui["TxtCliPrompt"]) { $ui["TxtCliPrompt"].Text = "" }
-    if ($ui["TxtCliBugId"]) { $ui["TxtCliBugId"].Text = "" }
-    if ($ui["TxtCliBranch"]) { $ui["TxtCliBranch"].Text = "" }
     if ($ui["TxtCliCardSearch"]) { $ui["TxtCliCardSearch"].Text = "" }
-    $script:CliSelectedCardIds = @()
+    $script:CliSelectedCardIds     = @()
+    $script:CliLastAppliedTemplate = ""
+    $script:CliBugIdMemory         = ""
+    $script:CliBranchMemory        = ""
+    $script:CliActiveAction        = "Goal"
     if ($ui["LstCliCards"]) { $ui["LstCliCards"].SelectedItems.Clear() }
+    if ($null -ne $ui["LblCliActiveAction"]) {
+        $ui["LblCliActiveAction"].Text = "active: Goal"
+    }
     Update-CliSelectedCardLabel
-    Set-CliAction "Goal"
+    Update-CliPromptDirtyState
 }
 
 function Get-CliPromptTempPath {
@@ -3970,7 +4131,7 @@ $ui["LblAuthStatus"].Add_MouseLeftButtonDown({ Invoke-GhAuthHelp })
 $ui["StatusAuth"].Cursor = [System.Windows.Input.Cursors]::Hand
 $ui["StatusAuth"].Add_MouseLeftButtonDown({ Invoke-GhAuthHelp })
 
-# --- CLI panel (c125) event wiring -------------------------------------------
+# --- CLI panel (c125 + c127) event wiring ------------------------------------
 $ui["BtnCliActionGoal"].Add_Click({ Set-CliAction "Goal" })
 $ui["BtnCliActionPlan"].Add_Click({ Set-CliAction "Plan" })
 $ui["BtnCliActionInvestigate"].Add_Click({ Set-CliAction "Investigate" })
@@ -3978,25 +4139,25 @@ $ui["BtnCliActionBugFix"].Add_Click({ Set-CliAction "BugFix" })
 $ui["BtnCliActionReview"].Add_Click({ Set-CliAction "Review" })
 $ui["BtnCliActionCustom"].Add_Click({ Set-CliAction "Custom" })
 
-$ui["TxtCliPrompt"].Add_TextChanged({ Update-CliPreview })
-$ui["TxtCliBugId"].Add_TextChanged({ Update-CliPreview })
-$ui["TxtCliBranch"].Add_TextChanged({ Update-CliPreview })
+# c127: TextChanged just updates the dirty flag. The single prompt textbox IS
+# the composed prompt; there is no separate preview to keep in sync anymore.
+$ui["TxtCliPrompt"].Add_TextChanged({ Update-CliPromptDirtyState })
 
-$ui["BtnCliCardsRefresh"].Add_Click({ Refresh-CliCardsList; Update-CliPreview })
+$ui["BtnCliCardsRefresh"].Add_Click({ Refresh-CliCardsList })
 $ui["TxtCliCardSearch"].Add_TextChanged({ Apply-CliCardsFilter })
-$ui["LstCliCards"].Add_SelectionChanged({ Sync-CliSelectedCardsFromListBox; Update-CliPreview })
+$ui["LstCliCards"].Add_SelectionChanged({ Sync-CliSelectedCardsFromListBox })
 
 $ui["BtnCliLaunch"].Add_Click({ Invoke-CliLaunch })
 $ui["BtnCliCopy"].Add_Click({
     try {
         $composed = Build-CliComposedPrompt
         [System.Windows.Clipboard]::SetText($composed)
-        Add-LogLine ("CLI: composed prompt copied to clipboard (" + $composed.Length + " chars).") "#0078A8"
+        Add-LogLine ("CLI: prompt copied to clipboard (" + $composed.Length + " chars).") "#0078A8"
     } catch {
         Add-LogLine ("CLI: clipboard copy failed: " + $_.Exception.Message) "#B81818"
     }
 })
-$ui["BtnCliReset"].Add_Click({ Reset-CliPanel; Update-CliPreview })
+$ui["BtnCliReset"].Add_Click({ Reset-CliPanel })
 
 # ============================================================================
 # Section 18: Timers (WPF DispatcherTimer)
@@ -4626,11 +4787,19 @@ $window.Add_Loaded({
 
         Invoke-GhAuthBackgroundCheck
 
-        # CLI panel (c125): populate cards list from kanban state and render the
-        # initial preview so Mike sees a well-formed prompt skeleton on first view.
+        # CLI panel (c125 + c127): populate cards list from kanban state and set
+        # the initial active-action label without applying a template. The
+        # textbox starts empty -- the user types or clicks an action button to
+        # populate. This avoids the cold-start template-injection that would
+        # surprise the user with content they did not request.
         try {
             Refresh-CliCardsList
-            Set-CliAction "Goal"
+            $script:CliActiveAction = "Goal"
+            $script:CliLastAppliedTemplate = ""
+            if ($null -ne $ui["LblCliActiveAction"]) {
+                $ui["LblCliActiveAction"].Text = "active: Goal"
+            }
+            Update-CliPromptDirtyState
         } catch {
             Write-DevWindowDebugLog ("CLI init failed: " + ($_ | Out-String)) "WARN"
         }
