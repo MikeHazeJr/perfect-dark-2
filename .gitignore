@@ -72,6 +72,9 @@ build/game_output.log
 # Claude Code pre-op git snapshots (devtools/git-snapshot.sh output)
 .claude/git-snapshots/
 
+# Claude Code per-session scratch (final reports, ad-hoc test scripts, etc.)
+.claude/scratch/
+
 # Claude Code local settings (machine-specific, not committed)
 .claude/settings.local.json
 
