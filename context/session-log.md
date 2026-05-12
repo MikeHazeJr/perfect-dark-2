@@ -1,5 +1,80 @@
 # Session Log (Active)
 
+## Session (`agitated-franklin-7f16f3`) - 2026-05-11 - Smoke Verify Gate Phase 1
+
+Smoke verify gate Phase 1 ship from the 2026-05-06 super-audit's "single most valuable next move" recommendation. Audit context: project Stability 35/100, Execution Quality 65/100; the prior week's playtest blockers (B-318 modal-stuck Combat Sim, B-324 boot AV at `bgunCalculateBlend`, B-326 ROM placed at `<BuildDir>\data\` post `DEFAULT_BASEDIR_NAME = "."`, build-tool ROM placement) all shipped because the build artefact had no automated boot or scripted-exit verification before reaching the playtest log.
+
+### Outcome
+
+End-to-end gate that drives the client through a JSON-declared scripted scenario, captures `pd-client.log`, and applies log assertions:
+
+1. **Headless mode on the existing client binary** -- new `--smoke <test.json>` CLI flag handled by `port/include/smoke_harness.h` + `port/src/smoke_harness.c` (~470 lines). Inert when the flag is absent. When present: parses the test JSON with a local minimal lexer (mirrors `modmgr.c`'s style; supports `//` line comments for authoring), applies test-declared `log_channel_mask` + `verbose` via `sysLogSetChannelMask` / `sysLogSetVerbose`, schedules SDL keyboard events at `at_ms` offsets via `SDL_PushEvent`, force-exits on timeout with a structured `SMOKE: result=...` log marker. Crash-handler-compatible: the harness leaves the existing `crashHandler` registered (still logs `FATAL: Crashed: PC=... CODE=0x%08lx`) and adds a one-line guard in `sysFatalError` so the modal "Fatal error" SDL message box does NOT block the runner when the harness is active. Server build keeps its hand-curated `SRC_SERVER` list; a `smokeHarnessIsActive(void) { return 0; }` stub lives in `port/src/server_stubs.c` to satisfy the linker. pd-tests does not link `system.c`, so no test impact.
+
+2. **Wiring in main.c + pdmain.c** -- `smokeHarnessInit()` called right before the boot overlay block in `port/src/main.c` (after SDL is up via `videoInit` + `pdguiInit`, after `configInit` so the test-declared channel mask cleanly overrides pd.ini's `Debug.LogChannelMask`). `smokeHarnessTick()` runs once per frame: inside the boot-overlay pump loop (so timeout fires even if `bootRunCatalogWork` hangs) and at the top of `mainTick()` in `port/src/pdmain.c` (so input events are visible to the same frame's input dispatch downstream).
+
+3. **PowerShell runner at `tools/smoke-verify/run.ps1`** + `lib/Test-Assertions.ps1` + `lib/Install-Harness.ps1` (~470 lines combined). Flags: `-Test <stem>` / `-Tag <tag>` / `-AutoSelect -MergeBase dev` / `-Build` / `-Session <id>` / `-Install <path>` / `-Keep` / `-Timeout <s>` / `-VerboseAssertions`. Clean-install harness creates a fresh per-test dir under `.claude/smoke-verify-runs/<utc>-<test>/`, copies `PerfectDark.exe` + `pd.<romid>.z64` from the canonical Build dir (falling back through `.claude/session-builds/*/`), optionally seeds a `data/<romid>/` from `.claude/smoke-verify-cache/<romid>/` (Phase 2 prefilled mode). Three assertion families on the resulting `pd-client.log`: required_lines (each regex must match at least once), forbidden_patterns (single match anywhere fails), required_counts (pattern matches in [min, max] range with `max < 0` meaning unbounded). Returns aggregate exit code 0 on all-pass, 1 on any-fail.
+
+4. **Initial test matrix (3 tests, `tools/smoke-verify/tests/*.json`)**:
+   - `boot_smoke.json`: no scripted input, boot to title, exit-at 90s. Asserts `Asset Catalog: \d+ entries registered`, `LOADER\.UNIVERSAL\.SUMMARY:`, `SMOKE: result=scripted_exit`. Forbids `FATAL: ` and `SMOKE: result=timeout`. Catches the B-324 class (NULL weapon pool) and B-326 class (ROM at wrong install path).
+   - `stage_load_paradox.json`: `--boot-stage 0x26 --skip-intro` boots into CITRAINING; tick for 60s. Forbids `WARNING: .*bgunCalculateBlend`. Catches the B-323 class (stride over-read in `challengeLoadConfig`).
+   - `combat_sim_entry.json`: scripted nav (Return taps to advance, Down arrows, Esc to pause, Quit). Schema is the deliverable; exact frame budgets are tuning input Mike dials on the first live run.
+
+5. **Design doc at `context/designs/engine/smoke-verify-gate.md`** (~340 lines). Architecture, schema reference, lifecycle, build-gate integration plan, Phase 2 expansion targets (online init smoke, mod load smoke, skin editor, Forge, named-verb input grammar through actionmap).
+
+### Build verify
+
+Clean four-target via `devtools\build-session.ps1 -Session smoke-gate-1`:
+
+- Client (pd, PerfectDark.exe): **PASS, 55.6 MB (25s)**
+- Updater (pd-updater, Updater.exe): **PASS, 12.3 MB (1s)**
+- Server (pd-server, PerfectDarkServer.exe): **PASS, 22.4 MB (46s)**
+- Tests (pd-tests, pd-tests.exe): **PASS, 24.6 MB (18s)**
+
+No new compile warnings. pd-tests still shows the two pre-existing source-grep failures (`test_pdbase_retired_audit`, `test_catalog_provider_static`) noted as unrelated in c107.
+
+### Files modified / added
+
+- `port/include/smoke_harness.h` (+47 net): public API.
+- `port/src/smoke_harness.c` (+470 net): JSON tokenizer, named-key table (single letters A-Z, digits 0-9, F1-F12, Return/Escape/Tab/Space/Backspace/Up/Down/Left/Right + modifiers), SDL event injection, timeout watchdog, deterministic exit.
+- `port/src/main.c` (+12 net): include + `smokeHarnessInit()` call + boot-loop `smokeHarnessTick()`.
+- `port/src/pdmain.c` (+8 net): include + `smokeHarnessTick()` at top of `mainTick`.
+- `port/src/system.c` (+10 net): guard `sysFatalError`'s SDL message box behind `smokeHarnessIsActive()`.
+- `port/src/server_stubs.c` (+6 net): linker stub for `smokeHarnessIsActive`.
+- `tools/smoke-verify/run.ps1` (+340 net): runner.
+- `tools/smoke-verify/lib/Test-Assertions.ps1` (+150 net): assertion engine.
+- `tools/smoke-verify/lib/Install-Harness.ps1` (+130 net): clean-install harness.
+- `tools/smoke-verify/tests/boot_smoke.json`.
+- `tools/smoke-verify/tests/stage_load_paradox.json`.
+- `tools/smoke-verify/tests/combat_sim_entry.json`.
+- `context/designs/engine/smoke-verify-gate.md` (new design).
+- `tools/kanban/state.json` (c114 added).
+- `context/tasks.md` (new "Smoke Verify Gate" lane).
+- `context/session-log.md` (this entry).
+
+### What is now possible
+
+- Reproducible boot-AV detection at build time. A future regression like B-324 fails `boot_smoke` because the harness exits with `SMOKE: result=timeout` (boot hangs) or the crash handler emits `FATAL: Crashed: PC=... CODE=0xC0000005` (forbidden pattern).
+- Per-merge auto-select via `git diff --name-only <base>...HEAD` and the test definitions' `paths_of_interest` glob list. Touching `port/src/main.c` or `src/game/bondgun*.c` selects the boot test; touching `port/fast3d/pdgui_menu_*.cpp` selects the combat sim test.
+- Schema extension is mechanical for Phase 2 (mouse events, controller buttons, screenshots, named-verb action map) -- the harness module is already structured around an event-stream + assertion model.
+
+### Coordination notes
+
+This ship adds no constraints. It does NOT modify any wire protocol, save format, catalog identity, or build artefact layout. The `sysFatalError` modal-skip guard is the only behaviour change in normal (non-smoke) operation: it remains a one-line behaviour-identical edit because `smokeHarnessIsActive()` returns 0 outside the harness.
+
+The `tools/smoke-verify/` tree slots in alongside the existing `tools/kanban/` and `tools/assetmgr/` trees; no CMake changes needed (none of it is compiled into a binary).
+
+### Schema follow-up (same session, separate commit)
+
+Per orchestrator schema note 2026-05-11: the bug-regression test category is folded into the Phase 1 schema before merge so Mike's forthcoming bug-tracker (`tools/bugs/state.json` with `linked_test` field) can wire bug status flips without a runner retrofit. Changes:
+
+- Test discovery is recursive (`Get-ChildItem -Filter "*.json" -Recurse`), so `tools/smoke-verify/tests/bugs/B-NNN.json` is picked up alongside scenario tests at `tools/smoke-verify/tests/*.json`.
+- The runner surfaces `BugId`, `RegressionFor`, and `Category` (`"scenario"` or `"bugs"` based on relative parent dir) on each result row written to `.claude/smoke-verify-runs/results-<utc>.json`. The bug tracker reads `BugId` directly without re-parsing test JSON.
+- Tag convention `["regression", "bug:B-NNN"]` enables `-Tag regression` (run all) or `-Tag bug:B-323` (run one).
+- Design doc gains a new "Bug-regression tests (first-class category)" section with schema reference, result-row shape, lifecycle, and a filled-in example for a hypothetical B-323 regression test.
+- No bug-regression tests ship in Phase 1. The three scenario tests stand; the gate is ready to host bug regressions when the tracker lands.
+
+---
+
 ## Session (`flamboyant-ride-cc996f`) - 2026-05-11 - Dev Window Clear Worktrees button (replaces Prune)
 
 Mike's report: the existing "Prune Worktrees" button on the build tool "doesn't seem to do that properly." At session start: 18 on-disk worktrees totaling ~77 GB plus 27 prunable registry entries. A click cleared the 27 ghost entries and left the 18 active dirs untouched -- the symptom Mike described.

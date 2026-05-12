@@ -68,6 +68,11 @@
 #include "boot_progress.h"
 #include "pdgui_bootoverlay.h"
 
+/* Smoke verify harness (2026-05-11): client-only headless gate driven by
+ * tools/smoke-verify/tests/*.json + tools/smoke-verify/run.ps1.  Inert
+ * unless `--smoke <path>` is on the command line. */
+#include "smoke_harness.h"
+
 u32 g_OsMemSize = 0;
 s32 g_OsMemSizeMb = 64;
 s8 g_Resetting = false;
@@ -425,6 +430,13 @@ int main(int argc, const char **argv)
 		sndSetSfxVolume(0);
 	}
 
+	/* Smoke verify harness init (2026-05-11): must come after SDL is up
+	 * (videoInit + pdguiInit) so SDL_GetTicks() is valid for time
+	 * scheduling, and after configInit/sysLogSet* registration so the
+	 * test-declared channel mask + verbose flag override pd.ini cleanly.
+	 * No-op when --smoke is not present. */
+	(void)smokeHarnessInit();
+
 	/* Engine Phase 2 boot orchestrator (2026-05-03): the catalog work
 	 * block (romdataInit through modmgrCatalogChanged) runs on a worker
 	 * thread inside bootRunCatalogWork while the main thread drives the
@@ -443,6 +455,12 @@ int main(int argc, const char **argv)
 
 	while (!bootProgressIsComplete()) {
 		pdguiBootOverlayPump();
+		/* Smoke harness timeout coverage during boot: if the catalog work
+		 * thread hangs we still want to fire the timeout exit rather than
+		 * wait for some upstream watchdog. Cheap no-op when not in smoke
+		 * mode. Does not push input events here -- the boot overlay frame
+		 * does not consume SDL key events. */
+		smokeHarnessTick();
 		/* Cooperative pause when not in dedicated mode; the dedicated
 		 * branch already inserts SDL_Delay inside the no-op pump path. */
 	}

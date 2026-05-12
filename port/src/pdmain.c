@@ -40,6 +40,7 @@
 #include "swarm_test.h"
 #include "actionmap.h"
 #include "scene.h"
+#include "smoke_harness.h"
 #include "game/lv.h"
 #include "game/options.h"
 #include "game/timing.h"
@@ -687,6 +688,12 @@ void mainTick(void)
 	Gfx *gdlstart = NULL;
 	OSScMsg msg = {OS_SC_DONE_MSG};
 	s32 i;
+
+	/* Smoke verify harness tick (2026-05-11): scheduled SDL_PushEvent
+	 * dispatch + timeout watchdog. Cheap no-op when --smoke is absent.
+	 * Runs at the top of mainTick so any pushed events land before the
+	 * input dispatch downstream picks them up this frame. */
+	smokeHarnessTick();
 
 	/* Phase 1 connectivity layer: drives LAN broadcast, direct UDP probes,
 	 * STUN/UPnP/ICE/TURN tier polling, and pair-state escalation. Runs

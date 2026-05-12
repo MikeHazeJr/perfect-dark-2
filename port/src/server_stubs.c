@@ -477,3 +477,9 @@ s32 catalogManagerWeaponCount(void) { return 0; }
  * model registration. assetcatalog_base_extended.c declares the extern
  * but the registration loop is reachable only via assetCatalogRegisterBaseGame. */
 u16 g_CartFileNums[1] = {0};
+
+/* smoke_harness.c -- client only. The shared system.c references
+ * smokeHarnessIsActive() in sysFatalError to skip the modal dialog
+ * when the smoke gate is driving the client. The server has no
+ * harness, so the stub always returns 0 (harness inactive). */
+int smokeHarnessIsActive(void) { return 0; }

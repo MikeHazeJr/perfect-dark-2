@@ -166,6 +166,24 @@ Mike's playtest of the current install AVs at boot inside `challengesInit()` -- 
 
 **Audit**: [audits/catalog-universality-pivot-plan-2026-05-02.md](audits/catalog-universality-pivot-plan-2026-05-02.md) "BYOR post-boot AV triaged" section.
 
+### 2f. Smoke Verify Gate Phase 1 SHIPPED (2026-05-11, agitated-franklin-7f16f3)
+
+Per the 2026-05-06 super-audit's "single most valuable next move" recommendation. Project Stability 35/100 + Execution Quality 65/100 lift in one ship: every playtest blocker from the prior week (B-318 / B-324 / B-326 / Combat Sim modal-stuck / weapons-load broken / CS room Esc / build-tool ROM placement) would have been caught at build time if this gate had existed.
+
+**Capability shipped**:
+
+- `PerfectDark.exe --smoke <test.json>` -- new CLI flag on the existing client binary. Inert when absent. When present: parses the test JSON, applies `log_channel_mask` + `verbose` flags, schedules SDL keyboard events at `at_ms` offsets via `SDL_PushEvent`, force-exits on timeout with `SMOKE: result=...` marker. `sysFatalError` no longer blocks on a modal dialog when the harness is active. New module: `port/include/smoke_harness.h` + `port/src/smoke_harness.c` (~470 lines). Hooked at `port/src/main.c` (init pre-boot + tick inside the boot overlay pump loop) and `port/src/pdmain.c::mainTick` (per-frame).
+- Runner at [`tools/smoke-verify/run.ps1`](../tools/smoke-verify/run.ps1) + `lib/Test-Assertions.ps1` + `lib/Install-Harness.ps1`. Discovers tests, filters by `-Tag` / `-Test` / `-AutoSelect` (path-of-interest glob match against `git diff --name-only <base>...HEAD`), builds per-test clean install under `.claude/smoke-verify-runs/<utc>-<test>/`, runs the binary with watchdog, applies assertions, returns 0 / 1 aggregate code.
+- Three tests in [`tools/smoke-verify/tests/`](../tools/smoke-verify/tests/): `boot_smoke.json` (catches B-324 family), `stage_load_paradox.json` (catches B-323 family via `--boot-stage 0x26 --skip-intro`), `combat_sim_entry.json` (Phase 1 scaffolding for the menu-nav class; exact frame timings tune on first live run).
+
+**Build verify clean four-target** via `build-session.ps1 -Session smoke-gate-1`: client 55.6 MB, updater 12.3 MB, server 22.4 MB, tests 24.6 MB. Pre-existing `test_pdbase_retired_audit` + `test_catalog_provider_static` source-grep failures unchanged.
+
+**Design**: [`context/designs/engine/smoke-verify-gate.md`](designs/engine/smoke-verify-gate.md) -- architecture, schema reference, lifecycle, Phase 2 expansion plan.
+
+**Phase 2 expansion targets** (schema accommodates already; harness module structured for them): online init smoke (lobby join + listen-host), mod load smoke (.pdmod scan + activation), skin editor smoke, Forge smoke, named-verb input grammar via actionmap (Confirm / Back / NextTab / NavUp etc.).
+
+**Build-gate integration**: `tools/smoke-verify/run.ps1 -AutoSelect -MergeBase dev` is callable from `devtools/build-headless.ps1` post-build. Initial ship leaves this OFF by default so the first week is advisory; once the noise floor is confirmed low, the auto-merge step will block on it.
+
 ### 3. Input - Controller Support (Branch 2 Cohorts 5-8)
 
 **Status**: queued after Catalog Gate 3. Per [designs/input/input-universality-and-transitions.md](designs/input/input-universality-and-transitions.md), Cohorts 1-4 shipped (layer types + scene events, layer push/pop, IMC ownership migration, per-player cutscene state). Cohorts 5-8 cover full controller support, menu graph completion, remaining transitional shim retirement.

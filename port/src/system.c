@@ -537,7 +537,15 @@ void sysFatalError(const char *fmt, ...)
 	fflush(stdout);
 	fflush(stderr);
 
-	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Fatal error", errmsg, NULL);
+	/* Smoke verify harness: skip the modal dialog so the runner can
+	 * collect the FATAL: log line and exit promptly instead of blocking
+	 * the whole CI run on a click-to-dismiss popup. */
+	{
+		extern int smokeHarnessIsActive(void);
+		if (!smokeHarnessIsActive()) {
+			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Fatal error", errmsg, NULL);
+		}
+	}
 
 	exit(1);
 }
