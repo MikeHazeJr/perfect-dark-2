@@ -1619,6 +1619,20 @@
       ],
       "created": "2026-05-12T00:00:00Z",
       "updated": "2026-05-12T04:06:39Z"
+    },
+    {
+      "id": "c122",
+      "title": "Daily-flow scheduling surface visibility + dedup guard",
+      "description": "pd2-daily-flow was registered in the Claude Code MCP namespace (~/.claude/scheduled-tasks/) and fired correctly each 6 AM ET, but was invisible from the consumer Claude desktop app's Capabilities Memory/Schedule view because the consumer UI lists the local-agent-mode namespace at OneDrive/Documents/Claude/Scheduled/. This card duplicates the task into the visible namespace and adds an idempotent dedup guard in tools/daily_flow/orchestrator.py so concurrent fires from both schedulers do work at most once per day.",
+      "pillar": "tooling",
+      "column": "done",
+      "order": 155000,
+      "priority": 2,
+      "notes": "Shipped competent-cori-f6da0d 2026-05-12. Files: tools/daily_flow/orchestrator.py (dedup guard in main() after today resolution; checks last-run.json for date+ok and exits 0 with DEDUP log line unless --force), OneDrive/Documents/Claude/Scheduled/pd2-daily-flow/SKILL.md (copy of the code-side SKILL.md; identical 7164 bytes), AppData/Roaming/Claude/local-agent-mode-sessions/.../scheduled-tasks.json (atomic-write append of pd2-daily-flow entry with cron 0 6 * * *, enabled true, userSelectedFolders pointing at the worktree root). Code-side registration left enabled as belt-and-suspenders; dedup makes concurrent fire safe. Visibility test: after consumer desktop app restart, pd2-daily-flow should appear in Capabilities Memory/Schedule view. Risk: if the desktop app overwrites the local-agent-mode registry on shutdown without merging external writes, the entry could be clobbered; in that case Mike runs a dispatch session and re-registers via mcp__scheduled-tasks__create_scheduled_task. The SKILL.md is already in place to facilitate that fallback path. Design: context/designs/daily-flow-orchestrator.md gained a Scheduling Surface section documenting the dual-namespace architecture and migration story.",
+      "flag": null,
+      "flagged_at": null,
+      "created": "2026-05-12T13:15:00Z",
+      "updated": "2026-05-12T13:30:00Z"
     }
   ]
 }

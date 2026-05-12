@@ -225,6 +225,12 @@ def main(argv: list[str] | None = None) -> int:
 
     today = timefmt.today_et() if args.for_date is None else dt.date.fromisoformat(args.for_date)
 
+    if not args.force:
+        last = fsutil.load_json(_last_run_path(), default={})
+        if last.get("date") == today.isoformat() and last.get("status") == "ok":
+            _print(f"{LOG_PREFIX}.DEDUP", {"date": today.isoformat(), "status": "ok", "completed_at": last.get("completed_at"), "skip_reason": "already_complete_today"})
+            return 0
+
     catchup = run_catchup(today)
     if catchup:
         _print(f"{LOG_PREFIX}.CATCHUP.COMPLETE", {"days": [c["date"] for c in catchup]})

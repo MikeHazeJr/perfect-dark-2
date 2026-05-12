@@ -36,6 +36,29 @@ Missed-multi-day handling: catch up the oldest missing day first, write its log,
 
 ---
 
+## Scheduling Surface
+
+The Claude desktop app maintains TWO independent scheduler namespaces, each with its own MCP server endpoint and its own SKILL.md storage path. Tasks created from one namespace are invisible to the other.
+
+| Namespace | SKILL.md storage | Registry JSON | Visible from |
+|-----------|------------------|---------------|--------------|
+| Code-mode | `~/.claude/scheduled-tasks/<id>/SKILL.md` | `AppData/Roaming/Claude/claude-code-sessions/.../scheduled-tasks.json` | Claude Code sessions (`mcp__scheduled-tasks__list_scheduled_tasks` from a code session) |
+| Local-agent-mode | `OneDrive/Documents/Claude/Scheduled/<id>/SKILL.md` | `AppData/Roaming/Claude/local-agent-mode-sessions/.../scheduled-tasks.json` | Cowork/dispatch sessions AND the consumer desktop app's Capabilities Memory/Schedule view |
+
+Both namespaces fire from the same desktop-app scheduler service: when the cron matches, the app launches a new claude-desktop process with the SKILL.md prompt as entry. Both namespaces honor cron in local time (Eastern for our setup) with a small deterministic jitter (~3 to 5 minutes) for load balancing.
+
+**Where pd2-daily-flow lives (as of 2026-05-12):** BOTH namespaces. The original registration via `anthropic-skills:schedule` from the orchestrator session landed in the code-mode namespace only. c122 duplicated the entry into the local-agent-mode namespace so Mike can see and manage it from the consumer desktop app.
+
+**Why both, not just one:** the dedup guard in `tools/daily_flow/orchestrator.py` makes concurrent fire safe (see Idempotence). Leaving both registrations active is belt-and-suspenders: if the consumer-app registry write gets clobbered by the desktop app at some future point, the code-mode fire still runs the morning pipeline. Conversely, if the code-mode namespace ever moves or breaks, the local-agent-mode fire keeps the pipeline alive.
+
+**Dedup guard.** `orchestrator.py main()` checks `state/last-run.json` immediately after resolving `today`. If `last.date == today.isoformat()` and `last.status == "ok"`, it emits `DAILY-FLOW.ORCHESTRATOR.DEDUP` and exits 0 without running catch-up or the pipeline. The `--force` flag bypasses the guard for manual reruns. Concurrent fires from both schedulers are made safe because the first to complete writes `last-run.json` with status ok; the second's guard catches it and exits in well under a second. The two SKILL.md files are byte-identical copies, so neither variant of the prompt drifts ahead of the other.
+
+**If the registry edit gets clobbered.** The local-agent-mode registry is held in memory by the running desktop-app process. If the app rewrites the JSON without merging external file edits, the pd2-daily-flow entry can disappear after an app shutdown or scheduler heartbeat. Recovery: open a Cowork or dispatch session and call `mcp__scheduled-tasks__create_scheduled_task` with `taskId: "pd2-daily-flow"`, `cronExpression: "0 6 * * *"`, and the prompt body from the existing OneDrive SKILL.md. The SKILL.md file itself is durable on disk and survives registry churn, so the dispatch-side create call only needs to add the registry row.
+
+**To remove the duplicate registration** (if Mike decides one namespace is sufficient): call `mcp__scheduled-tasks__update_scheduled_task` with `taskId: "pd2-daily-flow"` and `enabled: false` from the namespace you want to silence. The dedup guard will still protect against any future reactivation drift.
+
+---
+
 ## Pipeline (seven steps)
 
 ### Step 1 - Previous-day audit
