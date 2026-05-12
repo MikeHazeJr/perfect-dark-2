@@ -967,6 +967,11 @@ foreach ($t in $targets) {
                         Copy-Item -Path $_.FullName -Destination $dest -Force -ErrorAction SilentlyContinue
                     }
                 }
+                $hoistByor = Join-Path $dstData "put_your_rom_here.txt"
+                $rootByor = Join-Path $BuildDir "put_your_rom_here.txt"
+                if (Test-Path -LiteralPath $hoistByor) {
+                    try { Move-Item -LiteralPath $hoistByor -Destination $rootByor -Force -ErrorAction Stop } catch {}
+                }
                 Write-Ok "  Copied addin\data -> $BuildDir (ROM at install root)"
             } catch {
                 Write-Warn "  Addin copy failed (non-fatal): $($_.Exception.Message)"

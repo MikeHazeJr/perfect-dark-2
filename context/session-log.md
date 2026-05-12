@@ -1,5 +1,11 @@
 # Session Log (Active)
 
+## Session (B-321 tooling close-out) - 2026-05-04 - release.ps1 addin + BYOR hoist
+
+**Outcome**: `release.ps1` function `Copy-RomAddinIntoBuild` still mirrored all of `post-batch-addin/data` into `Build/data/`, which put `pd.<romid>.z64` where the client never looks (install root only, post B-321). Replaced with the same pattern as `build-headless.ps1` / Dev Window: recursive `*.z64` to `$BuildDir`, rest to `$BuildDir/data/` via robocopy `/XF "*.z64"` or file-walk fallback. After mirror, `put_your_rom_here.txt` is moved from `Build/data/` to install root when present in addin. **Also**: `build-headless.ps1` and `Copy-AddinFiles` (dev-window-v2) now hoist that file to root; dev-window robocopy success path no longer `return`s before hoist (fixed `$dataMirrorOk` flag). `build-session.ps1` header notes that addin layout is defined in build-headless.
+
+**Files**: `devtools/release.ps1`, `devtools/build-headless.ps1`, `devtools/dev-window-v2/dev-window-v2.ps1`, `devtools/_dev-window.ps1`, `devtools/build-session.ps1`.
+
 ## Session (`gifted-bohr-62309b`) - 2026-05-03 - Walker-after-emitters reorder + Dev Window ROM placement
 
 Three-bug coherent ship from Mike's playtest 2026-05-03 20:40 ET on `dev 232d05ea` (BYOR completion + Phase 3 + B-323 build). The boot AV at `bgunCalculateBlend` resolves to a structural deadlock in the catalog universality walker order that B-318's gate removal could not fix on a clean install.

@@ -7,6 +7,8 @@
     Concurrent AI/code sessions must not share the root Build/ directory. This
     wrapper keeps the canonical build logic in build-headless.ps1, but gives
     each session its own CMake/Ninja directory under .claude/session-builds/.
+    Post-build addin copy (B-321/B-326): ROM *.z64 and BYOR placeholder at
+    install root; non-ROM files under data/ -- see build-headless.ps1.
 
 .EXAMPLE
     .\devtools\build-session.ps1 -Session s500 -Target all

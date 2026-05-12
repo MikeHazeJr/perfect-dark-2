@@ -1676,18 +1676,39 @@ function Copy-AddinFiles {
     }
 
     try {
-        # NON-DESTRUCTIVE: do NOT Remove-Item the destination first.
-        # Build/data/mods/ holds client-side ROM-extracted UI textures
-        # (pdguiThemeExtractRomTextures, populated at first launch from
-        # the user's ROM under the BYOR distribution model). Wiping
-        # them every build forced re-extraction every launch. Copy-Item
-        # -Recurse -Force overwrites existing files but preserves
-        # extras at the destination -- which is exactly what we want.
+        # NON-DESTRUCTIVE mirror: preserve extras under data/ (e.g. mods/). B-326:
+        # *.z64 belongs at install root ($ClientBuildDir), not under data/.
         if (-not (Test-Path $dstData)) { New-Item -ItemType Directory -Path $dstData -Force | Out-Null }
-        Copy-Item -Path (Join-Path $srcData "*") -Destination $dstData -Recurse -Force -ErrorAction Stop
+        try {
+            Get-ChildItem -Path $srcData -Filter "*.z64" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+                $destRom = Join-Path $script:ClientBuildDir $_.Name
+                try { Copy-Item -Path $_.FullName -Destination $destRom -Force -ErrorAction Stop } catch {}
+            }
+        } catch {}
+        $robocopy = Get-Command robocopy.exe -ErrorAction SilentlyContinue
+        $dataMirrorOk = $false
+        if ($null -ne $robocopy) {
+            $robocopyPath = if ($robocopy.Path) { $robocopy.Path } elseif ($robocopy.Source) { $robocopy.Source } else { "robocopy.exe" }
+            & $robocopyPath $srcData $dstData /E /XO /XF "*.z64" /NFL /NDL /NJH /NJS /NP | Out-Null
+            if ($LASTEXITCODE -le 7) { $dataMirrorOk = $true }
+        }
+        if (-not $dataMirrorOk) {
+            Get-ChildItem -Path $srcData -Recurse -File -ErrorAction Stop | Where-Object { $_.Extension -ne ".z64" } | ForEach-Object {
+                $rel = $_.FullName.Substring($srcData.Length).TrimStart('\','/')
+                $dest = Join-Path $dstData $rel
+                $destDir = Split-Path $dest -Parent
+                if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+                Copy-Item -Path $_.FullName -Destination $dest -Force -ErrorAction SilentlyContinue
+            }
+        }
+        $hoistByor = Join-Path $dstData "put_your_rom_here.txt"
+        $rootByor = Join-Path $script:ClientBuildDir "put_your_rom_here.txt"
+        if (Test-Path -LiteralPath $hoistByor) {
+            try { Move-Item -LiteralPath $hoistByor -Destination $rootByor -Force -ErrorAction Stop } catch {}
+        }
         $fileCount = (Get-ChildItem $dstData -Recurse -File -ErrorAction SilentlyContinue).Count
         if ($null -ne $script:LblBuildActivity) {
-            $script:LblBuildActivity.Text = "Copied " + $fileCount + " file(s) to build\client\data\ (non-destructive)"
+            $script:LblBuildActivity.Text = "Copied addin (ROM at client build root; " + $fileCount + " file(s) under data\)"
         }
     } catch {
         $errMsg = "Failed to copy data:`n" + $_.Exception.Message + "`n`nFrom: " + $srcData + "`nTo: " + $dstData

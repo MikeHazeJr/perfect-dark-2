@@ -167,11 +167,12 @@ function Invoke-ReleaseCommit {
     return ($commitCode2 -eq 0)
 }
 
-# Mirror dev-window-v2's Copy-AddinFiles: copies post-batch-addin/data into
-# Build/data so the game can find pd.{ROMID}.z64 at $E/data/pd.*.z64. Runs
-# right after the client build succeeds, so Mike can test the built exe
-# locally even if a subsequent release step (updater build, push, gh release)
-# fails. Safe to call multiple times; overwrite-on-copy.
+# Same layout as build-headless.ps1 / dev-window Copy-AddinFiles (B-326):
+# *.z64 from post-batch-addin/data (recursive) -> $BuildDir (install root next
+# to PerfectDark.exe). Everything else under addin data/ -> $BuildDir/data/.
+# put_your_rom_here.txt is hoisted to install root if present under addin.
+# Runs after the client build so local launches work even if a later release
+# step fails. Safe to call multiple times; overwrite-on-copy.
 function Copy-RomAddinIntoBuild {
     $addinData = Join-Path $ProjectRoot "..\post-batch-addin\data"
     $buildData = Join-Path $BuildDir "data"
@@ -180,11 +181,34 @@ function Copy-RomAddinIntoBuild {
         return
     }
     try {
+        Get-ChildItem -Path $addinData -Filter "*.z64" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            $destRom = Join-Path $BuildDir $_.Name
+            try { Copy-Item -Path $_.FullName -Destination $destRom -Force -ErrorAction Stop } catch {}
+        }
         if (-not (Test-Path $buildData)) {
             New-Item -ItemType Directory -Path $buildData -Force | Out-Null
         }
-        Copy-Item -Path (Join-Path $addinData "*") -Destination $buildData -Recurse -Force -ErrorAction Stop
-        Write-Host "  [rom-copy] Copied post-batch-addin/data -> Build/data/ (ROM ready for local testing)." -ForegroundColor Green
+        $robocopy = Get-Command robocopy.exe -ErrorAction SilentlyContinue
+        $copied = $false
+        if ($null -ne $robocopy) {
+            & robocopy.exe $addinData $buildData /E /XO /XF "*.z64" /NFL /NDL /NJH /NJS /NP | Out-Null
+            if ($LASTEXITCODE -le 7) { $copied = $true }
+        }
+        if (-not $copied) {
+            Get-ChildItem -Path $addinData -Recurse -File -ErrorAction Stop | Where-Object { $_.Extension -ne ".z64" } | ForEach-Object {
+                $rel = $_.FullName.Substring($addinData.Length).TrimStart('\', '/')
+                $dest = Join-Path $buildData $rel
+                $destDir = Split-Path $dest -Parent
+                if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+                Copy-Item -Path $_.FullName -Destination $dest -Force -ErrorAction SilentlyContinue
+            }
+        }
+        $hoistByor = Join-Path $buildData "put_your_rom_here.txt"
+        $rootByor = Join-Path $BuildDir "put_your_rom_here.txt"
+        if (Test-Path -LiteralPath $hoistByor) {
+            try { Move-Item -LiteralPath $hoistByor -Destination $rootByor -Force -ErrorAction Stop } catch {}
+        }
+        Write-Host "  [rom-copy] post-batch-addin -> $BuildDir (ROM + BYOR text at install root; rest under data/)." -ForegroundColor Green
     } catch {
         Write-Host "  [rom-copy] WARN: copy failed: $_" -ForegroundColor Yellow
     }
@@ -194,9 +218,9 @@ Write-Host ""
 if ($SkipBuild) {
     Write-Host "[0/8] Skipping rebuild (-SkipBuild set; using existing artifacts in Build/)." -ForegroundColor Gray
 
-    # Caller (e.g. dev-window-v2) already built the client. Drop the ROM into
-    # Build/data/ right away so Mike can launch Build/PerfectDark.exe even if a
-    # later step in this script fails.
+    # Caller (e.g. dev-window-v2) already built the client. Stage addin
+    # (ROM at Build root, rest under Build/data/) so Mike can launch locally
+    # even if a later step in this script fails.
     Copy-RomAddinIntoBuild
 
     # Commit any pending changes so the release tag lands on a clean commit
@@ -318,9 +342,8 @@ if ($SkipBuild) {
             }
             Write-Host "  [$($t.Name)] build OK." -ForegroundColor Green
 
-            # Client is now on disk and known-good. Drop the ROM into Build/data/
-            # immediately so Mike can launch Build/PerfectDark.exe locally even
-            # if the updater build or any later release step fails.
+            # Client is now on disk and known-good. Stage addin (ROM at Build
+            # root) so Mike can launch locally even if a later release step fails.
             if ($t.Name -eq "client") {
                 Copy-RomAddinIntoBuild
             }

@@ -1440,22 +1440,30 @@ function Copy-AddinFiles {
 
     try {
         $robocopy = Get-Command robocopy.exe -ErrorAction SilentlyContinue
+        $dataMirrorOk = $false
         if ($null -ne $robocopy) {
             $robocopyPath = if ($robocopy.Path) { $robocopy.Path } elseif ($robocopy.Source) { $robocopy.Source } else { "robocopy.exe" }
             # /E copies subdirs incl. empty (non-destructive); /XO skips
             # files that already exist at dest with same/newer timestamp.
             # /XF "*.z64" excludes ROM files (handled above for install root).
             & $robocopyPath $srcData $dstData /E /XO /XF "*.z64" /NFL /NDL /NJH /NJS /NP | Out-Null
-            if ($LASTEXITCODE -le 7) { return }
+            if ($LASTEXITCODE -le 7) { $dataMirrorOk = $true }
         }
-        # Fallback (no robocopy): file-by-file copy that overwrites but
-        # does NOT delete extras at the destination. Skip *.z64 (handled above).
-        Get-ChildItem -Path $srcData -Recurse -File -ErrorAction Stop | Where-Object { $_.Extension -ne ".z64" } | ForEach-Object {
-            $rel = $_.FullName.Substring($srcData.Length).TrimStart('\','/')
-            $dest = Join-Path $dstData $rel
-            $destDir = Split-Path $dest -Parent
-            if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
-            Copy-Item -Path $_.FullName -Destination $dest -Force -ErrorAction SilentlyContinue
+        if (-not $dataMirrorOk) {
+            # Fallback (no robocopy): file-by-file copy that overwrites but
+            # does NOT delete extras at the destination. Skip *.z64 (handled above).
+            Get-ChildItem -Path $srcData -Recurse -File -ErrorAction Stop | Where-Object { $_.Extension -ne ".z64" } | ForEach-Object {
+                $rel = $_.FullName.Substring($srcData.Length).TrimStart('\','/')
+                $dest = Join-Path $dstData $rel
+                $destDir = Split-Path $dest -Parent
+                if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+                Copy-Item -Path $_.FullName -Destination $dest -Force -ErrorAction SilentlyContinue
+            }
+        }
+        $hoistByor = Join-Path $dstData "put_your_rom_here.txt"
+        $rootByor = Join-Path $script:BuildDir "put_your_rom_here.txt"
+        if (Test-Path -LiteralPath $hoistByor) {
+            try { Move-Item -LiteralPath $hoistByor -Destination $rootByor -Force -ErrorAction Stop } catch {}
         }
     } catch {}
 }
