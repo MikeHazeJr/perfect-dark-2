@@ -24,6 +24,7 @@ DAILY_SECTIONS_ORDER = [
     "Yesterday Shipped",
     "Bugs",
     "Decisions",
+    "Awaiting Your Confirmation",
     "Parked Threads",
     "Today Focus",
 ]

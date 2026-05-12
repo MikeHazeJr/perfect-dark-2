@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "semantic_version": "0.2.0",
-  "x_extensibility_rule": "Additive-only. Unknown fields tolerated by loaders. Reserved namespace: x_*. Field semantics frozen once shipped. Bump schema_version only on a breaking change; bump semantic_version on additive change. v2 (2026-05-12 c121): added cards[].open_questions[] for decision-request mechanism.",
+  "semantic_version": "0.3.0",
+  "x_extensibility_rule": "Additive-only. Unknown fields tolerated by loaders. Reserved namespace: x_*. Field semantics frozen once shipped. Bump schema_version only on a breaking change; bump semantic_version on additive change. v0.2.0 (2026-05-12 c121): added cards[].open_questions[] for decision-request mechanism. v0.3.0 (2026-05-12 c123): added cards[].pending_completion (object or null) for completion confirmation mechanism. schema_version stays at 2 (additive).",
   "settings": {
     "autoSortPriority": false
   },
@@ -450,7 +450,8 @@
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-02T00:00:00Z",
+      "pending_completion": null
     },
     {
       "id": "c028",
@@ -1633,6 +1634,33 @@
       "flagged_at": null,
       "created": "2026-05-12T13:15:00Z",
       "updated": "2026-05-12T13:30:00Z"
+    },
+    {
+      "id": "c123",
+      "title": "Pending-completion confirmation mechanism + banner-dock + scroll fix",
+      "description": "Three coherent kanban UI refinements bundled as one ship. (A) Pending-completion mechanism: sessions / orchestrator mark a card as ready for completion review via pending_completion {marked_at, marked_by, summary, evidence_refs}; Mike Confirms (-> done) or Rejects (stays in column with optional rejection note) from a bottom-docked banner / Ready header toggle / side panel with Confirm + Reject buttons / green ring + READY micro-badge per card. Schema extension on tools/kanban/state.json (additive, semantic_version 0.3.0, schema_version stays 2). Four new endpoints in tools/kanban/server.py: POST mark-pending-completion / confirm-completion / reject-completion and GET pending-completions. kanban_evaluator.py list-pending-completions CLI + library API. Daily-flow step 6 renders an Awaiting Your Confirmation section in the daily log; template-enforced header preserved when empty. (B) Bottom-dock the open-questions banner (c121) and daily-flow briefing banner, mirroring the new pending-completion banner. All three share the same collapse-to-strip + floating-restore-icon pattern. (C) Page-scroll fix: column max-height switched from calc(100vh - 110px) to 100% with align-items: stretch on board, so cards never extend below the visible board area regardless of how many banners are docked.",
+      "pillar": "tooling",
+      "column": "active",
+      "order": 155000,
+      "priority": 2,
+      "notes": "Design: context/designs/pending-completion-mechanism.md. Probe: .claude/scratch/probe-pending-completion.py (13 phases, all PASS). Files touched: tools/kanban/{state.json, server.py, index.html}, tools/kanban_evaluator.py, tools/daily_flow/{lib/templates.py, steps/step6_daily_log.py}, context/designs/pending-completion-mechanism.md. Self-marked via the new mechanism so Mike sees the live UX on next kanban open.",
+      "flag": null,
+      "flagged_at": null,
+      "pending_completion": {
+        "marked_at": "2026-05-12T16:00:00Z",
+        "marked_by": "session-jovial-tesla-3da9fd",
+        "summary": "Three deliverables bundled and verified. (A) Pending-completion mechanism: schema extension (semantic_version 0.3.0), 4 server endpoints, CLI list-pending-completions, daily-flow step 6 Awaiting Your Confirmation section, full UI (READY badge + green ring + bottom-docked banner + side panel + Confirm/Reject). End-to-end probe at .claude/scratch/probe-pending-completion.py walks 13 scenarios incl 404 / 400 / 409 / happy paths -- ALL PASS. (B) Open-questions banner and daily-flow briefing banner repositioned from top to bottom of body (CSS order: 97/98/99 with border-top instead of border-bottom). Shared collapse-to-strip mechanism with floating restore icons (R/?/B) at bottom-right when dismissed. State persisted in localStorage. (C) Page-scroll fix: .column max-height now 100% of board instead of calc(100vh - 110px), board uses align-items: stretch + min-height: 0, panel-kanban gets overflow: hidden + min-height: 0. Cards inside columns continue to scroll via the inner card-list-wrap.",
+        "evidence_refs": [
+          "context/designs/pending-completion-mechanism.md",
+          ".claude/scratch/probe-pending-completion.py",
+          "tools/kanban/server.py",
+          "tools/kanban/index.html",
+          "tools/kanban_evaluator.py",
+          "tools/daily_flow/steps/step6_daily_log.py"
+        ]
+      },
+      "created": "2026-05-12T15:00:00Z",
+      "updated": "2026-05-12T16:00:00Z"
     }
   ]
 }

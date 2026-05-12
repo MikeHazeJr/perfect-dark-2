@@ -23,6 +23,11 @@ Serves the dev-window UI at / and provides these API endpoints:
   /api/open-questions                               GET    list every unresolved question
   /api/cards/:id/blocked-status                     GET    is this card blocked on open questions
 
+  /api/cards/:id/mark-pending-completion            POST   session/orchestrator marks card ready for review
+  /api/cards/:id/confirm-completion                 POST   Mike confirms (moves to done)
+  /api/cards/:id/reject-completion                  POST   Mike rejects (clears flag, stays in column)
+  /api/pending-completions                          GET    list every card with pending_completion non-null
+
   /heartbeat              POST                 page liveness ping (every ~5s while a tab is open)
   /shutdown-now           POST                 best-effort beacon when the last tab is closing
 
@@ -196,6 +201,21 @@ def _find_question(card, q_id):
     return None
 
 
+# ---------- pending-completion mechanism helpers (c123) ----------
+
+def _card_max_order(data, column):
+    return max(
+        (c.get("order", 0) for c in data.get("cards", []) if c.get("column") == column),
+        default=0,
+    )
+
+
+def _append_note(card, line):
+    existing = (card.get("notes") or "").rstrip()
+    stamped = f"[{_utcnow_iso()}] {line}"
+    card["notes"] = f"{existing}\n{stamped}".strip() if existing else stamped
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         msg = fmt % args
@@ -308,6 +328,31 @@ class Handler(BaseHTTPRequestHandler):
                 "blocked": len(blocked_ids) > 0,
                 "blocked_question_ids": blocked_ids,
                 "unresolved_count": len(blocked_ids),
+            })
+            return
+
+        if self.path == "/api/pending-completions":
+            data = _load_state()
+            pending = []
+            for card in data.get("cards", []):
+                pc = card.get("pending_completion")
+                if not pc:
+                    continue
+                pending.append({
+                    "card_id": card.get("id"),
+                    "card_title": card.get("title", ""),
+                    "card_column": card.get("column", ""),
+                    "card_pillar": card.get("pillar", ""),
+                    "marked_at": pc.get("marked_at"),
+                    "marked_by": pc.get("marked_by"),
+                    "summary": pc.get("summary", ""),
+                    "evidence_refs": pc.get("evidence_refs", []),
+                })
+            pending.sort(key=lambda e: e.get("marked_at") or "")
+            self.reply_json(200, {
+                "ok": True,
+                "pending": pending,
+                "pending_count": len(pending),
             })
             return
 
@@ -737,6 +782,102 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "follow_up_id": follow_up_id,
                     "card_blocked_left": blocked_left,
+                })
+                return
+
+            # ---------- pending-completion mechanism (c123) ----------
+
+            if self.path.startswith("/api/cards/") and self.path.endswith("/mark-pending-completion"):
+                card_id = self.path[len("/api/cards/"):-len("/mark-pending-completion")]
+                payload = json.loads(self.read_body() or b"{}")
+                marked_by = (payload.get("marked_by") or "").strip()
+                summary = (payload.get("summary") or "").strip()
+                evidence_refs = payload.get("evidence_refs") or []
+                if not marked_by:
+                    self.reply_json(400, {"error": "marked_by required"})
+                    return
+                if not summary:
+                    self.reply_json(400, {"error": "summary required (describe what was completed)"})
+                    return
+                if not isinstance(evidence_refs, list):
+                    self.reply_json(400, {"error": "evidence_refs must be an array of strings"})
+                    return
+                evidence_refs = [str(x).strip() for x in evidence_refs if str(x).strip()]
+
+                data = _load_state()
+                card = _find_card(data, card_id)
+                if card is None:
+                    self.reply_json(404, {"error": f"card {card_id} not found"})
+                    return
+                if card.get("column") == "done":
+                    self.reply_json(409, {"error": "card is already in done column"})
+                    return
+
+                pc = {
+                    "marked_at": _utcnow_iso(),
+                    "marked_by": marked_by,
+                    "summary": summary,
+                    "evidence_refs": evidence_refs,
+                }
+                card["pending_completion"] = pc
+                card["updated"] = pc["marked_at"]
+                _save_state_atomic(data)
+                print(f"[kanban] card {card_id} marked pending-completion by {marked_by}")
+                self.reply_json(200, {"ok": True, "card_id": card_id, "marked_at": pc["marked_at"]})
+                return
+
+            if self.path.startswith("/api/cards/") and self.path.endswith("/confirm-completion"):
+                card_id = self.path[len("/api/cards/"):-len("/confirm-completion")]
+                self.read_body()
+                data = _load_state()
+                card = _find_card(data, card_id)
+                if card is None:
+                    self.reply_json(404, {"error": f"card {card_id} not found"})
+                    return
+                if not card.get("pending_completion"):
+                    self.reply_json(409, {"error": "card has no pending_completion to confirm"})
+                    return
+
+                prev_column = card.get("column")
+                card["column"] = "done"
+                card["order"] = _card_max_order(data, "done") + 1000
+                card["pending_completion"] = None
+                card["updated"] = _utcnow_iso()
+                _save_state_atomic(data)
+                print(f"[kanban] card {card_id} completion confirmed; moved {prev_column} -> done")
+                self.reply_json(200, {
+                    "ok": True,
+                    "card_id": card_id,
+                    "from_column": prev_column,
+                    "to_column": "done",
+                })
+                return
+
+            if self.path.startswith("/api/cards/") and self.path.endswith("/reject-completion"):
+                card_id = self.path[len("/api/cards/"):-len("/reject-completion")]
+                payload = json.loads(self.read_body() or b"{}")
+                rejection_note = (payload.get("rejection_note") or "").strip()
+                data = _load_state()
+                card = _find_card(data, card_id)
+                if card is None:
+                    self.reply_json(404, {"error": f"card {card_id} not found"})
+                    return
+                if not card.get("pending_completion"):
+                    self.reply_json(409, {"error": "card has no pending_completion to reject"})
+                    return
+
+                pc = card["pending_completion"]
+                card["pending_completion"] = None
+                if rejection_note:
+                    _append_note(card, f"completion-rejected (was marked by {pc.get('marked_by','?')}): {rejection_note}")
+                card["updated"] = _utcnow_iso()
+                _save_state_atomic(data)
+                print(f"[kanban] card {card_id} completion rejected; stays in {card.get('column')}")
+                self.reply_json(200, {
+                    "ok": True,
+                    "card_id": card_id,
+                    "column": card.get("column"),
+                    "note_appended": bool(rejection_note),
                 })
                 return
 

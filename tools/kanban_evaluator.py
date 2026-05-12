@@ -5,15 +5,19 @@ Callable from the daily-flow orchestrator (and any other automation) AND as a
 Python library import.
 
 CLI subcommands:
-  check-active-blocks   list cards in 'active' (or priority-1 'backlog') that are
-                        blocked on open questions; orchestrator skips spawning work
-                        on these cards
-  interpret-pending     list custom-answer questions whose interpretation has not
-                        been written yet; orchestrator's Claude pass reads, then
-                        POSTs the interpretation back via the API
-  cascade-on-answer     --question-id <q-NNN>: when a question resolves, run the
-                        parked-thread cascade (same as parked_evaluator.cascade)
-                        in case any parked threads were waiting on this card
+  check-active-blocks       list cards in 'active' (or priority-1 'backlog') that
+                            are blocked on open questions; orchestrator skips
+                            spawning work on these cards
+  interpret-pending         list custom-answer questions whose interpretation
+                            has not been written yet; orchestrator's Claude pass
+                            reads, then POSTs the interpretation back via the API
+  cascade-on-answer         --question-id <q-NNN>: when a question resolves, run
+                            the parked-thread cascade (same as
+                            parked_evaluator.cascade) in case any parked threads
+                            were waiting on this card
+  list-pending-completions  list every card with pending_completion non-null;
+                            orchestrator surfaces these in step 6 daily log
+                            under Awaiting Your Confirmation (c123)
 
 State file (resolved relative to repo root):
   tools/kanban/state.json
@@ -122,6 +126,33 @@ def list_blocked_cards(
     return blocked
 
 
+def list_pending_completions(kanban: dict[str, Any]) -> list[dict[str, Any]]:
+    """Cards whose pending_completion field is non-null (c123).
+
+    These cards are awaiting Mike's Confirm or Reject from the kanban browser.
+    Orchestrator surfaces this list in the daily log under Awaiting Your
+    Confirmation; sessions read it to avoid double-marking a card already
+    flagged ready.
+    """
+    pending: list[dict[str, Any]] = []
+    for card in kanban.get("cards", []):
+        pc = card.get("pending_completion")
+        if not pc:
+            continue
+        pending.append({
+            "card_id": card.get("id"),
+            "card_title": card.get("title", ""),
+            "card_column": card.get("column", ""),
+            "card_pillar": card.get("pillar", ""),
+            "marked_at": pc.get("marked_at"),
+            "marked_by": pc.get("marked_by"),
+            "summary": pc.get("summary", ""),
+            "evidence_refs": pc.get("evidence_refs", []),
+        })
+    pending.sort(key=lambda e: e.get("marked_at") or "")
+    return pending
+
+
 def list_pending_interpretations(kanban: dict[str, Any]) -> list[dict[str, Any]]:
     """Custom-answer questions whose interpretation has not been written yet."""
     pending: list[dict[str, Any]] = []
@@ -183,6 +214,16 @@ def _cmd_interpret_pending(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_list_pending_completions(args: argparse.Namespace) -> int:
+    kanban = load_json(KANBAN_PATH)
+    if not kanban:
+        print(json.dumps({"pending": [], "pending_count": 0}))
+        return 0
+    pending = list_pending_completions(kanban)
+    print(json.dumps({"pending": pending, "pending_count": len(pending)}, indent=2))
+    return 0
+
+
 def _cmd_cascade_on_answer(args: argparse.Namespace) -> int:
     kanban = load_json(KANBAN_PATH)
     if not kanban:
@@ -234,6 +275,9 @@ def build_parser() -> argparse.ArgumentParser:
     p3 = sub.add_parser("cascade-on-answer", help="run parked-thread cascade when a question resolves a card")
     p3.add_argument("--question-id", required=True, help="q-NNN id")
     p3.set_defaults(func=_cmd_cascade_on_answer)
+
+    p4 = sub.add_parser("list-pending-completions", help="list cards marked ready for completion review (c123)")
+    p4.set_defaults(func=_cmd_list_pending_completions)
 
     return parser
 

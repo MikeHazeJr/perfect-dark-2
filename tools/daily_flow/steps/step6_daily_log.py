@@ -112,6 +112,49 @@ def _render_parked(cascade: dict[str, Any], audit_date_iso: str) -> str:
     return "\n".join(parts)
 
 
+def _render_awaiting_confirmation(today_iso: str) -> str:
+    """Section c123: cards with pending_completion non-null.
+
+    Surfaces every card marked ready for review by sessions/orchestrator in the
+    prior 24h or earlier (until Mike confirms or rejects). Empty by design when
+    nothing is queued -- header preserved so the shape is consistent.
+    """
+    state_path = fsutil.repo_root() / "tools" / "kanban" / "state.json"
+    state = fsutil.load_json(state_path, default={})
+    if not state:
+        return "(none)"
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(fsutil.repo_root() / "tools"))
+        import kanban_evaluator as ke  # type: ignore
+        pending = ke.list_pending_completions(state)
+    except Exception as exc:
+        return f"(evaluator error: {exc})"
+    if not pending:
+        return "(none)"
+
+    lines: list[str] = []
+    cutoff = today_iso  # used only for the "marked today" callout
+    for entry in pending:
+        cid = entry.get("card_id", "?")
+        title = entry.get("title") or entry.get("card_title", "")
+        marked_at = entry.get("marked_at") or ""
+        marked_by = entry.get("marked_by") or "unknown"
+        column = entry.get("card_column") or "?"
+        summary = entry.get("summary") or "(no summary)"
+        evidence = entry.get("evidence_refs") or []
+        marked_today = " (marked today)" if marked_at.startswith(cutoff) else ""
+        lines.append(f"### `{cid}` {title} -- in `{column}`{marked_today}")
+        lines.append(f"- Marked by: {marked_by} at {marked_at}")
+        lines.append(f"- Summary: {summary}")
+        if evidence:
+            ev_str = ", ".join(f"`{e}`" for e in evidence)
+            lines.append(f"- Evidence: {ev_str}")
+        lines.append(f"- Review at: http://localhost:7531/  (Ready button in header, then Confirm or Reject)")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
 def _render_focus(priority_sort: dict[str, Any]) -> str:
     shortlist = priority_sort.get("focus_shortlist", [])
     if not shortlist:
@@ -171,6 +214,7 @@ def run_daily_log(
         "Yesterday Shipped": _render_shipped(audit),
         "Bugs": _render_bugs(audit, state_sync),
         "Decisions": _render_decisions(decisions_today),
+        "Awaiting Your Confirmation": _render_awaiting_confirmation(today_iso),
         "Parked Threads": _render_parked(cascade, today_iso),
         "Today Focus": _render_focus(priority_sort),
     }

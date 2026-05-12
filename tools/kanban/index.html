@@ -33,10 +33,10 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .btn-clear-filter:hover{color:#94a3b8;border-color:#475569}
 
 /* Board */
-#board{display:flex;gap:14px;padding:14px 18px;overflow-x:auto;overflow-y:hidden;flex:1;align-items:flex-start}
+#board{display:flex;gap:14px;padding:14px 18px;overflow-x:auto;overflow-y:hidden;flex:1;min-height:0;align-items:stretch}
 
 /* Column */
-.column{border-radius:10px;min-width:275px;width:275px;flex-shrink:0;display:flex;flex-direction:column;max-height:calc(100vh - 110px)}
+.column{border-radius:10px;min-width:275px;width:275px;flex-shrink:0;display:flex;flex-direction:column;max-height:100%;min-height:0}
 .column[data-col="backlog"]{background:#f1f5f9}
 .column[data-col="active"] {background:#eff6ff}
 .column[data-col="blocked"]{background:#fff1f2}
@@ -203,10 +203,13 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 /* Panel containers (kanban + bugs only) */
 .panel{flex:1;min-width:0;overflow:auto;display:none;padding:14px 18px}
 
-/* Daily-flow briefing banner */
-.df-banner{padding:10px 14px;background:linear-gradient(90deg,#14532d 0%,#0c4a6e 100%);color:#ecfdf5;font-size:0.78rem;display:none;flex-direction:column;gap:6px;flex-shrink:0;border-bottom:2px solid #15803d}
+/* Daily-flow briefing banner (bottom-docked; pushes board up when expanded) */
+.df-banner{padding:8px 14px;background:linear-gradient(90deg,#14532d 0%,#0c4a6e 100%);color:#ecfdf5;font-size:0.78rem;display:none;flex-direction:column;gap:6px;flex-shrink:0;border-top:2px solid #15803d;order:99}
 .df-banner.show{display:flex}
-.df-banner.partial{background:linear-gradient(90deg,#78350f 0%,#9a3412 100%);border-bottom-color:#f97316}
+.df-banner.collapsed{padding:4px 14px}
+.df-banner.collapsed .df-headlines,
+.df-banner.collapsed .df-focus{display:none}
+.df-banner.partial{background:linear-gradient(90deg,#78350f 0%,#9a3412 100%);border-top-color:#f97316}
 .df-banner .df-row{display:flex;align-items:center;gap:10px}
 .df-banner .df-title{font-weight:800;letter-spacing:0.04em;color:#bbf7d0;text-transform:uppercase;font-size:0.7rem}
 .df-banner .df-time{color:#86efac;font-size:0.7rem;margin-left:6px}
@@ -220,7 +223,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .df-banner-min.show{display:flex}
 .df-banner-min:hover{background:#16a34a}
 .panel.active{display:block}
-.panel#panel-kanban{padding:0;display:none;flex-direction:column}
+.panel#panel-kanban{padding:0;display:none;flex-direction:column;overflow:hidden;min-height:0}
 .panel#panel-kanban.active{display:flex}
 .panel-header{display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
 .panel-title{font-size:0.86rem;font-weight:800;color:#e2e8f0;letter-spacing:0.04em;text-transform:uppercase}
@@ -340,11 +343,56 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .oq-block-strip{margin-top:6px;padding:3px 8px;background:#ef4444;color:white;border-radius:4px;font-size:0.65rem;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;cursor:pointer;text-align:center}
 .oq-block-strip:hover{background:#dc2626}
 
-#oq-banner{padding:9px 14px;background:linear-gradient(90deg,#a16207 0%,#854d0e 100%);color:#fef9c3;font-size:0.78rem;display:none;align-items:center;gap:10px;flex-shrink:0;border-bottom:2px solid #ca8a04}
+#oq-banner{padding:7px 14px;background:linear-gradient(90deg,#a16207 0%,#854d0e 100%);color:#fef9c3;font-size:0.78rem;display:none;align-items:center;gap:10px;flex-shrink:0;border-top:2px solid #ca8a04;order:98}
 #oq-banner.show{display:flex}
+#oq-banner.collapsed{padding:3px 14px}
+#oq-banner.collapsed .oq-banner-text{display:none}
 #oq-banner .oq-banner-title{font-weight:800;letter-spacing:0.04em;text-transform:uppercase;font-size:0.7rem;color:#fef3c7}
 #oq-banner .oq-banner-text{flex:1}
 #oq-banner button{margin-left:auto}
+.oq-banner-min{display:none;position:fixed;right:64px;bottom:18px;width:36px;height:36px;border-radius:50%;background:#a16207;color:white;border:none;cursor:pointer;font-size:1.1rem;box-shadow:0 4px 12px rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;font-weight:800}
+.oq-banner-min.show{display:flex}
+.oq-banner-min:hover{background:#ca8a04}
+
+/* Pending-completion banner (c123) -- mirrors oq-banner; bottom-docked, collapsible */
+#pc-banner{padding:7px 14px;background:linear-gradient(90deg,#166534 0%,#14532d 100%);color:#bbf7d0;font-size:0.78rem;display:none;align-items:center;gap:10px;flex-shrink:0;border-top:2px solid #22c55e;order:97}
+#pc-banner.show{display:flex}
+#pc-banner.collapsed{padding:3px 14px}
+#pc-banner.collapsed .pc-banner-text{display:none}
+#pc-banner .pc-banner-title{font-weight:800;letter-spacing:0.04em;text-transform:uppercase;font-size:0.7rem;color:#dcfce7}
+#pc-banner .pc-banner-text{flex:1}
+#pc-banner button{margin-left:0}
+.pc-banner-min{display:none;position:fixed;right:110px;bottom:18px;width:36px;height:36px;border-radius:50%;background:#166534;color:white;border:none;cursor:pointer;font-size:1.05rem;box-shadow:0 4px 12px rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;font-weight:800}
+.pc-banner-min.show{display:flex}
+.pc-banner-min:hover{background:#16a34a}
+
+/* Pending-completion card surface (c123) */
+.card.has-pending-completion{box-shadow:0 0 0 2px #22c55e,0 2px 8px rgba(34,197,94,0.25)}
+.card.has-pending-completion:hover{box-shadow:0 0 0 2px #22c55e,0 4px 12px rgba(34,197,94,0.35)}
+.pc-badge{position:absolute;top:6px;right:54px;height:18px;padding:0 7px;border-radius:9px;background:#22c55e;color:#0f172a;border:none;cursor:pointer;font-size:0.62rem;font-weight:900;line-height:18px;text-align:center;z-index:9;letter-spacing:0.04em;transition:transform 0.1s}
+.pc-badge:hover{transform:scale(1.08)}
+
+/* Pending-completion sidebar (mirrors oq-sidebar visual treatment, green instead of yellow) */
+#pc-sidebar{position:fixed;top:0;right:0;height:100vh;width:380px;background:#0c1426;border-left:1px solid #1e293b;display:none;flex-direction:column;z-index:140;box-shadow:-8px 0 32px rgba(0,0,0,0.4)}
+#pc-sidebar.open{display:flex}
+.pc-sb-head{padding:11px 14px;background:#1e293b;display:flex;align-items:center;gap:8px;border-bottom:1px solid #334155;flex-shrink:0}
+.pc-sb-title{font-size:0.78rem;font-weight:800;color:#dcfce7;letter-spacing:0.06em;text-transform:uppercase}
+.pc-sb-counts{font-size:0.68rem;color:#bbf7d0;margin-left:auto}
+.pc-sb-close{background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:2px 8px;font-size:1.1rem;line-height:1}
+.pc-sb-close:hover{color:#dcfce7}
+.pc-sb-list{flex:1;overflow:auto;padding:10px 12px}
+.pc-row{background:#1e293b;border-radius:6px;padding:11px 13px;margin-bottom:10px;border-left:3px solid #22c55e}
+.pc-row .pc-row-card{font-size:0.66rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px}
+.pc-row .pc-row-card .pc-cid{color:#bbf7d0;font-family:ui-monospace,Consolas,monospace;font-weight:700;margin-right:5px}
+.pc-row .pc-row-summary{font-size:0.84rem;color:#f1f5f9;line-height:1.45;margin-bottom:8px;white-space:pre-wrap}
+.pc-row .pc-row-meta{font-size:0.66rem;color:#94a3b8;margin-bottom:8px;font-style:italic}
+.pc-row .pc-row-evidence{font-size:0.7rem;color:#cbd5e1;margin-bottom:8px;line-height:1.5}
+.pc-row .pc-row-evidence .pc-ev-label{font-size:0.6rem;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;display:block}
+.pc-row .pc-row-evidence a{color:#38bdf8;text-decoration:none;display:block;font-family:ui-monospace,Consolas,monospace;font-size:0.7rem;padding:1px 0}
+.pc-row .pc-row-evidence a:hover{text-decoration:underline}
+.pc-row .pc-actions{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
+.pc-row .pc-reject-note{flex:1;min-width:160px;padding:5px 8px;background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:5px;font-family:inherit;font-size:0.72rem;resize:vertical}
+.pc-row .pc-reject-note:focus{outline:none;border-color:#ef4444}
 
 /* Open-questions side panel: piggyback on parked-sidebar but distinct id */
 #oq-sidebar{position:fixed;top:0;right:0;height:100vh;width:380px;background:#0c1426;border-left:1px solid #1e293b;display:none;flex-direction:column;z-index:140;box-shadow:-8px 0 32px rgba(0,0,0,0.4)}
@@ -410,6 +458,9 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
     <button class="sb-toggle" id="oq-toggle-btn" onclick="openOpenQuestionsSidebar()" title="Show open questions awaiting your input" style="display:none">
       Questions <span class="sb-toggle-badge zero" id="oq-toggle-badge">0</span>
     </button>
+    <button class="sb-toggle" id="pc-toggle-btn" onclick="openPendingCompletionsSidebar()" title="Show cards marked ready for completion" style="display:none">
+      Ready <span class="sb-toggle-badge zero" id="pc-toggle-badge">0</span>
+    </button>
     <button class="sb-toggle" id="sb-toggle-btn" onclick="toggleParkedSidebar()" title="Show/hide parked threads">
       Parked <span class="sb-toggle-badge zero" id="sb-toggle-badge">0</span>
     </button>
@@ -432,15 +483,29 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
   <span class="oq-banner-title">Open questions</span>
   <span id="oq-banner-text" class="oq-banner-text"></span>
   <button class="btn btn-primary btn-sm" onclick="openOpenQuestionsSidebar()">Review</button>
-  <button class="btn btn-ghost btn-sm" onclick="dismissOpenQuestionsBanner()">Dismiss</button>
+  <button class="btn btn-ghost btn-sm" onclick="toggleOpenQuestionsBannerCollapsed()" title="Collapse to strip / expand" id="oq-banner-collapse">v</button>
+  <button class="btn btn-ghost btn-sm" onclick="dismissOpenQuestionsBanner()" title="Hide; restore via floating Q icon">x</button>
 </div>
+
+<button id="oq-banner-min" class="oq-banner-min" title="Show open questions" onclick="restoreOpenQuestionsBanner()">?</button>
+
+<div id="pc-banner" role="region" aria-label="Cards marked ready for completion review">
+  <span class="pc-banner-title">Pending completion</span>
+  <span id="pc-banner-text" class="pc-banner-text"></span>
+  <button class="btn btn-primary btn-sm" onclick="openPendingCompletionsSidebar()">Review</button>
+  <button class="btn btn-ghost btn-sm" onclick="togglePendingCompletionBannerCollapsed()" title="Collapse to strip / expand" id="pc-banner-collapse">v</button>
+  <button class="btn btn-ghost btn-sm" onclick="dismissPendingCompletionBanner()" title="Hide; restore via floating R icon">x</button>
+</div>
+
+<button id="pc-banner-min" class="pc-banner-min" title="Show pending completions" onclick="restorePendingCompletionBanner()">R</button>
 
 <div id="df-briefing" class="df-banner" role="region" aria-label="Daily-flow morning briefing">
   <div class="df-row">
     <span class="df-title">Daily-flow briefing</span>
     <span id="df-briefing-time" class="df-time"></span>
     <div class="df-actions">
-      <button class="btn btn-ghost btn-sm" onclick="dismissBriefingBanner()">Minimize</button>
+      <button class="btn btn-ghost btn-sm" onclick="toggleBriefingBannerCollapsed()" title="Collapse to strip / expand" id="df-briefing-collapse">v</button>
+      <button class="btn btn-ghost btn-sm" onclick="dismissBriefingBanner()" title="Hide; restore via floating B icon">x</button>
     </div>
   </div>
   <div id="df-briefing-headlines" class="df-headlines"></div>
@@ -511,6 +576,16 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
     <button class="oq-sb-close" onclick="closeOpenQuestionsSidebar()" title="Close">&rsaquo;</button>
   </div>
   <div class="oq-sb-list" id="oq-sb-list"></div>
+</aside>
+
+<!-- Pending-completion review side panel (c123) -->
+<aside id="pc-sidebar" aria-label="Pending completion review side panel">
+  <div class="pc-sb-head">
+    <span class="pc-sb-title">Ready for Completion</span>
+    <span class="pc-sb-counts" id="pc-sb-counts"></span>
+    <button class="pc-sb-close" onclick="closePendingCompletionsSidebar()" title="Close">&rsaquo;</button>
+  </div>
+  <div class="pc-sb-list" id="pc-sb-list"></div>
 </aside>
 
 <!-- Open-questions modal -->
@@ -1014,6 +1089,18 @@ function buildCard(card) {
     if (expandedCards.has(card.id)) {
       el.appendChild(buildInlineSubtaskList(card));
     }
+  }
+
+  // Pending-completion (c123): green ring on card + READY micro-badge
+  if (card.pending_completion) {
+    el.classList.add('has-pending-completion');
+    const pcBadge = document.createElement('button');
+    pcBadge.className = 'pc-badge';
+    pcBadge.textContent = 'READY';
+    const summary = card.pending_completion.summary || '';
+    pcBadge.title = `Marked ready for completion by ${card.pending_completion.marked_by || 'unknown'}\n\n${summary || '(no summary)'}\n\nClick to review.`;
+    pcBadge.onclick = e => { e.stopPropagation(); openPendingCompletionsSidebar(); };
+    el.appendChild(pcBadge);
   }
 
   // Open-questions badge (?N) + card highlight + active-column block strip
@@ -1703,7 +1790,57 @@ function dismissBriefingBanner() {
 
 function restoreBriefingBanner() {
   briefingDismissed = false;
+  bannerCollapsed.briefing = false;
+  saveBannerCollapsed();
+  document.getElementById('df-briefing').classList.remove('collapsed');
+  document.getElementById('df-briefing-collapse').textContent = 'v';
   renderBriefingBanner();
+}
+
+function toggleBriefingBannerCollapsed() {
+  bannerCollapsed.briefing = !bannerCollapsed.briefing;
+  saveBannerCollapsed();
+  document.getElementById('df-briefing').classList.toggle('collapsed', bannerCollapsed.briefing);
+  document.getElementById('df-briefing-collapse').textContent = bannerCollapsed.briefing ? '^' : 'v';
+}
+
+function toggleOpenQuestionsBannerCollapsed() {
+  bannerCollapsed.openQuestions = !bannerCollapsed.openQuestions;
+  saveBannerCollapsed();
+  document.getElementById('oq-banner').classList.toggle('collapsed', bannerCollapsed.openQuestions);
+  document.getElementById('oq-banner-collapse').textContent = bannerCollapsed.openQuestions ? '^' : 'v';
+}
+
+function restoreOpenQuestionsBanner() {
+  oqBannerDismissed = false;
+  bannerCollapsed.openQuestions = false;
+  saveBannerCollapsed();
+  document.getElementById('oq-banner').classList.remove('collapsed');
+  document.getElementById('oq-banner-collapse').textContent = 'v';
+  document.getElementById('oq-banner-min').classList.remove('show');
+  refreshOpenQuestionBanner();
+}
+
+const bannerCollapsed = (() => {
+  try { return JSON.parse(localStorage.getItem('pd2kb-banner-collapsed') || '{}'); }
+  catch { return {}; }
+})();
+function saveBannerCollapsed() {
+  localStorage.setItem('pd2kb-banner-collapsed', JSON.stringify(bannerCollapsed));
+}
+function applyBannerCollapsedState() {
+  if (bannerCollapsed.briefing) {
+    document.getElementById('df-briefing').classList.add('collapsed');
+    document.getElementById('df-briefing-collapse').textContent = '^';
+  }
+  if (bannerCollapsed.openQuestions) {
+    document.getElementById('oq-banner').classList.add('collapsed');
+    document.getElementById('oq-banner-collapse').textContent = '^';
+  }
+  if (bannerCollapsed.pendingCompletion) {
+    document.getElementById('pc-banner').classList.add('collapsed');
+    document.getElementById('pc-banner-collapse').textContent = '^';
+  }
 }
 
 function escapeHtml(s) {
@@ -2260,19 +2397,31 @@ function refreshOpenQuestionBadge() {
 
 function refreshOpenQuestionBanner() {
   const banner = document.getElementById('oq-banner');
+  const floater = document.getElementById('oq-banner-min');
   if (!banner) return;
-  if (oqBannerDismissed) { banner.classList.remove('show'); return; }
   const blocked = openQuestionsData ? (openQuestionsData.blocked_card_count || 0) : 0;
   const count = openQuestionsData ? (openQuestionsData.open_question_count || 0) : 0;
-  if (count === 0) { banner.classList.remove('show'); return; }
+  if (count === 0) {
+    banner.classList.remove('show');
+    if (floater) floater.classList.remove('show');
+    return;
+  }
+  if (oqBannerDismissed) {
+    banner.classList.remove('show');
+    if (floater) floater.classList.add('show');
+    return;
+  }
   document.getElementById('oq-banner-text').textContent =
     `${count} question${count === 1 ? '' : 's'} on ${blocked} card${blocked === 1 ? '' : 's'} awaiting your input.`;
   banner.classList.add('show');
+  if (floater) floater.classList.remove('show');
 }
 
 function dismissOpenQuestionsBanner() {
   oqBannerDismissed = true;
   document.getElementById('oq-banner').classList.remove('show');
+  const count = openQuestionsData ? (openQuestionsData.open_question_count || 0) : 0;
+  if (count > 0) document.getElementById('oq-banner-min').classList.add('show');
 }
 
 function openOpenQuestionsSidebar() {
@@ -2563,6 +2712,212 @@ async function confirmInterpretationCore(cardId, questionId, confirmed, followUp
   } catch (e) { setSaveStatus('', 'submit failed'); }
 }
 
+// ---------- pending-completion mechanism (c123) ----------
+
+let pendingCompletionsData = null;
+let pcBannerDismissed = false;
+
+async function loadPendingCompletions() {
+  try {
+    const r = await fetch('/api/pending-completions');
+    if (!r.ok) return;
+    pendingCompletionsData = await r.json();
+    refreshPendingCompletionBadge();
+    refreshPendingCompletionBanner();
+    if (document.getElementById('pc-sidebar').classList.contains('open')) renderPendingCompletionsSidebar();
+  } catch (e) { /* silent */ }
+}
+
+function refreshPendingCompletionBadge() {
+  const btn = document.getElementById('pc-toggle-btn');
+  const badge = document.getElementById('pc-toggle-badge');
+  if (!btn || !badge) return;
+  const count = pendingCompletionsData ? (pendingCompletionsData.pending_count || 0) : 0;
+  if (count > 0) {
+    btn.style.display = '';
+    badge.textContent = String(count);
+    badge.classList.remove('zero');
+    btn.title = `${count} card${count === 1 ? '' : 's'} marked ready for completion review`;
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+function refreshPendingCompletionBanner() {
+  const banner = document.getElementById('pc-banner');
+  const floater = document.getElementById('pc-banner-min');
+  if (!banner) return;
+  const count = pendingCompletionsData ? (pendingCompletionsData.pending_count || 0) : 0;
+  if (count === 0) {
+    banner.classList.remove('show');
+    if (floater) floater.classList.remove('show');
+    return;
+  }
+  if (pcBannerDismissed) {
+    banner.classList.remove('show');
+    if (floater) floater.classList.add('show');
+    return;
+  }
+  document.getElementById('pc-banner-text').textContent =
+    `${count} card${count === 1 ? '' : 's'} marked ready for completion review.`;
+  banner.classList.add('show');
+  if (floater) floater.classList.remove('show');
+}
+
+function dismissPendingCompletionBanner() {
+  pcBannerDismissed = true;
+  document.getElementById('pc-banner').classList.remove('show');
+  const count = pendingCompletionsData ? (pendingCompletionsData.pending_count || 0) : 0;
+  if (count > 0) document.getElementById('pc-banner-min').classList.add('show');
+}
+
+function restorePendingCompletionBanner() {
+  pcBannerDismissed = false;
+  bannerCollapsed.pendingCompletion = false;
+  saveBannerCollapsed();
+  document.getElementById('pc-banner').classList.remove('collapsed');
+  document.getElementById('pc-banner-collapse').textContent = 'v';
+  document.getElementById('pc-banner-min').classList.remove('show');
+  refreshPendingCompletionBanner();
+}
+
+function togglePendingCompletionBannerCollapsed() {
+  bannerCollapsed.pendingCompletion = !bannerCollapsed.pendingCompletion;
+  saveBannerCollapsed();
+  document.getElementById('pc-banner').classList.toggle('collapsed', bannerCollapsed.pendingCompletion);
+  document.getElementById('pc-banner-collapse').textContent = bannerCollapsed.pendingCompletion ? '^' : 'v';
+}
+
+function openPendingCompletionsSidebar() {
+  document.getElementById('pc-sidebar').classList.add('open');
+  renderPendingCompletionsSidebar();
+}
+
+function closePendingCompletionsSidebar() {
+  document.getElementById('pc-sidebar').classList.remove('open');
+}
+
+function renderPendingCompletionsSidebar() {
+  const list = document.getElementById('pc-sb-list');
+  list.innerHTML = '';
+  const pending = (pendingCompletionsData && pendingCompletionsData.pending) || [];
+  const counts = document.getElementById('pc-sb-counts');
+  if (counts) counts.textContent = `${pending.length} ready for review`;
+  if (pending.length === 0) {
+    list.innerHTML = '<div class="empty-state">No cards marked ready for completion. Sessions and the orchestrator surface them here.</div>';
+    return;
+  }
+  for (const entry of pending) list.appendChild(buildPendingCompletionRow(entry));
+}
+
+function buildPendingCompletionRow(entry) {
+  const row = document.createElement('div');
+  row.className = 'pc-row';
+
+  const cardLine = document.createElement('div');
+  cardLine.className = 'pc-row-card';
+  const pillar = pillarById(entry.card_pillar);
+  cardLine.innerHTML = `<span class="pc-cid">${escapeHtml(entry.card_id)}</span>${escapeHtml(entry.card_title)}` +
+    (pillar ? ' &middot; ' + escapeHtml(pillar.name) : '') +
+    ` &middot; <span style="color:#94a3b8">${escapeHtml(entry.card_column || '?')}</span>`;
+  row.appendChild(cardLine);
+
+  const summary = document.createElement('div');
+  summary.className = 'pc-row-summary';
+  summary.textContent = entry.summary || '(no summary provided)';
+  row.appendChild(summary);
+
+  const meta = document.createElement('div');
+  meta.className = 'pc-row-meta';
+  meta.textContent = `marked by ${entry.marked_by || 'unknown'} on ${(entry.marked_at || '').slice(0, 10)}`;
+  row.appendChild(meta);
+
+  const evidence = (entry.evidence_refs || []).filter(Boolean);
+  if (evidence.length > 0) {
+    const ev = document.createElement('div');
+    ev.className = 'pc-row-evidence';
+    const label = document.createElement('span');
+    label.className = 'pc-ev-label';
+    label.textContent = `Evidence (${evidence.length})`;
+    ev.appendChild(label);
+    for (const ref of evidence) {
+      const a = document.createElement('a');
+      const isUrl = /^https?:/i.test(ref);
+      a.href = isUrl ? ref : '#';
+      a.target = isUrl ? '_blank' : '_self';
+      a.rel = 'noopener';
+      a.textContent = ref;
+      if (!isUrl) {
+        a.onclick = e => { e.preventDefault(); window.prompt('Reference:', ref); };
+      }
+      ev.appendChild(a);
+    }
+    row.appendChild(ev);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'pc-actions';
+
+  const note = document.createElement('textarea');
+  note.className = 'pc-reject-note';
+  note.placeholder = 'Optional rejection note (used only on Reject)';
+  note.rows = 1;
+  actions.appendChild(note);
+
+  const confirmBtn = document.createElement('button');
+  confirmBtn.className = 'btn btn-primary btn-sm';
+  confirmBtn.textContent = 'Confirm';
+  confirmBtn.title = 'Move card to done, clear pending_completion';
+  confirmBtn.onclick = () => confirmPendingCompletion(entry.card_id);
+  actions.appendChild(confirmBtn);
+
+  const rejectBtn = document.createElement('button');
+  rejectBtn.className = 'btn btn-ghost btn-sm';
+  rejectBtn.textContent = 'Reject';
+  rejectBtn.style.borderColor = '#ef4444';
+  rejectBtn.style.color = '#fca5a5';
+  rejectBtn.title = 'Keep in current column, clear pending_completion';
+  rejectBtn.onclick = () => rejectPendingCompletion(entry.card_id, note.value.trim());
+  actions.appendChild(rejectBtn);
+
+  row.appendChild(actions);
+  return row;
+}
+
+async function confirmPendingCompletion(cardId) {
+  if (!confirm('Confirm completion -- move this card to Done?')) return;
+  setSaveStatus('saving', 'confirming...');
+  try {
+    const r = await fetch(`/api/cards/${encodeURIComponent(cardId)}/confirm-completion`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const j = await r.json();
+    if (!r.ok) { alert('Confirm failed: ' + (j.error || r.statusText)); return; }
+    setSaveStatus('saved', 'completed');
+    setTimeout(() => setSaveStatus('', ''), 1500);
+    await Promise.all([loadState(), loadPendingCompletions()]);
+  } catch (e) { setSaveStatus('', 'confirm failed'); }
+}
+
+async function rejectPendingCompletion(cardId, rejectionNote) {
+  setSaveStatus('saving', 'rejecting...');
+  try {
+    const body = rejectionNote ? { rejection_note: rejectionNote } : {};
+    const r = await fetch(`/api/cards/${encodeURIComponent(cardId)}/reject-completion`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const j = await r.json();
+    if (!r.ok) { alert('Reject failed: ' + (j.error || r.statusText)); return; }
+    setSaveStatus('saved', 'rejected');
+    setTimeout(() => setSaveStatus('', ''), 1500);
+    await Promise.all([loadState(), loadPendingCompletions()]);
+  } catch (e) { setSaveStatus('', 'reject failed'); }
+}
+
 // ---------- heartbeat (keeps the ephemeral server alive while a tab is open) ----------
 
 const HEARTBEAT_INTERVAL_MS = 5000;
@@ -2597,13 +2952,15 @@ startHeartbeat();
 // ---------- boot ----------
 
 applySidebarState();
+applyBannerCollapsedState();
 
 Promise.all([
   loadState(),
   loadParked(),
   loadBugs(),
   loadBriefing(),
-  loadOpenQuestions()
+  loadOpenQuestions(),
+  loadPendingCompletions()
 ]).catch(err => {
   document.getElementById('board').innerHTML =
     '<p style="color:#ef4444;padding:20px">Failed to load state: ' + err.message +
