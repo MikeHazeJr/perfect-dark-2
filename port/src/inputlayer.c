@@ -154,9 +154,14 @@ static void onVehicleDriverAbort(int reason_code)
     actionmapFlushActionSet(s_VehicleDriverActionSet, INPUTLAYER_ARRAYCOUNT(s_VehicleDriverActionSet));
 }
 
+/* s036-06 (c036): track which source pushed the observer layer so pop /
+ * abort release exactly what push acquired. -1 means inactive. */
+static int s_ObserverActiveSource = -1;
+
 static int onObserverPush(void *payload)
 {
     const SceneObserverPayload *observer_payload = (const SceneObserverPayload *)payload;
+    s_ObserverActiveSource = (observer_payload ? observer_payload->source : -1);
     if (observer_payload && observer_payload->source == SCENE_OBSERVER_SOURCE_SPECTATOR) {
         imcActivate(&g_ImcObserver);
     }
@@ -168,18 +173,25 @@ static void onObserverPop(void *result_out)
 {
     (void)result_out;
     actionmapFlushActionSet(s_ObserverActionSet, INPUTLAYER_ARRAYCOUNT(s_ObserverActionSet));
-    imcDeactivate(&g_ImcObserver);
-    imcDeactivate(&g_ImcForge);
-    imcDeactivate(&g_ImcForgeSession);
+    /* s036-06: symmetric deactivate. Only release what THIS push acquired.
+     * Forge IMCs (g_ImcForge / g_ImcForgeSession) are owned by forge transition
+     * code in src/game/forgemode.c -- LAYER_OBSERVER is a wrapper around forge
+     * freefly, not its owner. */
+    if (s_ObserverActiveSource == SCENE_OBSERVER_SOURCE_SPECTATOR) {
+        imcDeactivate(&g_ImcObserver);
+    }
+    s_ObserverActiveSource = -1;
 }
 
 static void onObserverAbort(int reason_code)
 {
     (void)reason_code;
     actionmapFlushActionSet(s_ObserverActionSet, INPUTLAYER_ARRAYCOUNT(s_ObserverActionSet));
-    imcDeactivate(&g_ImcObserver);
-    imcDeactivate(&g_ImcForge);
-    imcDeactivate(&g_ImcForgeSession);
+    /* s036-06: symmetric deactivate (see onObserverPop). */
+    if (s_ObserverActiveSource == SCENE_OBSERVER_SOURCE_SPECTATOR) {
+        imcDeactivate(&g_ImcObserver);
+    }
+    s_ObserverActiveSource = -1;
 }
 
 /* ============================================================
@@ -207,7 +219,14 @@ const LayerDef g_LayerGameplay = {
     .on_push               = NULL,
     .on_pop                = NULL,
     .on_abort              = NULL,
-    .imc                   = NULL, /* Cohort 3: &g_ImcGameplay */
+    /* s036-01 (c036): wire the binding declaratively. g_ImcGameplay is the
+     * priority-0 baseline activated once at startup by actionmap init
+     * (port/src/actionmap.cpp imcActivate at end of actionmapInit) and stays
+     * on for the life of the process; LAYER_GAMEPLAY push/pop intentionally
+     * does NOT toggle it via on_push/on_pop. The .imc field documents the
+     * binding for introspection and future migration to a layer-driven
+     * activation model. */
+    .imc                   = &g_ImcGameplay,
     .wants_relative_mouse  = 1,
     .wants_visible_cursor  = 0,
 };
@@ -233,7 +252,15 @@ const LayerDef g_LayerMenu = {
     .on_push               = NULL,
     .on_pop                = NULL,
     .on_abort              = NULL,
-    .imc                   = NULL, /* Cohort 3: &g_ImcMenu */
+    /* s036-01 (c036): wire the binding declaratively. g_ImcMenu lifecycle
+     * is owned by the input CONTEXT stack (port/src/inputctx.c imcActivate /
+     * imcDeactivate inside g_CtxImGuiMenu / g_CtxPauseMenu / g_CtxDebugOverlay
+     * push and pop), NOT by LAYER_MENU push/pop. Wiring it here at the layer
+     * level would double-fire and cause shadowing bugs (see commentary at
+     * port/src/actionmap.cpp:2947 - activating ImcMenu unconditionally at
+     * startup shadowed gameplay gamepad bindings). The .imc field documents
+     * the binding for introspection. */
+    .imc                   = &g_ImcMenu,
     .wants_relative_mouse  = 0,
     .wants_visible_cursor  = 1,
 };

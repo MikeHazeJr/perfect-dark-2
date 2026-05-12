@@ -28,6 +28,7 @@
 #include "mixer.h"
 #include "net/net.h"
 #include "actionmap.h"
+#include "pdgui.h"
 
 /*
  * private typedefs and defines
@@ -315,6 +316,14 @@ void schedEndFrame(OSSched *sc)
 	/* Action map: F9 → ACTION_DEBUG_TOGGLE (edge-triggered) */
 	if (actionPressed(0, ACTION_DEBUG_TOGGLE)) {
 		g_NetDebugDraw = !g_NetDebugDraw;
+	}
+
+	/* s036-03 (c036, 2026-05-12): backquote → ACTION_CONSOLE_TOGGLE.
+	 * Replaces the raw SDLK_BACKQUOTE handler that used to live in
+	 * port/fast3d/gfx_sdl2.cpp's SDL event loop. The binding lives in
+	 * actionmap.cpp addBind(imc, ACTION_CONSOLE_TOGGLE, VK_GRAVE). */
+	if (actionPressed(0, ACTION_CONSOLE_TOGGLE)) {
+		pdguiConsoleToggle();
 	}
 
 	/* actionmapPollFrame moved to schedStartFrame — see comment there. */

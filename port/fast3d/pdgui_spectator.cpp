@@ -22,6 +22,7 @@
 
 extern "C" {
 #include "actionmap.h"
+#include "inputctx.h"
 #include "spectator.h"
 #include "social.h"
 #include "system.h"
@@ -158,8 +159,12 @@ static void drawScoreboard(s32 winW, s32 winH)
 
 static void handleKeyboard(void)
 {
+	/* s036-05 (c036): use the single suppression predicate instead of
+	 * the raw ImGui WantCaptureKeyboard. The predicate folds in menu
+	 * push, focus loss, and the 50ms focus-settle window; ImGui's gate
+	 * only covered the first case and missed the others. */
+	if (gameplayInputSuppressed()) return;
 	ImGuiIO &io = ImGui::GetIO();
-	if (io.WantCaptureKeyboard) return;
 
 	if (actionPressed(0, ACTION_OBSERVER_SUBSET_PREV))   spectatorCycleSubset(-1);
 	if (actionPressed(0, ACTION_OBSERVER_SUBSET_NEXT))   spectatorCycleSubset(+1);

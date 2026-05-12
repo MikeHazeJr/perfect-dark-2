@@ -512,72 +512,73 @@
     {
       "id": "c036",
       "title": "Input - Controller Support Cohorts 5-8",
-      "description": "Branch 2 Cohorts 5-8: full controller support, menu graph completion, remaining transitional shim retirement. Next major lane after Catalog Gate 3.",
+      "description": "Branch 2 Cohorts 5-8: full controller support, menu graph completion, remaining transitional shim retirement. Next major lane after Catalog Gate 3. Partial ship 2026-05-12 (sprint sprc036): 4 of 8 subtasks shipped (s036-01 metadata, s036-05 gate swap, s036-06 observer symmetry, s036-07 spec/runtime linking test); s036-03 partial (F10 dead + backquote migrated; Alt+Enter retained pending actionmap modifier-chord support); s036-02, s036-04, s036-08 deferred.",
       "pillar": "input",
-      "column": "backlog",
+      "column": "active",
       "order": 1000,
       "priority": 2,
-      "notes": "Design ref: designs/input/input-universality-and-transitions.md",
+      "notes": "Design ref: designs/input/input-universality-and-transitions.md. Sprint sprc036 partial ship in main-checkout 2026-05-12: pdgui_spectator.cpp, port/src/inputlayer.c, port/src/pdsched.c, port/fast3d/gfx_sdl2.cpp, port/fast3d/pdgui_backend.cpp (unchanged), port/include/pdgui.h, tests/test_right_stick_scroll.cpp, tests/test_vehicle_observer_layer.cpp. Build verify 4-target clean.",
       "flag": null,
       "flagged_at": null,
+      "pending_completion": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z",
+      "updated": "2026-05-12T22:30:00Z",
       "subtasks": [
         {
           "id": "s036-01",
           "title": "Wire g_LayerGameplay.imc / g_LayerMenu.imc lifecycle",
-          "status": "backlog",
+          "status": "done",
           "order": 1000,
-          "notes": "inputlayer.c:210,237 have .imc = NULL stubs (Cohort 3 deferred)"
+          "notes": "Shipped 2026-05-12 sprc036 main-checkout. Wired .imc = &g_ImcGameplay and .imc = &g_ImcMenu as declarative metadata. Did NOT change inputlayer.c push/pop to consume .imc field because g_ImcGameplay is always-on baseline (activated once at actionmap init) and g_ImcMenu lifecycle is owned by input CONTEXT stack (inputctx.c), not LAYER stack. Both wired with explanatory comments. inputlayer.c:202-220 (gameplay), inputlayer.c:240-257 (menu)."
         },
         {
           "id": "s036-02",
           "title": "Migrate 10 F-key handlers to g_ImcDebugOverlay actionmap",
           "status": "backlog",
           "order": 2000,
-          "notes": "pdgui_backend.cpp:1288-1379 - 10 raw SDLK_Fxx blocks before actionmapDispatch"
+          "notes": "DEFERRED at sprc036. Blocker: actionmap addBind takes a single u32 VK; no chord-modifier support. Shift+F1 / Shift+F2 / F2-no-mod cannot migrate cleanly without extending the actionmap API to support modifier chords (KMOD_SHIFT / KMOD_CTRL / KMOD_ALT). Tracked as part of the cohort 5-8 controller surface; estimate +1-2 sessions for actionmap chord extension + 10 action additions + dispatch wiring. pdgui_backend.cpp:1382-1475 still has 10 raw blocks."
         },
         {
           "id": "s036-03",
           "title": "Migrate gfx_sdl2.cpp raw hotkeys (Alt+Enter, F10, backquote)",
-          "status": "backlog",
+          "status": "partial",
           "order": 3000,
-          "notes": "gfx_sdl2.cpp:335-345 - backquote duplicates ACTION_CONSOLE_TOGGLE"
+          "notes": "Partial ship 2026-05-12 sprc036. F10 raw branch deleted (was dead - pdguiProcessEvent consumed first). Backquote migrated through actionPressed(ACTION_CONSOLE_TOGGLE) dispatched in pdsched.c::schedEndFrame; pdguiConsoleToggle declaration moved to pdgui.h. Alt+Enter raw block retained pending actionmap modifier-chord support (same blocker as s036-02). Files: gfx_sdl2.cpp:325-348 (raw block simplified to Alt+Enter only), pdsched.c (+ACTION_CONSOLE_TOGGLE poll), pdgui.h (+pdguiConsoleToggle decl)."
         },
         {
           "id": "s036-04",
           "title": "Audit and retire inputKeyPressed() direct controller polling",
           "status": "backlog",
           "order": 4000,
-          "notes": "input.c:1075-1099 DEPRECATED path - narrow to mouse buttons only after full controller migration"
+          "notes": "DEFERRED at sprc036. Depends on s036-02 + s036-03 being fully complete first. input.c:1066-1101 still does direct SDL_GameControllerGetButton/Axis polling for VK_JOY_* synthetic VKs. Audit must wait until all raw key/joy handlers route through actionmap so the direct-polling path can be safely narrowed to mouse buttons only (per the original cohort plan)."
         },
         {
           "id": "s036-05",
           "title": "Replace WantCaptureKeyboard with gameplayInputSuppressed()",
-          "status": "backlog",
+          "status": "done",
           "order": 5000,
-          "notes": "pdgui_spectator.cpp:162 uses wrong gate"
+          "notes": "Shipped 2026-05-12 sprc036 main-checkout. pdgui_spectator.cpp::handleKeyboard: replaced 'if (io.WantCaptureKeyboard) return;' with 'if (gameplayInputSuppressed()) return;'. Added include of inputctx.h to the extern \"C\" block. The new gate folds menu push + focus loss + 50ms focus-settle into one predicate (the original raw ImGui gate only covered the first case)."
         },
         {
           "id": "s036-06",
           "title": "Fix observer push/pop IMC asymmetry",
-          "status": "backlog",
+          "status": "done",
           "order": 6000,
-          "notes": "inputlayer.c:157-183 - onObserverPop deactivates unconditionally regardless of source"
+          "notes": "Shipped 2026-05-12 sprc036 main-checkout. inputlayer.c: added file-static s_ObserverActiveSource tracking the SCENE_OBSERVER_SOURCE_* value at push time. onObserverPop / onObserverAbort now only deactivate g_ImcObserver when source was SPECTATOR (matching the conditional activate in onObserverPush). Removed the unconditional imcDeactivate(&g_ImcForge) and imcDeactivate(&g_ImcForgeSession) -- those are owned by forge transition code in src/game/forgemode.c, not by the observer layer wrapper. Test pin in tests/test_vehicle_observer_layer.cpp updated to assert the new symmetric behavior + absence of the Forge IMC deactivates in observerPop."
         },
         {
           "id": "s036-07",
           "title": "Add right-stick scroll static test linking runtime to spec constants",
-          "status": "backlog",
+          "status": "done",
           "order": 7000,
-          "notes": "test_right_stick_scroll.cpp:14-18 is spec; pdguiDriveImGuiNav is runtime - drift undetected"
+          "notes": "Shipped 2026-05-12 sprc036 main-checkout. Found genuine drift: test spec said deadzone=0.15 / exp=1.7 / max=1200 px/sec; runtime in pdgui_backend.cpp::pdguiDriveImGuiNav had deadzone=0.18 / exp=2.0 (t*t) / max=28 px/frame at 60Hz = 1680 px/sec. Synced test spec constants to runtime values (kDeadzone 0.18, kCurveExp 2.0, kMaxSpeedPx 1680). Updated assertions referencing 1200 to 1680. Added new TEST_CASE 'right-stick scroll: runtime constants match spec' [scroll][static][link] that reads port/fast3d/pdgui_backend.cpp and asserts the runtime contains the exact 'const f32 deadzone = 0.18f', 'const f32 maxPxPerFrame = 28.0f', 'dir * t * t * maxPxPerFrame', and 'if (gameplayInputSuppressed())' fragments. Any future drift fails the test."
         },
         {
           "id": "s036-08",
           "title": "Menu graph completion: 127 raw menuPushDialog calls -> menuGraphFire*",
           "status": "backlog",
           "order": 8000,
-          "notes": "127 raw calls in 15 files; add graph-completeness test"
+          "notes": "DEFERRED at sprc036 - multi-session lane. Current count via grep: 174 raw menuPushDialog/menuPopDialog occurrences in port/ + 160 in src/ across 39 files. Migration is chip-at-a-time; L.16-L.39 in input-universality-and-transitions.md show 24 prior commits each migrating a single edge. Realistic per-session throughput is 2-4 edges. Track as long-running lane."
         }
       ]
     },

@@ -1,5 +1,67 @@
 # Session Log (Active)
 
+## Session (`main-checkout-sprc036`) - 2026-05-12 - Sprint c027 + c036: catalog close-out + input cohort 5-8 partial slice
+
+Mike's directive (via /goal standing rules + follow-up): "we will do c027 and c036 as one sprint." c027 ("Catalog universality pivot Steps 4-9") was a stale card description -- per tasks.md section 2a Step 5 SHIPPED 2026-05-03 and the universality-pivot-schemas.md design doc only defines Steps 0-5. c036 has 8 backlog subtasks covering controller surface, layer/IMC wiring, raw-key migration, observer symmetry, scroll spec linking, menu graph completion. Worktree creation was disabled by the project hook (`echo 'Worktree creation is disabled for this project. Work directly in the main copy.'`), so the sprint ran on the dev branch in the main checkout.
+
+### Change
+
+**c027 close-out (kanban only, no code):**
+
+- Renamed card title from "Catalog universality pivot Steps 4-9" to "Catalog universality pivot post-Phase-3 cleanup".
+- Description rewritten to reflect what actually shipped (Steps 4 + 5 + post-pivot triage + BYOR completion + walker-after-emitters reorder + BYOR post-boot AV); the "Steps 4-9" phrasing in the original title was a misread of the design doc.
+- Marked `pending_completion` with `marked_by = "claude-code-main-checkout-sprint-c027c036"`, summary linking to the eight evidence refs (tasks.md sections 2a/2b/2c/2d/2e, the schema design doc, the catalog audit doc, the catalog pillar).
+- Orchestrator's job to verify + flip to done.
+
+**c036 partial slice (4 of 8 subtasks done, 1 partial, 3 deferred):**
+
+- **s036-05 (WantCaptureKeyboard -> gameplayInputSuppressed)**. `port/fast3d/pdgui_spectator.cpp::handleKeyboard` swapped the raw ImGui `io.WantCaptureKeyboard` gate for the single-truth suppression predicate. Added `#include "inputctx.h"` to the extern "C" block. The new gate folds menu push + focus loss + 50ms focus-settle window into one predicate; the original ImGui gate only covered the first case.
+- **s036-06 (observer push/pop symmetry)**. `port/src/inputlayer.c` added file-static `s_ObserverActiveSource` tracking the `SCENE_OBSERVER_SOURCE_*` value at push time. `onObserverPop` / `onObserverAbort` now only deactivate `g_ImcObserver` when source was `SPECTATOR` (matching the conditional `imcActivate` in `onObserverPush`). Removed the unconditional `imcDeactivate(&g_ImcForge)` and `imcDeactivate(&g_ImcForgeSession)` from pop/abort -- those IMCs are owned by forge transition code in `src/game/forgemode.c::forgeTransitionToFreefly` / `forgeTransitionToInactive`, not by the observer-layer wrapper. The audit at `audits/infrastructure-pillars-status-2026-04-27.md:129` had flagged the asymmetry as "likely safe (deactivate of inactive IMC is a no-op) but a defect"; the fix makes the deactivate scope structurally match the activate scope. Test pin in `tests/test_vehicle_observer_layer.cpp` updated to assert the new symmetric behavior (REQUIRE observerPop contains `SCENE_OBSERVER_SOURCE_SPECTATOR` gate + `imcDeactivate(&g_ImcObserver)`, REQUIRE observerPop does NOT contain `imcDeactivate(&g_ImcForge)` / `imcDeactivate(&g_ImcForgeSession)`). REQUIRE observerPush stashes the source via `s_ObserverActiveSource`.
+- **s036-01 (LAYER_GAMEPLAY.imc / LAYER_MENU.imc wire, metadata)**. `port/src/inputlayer.c` wired `.imc = &g_ImcGameplay` on `g_LayerGameplay` and `.imc = &g_ImcMenu` on `g_LayerMenu`. Both as DECLARATIVE metadata; `inputLayerPush` / `inputLayerPop` do NOT currently consume the `.imc` field (each layer's callbacks call `imcActivate` / `imcDeactivate` directly). Comments explain why neither layer should drive lifecycle through the field: `g_ImcGameplay` is the priority-0 baseline activated once at `actionmap::actionmapInit` and never deactivated; `g_ImcMenu` lifecycle is owned by the input CONTEXT stack (`port/src/inputctx.c` push/pop of `g_CtxImGuiMenu` / `g_CtxPauseMenu` / `g_CtxDebugOverlay`). Adding push-driven activation would double-fire and cause the gamepad-shadowing bug the comment at `actionmap.cpp:2947` documents.
+- **s036-07 (right-stick scroll spec/runtime drift detector)**. `tests/test_right_stick_scroll.cpp` reconciled with the runtime in `port/fast3d/pdgui_backend.cpp::pdguiDriveImGuiNav`. The 2026-04-25 spec had drifted from the actual implementation: spec said deadzone=0.15 / exp=1.7 / max=1200 px/sec; runtime had deadzone=0.18 / exp=2.0 (`t*t`) / max=28 px/frame at 60Hz = 1680 px/sec. Synced the test spec constants to runtime values (`kDeadzone 0.18f`, `kCurveExp 2.0f`, `kMaxSpeedPx 1680.0f`). Updated assertions referencing 1200 to 1680 (full-deflection cap test + accumulator test). Updated the in-deadzone boundary test from 0.149 to 0.179 to stay just below the new threshold. Added a new `TEST_CASE("right-stick scroll: runtime constants match spec", "[scroll][static][link]")` that reads `port/fast3d/pdgui_backend.cpp` and asserts the runtime literally contains `const f32 deadzone = 0.18f`, `const f32 maxPxPerFrame = 28.0f`, `dir * t * t * maxPxPerFrame`, and `if (gameplayInputSuppressed())`. Future drift to either side fails the test. The original `@SYNC` directive in the file header is preserved.
+- **s036-03 partial (gfx_sdl2 raw hotkey migration)**. `port/fast3d/gfx_sdl2.cpp::gfx_sdl_handle_events` SDL_KEYDOWN block had three raw hotkeys: Alt+Enter / F10 / backquote. F10 branch deleted -- it was structurally dead because `pdguiProcessEvent` higher in the event pipeline consumed every `SDLK_F10` event via `meshDebugToggle`. Backquote branch migrated to actionmap via `actionPressed(0, ACTION_CONSOLE_TOGGLE)` dispatched in `port/src/pdsched.c::schedEndFrame` next to the existing `ACTION_DEBUG_TOGGLE` poll; binding already existed (`addBind(imc, ACTION_CONSOLE_TOGGLE, VK_GRAVE)`). `pdguiConsoleToggle` declaration moved from local extern blocks in gfx_sdl2.cpp + pdgui_backend.cpp into `port/include/pdgui.h` as the canonical signature. Alt+Enter raw block retained pending actionmap modifier-chord support: `addBind(imc, ACTION, vk)` takes a single `u32` VK; there is no way to specify `KMOD_ALT` as part of the binding without extending the actionmap API.
+
+### Deferred
+
+- **s036-02 (10 F-key migration)**. Same blocker as s036-03 Alt+Enter: actionmap has no modifier-chord support. Shift+F1 / Shift+F2 / F2-no-mod cannot migrate cleanly; partial migration of non-modifier F-keys (F6 / F7 / F8 / F9 / F10 / F12) would leave the chord cases inconsistent. Mark as backlog with a +1-2 session estimate for actionmap extension + 10 action additions + dispatch wiring.
+- **s036-04 (inputKeyPressed retire)**. Depends on s036-02 + s036-03 being fully complete. Cannot narrow the direct-polling path to mouse buttons only while raw-key handlers still exist. Backlog.
+- **s036-08 (menu graph completion)**. Multi-session lane; 174 raw `menuPushDialog`/`menuPopDialog` in `port/` + 160 in `src/` across 39 files. Realistic throughput per session is 2-4 edges; L.16-L.39 in the design doc shows 24 prior commits each migrating a single edge. Track as long-running.
+
+### Verification
+
+- Build verify clean four-target via `build-session.ps1 -Session sprc036 -Target {all, server, tests}`: client 55.6 MB, updater 12.3 MB, server 22.4 MB, tests 24.7 MB. No new compile warnings.
+- pd-tests.exe runs to exit 0 from bash (Catch2 silent on success). PowerShell launch fails with `STATUS_ENTRYPOINT_NOT_FOUND` due to MSYS runtime DLLs not on the PowerShell PATH; bash inherits them via build-env-prelude. This is environment, not test failure.
+
+### Files modified
+
+- `tools/kanban/state.json`: c027 pending_completion + description rewrite + title rename; c036 column backlog -> active + description / notes update + subtask statuses (s036-01/05/06/07 done, s036-03 partial, s036-02/04/08 backlog with deferral notes).
+- `port/fast3d/pdgui_spectator.cpp`: handleKeyboard gate swap; added include of inputctx.h.
+- `port/src/inputlayer.c`: s_ObserverActiveSource file-static, onObserverPush stashes source, onObserverPop / onObserverAbort gate deactivate on source. .imc wired on g_LayerGameplay and g_LayerMenu with explanatory comments.
+- `port/src/pdsched.c`: include pdgui.h, ACTION_CONSOLE_TOGGLE poll near ACTION_DEBUG_TOGGLE.
+- `port/fast3d/gfx_sdl2.cpp`: removed F10 + backquote raw branches; Alt+Enter retained with TODO comment for chord support. Removed local extern pdguiConsoleToggle.
+- `port/include/pdgui.h`: added pdguiConsoleToggle public declaration.
+- `tests/test_right_stick_scroll.cpp`: spec constants synced to runtime, assertions updated, runtime-link test added, readTextFile helper added.
+- `tests/test_vehicle_observer_layer.cpp`: assertions updated for new observer-pop symmetric behavior.
+- `context/session-log.md` (this entry).
+- `context/tasks.md` (lane 3 status update).
+
+### Decisions
+
+- **Worktree disabled -> main checkout**. EnterWorktree returned the project's WorktreeCreate hook output: "Worktree creation is disabled for this project. Work directly in the main copy." Worked directly on dev branch. Both commits (c027 close-out + c036 partial slice) go straight to dev.
+- **c027 = closeout-only ship**. The card was effectively done; the title was a misread. No code work. Marked pending_completion with comprehensive evidence-refs so the orchestrator can verify and flip.
+- **c036 = ship what's structurally cohesive, defer what needs deeper plumbing**. 4 of 8 subtasks plus 1 partial. The deferred 4 all share one blocker (actionmap chord support) or are inherently multi-session (menu graph). Per rabbit-hole protocol, surfaced rather than pushed through.
+- **s036-01 wired as metadata only**. The original Cohort 3 comment `/* Cohort 3: &g_ImcGameplay */` implied "wire this later". Investigation showed that wiring the .imc field as push/pop-driven would double-fire activate/deactivate against the existing actionmap-init and input-context-stack lifecycles. Metadata wire is safe + documents intent. If a future cohort wants push/pop-driven lifecycle, it will need to refactor the actionmap-init baseline activation and the inputctx push/pop calls together.
+- **s036-06 removes Forge IMC deactivates from observer pop**. The audit had called the asymmetry "likely safe (deactivate of inactive IMC is a no-op)". Investigation confirmed `imcDeactivate` is idempotent (no-op when already inactive), so the change is behaviorally invisible TODAY -- but the symmetric structure prevents a future regression where a forge-active-during-spectator path could lose Forge IMC state on observer pop. Test pin updated to lock the new structure.
+- **s036-07 syncs spec to runtime, then locks via grep**. The runtime was the truth (Mike has played with the current feel). Updating the spec to match preserves the spec's value as a math reference for the test, and the new static-text test catches drift in either direction.
+
+### Not in scope
+
+- Actionmap modifier-chord support extension (would unblock s036-02 + s036-03 Alt+Enter).
+- Menu graph migration (s036-08, multi-session).
+- Per-player cutscene wire bump to v46 (Cohort 5+ design item, not in 4 of 8 slice).
+
+---
+
 ## Session (`adoring-turing-a53052`) - 2026-05-12 - CLI panel correction: body-preserving wrap-swap, active-pressed visuals (c127 amend)
 
 Mike's mid-flight directive after the initial c127 ship: SUPERSEDES the "Overwrite custom prompt?" modal flow. Action buttons should NOT destroy typed content. Instead the user's text becomes the SUBSTANCE that gets embedded inside the action's wrapping; the wrapping is the syntactic frame, the user's text is the content. Switching between action buttons RE-WRAPS the same user text with the new mode (substance preserved, wrapping swapped). Additionally: the currently-selected action button should have a clear pressed / active visual state so the user knows at a glance which wrapping is currently applied.

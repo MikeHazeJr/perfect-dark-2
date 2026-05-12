@@ -284,18 +284,18 @@ Per Mike's Spec v0.5. Automation layer that consumes the data layer (parked.json
 
 ### 3. Input - Controller Support (Branch 2 Cohorts 5-8)
 
-**Status**: queued after Catalog Gate 3. Per [designs/input/input-universality-and-transitions.md](designs/input/input-universality-and-transitions.md), Cohorts 1-4 shipped (layer types + scene events, layer push/pop, IMC ownership migration, per-player cutscene state). Cohorts 5-8 cover full controller support, menu graph completion, remaining transitional shim retirement.
+**Status**: c036 promoted to active 2026-05-12 sprint sprc036. Partial slice shipped (4 of 8 subtasks done + 1 partial); remaining 3 deferred behind one common blocker (actionmap modifier-chord support) plus the multi-session menu graph lane. Per [designs/input/input-universality-and-transitions.md](designs/input/input-universality-and-transitions.md), Cohorts 1-4 shipped (layer types + scene events, layer push/pop, IMC ownership migration, per-player cutscene state).
 
-**Scope** (high-level; design doc has the detail):
+**Subtask state (2026-05-12)**:
 
-- Wire `g_LayerGameplay.imc` and `g_LayerMenu.imc` so the layer stack owns those lifecycles.
-- Migrate the 10 raw F-key handlers in [pdgui_backend.cpp:1288-1379](../../port/fast3d/pdgui_backend.cpp:1288) into the actionmap.
-- Migrate gfx_sdl2.cpp Alt+Enter / F10 / backquote raw hotkeys.
-- Audit and retire `inputKeyPressed()` controller polling in [input.c:1075-1099](../../port/src/input.c:1075).
-- Replace `WantCaptureKeyboard` gate in [pdgui_spectator.cpp:162](../../port/fast3d/pdgui_spectator.cpp:162) with `gameplayInputSuppressed()`.
-- Static test linking right-stick scroll runtime to its spec constants.
-- Fix observer push/pop asymmetry in [inputlayer.c:157-183](../../port/src/inputlayer.c:157).
-- Menu graph completion: 127 raw `menuPushDialog / menuPopDialog` calls in 15 files migrate to `menuGraphFire*`. Add a graph-completeness test.
+- **s036-01 LAYER_GAMEPLAY / LAYER_MENU .imc metadata wire** -- DONE. Wired as DECLARATIVE only because g_ImcGameplay is the actionmap-init baseline (never deactivates) and g_ImcMenu is owned by the input context stack (inputctx.c), not the layer stack. Adding push/pop-driven lifecycle here would double-fire and shadow gameplay gamepad bindings (see commentary at [port/src/actionmap.cpp:2947](../../port/src/actionmap.cpp:2947)). [port/src/inputlayer.c](../../port/src/inputlayer.c) lines 202-220 / 240-257.
+- **s036-02 10 F-key migration** -- BACKLOG. Blocker: actionmap has no modifier-chord support (addBind takes a single u32 VK); Shift+F1, Shift+F2, F2-no-mod cannot migrate cleanly. Need actionmap extension first. Estimate +1-2 sessions.
+- **s036-03 gfx_sdl2 raw hotkey migration** -- PARTIAL. F10 raw branch deleted (was structurally dead -- pdguiProcessEvent consumed first). Backquote migrated through actionPressed(ACTION_CONSOLE_TOGGLE) in [port/src/pdsched.c::schedEndFrame](../../port/src/pdsched.c). pdguiConsoleToggle declaration in [port/include/pdgui.h](../../port/include/pdgui.h). Alt+Enter retained pending actionmap modifier-chord support (same blocker as s036-02).
+- **s036-04 inputKeyPressed retire** -- BACKLOG, depends on s036-02 + s036-03 full completion.
+- **s036-05 WantCaptureKeyboard -> gameplayInputSuppressed** -- DONE. [port/fast3d/pdgui_spectator.cpp::handleKeyboard](../../port/fast3d/pdgui_spectator.cpp). The new gate folds menu push + focus loss + 50ms focus-settle into one predicate.
+- **s036-06 Observer push/pop IMC symmetry** -- DONE. s_ObserverActiveSource tracks source at push; pop / abort only deactivate g_ImcObserver when source was SPECTATOR. Removed unconditional Forge / ForgeSession IMC deactivates from pop / abort (those are owned by [src/game/forgemode.c::forgeTransitionToInactive](../../src/game/forgemode.c)). Test pin in [tests/test_vehicle_observer_layer.cpp](../../tests/test_vehicle_observer_layer.cpp) updated.
+- **s036-07 Right-stick scroll spec/runtime drift detector** -- DONE. Found genuine drift; synced test spec to runtime (deadzone 0.18, exp 2.0, max 1680 px/sec); added static-text TEST_CASE "right-stick scroll: runtime constants match spec" [scroll][static][link] that grep-locks the runtime constants in pdgui_backend.cpp.
+- **s036-08 Menu graph completion** -- BACKLOG, multi-session lane (174 port + 160 src raw menuPushDialog/menuPopDialog occurrences across 39 files; L.16-L.39 in design doc shows 24 prior single-edge sessions). Track as long-running.
 
 **Pillar refs**: [pillars/input.md](pillars/input.md), [pillars/menus.md](pillars/menus.md).
 

@@ -126,10 +126,16 @@ TEST_CASE("observer layer wiring: forge and spectator fire observer events", "[i
     REQUIRE_FALSE(observerPop.empty());
     REQUIRE(observerPush.find("SCENE_OBSERVER_SOURCE_SPECTATOR") != std::string::npos);
     REQUIRE(observerPush.find("imcActivate(&g_ImcObserver)") != std::string::npos);
+    /* s036-06: push must stash the source so pop/abort can release symmetrically. */
+    REQUIRE(observerPush.find("s_ObserverActiveSource") != std::string::npos);
     REQUIRE(observerPop.find("actionmapFlushActionSet(s_ObserverActionSet") != std::string::npos);
+    /* s036-06: pop only deactivates ImcObserver for SPECTATOR source.
+     * Forge IMCs are owned by forge transition code (forgeTransitionToInactive
+     * in src/game/forgemode.c), not by observer pop. */
+    REQUIRE(observerPop.find("SCENE_OBSERVER_SOURCE_SPECTATOR") != std::string::npos);
     REQUIRE(observerPop.find("imcDeactivate(&g_ImcObserver)") != std::string::npos);
-    REQUIRE(observerPop.find("imcDeactivate(&g_ImcForge)") != std::string::npos);
-    REQUIRE(observerPop.find("imcDeactivate(&g_ImcForgeSession)") != std::string::npos);
+    REQUIRE(observerPop.find("imcDeactivate(&g_ImcForge)") == std::string::npos);
+    REQUIRE(observerPop.find("imcDeactivate(&g_ImcForgeSession)") == std::string::npos);
     REQUIRE(scene.find("s_ObserverPayload.source = s_ObserverSource") != std::string::npos);
     REQUIRE(scene.find("inputLayerPush(&g_LayerObserver, &s_ObserverPayload)") != std::string::npos);
 

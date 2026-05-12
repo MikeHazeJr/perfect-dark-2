@@ -49,6 +49,11 @@ s32 pdguiIsActive(void);
 /* Toggle the ImGui overlay on/off (e.g., bound to a key). */
 void pdguiToggle(void);
 
+/* Toggle the in-game console (backquote key). Driven by
+ * ACTION_CONSOLE_TOGGLE after s036-03 (c036, 2026-05-12); previously a
+ * raw SDL handler in gfx_sdl2.cpp's event loop. */
+void pdguiConsoleToggle(void);
+
 /* Reset the main menu to the top-level view (s_MenuView = 0).
  * Call on disconnect so the menu re-opens at the root, not "Online Play". */
 void pdguiMainMenuReset(void);
