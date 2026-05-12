@@ -16,13 +16,27 @@ Serves the dev-window UI at / and provides these API endpoints:
   /api/evaluate           POST                 run resume + staleness evaluator (writes parked.json)
   /api/cascade            POST                 cascade after a card is moved to done
 
+  /heartbeat              POST                 page liveness ping (every ~5s while a tab is open)
+  /shutdown-now           POST                 best-effort beacon when the last tab is closing
+
 All writes are atomic (temp + rename). All endpoints support OPTIONS for CORS preflight.
+
+Lifecycle: the server is ephemeral. The Dev Window v2 "Open Kanban" button
+spawns it on demand; tabs heartbeat every ~5s; if no heartbeat arrives for
+KANBAN_IDLE_TIMEOUT_S seconds (default 15) the watcher shuts the server down.
+Startup waits an extra STARTUP_GRACE_S (default 30) before the timeout starts
+counting down, so a slow browser launch is not a problem. /shutdown-now is
+a cooperative hint: it backdates the heartbeat clock to fire in
+SHUTDOWN_NOW_GRACE_S (default 6) seconds; if any other tab heartbeats inside
+that window the clock resets and the server stays up.
 """
 
 import json
 import os
 import pathlib
 import sys
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 PORT = 7531
@@ -35,8 +49,68 @@ BUGS_PATH = REPO_ROOT / "tools" / "bugs" / "state.json"
 BRIEFING_PATH = BASE / "daily-briefing.json"
 INDEX_PATH = BASE / "index.html"
 
+IDLE_TIMEOUT_S = max(1, int(os.environ.get("KANBAN_IDLE_TIMEOUT_S", "15")))
+STARTUP_GRACE_S = max(0, int(os.environ.get("KANBAN_STARTUP_GRACE_S", "30")))
+SHUTDOWN_NOW_GRACE_S = max(1, int(os.environ.get("KANBAN_SHUTDOWN_GRACE_S", "6")))
+WATCHER_INTERVAL_S = 2.0
+
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 import parked_evaluator as pe
+
+_state_lock = threading.Lock()
+_last_heartbeat_at = time.time() + STARTUP_GRACE_S
+_server = None
+_shutdown_fired = False
+
+
+def heartbeat_now():
+    global _last_heartbeat_at
+    with _state_lock:
+        _last_heartbeat_at = time.time()
+
+
+def heartbeat_soft_shutdown():
+    """Backdate heartbeat so the idle watcher fires in SHUTDOWN_NOW_GRACE_S
+    seconds unless another tab heartbeats before then (multi-tab safety)."""
+    global _last_heartbeat_at
+    with _state_lock:
+        target = time.time() - IDLE_TIMEOUT_S + SHUTDOWN_NOW_GRACE_S
+        if target < _last_heartbeat_at:
+            _last_heartbeat_at = target
+
+
+def request_shutdown(reason):
+    global _shutdown_fired
+    with _state_lock:
+        if _shutdown_fired:
+            return
+        _shutdown_fired = True
+    print(f"[kanban] shutting down: {reason}")
+    srv = _server
+    if srv is None:
+        return
+
+    def _do():
+        time.sleep(0.05)
+        try:
+            srv.shutdown()
+        except Exception as exc:
+            print(f"[kanban] shutdown error: {exc}", file=sys.stderr)
+
+    threading.Thread(target=_do, daemon=True).start()
+
+
+def heartbeat_watcher():
+    while True:
+        time.sleep(WATCHER_INTERVAL_S)
+        with _state_lock:
+            idle = time.time() - _last_heartbeat_at
+            fired = _shutdown_fired
+        if fired:
+            return
+        if idle > IDLE_TIMEOUT_S:
+            request_shutdown(f"idle {idle:.1f}s > timeout {IDLE_TIMEOUT_S}s")
+            return
 
 
 def read_text(path: pathlib.Path) -> str:
@@ -56,7 +130,10 @@ def write_json_atomic(path: pathlib.Path, body: bytes) -> str:
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
-        print(f"[kanban] {self.address_string()} - {fmt % args}")
+        msg = fmt % args
+        if "/heartbeat" in msg:
+            return  # heartbeat fires every 5s per tab; do not flood stdout
+        print(f"[kanban] {self.address_string()} - {msg}")
 
     def send_cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -117,6 +194,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            if self.path == "/heartbeat":
+                heartbeat_now()
+                # drain body if any (sendBeacon may send a tiny payload)
+                self.read_body()
+                self.reply_json(200, {"ok": True})
+                return
+
+            if self.path == "/shutdown-now":
+                # cooperative: backdate the heartbeat clock so the watcher
+                # fires soon unless another tab keeps the server alive.
+                self.read_body()
+                heartbeat_soft_shutdown()
+                self.reply_json(200, {"ok": True})
+                return
+
             if self.path == "/api/state":
                 written = write_json_atomic(STATE_PATH, self.read_body())
                 print(f"[kanban] state.json written ({len(written)} bytes)")
@@ -324,11 +416,21 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = HTTPServer(("localhost", PORT), Handler)
+    _server = server
+    threading.Thread(target=heartbeat_watcher, daemon=True).start()
     print(f"[kanban] listening on http://localhost:{PORT}/")
+    print(f"[kanban] idle timeout: {IDLE_TIMEOUT_S}s (override via KANBAN_IDLE_TIMEOUT_S)")
+    print(f"[kanban] startup grace: {STARTUP_GRACE_S}s, shutdown-now grace: {SHUTDOWN_NOW_GRACE_S}s")
     print(f"[kanban] state file: {STATE_PATH}")
     print(f"[kanban] parked file: {PARKED_PATH}")
     print(f"[kanban] bugs file: {BUGS_PATH}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n[kanban] stopped.")
+        print("\n[kanban] stopped (Ctrl-C).")
+    finally:
+        try:
+            server.server_close()
+        except Exception:
+            pass
+    print("[kanban] exited.")
