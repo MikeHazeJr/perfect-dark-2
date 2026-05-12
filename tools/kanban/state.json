@@ -1558,6 +1558,20 @@
       "flagged_at": null,
       "created": "2026-05-11T23:30:00Z",
       "updated": "2026-05-11T23:30:00Z"
+    },
+    {
+      "id": "c120",
+      "title": "Commit message standard + commit-msg hook",
+      "description": "Structural commit message format anchored to kanban cards, enforced at write time by .githooks/commit-msg. Format: '<Pillar> - <CardID>: <summary>' + body paragraph + 'Refs: cNNN[, B-NNN][, pt-NNN]' trailer. Validator reads tools/kanban/state.json to confirm pillar registry membership, card existence, and pillar-card alignment. Rejects bare placeholders (wip, fix, update, test, chore) and missing Refs trailers. Exceptions: merge / revert / fixup-squash-amend commits bypass validation. Bypass for real emergencies: git commit --no-verify (only with explicit authorization).",
+      "pillar": "tooling",
+      "column": "done",
+      "order": 153000,
+      "priority": 2,
+      "notes": "Shipped sad-rosalind 2026-05-11. Files: .githooks/commit-msg (sh shim), .githooks/commit-msg.py (Python validator), tools/install-githooks.ps1 (configure + 4-probe self-test), context/designs/commit-message-standard.md (spec). Hook installs via 'pwsh tools/install-githooks.ps1', setting core.hooksPath = .githooks (local config, covers all worktrees). Daily-flow orchestrator Phase 2A commit-hygiene audit picks up the detection side per its own spec. Renumbered from c119 to c120 after parallel worktree (peaceful-babbage-26b748) shipped c119 first.",
+      "flag": null,
+      "flagged_at": null,
+      "created": "2026-05-11T00:00:00Z",
+      "updated": "2026-05-11T00:00:00Z"
     }
   ]
 }
