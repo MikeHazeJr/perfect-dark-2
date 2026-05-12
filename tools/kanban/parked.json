@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "semantic_version": "0.1.0",
+  "x_extensibility_rule": "Additive-only. Unknown fields tolerated by loaders. Reserved namespace: x_*. Field semantics frozen once shipped. Bump schema_version only on a breaking change; bump semantic_version on additive change.",
+  "parked": [
+    {
+      "id": "pt-001",
+      "title": "Forge F0-F8 editor (extended scope)",
+      "pillar": "modding",
+      "parked_date": "2026-04-17",
+      "parked_from_session": "implementation-roadmap-apr16",
+      "last_state_snapshot": "Grid F1-F8 editor foundation shipped S311-S313 (in-game placement, property editor, doors, zones, weapon pads). Forge runtime wire-in complete S354 (props/weapons/geometry/zones/interactables live). Door lifecycle S356. Remaining F0-F8 extended scope (per designs/modding/forge-level-editor.md): property editor for arbitrary catalog props, save-as-mod pipeline polish, lighting/atmosphere passes, level settings UI, custom game type authoring, mission authoring nodes. No active session; exploration paused while catalog universality + input controller support take precedence.",
+      "resume_condition": {
+        "type": "date",
+        "targets": "2026-06-10",
+        "semantics": "all-of"
+      },
+      "context_refs": [
+        "context/designs/modding/forge-level-editor.md",
+        "context/pillars/modding.md"
+      ],
+      "kanban_card_origin": null,
+      "last_checked": "2026-05-11",
+      "tags": [
+        "editor",
+        "forge",
+        "modding"
+      ],
+      "ready_to_resume": false,
+      "stale": false
+    },
+    {
+      "id": "pt-002",
+      "title": "Skedar surface-normal locomotion (Slices 4-5)",
+      "pillar": "engine",
+      "parked_date": "2026-05-01",
+      "parked_from_session": "S594h-B",
+      "last_state_snapshot": "Slices 1+2 (chr-struct plumbing + visual tilt) shipped at dev 0d08b4cc. Slice 3 (MP sync) shipped at dev ae705aa6. Slices 4 (gravity-flip on edge transitions) and 5 (aim projection through world space) deferred pending Mike's playtest gate on the foundation. Slice 6 (GPU parity in compute kernel) remains deferred to gpu-swarm-bot-pipeline scope.",
+      "resume_condition": {
+        "type": "manual",
+        "targets": null,
+        "semantics": "all-of"
+      },
+      "context_refs": [
+        "context/designs/in-flight/skedar-surface-normal-locomotion.md"
+      ],
+      "kanban_card_origin": null,
+      "last_checked": "2026-05-11",
+      "tags": [
+        "locomotion",
+        "skedar",
+        "playtest-gated"
+      ],
+      "ready_to_resume": false,
+      "stale": false
+    },
+    {
+      "id": "pt-003",
+      "title": "Char init experiments",
+      "pillar": "engine",
+      "parked_date": "2026-04-26",
+      "parked_from_session": "char-init-investigations",
+      "last_state_snapshot": "Investigation closed; findings absorbed by player-init architectural fixes design (pt-004). Three audit docs converged on a small set of architectural classes (catalog accessors returning zero-default silently, char init weapon spawn divergence opus47/sonnet46). Audit refs preserved for context if char init behavior diverges again after player-init fixes land.",
+      "resume_condition": {
+        "type": "manual",
+        "targets": null,
+        "semantics": "all-of"
+      },
+      "context_refs": [
+        "context/audits/player-init-comparison-upstream-2026-04-26.md",
+        "context/audits/char-init-weapon-spawn-comparison-opus47-2026-04-26.md",
+        "context/audits/char-init-weapon-spawn-comparison-sonnet46-2026-04-26.md"
+      ],
+      "kanban_card_origin": null,
+      "last_checked": "2026-05-11",
+      "tags": [
+        "investigation",
+        "char-init",
+        "absorbed"
+      ],
+      "ready_to_resume": false,
+      "stale": false
+    },
+    {
+      "id": "pt-004",
+      "title": "Player init architectural fixes",
+      "pillar": "engine",
+      "parked_date": "2026-04-27",
+      "parked_from_session": "mystifying-hofstadter-deca99",
+      "last_state_snapshot": "Design draft at context/designs/in-flight/player-init-architectural-fixes.md synthesizes three audits. Matrix-cache headline bug already fixed at cafbd2ef. Remaining classes: 1.A catalog accessors return zero/default silently on miss (multiple H-* findings deduplicated). Status: draft pending Mike's greenlight before implementation.",
+      "resume_condition": {
+        "type": "manual",
+        "targets": null,
+        "semantics": "all-of"
+      },
+      "context_refs": [
+        "context/designs/in-flight/player-init-architectural-fixes.md",
+        "context/audits/player-init-comparison-upstream-2026-04-26.md"
+      ],
+      "kanban_card_origin": null,
+      "last_checked": "2026-05-11",
+      "tags": [
+        "player-init",
+        "design-greenlight-pending"
+      ],
+      "ready_to_resume": false,
+      "stale": false
+    },
+    {
+      "id": "pt-005",
+      "title": "GPU swarm benchmark debug tab (Phase 2)",
+      "pillar": "benchmarking",
+      "parked_date": "2026-04-27",
+      "parked_from_session": "swarm-design-phase1",
+      "last_state_snapshot": "Phase 1 design shipped at context/designs/in-flight/gpu-swarm-and-test-scenarios.md. Phase 2 implementation gated on Mike's approval of four design calls: (a) GL compute path choice in Section F.1, (b) chr-pool ceiling in Section F.2, (c) hit-detection model in Section F.3, (d) empty-map source in Section F.4. Benchmark harness scope, not gameplay rework; existing bot handling stays intact.",
+      "resume_condition": {
+        "type": "manual",
+        "targets": null,
+        "semantics": "all-of"
+      },
+      "context_refs": [
+        "context/designs/in-flight/gpu-swarm-and-test-scenarios.md",
+        "context/designs/in-flight/gpu-swarm-bot-pipeline.md"
+      ],
+      "kanban_card_origin": null,
+      "last_checked": "2026-05-11",
+      "tags": [
+        "benchmark",
+        "gpu",
+        "design-decisions-pending"
+      ],
+      "ready_to_resume": false,
+      "stale": false
+    },
+    {
+      "id": "pt-006",
+      "title": "AllInOne content removal",
+      "pillar": "mod-infrastructure",
+      "parked_date": "2026-04-20",
+      "parked_from_session": "allinone-cleanup-investigation",
+      "last_state_snapshot": "AllInOneMods content (GEX, Kakariko, Goldfinger 64, Dark Noon) was bundled into the port during the initial merge. Mike directed retiring bundled content in favor of per-mod .pdmod packages. Removal blocked while catalog universality landed (Step 5 retired .pdbase and changed registration), then while BYOR completion settled (Option B authoring tables landed 2026-05-03). Now structurally unblocked; awaiting prioritization vs other modding lanes.",
+      "resume_condition": {
+        "type": "date",
+        "targets": "2026-06-10",
+        "semantics": "all-of"
+      },
+      "context_refs": [
+        "context/pillars/modding.md",
+        "context/audits/pdmod-verification-matrix-2026-04-25.md"
+      ],
+      "kanban_card_origin": null,
+      "last_checked": "2026-05-11",
+      "tags": [
+        "cleanup",
+        "modding",
+        "allinone"
+      ],
+      "ready_to_resume": false,
+      "stale": false
+    },
+    {
+      "id": "pt-007",
+      "title": "Connectivity Phase 1 / P2P friend-play replacement",
+      "pillar": "networking",
+      "parked_date": "2026-04-22",
+      "parked_from_session": "connectivity-replaces-dedicated",
+      "last_state_snapshot": "Dedicated-server pillar retired per AUDIT-C1 / MASTER-C5 policy call (2026-04-20 super audit recommended retiring in pillars.md for v0.1.0 over 4-8 week refactor). Replacement direction: P2P friend-play via the existing 6-tier ICE flow (LAN/DIRECT/STUN/UPnP/ICE/TURN). Phase 1+2 of designs/connectivity/connectivity-and-modern-main-menu.md shipped, but the broader friend-play UX (invite, presence, voice routing on the P2P path) is queued behind Input Controller Support Cohorts 5-8 per tasks.md critical path.",
+      "resume_condition": {
+        "type": "dependency",
+        "targets": [
+          "c036"
+        ],
+        "semantics": "all-of"
+      },
+      "context_refs": [
+        "context/designs/connectivity/connectivity-and-modern-main-menu.md",
+        "context/designs/connectivity/hosting-modes-listen-vs-dedicated.md",
+        "context/pillars/connectivity.md"
+      ],
+      "kanban_card_origin": null,
+      "last_checked": "2026-05-11",
+      "tags": [
+        "connectivity",
+        "p2p",
+        "friend-play"
+      ],
+      "ready_to_resume": false,
+      "stale": false
+    }
+  ],
+  "archived": []
+}
