@@ -1407,7 +1407,7 @@
     {
       "id": "c114",
       "title": "Parked Threads + Bug Tracker dev-window surfaces",
-      "description": "SHIPPED 2026-05-11 (worktree quirky-greider-71722d). Data layer + UI surfaces + callable evaluators. New: tools/kanban/parked.json, tools/bugs/state.json, tools/parked_evaluator.py (CLI + library). UI: tabs across the top of the kanban page (Active Kanban / Parked Threads / Bug Tracker), right-click context menu on kanban cards with Park / Open / Cycle flag actions, ready-to-resume banner with one-click promote, parked panel with Ready / Parked / Stale sections, bug panel with severity sort + status flip actions + File bug + Link test. Server extended with /api/parked, /api/bugs, /api/park, /api/unpark, /api/parked/complete, /api/parked/delete, /api/parked/update, /api/bugs/add, /api/bugs/update, /api/evaluate, /api/cascade. Round-trip park/unpark + bug add/flip smoke-tested green. Migration: 7 parked entries (Forge, Skedar, Char init, Player init, GPU swarm, AllInOne, P2P) + 9 bugs (B-318..B-326). Design doc: context/designs/parked-and-bugs.md.",
+      "description": "SHIPPED 2026-05-11 (worktree quirky-greider-71722d). Data layer + UI surfaces + callable evaluators. New: tools/kanban/parked.json, tools/bugs/state.json, tools/parked_evaluator.py (CLI + library). UI: tabs across the top of the kanban page (Active Kanban / Parked Threads / Bug Tracker), right-click context menu on kanban cards with Park / Open / Cycle flag actions, ready-to-resume banner with one-click promote, parked panel with Ready / Parked / Stale sections, bug panel with severity sort + status flip actions + File bug + Link test. Server extended with /api/parked, /api/bugs, /api/park, /api/unpark, /api/parked/complete, /api/parked/delete, /api/parked/update, /api/bugs/add, /api/bugs/update, /api/evaluate, /api/cascade. Round-trip park/unpark + bug add/flip smoke-tested green. Migration: 7 parked entries (Forge, Skedar, Char init, Player init, GPU swarm, AllInOne, P2P) + 9 bugs (B-318..B-326). Design doc: context/designs/parked-and-bugs.md. UI refinement 2026-05-11: Parked moves to a collapsible right sidebar (~300px, localStorage-persisted); compact row density applied to parked + bugs; action buttons condensed to icon-style hidden until row expanded; ready-to-resume pinned section + pulse animation preserved.",
       "pillar": "tooling",
       "column": "done",
       "order": 11400,
@@ -1478,6 +1478,13 @@
           "status": "done",
           "order": 9000,
           "notes": ""
+        },
+        {
+          "id": "s114-10",
+          "title": "UI refinement: Parked moves to collapsible right sidebar (localStorage-persisted); compact row density on parked + bugs; icon-style action buttons hidden until row expanded",
+          "status": "done",
+          "order": 10000,
+          "notes": "Per Mike 2026-05-11: 'Make the Parked Threads section a sidebar. Cards do not need to be quite as huge either.'"
         }
       ],
       "created": "2026-05-11T00:00:00Z",

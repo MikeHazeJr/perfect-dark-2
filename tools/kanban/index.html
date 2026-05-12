@@ -188,43 +188,70 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .add-pillar-row{display:flex;align-items:center;gap:9px}
 .add-pillar-row input[type="color"]{width:38px;height:32px;border:1px solid #cbd5e1;border-radius:4px;padding:2px;cursor:pointer}
 
-/* Tabs across the top */
-#tabs{background:#0f172a;padding:0 18px;display:flex;gap:0;flex-shrink:0;border-bottom:1px solid #1e293b}
+/* Tabs across the top (Active Kanban + Bug Tracker) */
+#tabs{background:#0f172a;padding:0 18px;display:flex;gap:0;flex-shrink:0;border-bottom:1px solid #1e293b;align-items:center}
 .tab-btn{padding:9px 16px;background:transparent;border:none;color:#64748b;font-family:inherit;font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;border-bottom:2px solid transparent;transition:color 0.15s,border-color 0.15s}
 .tab-btn:hover{color:#cbd5e1}
 .tab-btn.active{color:#38bdf8;border-bottom-color:#38bdf8}
-.tab-banner{padding:8px 14px;background:#0c4a6e;color:#e0f2fe;font-size:0.78rem;display:none;align-items:center;gap:10px;flex-shrink:0}
+.tab-banner{padding:7px 14px;background:#0c4a6e;color:#e0f2fe;font-size:0.76rem;display:none;align-items:center;gap:10px;flex-shrink:0}
 .tab-banner.show{display:flex}
 .tab-banner button{margin-left:auto}
 
-/* Panel containers */
-.panel{flex:1;overflow:auto;display:none;padding:14px 18px}
+/* Main area: left = active tab panel, right = parked sidebar */
+#main-area{display:flex;flex-direction:row;flex:1;min-height:0;overflow:hidden}
+
+/* Panel containers (kanban + bugs only) */
+.panel{flex:1;min-width:0;overflow:auto;display:none;padding:14px 18px}
 .panel.active{display:block}
-.panel-header{display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap}
-.panel-title{font-size:0.9rem;font-weight:800;color:#e2e8f0;letter-spacing:0.04em;text-transform:uppercase}
-.panel-count{color:#94a3b8;font-size:0.78rem}
+.panel#panel-kanban{padding:0;display:none;flex-direction:column}
+.panel#panel-kanban.active{display:flex}
+.panel-header{display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+.panel-title{font-size:0.86rem;font-weight:800;color:#e2e8f0;letter-spacing:0.04em;text-transform:uppercase}
+.panel-count{color:#94a3b8;font-size:0.74rem}
 .panel-count .ready-n{color:#22c55e;font-weight:800}
 .panel-count .stale-n{color:#f59e0b;font-weight:700}
 .panel-filters{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-left:auto}
-.filter-chip{padding:3px 10px;border-radius:12px;border:1px solid #334155;background:transparent;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;font-family:inherit}
+.filter-chip{padding:2px 9px;border-radius:11px;border:1px solid #334155;background:transparent;color:#94a3b8;cursor:pointer;font-size:0.68rem;font-weight:600;font-family:inherit}
 .filter-chip:hover{border-color:#64748b;color:#cbd5e1}
 .filter-chip.active{background:#3b82f6;border-color:#3b82f6;color:white}
-.filter-sel{padding:4px 8px;border:1px solid #334155;background:#1e293b;color:#cbd5e1;border-radius:6px;font-size:0.72rem;font-family:inherit}
+.filter-sel{padding:3px 7px;border:1px solid #334155;background:#1e293b;color:#cbd5e1;border-radius:5px;font-size:0.7rem;font-family:inherit}
 
-/* Parked rows + bug rows share the table-row look */
-.row-section{margin-bottom:14px}
-.row-section-head{font-size:0.7rem;font-weight:800;color:#94a3b8;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;padding:5px 8px;background:rgba(148,163,184,0.05);border-radius:5px}
-.row-section.ready .row-section-head{color:#22c55e;background:rgba(34,197,94,0.08)}
-.row-section.stale .row-section-head{color:#f59e0b;background:rgba(245,158,11,0.08)}
-.row{background:#1e293b;border-radius:7px;padding:9px 12px;margin-bottom:5px;border-left:4px solid #475569;cursor:pointer;transition:background 0.12s,transform 0.1s,border-color 0.18s,box-shadow 0.4s}
+/* Parked sidebar (right side, collapsible) */
+#parked-sidebar{width:300px;flex-shrink:0;background:#0c1426;border-left:1px solid #1e293b;display:flex;flex-direction:column;overflow:hidden;transition:width 0.18s ease,opacity 0.14s ease}
+#parked-sidebar.collapsed{width:0;opacity:0;pointer-events:none;border-left:none}
+.sb-head{padding:9px 12px;background:#1e293b;display:flex;align-items:center;gap:8px;border-bottom:1px solid #1e293b;flex-shrink:0}
+.sb-title{font-size:0.74rem;font-weight:800;color:#e2e8f0;letter-spacing:0.06em;text-transform:uppercase}
+.sb-counts{font-size:0.66rem;color:#94a3b8;margin-left:auto}
+.sb-counts .ready-n{color:#22c55e;font-weight:800}
+.sb-counts .stale-n{color:#f59e0b;font-weight:700}
+.sb-close{background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:2px 6px;font-size:0.95rem;line-height:1}
+.sb-close:hover{color:#e2e8f0}
+.sb-filters{padding:7px 10px;display:flex;gap:5px;flex-wrap:wrap;align-items:center;border-bottom:1px solid #1e293b;flex-shrink:0;background:#0f172a}
+.sb-filters .filter-sel{font-size:0.66rem;padding:2px 5px}
+.sb-filters .filter-chip{padding:2px 8px;font-size:0.66rem}
+.sb-filters .btn-sm{padding:2px 7px;font-size:0.66rem}
+.sb-list{flex:1;overflow:auto;padding:7px 9px}
+
+/* Header sidebar-toggle button */
+.sb-toggle{position:relative;padding:5px 11px;border:1px solid #334155;background:#0f172a;color:#94a3b8;border-radius:6px;cursor:pointer;font-family:inherit;font-size:0.72rem;font-weight:600}
+.sb-toggle:hover{color:#e2e8f0;border-color:#475569}
+.sb-toggle .sb-toggle-badge{display:inline-block;margin-left:6px;padding:0 6px;border-radius:9px;background:#22c55e;color:#0f172a;font-size:0.62rem;font-weight:800;line-height:1.4}
+.sb-toggle .sb-toggle-badge.zero{background:#334155;color:#94a3b8}
+
+/* Rows: compact density (used in sidebar + in bugs panel) */
+.row-section{margin-bottom:9px}
+.row-section-head{font-size:0.62rem;font-weight:800;color:#94a3b8;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:4px;padding:3px 7px;background:rgba(148,163,184,0.06);border-radius:4px}
+.row-section.ready .row-section-head{color:#22c55e;background:rgba(34,197,94,0.1)}
+.row-section.stale .row-section-head{color:#f59e0b;background:rgba(245,158,11,0.1)}
+.row{background:#1e293b;border-radius:5px;padding:5px 8px;margin-bottom:3px;border-left:3px solid #475569;cursor:pointer;transition:background 0.12s,border-color 0.18s,box-shadow 0.4s;font-size:0.74rem}
 .row:hover{background:#293548}
 .row.ready{border-left-color:#22c55e;animation:readyPulse 1.4s ease-out 1}
-@keyframes readyPulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,0.55)}100%{box-shadow:0 0 0 12px rgba(34,197,94,0)}}
+@keyframes readyPulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,0.55)}100%{box-shadow:0 0 0 10px rgba(34,197,94,0)}}
 .row.stale{border-left-color:#f59e0b}
-.row-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.row-title{font-size:0.82rem;font-weight:600;color:#e2e8f0;flex:1;min-width:200px}
-.row-meta{display:flex;align-items:center;gap:6px;font-size:0.68rem;color:#94a3b8;flex-wrap:wrap}
-.row-meta .badge{padding:1px 7px;border-radius:8px;font-weight:700;font-size:0.62rem;letter-spacing:0.04em;text-transform:uppercase}
+.row-top{display:flex;align-items:center;gap:6px}
+.row-title{font-size:0.74rem;font-weight:600;color:#e2e8f0;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.35}
+.row-meta{display:flex;align-items:center;gap:4px;font-size:0.62rem;color:#94a3b8;flex-shrink:0}
+.row-meta .badge{padding:0 5px;border-radius:6px;font-weight:700;font-size:0.56rem;letter-spacing:0.04em;text-transform:uppercase;line-height:1.45}
 .badge-pillar{background:rgba(148,163,184,0.18);color:#cbd5e1}
 .badge-ready{background:#22c55e;color:#0f172a}
 .badge-stale{background:#f59e0b;color:#0f172a}
@@ -236,16 +263,28 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .badge-status-triaged{background:#f59e0b;color:#0f172a}
 .badge-status-fix-pending-verification{background:#3b82f6;color:white}
 .badge-status-fixed{background:#22c55e;color:#0f172a}
-.row-rc{color:#94a3b8;font-size:0.72rem;margin-top:4px;font-style:italic}
-.row-actions{display:flex;gap:5px;margin-top:7px}
-.row-actions .btn{padding:3px 9px;font-size:0.7rem}
-.row-detail{margin-top:9px;padding:9px 11px;background:#0f172a;border-radius:5px;display:none;border:1px solid #1e293b}
+.row-rc{color:#94a3b8;font-size:0.64rem;margin-top:2px;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row-actions{display:none;gap:3px;margin-top:5px}
+.row.expanded .row-actions{display:flex;flex-wrap:wrap}
+.row-actions .btn-icon{padding:2px 5px;background:transparent;border:1px solid #334155;color:#cbd5e1;border-radius:4px;cursor:pointer;font-family:inherit;font-size:0.66rem;line-height:1.4}
+.row-actions .btn-icon:hover{background:#3b82f6;border-color:#3b82f6;color:white}
+.row-actions .btn-icon.danger{color:#fca5a5;border-color:#7f1d1d}
+.row-actions .btn-icon.danger:hover{background:#ef4444;border-color:#ef4444;color:white}
+.row-actions .btn-icon.primary{color:#bae6fd;border-color:#1e40af}
+.row-actions .btn-icon.primary:hover{background:#3b82f6;border-color:#3b82f6;color:white}
+.row-detail{margin-top:6px;padding:8px 10px;background:#0f172a;border-radius:4px;display:none;border:1px solid #1e293b;font-size:0.74rem;line-height:1.45}
 .row.expanded .row-detail{display:block}
-.row-detail pre{white-space:pre-wrap;font-size:0.72rem;color:#cbd5e1;line-height:1.45;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+.row-detail pre{white-space:pre-wrap;font-size:0.7rem;color:#cbd5e1;line-height:1.45;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;margin-top:2px}
 .row-detail a{color:#38bdf8;text-decoration:none}
 .row-detail a:hover{text-decoration:underline}
-.row-detail .detail-row{margin-bottom:5px;font-size:0.72rem;color:#cbd5e1}
-.row-detail .detail-label{color:#64748b;font-weight:700;margin-right:6px;text-transform:uppercase;font-size:0.62rem;letter-spacing:0.04em}
+.row-detail .detail-row{margin-bottom:5px;font-size:0.7rem;color:#cbd5e1}
+.row-detail .detail-label{color:#64748b;font-weight:700;margin-right:5px;text-transform:uppercase;font-size:0.58rem;letter-spacing:0.04em;display:block;margin-bottom:2px}
+.row-detail .detail-row.inline .detail-label{display:inline;margin-bottom:0;margin-right:5px}
+
+/* Bug panel rows wrap their multi-status flip buttons in a compact strip */
+.row.bug-row .row-meta{font-size:0.62rem}
+.row.bug-row .row-top{gap:5px}
+.row.bug-row .row-id{font-weight:800;color:#cbd5e1;font-family:ui-monospace,Consolas,monospace;font-size:0.7rem;margin-right:2px;flex-shrink:0}
 
 /* Context menu (right-click on a kanban card) */
 #ctx-menu{position:fixed;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:4px 0;z-index:300;box-shadow:0 8px 24px rgba(0,0,0,0.55);display:none;min-width:170px}
@@ -279,49 +318,31 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
   <h1>PD2 Dev Window</h1>
   <span id="save-status"></span>
   <div id="header-right">
+    <button class="sb-toggle" id="sb-toggle-btn" onclick="toggleParkedSidebar()" title="Show/hide parked threads">
+      Parked <span class="sb-toggle-badge zero" id="sb-toggle-badge">0</span>
+    </button>
     <button class="btn btn-ghost" onclick="openSettings()">Settings</button>
   </div>
 </div>
 
 <div id="tabs">
   <button class="tab-btn active" data-tab="kanban" onclick="switchTab('kanban')">Active Kanban</button>
-  <button class="tab-btn" data-tab="parked" onclick="switchTab('parked')">Parked Threads <span id="parked-tab-count" style="opacity:0.7"></span></button>
   <button class="tab-btn" data-tab="bugs" onclick="switchTab('bugs')">Bug Tracker <span id="bugs-tab-count" style="opacity:0.7"></span></button>
 </div>
 
 <div id="ready-banner" class="tab-banner">
   <span id="ready-banner-text"></span>
-  <button class="btn btn-primary btn-sm" onclick="switchTab('parked')">Review</button>
+  <button class="btn btn-primary btn-sm" onclick="openParkedSidebar()">Review</button>
   <button class="btn btn-ghost btn-sm" onclick="dismissReadyBanner()">Dismiss</button>
 </div>
 
-<div id="panel-kanban" class="panel active" style="padding:0;display:flex;flex-direction:column">
-  <div id="filters"></div>
-  <div id="board"></div>
-</div>
-
-<div id="panel-parked" class="panel">
-  <div class="panel-header">
-    <span class="panel-title">Parked Threads</span>
-    <span class="panel-count" id="parked-count"></span>
-    <div class="panel-filters">
-      <select class="filter-sel" id="parked-filter-pillar" onchange="renderParked()">
-        <option value="">All pillars</option>
-      </select>
-      <select class="filter-sel" id="parked-filter-rc" onchange="renderParked()">
-        <option value="">All resume types</option>
-        <option value="dependency">Dependency</option>
-        <option value="date">Date</option>
-        <option value="manual">Manual</option>
-      </select>
-      <button class="filter-chip" id="parked-filter-stale" onclick="toggleParkedStale()">Stale only</button>
-      <button class="btn btn-ghost btn-sm" onclick="runEvaluator()">Re-evaluate</button>
-    </div>
+<div id="main-area">
+  <div id="panel-kanban" class="panel active">
+    <div id="filters"></div>
+    <div id="board"></div>
   </div>
-  <div id="parked-list"></div>
-</div>
 
-<div id="panel-bugs" class="panel">
+  <div id="panel-bugs" class="panel">
   <div class="panel-header">
     <span class="panel-title">Bug Tracker</span>
     <span class="panel-count" id="bugs-count"></span>
@@ -344,6 +365,29 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
     </div>
   </div>
   <div id="bugs-list"></div>
+  </div>
+
+  <aside id="parked-sidebar">
+    <div class="sb-head">
+      <span class="sb-title">Parked</span>
+      <span class="sb-counts" id="sb-counts"></span>
+      <button class="sb-close" onclick="toggleParkedSidebar()" title="Collapse sidebar">&rsaquo;</button>
+    </div>
+    <div class="sb-filters">
+      <select class="filter-sel" id="parked-filter-pillar" onchange="renderParked()">
+        <option value="">All pillars</option>
+      </select>
+      <select class="filter-sel" id="parked-filter-rc" onchange="renderParked()">
+        <option value="">All resume</option>
+        <option value="dependency">Dependency</option>
+        <option value="date">Date</option>
+        <option value="manual">Manual</option>
+      </select>
+      <button class="filter-chip" id="parked-filter-stale" onclick="toggleParkedStale()">Stale only</button>
+      <button class="btn btn-ghost btn-sm" onclick="runEvaluator()" title="Re-run resume + staleness evaluators">Refresh</button>
+    </div>
+    <div class="sb-list" id="parked-list"></div>
+  </aside>
 </div>
 
 <!-- Right-click context menu for kanban cards -->
@@ -1320,7 +1364,7 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// ---------- tabs + parked + bugs ----------
+// ---------- tabs + parked sidebar + bugs ----------
 
 let parkedData = null;
 let bugsData = null;
@@ -1332,11 +1376,39 @@ let parkingCardId = null;
 let expandedRows = new Set();
 let readyBannerDismissed = false;
 
+const sidebarPrefs = (() => {
+  try { return JSON.parse(localStorage.getItem('pd2kb-sidebar') || '{}'); } catch { return {}; }
+})();
+if (typeof sidebarPrefs.parkedCollapsed !== 'boolean') sidebarPrefs.parkedCollapsed = false;
+
+function saveSidebarPrefs() { localStorage.setItem('pd2kb-sidebar', JSON.stringify(sidebarPrefs)); }
+
+function applySidebarState() {
+  const sb = document.getElementById('parked-sidebar');
+  if (!sb) return;
+  sb.classList.toggle('collapsed', !!sidebarPrefs.parkedCollapsed);
+  const btn = document.getElementById('sb-toggle-btn');
+  if (btn) btn.title = sidebarPrefs.parkedCollapsed ? 'Show parked threads' : 'Hide parked threads';
+}
+
+function toggleParkedSidebar() {
+  sidebarPrefs.parkedCollapsed = !sidebarPrefs.parkedCollapsed;
+  saveSidebarPrefs();
+  applySidebarState();
+  if (!sidebarPrefs.parkedCollapsed) renderParked();
+}
+
+function openParkedSidebar() {
+  sidebarPrefs.parkedCollapsed = false;
+  saveSidebarPrefs();
+  applySidebarState();
+  renderParked();
+}
+
 function switchTab(name) {
   activeTab = name;
   for (const b of document.querySelectorAll('.tab-btn')) b.classList.toggle('active', b.dataset.tab === name);
-  for (const p of document.querySelectorAll('.panel')) p.classList.toggle('active', p.id === 'panel-' + name);
-  if (name === 'parked') renderParked();
+  for (const p of document.querySelectorAll('#main-area > .panel')) p.classList.toggle('active', p.id === 'panel-' + name);
   if (name === 'bugs') renderBugs();
 }
 
@@ -1345,7 +1417,7 @@ async function loadParked() {
   parkedData = await r.json();
   refreshTabCounts();
   refreshReadyBanner();
-  if (activeTab === 'parked') renderParked();
+  if (!sidebarPrefs.parkedCollapsed) renderParked();
 }
 
 async function loadBugs() {
@@ -1359,7 +1431,12 @@ function refreshTabCounts() {
   if (parkedData) {
     const total = (parkedData.parked || []).length;
     const ready = (parkedData.parked || []).filter(e => e.ready_to_resume).length;
-    document.getElementById('parked-tab-count').textContent = `(${total}${ready ? ' / ' + ready + ' ready' : ''})`;
+    const badge = document.getElementById('sb-toggle-badge');
+    if (badge) {
+      badge.textContent = ready > 0 ? String(ready) : String(total);
+      badge.classList.toggle('zero', ready === 0);
+      badge.title = ready > 0 ? `${ready} ready to resume` : `${total} parked`;
+    }
   }
   if (bugsData) {
     const total = (bugsData.bugs || []).length;
@@ -1396,6 +1473,7 @@ function pillarById(id) { return (state && state.pillars || []).find(p => p.id =
 function renderParked() {
   if (!parkedData) return;
   const list = document.getElementById('parked-list');
+  if (!list) return;
   list.innerHTML = '';
 
   // Update pillar filter options
@@ -1425,15 +1503,18 @@ function renderParked() {
   const totalAll = (parkedData.parked || []).length;
   const readyAll = (parkedData.parked || []).filter(e => e.ready_to_resume).length;
   const staleAll = (parkedData.parked || []).filter(e => e.stale).length;
-  document.getElementById('parked-count').innerHTML =
-    `${totalAll} parked - <span class="ready-n">${readyAll} ready</span> - <span class="stale-n">${staleAll} stale</span>`;
+  const counts = document.getElementById('sb-counts');
+  if (counts) {
+    counts.innerHTML = `${totalAll} <span class="ready-n">${readyAll}r</span> <span class="stale-n">${staleAll}s</span>`;
+    counts.title = `${totalAll} parked - ${readyAll} ready - ${staleAll} stale`;
+  }
 
   if (entries.length === 0) {
     list.innerHTML = '<div class="empty-state">No parked threads match the current filters.</div>';
     return;
   }
 
-  if (ready.length > 0) list.appendChild(buildParkedSection('Ready to Resume', ready, 'ready'));
+  if (ready.length > 0) list.appendChild(buildParkedSection('Ready', ready, 'ready'));
   const others = rest.filter(e => !e.stale);
   if (others.length > 0) list.appendChild(buildParkedSection('Parked', others, ''));
   if (stale.length > 0) list.appendChild(buildParkedSection('Stale', stale, 'stale'));
@@ -1459,6 +1540,7 @@ function buildParkedRow(entry) {
   const top = document.createElement('div');
   top.className = 'row-top';
   const t = document.createElement('div'); t.className = 'row-title'; t.textContent = entry.title || entry.id;
+  t.title = entry.title || entry.id;
   top.appendChild(t);
 
   const meta = document.createElement('div'); meta.className = 'row-meta';
@@ -1472,15 +1554,10 @@ function buildParkedRow(entry) {
     const b = document.createElement('span'); b.className = 'badge badge-pillar'; b.textContent = entry.pillar;
     meta.appendChild(b);
   }
-  const idle = daysSince(entry.parked_date);
-  if (idle !== null) {
-    const id = document.createElement('span'); id.textContent = `${idle}d parked`; meta.appendChild(id);
-  }
   if (entry.ready_to_resume) {
     const b = document.createElement('span'); b.className = 'badge badge-ready'; b.textContent = 'Ready';
     meta.appendChild(b);
-  }
-  if (entry.stale && !entry.ready_to_resume) {
+  } else if (entry.stale) {
     const b = document.createElement('span'); b.className = 'badge badge-stale'; b.textContent = 'Stale';
     meta.appendChild(b);
   }
@@ -1488,15 +1565,16 @@ function buildParkedRow(entry) {
   row.appendChild(top);
 
   const rc = entry.resume_condition || {};
+  const idle = daysSince(entry.parked_date);
   const rcLine = document.createElement('div'); rcLine.className = 'row-rc';
-  rcLine.textContent = 'Resume: ' + describeRC(rc);
+  rcLine.textContent = (idle != null ? `${idle}d - ` : '') + describeRC(rc);
+  rcLine.title = `Parked ${entry.parked_date} - Resume: ${describeRC(rc)}`;
   row.appendChild(rcLine);
 
   const actions = document.createElement('div'); actions.className = 'row-actions';
-  const unparkBtn = mkBtn('Unpark', 'btn-primary', e => { e.stopPropagation(); unparkRow(entry.id); });
-  const completeBtn = mkBtn('Mark complete', 'btn-ghost', e => { e.stopPropagation(); completeRow(entry.id); });
-  const deleteBtn = mkBtn('Delete', 'btn-danger', e => { e.stopPropagation(); deleteRow(entry.id); });
-  actions.appendChild(unparkBtn); actions.appendChild(completeBtn); actions.appendChild(deleteBtn);
+  actions.appendChild(mkIconBtn('Unpark', 'primary', 'Restore to active kanban', e => { e.stopPropagation(); unparkRow(entry.id); }));
+  actions.appendChild(mkIconBtn('Done', '', 'Mark complete (archive without restoring)', e => { e.stopPropagation(); completeRow(entry.id); }));
+  actions.appendChild(mkIconBtn('Del', 'danger', 'Delete (permanent)', e => { e.stopPropagation(); deleteRow(entry.id); }));
   row.appendChild(actions);
 
   const detail = document.createElement('div'); detail.className = 'row-detail';
@@ -1552,6 +1630,12 @@ function mkBtn(label, cls, handler) {
   const b = document.createElement('button');
   b.className = 'btn ' + cls + ' btn-sm';
   b.textContent = label; b.onclick = handler; return b;
+}
+
+function mkIconBtn(label, cls, tooltip, handler) {
+  const b = document.createElement('button');
+  b.className = 'btn-icon' + (cls ? ' ' + cls : '');
+  b.textContent = label; b.title = tooltip || label; b.onclick = handler; return b;
 }
 
 function toggleParkedStale() {
@@ -1628,25 +1712,37 @@ function renderBugs() {
 
 function buildBugRow(bug) {
   const row = document.createElement('div');
-  row.className = 'row';
+  row.className = 'row bug-row';
   if (expandedRows.has(bug.id)) row.classList.add('expanded');
+  // Severity drives the left border tint (matches the parked row treatment).
+  if (bug.severity === 'blocker') row.style.borderLeftColor = '#ef4444';
+  else if (bug.severity === 'major') row.style.borderLeftColor = '#f97316';
+  else row.style.borderLeftColor = '#64748b';
 
   const top = document.createElement('div'); top.className = 'row-top';
-  const t = document.createElement('div'); t.className = 'row-title';
-  t.textContent = `${bug.id} - ${bug.title || ''}`;
+  const idEl = document.createElement('span'); idEl.className = 'row-id'; idEl.textContent = bug.id;
+  top.appendChild(idEl);
+  const t = document.createElement('div'); t.className = 'row-title'; t.textContent = bug.title || '';
+  t.title = bug.title || '';
   top.appendChild(t);
 
   const meta = document.createElement('div'); meta.className = 'row-meta';
-  const sev = document.createElement('span'); sev.className = 'badge badge-sev-' + (bug.severity || 'minor'); sev.textContent = bug.severity || 'minor';
+  const sev = document.createElement('span'); sev.className = 'badge badge-sev-' + (bug.severity || 'minor'); sev.textContent = (bug.severity || 'minor').slice(0,3).toUpperCase();
+  sev.title = bug.severity || 'minor';
   meta.appendChild(sev);
-  const st = document.createElement('span'); st.className = 'badge badge-status-' + (bug.status || 'open'); st.textContent = bug.status || 'open';
+  const st = document.createElement('span'); st.className = 'badge badge-status-' + (bug.status || 'open');
+  st.textContent = statusShort(bug.status || 'open');
+  st.title = bug.status || 'open';
   meta.appendChild(st);
   if (bug.linked_test) {
-    const lt = document.createElement('span'); lt.textContent = 'test-linked'; meta.appendChild(lt);
+    const lt = document.createElement('span'); lt.textContent = 'T'; lt.title = 'Linked test: ' + bug.linked_test;
+    lt.className = 'badge'; lt.style.background = '#0e7490'; lt.style.color = 'white';
+    meta.appendChild(lt);
   }
   const rb = (bug.related_bugs || []).length;
   if (rb > 0) {
-    const r = document.createElement('span'); r.textContent = `${rb} related`; meta.appendChild(r);
+    const r = document.createElement('span'); r.textContent = `+${rb}`; r.title = `${rb} related: ${(bug.related_bugs||[]).join(', ')}`;
+    meta.appendChild(r);
   }
   top.appendChild(meta);
   row.appendChild(top);
@@ -1654,9 +1750,9 @@ function buildBugRow(bug) {
   const actions = document.createElement('div'); actions.className = 'row-actions';
   for (const next of ['open','triaged','fix-pending-verification','fixed']) {
     if (next === bug.status) continue;
-    actions.appendChild(mkBtn('-> ' + next, 'btn-ghost', e => { e.stopPropagation(); flipBugStatus(bug.id, next); }));
+    actions.appendChild(mkIconBtn(statusShort(next), '', 'Flip status to ' + next, e => { e.stopPropagation(); flipBugStatus(bug.id, next); }));
   }
-  actions.appendChild(mkBtn('Link test', 'btn-ghost', e => { e.stopPropagation(); linkBugTest(bug.id, bug.linked_test); }));
+  actions.appendChild(mkIconBtn('Link', '', 'Link or edit linked smoke-verify test', e => { e.stopPropagation(); linkBugTest(bug.id, bug.linked_test); }));
   row.appendChild(actions);
 
   const detail = document.createElement('div'); detail.className = 'row-detail';
@@ -1708,6 +1804,16 @@ function buildBugRow(bug) {
     row.classList.toggle('expanded');
   };
   return row;
+}
+
+function statusShort(s) {
+  switch (s) {
+    case 'open': return 'open';
+    case 'triaged': return 'tri';
+    case 'fix-pending-verification': return 'pending';
+    case 'fixed': return 'fixed';
+    default: return s || '?';
+  }
 }
 
 async function flipBugStatus(bid, status) {
@@ -1859,6 +1965,8 @@ async function confirmPark() {
 }
 
 // ---------- boot ----------
+
+applySidebarState();
 
 Promise.all([
   loadState(),

@@ -1,7 +1,9 @@
 # Parked Threads and Bug Tracker
 
 > Status: SHIPPED 2026-05-11 (worktree `quirky-greider-71722d`). Data layer + UI surfaces + callable evaluators
-> landed as one unit. Daily-flow orchestrator (next session) consumes the CLIs documented in Section 7.
+> landed as one unit. UI refinement same day: Parked moves to a right-side collapsible sidebar; compact
+> row density on parked + bugs. Daily-flow orchestrator (next session) consumes the CLIs documented in
+> Section 7.
 
 ---
 
@@ -200,43 +202,59 @@ write both files atomically -> reload UI
 ## 4. Dev-window UI map
 
 ```
-+----------------------------------------------------------+
-| PD2 Dev Window                                  Settings |
-+----------------------------------------------------------+
-| [Active Kanban] [Parked Threads (N / M ready)] [Bug Tracker (O/T)] |
-+----------------------------------------------------------+
-| (Ready banner appears here when M ready > 0)             |
-+----------------------------------------------------------+
-| panel: kanban  | panel: parked  | panel: bugs            |
-| (pillar filter | (pillar / rc-  | (status / severity     |
-|  + columns)    |  type / stale  |  filter + File bug)    |
-|                |  filter + Re-  |                        |
-|                |  evaluate btn) |                        |
-|                |                |                        |
-| right-click    | Ready section  | severity-sorted        |
-| on a card =>   | pinned top     | (blockers first)       |
-| context menu   | (green outline | per-row status flip    |
-| with Park, Open|  + pulse anim) | actions                |
-| card, Cycle    | Parked section | detail = repro,        |
-| flag           | Stale section  | root-cause links,      |
-|                |                | linked test, related   |
-+----------------+----------------+------------------------+
++--------------------------------------------------------------+
+| PD2 Dev Window                          [Parked Nr] Settings |
++--------------------------------------------------------------+
+| [Active Kanban] [Bug Tracker (O/T)]                          |
++--------------------------------------------------------------+
+| (Ready banner appears here when ready > 0)                   |
++----------------------------------+---------------------------+
+| panel: kanban OR panel: bugs     | parked sidebar (~300px)   |
+|                                  |                           |
+| Active Kanban: columns + filters | sb-head: title + counts + |
+| Bug Tracker: severity-sorted     |          collapse arrow   |
+|   rows (blockers first), status  | sb-filters: pillar / rc / |
+|   filter + File bug button       |          stale-only / ref |
+|                                  | sb-list: Ready / Parked / |
+| right-click on a card =>         |          Stale sections   |
+|   context menu (Park / Open /    |   (each row collapsed by  |
+|   Cycle flag)                    |    default; click to      |
+|                                  |    expand for actions +   |
+|                                  |    detail)                |
++----------------------------------+---------------------------+
 ```
 
 Surface notes:
 
 - **Active Kanban**: unchanged except a `contextmenu` handler on each card surfaces Park / Open / Flag.
   Per the design call, no per-card Park button (avoids clutter).
-- **Parked Threads**: three sections (Ready / Parked / Stale). Header counter `N parked - M ready -
-  K stale` with `M` bolded green. Filters: pillar, resume type, stale-only toggle. Re-evaluate button
-  runs the evaluator manually. Click a row to expand the detail panel (snapshot + context refs +
-  tags).
-- **Bug Tracker**: severity sort (blockers first), default filter hides `fixed`. Per-bug row shows id,
-  title, severity badge, status badge, test-linked indicator, related-bug count. Detail expands to
-  show repro, root-cause file:line links, linked test, fix commit, related bugs, x_notes.
-- **Ready banner**: shows at the top of the dev window whenever the loaded parked.json contains any
-  entries with `ready_to_resume: true`. Single Review button switches to the parked tab. Dismiss
-  hides it for the session.
+- **Parked sidebar**: right-side collapsible panel. Width ~300px expanded; 0px collapsed. Toggle
+  button in the header (label `Parked` + ready-or-total badge). Collapse arrow in the sidebar header.
+  Collapsed state persists in `localStorage` key `pd2kb-sidebar`. Three sections inside the list:
+  `Ready` (pinned top, green border + pulse animation when an entry first turns ready), `Parked`
+  (default), `Stale` (yellow border). Header counter `N Mr Ks` (total, ready, stale). Filters
+  inline: pillar dropdown, resume-type dropdown, stale-only chip, Refresh button (runs the evaluator
+  manually). Rows are compact one-liners; click to expand for actions + detail.
+- **Bug Tracker**: severity sort (blockers first), default filter hides `fixed`. Per-bug row shows
+  id, ellipsis-clipped title, severity badge (3-letter), status badge (short label), test-linked
+  indicator (T), related-bug count (+N). Left-border tint matches severity. Click to expand for
+  status-flip icon buttons, Link test, and the detail panel (repro, root-cause file:line links,
+  linked test, fix commit, related bugs, x_notes).
+- **Ready banner**: shows at the top of the main area whenever the loaded parked.json contains any
+  entries with `ready_to_resume: true`. Single Review button opens the parked sidebar (in case Mike
+  has it collapsed). Dismiss hides it for the session.
+
+### 4.1 Compact-row treatment (parked + bugs)
+
+Both surfaces use the same density classes:
+
+- Row padding 5px 8px (was 9px 12px).
+- Title 0.74rem with `white-space: nowrap; overflow: hidden; text-overflow: ellipsis` and the full
+  title on hover via `title` attribute.
+- Meta badges 0.56rem with abbreviated labels (`BLO` `MAJ` `MIN`; `open` `tri` `pending` `fixed`).
+- Action buttons hidden until the row is expanded; condensed to `btn-icon` style (short text + tooltip).
+- Detail panel stays at the original size (font 0.7rem, normal line-height) so the drill-down
+  remains comfortable to read.
 
 ---
 
