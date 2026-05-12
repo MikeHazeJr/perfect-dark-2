@@ -440,18 +440,32 @@
     },
     {
       "id": "c027",
-      "title": "Catalog universality pivot Steps 4-9",
-      "description": "Steps 4-9 of the catalog universality pivot. Post-Phase-3 migration cleanup pass.",
+      "title": "Catalog universality pivot post-Phase-3 cleanup",
+      "description": "Catalog universality pivot Steps 4 + 5 plus post-pivot triage, BYOR completion, walker-after-emitters reorder, and BYOR post-boot AV fix. Original title 'Steps 4-9' was a misread of the schema design doc, which only enumerates Steps 0-5; everything in scope shipped 2026-05-03.",
       "pillar": "catalog",
       "column": "active",
       "order": 1000,
       "priority": 2,
-      "notes": "",
+      "notes": "All shipped 2026-05-03 across worktrees affectionate-hawking-f01503 (Step 4), hungry-elgamal-e991de (Step 5), gallant-booth-6f996f (B-318/B-319/B-320/B-321/B-322 triage), focused-poitras-97c1d4 (BYOR completion), gifted-bohr-62309b (walker-after-emitters + B-324/B-325/B-326), competent-saha-a202bb (B-323 challenge AV).",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z",
-      "pending_completion": null
+      "updated": "2026-05-12T22:00:00Z",
+      "pending_completion": {
+        "marked_at": "2026-05-12T22:00:00Z",
+        "marked_by": "claude-code-main-checkout-sprint-c027c036",
+        "summary": "Card was already done; closing it out. Catalog Universality pivot (Steps 0-5) and all post-pivot work shipped 2026-05-03. The 'Steps 4-9' phrasing in the original title was a misread of context/designs/catalog/universality-pivot-schemas.md, which only defines Steps 0-5 plus Section 5.6 retirement. Steps 0-3 were shipped pre-card-creation; Step 4 (universal walker became registration path) shipped at affectionate-hawking-f01503; Step 5 (loader_pdbase -> loader_pool, .pdbase tier retired) shipped at hungry-elgamal-e991de with Catalog Universality COMPLETE. Post-pivot triage B-318/B-319/B-320/B-321/B-322 shipped at gallant-booth-6f996f. BYOR Completion (authoring source-of-truth tables in port/src/*data_authored.c, 5 files, 6 emitters refactored, 6 catalog files migrated) shipped at focused-poitras-97c1d4. Walker-after-emitters reorder + B-324/B-325/B-326 (boot AV from empty pool race) shipped at gifted-bohr-62309b. B-323 (BYOR post-boot challengesInit AV; N64-vs-PC stride mismatch in mpconfig/mpstrings reads) shipped at competent-saha-a202bb.",
+        "evidence_refs": [
+          "context/tasks.md section 2a Catalog Universality Pivot in flight (Step 5 SHIPPED)",
+          "context/tasks.md section 2b post-pivot triage SHIPPED",
+          "context/tasks.md section 2c BYOR Completion SHIPPED",
+          "context/tasks.md section 2d BYOR post-boot AV B-323 SHIPPED",
+          "context/tasks.md section 2e walker-after-emitters reorder + Dev Window ROM placement SHIPPED",
+          "context/designs/catalog/universality-pivot-schemas.md section 5 Implementation hooks",
+          "context/audits/catalog-universality-pivot-plan-2026-05-02.md",
+          "context/pillars/catalog.md"
+        ]
+      }
     },
     {
       "id": "c028",
