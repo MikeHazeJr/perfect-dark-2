@@ -1670,24 +1670,60 @@
       "title": "Dev Window v2 Claude CLI panel + sprint-report contract",
       "description": "New CLI tab in Dev Window v2 that composes well-formed prompts for Claude Code CLI sessions, scoped to selected kanban cards, with mandatory sprint-report output for the Dispatch orchestrator to consume on its next turn. Six action buttons (Goal, Plan, Investigate, Bug Fix, Review, Custom) drive prompt wrapping; a multi-select card list pulled live from /api/state filters to active+backlog; a read-only composed-prompt preview shows the literal text that will be sent; mode radios pick Interactive (new console + clipboard handoff) or Headless (-p, output streamed to Log tab). Closes the orchestrator-blindness gap by giving CLI sessions a known file surface at .claude/sprint-reports/ that the Dispatch session reads, verifies against kanban + git state, then disposes once verified.",
       "pillar": "tooling",
-      "column": "active",
-      "order": 158000,
+      "column": "done",
+      "order": 159000,
       "priority": 2,
       "notes": "Files touched: devtools/dev-window-v2/dev-window-v2.ps1 (new CLI TabItem in XAML ~180 lines + Section 14a ~290 lines of helpers + Section 17 event wiring + Section 21 init hook + Ensure-CliSprintReportDirs creates archive/ on startup), context/designs/devwindow-claude-cli-panel.md (NEW, SENTINEL-terminated), .claude/sprint-reports/sprint-c125-demo.md (NEW canonical sprint-report schema demo, SENTINEL-terminated), .claude/sprint-reports/archive/.gitkeep (NEW, archive dir for consumed reports). Mike's mid-flight directive (2026-05-12): sprint reports are ARCHIVED (moved into .claude/sprint-reports/archive/) by the orchestrator after verification, NEVER deleted - they have long-term reference value. Probes: .claude/scratch/probe-cli-panel-xaml.ps1 (PASS, 20 named elements), probe-cli-panel-compose.ps1 (PASS, 16 assertions + em-dash hygiene), probe-cli-panel-launch.ps1 (PASS, 8s smoke launch). PowerShell AST parse clean.",
       "flag": null,
       "flagged_at": null,
-      "pending_completion": {
-        "marked_at": "2026-05-12T15:05:00Z",
-        "marked_by": "claude-code-cli-session-adoring-turing-a53052",
-        "summary": "Claude CLI panel landed in Dev Window v2 with composed-prompt preview, card-aware context, Interactive + Headless launch modes, and sprint-report contract for orchestrator consumption (archive-not-delete per Mike's mid-flight directive).",
-        "evidence_refs": [
-          "context/designs/devwindow-claude-cli-panel.md",
-          ".claude/sprint-reports/sprint-c125-demo.md",
-          "devtools/dev-window-v2/dev-window-v2.ps1"
-        ]
-      },
+      "pending_completion": null,
       "created": "2026-05-12T15:00:00Z",
-      "updated": "2026-05-12T15:05:00Z"
+      "updated": "2026-05-12T19:21:27Z"
+    },
+    {
+      "id": "c3738",
+      "title": "Skedar surface-normal locomotion (Slices 4-5)",
+      "pillar": "engine",
+      "column": "active",
+      "order": 1000,
+      "priority": 3,
+      "description": "Slices 1+2 (chr-struct plumbing + visual tilt) shipped at dev 0d08b4cc. Slice 3 (MP sync) shipped at dev ae705aa6. Slices 4 (gravity-flip on edge transitions) and 5 (aim projection through world space) deferred pending Mike's playtest gate on the foundation. Slice 6 (GPU parity in compute kernel) remains deferred to gpu-swarm-bot-pipeline scope.",
+      "notes": "",
+      "subtasks": [],
+      "flag": null,
+      "flagged_at": null,
+      "created": "2026-05-01",
+      "updated": "2026-05-12"
+    },
+    {
+      "id": "c3746",
+      "title": "Player init architectural fixes",
+      "pillar": "engine",
+      "column": "active",
+      "order": 1000,
+      "priority": 3,
+      "description": "Design draft at context/designs/in-flight/player-init-architectural-fixes.md synthesizes three audits. Matrix-cache headline bug already fixed at cafbd2ef. Remaining classes: 1.A catalog accessors return zero/default silently on miss (multiple H-* findings deduplicated). Status: draft pending Mike's greenlight before implementation.",
+      "notes": "",
+      "subtasks": [],
+      "flag": null,
+      "flagged_at": null,
+      "created": "2026-04-27",
+      "updated": "2026-05-12"
+    },
+    {
+      "id": "c3807",
+      "title": "GPU swarm benchmark debug tab (Phase 2)",
+      "pillar": "benchmarking",
+      "column": "active",
+      "order": 1000,
+      "priority": 3,
+      "description": "Phase 1 design shipped at context/designs/in-flight/gpu-swarm-and-test-scenarios.md. Phase 2 implementation gated on Mike's approval of four design calls: (a) GL compute path choice in Section F.1, (b) chr-pool ceiling in Section F.2, (c) hit-detection model in Section F.3, (d) empty-map source in Section F.4. Benchmark harness scope, not gameplay rework; existing bot handling stays intact.",
+      "notes": "",
+      "subtasks": [],
+      "flag": null,
+      "flagged_at": null,
+      "created": "2026-04-27",
+      "updated": "2026-05-12"
     }
   ]
 }

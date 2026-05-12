@@ -30,109 +30,6 @@
       "stale": false
     },
     {
-      "id": "pt-002",
-      "title": "Skedar surface-normal locomotion (Slices 4-5)",
-      "pillar": "engine",
-      "parked_date": "2026-05-01",
-      "parked_from_session": "S594h-B",
-      "last_state_snapshot": "Slices 1+2 (chr-struct plumbing + visual tilt) shipped at dev 0d08b4cc. Slice 3 (MP sync) shipped at dev ae705aa6. Slices 4 (gravity-flip on edge transitions) and 5 (aim projection through world space) deferred pending Mike's playtest gate on the foundation. Slice 6 (GPU parity in compute kernel) remains deferred to gpu-swarm-bot-pipeline scope.",
-      "resume_condition": {
-        "type": "manual",
-        "targets": null,
-        "semantics": "all-of"
-      },
-      "context_refs": [
-        "context/designs/in-flight/skedar-surface-normal-locomotion.md"
-      ],
-      "kanban_card_origin": null,
-      "last_checked": "2026-05-12",
-      "tags": [
-        "locomotion",
-        "skedar",
-        "playtest-gated"
-      ],
-      "ready_to_resume": false,
-      "stale": false
-    },
-    {
-      "id": "pt-003",
-      "title": "Char init experiments",
-      "pillar": "engine",
-      "parked_date": "2026-04-26",
-      "parked_from_session": "char-init-investigations",
-      "last_state_snapshot": "Investigation closed; findings absorbed by player-init architectural fixes design (pt-004). Three audit docs converged on a small set of architectural classes (catalog accessors returning zero-default silently, char init weapon spawn divergence opus47/sonnet46). Audit refs preserved for context if char init behavior diverges again after player-init fixes land.",
-      "resume_condition": {
-        "type": "manual",
-        "targets": null,
-        "semantics": "all-of"
-      },
-      "context_refs": [
-        "context/audits/player-init-comparison-upstream-2026-04-26.md",
-        "context/audits/char-init-weapon-spawn-comparison-opus47-2026-04-26.md",
-        "context/audits/char-init-weapon-spawn-comparison-sonnet46-2026-04-26.md"
-      ],
-      "kanban_card_origin": null,
-      "last_checked": "2026-05-12",
-      "tags": [
-        "investigation",
-        "char-init",
-        "absorbed"
-      ],
-      "ready_to_resume": false,
-      "stale": false
-    },
-    {
-      "id": "pt-004",
-      "title": "Player init architectural fixes",
-      "pillar": "engine",
-      "parked_date": "2026-04-27",
-      "parked_from_session": "mystifying-hofstadter-deca99",
-      "last_state_snapshot": "Design draft at context/designs/in-flight/player-init-architectural-fixes.md synthesizes three audits. Matrix-cache headline bug already fixed at cafbd2ef. Remaining classes: 1.A catalog accessors return zero/default silently on miss (multiple H-* findings deduplicated). Status: draft pending Mike's greenlight before implementation.",
-      "resume_condition": {
-        "type": "manual",
-        "targets": null,
-        "semantics": "all-of"
-      },
-      "context_refs": [
-        "context/designs/in-flight/player-init-architectural-fixes.md",
-        "context/audits/player-init-comparison-upstream-2026-04-26.md"
-      ],
-      "kanban_card_origin": null,
-      "last_checked": "2026-05-12",
-      "tags": [
-        "player-init",
-        "design-greenlight-pending"
-      ],
-      "ready_to_resume": false,
-      "stale": false
-    },
-    {
-      "id": "pt-005",
-      "title": "GPU swarm benchmark debug tab (Phase 2)",
-      "pillar": "benchmarking",
-      "parked_date": "2026-04-27",
-      "parked_from_session": "swarm-design-phase1",
-      "last_state_snapshot": "Phase 1 design shipped at context/designs/in-flight/gpu-swarm-and-test-scenarios.md. Phase 2 implementation gated on Mike's approval of four design calls: (a) GL compute path choice in Section F.1, (b) chr-pool ceiling in Section F.2, (c) hit-detection model in Section F.3, (d) empty-map source in Section F.4. Benchmark harness scope, not gameplay rework; existing bot handling stays intact.",
-      "resume_condition": {
-        "type": "manual",
-        "targets": null,
-        "semantics": "all-of"
-      },
-      "context_refs": [
-        "context/designs/in-flight/gpu-swarm-and-test-scenarios.md",
-        "context/designs/in-flight/gpu-swarm-bot-pipeline.md"
-      ],
-      "kanban_card_origin": null,
-      "last_checked": "2026-05-12",
-      "tags": [
-        "benchmark",
-        "gpu",
-        "design-decisions-pending"
-      ],
-      "ready_to_resume": false,
-      "stale": false
-    },
-    {
       "id": "pt-006",
       "title": "AllInOne content removal",
       "pillar": "mod-infrastructure",
@@ -188,5 +85,100 @@
       "stale": false
     }
   ],
-  "archived": []
+  "archived": [
+    {
+      "id": "pt-002",
+      "title": "Skedar surface-normal locomotion (Slices 4-5)",
+      "archived_date": "2026-05-12",
+      "archived_reason": "unparked",
+      "original": {
+        "id": "pt-002",
+        "title": "Skedar surface-normal locomotion (Slices 4-5)",
+        "pillar": "engine",
+        "parked_date": "2026-05-01",
+        "parked_from_session": "S594h-B",
+        "last_state_snapshot": "Slices 1+2 (chr-struct plumbing + visual tilt) shipped at dev 0d08b4cc. Slice 3 (MP sync) shipped at dev ae705aa6. Slices 4 (gravity-flip on edge transitions) and 5 (aim projection through world space) deferred pending Mike's playtest gate on the foundation. Slice 6 (GPU parity in compute kernel) remains deferred to gpu-swarm-bot-pipeline scope.",
+        "resume_condition": {
+          "type": "manual",
+          "targets": null,
+          "semantics": "all-of"
+        },
+        "context_refs": [
+          "context/designs/in-flight/skedar-surface-normal-locomotion.md"
+        ],
+        "kanban_card_origin": null,
+        "last_checked": "2026-05-12",
+        "tags": [
+          "locomotion",
+          "skedar",
+          "playtest-gated"
+        ],
+        "ready_to_resume": false,
+        "stale": false
+      }
+    },
+    {
+      "id": "pt-004",
+      "title": "Player init architectural fixes",
+      "archived_date": "2026-05-12",
+      "archived_reason": "unparked",
+      "original": {
+        "id": "pt-004",
+        "title": "Player init architectural fixes",
+        "pillar": "engine",
+        "parked_date": "2026-04-27",
+        "parked_from_session": "mystifying-hofstadter-deca99",
+        "last_state_snapshot": "Design draft at context/designs/in-flight/player-init-architectural-fixes.md synthesizes three audits. Matrix-cache headline bug already fixed at cafbd2ef. Remaining classes: 1.A catalog accessors return zero/default silently on miss (multiple H-* findings deduplicated). Status: draft pending Mike's greenlight before implementation.",
+        "resume_condition": {
+          "type": "manual",
+          "targets": null,
+          "semantics": "all-of"
+        },
+        "context_refs": [
+          "context/designs/in-flight/player-init-architectural-fixes.md",
+          "context/audits/player-init-comparison-upstream-2026-04-26.md"
+        ],
+        "kanban_card_origin": null,
+        "last_checked": "2026-05-12",
+        "tags": [
+          "player-init",
+          "design-greenlight-pending"
+        ],
+        "ready_to_resume": false,
+        "stale": false
+      }
+    },
+    {
+      "id": "pt-005",
+      "title": "GPU swarm benchmark debug tab (Phase 2)",
+      "archived_date": "2026-05-12",
+      "archived_reason": "unparked",
+      "original": {
+        "id": "pt-005",
+        "title": "GPU swarm benchmark debug tab (Phase 2)",
+        "pillar": "benchmarking",
+        "parked_date": "2026-04-27",
+        "parked_from_session": "swarm-design-phase1",
+        "last_state_snapshot": "Phase 1 design shipped at context/designs/in-flight/gpu-swarm-and-test-scenarios.md. Phase 2 implementation gated on Mike's approval of four design calls: (a) GL compute path choice in Section F.1, (b) chr-pool ceiling in Section F.2, (c) hit-detection model in Section F.3, (d) empty-map source in Section F.4. Benchmark harness scope, not gameplay rework; existing bot handling stays intact.",
+        "resume_condition": {
+          "type": "manual",
+          "targets": null,
+          "semantics": "all-of"
+        },
+        "context_refs": [
+          "context/designs/in-flight/gpu-swarm-and-test-scenarios.md",
+          "context/designs/in-flight/gpu-swarm-bot-pipeline.md"
+        ],
+        "kanban_card_origin": null,
+        "last_checked": "2026-05-12",
+        "tags": [
+          "benchmark",
+          "gpu",
+          "design-decisions-pending"
+        ],
+        "ready_to_resume": false,
+        "stale": false
+      }
+    }
+  ]
 }
