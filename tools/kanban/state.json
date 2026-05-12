@@ -1640,50 +1640,30 @@
       "title": "Pending-completion confirmation mechanism + banner-dock + scroll fix",
       "description": "Three coherent kanban UI refinements bundled as one ship. (A) Pending-completion mechanism: sessions / orchestrator mark a card as ready for completion review via pending_completion {marked_at, marked_by, summary, evidence_refs}; Mike Confirms (-> done) or Rejects (stays in column with optional rejection note) from a bottom-docked banner / Ready header toggle / side panel with Confirm + Reject buttons / green ring + READY micro-badge per card. Schema extension on tools/kanban/state.json (additive, semantic_version 0.3.0, schema_version stays 2). Four new endpoints in tools/kanban/server.py: POST mark-pending-completion / confirm-completion / reject-completion and GET pending-completions. kanban_evaluator.py list-pending-completions CLI + library API. Daily-flow step 6 renders an Awaiting Your Confirmation section in the daily log; template-enforced header preserved when empty. (B) Bottom-dock the open-questions banner (c121) and daily-flow briefing banner, mirroring the new pending-completion banner. All three share the same collapse-to-strip + floating-restore-icon pattern. (C) Page-scroll fix: column max-height switched from calc(100vh - 110px) to 100% with align-items: stretch on board, so cards never extend below the visible board area regardless of how many banners are docked.",
       "pillar": "tooling",
-      "column": "active",
-      "order": 155000,
+      "column": "done",
+      "order": 156000,
       "priority": 2,
       "notes": "Design: context/designs/pending-completion-mechanism.md. Probe: .claude/scratch/probe-pending-completion.py (13 phases, all PASS). Files touched: tools/kanban/{state.json, server.py, index.html}, tools/kanban_evaluator.py, tools/daily_flow/{lib/templates.py, steps/step6_daily_log.py}, context/designs/pending-completion-mechanism.md. Self-marked via the new mechanism so Mike sees the live UX on next kanban open.",
       "flag": null,
       "flagged_at": null,
-      "pending_completion": {
-        "marked_at": "2026-05-12T16:00:00Z",
-        "marked_by": "session-jovial-tesla-3da9fd",
-        "summary": "Three deliverables bundled and verified. (A) Pending-completion mechanism: schema extension (semantic_version 0.3.0), 4 server endpoints, CLI list-pending-completions, daily-flow step 6 Awaiting Your Confirmation section, full UI (READY badge + green ring + bottom-docked banner + side panel + Confirm/Reject). End-to-end probe at .claude/scratch/probe-pending-completion.py walks 13 scenarios incl 404 / 400 / 409 / happy paths -- ALL PASS. (B) Open-questions banner and daily-flow briefing banner repositioned from top to bottom of body (CSS order: 97/98/99 with border-top instead of border-bottom). Shared collapse-to-strip mechanism with floating restore icons (R/?/B) at bottom-right when dismissed. State persisted in localStorage. (C) Page-scroll fix: .column max-height now 100% of board instead of calc(100vh - 110px), board uses align-items: stretch + min-height: 0, panel-kanban gets overflow: hidden + min-height: 0. Cards inside columns continue to scroll via the inner card-list-wrap.",
-        "evidence_refs": [
-          "context/designs/pending-completion-mechanism.md",
-          ".claude/scratch/probe-pending-completion.py",
-          "tools/kanban/server.py",
-          "tools/kanban/index.html",
-          "tools/kanban_evaluator.py",
-          "tools/daily_flow/steps/step6_daily_log.py"
-        ]
-      },
+      "pending_completion": null,
       "created": "2026-05-12T15:00:00Z",
-      "updated": "2026-05-12T16:00:00Z"
+      "updated": "2026-05-12T18:16:17Z"
     },
     {
       "id": "c124",
       "title": "Auto-select stale worktrees and date-sort the Clear Worktrees dialog",
       "description": "Enhancement to the Dev Window v2 Clear Worktrees dialog (shipped at c114 with disk-size accounting). On open the worktree DataGrid now (1) sorts ascending by last-modified time so the oldest worktree is at the top and today's worktrees sit at the bottom, and (2) pre-checks every worktree whose last-modified timestamp is before the start of the current local day ([DateTime]::Today, 00:00 local). The active worktree (the one Dev Window v2 itself is bound to) is excluded from auto-selection even if it would otherwise qualify, matching Select All behaviour. Stale rows show a muted-red bold stale badge in a new narrow column next to Last Modified, and a header line surfaces the auto-select rule (Auto-selected N worktrees last modified before YYYY-MM-DD (uncheck any you want to keep)). Select All / Select None / per-row toggles still work and override the auto-selection. Selected: K worktrees, B header summary already reflects the auto-selected counts on first paint because the existing update path is invoked once after items are added.",
       "pillar": "tooling",
-      "column": "active",
-      "order": 156000,
+      "column": "done",
+      "order": 157000,
       "priority": 2,
       "notes": "Files touched: devtools/dev-window-v2/dev-window-v2.ps1 (3 surgical edits). (1) PD2V2.WorktreeEntry C# class gained DateTime LastModified, bool IsStale, string StaleTag auto-properties. (2) Worker enumeration block computes $todayStart = [DateTime]::Today once, sets LastModified + IsStale + StaleTag + IsSelected = ($isStale -and -not $isCurrent) on each row, then returns @($entries | Sort-Object -Property LastModified) so the dialog receives entries already in oldest-first order. (3) Dialog XAML gained a 60 px DataGridTextColumn binding StaleTag (centered, bold, #A04020) between Last Modified and Size, plus a third TextBlock LblAutoSelect under LblTotal that surfaces the auto-select rule on open. Smoke-tested with 4 synthetic rows (1 stale, 1 yesterday, 1 today, 1 current today) -- XAML loads cleanly, sort order is oldest-first, stale rows pre-checked, current excluded.",
       "flag": null,
       "flagged_at": null,
-      "pending_completion": {
-        "marked_at": "2026-05-12T17:30:00Z",
-        "marked_by": "session-reverent-bouman-135aa2",
-        "summary": "Dev Window v2 Clear Worktrees dialog enhancement shipped per the c124 brief. Three surgical edits to devtools/dev-window-v2/dev-window-v2.ps1. (1) WorktreeEntry C# class extended with LastModified DateTime, IsStale bool, StaleTag string auto-properties (no PropertyChanged needed -- one-shot at construction). (2) Worker enumeration captures FileInfo.LastWriteTime once into $lwt, computes $isStale = ($lwt -lt [DateTime]::Today), sets IsSelected = ($isStale -and -not $isCurrent) so the current worktree stays excluded even if it qualifies, and returns @($entries | Sort-Object -Property LastModified) so the ObservableCollection receives entries oldest-first. (3) Dialog XAML gains a 60 px DataGridTextColumn binding StaleTag (centered, bold, #A04020) between Last Modified and Size, plus a new LblAutoSelect TextBlock in the header that surfaces Auto-selected N worktrees last modified before YYYY-MM-DD (uncheck any you want to keep). Select All / Select None / per-row toggles still work and override the auto-selection. PowerShell parse-check clean. Smoke test with 4 synthetic rows (1 stale ancient, 1 stale yesterday, 1 today, 1 current today) confirmed: XAML loads, sort order is oldest-first, stale rows pre-checked, current excluded, DataGrid binds without errors. Real on-disk distribution at commit time: 25 stale + 4 today = 29 worktrees -- Mike will see 25 rows pre-checked clustered at the top with the stale badge, 4 today rows unchecked at the bottom, and reverent-bouman-135aa2 (the active worktree) at the very bottom unchecked.",
-        "evidence_refs": [
-          "devtools/dev-window-v2/dev-window-v2.ps1",
-          ".claude/scratch/reverent-bouman-135aa2.md"
-        ]
-      },
+      "pending_completion": null,
       "created": "2026-05-12T17:00:00Z",
-      "updated": "2026-05-12T17:30:00Z"
+      "updated": "2026-05-12T18:16:30Z"
     }
   ]
 }
