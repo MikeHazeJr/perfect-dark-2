@@ -4,6 +4,38 @@
 > Pillar: Tooling. Author: c127 worktree session, 2026-05-12.
 > Per the c125 sprint-report contract.
 
+## CORRIGENDUM (2026-05-12, same-day)
+
+Mike issued a course correction after the initial c127 ship. The originally
+shipped "Overwrite custom prompt?" modal flow has been REPLACED by a
+body-preserving wrap-swap model. The user's substance is now extracted from
+the textbox at action-click time and re-wrapped with the new template, so
+switching between Goal / Plan / Investigate / Bug Fix / Review / Custom
+preserves the typed body verbatim and only swaps the syntactic frame around
+it. The active action button is highlighted in PD cyan with a thick border
+so the user sees at a glance which wrap is applied. The dirty-tracking
+state vars, the `(custom)` badge, the `Update-CliPromptDirtyState` /
+`Confirm-CliOverwriteIfDirty` helpers, and the `LblCliPromptDirty` XAML
+element are all removed.
+
+Probes after the correction:
+
+- XAML probe PASS: 17 named elements present, 4 removed names (incl.
+  `LblCliPromptDirty`) absent, Run Tests / Run Game still present.
+- Compose probe PASS: 19 assertions covering body preservation across all
+  six action swaps + extraction round-trip + fallback when wrap markers
+  don't match.
+- Launch probe PASS: 8 s smoke survival.
+
+The body of this report below was written for the original modal flow.
+Specific lines referencing the modal or dirty-tracking are SUPERSEDED by
+the corrigendum above. Sections referencing the file-move (Run Tests /
+Run Game), the single-prompt consolidation, the `Show-CliInputDialog`
+modal for Bug Fix / Review, and the no-scroll layout remain accurate.
+
+---
+
+
 ## Goal
 
 Refine the Dev Window v2 Claude CLI panel based on Mike's first-use feedback:

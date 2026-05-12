@@ -1,5 +1,44 @@
 # Session Log (Active)
 
+## Session (`adoring-turing-a53052`) - 2026-05-12 - CLI panel correction: body-preserving wrap-swap, active-pressed visuals (c127 amend)
+
+Mike's mid-flight directive after the initial c127 ship: SUPERSEDES the "Overwrite custom prompt?" modal flow. Action buttons should NOT destroy typed content. Instead the user's text becomes the SUBSTANCE that gets embedded inside the action's wrapping; the wrapping is the syntactic frame, the user's text is the content. Switching between action buttons RE-WRAPS the same user text with the new mode (substance preserved, wrapping swapped). Additionally: the currently-selected action button should have a clear pressed / active visual state so the user knows at a glance which wrapping is currently applied.
+
+### Change
+
+- **Replaced the dirty-tracking + overwrite-modal flow** with a body-preserving wrap-swap. New state vars: `$script:CliBodyText` (the substance), `$script:CliWrapPrefix` / `$script:CliWrapSuffix` (so a later action click can extract the body back out of TxtCliPrompt). New helper: `Extract-CliBodyFromCurrentText` strips the stored prefix and suffix from the current textbox content; falls back to "whole text is body" when wrap markers don't match (user nuked the wrap wholesale). New helper: `Update-CliActionButtonVisuals` overrides Background / Foreground / BorderBrush / BorderThickness directly on the active button (PD cyan #0078A8, white, dark cyan #005A80, 2 px) and `ClearValue`s the others so the ToolBtn style defaults apply on inactive buttons (and the mouse-over trigger still works).
+- **Removed from the original c127**: `Confirm-CliOverwriteIfDirty`, `Update-CliPromptDirtyState`, `Build-CliActionTemplate` (empty-body version, now superseded by inline build in `Apply-CliActionTemplate`), `CliLastAppliedTemplate` and `CliPromptDirty` state vars, `LblCliPromptDirty` `(custom)` badge and its XAML + named-element registration, the TxtCliPrompt TextChanged handler that fired dirty checks.
+- **`Set-CliAction`** now: prompts for Bug Fix B-NNN or Review branch via `Show-CliInputDialog` (cancel still aborts the action click); extracts the current body via `Extract-CliBodyFromCurrentText`; updates `CliActiveAction` + label; calls `Apply-CliActionTemplate` with the extracted body; calls `Update-CliActionButtonVisuals`.
+- **`Apply-CliActionTemplate`** now takes `(action, body, bugId, branch)` and builds the full wrap inline: `prefix + body + actionSuffix + cardsBlock + standingRules`. Stores `CliWrapPrefix` and `CliWrapSuffix` for later extraction. Caret lands at end of body.
+- **Reset / cold start** sets `CliActiveAction = ""` (no wrap applied), clears body / wrap / bug-id / branch memory, restores all six action-button visuals to ToolBtn defaults. The label reads `active: (none)`.
+
+### Verification
+
+All three probes pass after the correction. XAML probe asserts 17 named elements present, 4 removed names (`TxtCliBugId`, `TxtCliBranch`, `TxtCliPreview`, `LblCliPromptDirty`) absent, Run Tests / Run Game still present (PASS). Compose probe rewritten for body preservation: 19 assertions covering type-substance-then-Goal, Goal -> Investigate body preservation, Investigate -> Plan body preservation, Plan -> Bug Fix with B-999 (body still preserved), inline body edit then Review (extracted edited body), Custom preserves body, cards block in wrap, round-trip extraction integrity, fallback to whole text when wrap markers don't match, em-dash hygiene, archive language (PASS). Launch probe spawns dev-window-v2.ps1 for 8 s without crash (PASS). AST parse clean. Em-dash count on every new / modified file = 0.
+
+### Decisions
+
+- **Body-preserving wrap-swap over dirty-guard modal**. Mike's explicit course correction: action buttons should swap the syntactic frame, not destroy the substance. The new model treats TxtCliPrompt as the visible wrap of `CliBodyText`; clicking an action extracts the body from the current text and re-wraps with the new template.
+- **Direct property override over a new XAML style** for the active visual state. The ToolBtn style template uses `TemplateBinding` on Background / BorderBrush, so setting those properties directly on the Button overrides the template's defaults. `ClearValue` on the inactive buttons restores the style defaults (and re-enables the mouse-over trigger). Avoids the BasedOn / TargetType pitfall when overriding a templated style.
+- **No auto-rewrap on card-selection change**. The cards block is part of the suffix and reflects the cards as of the most recent action click. Changing the card selection between action clicks does NOT auto-rewrap (would move the caret and disrupt body editing). To refresh the cards block, click the active action button again.
+- **Cold start has no active action**. The label reads `active: (none)`; no button is highlighted; TxtCliPrompt is empty. User types substance first, then clicks an action button to apply the first wrap.
+
+### Files modified / added
+
+- `devtools/dev-window-v2/dev-window-v2.ps1`: state-vars block (CliBodyText / CliWrapPrefix / CliWrapSuffix replace CliLastAppliedTemplate / CliPromptDirty); Section 14a (`Apply-CliActionTemplate` rewritten to take `body`, `Extract-CliBodyFromCurrentText` added, `Update-CliActionButtonVisuals` added, `Set-CliAction` rewritten, `Reset-CliPanel` cleared all state vars and called `Update-CliActionButtonVisuals`); orphan `Build-CliActionTemplate` function deleted; XAML PROMPT label DockPanel simplified to drop `LblCliPromptDirty`; `$namedElements` array drops `LblCliPromptDirty`; Section 17 event wiring drops TxtCliPrompt.TextChanged dirty handler; Section 21 init starts with no active action.
+- `context/designs/devwindow-claude-cli-panel.md`: header block updated to mention the same-day correction; "Body-preserving wrap-swap" section replaces the prior "Dirty tracking and overwrite confirmation" section; action-button table updated.
+- `context/tasks.md`: lane 2j entry rewritten.
+- `tools/kanban/state.json`: c127 card description / notes / pending_completion summary updated.
+- `.claude/sprint-reports/sprint-c127-cli-refinements.md`: corrigendum block prepended.
+- `.claude/scratch/probe-cli-panel-{xaml,compose}.ps1`: rewritten for the new flow.
+
+### Not in scope
+
+- Auto-rewrap on card-selection change (see decision above).
+- Saved prompt presets, sprint-report history pane, batch operations, skill awareness -- still on the c125 future-extensions roster.
+
+---
+
 ## Session (`adoring-turing-a53052`) - 2026-05-12 - CLI panel refinements: one prompt, dirty-guard modal, no-scroll layout (c127)
 
 Mike used the c125 / c127 panel and surfaced four problems: (1) the LAUNCH button was hidden by the always-docked Run Tests / Run Game bottom bar; (2) the panel had too many text inputs - one prompt textbox would be enough; (3) action buttons could overwrite manually typed content without confirmation; (4) the layout needed scrolling at default window size. c127 addresses all four.
