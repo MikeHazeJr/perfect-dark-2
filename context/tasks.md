@@ -184,6 +184,24 @@ Per the 2026-05-06 super-audit's "single most valuable next move" recommendation
 
 **Build-gate integration**: `tools/smoke-verify/run.ps1 -AutoSelect -MergeBase dev` is callable from `devtools/build-headless.ps1` post-build. Initial ship leaves this OFF by default so the first week is advisory; once the noise floor is confirmed low, the auto-merge step will block on it.
 
+### 2j. Dev Window v2 CLI panel refinements SHIPPED (2026-05-12, adoring-turing-a53052, c127)
+
+Mike feedback after using the c125 / archive-directive ship: LAUNCH was hidden by the always-docked Run Tests / Run Game bottom bar; the CLI tab had too many text inputs (prompt + bug-id + branch + preview pane) when one prompt textbox would do; action buttons could overwrite manually typed content without confirmation; the panel did not fit at the default window size without scrolling.
+
+**Capability shipped**:
+
+- **Run Tests / Run Game moved off the always-docked bottom bar** and into the BUILD tab as a secondary hero pair right below the BUILD / RELEASE pair. They are no longer visible from CLI / LOG / DOCS tabs, which uncovers LAUNCH on the CLI tab.
+- **Single canonical prompt textbox** on the CLI tab. `TxtCliBugId` / `TxtCliBranch` / `TxtCliPreview` are removed. Action buttons now rewrite `TxtCliPrompt` in place with a template (prefix + empty body slot + cards block + standing rules). The caret lands at the body-slot position so the user types into it immediately.
+- **`Show-CliInputDialog`** small WPF modal (parented to the dev window) collects action-specific inputs: Bug Fix asks for B-NNN (required, last value remembered in `$script:CliBugIdMemory`); Review asks for an optional branch (last value remembered in `$script:CliBranchMemory`). Cancel aborts the action click - panel state stays unchanged.
+- **Dirty-state tracking + overwrite-confirmation modal**. `$script:CliLastAppliedTemplate` stores the exact text the most recent action click produced. `TxtCliPrompt.TextChanged` sets `$script:CliPromptDirty` true when the textbox diverges. A small `(custom)` badge next to the PROMPT header surfaces the flag. When a new action click would overwrite a dirty prompt, a `MessageBox.Show` "Overwrite custom prompt?" modal asks for OK / Cancel. Cancel keeps the text as-is and the active-action label does not change.
+- **No-scroll at default size**. Outer `ScrollViewer` removed from the CLI tab body. Layout is now a DockPanel with `LastChildFill="True"`; header + action row are docked Top, the launch row is docked Bottom, and the prompt+cards Grid is the LastChildFill and absorbs remaining vertical space. LAUNCH stays visible at the default `MinHeight="940"` window regardless of how tall the middle Grid grows.
+
+**Verification**: three probes at `.claude/scratch/probe-cli-panel-*.ps1`. XAML probe asserts all 18 c127 named elements present + the 3 removed names absent + Run Tests/Run Game still present (PASS). Compose probe exercises every action template + dirty/clean transitions + cards block + em-dash hygiene + archive-directive language (21 assertions, PASS). Launch probe smoke-starts dev-window-v2 for 8 s without crash (PASS). PowerShell AST parse clean. Em-dash count on every new/modified file = 0.
+
+**Design ref**: [context/designs/devwindow-claude-cli-panel.md](designs/devwindow-claude-cli-panel.md) - UI map updated, dirty-tracking + overwrite-confirmation section added, c127 refinement summary in the header block.
+
+**Sprint report**: [.claude/sprint-reports/sprint-c127-cli-refinements.md](../../.claude/sprint-reports/sprint-c127-cli-refinements.md) per the c125 sprint-report contract.
+
 ### 2i. Dev Window v2 Claude CLI panel + sprint-report contract SHIPPED (2026-05-12, adoring-turing-a53052)
 
 Per Mike's directive: "Add a Claude CLI button in the Dev window v2 ... a container that has a text box with buttons such as Goal, where I can then select card(s) and it will prompt the CLI with /goal and those as a prompt, as well as other useful functions ... The prompts should also include the requirement that they update our context and kanban system so you can easily catch back up after sprints. It should file a report specifically intended for you to do so, at which point you can interpret and dispose of the report ONLY, once you are clear and verified what it has done."

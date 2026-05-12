@@ -1,12 +1,21 @@
 # Dev Window v2: Claude CLI Panel
 
-> Card: c125. Pillar: Tooling. Shipped: 2026-05-12.
+> Cards: c125 (original ship), c127 (UX refinement). Pillar: Tooling.
+> Shipped: 2026-05-12.
 >
 > Closes the orchestrator-blindness gap. The Dispatch orchestrator cannot see Claude
 > Code CLI sessions (they live in a separate namespace). When Mike runs a CLI session
 > from the new panel, the launched session writes a sprint report that the
 > orchestrator consumes on its next turn. The panel composes well-formed prompts that
 > mandate the report so the contract is always satisfied.
+>
+> **c127 refinements (2026-05-12)**: Run Tests / Run Game moved off the always-docked
+> bottom bar (they obscured LAUNCH) and into the BUILD tab. The CLI tab is reduced
+> to a single canonical prompt textbox; Bug ID / Branch text fields and the separate
+> composed-prompt preview pane are gone. Action button clicks rewrite the prompt
+> textbox in place (with an overwrite-confirmation modal when the prompt is dirty),
+> and Bug Fix / Review collect their inputs through a small WPF input dialog.
+> Default window size now fits everything without scrolling.
 
 ---
 
@@ -42,63 +51,110 @@ The choice of a dedicated tab over an in-line panel in `BUILD`:
 
 ---
 
-## UI map
+## UI map (c127)
 
 ```
 +- CLI tab ---------------------------------------------------------------+
-| Header strip: "CLAUDE CLI    |    composed prompts for Claude Code"     |
+| Header: CLAUDE CLI | action buttons wrap the prompt in place. LAUNCH... |
 |                                                                          |
-| +-- ACTION ROW ---------------------------------------------------+     |
-| | [Goal]  [Plan]  [Investigate]  [Bug Fix]  [Review]  [Custom]    |     |
-| +-----------------------------------------------------------------+     |
+| ACTION  [Goal] [Plan] [Investigate] [Bug Fix] [Review] [Custom] | active|
 |                                                                          |
-| +-- PROMPT (left, 60%) ---------+ +-- CARDS (right, 40%) ----------+    |
-| | TextBox.AcceptsReturn          | | Refresh   Search [.........]   |    |
-| | MinLines ~12                   | | +-- card list (ListBox) ---+  |    |
-| | TextWrapping Wrap              | | | [ ] c027 - Catalog ...   |  |    |
-| |                                | | | [ ] c029 - Benchmarking   |  |    |
-| |                                | | | [ ] c030 - Mod Infra ...  |  |    |
-| |                                | | | ... (active+backlog only) |  |    |
-| |                                | | +---------------------------+  |    |
-| |                                | | Selected: c027, c030          |    |
-| +--------------------------------+ +-------------------------------+    |
+| +-- PROMPT (60%) -----------+ +-- CARDS (40%) -------------------------+|
+| | label PROMPT  (custom)    | | CARDS  search:[..........] [Refresh]   ||
+| |                            | | +- ListBox (multi-select) ----------+ ||
+| | TextBox.AcceptsReturn      | | | c027  Catalog universality pivot   | ||
+| | (single canonical prompt   | | | c029  Benchmarking - speed tune ... | ||
+| |  - action buttons rewrite  | | | c030  Mod Infrastructure ...        | ||
+| |  in place; LAUNCH sends    | | +------------------------------------+ ||
+| |  whatever is here verbatim)| | Selected: c027, c051                   ||
+| +----------------------------+ +----------------------------------------+|
 |                                                                          |
-| Bug ID textbox: B-NNN  (visible only when Bug Fix is the active action) |
-| Branch textbox:        (visible only when Review is the active action)  |
-|                                                                          |
-| +-- COMPOSED PROMPT PREVIEW (read-only, 8 lines visible, scrolls) ---+  |
-| | <wrapping>                                                          |  |
-| | <user text>                                                         |  |
-| | Working cards: ...                                                  |  |
-| | [Standing rules] ...                                                |  |
-| +--------------------------------------------------------------------+  |
-|                                                                          |
-| Mode: ( ) Headless (-p, stream to Log)   (*) Interactive (new console)  |
-| [ Launch ]    [ Copy Prompt ]    [ Reset ]                              |
+| MODE: (*) Interactive (new console)  ( ) Headless (-p, log)             |
+|       [ LAUNCH ]   [ Copy Prompt ]   [ Reset ]                          |
 +------------------------------------------------------------------------+
 ```
+
+Layout uses a DockPanel with `LastChildFill="True"`. The header, action row, and
+launch row are docked Top/Top/Bottom; the prompt+cards Grid is the last child
+and fills the remaining vertical space. The LAUNCH button is in the
+bottom-docked row, so it is always visible regardless of how tall the middle
+Grid grows. There is no outer ScrollViewer wrapper anymore -- the tab content
+fits at the default window size (`MinHeight="940"`).
+
+Run Tests / Run Game used to live in an always-docked bottom bar OUTSIDE the
+TabControl, which made them appear on every tab and shadow the CLI tab's
+LAUNCH button. c127 moved those into the BUILD tab as a secondary hero pair
+right below BUILD / RELEASE. They are no longer visible from CLI / LOG / DOCS.
 
 Visual conventions follow existing v2 styling: white card backgrounds (`#FFFFFF`),
 PD cyan accent (`#0078A8`), light-theme primary text (`#1A2434`), `Segoe UI` body
 and `Consolas` for code-style values. Buttons reuse the existing `AccentBtn`,
 `ToolBtn`, `GreenBtn` styles. No new style resources are introduced.
 
+### Dirty tracking and overwrite confirmation (c127)
+
+`TxtCliPrompt` is the single canonical source of what LAUNCH sends. Action
+buttons (Goal / Plan / Investigate / Bug Fix / Review / Custom) rewrite the
+textbox with their template (prefix + empty body slot + cards block + standing
+rules). The caret lands at the body-slot position so the user can immediately
+type their prompt body.
+
+`$script:CliLastAppliedTemplate` stores the exact text the most recent action
+click produced. `TxtCliPrompt.TextChanged` fires `Update-CliPromptDirtyState`,
+which sets `$script:CliPromptDirty` true if the textbox content has diverged
+from the template, and false if it matches. A small `(custom)` label next to
+the PROMPT header surfaces the flag visually.
+
+When the user clicks a new action button:
+
+1. **Bug Fix** prompts for `B-NNN` via the inline `Show-CliInputDialog`
+   (parented to the dev-window). Cancel -> bail out, no panel change. Empty
+   bug ID -> bail out (Bug Fix needs an ID). The accepted value is remembered
+   in `$script:CliBugIdMemory` so re-clicking Bug Fix prefills with the last
+   value.
+2. **Review** prompts for an optional branch via the same dialog. Cancel ->
+   bail. Empty value is allowed (defaults to "selected cards' affected files"
+   scope). Last value is remembered in `$script:CliBranchMemory`.
+3. **Goal / Plan / Investigate / Custom** skip the input step.
+
+Then the dirty flag is consulted:
+
+- **Clean** (textbox matches `CliLastAppliedTemplate`, including the empty
+  initial state): apply the new template silently.
+- **Dirty**: show a `MessageBox.Show` modal with title "Overwrite custom
+  prompt?" and OK/Cancel buttons. Cancel -> no panel change; the previously
+  active action stays active. OK -> apply the new template, mark clean.
+
+The Reset button clears the prompt, drops the card selection, drops the
+remembered bug-id and branch, sets the active action back to Goal without
+applying its template, and marks the panel clean.
+
+### Why no separate preview pane
+
+c125 originally had a read-only `TxtCliPreview` showing the composed prompt
+beneath the inputs. c127 removes it because the action-button-rewrites-in-place
+model makes the preview redundant -- `TxtCliPrompt` *is* the composed prompt.
+What you see in the textbox is exactly what LAUNCH sends. This also reclaims
+~200 px of vertical space, which is what lets the panel fit at the default
+window height without scrolling.
+
 ---
 
 ## Action buttons (template wrapping)
 
-Each button sets a current "action" state, which influences how the user's prompt
-text is wrapped when composing the preview. The wrapping is recomputed live on
-text changes, card selection changes, and action switches.
+Each button sets a current "action" state and rewrites `TxtCliPrompt` with a
+template: prefix + empty body slot + suffix + cards block (if any) + standing
+rules. The user types into the body slot directly. LAUNCH sends the textbox
+content verbatim.
 
-| Button       | Wrapping logic                                                                                                |
+| Button       | Template structure                                                                                            |
 |--------------|---------------------------------------------------------------------------------------------------------------|
-| Goal         | Prepend `/goal `. Use for autonomous run-to-completion.                                                       |
-| Plan         | Prepend `Plan the following without executing any code. Output a structured plan:\n\n`.                       |
-| Investigate  | Prepend `Investigate the following. Do not modify code. Report findings only:\n\n`.                           |
-| Bug Fix      | Prepend `Fix bug B-NNN: ` (NNN from Bug ID input). Append regression-test write requirement.                  |
-| Review       | Prepend `Review the following. Scope: <branch or selected cards' files>:\n\n`.                                |
-| Custom       | No wrapping. Prompt is sent verbatim with only the standing-rules suffix appended.                            |
+| Goal         | `/goal <body>` then cards + standing rules. Use for autonomous run-to-completion.                             |
+| Plan         | `Plan the following without executing any code. Output a structured plan:\n\n<body>` then cards + standing.   |
+| Investigate  | `Investigate the following. Do not modify code. Report findings only:\n\n<body>` then cards + standing.       |
+| Bug Fix      | Dialog asks for B-NNN. Template: `Fix bug B-NNN: <body>\n\nWrite or update the regression test ...`           |
+| Review       | Dialog asks for optional branch. Template: `Review the following. Scope: <branch or selected cards>:\n\n<body>`|
+| Custom       | No prefix. Template: blank body slot + cards + standing rules. Use for verbatim prompts.                      |
 
 Slash commands (`/goal`) survive into the launched session because Claude Code CLI
 parses leading-slash skills inside an interactive prompt. The Goal button assumes a
