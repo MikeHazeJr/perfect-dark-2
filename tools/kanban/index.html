@@ -187,20 +187,259 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .add-pillar-form input[type="text"]{width:100%;padding:6px 9px;border:1px solid #cbd5e1;border-radius:5px;font-size:0.82rem;margin-bottom:8px;font-family:inherit;display:block}
 .add-pillar-row{display:flex;align-items:center;gap:9px}
 .add-pillar-row input[type="color"]{width:38px;height:32px;border:1px solid #cbd5e1;border-radius:4px;padding:2px;cursor:pointer}
+
+/* Tabs across the top */
+#tabs{background:#0f172a;padding:0 18px;display:flex;gap:0;flex-shrink:0;border-bottom:1px solid #1e293b}
+.tab-btn{padding:9px 16px;background:transparent;border:none;color:#64748b;font-family:inherit;font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;border-bottom:2px solid transparent;transition:color 0.15s,border-color 0.15s}
+.tab-btn:hover{color:#cbd5e1}
+.tab-btn.active{color:#38bdf8;border-bottom-color:#38bdf8}
+.tab-banner{padding:8px 14px;background:#0c4a6e;color:#e0f2fe;font-size:0.78rem;display:none;align-items:center;gap:10px;flex-shrink:0}
+.tab-banner.show{display:flex}
+.tab-banner button{margin-left:auto}
+
+/* Panel containers */
+.panel{flex:1;overflow:auto;display:none;padding:14px 18px}
+.panel.active{display:block}
+.panel-header{display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap}
+.panel-title{font-size:0.9rem;font-weight:800;color:#e2e8f0;letter-spacing:0.04em;text-transform:uppercase}
+.panel-count{color:#94a3b8;font-size:0.78rem}
+.panel-count .ready-n{color:#22c55e;font-weight:800}
+.panel-count .stale-n{color:#f59e0b;font-weight:700}
+.panel-filters{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-left:auto}
+.filter-chip{padding:3px 10px;border-radius:12px;border:1px solid #334155;background:transparent;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;font-family:inherit}
+.filter-chip:hover{border-color:#64748b;color:#cbd5e1}
+.filter-chip.active{background:#3b82f6;border-color:#3b82f6;color:white}
+.filter-sel{padding:4px 8px;border:1px solid #334155;background:#1e293b;color:#cbd5e1;border-radius:6px;font-size:0.72rem;font-family:inherit}
+
+/* Parked rows + bug rows share the table-row look */
+.row-section{margin-bottom:14px}
+.row-section-head{font-size:0.7rem;font-weight:800;color:#94a3b8;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;padding:5px 8px;background:rgba(148,163,184,0.05);border-radius:5px}
+.row-section.ready .row-section-head{color:#22c55e;background:rgba(34,197,94,0.08)}
+.row-section.stale .row-section-head{color:#f59e0b;background:rgba(245,158,11,0.08)}
+.row{background:#1e293b;border-radius:7px;padding:9px 12px;margin-bottom:5px;border-left:4px solid #475569;cursor:pointer;transition:background 0.12s,transform 0.1s,border-color 0.18s,box-shadow 0.4s}
+.row:hover{background:#293548}
+.row.ready{border-left-color:#22c55e;animation:readyPulse 1.4s ease-out 1}
+@keyframes readyPulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,0.55)}100%{box-shadow:0 0 0 12px rgba(34,197,94,0)}}
+.row.stale{border-left-color:#f59e0b}
+.row-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.row-title{font-size:0.82rem;font-weight:600;color:#e2e8f0;flex:1;min-width:200px}
+.row-meta{display:flex;align-items:center;gap:6px;font-size:0.68rem;color:#94a3b8;flex-wrap:wrap}
+.row-meta .badge{padding:1px 7px;border-radius:8px;font-weight:700;font-size:0.62rem;letter-spacing:0.04em;text-transform:uppercase}
+.badge-pillar{background:rgba(148,163,184,0.18);color:#cbd5e1}
+.badge-ready{background:#22c55e;color:#0f172a}
+.badge-stale{background:#f59e0b;color:#0f172a}
+.badge-blocked{background:#64748b;color:#0f172a}
+.badge-sev-blocker{background:#7f1d1d;color:#fecaca}
+.badge-sev-major{background:#b45309;color:#fed7aa}
+.badge-sev-minor{background:#475569;color:#cbd5e1}
+.badge-status-open{background:#ef4444;color:white}
+.badge-status-triaged{background:#f59e0b;color:#0f172a}
+.badge-status-fix-pending-verification{background:#3b82f6;color:white}
+.badge-status-fixed{background:#22c55e;color:#0f172a}
+.row-rc{color:#94a3b8;font-size:0.72rem;margin-top:4px;font-style:italic}
+.row-actions{display:flex;gap:5px;margin-top:7px}
+.row-actions .btn{padding:3px 9px;font-size:0.7rem}
+.row-detail{margin-top:9px;padding:9px 11px;background:#0f172a;border-radius:5px;display:none;border:1px solid #1e293b}
+.row.expanded .row-detail{display:block}
+.row-detail pre{white-space:pre-wrap;font-size:0.72rem;color:#cbd5e1;line-height:1.45;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+.row-detail a{color:#38bdf8;text-decoration:none}
+.row-detail a:hover{text-decoration:underline}
+.row-detail .detail-row{margin-bottom:5px;font-size:0.72rem;color:#cbd5e1}
+.row-detail .detail-label{color:#64748b;font-weight:700;margin-right:6px;text-transform:uppercase;font-size:0.62rem;letter-spacing:0.04em}
+
+/* Context menu (right-click on a kanban card) */
+#ctx-menu{position:fixed;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:4px 0;z-index:300;box-shadow:0 8px 24px rgba(0,0,0,0.55);display:none;min-width:170px}
+#ctx-menu.show{display:block}
+.ctx-item{padding:7px 14px;font-size:0.78rem;color:#e2e8f0;cursor:pointer;font-family:inherit;background:none;border:none;width:100%;text-align:left;font-weight:500}
+.ctx-item:hover{background:#3b82f6;color:white}
+.ctx-sep{height:1px;background:#334155;margin:3px 0}
+
+/* Park modal extras */
+#park-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);display:none;align-items:center;justify-content:center;z-index:220;padding:16px}
+#park-modal-overlay.show{display:flex}
+#park-modal{background:white;color:#1e293b;border-radius:12px;padding:22px;width:100%;max-width:480px;box-shadow:0 24px 64px rgba(0,0,0,0.4)}
+#park-modal h3{font-size:0.95rem;font-weight:700;margin-bottom:16px}
+.park-rc-row{display:flex;gap:8px;align-items:center;margin-bottom:11px}
+.park-rc-row label{font-size:0.7rem;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;width:90px}
+.park-rc-row input[type="text"],.park-rc-row input[type="date"],.park-rc-row select{flex:1;padding:6px 9px;border:1px solid #cbd5e1;border-radius:5px;font-size:0.82rem;font-family:inherit;color:#1e293b;background:white}
+
+/* Bug add modal */
+#bug-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);display:none;align-items:center;justify-content:center;z-index:230;padding:16px}
+#bug-modal-overlay.show{display:flex}
+#bug-modal{background:white;color:#1e293b;border-radius:12px;padding:22px;width:100%;max-width:540px;box-shadow:0 24px 64px rgba(0,0,0,0.4);max-height:calc(100vh - 40px);overflow-y:auto}
+#bug-modal h3{font-size:0.95rem;font-weight:700;margin-bottom:16px}
+
+/* Empty-state hint */
+.empty-state{padding:24px 14px;text-align:center;color:#64748b;font-size:0.82rem;font-style:italic}
 </style>
 </head>
 <body>
 
 <div id="header">
-  <h1>PD2 Board</h1>
+  <h1>PD2 Dev Window</h1>
   <span id="save-status"></span>
   <div id="header-right">
     <button class="btn btn-ghost" onclick="openSettings()">Settings</button>
   </div>
 </div>
 
-<div id="filters"></div>
-<div id="board"></div>
+<div id="tabs">
+  <button class="tab-btn active" data-tab="kanban" onclick="switchTab('kanban')">Active Kanban</button>
+  <button class="tab-btn" data-tab="parked" onclick="switchTab('parked')">Parked Threads <span id="parked-tab-count" style="opacity:0.7"></span></button>
+  <button class="tab-btn" data-tab="bugs" onclick="switchTab('bugs')">Bug Tracker <span id="bugs-tab-count" style="opacity:0.7"></span></button>
+</div>
+
+<div id="ready-banner" class="tab-banner">
+  <span id="ready-banner-text"></span>
+  <button class="btn btn-primary btn-sm" onclick="switchTab('parked')">Review</button>
+  <button class="btn btn-ghost btn-sm" onclick="dismissReadyBanner()">Dismiss</button>
+</div>
+
+<div id="panel-kanban" class="panel active" style="padding:0;display:flex;flex-direction:column">
+  <div id="filters"></div>
+  <div id="board"></div>
+</div>
+
+<div id="panel-parked" class="panel">
+  <div class="panel-header">
+    <span class="panel-title">Parked Threads</span>
+    <span class="panel-count" id="parked-count"></span>
+    <div class="panel-filters">
+      <select class="filter-sel" id="parked-filter-pillar" onchange="renderParked()">
+        <option value="">All pillars</option>
+      </select>
+      <select class="filter-sel" id="parked-filter-rc" onchange="renderParked()">
+        <option value="">All resume types</option>
+        <option value="dependency">Dependency</option>
+        <option value="date">Date</option>
+        <option value="manual">Manual</option>
+      </select>
+      <button class="filter-chip" id="parked-filter-stale" onclick="toggleParkedStale()">Stale only</button>
+      <button class="btn btn-ghost btn-sm" onclick="runEvaluator()">Re-evaluate</button>
+    </div>
+  </div>
+  <div id="parked-list"></div>
+</div>
+
+<div id="panel-bugs" class="panel">
+  <div class="panel-header">
+    <span class="panel-title">Bug Tracker</span>
+    <span class="panel-count" id="bugs-count"></span>
+    <div class="panel-filters">
+      <select class="filter-sel" id="bugs-filter-status" onchange="renderBugs()">
+        <option value="not-fixed">Hide fixed</option>
+        <option value="all">All</option>
+        <option value="open">Open</option>
+        <option value="triaged">Triaged</option>
+        <option value="fix-pending-verification">Fix pending verification</option>
+        <option value="fixed">Fixed</option>
+      </select>
+      <select class="filter-sel" id="bugs-filter-sev" onchange="renderBugs()">
+        <option value="">All severities</option>
+        <option value="blocker">Blocker</option>
+        <option value="major">Major</option>
+        <option value="minor">Minor</option>
+      </select>
+      <button class="btn btn-primary btn-sm" onclick="openBugModal()">File bug</button>
+    </div>
+  </div>
+  <div id="bugs-list"></div>
+</div>
+
+<!-- Right-click context menu for kanban cards -->
+<div id="ctx-menu" onclick="event.stopPropagation()">
+  <button class="ctx-item" onclick="ctxParkAction()">Park this thread...</button>
+  <div class="ctx-sep"></div>
+  <button class="ctx-item" onclick="ctxOpenAction()">Open card</button>
+  <button class="ctx-item" onclick="ctxFlagAction()">Cycle flag</button>
+</div>
+
+<!-- Park modal -->
+<div id="park-modal-overlay" onclick="if(event.target===this)closeParkModal()">
+  <div id="park-modal">
+    <h3 id="park-modal-title">Park thread</h3>
+    <div class="park-rc-row">
+      <label>Resume type</label>
+      <select id="park-rc-type" onchange="onParkTypeChange()">
+        <option value="date">Date</option>
+        <option value="dependency">Dependency</option>
+        <option value="manual">Manual</option>
+      </select>
+    </div>
+    <div class="park-rc-row" id="park-rc-date-row">
+      <label>Resume on</label>
+      <input type="date" id="park-rc-date">
+    </div>
+    <div class="park-rc-row" id="park-rc-dep-row" style="display:none">
+      <label>Depends on</label>
+      <input type="text" id="park-rc-dep" placeholder="card-id, card-id, ...">
+    </div>
+    <div class="park-rc-row">
+      <label>Park note</label>
+      <input type="text" id="park-note" placeholder="Optional: why parking now">
+    </div>
+    <div class="modal-actions">
+      <span class="modal-spacer"></span>
+      <button class="btn btn-ghost btn-sm" onclick="closeParkModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="confirmPark()">Park</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bug add modal -->
+<div id="bug-modal-overlay" onclick="if(event.target===this)closeBugModal()">
+  <div id="bug-modal">
+    <h3>File bug</h3>
+    <div class="form-row">
+      <label>Bug ID</label>
+      <input type="text" id="bug-f-id" placeholder="B-XXX">
+    </div>
+    <div class="form-row">
+      <label>Title</label>
+      <input type="text" id="bug-f-title" placeholder="One-line summary">
+    </div>
+    <div class="form-three-col">
+      <div class="form-row">
+        <label>Severity</label>
+        <select id="bug-f-severity">
+          <option value="blocker">Blocker</option>
+          <option value="major" selected>Major</option>
+          <option value="minor">Minor</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Status</label>
+        <select id="bug-f-status">
+          <option value="open" selected>Open</option>
+          <option value="triaged">Triaged</option>
+          <option value="fix-pending-verification">Fix pending verification</option>
+          <option value="fixed">Fixed</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Linked test</label>
+        <input type="text" id="bug-f-linked-test" placeholder="tools/smoke-verify/...">
+      </div>
+    </div>
+    <div class="form-row">
+      <label>Repro</label>
+      <textarea id="bug-f-repro" placeholder="Steps to reproduce" style="min-height:60px"></textarea>
+    </div>
+    <div class="form-row">
+      <label>Root cause file:lines (one per line)</label>
+      <textarea id="bug-f-root-cause" placeholder="port/src/foo.c:123" style="min-height:50px"></textarea>
+    </div>
+    <div class="form-row">
+      <label>Related bugs (comma-separated)</label>
+      <input type="text" id="bug-f-related" placeholder="B-123, B-456">
+    </div>
+    <div class="modal-actions">
+      <span class="modal-spacer"></span>
+      <button class="btn btn-ghost btn-sm" onclick="closeBugModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="confirmBugAdd()">File bug</button>
+    </div>
+  </div>
+</div>
 
 <!-- Card modal -->
 <div id="modal-overlay" class="hidden" onclick="onOverlayClick(event)">
@@ -590,6 +829,7 @@ function buildCard(card) {
   el.appendChild(fBadge);
 
   el.onclick = () => openModal(card.id, null);
+  el.addEventListener('contextmenu', e => showCtxMenu(e, card.id));
 
   el.addEventListener('dragstart', e => {
     if (draggedSubId) { e.preventDefault(); return; }
@@ -1080,9 +1320,551 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ---------- tabs + parked + bugs ----------
+
+let parkedData = null;
+let bugsData = null;
+let parkedFilters = {pillar: '', rcType: '', staleOnly: false};
+let bugsFilters = {status: 'not-fixed', severity: ''};
+let activeTab = 'kanban';
+let ctxCardId = null;
+let parkingCardId = null;
+let expandedRows = new Set();
+let readyBannerDismissed = false;
+
+function switchTab(name) {
+  activeTab = name;
+  for (const b of document.querySelectorAll('.tab-btn')) b.classList.toggle('active', b.dataset.tab === name);
+  for (const p of document.querySelectorAll('.panel')) p.classList.toggle('active', p.id === 'panel-' + name);
+  if (name === 'parked') renderParked();
+  if (name === 'bugs') renderBugs();
+}
+
+async function loadParked() {
+  const r = await fetch('/api/parked');
+  parkedData = await r.json();
+  refreshTabCounts();
+  refreshReadyBanner();
+  if (activeTab === 'parked') renderParked();
+}
+
+async function loadBugs() {
+  const r = await fetch('/api/bugs');
+  bugsData = await r.json();
+  refreshTabCounts();
+  if (activeTab === 'bugs') renderBugs();
+}
+
+function refreshTabCounts() {
+  if (parkedData) {
+    const total = (parkedData.parked || []).length;
+    const ready = (parkedData.parked || []).filter(e => e.ready_to_resume).length;
+    document.getElementById('parked-tab-count').textContent = `(${total}${ready ? ' / ' + ready + ' ready' : ''})`;
+  }
+  if (bugsData) {
+    const total = (bugsData.bugs || []).length;
+    const open = (bugsData.bugs || []).filter(b => b.status !== 'fixed').length;
+    document.getElementById('bugs-tab-count').textContent = `(${open}/${total})`;
+  }
+}
+
+function refreshReadyBanner() {
+  if (!parkedData || readyBannerDismissed) return;
+  const ready = (parkedData.parked || []).filter(e => e.ready_to_resume);
+  const banner = document.getElementById('ready-banner');
+  if (ready.length === 0) { banner.classList.remove('show'); return; }
+  const noun = ready.length === 1 ? 'parked thread' : 'parked threads';
+  document.getElementById('ready-banner-text').textContent =
+    `${ready.length} ${noun} ready to resume - review?`;
+  banner.classList.add('show');
+}
+
+function dismissReadyBanner() {
+  readyBannerDismissed = true;
+  document.getElementById('ready-banner').classList.remove('show');
+}
+
+function daysSince(isoDate) {
+  if (!isoDate) return null;
+  const d = new Date(isoDate + 'T00:00:00Z');
+  const now = new Date();
+  return Math.floor((now - d) / 86400000);
+}
+
+function pillarById(id) { return (state && state.pillars || []).find(p => p.id === id) || null; }
+
+function renderParked() {
+  if (!parkedData) return;
+  const list = document.getElementById('parked-list');
+  list.innerHTML = '';
+
+  // Update pillar filter options
+  const pillarSel = document.getElementById('parked-filter-pillar');
+  if (pillarSel.options.length <= 1 && state) {
+    for (const p of state.pillars) {
+      const o = document.createElement('option');
+      o.value = p.id; o.textContent = p.name; pillarSel.appendChild(o);
+    }
+  }
+  parkedFilters.pillar = pillarSel.value;
+  parkedFilters.rcType = document.getElementById('parked-filter-rc').value;
+  document.getElementById('parked-filter-stale').classList.toggle('active', parkedFilters.staleOnly);
+
+  const entries = (parkedData.parked || []).filter(e => {
+    if (parkedFilters.pillar && e.pillar !== parkedFilters.pillar) return false;
+    const rc = (e.resume_condition || {}).type || 'manual';
+    if (parkedFilters.rcType && rc !== parkedFilters.rcType) return false;
+    if (parkedFilters.staleOnly && !e.stale) return false;
+    return true;
+  });
+
+  const ready = entries.filter(e => e.ready_to_resume);
+  const rest = entries.filter(e => !e.ready_to_resume);
+  const stale = entries.filter(e => e.stale && !e.ready_to_resume);
+
+  const totalAll = (parkedData.parked || []).length;
+  const readyAll = (parkedData.parked || []).filter(e => e.ready_to_resume).length;
+  const staleAll = (parkedData.parked || []).filter(e => e.stale).length;
+  document.getElementById('parked-count').innerHTML =
+    `${totalAll} parked - <span class="ready-n">${readyAll} ready</span> - <span class="stale-n">${staleAll} stale</span>`;
+
+  if (entries.length === 0) {
+    list.innerHTML = '<div class="empty-state">No parked threads match the current filters.</div>';
+    return;
+  }
+
+  if (ready.length > 0) list.appendChild(buildParkedSection('Ready to Resume', ready, 'ready'));
+  const others = rest.filter(e => !e.stale);
+  if (others.length > 0) list.appendChild(buildParkedSection('Parked', others, ''));
+  if (stale.length > 0) list.appendChild(buildParkedSection('Stale', stale, 'stale'));
+}
+
+function buildParkedSection(title, items, cls) {
+  const sec = document.createElement('div');
+  sec.className = 'row-section' + (cls ? ' ' + cls : '');
+  const h = document.createElement('div');
+  h.className = 'row-section-head'; h.textContent = `${title} (${items.length})`;
+  sec.appendChild(h);
+  for (const e of items) sec.appendChild(buildParkedRow(e));
+  return sec;
+}
+
+function buildParkedRow(entry) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  if (entry.ready_to_resume) row.classList.add('ready');
+  if (entry.stale && !entry.ready_to_resume) row.classList.add('stale');
+  if (expandedRows.has(entry.id)) row.classList.add('expanded');
+
+  const top = document.createElement('div');
+  top.className = 'row-top';
+  const t = document.createElement('div'); t.className = 'row-title'; t.textContent = entry.title || entry.id;
+  top.appendChild(t);
+
+  const meta = document.createElement('div'); meta.className = 'row-meta';
+  const pillar = pillarById(entry.pillar);
+  if (pillar) {
+    const b = document.createElement('span');
+    b.className = 'badge badge-pillar'; b.style.background = pillar.color + '33';
+    b.style.color = pillar.color; b.textContent = pillar.name;
+    meta.appendChild(b);
+  } else if (entry.pillar) {
+    const b = document.createElement('span'); b.className = 'badge badge-pillar'; b.textContent = entry.pillar;
+    meta.appendChild(b);
+  }
+  const idle = daysSince(entry.parked_date);
+  if (idle !== null) {
+    const id = document.createElement('span'); id.textContent = `${idle}d parked`; meta.appendChild(id);
+  }
+  if (entry.ready_to_resume) {
+    const b = document.createElement('span'); b.className = 'badge badge-ready'; b.textContent = 'Ready';
+    meta.appendChild(b);
+  }
+  if (entry.stale && !entry.ready_to_resume) {
+    const b = document.createElement('span'); b.className = 'badge badge-stale'; b.textContent = 'Stale';
+    meta.appendChild(b);
+  }
+  top.appendChild(meta);
+  row.appendChild(top);
+
+  const rc = entry.resume_condition || {};
+  const rcLine = document.createElement('div'); rcLine.className = 'row-rc';
+  rcLine.textContent = 'Resume: ' + describeRC(rc);
+  row.appendChild(rcLine);
+
+  const actions = document.createElement('div'); actions.className = 'row-actions';
+  const unparkBtn = mkBtn('Unpark', 'btn-primary', e => { e.stopPropagation(); unparkRow(entry.id); });
+  const completeBtn = mkBtn('Mark complete', 'btn-ghost', e => { e.stopPropagation(); completeRow(entry.id); });
+  const deleteBtn = mkBtn('Delete', 'btn-danger', e => { e.stopPropagation(); deleteRow(entry.id); });
+  actions.appendChild(unparkBtn); actions.appendChild(completeBtn); actions.appendChild(deleteBtn);
+  row.appendChild(actions);
+
+  const detail = document.createElement('div'); detail.className = 'row-detail';
+  if (entry.last_state_snapshot) {
+    const p = document.createElement('pre'); p.textContent = entry.last_state_snapshot;
+    detail.appendChild(p);
+  }
+  const refs = entry.context_refs || [];
+  if (refs.length > 0) {
+    const r = document.createElement('div'); r.className = 'detail-row';
+    const l = document.createElement('span'); l.className = 'detail-label'; l.textContent = 'Context'; r.appendChild(l);
+    refs.forEach((ref, i) => {
+      if (i > 0) r.appendChild(document.createTextNode(', '));
+      const a = document.createElement('a'); a.href = '#'; a.textContent = ref;
+      a.onclick = e => { e.preventDefault(); window.prompt('Open this path in your editor:', ref); };
+      r.appendChild(a);
+    });
+    detail.appendChild(r);
+  }
+  if (entry.tags && entry.tags.length > 0) {
+    const r = document.createElement('div'); r.className = 'detail-row';
+    const l = document.createElement('span'); l.className = 'detail-label'; l.textContent = 'Tags'; r.appendChild(l);
+    r.appendChild(document.createTextNode(entry.tags.join(', ')));
+    detail.appendChild(r);
+  }
+  row.appendChild(detail);
+
+  row.onclick = () => {
+    if (expandedRows.has(entry.id)) expandedRows.delete(entry.id); else expandedRows.add(entry.id);
+    row.classList.toggle('expanded');
+  };
+  return row;
+}
+
+function describeRC(rc) {
+  if (!rc || !rc.type) return 'manual';
+  if (rc.type === 'date') return `date ${rc.targets || '(unset)'}`;
+  if (rc.type === 'dependency') {
+    const targets = Array.isArray(rc.targets) ? rc.targets : [];
+    const labels = targets.map(cid => {
+      const c = state && state.cards.find(x => x.id === cid);
+      const status = c ? c.column : '?';
+      return `${cid}:${status}`;
+    });
+    const sem = rc.semantics === 'any-of' ? ' (any)' : '';
+    return `dependency on ${labels.join(', ')}${sem}`;
+  }
+  if (rc.type === 'manual') return 'manual';
+  return rc.type;
+}
+
+function mkBtn(label, cls, handler) {
+  const b = document.createElement('button');
+  b.className = 'btn ' + cls + ' btn-sm';
+  b.textContent = label; b.onclick = handler; return b;
+}
+
+function toggleParkedStale() {
+  parkedFilters.staleOnly = !parkedFilters.staleOnly;
+  renderParked();
+}
+
+async function unparkRow(pid) {
+  if (!confirm('Unpark this thread? It will be restored to the active kanban.')) return;
+  await fetch('/api/unpark', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({parked_id: pid})});
+  await Promise.all([loadParked(), loadState()]);
+}
+
+async function completeRow(pid) {
+  if (!confirm('Mark complete (archive without restoring)?')) return;
+  await fetch('/api/parked/complete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({parked_id: pid})});
+  await loadParked();
+}
+
+async function deleteRow(pid) {
+  if (!confirm('Permanently delete? This cannot be undone.')) return;
+  await fetch('/api/parked/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({parked_id: pid})});
+  await loadParked();
+}
+
+async function runEvaluator() {
+  setSaveStatus('saving', 'evaluating...');
+  try {
+    const r = await fetch('/api/evaluate', {method:'POST'});
+    const j = await r.json();
+    setSaveStatus('saved', `evaluator: ${(j.ready_flipped||[]).length} ready, ${(j.newly_stale||[]).length} newly stale`);
+    setTimeout(() => setSaveStatus('', ''), 2500);
+    readyBannerDismissed = false;
+    await loadParked();
+  } catch (e) {
+    setSaveStatus('', 'evaluator failed');
+  }
+}
+
+// ---------- bugs panel ----------
+
+function renderBugs() {
+  if (!bugsData) return;
+  const list = document.getElementById('bugs-list');
+  list.innerHTML = '';
+  bugsFilters.status = document.getElementById('bugs-filter-status').value;
+  bugsFilters.severity = document.getElementById('bugs-filter-sev').value;
+
+  const sevOrder = {blocker:0, major:1, minor:2};
+  let entries = [...(bugsData.bugs || [])].sort((a, b) => {
+    const sa = sevOrder[a.severity] != null ? sevOrder[a.severity] : 99;
+    const sb = sevOrder[b.severity] != null ? sevOrder[b.severity] : 99;
+    if (sa !== sb) return sa - sb;
+    return (a.id || '').localeCompare(b.id || '');
+  });
+  entries = entries.filter(b => {
+    if (bugsFilters.status === 'not-fixed' && b.status === 'fixed') return false;
+    if (bugsFilters.status && bugsFilters.status !== 'not-fixed' && bugsFilters.status !== 'all' && b.status !== bugsFilters.status) return false;
+    if (bugsFilters.severity && b.severity !== bugsFilters.severity) return false;
+    return true;
+  });
+
+  const total = (bugsData.bugs || []).length;
+  const open = (bugsData.bugs || []).filter(b => b.status !== 'fixed').length;
+  document.getElementById('bugs-count').innerHTML = `${total} total - ${open} non-fixed`;
+
+  if (entries.length === 0) {
+    list.innerHTML = '<div class="empty-state">No bugs match the current filters.</div>';
+    return;
+  }
+
+  for (const bug of entries) list.appendChild(buildBugRow(bug));
+}
+
+function buildBugRow(bug) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  if (expandedRows.has(bug.id)) row.classList.add('expanded');
+
+  const top = document.createElement('div'); top.className = 'row-top';
+  const t = document.createElement('div'); t.className = 'row-title';
+  t.textContent = `${bug.id} - ${bug.title || ''}`;
+  top.appendChild(t);
+
+  const meta = document.createElement('div'); meta.className = 'row-meta';
+  const sev = document.createElement('span'); sev.className = 'badge badge-sev-' + (bug.severity || 'minor'); sev.textContent = bug.severity || 'minor';
+  meta.appendChild(sev);
+  const st = document.createElement('span'); st.className = 'badge badge-status-' + (bug.status || 'open'); st.textContent = bug.status || 'open';
+  meta.appendChild(st);
+  if (bug.linked_test) {
+    const lt = document.createElement('span'); lt.textContent = 'test-linked'; meta.appendChild(lt);
+  }
+  const rb = (bug.related_bugs || []).length;
+  if (rb > 0) {
+    const r = document.createElement('span'); r.textContent = `${rb} related`; meta.appendChild(r);
+  }
+  top.appendChild(meta);
+  row.appendChild(top);
+
+  const actions = document.createElement('div'); actions.className = 'row-actions';
+  for (const next of ['open','triaged','fix-pending-verification','fixed']) {
+    if (next === bug.status) continue;
+    actions.appendChild(mkBtn('-> ' + next, 'btn-ghost', e => { e.stopPropagation(); flipBugStatus(bug.id, next); }));
+  }
+  actions.appendChild(mkBtn('Link test', 'btn-ghost', e => { e.stopPropagation(); linkBugTest(bug.id, bug.linked_test); }));
+  row.appendChild(actions);
+
+  const detail = document.createElement('div'); detail.className = 'row-detail';
+  if (bug.repro) {
+    const r = document.createElement('div'); r.className = 'detail-row';
+    const l = document.createElement('span'); l.className = 'detail-label'; l.textContent = 'Repro'; r.appendChild(l);
+    const p = document.createElement('pre'); p.textContent = bug.repro; r.appendChild(p);
+    detail.appendChild(r);
+  }
+  if (bug.root_cause_file_lines && bug.root_cause_file_lines.length > 0) {
+    const r = document.createElement('div'); r.className = 'detail-row';
+    const l = document.createElement('span'); l.className = 'detail-label'; l.textContent = 'Root cause'; r.appendChild(l);
+    bug.root_cause_file_lines.forEach((line, i) => {
+      if (i > 0) r.appendChild(document.createTextNode(', '));
+      const a = document.createElement('a'); a.href = '#'; a.textContent = line;
+      a.onclick = e => { e.preventDefault(); window.prompt('Open this path:', line); };
+      r.appendChild(a);
+    });
+    detail.appendChild(r);
+  }
+  if (bug.linked_test) {
+    const r = document.createElement('div'); r.className = 'detail-row';
+    const l = document.createElement('span'); l.className = 'detail-label'; l.textContent = 'Linked test'; r.appendChild(l);
+    r.appendChild(document.createTextNode(bug.linked_test));
+    detail.appendChild(r);
+  }
+  if (bug.fix_commit) {
+    const r = document.createElement('div'); r.className = 'detail-row';
+    const l = document.createElement('span'); l.className = 'detail-label'; l.textContent = 'Fix commit'; r.appendChild(l);
+    r.appendChild(document.createTextNode(`${bug.fix_commit}${bug.fixed_date ? ' (' + bug.fixed_date + ')' : ''}`));
+    detail.appendChild(r);
+  }
+  if (bug.related_bugs && bug.related_bugs.length > 0) {
+    const r = document.createElement('div'); r.className = 'detail-row';
+    const l = document.createElement('span'); l.className = 'detail-label'; l.textContent = 'Related'; r.appendChild(l);
+    r.appendChild(document.createTextNode(bug.related_bugs.join(', ')));
+    detail.appendChild(r);
+  }
+  if (bug.x_notes) {
+    const r = document.createElement('div'); r.className = 'detail-row';
+    const l = document.createElement('span'); l.className = 'detail-label'; l.textContent = 'Notes'; r.appendChild(l);
+    const p = document.createElement('pre'); p.textContent = bug.x_notes; r.appendChild(p);
+    detail.appendChild(r);
+  }
+  row.appendChild(detail);
+
+  row.onclick = () => {
+    if (expandedRows.has(bug.id)) expandedRows.delete(bug.id); else expandedRows.add(bug.id);
+    row.classList.toggle('expanded');
+  };
+  return row;
+}
+
+async function flipBugStatus(bid, status) {
+  const patch = {status};
+  if (status === 'fixed') patch.fixed_date = new Date().toISOString().slice(0, 10);
+  await fetch('/api/bugs/update', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({bug_id: bid, patch})});
+  await loadBugs();
+}
+
+async function linkBugTest(bid, current) {
+  const path = window.prompt('Linked test path (e.g. tools/smoke-verify/tests/bugs/' + bid + '.json):', current || ('tools/smoke-verify/tests/bugs/' + bid + '.json'));
+  if (path === null) return;
+  await fetch('/api/bugs/update', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({bug_id: bid, patch: {linked_test: path || null}})});
+  await loadBugs();
+}
+
+// ---------- bug add modal ----------
+
+function openBugModal() {
+  document.getElementById('bug-f-id').value = '';
+  document.getElementById('bug-f-title').value = '';
+  document.getElementById('bug-f-severity').value = 'major';
+  document.getElementById('bug-f-status').value = 'open';
+  document.getElementById('bug-f-linked-test').value = '';
+  document.getElementById('bug-f-repro').value = '';
+  document.getElementById('bug-f-root-cause').value = '';
+  document.getElementById('bug-f-related').value = '';
+  document.getElementById('bug-modal-overlay').classList.add('show');
+  setTimeout(() => document.getElementById('bug-f-id').focus(), 50);
+}
+
+function closeBugModal() {
+  document.getElementById('bug-modal-overlay').classList.remove('show');
+}
+
+async function confirmBugAdd() {
+  const id = document.getElementById('bug-f-id').value.trim();
+  const title = document.getElementById('bug-f-title').value.trim();
+  if (!id || !title) { alert('Bug ID and title required.'); return; }
+  const root = document.getElementById('bug-f-root-cause').value.trim()
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  const related = document.getElementById('bug-f-related').value.trim()
+    .split(',').map(s => s.trim()).filter(Boolean);
+  const bug = {
+    id, title,
+    severity: document.getElementById('bug-f-severity').value,
+    status: document.getElementById('bug-f-status').value,
+    repro: document.getElementById('bug-f-repro').value.trim(),
+    root_cause_file_lines: root,
+    linked_test: document.getElementById('bug-f-linked-test').value.trim() || null,
+    related_bugs: related
+  };
+  const r = await fetch('/api/bugs/add', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({bug})});
+  if (!r.ok) { const j = await r.json().catch(() => ({})); alert('Failed: ' + (j.error || r.statusText)); return; }
+  closeBugModal();
+  await loadBugs();
+}
+
+// ---------- right-click context menu on kanban cards ----------
+
+function showCtxMenu(e, cardId) {
+  e.preventDefault();
+  ctxCardId = cardId;
+  const m = document.getElementById('ctx-menu');
+  m.classList.add('show');
+  const x = Math.min(e.clientX, window.innerWidth - 200);
+  const y = Math.min(e.clientY, window.innerHeight - 120);
+  m.style.left = x + 'px';
+  m.style.top = y + 'px';
+}
+
+function hideCtxMenu() {
+  document.getElementById('ctx-menu').classList.remove('show');
+  ctxCardId = null;
+}
+
+function ctxParkAction() {
+  if (!ctxCardId) return;
+  parkingCardId = ctxCardId;
+  hideCtxMenu();
+  openParkModal();
+}
+
+function ctxOpenAction() {
+  if (!ctxCardId) return;
+  const id = ctxCardId;
+  hideCtxMenu();
+  openModal(id, null);
+}
+
+function ctxFlagAction() {
+  if (!ctxCardId) return;
+  const id = ctxCardId;
+  hideCtxMenu();
+  toggleCardFlag(id);
+}
+
+document.addEventListener('click', () => hideCtxMenu());
+document.addEventListener('scroll', () => hideCtxMenu(), true);
+
+// ---------- park modal ----------
+
+function openParkModal() {
+  const card = getCard(parkingCardId);
+  document.getElementById('park-modal-title').textContent = 'Park: ' + (card ? card.title : parkingCardId);
+  document.getElementById('park-rc-type').value = 'date';
+  const today = new Date();
+  today.setDate(today.getDate() + 30);
+  document.getElementById('park-rc-date').value = today.toISOString().slice(0, 10);
+  document.getElementById('park-rc-dep').value = '';
+  document.getElementById('park-note').value = '';
+  onParkTypeChange();
+  document.getElementById('park-modal-overlay').classList.add('show');
+}
+
+function closeParkModal() {
+  document.getElementById('park-modal-overlay').classList.remove('show');
+  parkingCardId = null;
+}
+
+function onParkTypeChange() {
+  const t = document.getElementById('park-rc-type').value;
+  document.getElementById('park-rc-date-row').style.display = (t === 'date') ? '' : 'none';
+  document.getElementById('park-rc-dep-row').style.display = (t === 'dependency') ? '' : 'none';
+}
+
+async function confirmPark() {
+  if (!parkingCardId) return;
+  const t = document.getElementById('park-rc-type').value;
+  let rc = {type: t, targets: null, semantics: 'all-of'};
+  if (t === 'date') {
+    rc.targets = document.getElementById('park-rc-date').value;
+    if (!rc.targets) { alert('Pick a date.'); return; }
+  } else if (t === 'dependency') {
+    const raw = document.getElementById('park-rc-dep').value.trim();
+    if (!raw) { alert('At least one card id required.'); return; }
+    rc.targets = raw.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  const note = document.getElementById('park-note').value.trim();
+  const r = await fetch('/api/park', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({card_id: parkingCardId, resume_condition: rc, note})});
+  if (!r.ok) { const j = await r.json().catch(() => ({})); alert('Park failed: ' + (j.error || r.statusText)); return; }
+  closeParkModal();
+  await Promise.all([loadParked(), loadState()]);
+  setSaveStatus('saved', 'parked'); setTimeout(() => setSaveStatus('', ''), 1500);
+}
+
 // ---------- boot ----------
 
-loadState().catch(err => {
+Promise.all([
+  loadState(),
+  loadParked(),
+  loadBugs()
+]).catch(err => {
   document.getElementById('board').innerHTML =
     '<p style="color:#ef4444;padding:20px">Failed to load state: ' + err.message +
     '. Is server.py running on port 7531?</p>';

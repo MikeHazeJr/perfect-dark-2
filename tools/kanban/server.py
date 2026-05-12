@@ -1,29 +1,54 @@
 #!/usr/bin/env python3
-"""Minimal kanban HTTP server. Serves index.html and provides /api/state read/write."""
+"""Kanban + Parked-Threads + Bug-Tracker HTTP server.
+
+Serves the dev-window UI at / and provides three sets of API endpoints:
+
+  /api/state              GET  POST            kanban state.json
+  /api/cards/:id          PATCH                kanban card partial update (flag + flagged_at, etc.)
+  /api/parked             GET  POST            parked.json (tools/kanban/parked.json)
+  /api/bugs               GET  POST            bug state (tools/bugs/state.json)
+
+  /api/park               POST                 park a kanban card by id + resume condition
+  /api/unpark             POST                 restore a parked entry to kanban
+  /api/parked/complete    POST                 archive a parked entry without restoring
+  /api/parked/delete      POST                 hard-delete a parked entry
+  /api/evaluate           POST                 run resume + staleness evaluator (writes parked.json)
+  /api/cascade            POST                 cascade after a card is moved to done
+
+All writes are atomic (temp + rename). All endpoints support OPTIONS for CORS preflight.
+"""
 
 import json
 import os
 import pathlib
 import sys
-import tempfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 PORT = 7531
 BASE = pathlib.Path(__file__).parent
+REPO_ROOT = BASE.parent.parent
+
 STATE_PATH = BASE / "state.json"
+PARKED_PATH = BASE / "parked.json"
+BUGS_PATH = REPO_ROOT / "tools" / "bugs" / "state.json"
 INDEX_PATH = BASE / "index.html"
 
+sys.path.insert(0, str(REPO_ROOT / "tools"))
+import parked_evaluator as pe
 
-def read_state():
-    return STATE_PATH.read_text(encoding="utf-8")
+
+def read_text(path: pathlib.Path) -> str:
+    if not path.exists():
+        return "{}"
+    return path.read_text(encoding="utf-8")
 
 
-def write_state(body: bytes):
-    data = json.loads(body)  # validate JSON first
+def write_json_atomic(path: pathlib.Path, body: bytes) -> str:
+    data = json.loads(body)
     serialized = json.dumps(data, indent=2, ensure_ascii=False)
-    tmp = STATE_PATH.with_suffix(".json.tmp")
+    tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(serialized, encoding="utf-8")
-    os.replace(tmp, STATE_PATH)
+    os.replace(tmp, path)
     return serialized
 
 
@@ -33,8 +58,31 @@ class Handler(BaseHTTPRequestHandler):
 
     def send_cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def reply_json(self, status, payload):
+        body = json.dumps(payload).encode("utf-8") if not isinstance(payload, (bytes, bytearray)) else bytes(payload)
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_cors()
+        self.end_headers()
+        self.wfile.write(body)
+
+    def reply_text(self, status, content_bytes, content_type="text/plain; charset=utf-8"):
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(content_bytes)))
+        self.send_cors()
+        self.end_headers()
+        self.wfile.write(content_bytes)
+
+    def read_body(self):
+        length = int(self.headers.get("Content-Length", 0))
+        if length == 0:
+            return b""
+        return self.rfile.read(length)
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -44,89 +92,236 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             content = INDEX_PATH.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(content)))
-            self.send_cors()
-            self.end_headers()
-            self.wfile.write(content)
+            self.reply_text(200, content, content_type="text/html; charset=utf-8")
+            return
 
-        elif self.path == "/api/state":
-            content = read_state().encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(content)))
-            self.send_cors()
-            self.end_headers()
-            self.wfile.write(content)
+        if self.path == "/api/state":
+            self.reply_text(200, read_text(STATE_PATH).encode("utf-8"), content_type="application/json; charset=utf-8")
+            return
 
-        else:
-            self.send_error(404)
+        if self.path == "/api/parked":
+            self.reply_text(200, read_text(PARKED_PATH).encode("utf-8"), content_type="application/json; charset=utf-8")
+            return
+
+        if self.path == "/api/bugs":
+            self.reply_text(200, read_text(BUGS_PATH).encode("utf-8"), content_type="application/json; charset=utf-8")
+            return
+
+        self.send_error(404)
 
     def do_POST(self):
-        if self.path == "/api/state":
-            length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(length)
-            try:
-                written = write_state(body)
+        try:
+            if self.path == "/api/state":
+                written = write_json_atomic(STATE_PATH, self.read_body())
                 print(f"[kanban] state.json written ({len(written)} bytes)")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_cors()
-                self.end_headers()
-                self.wfile.write(b'{"ok":true}')
-            except Exception as exc:
-                print(f"[kanban] write error: {exc}", file=sys.stderr)
-                self.send_response(400)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.end_headers()
-                self.wfile.write(json.dumps({"error": str(exc)}).encode())
-        else:
+                self.reply_json(200, {"ok": True})
+                return
+
+            if self.path == "/api/parked":
+                written = write_json_atomic(PARKED_PATH, self.read_body())
+                print(f"[kanban] parked.json written ({len(written)} bytes)")
+                self.reply_json(200, {"ok": True})
+                return
+
+            if self.path == "/api/bugs":
+                BUGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+                written = write_json_atomic(BUGS_PATH, self.read_body())
+                print(f"[kanban] bugs/state.json written ({len(written)} bytes)")
+                self.reply_json(200, {"ok": True})
+                return
+
+            if self.path == "/api/park":
+                payload = json.loads(self.read_body() or b"{}")
+                card_id = payload.get("card_id")
+                rc = payload.get("resume_condition") or {"type": "date", "targets": None, "semantics": "all-of"}
+                note = payload.get("note", "")
+                if not card_id:
+                    self.reply_json(400, {"error": "card_id required"})
+                    return
+                parked = pe.load_json(PARKED_PATH)
+                kanban = pe.load_json(STATE_PATH)
+                entry = pe.park_card(parked, kanban, card_id, rc, snapshot_extra=note)
+                pe.save_json_atomic(PARKED_PATH, parked)
+                pe.save_json_atomic(STATE_PATH, kanban)
+                self.reply_json(200, {"ok": True, "parked_id": entry["id"]})
+                return
+
+            if self.path == "/api/unpark":
+                payload = json.loads(self.read_body() or b"{}")
+                pid = payload.get("parked_id")
+                if not pid:
+                    self.reply_json(400, {"error": "parked_id required"})
+                    return
+                parked = pe.load_json(PARKED_PATH)
+                kanban = pe.load_json(STATE_PATH)
+                restored = pe.unpark_entry(parked, kanban, pid)
+                pe.save_json_atomic(PARKED_PATH, parked)
+                pe.save_json_atomic(STATE_PATH, kanban)
+                self.reply_json(200, {"ok": True, "card_id": restored.get("id")})
+                return
+
+            if self.path == "/api/parked/complete":
+                payload = json.loads(self.read_body() or b"{}")
+                pid = payload.get("parked_id")
+                reason = payload.get("reason", "completed")
+                if not pid:
+                    self.reply_json(400, {"error": "parked_id required"})
+                    return
+                parked = pe.load_json(PARKED_PATH)
+                pe.mark_parked_complete(parked, pid, reason=reason)
+                pe.save_json_atomic(PARKED_PATH, parked)
+                self.reply_json(200, {"ok": True})
+                return
+
+            if self.path == "/api/parked/delete":
+                payload = json.loads(self.read_body() or b"{}")
+                pid = payload.get("parked_id")
+                if not pid:
+                    self.reply_json(400, {"error": "parked_id required"})
+                    return
+                parked = pe.load_json(PARKED_PATH)
+                parked["parked"] = [e for e in parked.get("parked", []) if e.get("id") != pid]
+                pe.save_json_atomic(PARKED_PATH, parked)
+                self.reply_json(200, {"ok": True})
+                return
+
+            if self.path == "/api/parked/update":
+                payload = json.loads(self.read_body() or b"{}")
+                pid = payload.get("parked_id")
+                patch = payload.get("patch") or {}
+                if not pid:
+                    self.reply_json(400, {"error": "parked_id required"})
+                    return
+                parked = pe.load_json(PARKED_PATH)
+                target = None
+                for entry in parked.get("parked", []):
+                    if entry.get("id") == pid:
+                        target = entry
+                        break
+                if target is None:
+                    self.reply_json(404, {"error": "parked entry not found"})
+                    return
+                for k, v in patch.items():
+                    target[k] = v
+                pe.save_json_atomic(PARKED_PATH, parked)
+                self.reply_json(200, {"ok": True})
+                return
+
+            if self.path == "/api/bugs/update":
+                payload = json.loads(self.read_body() or b"{}")
+                bid = payload.get("bug_id")
+                patch = payload.get("patch") or {}
+                if not bid:
+                    self.reply_json(400, {"error": "bug_id required"})
+                    return
+                bugs = pe.load_json(BUGS_PATH)
+                target = None
+                for bug in bugs.get("bugs", []):
+                    if bug.get("id") == bid:
+                        target = bug
+                        break
+                if target is None:
+                    self.reply_json(404, {"error": "bug not found"})
+                    return
+                for k, v in patch.items():
+                    target[k] = v
+                pe.save_json_atomic(BUGS_PATH, bugs)
+                self.reply_json(200, {"ok": True})
+                return
+
+            if self.path == "/api/bugs/add":
+                payload = json.loads(self.read_body() or b"{}")
+                new_bug = payload.get("bug") or {}
+                if not new_bug.get("id") or not new_bug.get("title"):
+                    self.reply_json(400, {"error": "bug.id and bug.title required"})
+                    return
+                bugs = pe.load_json(BUGS_PATH)
+                for existing in bugs.get("bugs", []):
+                    if existing.get("id") == new_bug["id"]:
+                        self.reply_json(409, {"error": f"bug {new_bug['id']} already exists"})
+                        return
+                new_bug.setdefault("severity", "minor")
+                new_bug.setdefault("status", "open")
+                new_bug.setdefault("repro", "")
+                new_bug.setdefault("root_cause_file_lines", [])
+                new_bug.setdefault("linked_test", None)
+                new_bug.setdefault("fix_commit", None)
+                new_bug.setdefault("fixed_date", None)
+                new_bug.setdefault("related_bugs", [])
+                new_bug.setdefault("filed_date", __import__("datetime").date.today().isoformat())
+                bugs.setdefault("bugs", []).append(new_bug)
+                pe.save_json_atomic(BUGS_PATH, bugs)
+                self.reply_json(200, {"ok": True})
+                return
+
+            if self.path == "/api/evaluate":
+                parked = pe.load_json(PARKED_PATH)
+                kanban = pe.load_json(STATE_PATH)
+                flipped = pe.evaluate_resume_conditions(parked, kanban)
+                newly_stale = pe.evaluate_staleness(parked)
+                pe.save_json_atomic(PARKED_PATH, parked)
+                self.reply_json(200, {
+                    "ok": True,
+                    "ready_flipped": [{"id": e["id"], "title": e.get("title", "")} for e in flipped],
+                    "newly_stale": [{"id": e["id"], "title": e.get("title", "")} for e in newly_stale],
+                })
+                return
+
+            if self.path == "/api/cascade":
+                payload = json.loads(self.read_body() or b"{}")
+                card_done = payload.get("card_done")
+                if not card_done:
+                    self.reply_json(400, {"error": "card_done required"})
+                    return
+                parked = pe.load_json(PARKED_PATH)
+                kanban = pe.load_json(STATE_PATH)
+                result = pe.cascade_card_done(parked, kanban, card_done)
+                pe.save_json_atomic(PARKED_PATH, parked)
+                self.reply_json(200, {
+                    "ok": True,
+                    "matched": [{"id": e["id"]} for e in result["matched"]],
+                    "flipped": [{"id": e["id"], "title": e.get("title", "")} for e in result["flipped"]],
+                })
+                return
+
             self.send_error(404)
+        except Exception as exc:
+            print(f"[kanban] POST error on {self.path}: {exc}", file=sys.stderr)
+            self.reply_json(400, {"error": str(exc)})
 
     def do_PATCH(self):
         if self.path.startswith("/api/cards/"):
             card_id = self.path[len("/api/cards/"):]
-            length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(length)
             try:
-                patch = json.loads(body)
-                data = json.loads(read_state())
+                patch = json.loads(self.read_body() or b"{}")
+                data = json.loads(read_text(STATE_PATH))
                 found = False
                 for card in data.get("cards", []):
-                    if card["id"] == card_id:
+                    if card.get("id") == card_id:
                         for k, v in patch.items():
                             card[k] = v
                         found = True
                         break
                 if not found:
-                    self.send_response(404)
-                    self.send_header("Content-Type", "application/json; charset=utf-8")
-                    self.send_cors()
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"error": "card not found"}).encode())
+                    self.reply_json(404, {"error": "card not found"})
                     return
-                written = write_state(json.dumps(data).encode())
-                print(f"[kanban] PATCH card {card_id} ({len(written)} bytes)")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_cors()
-                self.end_headers()
-                self.wfile.write(b'{"ok":true}')
+                write_json_atomic(STATE_PATH, json.dumps(data).encode("utf-8"))
+                print(f"[kanban] PATCH card {card_id}")
+                self.reply_json(200, {"ok": True})
             except Exception as exc:
                 print(f"[kanban] patch error: {exc}", file=sys.stderr)
-                self.send_response(400)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.end_headers()
-                self.wfile.write(json.dumps({"error": str(exc)}).encode())
-        else:
-            self.send_error(404)
+                self.reply_json(400, {"error": str(exc)})
+            return
+
+        self.send_error(404)
 
 
 if __name__ == "__main__":
     server = HTTPServer(("localhost", PORT), Handler)
     print(f"[kanban] listening on http://localhost:{PORT}/")
     print(f"[kanban] state file: {STATE_PATH}")
+    print(f"[kanban] parked file: {PARKED_PATH}")
+    print(f"[kanban] bugs file: {BUGS_PATH}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
