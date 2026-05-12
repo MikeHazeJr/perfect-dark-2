@@ -1164,6 +1164,170 @@ function Refresh-LatestRelease {
                              FontFamily="Consolas" FontSize="28" Padding="8,6"/>
                 </Grid>
             </TabItem>
+
+            <!-- CLI TAB (c125): Claude CLI launcher. Compose well-formed prompts
+                 with card context + standing rules, launch interactively in a
+                 new console or headless (-p) with output to the Log tab. -->
+            <TabItem Header="CLI">
+              <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0">
+                <DockPanel Margin="14,12,14,12" LastChildFill="False">
+
+                    <!-- Header strip -->
+                    <Border DockPanel.Dock="Top" Background="#FFFFFF" CornerRadius="3"
+                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="16,12" Margin="0,0,0,12">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="CLAUDE CLI" Foreground="#0078A8" FontFamily="Consolas"
+                                       FontSize="28" FontWeight="Bold" Margin="0,0,18,0"/>
+                            <Rectangle Width="1" Fill="#C0C8D2" Margin="0,4"/>
+                            <TextBlock Text="composed prompts for Claude Code" Foreground="#7A8898"
+                                       FontFamily="Segoe UI" FontSize="24" FontWeight="Bold" Margin="18,0,0,0"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Action row -->
+                    <Border DockPanel.Dock="Top" Background="#FFFFFF" CornerRadius="3"
+                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="12,10" Margin="0,0,0,12">
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="ACTION" Foreground="#7A8898" FontFamily="Consolas"
+                                           FontSize="22" FontWeight="Bold" Margin="0,0,12,0"
+                                           VerticalAlignment="Center"/>
+                                <Button x:Name="BtnCliActionGoal" Content="Goal" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                        ToolTip="Wrap as /goal. Use for autonomous run-to-completion."/>
+                                <Button x:Name="BtnCliActionPlan" Content="Plan" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                        ToolTip="Plan without executing code. Returns a structured plan."/>
+                                <Button x:Name="BtnCliActionInvestigate" Content="Investigate" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                        ToolTip="Read-only diagnostic. Report findings only, no modifications."/>
+                                <Button x:Name="BtnCliActionBugFix" Content="Bug Fix" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                        ToolTip="Fix bug B-NNN. Writes regression test first, then fix."/>
+                                <Button x:Name="BtnCliActionReview" Content="Review" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                        ToolTip="Code review scoped to selected cards' files or a branch."/>
+                                <Button x:Name="BtnCliActionCustom" Content="Custom" Style="{StaticResource ToolBtn}" Margin="0,0,16,0"
+                                        ToolTip="No wrapping. Sends prompt verbatim with only the standing-rules suffix."/>
+                                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,4,16,4"/>
+                                <TextBlock x:Name="LblCliActiveAction" Text="active: Goal" Foreground="#0078A8"
+                                           FontFamily="Consolas" FontSize="24" FontWeight="Bold"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Border>
+
+                    <!-- Bug ID + Branch (visible only for Bug Fix / Review) -->
+                    <Border DockPanel.Dock="Top" Background="#FFFFFF" CornerRadius="3"
+                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="12,10" Margin="0,0,0,12">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Bug ID:" Foreground="#7A8898" FontFamily="Consolas"
+                                       FontSize="22" FontWeight="Bold" Margin="0,0,8,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtCliBugId" Width="200" Background="#F5F7FA" Foreground="#1A2434"
+                                     BorderBrush="#C0C8D2" Padding="6,4"
+                                     FontFamily="Consolas" FontSize="24" Margin="0,0,18,0"/>
+                            <TextBlock Text="Branch:" Foreground="#7A8898" FontFamily="Consolas"
+                                       FontSize="22" FontWeight="Bold" Margin="0,0,8,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtCliBranch" Width="300" Background="#F5F7FA" Foreground="#1A2434"
+                                     BorderBrush="#C0C8D2" Padding="6,4"
+                                     FontFamily="Consolas" FontSize="24"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Prompt + Cards row (60/40 split) -->
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12" Height="420">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="3*" MinWidth="500"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="2*" MinWidth="400"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Prompt textbox -->
+                        <Border Grid.Column="0" Background="#FFFFFF" CornerRadius="3"
+                                BorderBrush="#C0C8D2" BorderThickness="1" Padding="12,10">
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Top" Text="PROMPT" Foreground="#7A8898"
+                                           FontFamily="Consolas" FontSize="22" FontWeight="Bold"
+                                           Margin="0,0,0,6"/>
+                                <TextBox x:Name="TxtCliPrompt" Background="#FFFFFF" Foreground="#1A2434"
+                                         BorderBrush="#C0C8D2" Padding="8,6" AcceptsReturn="True"
+                                         AcceptsTab="True" TextWrapping="Wrap"
+                                         VerticalScrollBarVisibility="Auto"
+                                         FontFamily="Consolas" FontSize="24"/>
+                            </DockPanel>
+                        </Border>
+
+                        <!-- Cards list -->
+                        <Border Grid.Column="2" Background="#FFFFFF" CornerRadius="3"
+                                BorderBrush="#C0C8D2" BorderThickness="1" Padding="12,10">
+                            <DockPanel>
+                                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                    <TextBlock Text="CARDS" Foreground="#7A8898"
+                                               FontFamily="Consolas" FontSize="22" FontWeight="Bold"
+                                               VerticalAlignment="Center"/>
+                                    <Button x:Name="BtnCliCardsRefresh" Content="Refresh"
+                                            Style="{StaticResource ToolBtn}" DockPanel.Dock="Right"
+                                            Padding="14,6" MinHeight="44" FontSize="22" Margin="6,0,0,0"/>
+                                    <TextBox x:Name="TxtCliCardSearch" Background="#FFFFFF" Foreground="#4A5868"
+                                             BorderBrush="#C0C8D2" Padding="6,4" Margin="8,0,0,0"
+                                             FontFamily="Consolas" FontSize="22"
+                                             Tag="Search..." FontStyle="Italic"/>
+                                </DockPanel>
+                                <TextBlock x:Name="LblCliSelectedCards" DockPanel.Dock="Bottom"
+                                           Text="Selected: (none)" Foreground="#0078A8"
+                                           FontFamily="Consolas" FontSize="22" FontWeight="Bold"
+                                           Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                <ListBox x:Name="LstCliCards" Background="#FFFFFF" Foreground="#1A2434"
+                                         BorderBrush="#C0C8D2" BorderThickness="1"
+                                         FontFamily="Consolas" FontSize="22"
+                                         SelectionMode="Multiple"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+                            </DockPanel>
+                        </Border>
+                    </Grid>
+
+                    <!-- Composed prompt preview -->
+                    <Border DockPanel.Dock="Top" Background="#F5F7FA" CornerRadius="3"
+                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="12,10" Margin="0,0,0,12">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Top" Text="COMPOSED PROMPT (read-only)"
+                                       Foreground="#7A8898" FontFamily="Consolas" FontSize="22"
+                                       FontWeight="Bold" Margin="0,0,0,6"/>
+                            <TextBox x:Name="TxtCliPreview" Background="#FFFFFF" Foreground="#1A2434"
+                                     BorderBrush="#C0C8D2" Padding="8,6" IsReadOnly="True"
+                                     AcceptsReturn="True" TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     FontFamily="Consolas" FontSize="22"
+                                     Height="200"/>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Launch controls -->
+                    <Border DockPanel.Dock="Top" Background="#FFFFFF" CornerRadius="3"
+                            BorderBrush="#C0C8D2" BorderThickness="1" Padding="12,10">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="MODE:" Foreground="#7A8898" FontFamily="Consolas"
+                                       FontSize="22" FontWeight="Bold" Margin="0,0,10,0"
+                                       VerticalAlignment="Center"/>
+                            <RadioButton x:Name="RdoCliModeInteractive" Content="Interactive (new console)"
+                                         IsChecked="True" GroupName="CliMode"
+                                         Foreground="#1A2434" FontFamily="Segoe UI" FontSize="24" FontWeight="Bold"
+                                         VerticalAlignment="Center" Margin="0,0,18,0"/>
+                            <RadioButton x:Name="RdoCliModeHeadless" Content="Headless (-p, log)"
+                                         GroupName="CliMode"
+                                         Foreground="#1A2434" FontFamily="Segoe UI" FontSize="24" FontWeight="Bold"
+                                         VerticalAlignment="Center" Margin="0,0,24,0"/>
+                            <Button x:Name="BtnCliLaunch" Content="LAUNCH" Style="{StaticResource GreenBtn}"
+                                    Padding="22,12" FontSize="26" Margin="0,0,8,0"/>
+                            <Button x:Name="BtnCliCopy" Content="Copy Prompt" Style="{StaticResource ToolBtn}"
+                                    Padding="20,12" Margin="0,0,8,0"/>
+                            <Button x:Name="BtnCliReset" Content="Reset" Style="{StaticResource ToolBtn}"
+                                    Padding="20,12"/>
+                        </StackPanel>
+                    </Border>
+
+                </DockPanel>
+              </ScrollViewer>
+            </TabItem>
         </TabControl>
     </DockPanel>
 </Window>
@@ -1189,7 +1353,12 @@ $namedElements = @(
     "ChkStable","LblAuthStatus","LblLatestRelease","LblDevVersion",
     "BtnOpenGitHub","BtnOpenFolder","BtnOpenKanban","BtnCleanBuild","BtnPull","BtnPush","BtnPruneWorktrees",
     "BtnLogClear","BtnLogExport","ChkAutoScroll","TxtLogFilter","LogOutput",
-    "DocList","DocContent"
+    "DocList","DocContent",
+    "BtnCliActionGoal","BtnCliActionPlan","BtnCliActionInvestigate","BtnCliActionBugFix",
+    "BtnCliActionReview","BtnCliActionCustom","LblCliActiveAction",
+    "TxtCliBugId","TxtCliBranch","TxtCliPrompt","TxtCliCardSearch","LstCliCards",
+    "LblCliSelectedCards","BtnCliCardsRefresh","TxtCliPreview",
+    "RdoCliModeInteractive","RdoCliModeHeadless","BtnCliLaunch","BtnCliCopy","BtnCliReset"
 )
 foreach ($name in $namedElements) {
     $ui[$name] = $window.FindName($name)
@@ -2805,6 +2974,382 @@ function Start-Build {
 }
 
 # ============================================================================
+# Section 14a: Claude CLI panel (c125, pillar=Tooling)
+#
+# Composes well-formed prompts for Claude Code CLI sessions, scoped to selected
+# kanban cards, with mandatory sprint-report output for the Dispatch orchestrator
+# to consume on its next turn.
+#
+# Design doc: context\designs\devwindow-claude-cli-panel.md
+# ============================================================================
+
+$script:CliActiveAction      = "Goal"       # one of: Goal, Plan, Investigate, BugFix, Review, Custom
+$script:CliCardsCache        = @()           # all active+backlog cards from kanban
+$script:CliSelectedCardIds   = @()           # ids of selected cards (preserved across filter)
+$script:CliPreviewDebounce   = $false
+$script:CliClaudeExe         = $null         # resolved on first use
+$script:CliPreallocatedRange = "c126-c130"   # default reservation hint for spawned sessions
+
+function Get-CliClaudeExe {
+    if ($script:CliClaudeExe) { return $script:CliClaudeExe }
+    # Prefer the .cmd shim on Windows (npm install creates both claude and claude.cmd).
+    $candidates = @(
+        (Join-Path $env:APPDATA "npm\claude.cmd"),
+        (Join-Path $env:APPDATA "npm\claude")
+    )
+    foreach ($c in $candidates) {
+        if (Test-Path -LiteralPath $c) { $script:CliClaudeExe = $c; return $c }
+    }
+    # Fall back to PATH lookup.
+    try {
+        $cmd = Get-Command "claude.cmd" -ErrorAction SilentlyContinue
+        if (-not $cmd) { $cmd = Get-Command "claude" -ErrorAction SilentlyContinue }
+        if ($cmd) { $script:CliClaudeExe = $cmd.Source; return $cmd.Source }
+    } catch {}
+    return $null
+}
+
+function Get-CliKanbanState {
+    # Fetch the kanban state.json contents. Prefer the live server endpoint so
+    # we pick up uncommitted in-flight edits to the kanban; fall back to the
+    # on-disk file if the server is not running.
+    $port = 7531
+    if (Test-KanbanServerUp -Port $port) {
+        try {
+            $resp = Invoke-WebRequest -Uri ("http://127.0.0.1:" + $port + "/api/state") -UseBasicParsing -TimeoutSec 4
+            if ($resp.StatusCode -eq 200) {
+                return ($resp.Content | ConvertFrom-Json)
+            }
+        } catch {}
+    }
+    $statePath = Join-Path $script:ProjectRoot "tools\kanban\state.json"
+    if (Test-Path -LiteralPath $statePath) {
+        try { return (Get-Content -LiteralPath $statePath -Raw -Encoding UTF8 | ConvertFrom-Json) } catch {}
+    }
+    return $null
+}
+
+function Refresh-CliCardsList {
+    $state = Get-CliKanbanState
+    $cards = @()
+    if ($null -ne $state -and $null -ne $state.cards) {
+        # Filter to active + backlog; sort active first, then by priority, then order.
+        $filtered = @($state.cards | Where-Object { $_.column -eq "active" -or $_.column -eq "backlog" })
+        $cards = $filtered | Sort-Object `
+            @{Expression={ if ($_.column -eq "active") { 0 } else { 1 } }; Ascending=$true}, `
+            @{Expression={ if ($_.priority) { [int]$_.priority } else { 9 } }; Ascending=$true}, `
+            @{Expression={ if ($_.order) { [int]$_.order } else { 0 } }; Ascending=$true}
+    }
+    $script:CliCardsCache = @($cards)
+    Apply-CliCardsFilter
+}
+
+function Apply-CliCardsFilter {
+    if ($null -eq $ui["LstCliCards"]) { return }
+    $listBox = $ui["LstCliCards"]
+    $search = ""
+    if ($null -ne $ui["TxtCliCardSearch"]) {
+        $t = $ui["TxtCliCardSearch"].Text
+        if ($t -and $t -ne "Search...") { $search = $t.ToLowerInvariant() }
+    }
+    $listBox.Items.Clear()
+    foreach ($c in $script:CliCardsCache) {
+        $line = ("{0}  {1}  ({2}, {3})" -f $c.id, $c.title, $c.column, $c.pillar)
+        if ($search -ne "") {
+            if (-not ($line.ToLowerInvariant().Contains($search))) { continue }
+        }
+        [void]$listBox.Items.Add($line)
+        # Restore selection state from CliSelectedCardIds.
+        if ($script:CliSelectedCardIds -contains $c.id) {
+            $listBox.SelectedItems.Add($line) | Out-Null
+        }
+    }
+    Update-CliSelectedCardLabel
+}
+
+function Update-CliSelectedCardLabel {
+    if ($null -eq $ui["LblCliSelectedCards"]) { return }
+    if ($script:CliSelectedCardIds.Count -eq 0) {
+        $ui["LblCliSelectedCards"].Text = "Selected: (none)"
+    } else {
+        $ui["LblCliSelectedCards"].Text = "Selected: " + ($script:CliSelectedCardIds -join ", ")
+    }
+}
+
+function Sync-CliSelectedCardsFromListBox {
+    if ($null -eq $ui["LstCliCards"]) { return }
+    $selected = @()
+    foreach ($item in $ui["LstCliCards"].SelectedItems) {
+        $line = [string]$item
+        $idx = $line.IndexOf("  ")
+        if ($idx -gt 0) {
+            $id = $line.Substring(0, $idx).Trim()
+            if ($id -ne "") { $selected += $id }
+        }
+    }
+    $script:CliSelectedCardIds = @($selected)
+    Update-CliSelectedCardLabel
+}
+
+function Set-CliAction([string]$action) {
+    $script:CliActiveAction = $action
+    if ($null -ne $ui["LblCliActiveAction"]) {
+        $ui["LblCliActiveAction"].Text = "active: " + $action
+    }
+    Update-CliPreview
+}
+
+function Get-CliWrappingPrefix([string]$action) {
+    switch ($action) {
+        "Goal"        { return "/goal " }
+        "Plan"        { return "Plan the following without executing any code. Output a structured plan:`n`n" }
+        "Investigate" { return "Investigate the following. Do not modify code. Report findings only:`n`n" }
+        "BugFix"      {
+            $bug = "B-NNN"
+            if ($ui["TxtCliBugId"] -and $ui["TxtCliBugId"].Text) {
+                $b = $ui["TxtCliBugId"].Text.Trim()
+                if ($b -ne "") { $bug = $b }
+            }
+            return ("Fix bug " + $bug + ": ")
+        }
+        "Review"      {
+            $branch = ""
+            if ($ui["TxtCliBranch"] -and $ui["TxtCliBranch"].Text) {
+                $branch = $ui["TxtCliBranch"].Text.Trim()
+            }
+            if ($branch -ne "") {
+                return ("Review the following. Scope: branch " + $branch + ":`n`n")
+            }
+            return "Review the following. Scope: selected cards' affected files:`n`n"
+        }
+        "Custom"      { return "" }
+    }
+    return ""
+}
+
+function Get-CliWrappingSuffix([string]$action) {
+    if ($action -eq "BugFix") {
+        $bug = "B-NNN"
+        if ($ui["TxtCliBugId"] -and $ui["TxtCliBugId"].Text) {
+            $b = $ui["TxtCliBugId"].Text.Trim()
+            if ($b -ne "") { $bug = $b }
+        }
+        return ("`n`nWrite or update the regression test at tools/smoke-verify/tests/bugs/" + $bug + ".json first, then fix until it passes.")
+    }
+    return ""
+}
+
+function Build-CliCardsContextBlock {
+    if ($script:CliSelectedCardIds.Count -eq 0) { return "" }
+    $lines = @("Working cards:")
+    foreach ($id in $script:CliSelectedCardIds) {
+        $card = $script:CliCardsCache | Where-Object { $_.id -eq $id } | Select-Object -First 1
+        if ($null -ne $card) {
+            $lines += ("- " + $card.id + ": " + $card.title + " (" + $card.column + ", " + $card.pillar + ")")
+        } else {
+            $lines += ("- " + $id)
+        }
+    }
+    return ($lines -join "`n")
+}
+
+function Build-CliStandingRulesBlock {
+    return @"
+[Standing rules]
+- Apply all PD2 standing rules from feedback auto-memory (commit-message standard
+  "<Pillar> - cNNN: <summary>" with body + Refs line, dirty-tree relaxed auto-merge
+  to dev, no em-dashes in any generated file, hierarchical log channels, BYOR-compliant,
+  queued build tool only, descriptive headings).
+- Pre-allocated card IDs for this session: $($script:CliPreallocatedRange). Use these for any NEW
+  sub-cards. Do NOT generate from kanban state.
+- Update tools/kanban/state.json reflecting all card transitions, pending_completion
+  for any completed cards (orchestrator-confirmed flow).
+- At session end, write a sprint report to
+  .claude/sprint-reports/sprint-YYYY-MM-DDTHHMMSS.md (UTC ISO 8601 in filename,
+  hyphen-separated). Sections required:
+  - ## Goal       verbatim user prompt
+  - ## Shipped    what landed (commit SHAs, files touched, kanban transitions)
+  - ## Decisions  calls made and rationale
+  - ## Blockers   anything that stopped progress
+  - ## Follow-ups work surfaced but not done
+  - ## Kanban Changes  exact cNNN transitions (created, updated, columns moved)
+  - ## Files Touched   list with brief change description
+  - ## Verification Notes  for orchestrator: what to spot-check before disposing.
+- The orchestrator (dispatch session) will read the sprint report on next interaction,
+  verify against kanban + git state, then dispose (delete) the report ONLY once verified.
+"@
+}
+
+function Build-CliComposedPrompt {
+    $action = $script:CliActiveAction
+    $userText = ""
+    if ($ui["TxtCliPrompt"]) { $userText = $ui["TxtCliPrompt"].Text }
+    if ($null -eq $userText) { $userText = "" }
+
+    $prefix = Get-CliWrappingPrefix $action
+    $suffix = Get-CliWrappingSuffix $action
+
+    $cardsBlock = Build-CliCardsContextBlock
+    $standing = Build-CliStandingRulesBlock
+
+    $parts = @()
+    $parts += ($prefix + $userText + $suffix)
+    if ($cardsBlock -ne "") { $parts += ""; $parts += $cardsBlock }
+    $parts += ""
+    $parts += $standing
+    return ($parts -join "`n")
+}
+
+function Update-CliPreview {
+    if ($null -eq $ui["TxtCliPreview"]) { return }
+    try {
+        $ui["TxtCliPreview"].Text = Build-CliComposedPrompt
+    } catch {}
+}
+
+function Reset-CliPanel {
+    if ($ui["TxtCliPrompt"]) { $ui["TxtCliPrompt"].Text = "" }
+    if ($ui["TxtCliBugId"]) { $ui["TxtCliBugId"].Text = "" }
+    if ($ui["TxtCliBranch"]) { $ui["TxtCliBranch"].Text = "" }
+    if ($ui["TxtCliCardSearch"]) { $ui["TxtCliCardSearch"].Text = "" }
+    $script:CliSelectedCardIds = @()
+    if ($ui["LstCliCards"]) { $ui["LstCliCards"].SelectedItems.Clear() }
+    Update-CliSelectedCardLabel
+    Set-CliAction "Goal"
+}
+
+function Get-CliPromptTempPath {
+    $ts = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
+    $dir = $env:TEMP
+    if (-not $dir) { $dir = Join-Path $script:ProjectRoot ".claude\scratch" }
+    if (-not (Test-Path -LiteralPath $dir)) {
+        try { New-Item -ItemType Directory -Force -Path $dir | Out-Null } catch {}
+    }
+    return (Join-Path $dir ("pd2-cli-prompt-" + $ts + ".txt"))
+}
+
+function Invoke-CliLaunch {
+    $composed = Build-CliComposedPrompt
+    if (-not $composed -or $composed.Trim() -eq "") {
+        [System.Windows.MessageBox]::Show("Composed prompt is empty.", "Claude CLI", "OK", "Information") | Out-Null
+        return
+    }
+
+    $claudeExe = Get-CliClaudeExe
+    if (-not $claudeExe) {
+        Add-LogLine "CLI: claude executable not found. Install with: npm install -g @anthropic-ai/claude-code" "#B81818"
+        [System.Windows.MessageBox]::Show("Claude CLI executable not found. Install with:`n`nnpm install -g @anthropic-ai/claude-code", "Claude CLI", "OK", "Warning") | Out-Null
+        return
+    }
+
+    $promptPath = Get-CliPromptTempPath
+    try {
+        # UTF-8 with BOM. Set-Content -Encoding UTF8 emits a BOM by default in
+        # Windows PowerShell 5.1; that is what we want so the prompt round-trips
+        # safely through clipboard and stdin redirection.
+        Set-Content -LiteralPath $promptPath -Value $composed -Encoding UTF8
+    } catch {
+        Add-LogLine ("CLI: failed to write prompt file: " + $_.Exception.Message) "#B81818"
+        return
+    }
+
+    $headless = $false
+    if ($ui["RdoCliModeHeadless"] -and $ui["RdoCliModeHeadless"].IsChecked) { $headless = $true }
+
+    if ($headless) {
+        Invoke-CliLaunchHeadless -PromptPath $promptPath -ClaudeExe $claudeExe -Composed $composed
+    } else {
+        Invoke-CliLaunchInteractive -PromptPath $promptPath -ClaudeExe $claudeExe -Composed $composed
+    }
+}
+
+function Invoke-CliLaunchInteractive {
+    param([string]$PromptPath, [string]$ClaudeExe, [string]$Composed)
+    # Copy prompt to clipboard so Mike can paste with Ctrl+V in the new console.
+    try { [System.Windows.Clipboard]::SetText($Composed) } catch {}
+
+    # Build a cmd.exe command line that:
+    #  1. echoes a "paste with Ctrl+V" hint
+    #  2. starts claude (no args, picks up prompt via paste)
+    #  3. keeps the window open with /K after claude exits
+    $hint = "echo Prompt copied to clipboard. Paste with Ctrl+V into the claude prompt, then press Enter."
+    $cmdLine = "/K " + $hint + " && `"" + $ClaudeExe + "`""
+    try {
+        Start-Process -FilePath "cmd.exe" `
+                      -ArgumentList $cmdLine `
+                      -WorkingDirectory $script:ProjectRoot
+        Add-LogSessionLine ">>> CLI launch (interactive): claude started in new console. Prompt copied to clipboard." "#0078A8"
+        Add-LogLine ("CLI: prompt file at " + $PromptPath) "#44586C"
+    } catch {
+        Add-LogLine ("CLI: failed to launch cmd.exe: " + $_.Exception.Message) "#B81818"
+        [System.Windows.MessageBox]::Show("Failed to launch console: " + $_.Exception.Message, "Claude CLI", "OK", "Warning") | Out-Null
+    }
+}
+
+function Invoke-CliLaunchHeadless {
+    param([string]$PromptPath, [string]$ClaudeExe, [string]$Composed)
+
+    Add-LogSessionLine ">>> CLI launch (headless): claude --print, output below." "#0078A8"
+    Add-LogLine ("CLI: prompt file at " + $PromptPath) "#44586C"
+
+    Start-AsyncPoolAction `
+        -Script {
+            param($claudeExe, $promptPath, $projectRoot)
+            try {
+                $psi = New-Object System.Diagnostics.ProcessStartInfo
+                $psi.FileName = "cmd.exe"
+                # claude reads stdin when invoked with --print and stdin is piped.
+                # Redirect from the prompt file so we round-trip arbitrary characters.
+                $psi.Arguments = "/d /c `"`"" + $claudeExe + "`" --print --output-format text < `"" + $promptPath + "`"`""
+                $psi.WorkingDirectory = $projectRoot
+                $psi.UseShellExecute = $false
+                $psi.RedirectStandardOutput = $true
+                $psi.RedirectStandardError = $true
+                $psi.CreateNoWindow = $true
+                $p = [System.Diagnostics.Process]::Start($psi)
+                $stdout = $p.StandardOutput.ReadToEnd()
+                $stderr = $p.StandardError.ReadToEnd()
+                $p.WaitForExit()
+                [PSCustomObject]@{
+                    ExitCode = $p.ExitCode
+                    Stdout   = $stdout
+                    Stderr   = $stderr
+                }
+            } catch {
+                [PSCustomObject]@{ ExitCode = -1; Stdout = ""; Stderr = $_.Exception.Message }
+            }
+        } `
+        -Arguments @($ClaudeExe, $PromptPath, $script:ProjectRoot) `
+        -OnComplete {
+            param($result)
+            try {
+                $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
+                if ($null -eq $r) {
+                    Add-LogLine "CLI: headless run returned no result." "#A07810"
+                    return
+                }
+                if ($r.ExitCode -eq 0) {
+                    Add-LogSessionLine ">>> CLI headless: exit 0." "#10783A"
+                } else {
+                    Add-LogSessionLine (">>> CLI headless: exit " + $r.ExitCode + ".") "#B81818"
+                }
+                if ($r.Stdout -and $r.Stdout.Length -gt 0) {
+                    foreach ($line in ($r.Stdout -split "`r?`n")) {
+                        if ($line.Length -gt 0) { Add-LogLine $line "#1A2434" }
+                    }
+                }
+                if ($r.Stderr -and $r.Stderr.Length -gt 0) {
+                    foreach ($line in ($r.Stderr -split "`r?`n")) {
+                        if ($line.Length -gt 0) { Add-LogLine $line "#B86810" }
+                    }
+                }
+            } catch {
+                Add-LogLine ("CLI: headless callback error: " + $_.Exception.Message) "#B81818"
+            }
+        }
+}
+
+# ============================================================================
 # Section 15: Release pipeline
 # ============================================================================
 
@@ -3403,6 +3948,34 @@ $ui["LblAuthStatus"].Cursor = [System.Windows.Input.Cursors]::Hand
 $ui["LblAuthStatus"].Add_MouseLeftButtonDown({ Invoke-GhAuthHelp })
 $ui["StatusAuth"].Cursor = [System.Windows.Input.Cursors]::Hand
 $ui["StatusAuth"].Add_MouseLeftButtonDown({ Invoke-GhAuthHelp })
+
+# --- CLI panel (c125) event wiring -------------------------------------------
+$ui["BtnCliActionGoal"].Add_Click({ Set-CliAction "Goal" })
+$ui["BtnCliActionPlan"].Add_Click({ Set-CliAction "Plan" })
+$ui["BtnCliActionInvestigate"].Add_Click({ Set-CliAction "Investigate" })
+$ui["BtnCliActionBugFix"].Add_Click({ Set-CliAction "BugFix" })
+$ui["BtnCliActionReview"].Add_Click({ Set-CliAction "Review" })
+$ui["BtnCliActionCustom"].Add_Click({ Set-CliAction "Custom" })
+
+$ui["TxtCliPrompt"].Add_TextChanged({ Update-CliPreview })
+$ui["TxtCliBugId"].Add_TextChanged({ Update-CliPreview })
+$ui["TxtCliBranch"].Add_TextChanged({ Update-CliPreview })
+
+$ui["BtnCliCardsRefresh"].Add_Click({ Refresh-CliCardsList; Update-CliPreview })
+$ui["TxtCliCardSearch"].Add_TextChanged({ Apply-CliCardsFilter })
+$ui["LstCliCards"].Add_SelectionChanged({ Sync-CliSelectedCardsFromListBox; Update-CliPreview })
+
+$ui["BtnCliLaunch"].Add_Click({ Invoke-CliLaunch })
+$ui["BtnCliCopy"].Add_Click({
+    try {
+        $composed = Build-CliComposedPrompt
+        [System.Windows.Clipboard]::SetText($composed)
+        Add-LogLine ("CLI: composed prompt copied to clipboard (" + $composed.Length + " chars).") "#0078A8"
+    } catch {
+        Add-LogLine ("CLI: clipboard copy failed: " + $_.Exception.Message) "#B81818"
+    }
+})
+$ui["BtnCliReset"].Add_Click({ Reset-CliPanel; Update-CliPreview })
 
 # ============================================================================
 # Section 18: Timers (WPF DispatcherTimer)
@@ -4031,6 +4604,15 @@ $window.Add_Loaded({
         Update-StatusMode
 
         Invoke-GhAuthBackgroundCheck
+
+        # CLI panel (c125): populate cards list from kanban state and render the
+        # initial preview so Mike sees a well-formed prompt skeleton on first view.
+        try {
+            Refresh-CliCardsList
+            Set-CliAction "Goal"
+        } catch {
+            Write-DevWindowDebugLog ("CLI init failed: " + ($_ | Out-String)) "WARN"
+        }
 
         # Start timers: MainTimer (2s git poll) + StatusModeTimer (500ms live state).
         $script:MainTimer.Start()

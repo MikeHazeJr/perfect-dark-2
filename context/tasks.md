@@ -184,6 +184,32 @@ Per the 2026-05-06 super-audit's "single most valuable next move" recommendation
 
 **Build-gate integration**: `tools/smoke-verify/run.ps1 -AutoSelect -MergeBase dev` is callable from `devtools/build-headless.ps1` post-build. Initial ship leaves this OFF by default so the first week is advisory; once the noise floor is confirmed low, the auto-merge step will block on it.
 
+### 2i. Dev Window v2 Claude CLI panel + sprint-report contract SHIPPED (2026-05-12, adoring-turing-a53052)
+
+Per Mike's directive: "Add a Claude CLI button in the Dev window v2 ... a container that has a text box with buttons such as Goal, where I can then select card(s) and it will prompt the CLI with /goal and those as a prompt, as well as other useful functions ... The prompts should also include the requirement that they update our context and kanban system so you can easily catch back up after sprints. It should file a report specifically intended for you to do so, at which point you can interpret and dispose of the report ONLY, once you are clear and verified what it has done."
+
+**Capability shipped**:
+
+- New `CLI` tab in `devtools/dev-window-v2/dev-window-v2.ps1` placed after BUILD / LOG / DOCS. Header strip + action row (Goal, Plan, Investigate, Bug Fix, Review, Custom) + Bug ID + Branch row + 60/40 split of prompt textbox + multi-select card list + composed-prompt preview + mode radios + Launch / Copy Prompt / Reset.
+- Card list pulled from `http://localhost:7531/api/state` (with `tools/kanban/state.json` file fallback when the kanban server is down). Filters to `active` + `backlog`; sorts active-first, then by priority then order. Live search filter on title or pillar. Selection is preserved across filter changes and action switches.
+- Action-button wrapping logic produces well-formed prompts: Goal -> `/goal <text>`; Plan / Investigate -> instruction prefix; Bug Fix -> `Fix bug B-NNN: ...` plus regression-test write requirement at `tools/smoke-verify/tests/bugs/B-NNN.json`; Review -> branch or selected-cards scope; Custom -> verbatim. All wrappings append a standing-rules suffix (commit format, pre-allocated card range, mandatory sprint report path + schema).
+- Two launch modes via radio buttons. Interactive (default): writes composed prompt to `$env:TEMP\pd2-cli-prompt-<UTC>.txt`, copies prompt to clipboard via `[System.Windows.Clipboard]::SetText`, opens a new `cmd.exe /K` window at project root running `claude` so Mike pastes with Ctrl+V and converses live. Headless: runs `claude --print --output-format text < <temp>` via `Start-AsyncPoolAction` on the background runspace pool, streams stdout to the Log tab on completion.
+- Sprint-report contract: every launched session is mandated (by the standing-rules suffix) to write `.claude/sprint-reports/sprint-YYYY-MM-DDTHHMMSS.md` with sections Goal / Shipped / Decisions / Blockers / Follow-ups / Kanban Changes / Files Touched / Verification Notes. The Dispatch orchestrator's session-start routine scans this directory, cross-references against `tools/kanban/state.json` and `git log`, and disposes the report once verified - giving the orchestrator a known catch-up surface for CLI sessions it would otherwise be blind to.
+
+**Verification**: three probes at `.claude/scratch/probe-cli-panel-*.ps1` (gitignored). XAML probe loads the embedded markup with WPF's XamlReader and finds all 20 named CLI elements (PASS). Compose probe exercises every action wrapping with 16 assertions including em-dash hygiene (PASS). Launch probe spawns `dev-window-v2.ps1` in a background powershell process, holds 8s, confirms no startup crash, then closes cleanly (PASS). PowerShell AST parse on the modified `.ps1` is clean.
+
+**Design**: [context/designs/devwindow-claude-cli-panel.md](designs/devwindow-claude-cli-panel.md) (326 lines, SENTINEL-terminated) - UI map, action wrapping rules, composed prompt structure, launch mechanism choice + rationale, sprint report consumption protocol (orchestrator contract), future extensions, verification procedure.
+
+**Canonical sprint-report demo**: [.claude/sprint-reports/sprint-c125-demo.md](../../.claude/sprint-reports/sprint-c125-demo.md) - shows the full schema with Verification Notes specifically aimed at the orchestrator.
+
+**Followups (out of scope for this ship, tracked as future extensions in the design doc)**:
+
+- Orchestrator-side consumption logic (memory file `feedback_dispatch_orchestrator_workflow.md` update): scan-verify-dispose sequence in the Dispatch session-start routine.
+- Saved prompt presets in `devtools/dev-window-v2/settings.json` (dropdown of last-N composed prompts).
+- Sprint-report history pane inside the CLI tab so Mike can see what the orchestrator has yet to consume.
+- Batch operations (queue multiple sprints in headless mode).
+- Skill awareness: detect installed Claude Code skills from `~/.claude/skills/` and grey out action buttons referencing missing skills.
+
 ### 2h. Decision-Request Mechanism SHIPPED (2026-05-12, clever-swirles-d24f0c)
 
 Per Mike's directive: "When surfacing something in a [card] that has open questions, allow the card to offer me multiple choices curated by you, or an alternate custom response from me, that gets interpreted, solidified, inquired further [if] needed, and put into action when a fresh session or current session reads the kanban board." Plus the design answers given 2026-05-11: badge + banner + animation + modal + side panel together; allow_custom always true; questions never auto-resolve; cards with open questions BLOCK active or upcoming work.
