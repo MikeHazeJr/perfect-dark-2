@@ -1524,6 +1524,19 @@
       "flagged_at": null,
       "created": "2026-05-11T23:00:00Z",
       "updated": "2026-05-11T23:00:00Z"
+    },
+    {
+      "id": "c118",
+      "title": "Daily-Flow Orchestrator (Spec v0.5)",
+      "description": "Scheduled morning Claude session that runs 7-step pipeline (audit -> state sync -> cascade -> merge consolidation -> priority sort -> daily log -> briefing) plus Monday weekly rollup and first-Monday monthly rollup. Registered at 6 AM ET via anthropic-skills:schedule (cron 0 6 * * *). Mechanical layer in tools/daily_flow/ (Python). Reasoning layer in tools/daily_flow/orchestrator-prompt.md (Claude judgment for dirty-tree, narrative prose). Briefing surfaces via tools/kanban/daily-briefing.json read by kanban browser banner.",
+      "pillar": "tooling",
+      "column": "done",
+      "order": 151000,
+      "notes": "Shipped vigilant-stonebraker. Design: context/designs/daily-flow-orchestrator.md. Pipeline: tools/daily_flow/orchestrator.py. Schedule task: pd2-daily-flow.",
+      "flag": null,
+      "flagged_at": null,
+      "created": "2026-05-12T03:16:05Z",
+      "updated": "2026-05-12T03:16:05Z"
     }
   ]
 }

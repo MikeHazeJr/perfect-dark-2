@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "semantic_version": "0.1.0",
+  "x_extensibility_rule": "Additive-only. Unknown fields tolerated. Reserved namespace: x_*. Bump schema_version only on a breaking change.",
+  "generated_at": "2026-05-11T23:19:12.232831-04:00",
+  "generated_display": "[05-11-2026 - 23:19]",
+  "for_date": "2026-05-11",
+  "partial": false,
+  "headlines": [
+    "No new commits, sessions, or state transitions overnight."
+  ],
+  "ready_to_resume": {
+    "count": 0,
+    "items": []
+  },
+  "blocker_bugs": {
+    "count": 2,
+    "items": [
+      {
+        "id": "B-323",
+        "title": "Post-boot AV in challengesInit: N64-vs-PC mpconfig/mpstrings stride mismatch",
+        "severity": "blocker"
+      },
+      {
+        "id": "B-324",
+        "title": "AV at boot in bgunCalculateBlend (weapon NULL via empty loader pool)",
+        "severity": "blocker"
+      }
+    ]
+  },
+  "focus": [
+    {
+      "kind": "bug",
+      "id": "B-323",
+      "title": "Post-boot AV in challengesInit: N64-vs-PC mpconfig/mpstrings stride mismatch",
+      "rationale": "open blocker severity, filed 2026-05-03"
+    },
+    {
+      "kind": "card",
+      "id": "c027",
+      "title": "Catalog universality pivot Steps 4-9",
+      "rationale": "catalog card, column active"
+    },
+    {
+      "kind": "card",
+      "id": "c051",
+      "title": "Catalog: drop legacy mods/ build-time deploy (Slice A)",
+      "rationale": "catalog card, column backlog"
+    },
+    {
+      "kind": "card",
+      "id": "c052",
+      "title": "Catalog: fix ROM texture extraction path (Slice B)",
+      "rationale": "catalog card, column backlog"
+    },
+    {
+      "kind": "card",
+      "id": "c053",
+      "title": "Catalog: expand s_BaseWeapons from 41 to 86 entries",
+      "rationale": "catalog card, column backlog"
+    }
+  ],
+  "daily_log_path": "context/daily-logs/2026-05-11.md",
+  "decisions_allocated": [],
+  "x_failure_point": null,
+  "x_compaction_quality_review": false
+}

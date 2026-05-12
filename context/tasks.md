@@ -184,6 +184,34 @@ Per the 2026-05-06 super-audit's "single most valuable next move" recommendation
 
 **Build-gate integration**: `tools/smoke-verify/run.ps1 -AutoSelect -MergeBase dev` is callable from `devtools/build-headless.ps1` post-build. Initial ship leaves this OFF by default so the first week is advisory; once the noise floor is confirmed low, the auto-merge step will block on it.
 
+### 2g. Daily-Flow Orchestrator SHIPPED (2026-05-11, vigilant-stonebraker-a0ef5b)
+
+Per Mike's Spec v0.5. Automation layer that consumes the data layer (parked.json, bugs/state.json, parked_evaluator.py) + smoke-verify gate and turns them into a daily Claude-driven workflow.
+
+**Capability shipped**:
+
+- Scheduled daily at 06:00 America/New_York via `anthropic-skills:schedule` (task id `pd2-daily-flow`, cron `0 6 * * *`). Spawns a Claude Code session that reads `tools/daily_flow/orchestrator-prompt.md` and drives the seven-step pipeline.
+- Pipeline mechanics in `tools/daily_flow/` (Python package): `lib/` (fsutil + gitutil + priority + templates + timefmt + decisions), `steps/` (one module per pipeline step), `orchestrator.py` (top-level entrypoint), `state/` (per-day audit + snapshot + cascade results, last-run breadcrumb, decision-id registry).
+- Catch-up handling: orchestrator detects missed days via `state/last-run.json` and runs catch-up oldest-first before today's pass.
+- Step 1 audit: git log + session-log parse + kanban diff vs yesterday snapshot + smoke-verify results -> persisted audit blob.
+- Step 2 state sync: card flip (commit + scratch ref) and bug flip (linked_test smoke pass) and parked.last_checked bump. Idempotent.
+- Step 3 cascade: invokes `parked_evaluator.py cascade --card-done` per flip plus `update-ready` and `update-stale` globally.
+- Step 4 merge consolidation: claude/* branches ahead of dev, oldest-committerdate first, with conflict + worktree-lock skip, pre/post line-count verify, push.
+- Step 5 priority sort: cards (flag desc, pillar weight, created asc), bugs (severity desc, filed_date asc), parked-ready (parked_date asc).
+- Step 6 daily log: writes `context/daily-logs/YYYY-MM-DD.md` with template-enforced Decisions section (always present even when empty).
+- Step 7 briefing: writes `tools/kanban/daily-briefing.json` consumed by kanban browser banner (`tools/kanban/index.html` + `/api/briefing` endpoint).
+- Weekly rollup (Mondays): two-phase prepare + finalize. Decisions section preserved verbatim from dailies; narrative sections (Headline, Stalls and Blockers, Path Not Taken) written by orchestrator session. Compaction quality self-check floors at 80 lines, ceilings at 600; off-threshold flags `compaction_quality_review` and preserves dailies.
+- Monthly rollup (first Monday of new month): same two-phase pattern. Floors 120 / ceilings 1200.
+- Decision-ID registry: monotonic `dec-NNN` allocated at write time, threaded across daily -> weekly -> monthly logs. Sessions append `### dec-PROPOSED: <title>` to scratch files; orchestrator allocates real ids on next 6 AM run.
+
+**Schemas**: every persisted JSON has `schema_version`, `semantic_version`, `x_extensibility_rule`. Additive-only, reserved `x_*` namespace.
+
+**Idempotence + failure handling**: per-step audit-hash skip; partial daily log on step failure with `x_failure_point` surfaced in briefing; refuse-overwrite on state file corruption; one retry with backoff on push failure.
+
+**Design**: [`context/designs/daily-flow-orchestrator.md`](designs/daily-flow-orchestrator.md) - architecture, schedule, pipeline diagram, rollup logic, failure modes, file layout.
+
+**Smoke verify (Mike-runnable)**: `python -m tools.daily_flow.orchestrator --no-merge --no-push --force` from project root produces today's daily log + briefing without touching git. Output goes to `context/daily-logs/<today>.md` and `tools/kanban/daily-briefing.json`. Banner surfaces in kanban browser at http://localhost:7531/ when `tools/kanban/server.py` is running.
+
 ### 3. Input - Controller Support (Branch 2 Cohorts 5-8)
 
 **Status**: queued after Catalog Gate 3. Per [designs/input/input-universality-and-transitions.md](designs/input/input-universality-and-transitions.md), Cohorts 1-4 shipped (layer types + scene events, layer push/pop, IMC ownership migration, per-player cutscene state). Cohorts 5-8 cover full controller support, menu graph completion, remaining transitional shim retirement.

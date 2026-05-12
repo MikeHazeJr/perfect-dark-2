@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Kanban + Parked-Threads + Bug-Tracker HTTP server.
 
-Serves the dev-window UI at / and provides three sets of API endpoints:
+Serves the dev-window UI at / and provides these API endpoints:
 
   /api/state              GET  POST            kanban state.json
   /api/cards/:id          PATCH                kanban card partial update (flag + flagged_at, etc.)
   /api/parked             GET  POST            parked.json (tools/kanban/parked.json)
   /api/bugs               GET  POST            bug state (tools/bugs/state.json)
+  /api/briefing           GET                  daily-flow briefing (tools/kanban/daily-briefing.json)
 
   /api/park               POST                 park a kanban card by id + resume condition
   /api/unpark             POST                 restore a parked entry to kanban
@@ -31,6 +32,7 @@ REPO_ROOT = BASE.parent.parent
 STATE_PATH = BASE / "state.json"
 PARKED_PATH = BASE / "parked.json"
 BUGS_PATH = REPO_ROOT / "tools" / "bugs" / "state.json"
+BRIEFING_PATH = BASE / "daily-briefing.json"
 INDEX_PATH = BASE / "index.html"
 
 sys.path.insert(0, str(REPO_ROOT / "tools"))
@@ -105,6 +107,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/api/bugs":
             self.reply_text(200, read_text(BUGS_PATH).encode("utf-8"), content_type="application/json; charset=utf-8")
+            return
+
+        if self.path == "/api/briefing":
+            self.reply_text(200, read_text(BRIEFING_PATH).encode("utf-8"), content_type="application/json; charset=utf-8")
             return
 
         self.send_error(404)

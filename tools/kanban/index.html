@@ -197,6 +197,23 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .tab-banner.show{display:flex}
 .tab-banner button{margin-left:auto}
 
+/* Daily-flow briefing banner */
+.df-banner{padding:10px 14px;background:linear-gradient(90deg,#14532d 0%,#0c4a6e 100%);color:#ecfdf5;font-size:0.78rem;display:none;flex-direction:column;gap:6px;flex-shrink:0;border-bottom:2px solid #15803d}
+.df-banner.show{display:flex}
+.df-banner.partial{background:linear-gradient(90deg,#78350f 0%,#9a3412 100%);border-bottom-color:#f97316}
+.df-banner .df-row{display:flex;align-items:center;gap:10px}
+.df-banner .df-title{font-weight:800;letter-spacing:0.04em;color:#bbf7d0;text-transform:uppercase;font-size:0.7rem}
+.df-banner .df-time{color:#86efac;font-size:0.7rem;margin-left:6px}
+.df-banner .df-headlines{font-size:0.82rem;color:#f0fdf4}
+.df-banner .df-focus{display:flex;flex-wrap:wrap;gap:6px}
+.df-banner .df-focus-pill{background:rgba(255,255,255,0.12);padding:2px 8px;border-radius:10px;font-size:0.72rem;color:#f0fdf4;border:1px solid rgba(255,255,255,0.15)}
+.df-banner .df-focus-pill.kind-bug{background:rgba(239,68,68,0.25);border-color:rgba(239,68,68,0.45)}
+.df-banner .df-focus-pill.kind-parked{background:rgba(168,85,247,0.25);border-color:rgba(168,85,247,0.45)}
+.df-banner .df-actions{margin-left:auto;display:flex;gap:6px}
+.df-banner-min{display:none;position:fixed;right:18px;bottom:18px;width:36px;height:36px;border-radius:50%;background:#15803d;color:white;border:none;cursor:pointer;font-size:1.1rem;box-shadow:0 4px 12px rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center}
+.df-banner-min.show{display:flex}
+.df-banner-min:hover{background:#16a34a}
+
 /* Panel containers */
 .panel{flex:1;overflow:auto;display:none;padding:14px 18px}
 .panel.active{display:block}
@@ -294,6 +311,20 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
   <button class="btn btn-primary btn-sm" onclick="switchTab('parked')">Review</button>
   <button class="btn btn-ghost btn-sm" onclick="dismissReadyBanner()">Dismiss</button>
 </div>
+
+<div id="df-briefing" class="df-banner" role="region" aria-label="Daily-flow morning briefing">
+  <div class="df-row">
+    <span class="df-title">Daily-flow briefing</span>
+    <span id="df-briefing-time" class="df-time"></span>
+    <div class="df-actions">
+      <button class="btn btn-ghost btn-sm" onclick="dismissBriefingBanner()">Minimize</button>
+    </div>
+  </div>
+  <div id="df-briefing-headlines" class="df-headlines"></div>
+  <div id="df-briefing-focus" class="df-focus"></div>
+</div>
+
+<button id="df-briefing-min" class="df-banner-min" title="Show today briefing" onclick="restoreBriefingBanner()">B</button>
 
 <div id="panel-kanban" class="panel active" style="padding:0;display:flex;flex-direction:column">
   <div id="filters"></div>
@@ -1384,6 +1415,83 @@ function dismissReadyBanner() {
   document.getElementById('ready-banner').classList.remove('show');
 }
 
+/* ----------------- Daily-flow briefing banner ----------------- */
+
+let briefingData = null;
+let briefingDismissed = false;
+
+async function loadBriefing() {
+  try {
+    const r = await fetch('/api/briefing');
+    if (!r.ok) return;
+    const text = await r.text();
+    if (!text || text === '{}') return;
+    briefingData = JSON.parse(text);
+    renderBriefingBanner();
+  } catch (e) {
+    /* briefing is optional; silent fail */
+  }
+}
+
+function renderBriefingBanner() {
+  if (!briefingData) return;
+  const banner = document.getElementById('df-briefing');
+  if (briefingDismissed) {
+    banner.classList.remove('show');
+    document.getElementById('df-briefing-min').classList.add('show');
+    return;
+  }
+
+  banner.classList.toggle('partial', !!briefingData.partial);
+
+  const ts = briefingData.generated_display || '';
+  const headlines = briefingData.headlines || [];
+  const focus = briefingData.focus || [];
+  const readyCount = briefingData.ready_to_resume ? briefingData.ready_to_resume.count : 0;
+  const blockerCount = briefingData.blocker_bugs ? briefingData.blocker_bugs.count : 0;
+
+  document.getElementById('df-briefing-time').textContent =
+    `${ts}  ${briefingData.for_date || ''}` +
+    (briefingData.partial ? '  PARTIAL RUN' : '');
+
+  const headLines = headlines.slice(0, 3).map(h => `<div>- ${escapeHtml(h)}</div>`);
+  const aux = [];
+  if (readyCount > 0) aux.push(`<div>${readyCount} parked thread${readyCount === 1 ? '' : 's'} ready to resume</div>`);
+  if (blockerCount > 0) aux.push(`<div>${blockerCount} blocker bug${blockerCount === 1 ? '' : 's'} open</div>`);
+  document.getElementById('df-briefing-headlines').innerHTML = headLines.concat(aux).join('');
+
+  const focusBits = focus.slice(0, 5).map(item => {
+    const kind = item.kind || 'card';
+    const id = escapeHtml(item.id || '');
+    const title = escapeHtml(item.title || '');
+    return `<span class="df-focus-pill kind-${kind}" title="${escapeHtml(item.rationale || '')}">[${kind}] ${id} ${title}</span>`;
+  });
+  document.getElementById('df-briefing-focus').innerHTML = focusBits.join('');
+
+  banner.classList.add('show');
+  document.getElementById('df-briefing-min').classList.remove('show');
+}
+
+function dismissBriefingBanner() {
+  briefingDismissed = true;
+  document.getElementById('df-briefing').classList.remove('show');
+  document.getElementById('df-briefing-min').classList.add('show');
+}
+
+function restoreBriefingBanner() {
+  briefingDismissed = false;
+  renderBriefingBanner();
+}
+
+function escapeHtml(s) {
+  return (s == null ? '' : String(s))
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function daysSince(isoDate) {
   if (!isoDate) return null;
   const d = new Date(isoDate + 'T00:00:00Z');
@@ -1863,7 +1971,8 @@ async function confirmPark() {
 Promise.all([
   loadState(),
   loadParked(),
-  loadBugs()
+  loadBugs(),
+  loadBriefing()
 ]).catch(err => {
   document.getElementById('board').innerHTML =
     '<p style="color:#ef4444;padding:20px">Failed to load state: ' + err.message +
