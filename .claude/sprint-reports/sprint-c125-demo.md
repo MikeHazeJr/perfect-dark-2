@@ -17,7 +17,10 @@ button that runs Claude Code CLI either interactively in a new console
 (prompt copied to clipboard) or headlessly via `-p` with output streamed to the
 Log tab. The launched session must write a sprint report to
 `.claude/sprint-reports/sprint-YYYY-MM-DDTHHMMSS.md` so the orchestrator can
-catch up after the sprint and dispose of the report once verified.
+catch up after the sprint and ARCHIVE the report (move into
+`.claude/sprint-reports/archive/`) once verified. Reports are NEVER deleted -
+they have long-term reference value; the active directory is the orchestrator's
+inbox, the archive is the permanent record.
 
 ## Shipped
 
@@ -55,8 +58,9 @@ These were surfaced but intentionally out of scope for c125:
 - **Orchestrator consumption logic** (memory file
   `feedback_dispatch_orchestrator_workflow.md`). The contract is documented in
   the design doc and standing-rules suffix; the orchestrator's session-start
-  routine that scans `.claude/sprint-reports/`, verifies, and disposes is a
-  separate change.
+  routine that scans `.claude/sprint-reports/`, verifies, and ARCHIVES the
+  consumed report (moves into `.claude/sprint-reports/archive/`, never deletes)
+  is a separate change.
 - **Saved prompt presets**. A dropdown of last-N composed prompts persisted in
   `devtools/dev-window-v2/settings.json`. Useful for repeat workflows.
 - **Sprint-report history pane**. A read-only view of files in
@@ -121,9 +125,11 @@ When the orchestrator picks this report up on its next turn it should:
    modified files post-merge must match pre-merge worktree counts. Specifically
    `dev-window-v2.ps1` is expected at ~4690 lines (was 4108 on dev).
 
-Once items 1-7 pass, the orchestrator may dispose this report by deleting the
-file at `.claude/sprint-reports/sprint-c125-demo.md`. The contract is satisfied;
-the catch-up payload has been consumed.
+Once items 1-7 pass, the orchestrator may archive this report by MOVING it to
+`.claude/sprint-reports/archive/sprint-c125-demo.md`. The report is NEVER
+deleted - it has long-term reference value. The contract is satisfied; the
+catch-up payload has been consumed and the report becomes part of the permanent
+sprint record.
 
 If item 8 fails (any file shrank unexpectedly post-merge), halt the merge and
 surface to Mike. Per `context/procedures.md` truncation discipline.

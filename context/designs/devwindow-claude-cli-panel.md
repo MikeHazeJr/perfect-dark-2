@@ -142,7 +142,10 @@ Working cards:
   - ## Files Touched   list with brief change description
   - ## Verification Notes  for orchestrator: what to spot-check before disposing.
 - The orchestrator (dispatch session) will read the sprint report on next interaction,
-  verify against kanban + git state, then dispose (delete) the report ONLY once verified.
+  verify against kanban + git state, then ARCHIVE the report (move into
+  `.claude/sprint-reports/archive/`) once verified. Reports are NEVER deleted -
+  they have long-term reference value. The active directory holds only
+  unprocessed reports; the archive is the permanent record.
 ```
 
 The pre-allocated card range is a soft hint - in practice the session's launching
@@ -259,9 +262,11 @@ This panel produces sprint reports. Consumption logic lives in the Dispatch
 orchestrator's workflow, not in this code. The contract:
 
 1. Sprint reports land in `.claude/sprint-reports/sprint-<UTC>.md` with the schema
-   documented in the standing-rules suffix above.
-2. The orchestrator's session-start routine scans `.claude/sprint-reports/` for
-   any new files since its last seen state.
+   documented in the standing-rules suffix above. The active directory holds only
+   UNPROCESSED reports; the orchestrator's job is to move each one to the archive
+   after consuming it.
+2. The orchestrator's session-start routine scans `.claude/sprint-reports/` (top
+   level only, not the archive) for any new files since its last seen state.
 3. For each new report:
    - Read the full report.
    - Cross-reference Goal vs Shipped against the live kanban (`tools/kanban/state.json`)
@@ -269,14 +274,21 @@ orchestrator's workflow, not in this code. The contract:
    - Update orchestrator memory or context as needed based on report content (e.g.
      record decisions, surface blockers, propagate follow-ups to the daily-flow
      queue).
-   - Delete the report file once verification passes. The report's job is done -
-     it was the catch-up payload for one orchestrator turn, and persistence beyond
-     that turn would just clutter the directory.
+   - ARCHIVE the report file once verification passes by MOVING it into
+     `.claude/sprint-reports/archive/<same-basename>.md`. Reports are NEVER
+     deleted - they have long-term reference value. The active directory clears
+     so the next session-start scan only sees newly landed reports; the archive
+     is the permanent record of every sprint the orchestrator has consumed.
    - If verification fails (kanban does not show the claimed transition, git does
-     not show the claimed commit), surface the discrepancy to Mike and DO NOT
-     delete the report - leave it for forensic review.
+     not show the claimed commit), surface the discrepancy to Mike and LEAVE the
+     report in the active directory for forensic review. It will be re-scanned
+     on the next orchestrator turn.
 4. Summarize "caught up on what happened in your sprint" to Mike at the start of
    the next interaction.
+
+The launcher creates `.claude/sprint-reports/archive/` if it is missing, even
+though only the orchestrator writes to it. This keeps the directory shape correct
+on a fresh checkout where the archive has never received a report.
 
 The orchestrator behavior is documented in the memory file
 `feedback_dispatch_orchestrator_workflow.md` (created/updated in the same change

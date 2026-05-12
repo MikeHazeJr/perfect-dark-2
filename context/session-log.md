@@ -16,7 +16,7 @@ Card list pulled from `http://localhost:7531/api/state` (auto-falls back to `too
 
 Two launch modes via radio buttons. Interactive (default) writes the composed prompt to `$env:TEMP\pd2-cli-prompt-<UTC>.txt`, copies the prompt to the Windows clipboard via `[System.Windows.Clipboard]::SetText`, then opens a new `cmd.exe /K` window at the project root running `claude` (no args). Mike pastes with Ctrl+V into the Claude prompt and converses live. Headless mode runs `claude --print --output-format text < <temp>` via `Start-AsyncPoolAction` on the existing `$script:BgPool` runspace pool; stdout streams to the Log tab on completion. Clipboard handoff was chosen over positional-arg because cmd.exe quoting rules drop or misinterpret newlines, double quotes, and backslashes that arbitrary prompts contain.
 
-Sprint-report contract: every launched session is mandated by the standing-rules suffix to write `.claude/sprint-reports/sprint-YYYY-MM-DDTHHMMSS.md` at session end. The Dispatch orchestrator's session-start routine reads any new reports, cross-references against `tools/kanban/state.json` and `git log` since the earliest mentioned commit, then deletes the report file once verification passes - this closes the orchestrator-blindness gap (CLI sessions live in a separate namespace, so without this surface the orchestrator could not see their work).
+Sprint-report contract: every launched session is mandated by the standing-rules suffix to write `.claude/sprint-reports/sprint-YYYY-MM-DDTHHMMSS.md` at session end. The Dispatch orchestrator's session-start routine reads any new reports, cross-references against `tools/kanban/state.json` and `git log` since the earliest mentioned commit, then ARCHIVES the report (moves it into `.claude/sprint-reports/archive/<same-basename>.md`) once verification passes. Reports are NEVER deleted - they have long-term reference value, and the archive is the permanent record of every sprint the orchestrator has consumed. The active directory is the orchestrator's inbox; only unprocessed reports live there. This closes the orchestrator-blindness gap (CLI sessions live in a separate namespace, so without this surface the orchestrator could not see their work).
 
 ### Verification
 
@@ -47,7 +47,7 @@ PowerShell AST parse on the modified `.ps1` is clean. Em-dash hygiene: `grep -c 
 
 ### Not in scope
 
-- Orchestrator consumption logic (memory file `feedback_dispatch_orchestrator_workflow.md` update). The contract is documented; the scan-verify-dispose implementation in the Dispatch session-start routine is a separate change.
+- Orchestrator consumption logic (memory file `feedback_dispatch_orchestrator_workflow.md` update). The contract is documented; the scan-verify-archive implementation in the Dispatch session-start routine is a separate change. Archive = move into `.claude/sprint-reports/archive/`, never delete.
 - Saved prompt presets, sprint-report history pane, batch operations, skill awareness: all in the future-extensions roster in the design doc.
 
 ---
