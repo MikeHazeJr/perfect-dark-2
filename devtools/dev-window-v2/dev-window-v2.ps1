@@ -125,12 +125,15 @@ namespace PD2V2 {
         public string Name { get; set; }
         public string Path { get; set; }
         public string Branch { get; set; }
+        public DateTime LastModified { get; set; }
         public string ModifiedDisplay { get; set; }
         public long SizeBytes { get; set; }
         public string SizeDisplay { get; set; }
         public bool IsRegistered { get; set; }
         public bool IsPrunable { get; set; }
         public bool IsCurrent { get; set; }
+        public bool IsStale { get; set; }
+        public string StaleTag { get; set; }
         bool _sel;
         public bool IsSelected { get { return _sel; } set { if (_sel != value) { _sel = value; Notify("IsSelected"); } } }
     }
@@ -2010,9 +2013,10 @@ function Show-WorktreeClearDialog {
         Background="#F4F6F8">
     <DockPanel Margin="14">
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-            <TextBlock x:Name="LblHeader" FontFamily="Consolas" FontSize="14" FontWeight="Bold" Foreground="#1A2733"/>
-            <TextBlock x:Name="LblTotal"  FontFamily="Consolas" FontSize="12" Foreground="#4A5868" Margin="0,4,0,0"/>
-            <TextBlock x:Name="LblSelected" FontFamily="Consolas" FontSize="12" Foreground="#0078A8" Margin="0,4,0,0"/>
+            <TextBlock x:Name="LblHeader"     FontFamily="Consolas" FontSize="14" FontWeight="Bold" Foreground="#1A2733"/>
+            <TextBlock x:Name="LblTotal"      FontFamily="Consolas" FontSize="12" Foreground="#4A5868" Margin="0,4,0,0"/>
+            <TextBlock x:Name="LblAutoSelect" FontFamily="Consolas" FontSize="12" Foreground="#A04020" Margin="0,2,0,0" Visibility="Collapsed"/>
+            <TextBlock x:Name="LblSelected"   FontFamily="Consolas" FontSize="12" Foreground="#0078A8" Margin="0,4,0,0"/>
         </StackPanel>
         <Border DockPanel.Dock="Bottom" BorderBrush="#C0C8D2" BorderThickness="0,1,0,0" Margin="0,10,0,0" Padding="0,10,0,0">
             <DockPanel>
@@ -2045,6 +2049,15 @@ function Show-WorktreeClearDialog {
                 <DataGridTextColumn Header="Name"          Binding="{Binding Name}"            Width="240" IsReadOnly="True"/>
                 <DataGridTextColumn Header="Branch"        Binding="{Binding Branch}"          Width="260" IsReadOnly="True"/>
                 <DataGridTextColumn Header="Last Modified" Binding="{Binding ModifiedDisplay}" Width="130" IsReadOnly="True"/>
+                <DataGridTextColumn Header=""              Binding="{Binding StaleTag}"        Width="60"  IsReadOnly="True">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="#A04020"/>
+                            <Setter Property="FontWeight" Value="Bold"/>
+                            <Setter Property="HorizontalAlignment" Value="Center"/>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
                 <DataGridTextColumn Header="Size"          Binding="{Binding SizeDisplay}"     Width="100" IsReadOnly="True"/>
             </DataGrid.Columns>
         </DataGrid>
@@ -2055,15 +2068,16 @@ function Show-WorktreeClearDialog {
     $reader = New-Object System.Xml.XmlNodeReader ([xml]$xamlStr)
     $dlg = [Windows.Markup.XamlReader]::Load($reader)
 
-    $dgWorktrees   = $dlg.FindName("DgWorktrees")
-    $lblHeader     = $dlg.FindName("LblHeader")
-    $lblTotal      = $dlg.FindName("LblTotal")
-    $lblSelected   = $dlg.FindName("LblSelected")
-    $chkAlsoPrune  = $dlg.FindName("ChkAlsoPrune")
-    $btnSelectAll  = $dlg.FindName("BtnSelectAll")
-    $btnSelectNone = $dlg.FindName("BtnSelectNone")
-    $btnCancel     = $dlg.FindName("BtnCancel")
-    $btnClear      = $dlg.FindName("BtnClear")
+    $dgWorktrees    = $dlg.FindName("DgWorktrees")
+    $lblHeader      = $dlg.FindName("LblHeader")
+    $lblTotal       = $dlg.FindName("LblTotal")
+    $lblAutoSelect  = $dlg.FindName("LblAutoSelect")
+    $lblSelected    = $dlg.FindName("LblSelected")
+    $chkAlsoPrune   = $dlg.FindName("ChkAlsoPrune")
+    $btnSelectAll   = $dlg.FindName("BtnSelectAll")
+    $btnSelectNone  = $dlg.FindName("BtnSelectNone")
+    $btnCancel      = $dlg.FindName("BtnCancel")
+    $btnClear       = $dlg.FindName("BtnClear")
 
     $obs = New-Object System.Collections.ObjectModel.ObservableCollection[object]
     foreach ($e in $Entries.OnDisk) { [void]$obs.Add($e) }
@@ -2074,6 +2088,17 @@ function Show-WorktreeClearDialog {
     $chkAlsoPrune.Content   = ("Also prune {0} stale registry entries" -f $Entries.StalePrunable.Count)
     $chkAlsoPrune.IsChecked = ($Entries.StalePrunable.Count -gt 0)
     $chkAlsoPrune.IsEnabled = ($Entries.StalePrunable.Count -gt 0)
+
+    # c124: Surface the auto-select rule so pre-checked rows are explained, not
+    # confusing. Counts only non-current stale rows because the active worktree
+    # is never auto-selected (matches Select All behaviour).
+    $autoStaleCount = 0
+    foreach ($e in $Entries.OnDisk) { if ($e.IsStale -and -not $e.IsCurrent) { $autoStaleCount++ } }
+    if ($autoStaleCount -gt 0) {
+        $todayStr = [DateTime]::Today.ToString("yyyy-MM-dd")
+        $lblAutoSelect.Text = ("Auto-selected {0} worktrees last modified before {1} (uncheck any you want to keep)" -f $autoStaleCount, $todayStr)
+        $lblAutoSelect.Visibility = [System.Windows.Visibility]::Visible
+    }
 
     $updateSelectedLine = {
         $count = 0; $sum = [long]0
@@ -2448,6 +2473,12 @@ function Invoke-GitPruneWorktrees {
                 try { $rp = Resolve-Path -LiteralPath $currentPath -ErrorAction SilentlyContinue; if ($rp) { $currentNorm = $rp.Path.ToLower().TrimEnd('\') } } catch {}
             }
 
+            # Local-day boundary (00:00 today). Worktrees touched before this are
+            # auto-selected for clearing (c124). [DateTime]::Today returns local
+            # midnight, FileInfo.LastWriteTime is also local, so the comparison is
+            # zone-consistent.
+            $todayStart = [DateTime]::Today
+
             $entries = New-Object System.Collections.Generic.List[object]
             if (Test-Path -LiteralPath $worktreesDir) {
                 Get-ChildItem -LiteralPath $worktreesDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
@@ -2457,24 +2488,35 @@ function Invoke-GitPruneWorktrees {
                     $branch = if ($reg -and $reg.Branch) { $reg.Branch } else { "(unregistered)" }
                     $sz = Get-WorktreeDirectorySize -Path $dir
                     $isCurrent = ($currentNorm -and $key -eq $currentNorm)
+                    $lwt = $_.LastWriteTime
+                    $isStale = ($lwt -lt $todayStart)
                     $obj = New-Object PD2V2.WorktreeEntry
                     $obj.Name = $_.Name
                     $obj.Path = $dir
                     $obj.Branch = $branch
-                    $obj.ModifiedDisplay = $_.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                    $obj.LastModified = $lwt
+                    $obj.ModifiedDisplay = $lwt.ToString("yyyy-MM-dd HH:mm")
                     $obj.SizeBytes = $sz
                     $obj.SizeDisplay = if ($sz -lt 1048576) { "{0:N1} KB" -f ($sz / 1024.0) } elseif ($sz -lt 1073741824) { "{0:N1} MB" -f ($sz / 1048576.0) } else { "{0:N2} GB" -f ($sz / 1073741824.0) }
                     $obj.IsRegistered = ($null -ne $reg)
                     $obj.IsPrunable = ($null -ne $reg -and $reg.Prunable)
                     $obj.IsCurrent = $isCurrent
-                    $obj.IsSelected = $false
+                    $obj.IsStale = $isStale
+                    $obj.StaleTag = if ($isStale) { "stale" } else { "" }
+                    # Auto-select stale worktrees (c124). Current worktree stays
+                    # excluded -- matches Select All's "if (-not IsCurrent)" rule.
+                    $obj.IsSelected = ($isStale -and -not $isCurrent)
                     [void]$entries.Add($obj)
                 }
             }
-            $total = [long]0; foreach ($e in $entries) { $total += $e.SizeBytes }
+
+            # Sort oldest-first so stale auto-selected rows cluster at the top of
+            # the dialog and today's surviving worktrees sit at the bottom.
+            $sortedEntries = @($entries | Sort-Object -Property LastModified)
+            $total = [long]0; foreach ($e in $sortedEntries) { $total += $e.SizeBytes }
 
             return [PSCustomObject]@{
-                OnDisk = $entries
+                OnDisk = $sortedEntries
                 StalePrunable = $stalePrunable
                 TotalSizeBytes = $total
                 WorktreesDir = $worktreesDir

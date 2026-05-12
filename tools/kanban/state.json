@@ -1661,6 +1661,29 @@
       },
       "created": "2026-05-12T15:00:00Z",
       "updated": "2026-05-12T16:00:00Z"
+    },
+    {
+      "id": "c124",
+      "title": "Auto-select stale worktrees and date-sort the Clear Worktrees dialog",
+      "description": "Enhancement to the Dev Window v2 Clear Worktrees dialog (shipped at c114 with disk-size accounting). On open the worktree DataGrid now (1) sorts ascending by last-modified time so the oldest worktree is at the top and today's worktrees sit at the bottom, and (2) pre-checks every worktree whose last-modified timestamp is before the start of the current local day ([DateTime]::Today, 00:00 local). The active worktree (the one Dev Window v2 itself is bound to) is excluded from auto-selection even if it would otherwise qualify, matching Select All behaviour. Stale rows show a muted-red bold stale badge in a new narrow column next to Last Modified, and a header line surfaces the auto-select rule (Auto-selected N worktrees last modified before YYYY-MM-DD (uncheck any you want to keep)). Select All / Select None / per-row toggles still work and override the auto-selection. Selected: K worktrees, B header summary already reflects the auto-selected counts on first paint because the existing update path is invoked once after items are added.",
+      "pillar": "tooling",
+      "column": "active",
+      "order": 156000,
+      "priority": 2,
+      "notes": "Files touched: devtools/dev-window-v2/dev-window-v2.ps1 (3 surgical edits). (1) PD2V2.WorktreeEntry C# class gained DateTime LastModified, bool IsStale, string StaleTag auto-properties. (2) Worker enumeration block computes $todayStart = [DateTime]::Today once, sets LastModified + IsStale + StaleTag + IsSelected = ($isStale -and -not $isCurrent) on each row, then returns @($entries | Sort-Object -Property LastModified) so the dialog receives entries already in oldest-first order. (3) Dialog XAML gained a 60 px DataGridTextColumn binding StaleTag (centered, bold, #A04020) between Last Modified and Size, plus a third TextBlock LblAutoSelect under LblTotal that surfaces the auto-select rule on open. Smoke-tested with 4 synthetic rows (1 stale, 1 yesterday, 1 today, 1 current today) -- XAML loads cleanly, sort order is oldest-first, stale rows pre-checked, current excluded.",
+      "flag": null,
+      "flagged_at": null,
+      "pending_completion": {
+        "marked_at": "2026-05-12T17:30:00Z",
+        "marked_by": "session-reverent-bouman-135aa2",
+        "summary": "Dev Window v2 Clear Worktrees dialog enhancement shipped per the c124 brief. Three surgical edits to devtools/dev-window-v2/dev-window-v2.ps1. (1) WorktreeEntry C# class extended with LastModified DateTime, IsStale bool, StaleTag string auto-properties (no PropertyChanged needed -- one-shot at construction). (2) Worker enumeration captures FileInfo.LastWriteTime once into $lwt, computes $isStale = ($lwt -lt [DateTime]::Today), sets IsSelected = ($isStale -and -not $isCurrent) so the current worktree stays excluded even if it qualifies, and returns @($entries | Sort-Object -Property LastModified) so the ObservableCollection receives entries oldest-first. (3) Dialog XAML gains a 60 px DataGridTextColumn binding StaleTag (centered, bold, #A04020) between Last Modified and Size, plus a new LblAutoSelect TextBlock in the header that surfaces Auto-selected N worktrees last modified before YYYY-MM-DD (uncheck any you want to keep). Select All / Select None / per-row toggles still work and override the auto-selection. PowerShell parse-check clean. Smoke test with 4 synthetic rows (1 stale ancient, 1 stale yesterday, 1 today, 1 current today) confirmed: XAML loads, sort order is oldest-first, stale rows pre-checked, current excluded, DataGrid binds without errors. Real on-disk distribution at commit time: 25 stale + 4 today = 29 worktrees -- Mike will see 25 rows pre-checked clustered at the top with the stale badge, 4 today rows unchecked at the bottom, and reverent-bouman-135aa2 (the active worktree) at the very bottom unchecked.",
+        "evidence_refs": [
+          "devtools/dev-window-v2/dev-window-v2.ps1",
+          ".claude/scratch/reverent-bouman-135aa2.md"
+        ]
+      },
+      "created": "2026-05-12T17:00:00Z",
+      "updated": "2026-05-12T17:30:00Z"
     }
   ]
 }
