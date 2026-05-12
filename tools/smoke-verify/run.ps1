@@ -110,7 +110,11 @@ function Get-SmokeTests {
     if (-not (Test-Path -LiteralPath $Dir)) {
         throw "Tests directory not found: $Dir"
     }
-    $files = Get-ChildItem -LiteralPath $Dir -Filter "*.json" -File -ErrorAction SilentlyContinue
+    # Recurse so bug-regression tests at tests/bugs/B-NNN.json are
+    # discovered alongside scenario tests at tests/*.json. Schema is the
+    # same; bug-regression tests carry an extra bug_id field that the
+    # runner surfaces in results for the bug-tracker auto-flip path.
+    $files = Get-ChildItem -LiteralPath $Dir -Filter "*.json" -File -Recurse -ErrorAction SilentlyContinue
     $out = @()
     foreach ($f in $files) {
         try {
@@ -122,9 +126,37 @@ function Get-SmokeTests {
             Write-Warn ("Failed to parse {0}: {1}" -f $f.Name, $_.Exception.Message)
             continue
         }
+
+        # Compute a stable category from the path relative to $Dir so the
+        # bug tracker can group results (e.g. "scenario" or "bugs").
+        $rootFull = (Resolve-Path -LiteralPath $Dir).Path.TrimEnd('\').TrimEnd('/')
+        $fileFull = $f.FullName
+        $rel = $fileFull
+        if ($fileFull.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $rel = $fileFull.Substring($rootFull.Length).TrimStart('\').TrimStart('/')
+        }
+        $relParent = Split-Path -Parent $rel
+        if (-not $relParent -or $relParent -eq "" -or $relParent -eq ".") {
+            $category = "scenario"
+        } else {
+            $category = $relParent.Replace("\", "/")
+        }
+
+        $bugId = $null
+        if ($def.PSObject.Properties.Match('bug_id').Count -gt 0 -and $def.bug_id) {
+            $bugId = [string]$def.bug_id
+        }
+        $regressionFor = $null
+        if ($def.PSObject.Properties.Match('regression_for').Count -gt 0 -and $def.regression_for) {
+            $regressionFor = [string]$def.regression_for
+        }
+
         $out += [PSCustomObject]@{
             Name = [System.IO.Path]::GetFileNameWithoutExtension($f.Name)
             Path = $f.FullName
+            Category = $category
+            BugId = $bugId
+            RegressionFor = $regressionFor
             Definition = $def
         }
     }
@@ -352,8 +384,18 @@ function Invoke-SmokeTest {
         } catch {}
     }
 
+    $bugId = $null
+    if ($Test.PSObject.Properties.Match('BugId').Count -gt 0) { $bugId = $Test.BugId }
+    $regressionFor = $null
+    if ($Test.PSObject.Properties.Match('RegressionFor').Count -gt 0) { $regressionFor = $Test.RegressionFor }
+    $category = "scenario"
+    if ($Test.PSObject.Properties.Match('Category').Count -gt 0 -and $Test.Category) { $category = $Test.Category }
+
     return [PSCustomObject]@{
         Name = $name
+        Category = $category
+        BugId = $bugId
+        RegressionFor = $regressionFor
         Passed = $testOk
         ExitCode = $exitCode
         ElapsedSeconds = $elapsed
@@ -440,8 +482,10 @@ $failCount = 0
 foreach ($r in $results) {
     $tag = if ($r.Passed) { "PASS" } else { "FAIL" }
     $color = if ($r.Passed) { "Green" } else { "Red" }
-    Write-Host ("  [{0}] {1} ({2:N1}s) assertions={3}/{4}" -f `
-        $tag, $r.Name, $r.ElapsedSeconds, $r.AssertionsMet, $r.AssertionsTotal) -ForegroundColor $color
+    $bugSuffix = ""
+    if ($r.BugId) { $bugSuffix = " [{0}]" -f $r.BugId }
+    Write-Host ("  [{0}] {1}{2} ({3:N1}s) assertions={4}/{5}" -f `
+        $tag, $r.Name, $bugSuffix, $r.ElapsedSeconds, $r.AssertionsMet, $r.AssertionsTotal) -ForegroundColor $color
     if ($r.Passed) { $passCount++ } else { $failCount++ }
 }
 

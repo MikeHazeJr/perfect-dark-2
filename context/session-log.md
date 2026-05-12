@@ -63,6 +63,16 @@ This ship adds no constraints. It does NOT modify any wire protocol, save format
 
 The `tools/smoke-verify/` tree slots in alongside the existing `tools/kanban/` and `tools/assetmgr/` trees; no CMake changes needed (none of it is compiled into a binary).
 
+### Schema follow-up (same session, separate commit)
+
+Per orchestrator schema note 2026-05-11: the bug-regression test category is folded into the Phase 1 schema before merge so Mike's forthcoming bug-tracker (`tools/bugs/state.json` with `linked_test` field) can wire bug status flips without a runner retrofit. Changes:
+
+- Test discovery is recursive (`Get-ChildItem -Filter "*.json" -Recurse`), so `tools/smoke-verify/tests/bugs/B-NNN.json` is picked up alongside scenario tests at `tools/smoke-verify/tests/*.json`.
+- The runner surfaces `BugId`, `RegressionFor`, and `Category` (`"scenario"` or `"bugs"` based on relative parent dir) on each result row written to `.claude/smoke-verify-runs/results-<utc>.json`. The bug tracker reads `BugId` directly without re-parsing test JSON.
+- Tag convention `["regression", "bug:B-NNN"]` enables `-Tag regression` (run all) or `-Tag bug:B-323` (run one).
+- Design doc gains a new "Bug-regression tests (first-class category)" section with schema reference, result-row shape, lifecycle, and a filled-in example for a hypothetical B-323 regression test.
+- No bug-regression tests ship in Phase 1. The three scenario tests stand; the gate is ready to host bug regressions when the tracker lands.
+
 ---
 
 ## Session (`gifted-bohr-62309b`) - 2026-05-03 - Walker-after-emitters reorder + Dev Window ROM placement

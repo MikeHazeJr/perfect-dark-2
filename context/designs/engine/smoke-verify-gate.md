@@ -417,6 +417,142 @@ enough, the default flips to ON and the auto-merge step blocks on it.
 
 ---
 
+## Bug-regression tests (first-class category)
+
+The gate hosts two test categories that share the same schema and run
+through the same runner:
+
+- **Scenario tests** at `tools/smoke-verify/tests/*.json`. Boot smokes,
+  stage loads, menu walks, anything that exercises a code path we want
+  to keep green. Identified by the absence of a `bug_id` field.
+- **Bug-regression tests** at `tools/smoke-verify/tests/bugs/*.json`,
+  one per fixed bug. Identified by the presence of a `bug_id` field
+  matching a row in the bug tracker (e.g. `tools/bugs/state.json`).
+
+The runner discovers both via `Get-ChildItem -Filter "*.json" -Recurse`
+so adding a bug-regression test is mechanical -- drop the JSON in
+`tests/bugs/` and the gate picks it up on the next run. The relative
+parent directory (`scenario` or `bugs`) is captured on each result row
+as `Category` so the bug tracker can route by it without re-parsing
+the JSON.
+
+### Schema additions for bug-regression tests
+
+In addition to the base scenario schema (above), bug-regression tests
+declare two optional fields:
+
+- `bug_id` (string, e.g. `"B-323"`): canonical bug id. The runner
+  surfaces this in the per-test result row as `BugId`, so the bug
+  tracker's auto-flip path can read it without parsing JSON.
+- `regression_for` (string, one line): prose summary of what the bug
+  looked like pre-fix. Goes into the run summary and the result row's
+  `RegressionFor`.
+
+Tags carry `"regression"` and `"bug:B-NNN"` so the suite can be sliced:
+
+```powershell
+.\tools\smoke-verify\run.ps1 -Tag regression       # all regressions
+.\tools\smoke-verify\run.ps1 -Tag "bug:B-323"      # one specific bug
+.\tools\smoke-verify\run.ps1                       # everything
+```
+
+### Result JSON shape (per-test row)
+
+The runner writes its aggregate to
+`.claude/smoke-verify-runs/results-<utc>.json`. Each row carries:
+
+```jsonc
+{
+  "Name": "B-323_challenge_stride",   // file stem
+  "Category": "bugs",                 // "scenario" or "bugs"
+  "BugId": "B-323",                   // null when not a regression test
+  "RegressionFor": "challenges...",   // null when not a regression test
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 8.7,
+  "InstallDir": "...",
+  "AssertionsTotal": 5,
+  "AssertionsMet": 5,
+  "Failures": []
+}
+```
+
+The bug tracker reads the `BugId` field. A passing row whose `BugId`
+matches a tracker entry's `linked_test` triggers the status flip; a
+failing row whose `BugId` matches an already-fixed entry reverts it to
+`open` with a note pointing at the failing run dir.
+
+### Test definition (bug-regression)
+
+Same schema as scenario tests with the additions described above. A
+filled-in example for a hypothetical fix to B-323:
+
+```jsonc
+{
+  "scenario_name": "B-323_challenge_stride",
+  "bug_id": "B-323",
+  "regression_for": "challengesInit() AVed because PC sizeof(struct mpconfig) was used as on-disk stride; N64 stride is smaller.",
+  "description": "Reproduce by booting any build that doesn't apply the N64-stride fix to src/game/challenge.c::challengeLoadConfig. AV fires inside bcopy before mainProc enters its tick loop.",
+  "tags": ["regression", "bug:B-323", "stability"],
+  "paths_of_interest": [
+    "src/game/challenge.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 60,
+  "install_state": "clean",
+  "boot_args": ["--no-update-check", "--no-sound"],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait" },
+    { "at_ms": 30000, "type": "exit" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=B-323_challenge_stride",
+      "Asset Catalog: \\d+ entries registered"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": []
+  }
+}
+```
+
+### Lifecycle
+
+- A bug-regression test stays in the suite **forever** after the fix
+  lands. Removing it would lose the regression guard.
+- When `fix_commit` lands and the linked test passes for the first
+  time, the bug tracker flips the entry to `fixed` and records the
+  `fix_commit` SHA.
+- If the linked test ever fails again (typically because a later
+  change reintroduced the broken behaviour), the bug tracker flips
+  the entry back to `open` and notes the failing build.
+- The test author's responsibility ends at "the test reliably fails
+  on the broken build and reliably passes on the fixed build."
+  Maintenance after that is the tracker's job.
+
+### What goes in Phase 1 vs Phase 2
+
+Phase 1 (this ship) provides:
+
+- Recursive test discovery in the runner.
+- Optional `bug_id` and `regression_for` fields tolerated by the
+  harness (harness ignores them; they are runner-side metadata).
+- `BugId` / `RegressionFor` / `Category` columns in the result JSON
+  for the future bug tracker to read.
+- Tag conventions documented.
+
+Phase 1 does NOT ship any bug-regression test yet. The three Phase 1
+tests are scenario tests (`boot_smoke`, `stage_load_paradox`,
+`combat_sim_entry`). The first bug-regression tests land alongside
+the bug tracker spec when it lands; this gate is ready to host them.
+
+---
+
 ## Phase 2 expansion targets
 
 The schema and the harness module already accommodate these. Each is a
