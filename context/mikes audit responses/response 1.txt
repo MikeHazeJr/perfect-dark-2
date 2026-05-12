@@ -1,0 +1,37 @@
+I wanted harsh criticism, the only way to improve is to be critical. Don't apologize for that, it helps us come up with solutions.
+
+I cleared a bunch of the worktrees now. However, the button on the build tool doesn't seem to do that properly.
+
+I agree with you that there is way too much stuff stubbed, especially regarding the online functionality. My priority was on client stability, but that is important too.
+
+Lots of stuff needs pruned as well, as you stated, and stale stuff needs updated / reimagined or removed.
+
+Regarding there being so many things on the back-burner, so to speak, it is a symptom of a few things. One, I am ADHD, and try to focus priority on more systemic problems as they are discovered, which tends to lead me away from something in progress to fix a structural issue before resuming what I was doing; which is fine, if I remember to get back to it, but I didn't have a great way to track those trails (parked threads, as you called them) before. I'm not sure the kanban thing is the best way to do that either. I am open to suggestions. Regardless, the kanban thing should be linked in the dev window if we decide to stick with that.
+
+I agree we need to find a way of testing the actual binary, filtering logs to test certain aspects, and try to catch issues before my runtime tests. This would save us a TON of time and effort. We do need to ensure we avoid overlapping / colliding worktrees.
+
+I agree that Stability is the biggest pillar to get to 100 first, everything else depends on it. Online being next is good prioritization. Modding is my next priority as it is a core pillar of the project, but it will likely be incremental work as well, since there are so may aspects to it (characters with anims and dialog, weapons with those as well, maps, forge variants, custom menu UI's, music mods, etc.). Chat and social play would be great to get properly operational.
+
+I am reading as I type, so I already mentioned the mod readiness being broken up, I see now that you agree. I think it is wise.
+
+Modernity is a major goal, but comes after stability. It will be an infrastructural upgrade that might even be after a 1.0 release. Does that make sense to you?
+
+Pillar E, as you called it, regarding the Roadmap Consolidation point, I think it would be good to do this visually on my end, and have it be interpretable by Claude, live, as well as being updated by Claude as things are completed / re-ordered / changed / added / removed / etc. Also Smoke verify would also be very useful I think, as I said above.
+
+Regarding your scoldings, these are all valid and I appreciate the input. Please remember that I welcome criticism, and alternatives if you think something is better. Just know that I have an idea what I want, decent knowledge of various practices used by others, but am admittedly not a professional. I appreciate the input whether it is critical or informative. I do tend to ask a lot of questions, so I may make informed decisions, and prefer structural / systemic architecture rather than hacky stuff cobbled together. I want it to work, properly, and make sense from a top-down perspective.
+
+I agree about the ship gates, the online stubs, parked threads, and automated playtest scripts. I admit it is exhausting seeking out bugs like that manually, when many of them could easily be discovered in an automated run.
+
+Please, at the risk of sounding a bit masturbatory, elaborate on the 'Where credit is due' section. I think Catalog Universality and Mod / Base Game Equivalence make this project truly special compared to what else I have seen out there.  Are there any projects where you have seen a similar approach to treat base game / mod content as equivalent, using catalog / manifests / etc? Internal modding tooling? Etc?
+
+I agree the principles are durable, they are foundational to being able to construct this systemically and extensibly. Documentation is also critical, especially in our workflow that is an Human-AI interface. With limited context, we need to be able to track and remember things persistently, and seeing as the limitations are a bit strong at times, it helps to only load knowledge contextually, indexed and ready to go, and then update it when working.
+
+I would like to ultimately develop an actual documentation for the project, for the end user. It will include info on the improvements made from the N64 version, Upgrades we have added, how to create and use mods both within the client mod tools and with external tools such as Blender, Photoshop, etc. We might even create plugins later for Blender, Photoshop, etc to export directly as a mod.
+
+Velocity-when-it-flows is high, and would be consistently high if it weren't for my need to sleep, work, and wait for Claude weekly limits to reset. Between the three of those, I don't get as much time on the project as I would like. As I said, I am ADHD, so when I get into a flow state, I can go HARD for long sprints. It does get exhausting, so I need to be wary, but those sprints are incredibly productive.
+
+The self-report is again, important due to context limitations. But it also helps us to keep our work targeted and properly focused.
+
+What do you mean by "the Combat Sim binding spec → universal grammar synthesis"? Human-readable names, etc?
+
+I think the headless smoke-verify gate is important (as I mentioned a few times in this reply already, and you did). It is one of our important next steps.

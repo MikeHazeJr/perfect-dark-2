@@ -1,0 +1,125 @@
+[2026-05-06 04:22 PM EDT]
+Super Audit — PD2 Project State, 2026-05-06
+Headline score: 583 / 1000
+Code-only baseline from 2026-04-27 was 675. The lower project-wide number reflects that code is strong but stability and online are dragging it down hard. Specifically, the project ships well-architected work that doesn't yet boot reliably, doesn't yet network, and doesn't yet let modders mod in any meaningful sense beyond drop-in replacement.
+This is harsh because you asked for it harsh. The work that's been done is substantial and disciplined. The gap between "platform-ready" and where we sit is also substantial.
+
+Rubric — 10 dimensions, 100 points each
+1. Architectural integrity — 80 / 100
+What's working: catalog universality is a genuinely good design — per-asset files, walker-as-sole-source, BYOR end-to-end, no .pdbase anywhere in the runtime path. Universal input grammar lifted from the Combat Sim binding spec. Pillar-goal naming. "No half-measures" / "migrate-first-then-fix-structurally" are encoded as durable principles and they get applied. Authoring source-of-truth files in Option B uniform across metadata kinds.
+What's dragging it: the F13 → Step 5 → BYOR completion saga revealed three structural gaps in sequence, each requiring its own triage to find. The Combat Sim modal-stuck regression that was thought fixed at 24e9b67e is reopening. B-323 and B-324 hit the same code path with different roots. The pattern is "good principles, multiple gap-discovery cycles to actually realize them in code." Each gap is found and fixed within hours, which is honest progress, but it points to insufficient pre-ship structural verification.
+2. Code quality / cleanliness — 65 / 100
+What's working: queued-build-tool discipline gates everything, no em-dashes enforced at file write, CRLF inflation caught and called out, static-grep tests pin invariants (perimeter audits for retired arrays). Build clean four-target reliably. CMake CONFIGURE_DEPENDS catches new files.
+What's dragging it: 4 pre-existing test failures in the suite, parked rather than fixed. "Test suite passed" sometimes means "build verified, didn't run full suite." Some commits land without smoke verify on the actual binary (we caught the install-path mismatch in playtest, not in test). Naming consistency is good but fingerprints from the decomp era still surface (g_* mixed with newer conventions). 50+ active worktrees clutter the repo's .claude/worktrees/.
+3. Modernity — 55 / 100
+What's working: thread pool primitive shipped, parallel verify pass, ImGui menus replacing legacy N64 chrome, GPU swarm benchmark with bot-count testing, modern progress UI, GLSL 4.3 core, P2P + presence + chat layers, structured logging with channel masks.
+What's dragging it: mesh data still N64 vertex commands, GBI rendering, custom decoders for everything. The engine modernization vision (PBR, modern physics, modern shader pipeline) is documented as a roadmap but barely touched. Half the runtime path is decomp-era code that works correctly but reads like 1999. The renderer is functional but not modern. No frame profiler, no GPU debug tooling, no asset pipeline that supports modern formats.
+4. Stability / playability — 35 / 100
+This is the immediate weakness. Today's playtest hit four blockers in one session: build tool ROM placement, Combat Sim modal stuck, weapons load broken (game-breaking), CS room Esc behavior. Stage load AVs have been recurring at the same code paths through three triage cycles (B-318 → B-323 → B-324). The build-test-playtest-find-bugs-build cycle is producing 1-3 follow-up triages per ship.
+What's working: the build does boot. The catalog universality is functioning end-to-end on clean install. Audio works. Background levels load. Single-player Campaign does run. The Forge editor exists.
+What's dragging it: everything that breaks the playtest experience. Today's weapons-load bug means you can't tell which weapon you have — that's not "polish needed," that's "the game doesn't work right now." The modal-stuck regression means Combat Sim isn't usable. Online doesn't work. Test regression coverage is thin enough that we discover stage-load AVs by playing rather than by CI.
+5. Modding ecosystem readiness — 40 / 100
+What's working: catalog universality is the right foundation — per-asset files, BYOR-compliant, walker registers anything in data/<romid>/<class>/. Schema spec for all 13 kinds. Audio/UI/font/metadata kinds use standard formats inside the wrapper.
+What's dragging it: opaque binary payloads in .pdmesh / .pdscenario stage data / .pdsong mean modders can drop in replacements but can't INSPECT or EDIT the data in standard tools. No mod manager UI. No documented modder workflow. No mod registry. No "modder onboarding" flow. The proper-file-construction commitment is captured but not started. The infrastructure for modding exists; the experience for modders does not.
+6. Online / multiplayer — 25 / 100
+This is the second-biggest weakness. Connectivity initializes (P2P + LAN + presence + chat + share + voice all bind sockets cleanly). But the actual user-facing flows are broken or missing:
+
+Friends added by connect code show Offline despite both clients being Online
+Send button broken
+No party hosting (only listening rooms)
+No game-mode invite notifications
+Online status HUD appears too early (over intro, before agent select)
+Social panel resize snaps back
+
+What works: the layers initialize, codecs are available, NAT layer is up, voice codec works. The infrastructure exists.
+What's dragging it: the user-facing experience is mostly stubs. From a player's perspective, you can boot online but you can't actually play together. This is the single biggest gap between "tech demo" and "platform."
+7. Tooling / DX — 78 / 100
+What's working: queued build tool, kanban with hierarchy + priority + flag system + 65+ cards across 11 pillars, dispatch coordinator pattern, standing rules in memory, daily logs at 6 AM, weekly super audits, dev window v2, log parser tool, session-log discipline, GitHub repo connected, releases scripted, static-grep regression tests. Standalone updater shipped. Multi-session concurrent work pattern functions.
+What's dragging it: 100+ accumulated sessions, most parked, sprawl in .claude/worktrees/. The kanban tool was iterated three times today, which is healthy iteration but means it's still settling. Some friction in cross-session coordination — the BYOR completion session declined a continuation that the orchestrator (me) had to push back. Test harness has known regression (run-pd-tests.ps1 mentioned in audit). Codex coordination workaround is functional but adds round-trips.
+8. Documentation / context discipline — 80 / 100
+This is the strongest dimension and probably underrates how much you've invested in it. Audits in context/audits/ (multiple), design docs in context/designs/, daily logs, session-log.md, kanban in tools/kanban, two-tier memory system, MEMORY.md index, weekly super audits, post-ship audit appends, file:line evidence in nearly every audit, kanban + context same-commit rule codified.
+What's dragging it: 100+ sessions worth of audit accumulation needs pruning. Some duplication between audits. The kanban-with-context rule is recent — sessions before today wrote context updates without kanban. Some design docs are stale (Forge F0-F8 designed when the input grammar was older). Memory entries date over time and need consolidation passes.
+9. Roadmap clarity — 60 / 100
+What's working: engine vision roadmap, mod infrastructure plan, catalog universality spec, priority Q (3D character render box), Forge F0-F8 phased plan, layered design philosophy, kanban populated with 11 pillars.
+What's dragging it: many parked threads — Connectivity Phase 1 (P2P friend-play replacement), Forge editor F0-F8, Skedar surface-normal locomotion, Char init experiments, Player init architectural fixes, GPU swarm benchmark debug tab, AllInOne content removal — all idle. Multiple competing priorities. After stability lands, the next-best-target is genuinely unclear without further triage. The 11 kanban pillars span concerns from build tooling to engine modernization to modding infrastructure to social — there's no single "what's the project working on right now" pulse.
+10. Execution velocity / quality of ship — 65 / 100
+What's working: catalog universality migration shipped end-to-end in about a week (Steps 0 through 5 plus BYOR completion plus three triage cycles). Phase 1+2+3 of startup acceleration shipped in under a day. Combat Sim universal grammar + binding doc canonical in one session. Auto-merge by default works. Sessions self-report context state, which lets the orchestrator decide spawn-fresh-vs-reuse.
+What's dragging it: the "ship → playtest → discover gap → triage → ship → discover gap" cycle wastes effort. Each playtest reveals 2-4 new bugs that should have been caught at build time. The migration-incomplete pattern shows up once per major migration. Sessions sometimes ship without smoke verify on the binary (depending on it being playtestable from a Mike-runnable state). Velocity is good; quality of ship has gaps that show up in the field.
+
+What gets us to 1000 — concrete path
+Pillar A — Stability to 100 (currently 35; +65 to go)
+This is the biggest single drag and the highest-leverage fix.
+
+Land Tasks 1-4 from yesterday's plan (build tool ROM, modal stuck, weapons-load bug, CS Esc).
+Bring full test suite to 0 failing tests (4 pre-existing currently parked).
+Add a headless smoke-verify gate to the build session so every merge runs clean-install boot + 30-second-stage-load + Combat Sim entry + weapon equip without AV. Currently we ship after build verify only.
+Add AV regression tests for the recurring stage-load crash sites (B-318, B-323, B-324 family). When any of them surface again, the test fails.
+Strict pre-ship gate: structural-verify + smoke-verify pass before auto-merge, every time.
+
+When this dimension is at 100, the build doesn't break things in playtest. That alone reclaims maybe half of the wasted triage cycles.
+Pillar B — Online to 100 (currently 25; +75 to go)
+This is the second-biggest drag and the longest single chain of work.
+
+Tasks 7-10 from the plan: presence sync, send fix, party hosting + invites, panel layout.
+Spectator mode (already designed, not built).
+Friend list filtering / sorting / blocking polish.
+Chat history persistence.
+NAT traversal hardening (today it works on LAN, untested on real-world NAT topologies).
+Voice integration end-to-end (codec is up; no UI surfaces it yet).
+Match join-in-progress, drop-in/drop-out per the online-session vision doc.
+Server-as-matchmaking-only (per the connectivity-replaces-dedicated-server memory).
+
+At 100, you can host a party, friends see each other, you can chat, you can join each other's matches mid-game, voice works.
+Pillar C — Modding readiness to 100 (currently 40; +60 to go)
+Tied to project ideology per yesterday's directive.
+
+Proper file construction: .pdmesh → glTF, .pdscenario stage payloads → standard scene format, .pdsong → MIDI or similar, all per the project_proper_file_construction memory. Months of work, one kind at a time.
+In-game mod manager UI with per-sub-type indicators (already designed in memory).
+Modder onboarding doc (from-zero to "I made a weapon mod that other people can install").
+Mod registry / sharing infrastructure (out of scope for the binary; could be a website).
+Schema versioning + compat declarations enforced (per feedback_mod_format_extensibility).
+Mod-validation-on-install pipeline.
+Documentation: format spec doc per kind, written for human modders not engineers.
+
+At 100, a modder downloads PD2, drops their ROM in, opens Blender, edits a mesh, drops the resulting .pdmesh into mods/, runs the game, sees their mod live.
+Pillar D — Modernity to 100 (currently 55; +45 to go)
+The longest horizon, the engine-modernization-vision-roadmap stuff.
+
+Modern shader pipeline (PBR, IBL, real-time shadows, etc.).
+Modern physics (Bullet/PhysX/Jolt integration replacing N64 collision).
+Modern asset pipeline (glTF / standard formats, hot-reload).
+Frame profiler, GPU debug tooling.
+Decouple from N64 GBI command stream — render directly via modern API.
+Per-asset compression / streaming for large maps.
+
+At 100, PD2's renderer and physics could appear in any modern indie game without anyone calling it dated.
+Pillar E — Code quality + execution + roadmap (smaller +40 across three)
+
+Pre-existing failing tests fixed.
+Worktree pruning automation (cleanup idle worktrees > N days old).
+Roadmap consolidation: pick the next 3 epics post-stability, sequence them, mark everything else as parked.
+Smoke-verify gate (mentioned in Pillar A) also lifts execution score.
+Audit pruning pass to consolidate stale audits.
+
+
+Where I'd scold us
+One: the migration cycle is producing too many discovered gaps. F13 retired g_Weapons[] assuming .pdbase was the runtime path. Step 5 retired .pdbase. Neither step verified the next layer was ready. BYOR completion fixed one half of the resulting hole. B-318 → B-323 → B-324 fixed three more. We're discovering structural gaps via crashes instead of via pre-migration audits. The pattern says: before retiring a layer, the audit must trace EVERY consumer of that layer to its replacement and prove it's wired. That audit happened informally; it needs to be rigorous and signed.
+Two: ship gates are too lenient. "Build clean four-target" is necessary but not sufficient. We need "headless smoke-verify clean-install boot to title screen + Combat Sim entry + weapon equip" as a CI gate before any merge that touches catalog/load/render paths. Until that's in place, every playtest will surface bugs that should have been caught at build time.
+Three: online has been stubbed for too long. The infrastructure has been "ready" for weeks but the user-facing experience is broken. Every release demonstrates the layers init-ing successfully, then doesn't actually let users play together. This is the single biggest gap between "fascinating engineering project" and "thing my friend actually plays."
+Four: the parked-thread sprawl is a planning debt. 100+ sessions, dozens parked, multiple competing pillars active simultaneously. After stability lands, you're going to have to make hard sequencing calls about which 2-3 pillars get attention next. The kanban with priority flags helps but doesn't substitute for an executive "this quarter we're doing X, Y, Z, everything else waits" decision.
+Five: a fair amount of polish and recovery work happens because the playtest discovers the issues. That's a feedback loop with an artificially long delay (build → install → run → see crash → report → triage → fix). Tightening that loop with automated playtest scripts (input replay over a stable scenario) would catch regressions in seconds instead of in the field.
+
+Where credit's due
+Catalog universality is genuinely well-engineered. Per-asset files, BYOR-compliant, walker-as-sole-source, no shortcuts shipped. The Option B uniform pattern across metadata kinds is the architecturally correct shape and you fought for it (twice).
+The principles are durable. "No half-measures," "migrate-first-then-fix-structurally," "BYOR is a constraint not a tradeoff," "kanban with context same commit," "complete unit shipping" — these aren't aspirations, they show up in every spawn brief and they get applied. The memory system carrying these forward across sessions is genuinely effective.
+Documentation discipline is uncommon for an indie project. Audits, design docs, daily logs, weekly super audits, file:line evidence, post-ship audit appends. This is platform-team discipline.
+Velocity-when-it-flows is high. Catalog migration end-to-end in a week. Three startup-acceleration phases in a day. Multi-session concurrent work works.
+Sessions self-report context state. The "fresh / mid-flight / deep / handoff-recommended" contract is a real innovation — most multi-session systems don't have that visibility.
+The Combat Sim binding spec → universal grammar synthesis is excellent design work. Short, principled, and cross-referenced to actual screen behavior. That doc will be load-bearing for years.
+
+Single most valuable next move
+Build the headless smoke-verify gate. Specifically: a CI script that drops the binary in a clean install, runs it for 30 seconds with a scripted input sequence (boot → title → Combat Sim → equip Falcon 2 → exit), and asserts no AV + log lines for LOADER.UNIVERSAL.SUMMARY: registered > 0 for all kinds + weapon-equip event captured. Add that as a pre-merge gate.
+If that gate had existed yesterday, today's four playtest blockers would have been caught at build time.
+This is one focused session of work and it lifts the stability score AND the execution-quality score simultaneously. After it's in, the rest of the roadmap moves faster.
+
+If you want this saved as a standalone audit doc, say the word and I'll write it to context/audits/super-audit-2026-05-06.md via a quick code session. Otherwise this stays the canonical record in our chat.
