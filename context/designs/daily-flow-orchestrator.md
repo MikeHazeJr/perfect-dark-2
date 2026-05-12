@@ -433,6 +433,94 @@ tools/kanban/daily-briefing.json  # surfaced by dev-window kanban open
 
 ---
 
+## Phase 2 enhancements (not in v0.5 ship)
+
+These are scoped here so a follow-up session can pick them up without re-discovery. Each is additive; none requires breaking the v0.5 contract.
+
+### Phase 2A. Commit-hygiene audit
+
+**Trigger**: Mike's directive 2026-05-11. Commit messages must follow a standard format tied to the kanban card driving the work. A separate session is building the prevention layer (pre-commit hook). The orchestrator gains the detection layer in Step 1.
+
+**Standard** (per `feedback_commit_message_standard.md` in Mike's auto-memory, expected to be authored by the parallel session that filed this requirement):
+
+- First line: `<Pillar> - <CardID>: <summary>` (e.g. `Catalog - c027: F11 retirement of g_Weapons[]`).
+- Body: 2-4 sentences explaining the change.
+- Trailer: `Refs: cNNN` line citing the kanban card. Multiple references allowed: `Refs: c118, c050`.
+
+Note: this is a documentation pointer, not a duplicate of the standard. The memory file is authoritative; this doc points to it.
+
+**Audit (Step 1 extension)**:
+
+The audit step gains a `commit_hygiene` subsection in its output JSON. For each commit in the 24 h window:
+
+```json
+{
+  "sha": "...",
+  "subject": "...",
+  "compliant": true | false,
+  "format_violations": [
+    "missing_pillar_prefix",
+    "missing_card_id",
+    "missing_refs_trailer",
+    "body_too_short",
+    "body_too_long"
+  ],
+  "referenced_cards": ["c118", "c050"]
+}
+```
+
+Compliance check is regex-based. Pillar names enumerate from `kanban/state.json::pillars[].id`. Card IDs match `c\d{3,}`. Allow merge commits (subject starts with `Merge `) and bot commits (author matches a configurable list) to pass without enforcement.
+
+**New daily log section: `## Commit Hygiene`**
+
+Inserts after `## Bugs` and before `## Decisions` (template order updated to: Yesterday Shipped, Bugs, Commit Hygiene, Decisions, Parked Threads, Today Focus). Empty when 100% compliant. When non-compliant:
+
+```
+## Commit Hygiene
+
+- Compliance: N/M commits (PP%) over the 24 h window.
+- Non-compliant:
+  - `<sha>` <subject>  -- violations: missing_card_id, body_too_short
+  - `<sha>` <subject>  -- violations: missing_pillar_prefix
+```
+
+**Briefing payload extension**:
+
+Adds a top-level `commit_hygiene` field:
+
+```json
+{
+  "commit_hygiene": {
+    "window_compliance_rate": 0.86,
+    "non_compliant_count": 2,
+    "trailing_7d_compliance_rate": 0.91,
+    "x_trend": "stable"
+  }
+}
+```
+
+The 7-day trailing rate computes from prior `audit-YYYY-MM-DD.json` files in `state/`. The trend (stable / improving / regressing) compares the 7 d rate to the 30 d rate (when available). Surfaced as a small pill in the kanban banner.
+
+**Where to slot it in code**:
+
+- New module `tools/daily_flow/lib/commit_hygiene.py`: pure functions `parse_commit_subject(subject) -> dict`, `validate(commit, pillars) -> list[violation]`, `compliance_rate(commits) -> float`.
+- `steps/step1_audit.py`: after building the `commits` list, fold each commit through `validate()`, attach the result. The pillar list comes from `tools/kanban/state.json`.
+- `steps/step6_daily_log.py`: new `_render_commit_hygiene()` helper called from `run_daily_log`. Update `DAILY_SECTIONS_ORDER` in `templates.py` to add `Commit Hygiene` between `Bugs` and `Decisions`.
+- `steps/step7_briefing.py`: assemble `commit_hygiene` block from the audit's results plus historical trailing-window data.
+
+**Phase 2A is intentionally not in v0.5** because (a) the standard's exact regex shape depends on the prevention-layer pre-commit hook a parallel session is authoring, and (b) the v0.5 ship is already a coherent unit. Coupling them risks re-opening the v0.5 merge or introducing drift between detection and prevention.
+
+### Phase 2B (future, not yet scoped)
+
+- Per-pillar commit-velocity dashboard in the briefing payload.
+- Stale-card auto-archive after N days of zero commit activity touching the card.
+- Bug-age histogram for the briefing (open bugs by filed-date bucket).
+- Auto-spawn of catch-up sessions on N+ consecutive missed days (currently the orchestrator catches up sequentially; auto-spawn would parallelize).
+
+Phase 2B items are noted here so they don't get lost; none has a hard requirement attached.
+
+---
+
 ## Where to look
 
 - The Claude entry prompt: [tools/daily_flow/orchestrator-prompt.md](../../tools/daily_flow/orchestrator-prompt.md).
