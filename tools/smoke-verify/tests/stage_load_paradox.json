@@ -1,0 +1,44 @@
+{
+  "scenario_name": "stage_load_paradox",
+  "description": "Boot directly to the CITRAINING stage (--boot-stage 0x26) and tick for 30 seconds. Catches the B-323 class (challenge config over-read), the B-318/B-324 stage-init AVs, and any post-boot drift in stage transitions.",
+  "tags": ["stage", "load", "catalog", "stability"],
+  "paths_of_interest": [
+    "src/game/challenge.c",
+    "src/game/lv.c",
+    "src/game/setup.c",
+    "src/game/mplayer/setup.c",
+    "src/game/bondgun*.c",
+    "src/game/playermgr.c",
+    "port/src/scenario_save.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--skip-intro"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot completes, --skip-intro lands us at CITRAINING" },
+    { "at_ms": 60000, "type": "exit", "comment": "30s of in-stage ticking is plenty to catch a slow AV" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=stage_load_paradox",
+      "boot stage set to 0x26",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "WARNING: .*bgunCalculateBlend"
+    ],
+    "required_counts": [
+      { "pattern": "memp heap at", "min": 1, "max": 1 }
+    ]
+  }
+}

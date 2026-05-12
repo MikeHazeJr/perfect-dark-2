@@ -1,0 +1,50 @@
+{
+  "scenario_name": "combat_sim_entry",
+  "description": "Boot to title, tap through to Combat Sim entry. Phase 1 scaffolding: the input timings are starting values and Mike tunes them on the first live run. The harness schema is the deliverable; exact frame budgets are tuning input. Catches the B-318 / B-326 modal-stuck class once the nav path is dialled in.",
+  "tags": ["menu", "input", "combatsim", "stability"],
+  "paths_of_interest": [
+    "port/fast3d/pdgui_menu_*.cpp",
+    "port/src/actionmap.cpp",
+    "port/src/inputlayer.c",
+    "port/src/inputctx.c",
+    "src/game/mplayer/setup.c",
+    "src/game/title.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait",  "comment": "boot to title screen" },
+    { "at_ms": 12000, "type": "key",   "key": "Return", "action": "tap", "comment": "advance past PD logo / intro" },
+    { "at_ms": 13500, "type": "key",   "key": "Return", "action": "tap" },
+    { "at_ms": 15000, "type": "key",   "key": "Return", "action": "tap", "comment": "enter main menu" },
+    { "at_ms": 17000, "type": "key",   "key": "Down",   "action": "tap" },
+    { "at_ms": 17500, "type": "key",   "key": "Down",   "action": "tap" },
+    { "at_ms": 18000, "type": "key",   "key": "Return", "action": "tap", "comment": "Combat Simulator" },
+    { "at_ms": 22000, "type": "key",   "key": "Return", "action": "tap", "comment": "Quick Setup / default options" },
+    { "at_ms": 25000, "type": "key",   "key": "Return", "action": "tap", "comment": "Begin" },
+    { "at_ms": 40000, "type": "key",   "key": "Escape", "action": "tap", "comment": "Pause" },
+    { "at_ms": 41000, "type": "key",   "key": "Down",   "action": "tap" },
+    { "at_ms": 41500, "type": "key",   "key": "Down",   "action": "tap" },
+    { "at_ms": 42000, "type": "key",   "key": "Return", "action": "tap", "comment": "Quit Game" },
+    { "at_ms": 60000, "type": "exit",  "comment": "default exit if we get this far" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=combat_sim_entry",
+      "Asset Catalog: \\d+ entries registered"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable"
+    ],
+    "required_counts": []
+  }
+}
