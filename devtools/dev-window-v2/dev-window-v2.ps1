@@ -3176,7 +3176,11 @@ function Build-CliStandingRulesBlock {
   - ## Files Touched   list with brief change description
   - ## Verification Notes  for orchestrator: what to spot-check before disposing.
 - The orchestrator (dispatch session) will read the sprint report on next interaction,
-  verify against kanban + git state, then dispose (delete) the report ONLY once verified.
+  verify against kanban + git state, then ARCHIVE (move to
+  .claude/sprint-reports/archive/<same-filename>.md) once verified. Reports are
+  NEVER deleted - they have long-term reference value. The active directory
+  .claude/sprint-reports/ holds only unprocessed reports; the archive is the
+  permanent record of every sprint the orchestrator has consumed.
 "@
 }
 
@@ -3228,6 +3232,21 @@ function Get-CliPromptTempPath {
     return (Join-Path $dir ("pd2-cli-prompt-" + $ts + ".txt"))
 }
 
+function Ensure-CliSprintReportDirs {
+    # Sprint reports land at .claude/sprint-reports/ and the orchestrator moves
+    # consumed reports into .claude/sprint-reports/archive/. We create both at
+    # launch time so the directory shape is correct on a fresh checkout even
+    # before the orchestrator has had a chance to archive anything. The launcher
+    # never writes the archive itself; that is the orchestrator's job.
+    $base = Join-Path $script:ProjectRoot ".claude\sprint-reports"
+    $arch = Join-Path $base "archive"
+    foreach ($d in @($base, $arch)) {
+        if (-not (Test-Path -LiteralPath $d)) {
+            try { New-Item -ItemType Directory -Force -Path $d | Out-Null } catch {}
+        }
+    }
+}
+
 function Invoke-CliLaunch {
     $composed = Build-CliComposedPrompt
     if (-not $composed -or $composed.Trim() -eq "") {
@@ -3241,6 +3260,8 @@ function Invoke-CliLaunch {
         [System.Windows.MessageBox]::Show("Claude CLI executable not found. Install with:`n`nnpm install -g @anthropic-ai/claude-code", "Claude CLI", "OK", "Warning") | Out-Null
         return
     }
+
+    Ensure-CliSprintReportDirs
 
     $promptPath = Get-CliPromptTempPath
     try {

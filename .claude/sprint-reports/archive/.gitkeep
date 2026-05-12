@@ -1,0 +1,15 @@
+# Sprint report archive
+#
+# This directory holds sprint reports that the Dispatch orchestrator has
+# consumed (read + cross-referenced against kanban + git state). The
+# orchestrator MOVES reports from .claude/sprint-reports/ into this directory
+# once verification passes. Reports are NEVER deleted; they have long-term
+# reference value and this archive is the permanent record of every sprint
+# the orchestrator has consumed.
+#
+# The launcher in Dev Window v2 (devtools/dev-window-v2/dev-window-v2.ps1
+# Ensure-CliSprintReportDirs) creates this directory on startup so the layout
+# is correct on a fresh checkout even before any reports have been archived.
+#
+# See: context/designs/devwindow-claude-cli-panel.md, "Sprint report
+# consumption protocol (orchestrator contract)".
