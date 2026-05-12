@@ -1608,17 +1608,17 @@
             }
           ],
           "allow_custom": true,
-          "answer": null,
-          "answer_type": null,
-          "answered_date": null,
+          "answer": "a",
+          "answer_type": "choice",
+          "answered_date": "2026-05-12T12:31:32Z",
           "custom_text": null,
           "interpretation": null,
-          "interpretation_confirmed": false,
+          "interpretation_confirmed": true,
           "follow_up_question_ids": []
         }
       ],
       "created": "2026-05-12T00:00:00Z",
-      "updated": "2026-05-12T04:06:39Z"
+      "updated": "2026-05-12T12:31:32Z"
     }
   ]
 }
