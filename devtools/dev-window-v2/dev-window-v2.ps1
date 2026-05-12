@@ -89,6 +89,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 namespace PD2V2 {
     public static class DpiUtil {
@@ -114,6 +115,24 @@ namespace PD2V2 {
             t.IsBackground = true;
             t.Start();
         }
+    }
+    // INotifyPropertyChanged row model for the Clear Worktrees DataGrid. PSCustomObject
+    // does not raise PropertyChanged through WPF binding, so Select All / Select None
+    // visual refreshes need a real CLR class.
+    public class WorktreeEntry : INotifyPropertyChanged {
+        public event PropertyChangedEventHandler PropertyChanged;
+        void Notify(string n) { var h = PropertyChanged; if (h != null) h(this, new PropertyChangedEventArgs(n)); }
+        public string Name { get; set; }
+        public string Path { get; set; }
+        public string Branch { get; set; }
+        public string ModifiedDisplay { get; set; }
+        public long SizeBytes { get; set; }
+        public string SizeDisplay { get; set; }
+        public bool IsRegistered { get; set; }
+        public bool IsPrunable { get; set; }
+        public bool IsCurrent { get; set; }
+        bool _sel;
+        public bool IsSelected { get { return _sel; } set { if (_sel != value) { _sel = value; Notify("IsSelected"); } } }
     }
 }
 "@
@@ -955,8 +974,8 @@ function Refresh-LatestRelease {
                                         ToolTip="git pull (current branch, upstream)"/>
                                 <Button x:Name="BtnPush" Content="Push" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
                                         ToolTip="Commit pending changes, then push the current branch"/>
-                                <Button x:Name="BtnPruneWorktrees" Content="Prune Worktrees" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
-                                        ToolTip="git worktree prune (remove stale worktree references from .claude/worktrees/)"/>
+                                <Button x:Name="BtnPruneWorktrees" Content="Clear Worktrees..." Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                        ToolTip="Show on-disk worktree sizes, select and remove with full git worktree remove + branch cleanup + stale-registry prune"/>
                                 <Button x:Name="BtnCheck" Content="Check" Style="{StaticResource ToolBtn}"
                                         ToolTip="Validate clean git state + run git-snapshot.sh"/>
                             </StackPanel>
@@ -1856,67 +1875,616 @@ function Invoke-GitPush {
         }
 }
 
+function Format-WorktreeByteSize {
+    param([long]$Bytes)
+    if ($Bytes -lt 0) { return "-" }
+    if ($Bytes -lt 1024) { return ("{0} B" -f $Bytes) }
+    if ($Bytes -lt 1048576) { return ("{0:N1} KB" -f ($Bytes / 1024.0)) }
+    if ($Bytes -lt 1073741824) { return ("{0:N1} MB" -f ($Bytes / 1048576.0)) }
+    return ("{0:N2} GB" -f ($Bytes / 1073741824.0))
+}
+
+function Get-WorktreeDirectorySize {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return [long]0 }
+    $total = [long]0
+    try {
+        $stack = New-Object System.Collections.Generic.Stack[string]
+        $stack.Push($Path)
+        while ($stack.Count -gt 0) {
+            $dir = $stack.Pop()
+            try {
+                $di = [System.IO.DirectoryInfo]::new($dir)
+                foreach ($f in $di.EnumerateFiles()) {
+                    try { $total += $f.Length } catch {}
+                }
+                foreach ($d in $di.EnumerateDirectories()) {
+                    if (($d.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+                        $stack.Push($d.FullName)
+                    }
+                }
+            } catch {}
+        }
+    } catch {}
+    return $total
+}
+
+function Get-WorktreeEntries {
+    param(
+        [Parameter(Mandatory=$true)][string]$GitExe,
+        [Parameter(Mandatory=$true)][string]$Root,
+        [string]$CurrentPath
+    )
+
+    $worktreesDir = Join-Path $Root ".claude\worktrees"
+    $regMap = @{}
+    $stalePrunable = New-Object System.Collections.ArrayList
+    $regOutRaw = ""
+    try {
+        $regOutRaw = (& $GitExe -C $Root worktree list --porcelain 2>$null | Out-String)
+    } catch { $regOutRaw = "" }
+
+    if ($regOutRaw) {
+        $blocks = $regOutRaw -split "(`r?`n){2,}"
+        foreach ($block in $blocks) {
+            $path = ""
+            $branch = ""
+            $prunable = $false
+            foreach ($line in ($block -split "`r?`n")) {
+                if ($line -match '^worktree\s+(.+)$') { $path = $matches[1].Trim() }
+                elseif ($line -match '^branch\s+refs/heads/(.+)$') { $branch = $matches[1].Trim() }
+                elseif ($line -match '^detached') { $branch = "(detached)" }
+                elseif ($line -match '^prunable') { $prunable = $true }
+            }
+            if ($path) {
+                $norm = $path -replace '/', '\'
+                try {
+                    $rp = Resolve-Path -LiteralPath $norm -ErrorAction SilentlyContinue
+                    if ($rp) { $norm = $rp.Path }
+                } catch {}
+                $key = $norm.ToLower().TrimEnd('\')
+                $regMap[$key] = [PSCustomObject]@{ Branch = $branch; Prunable = $prunable; Path = $norm }
+                if ($prunable) {
+                    [void]$stalePrunable.Add($norm)
+                }
+            }
+        }
+    }
+
+    $currentNorm = ""
+    if ($CurrentPath) {
+        try {
+            $rp = Resolve-Path -LiteralPath $CurrentPath -ErrorAction SilentlyContinue
+            if ($rp) { $currentNorm = $rp.Path.ToLower().TrimEnd('\') }
+        } catch {}
+    }
+
+    $entries = New-Object System.Collections.Generic.List[object]
+    if (Test-Path -LiteralPath $worktreesDir) {
+        Get-ChildItem -LiteralPath $worktreesDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $dir = $_.FullName
+            $key = $dir.ToLower().TrimEnd('\')
+            $reg = $regMap[$key]
+            $branch = if ($reg -and $reg.Branch) { $reg.Branch } else { "(unregistered)" }
+            $sz = Get-WorktreeDirectorySize -Path $dir
+            $isCurrent = ($currentNorm -and $key -eq $currentNorm)
+            $obj = New-Object PD2V2.WorktreeEntry
+            $obj.Name = $_.Name
+            $obj.Path = $dir
+            $obj.Branch = $branch
+            $obj.ModifiedDisplay = $_.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+            $obj.SizeBytes = $sz
+            $obj.SizeDisplay = Format-WorktreeByteSize $sz
+            $obj.IsRegistered = ($null -ne $reg)
+            $obj.IsPrunable = ($reg -and $reg.Prunable)
+            $obj.IsCurrent = $isCurrent
+            $obj.IsSelected = $false
+            [void]$entries.Add($obj)
+        }
+    }
+
+    $total = [long]0
+    foreach ($e in $entries) { $total += $e.SizeBytes }
+
+    return [PSCustomObject]@{
+        OnDisk           = $entries
+        StalePrunable    = $stalePrunable
+        TotalSizeBytes   = $total
+        WorktreesDir     = $worktreesDir
+    }
+}
+
+function Show-WorktreeClearDialog {
+    param(
+        [Parameter(Mandatory=$true)]$Entries
+    )
+
+    $xamlStr = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Clear Worktrees"
+        Width="900" Height="560"
+        WindowStartupLocation="CenterOwner"
+        Background="#F4F6F8">
+    <DockPanel Margin="14">
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <TextBlock x:Name="LblHeader" FontFamily="Consolas" FontSize="14" FontWeight="Bold" Foreground="#1A2733"/>
+            <TextBlock x:Name="LblTotal"  FontFamily="Consolas" FontSize="12" Foreground="#4A5868" Margin="0,4,0,0"/>
+            <TextBlock x:Name="LblSelected" FontFamily="Consolas" FontSize="12" Foreground="#0078A8" Margin="0,4,0,0"/>
+        </StackPanel>
+        <Border DockPanel.Dock="Bottom" BorderBrush="#C0C8D2" BorderThickness="0,1,0,0" Margin="0,10,0,0" Padding="0,10,0,0">
+            <DockPanel>
+                <CheckBox x:Name="ChkAlsoPrune" DockPanel.Dock="Left" VerticalAlignment="Center"
+                          FontFamily="Consolas" FontSize="12"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="BtnSelectAll"  Content="Select All"  Width="110" Margin="0,0,6,0" Padding="8,5" FontFamily="Consolas" FontSize="12"/>
+                    <Button x:Name="BtnSelectNone" Content="Select None" Width="110" Margin="0,0,16,0" Padding="8,5" FontFamily="Consolas" FontSize="12"/>
+                    <Button x:Name="BtnCancel"     Content="Cancel"      Width="90"  Margin="0,0,6,0" Padding="8,5" FontFamily="Consolas" FontSize="12"/>
+                    <Button x:Name="BtnClear"      Content="Clear Selected" Width="160" Padding="8,5" FontFamily="Consolas" FontSize="12" FontWeight="Bold" Background="#B85020" Foreground="White"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+        <DataGrid x:Name="DgWorktrees"
+                  AutoGenerateColumns="False"
+                  HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  CanUserReorderColumns="False"
+                  CanUserResizeColumns="True"
+                  CanUserSortColumns="True"
+                  IsReadOnly="False"
+                  RowHeight="24"
+                  AlternatingRowBackground="#F0F2F5"
+                  Background="#FFFFFF"
+                  FontFamily="Consolas" FontSize="12">
+            <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="" Binding="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="34"/>
+                <DataGridTextColumn Header="Name"          Binding="{Binding Name}"            Width="240" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Branch"        Binding="{Binding Branch}"          Width="260" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Last Modified" Binding="{Binding ModifiedDisplay}" Width="130" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Size"          Binding="{Binding SizeDisplay}"     Width="100" IsReadOnly="True"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>
+"@
+
+    $reader = New-Object System.Xml.XmlNodeReader ([xml]$xamlStr)
+    $dlg = [Windows.Markup.XamlReader]::Load($reader)
+
+    $dgWorktrees   = $dlg.FindName("DgWorktrees")
+    $lblHeader     = $dlg.FindName("LblHeader")
+    $lblTotal      = $dlg.FindName("LblTotal")
+    $lblSelected   = $dlg.FindName("LblSelected")
+    $chkAlsoPrune  = $dlg.FindName("ChkAlsoPrune")
+    $btnSelectAll  = $dlg.FindName("BtnSelectAll")
+    $btnSelectNone = $dlg.FindName("BtnSelectNone")
+    $btnCancel     = $dlg.FindName("BtnCancel")
+    $btnClear      = $dlg.FindName("BtnClear")
+
+    $obs = New-Object System.Collections.ObjectModel.ObservableCollection[object]
+    foreach ($e in $Entries.OnDisk) { [void]$obs.Add($e) }
+    $dgWorktrees.ItemsSource = $obs
+
+    $lblHeader.Text  = ("On-disk worktrees: {0}    Stale registry entries: {1}" -f $Entries.OnDisk.Count, $Entries.StalePrunable.Count)
+    $lblTotal.Text   = ("Total on-disk size: {0}" -f (Format-WorktreeByteSize $Entries.TotalSizeBytes))
+    $chkAlsoPrune.Content   = ("Also prune {0} stale registry entries" -f $Entries.StalePrunable.Count)
+    $chkAlsoPrune.IsChecked = ($Entries.StalePrunable.Count -gt 0)
+    $chkAlsoPrune.IsEnabled = ($Entries.StalePrunable.Count -gt 0)
+
+    $updateSelectedLine = {
+        $count = 0; $sum = [long]0
+        foreach ($e in $obs) { if ($e.IsSelected) { $count++; $sum += $e.SizeBytes } }
+        $lblSelected.Text = ("Selected: {0} worktrees, {1}" -f $count, (Format-WorktreeByteSize $sum))
+    }
+    & $updateSelectedLine
+
+    # Refresh selection summary on every edit. CellEditEnding fires after the
+    # bound source property is set, so we can read the running totals directly.
+    $dgWorktrees.Add_CellEditEnding({ try { & $updateSelectedLine } catch {} })
+
+    $btnSelectAll.Add_Click({
+        foreach ($e in $obs) {
+            if (-not $e.IsCurrent) { $e.IsSelected = $true }
+        }
+        & $updateSelectedLine
+    })
+    $btnSelectNone.Add_Click({
+        foreach ($e in $obs) { $e.IsSelected = $false }
+        & $updateSelectedLine
+    })
+
+    $script:WorktreeClearResult = $null
+    $btnCancel.Add_Click({ $dlg.DialogResult = $false; $dlg.Close() })
+    $btnClear.Add_Click({
+        $selected = New-Object System.Collections.Generic.List[object]
+        $blockedCurrent = $false
+        foreach ($e in $obs) {
+            if ($e.IsSelected) {
+                if ($e.IsCurrent) { $blockedCurrent = $true; continue }
+                [void]$selected.Add($e)
+            }
+        }
+        if ($blockedCurrent) {
+            [System.Windows.MessageBox]::Show($dlg, "Skipping the active worktree (this dev-window or build is using it). Uncheck it or remove it manually.", "Clear Worktrees", "OK", "Warning") | Out-Null
+        }
+        if ($selected.Count -eq 0 -and -not $chkAlsoPrune.IsChecked) {
+            [System.Windows.MessageBox]::Show($dlg, "Nothing to do. Select at least one worktree, or enable prune.", "Clear Worktrees", "OK", "Information") | Out-Null
+            return
+        }
+        $sumBytes = [long]0
+        foreach ($e in $selected) { $sumBytes += $e.SizeBytes }
+        $confirmMsg = ("Remove {0} on-disk worktrees ({1})?" -f $selected.Count, (Format-WorktreeByteSize $sumBytes))
+        if ($chkAlsoPrune.IsChecked) { $confirmMsg += ("`n`nAlso prune {0} stale registry entries." -f $Entries.StalePrunable.Count) }
+        $confirmMsg += "`n`nThis runs git worktree remove --force, falls back to rm -rf for stragglers, and deletes the claude/* branch if it exists."
+        $ok = [System.Windows.MessageBox]::Show($dlg, $confirmMsg, "Confirm Clear Worktrees", "OKCancel", "Warning")
+        if ($ok -ne [System.Windows.MessageBoxResult]::OK) { return }
+
+        $script:WorktreeClearResult = [PSCustomObject]@{
+            Selected  = @($selected)
+            AlsoPrune = [bool]$chkAlsoPrune.IsChecked
+        }
+        $dlg.DialogResult = $true
+        $dlg.Close()
+    })
+
+    try { $dlg.Owner = [System.Windows.Application]::Current.MainWindow } catch {}
+    [void]$dlg.ShowDialog()
+    return $script:WorktreeClearResult
+}
+
+# Worker scriptblock for the runspace pool. Removes a list of worktrees and
+# (optionally) runs git worktree prune. Returns a structured report so the
+# UI thread can render per-worktree outcomes + a freed-byte total.
+$script:WorktreeClearWorker = {
+    param($gitExe, $root, $selectedPaths, $alsoPrune)
+
+    $results = New-Object System.Collections.Generic.List[object]
+    $freedTotal = [long]0
+
+    function _measure_dir([string]$p) {
+        if (-not (Test-Path -LiteralPath $p)) { return [long]0 }
+        $sum = [long]0
+        try {
+            $stack = New-Object System.Collections.Generic.Stack[string]
+            $stack.Push($p)
+            while ($stack.Count -gt 0) {
+                $d = $stack.Pop()
+                try {
+                    $di = [System.IO.DirectoryInfo]::new($d)
+                    foreach ($f in $di.EnumerateFiles()) { try { $sum += $f.Length } catch {} }
+                    foreach ($s in $di.EnumerateDirectories()) {
+                        if (($s.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) { $stack.Push($s.FullName) }
+                    }
+                } catch {}
+            }
+        } catch {}
+        return $sum
+    }
+
+    function _run_git($args) {
+        $outF = Join-Path $env:TEMP ("pd2-wt-clr-" + [guid]::NewGuid().ToString("N") + ".out")
+        $errF = $outF + ".err"
+        try {
+            $proc = Start-Process -FilePath $gitExe -ArgumentList $args -Wait -PassThru -NoNewWindow `
+                -RedirectStandardOutput $outF -RedirectStandardError $errF
+            $o = Get-Content $outF -Raw -ErrorAction SilentlyContinue
+            $e = Get-Content $errF -Raw -ErrorAction SilentlyContinue
+            return [PSCustomObject]@{ Code = $proc.ExitCode; Out = $o; Err = $e }
+        } catch {
+            return [PSCustomObject]@{ Code = -1; Out = ""; Err = $_.Exception.Message }
+        } finally {
+            try { Remove-Item $outF -Force -ErrorAction SilentlyContinue } catch {}
+            try { Remove-Item $errF -Force -ErrorAction SilentlyContinue } catch {}
+        }
+    }
+
+    foreach ($entry in $selectedPaths) {
+        $name = $entry.Name
+        $path = $entry.Path
+        $branch = $entry.Branch
+        $isRegistered = $entry.IsRegistered
+
+        $sizeBefore = _measure_dir $path
+
+        $steps = New-Object System.Collections.Generic.List[string]
+        $ok = $false
+        $usedForce = $false
+        $fellBackToFs = $false
+
+        if ($isRegistered) {
+            $r1 = _run_git @("-C", $root, "worktree", "remove", $path)
+            if ($r1.Code -eq 0) {
+                $steps.Add("git worktree remove -> OK")
+                $ok = $true
+            } else {
+                $msg = if ($r1.Err) { ($r1.Err.Trim() -replace "`r?`n", " | ") } else { "exit " + $r1.Code }
+                $steps.Add("git worktree remove -> FAIL (" + $msg + ")")
+                $r2 = _run_git @("-C", $root, "worktree", "remove", "--force", $path)
+                if ($r2.Code -eq 0) {
+                    $steps.Add("git worktree remove --force -> OK")
+                    $ok = $true
+                    $usedForce = $true
+                } else {
+                    $msg2 = if ($r2.Err) { ($r2.Err.Trim() -replace "`r?`n", " | ") } else { "exit " + $r2.Code }
+                    $steps.Add("git worktree remove --force -> FAIL (" + $msg2 + ")")
+                }
+            }
+        } else {
+            $steps.Add("(unregistered: skipping git worktree remove)")
+        }
+
+        if (Test-Path -LiteralPath $path) {
+            try {
+                Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+                $steps.Add("rm -rf -> OK")
+                $ok = $true
+                $fellBackToFs = $true
+            } catch {
+                $steps.Add("rm -rf -> FAIL (" + $_.Exception.Message + ")")
+            }
+        }
+
+        if ($branch -and $branch -ne "(unregistered)" -and $branch -ne "(detached)") {
+            # Note: array elements that are string concatenations MUST be parenthesised.
+            # Inside @(...) the parser otherwise reads `"x" + $y` as two elements ("x"
+            # then a unary + on $y) because the comma binds tighter than the +.
+            $verifyRef = _run_git @("-C", $root, "show-ref", "--verify", "--quiet", ("refs/heads/" + $branch))
+            if ($verifyRef.Code -eq 0) {
+                $rb = _run_git @("-C", $root, "branch", "-D", $branch)
+                if ($rb.Code -eq 0) {
+                    $steps.Add("git branch -D " + $branch + " -> OK")
+                } else {
+                    $msg = if ($rb.Err) { ($rb.Err.Trim() -replace "`r?`n", " | ") } else { "exit " + $rb.Code }
+                    $steps.Add("git branch -D " + $branch + " -> FAIL (" + $msg + ")")
+                }
+            }
+        }
+
+        $stillThere = Test-Path -LiteralPath $path
+        $freed = if ($stillThere) { [long]0 } else { $sizeBefore }
+        $freedTotal += $freed
+
+        $results.Add([PSCustomObject]@{
+            Name      = $name
+            Path      = $path
+            Branch    = $branch
+            SizeBytes = $sizeBefore
+            FreedBytes = $freed
+            Ok        = (-not $stillThere)
+            UsedForce = $usedForce
+            FellBackToFs = $fellBackToFs
+            Steps     = $steps
+        })
+    }
+
+    $pruneOut = ""
+    $pruneCode = 0
+    if ($alsoPrune) {
+        $pp = _run_git @("-C", $root, "worktree", "prune", "-v")
+        $pruneCode = $pp.Code
+        if ($pp.Out) { $pruneOut += $pp.Out }
+        if ($pp.Err) { $pruneOut += $pp.Err }
+    }
+
+    return [PSCustomObject]@{
+        Results    = @($results)
+        FreedTotal = $freedTotal
+        Pruned     = $alsoPrune
+        PruneCode  = $pruneCode
+        PruneOut   = $pruneOut
+    }
+}
+
 function Invoke-GitPruneWorktrees {
     if ($script:IsBuilding -or $script:IsPushing) {
-        [System.Windows.MessageBox]::Show("Wait for the current build or release to finish.", "Prune Worktrees", "OK", "Information") | Out-Null
+        [System.Windows.MessageBox]::Show("Wait for the current build or release to finish.", "Clear Worktrees", "OK", "Information") | Out-Null
         return
     }
     if ($script:GitActionBusy) {
-        [System.Windows.MessageBox]::Show("Another git action is in progress.", "Prune Worktrees", "OK", "Information") | Out-Null
+        [System.Windows.MessageBox]::Show("Another git action is in progress.", "Clear Worktrees", "OK", "Information") | Out-Null
         return
     }
     $gitExe = Resolve-GitExecutable
     if (-not $gitExe) {
-        [System.Windows.MessageBox]::Show("git was not found on PATH.", "Prune Worktrees", "OK", "Warning") | Out-Null
+        [System.Windows.MessageBox]::Show("git was not found on PATH.", "Clear Worktrees", "OK", "Warning") | Out-Null
         return
     }
 
     $script:GitActionBusy = $true
-    $script:GitActionLabel = "pruning worktrees..."
+    $script:GitActionLabel = "enumerating worktrees..."
     $ui["BtnPruneWorktrees"].IsEnabled = $false
     Add-LogSessionLine "" "#C0C8D2"
-    Add-LogSessionLine ">>> git worktree prune -v" "#0078A8"
-    Add-LogSessionLine "" "#C0C8D2"
+    Add-LogSessionLine ">>> Clear Worktrees: enumerating .claude/worktrees..." "#0078A8"
+
+    $cwd = ""
+    try { $cwd = (Get-Location).Path } catch { $cwd = "" }
+
+    # Stash for the OnComplete callbacks: function-local vars do not survive the
+    # async boundary (Start-AsyncPoolAction passes plain scriptblocks per the
+    # comment near line 207); script-scope persists.
+    $script:WtClearGitExe = $gitExe
 
     Start-AsyncPoolAction `
         -Script {
-            param($gitExe, $root)
-            $outFile = Join-Path $env:TEMP ("pd2-wt-prune-" + [guid]::NewGuid().ToString("N") + ".txt")
-            $errFile = $outFile + ".err"
-            try {
-                $proc = Start-Process -FilePath $gitExe -ArgumentList @("-C", $root, "worktree", "prune", "-v") `
-                    -Wait -PassThru -NoNewWindow `
-                    -RedirectStandardOutput $outFile -RedirectStandardError $errFile
-                $out = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
-                $err = Get-Content $errFile -Raw -ErrorAction SilentlyContinue
-                [PSCustomObject]@{ Code = $proc.ExitCode; Out = $out; Err = $err }
-            } catch {
-                [PSCustomObject]@{ Code = -1; Out = ""; Err = $_.Exception.Message }
-            } finally {
-                try { Remove-Item $outFile -Force -ErrorAction SilentlyContinue } catch {}
-                try { Remove-Item $errFile -Force -ErrorAction SilentlyContinue } catch {}
+            param($gitExe, $root, $currentPath)
+
+            # Inline helper: child runspace has no access to module-level functions.
+            function Get-WorktreeDirectorySize {
+                param([string]$Path)
+                if (-not (Test-Path -LiteralPath $Path)) { return [long]0 }
+                $total = [long]0
+                try {
+                    $stack = New-Object System.Collections.Generic.Stack[string]
+                    $stack.Push($Path)
+                    while ($stack.Count -gt 0) {
+                        $d = $stack.Pop()
+                        try {
+                            $di = [System.IO.DirectoryInfo]::new($d)
+                            foreach ($f in $di.EnumerateFiles()) { try { $total += $f.Length } catch {} }
+                            foreach ($s in $di.EnumerateDirectories()) {
+                                if (($s.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) { $stack.Push($s.FullName) }
+                            }
+                        } catch {}
+                    }
+                } catch {}
+                return $total
+            }
+
+            $worktreesDir = Join-Path $root ".claude\worktrees"
+            $regMap = @{}
+            $stalePrunable = New-Object System.Collections.ArrayList
+            $regOutRaw = ""
+            try { $regOutRaw = (& $gitExe -C $root worktree list --porcelain 2>$null | Out-String) } catch {}
+            if ($regOutRaw) {
+                $blocks = $regOutRaw -split "(`r?`n){2,}"
+                foreach ($block in $blocks) {
+                    $p = ""; $b = ""; $pr = $false
+                    foreach ($line in ($block -split "`r?`n")) {
+                        if ($line -match '^worktree\s+(.+)$') { $p = $matches[1].Trim() }
+                        elseif ($line -match '^branch\s+refs/heads/(.+)$') { $b = $matches[1].Trim() }
+                        elseif ($line -match '^detached') { $b = "(detached)" }
+                        elseif ($line -match '^prunable') { $pr = $true }
+                    }
+                    if ($p) {
+                        $norm = $p -replace '/', '\'
+                        try { $rp = Resolve-Path -LiteralPath $norm -ErrorAction SilentlyContinue; if ($rp) { $norm = $rp.Path } } catch {}
+                        $key = $norm.ToLower().TrimEnd('\')
+                        $regMap[$key] = [PSCustomObject]@{ Branch = $b; Prunable = $pr; Path = $norm }
+                        if ($pr) { [void]$stalePrunable.Add($norm) }
+                    }
+                }
+            }
+
+            $currentNorm = ""
+            if ($currentPath) {
+                try { $rp = Resolve-Path -LiteralPath $currentPath -ErrorAction SilentlyContinue; if ($rp) { $currentNorm = $rp.Path.ToLower().TrimEnd('\') } } catch {}
+            }
+
+            $entries = New-Object System.Collections.Generic.List[object]
+            if (Test-Path -LiteralPath $worktreesDir) {
+                Get-ChildItem -LiteralPath $worktreesDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                    $dir = $_.FullName
+                    $key = $dir.ToLower().TrimEnd('\')
+                    $reg = $regMap[$key]
+                    $branch = if ($reg -and $reg.Branch) { $reg.Branch } else { "(unregistered)" }
+                    $sz = Get-WorktreeDirectorySize -Path $dir
+                    $isCurrent = ($currentNorm -and $key -eq $currentNorm)
+                    $obj = New-Object PD2V2.WorktreeEntry
+                    $obj.Name = $_.Name
+                    $obj.Path = $dir
+                    $obj.Branch = $branch
+                    $obj.ModifiedDisplay = $_.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                    $obj.SizeBytes = $sz
+                    $obj.SizeDisplay = if ($sz -lt 1048576) { "{0:N1} KB" -f ($sz / 1024.0) } elseif ($sz -lt 1073741824) { "{0:N1} MB" -f ($sz / 1048576.0) } else { "{0:N2} GB" -f ($sz / 1073741824.0) }
+                    $obj.IsRegistered = ($null -ne $reg)
+                    $obj.IsPrunable = ($null -ne $reg -and $reg.Prunable)
+                    $obj.IsCurrent = $isCurrent
+                    $obj.IsSelected = $false
+                    [void]$entries.Add($obj)
+                }
+            }
+            $total = [long]0; foreach ($e in $entries) { $total += $e.SizeBytes }
+
+            return [PSCustomObject]@{
+                OnDisk = $entries
+                StalePrunable = $stalePrunable
+                TotalSizeBytes = $total
+                WorktreesDir = $worktreesDir
             }
         } `
-        -Arguments @($gitExe, $script:ProjectRoot) `
+        -Arguments @($gitExe, $script:ProjectRoot, $cwd) `
         -OnComplete {
             param($result)
             try {
                 $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
-                if ($null -ne $r) {
-                    if ($r.Out) { foreach ($l in ($r.Out -split "`n")) { if ($l.Trim()) { Add-LogLine $l "#6888A8" } } }
-                    if ($r.Err) { foreach ($l in ($r.Err -split "`n")) { if ($l.Trim()) { Add-LogLine $l "#B81818" } } }
-                    if ($r.Code -eq 0) {
-                        $pruned = if ($r.Out -and $r.Out.Trim()) { $r.Out.Trim() } else { "(no stale worktrees found)" }
-                        [System.Windows.MessageBox]::Show("Prune completed.`n`n" + $pruned, "Prune Worktrees", "OK", "Information") | Out-Null
-                    } else {
-                        [System.Windows.MessageBox]::Show("git worktree prune exited $($r.Code).`nSee Log tab for details.", "Prune Worktrees", "OK", "Warning") | Out-Null
+                if ($null -eq $r) {
+                    Add-LogLine "Enumeration returned no result." "#B81818"
+                    $script:GitActionBusy = $false
+                    $script:GitActionLabel = ""
+                    $ui["BtnPruneWorktrees"].IsEnabled = $true
+                    return
+                }
+                if ($r.OnDisk.Count -eq 0 -and $r.StalePrunable.Count -eq 0) {
+                    Add-LogLine ("Clear Worktrees: nothing to clear (0 on-disk, 0 stale).") "#44586C"
+                    [System.Windows.MessageBox]::Show("No worktrees on disk and no stale registry entries.", "Clear Worktrees", "OK", "Information") | Out-Null
+                    $script:GitActionBusy = $false
+                    $script:GitActionLabel = ""
+                    $ui["BtnPruneWorktrees"].IsEnabled = $true
+                    return
+                }
+
+                Add-LogLine ("Found {0} on-disk worktrees, total {1}; {2} stale registry entries." -f `
+                    $r.OnDisk.Count, (Format-WorktreeByteSize $r.TotalSizeBytes), $r.StalePrunable.Count) "#6888A8"
+
+                $sel = Show-WorktreeClearDialog -Entries $r
+                if (-not $sel) {
+                    Add-LogLine "Clear Worktrees: cancelled." "#44586C"
+                    $script:GitActionBusy = $false
+                    $script:GitActionLabel = ""
+                    $ui["BtnPruneWorktrees"].IsEnabled = $true
+                    return
+                }
+
+                $payload = @()
+                foreach ($e in $sel.Selected) {
+                    $payload += [PSCustomObject]@{
+                        Name = $e.Name
+                        Path = $e.Path
+                        Branch = $e.Branch
+                        IsRegistered = $e.IsRegistered
                     }
                 }
-            } catch {}
-            $script:GitActionBusy = $false
-            $script:GitActionLabel = ""
-            $ui["BtnPruneWorktrees"].IsEnabled = $true
-            Update-StatusBar
+                $alsoPrune = $sel.AlsoPrune
+                $script:GitActionLabel = "clearing worktrees..."
+                Add-LogSessionLine ("") "#C0C8D2"
+                Add-LogSessionLine (">>> Clear Worktrees: removing {0} entries (alsoPrune={1})" -f $payload.Count, $alsoPrune) "#0078A8"
+
+                Start-AsyncPoolAction `
+                    -Script $script:WorktreeClearWorker `
+                    -Arguments @($script:WtClearGitExe, $script:ProjectRoot, $payload, [bool]$alsoPrune) `
+                    -OnComplete {
+                        param($actionResult)
+                        try {
+                            $a = if ($actionResult -and $actionResult.Count -gt 0) { $actionResult[0] } else { $actionResult }
+                            if ($null -eq $a) {
+                                Add-LogLine "Clear Worktrees: action returned no result." "#B81818"
+                            } else {
+                                $okCount = 0; $failCount = 0
+                                foreach ($row in $a.Results) {
+                                    $colour = if ($row.Ok) { "#10783A" } else { "#B81818" }
+                                    $tag = if ($row.Ok) { "OK" } else { "FAIL" }
+                                    Add-LogLine ("[{0}] {1}  freed={2}  branch={3}" -f $tag, $row.Name, (Format-WorktreeByteSize $row.FreedBytes), $row.Branch) $colour
+                                    foreach ($s in $row.Steps) { Add-LogLine ("    " + $s) "#4A5868" }
+                                    if ($row.Ok) { $okCount++ } else { $failCount++ }
+                                }
+                                if ($a.Pruned) {
+                                    if ($a.PruneOut) { foreach ($l in ($a.PruneOut -split "`r?`n")) { if ($l.Trim()) { Add-LogLine ("[prune] " + $l) "#6888A8" } } }
+                                    Add-LogLine ("[prune] git worktree prune -v exited " + $a.PruneCode) (if ($a.PruneCode -eq 0) { "#10783A" } else { "#B81818" })
+                                }
+                                Add-LogSessionLine ("") "#C0C8D2"
+                                Add-LogSessionLine (">>> Clear Worktrees: done. Removed {0}, failed {1}, freed {2}." -f $okCount, $failCount, (Format-WorktreeByteSize $a.FreedTotal)) "#0078A8"
+
+                                $summary = ("Removed: {0}`nFailed: {1}`nFreed:  {2}" -f $okCount, $failCount, (Format-WorktreeByteSize $a.FreedTotal))
+                                if ($a.Pruned) { $summary += ("`nPrune:  exit " + $a.PruneCode) }
+                                $icon = if ($failCount -eq 0) { "Information" } else { "Warning" }
+                                [System.Windows.MessageBox]::Show($summary, "Clear Worktrees - Done", "OK", $icon) | Out-Null
+                            }
+                        } catch {
+                            Add-LogLine ("Clear Worktrees onComplete threw: " + $_.Exception.Message) "#B81818"
+                        }
+                        $script:GitActionBusy = $false
+                        $script:GitActionLabel = ""
+                        $ui["BtnPruneWorktrees"].IsEnabled = $true
+                        Update-StatusBar
+                    }
+            } catch {
+                Add-LogLine ("Clear Worktrees enum onComplete threw: " + $_.Exception.Message) "#B81818"
+                $script:GitActionBusy = $false
+                $script:GitActionLabel = ""
+                $ui["BtnPruneWorktrees"].IsEnabled = $true
+            }
         }
 }
 

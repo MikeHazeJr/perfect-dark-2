@@ -1,5 +1,66 @@
 # Session Log (Active)
 
+## Session (`flamboyant-ride-cc996f`) - 2026-05-11 - Dev Window Clear Worktrees button (replaces Prune)
+
+Mike's report: the existing "Prune Worktrees" button on the build tool "doesn't seem to do that properly." At session start: 18 on-disk worktrees totaling ~77 GB plus 27 prunable registry entries. A click cleared the 27 ghost entries and left the 18 active dirs untouched -- the symptom Mike described.
+
+### Diagnosis
+
+`devtools/dev-window-v2/dev-window-v2.ps1::Invoke-GitPruneWorktrees` ran exactly one command: `git worktree prune -v`. That call is the registry-side garbage collector: it removes git's metadata for worktrees whose on-disk directory has been deleted by hand. It does NOT touch directories or branches of currently-registered worktrees. The button's behaviour was technically correct for its label ("Prune Worktrees" -> `git worktree prune`), but it was wired into the spot a user would expect a "clear my worktrees" action.
+
+### Resolution
+
+Full clear flow with disk-space accounting in the same script. Scripts-only change; no C/C++ touched.
+
+1. **Button rename + new flow** (line ~958 in dev-window-v2.ps1's XAML): `BtnPruneWorktrees` Content -> "Clear Worktrees..."; ToolTip updated. Element name kept for compatibility with the Enable/Disable call sites elsewhere in the script.
+
+2. **Async enumeration** (`Start-AsyncPoolAction` -> child runspace inside `Invoke-GitPruneWorktrees`): runs `git worktree list --porcelain`, joins with on-disk `Get-ChildItem` of `.claude/worktrees/`, computes per-dir recursive size via `DirectoryInfo.EnumerateFiles` (stack-based; skips reparse points). Returns a `[PD2V2.WorktreeEntry]` list plus stale-prunable list + total bytes.
+
+3. **Modal dialog** (`Show-WorktreeClearDialog`, XAML): DataGrid with checkbox + Name + Branch + Last Modified + Size; header line with on-disk count + total size + stale-prunable count; "Also prune N stale registry entries" footer checkbox (default ON when N > 0); Select All / Select None / Cancel / Clear Selected buttons; live "Selected: K worktrees, B" summary that updates on each cell edit. The active worktree (matched via `Get-Location` at click time) is flagged `IsCurrent` and skipped by Select All / refused by Clear.
+
+4. **Worker scriptblock** (`$script:WorktreeClearWorker`): per selected entry, try `git worktree remove <path>`, fall back to `git worktree remove --force <path>` on dirty/untracked failure, then fall back to `Remove-Item -Recurse -Force` if the dir still exists. After removal, probe `git show-ref --verify --quiet refs/heads/<branch>` and run `git branch -D <branch>` if the branch still exists (worktree remove does not delete branches). Optional `git worktree prune -v` after the per-entry loop. Returns a structured report (per-row size before / freed / OK flag / step trace); UI logs each step in the Log tab and pops a Done dialog with totals.
+
+5. **INPC row model** (`PD2V2.WorktreeEntry` added to the consolidated `Add-Type -Language CSharp` block at the top of the file): real CLR class with INotifyPropertyChanged so DataGridCheckBoxColumn two-way binding works correctly with Select All / Select None refreshes. PSCustomObject's NoteProperties don't raise PropertyChanged.
+
+### End-to-end verification
+
+Replicated the worker logic in a standalone test script (`.claude/scratch/test-worktree-clear-e2e.ps1`, untracked) that runs against the real worktree set. Steps:
+
+- Pre-state snapshot: 18 on-disk worktrees totaling 76.94 GB; 27 stale registry entries; 46 registered worktrees.
+- Created synthetic test worktree (1.04 GB on disk, `test/wt-clear-test-<ts>` branch).
+- Enumeration found it (name + branch + size + last-modified + registered=true).
+- Clear-WorktreeEntries against that single test entry:
+  - `git worktree remove` returned 128 (untracked files).
+  - `git worktree remove --force` returned 0.
+  - `git show-ref --verify --quiet refs/heads/test/wt-clear-test-<ts>` returned 0 (branch still present).
+  - `git branch -D test/wt-clear-test-<ts>` returned 0.
+- `git worktree prune -v` ran with exit 0 and cleared the 27 stale entries.
+- Post-state: 0 stale registry entries; test worktree gone; test branch refs/heads/test/wt-clear-test-<ts> gone.
+- Freed 1.04 GB from the synthetic test entry. Mike's 18 real worktrees are NOT touched by the test; the test only proves the mechanism works.
+
+### Bug found during verify (carry-forward)
+
+Inside an `@(...)` array literal, `"refs/heads/" + $branch` was being parsed as TWO elements (the string and a unary-plus on the var) because the comma binds tighter than `+`. The show-ref command was running with `refs/heads/` and `test/<name>` as two separate args; show-ref then read the FIRST as the ref and `--verify` rejected it. Fixed by parenthesising: `("refs/heads/" + $branch)`. Same bug existed in both the test script and the GUI worker (`$script:WorktreeClearWorker`) -- both sites fixed.
+
+### Files modified
+
+- `devtools/dev-window-v2/dev-window-v2.ps1` (+~430 net): consolidated Add-Type block gains `PD2V2.WorktreeEntry`; XAML button rename; `Format-WorktreeByteSize` / `Get-WorktreeDirectorySize` / `Get-WorktreeEntries` / `Show-WorktreeClearDialog` / `$script:WorktreeClearWorker` added; `Invoke-GitPruneWorktrees` body replaced (function name kept).
+- `.gitignore` (+3 net): `.claude/scratch/` added.
+- `tools/kanban/state.json` (c114 added: tooling pillar, done column).
+- `context/session-log.md` (this entry).
+- `context/pillars/build-dev-tooling.md` (Clear Worktrees note added).
+
+### Smoke verify (Mike-runnable)
+
+Open Dev Window v2, click "Clear Worktrees...", confirm:
+- Dialog opens with all on-disk worktrees + per-row size + last-modified + branch.
+- Total size at the top matches `du -sh .claude/worktrees/`.
+- Select 1 entry that you want gone, leave "Also prune" checked, click "Clear Selected".
+- Log tab shows per-row step trace ending in "Removed: 1, Failed: 0, Freed: <size>".
+- `.claude/worktrees/<that-name>` is gone; `git worktree list` no longer shows it; `git branch --list claude/<that-name>` is empty.
+
+---
+
 ## Session (B-321 tooling close-out) - 2026-05-04 - release.ps1 addin + BYOR hoist
 
 **Outcome**: `release.ps1` function `Copy-RomAddinIntoBuild` still mirrored all of `post-batch-addin/data` into `Build/data/`, which put `pd.<romid>.z64` where the client never looks (install root only, post B-321). Replaced with the same pattern as `build-headless.ps1` / Dev Window: recursive `*.z64` to `$BuildDir`, rest to `$BuildDir/data/` via robocopy `/XF "*.z64"` or file-walk fallback. After mirror, `put_your_rom_here.txt` is moved from `Build/data/` to install root when present in addin. **Also**: `build-headless.ps1` and `Copy-AddinFiles` (dev-window-v2) now hoist that file to root; dev-window robocopy success path no longer `return`s before hoist (fixed `$dataMirrorOk` flag). `build-session.ps1` header notes that addin layout is defined in build-headless.
