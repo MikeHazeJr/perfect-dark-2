@@ -28,7 +28,24 @@
 #include "mixer.h"
 #include "net/net.h"
 #include "actionmap.h"
+#include "inputctx.h"
 #include "pdgui.h"
+#include "pdgui_hotswap.h"
+#include "pdgui_menu_stack_debug.h"
+#include "meshdebug.h"
+
+/* s036-02 / s036-03 (c036, 2026-05-12): forward declarations for dev hotkey
+ * + tooling consumers that are not exposed by their own headers. Defined
+ * in gfx_opengl.cpp (gfxDebug*), bondmove.c (bmoveScheduleTestFire),
+ * gfx_sdl2.cpp (gfxFullscreenToggle), bot.c, player.c. bot.h / player.h
+ * declare the bot / player toggles but live under src/include/game/ which
+ * port-side .c files do not pull in cleanly, so the externs live here. */
+extern void gfxDebugCullModeCycle(void);
+extern void gfxDebugWireframeToggle(void);
+extern void bmoveScheduleTestFire(s32 delay_ticks_60hz);
+extern void botToggleUpdatesDisabled(void);
+extern void playerToggleDevInvincibility(void);
+extern void gfxFullscreenToggle(void);
 
 /*
  * private typedefs and defines
@@ -313,9 +330,15 @@ void schedEndFrame(OSSched *sc)
 	inputUpdate();
 	conTick();
 
-	/* Action map: F9 → ACTION_DEBUG_TOGGLE (edge-triggered) */
+	/* Action map: F9 → ACTION_DEBUG_TOGGLE (edge-triggered).
+	 * Drives BOTH g_NetDebugDraw flip and the read-only menu / input
+	 * diagnostics overlay. s036-02 (c036, 2026-05-12): added the second
+	 * call to absorb the raw SDLK_F9 handler that used to live in
+	 * pdgui_backend.cpp's pdguiProcessEvent (which would have shadowed
+	 * this poll because the raw handler returned 1 before actionmapDispatch). */
 	if (actionPressed(0, ACTION_DEBUG_TOGGLE)) {
 		g_NetDebugDraw = !g_NetDebugDraw;
+		pdguiMenuStackOverlayToggle();
 	}
 
 	/* s036-03 (c036, 2026-05-12): backquote → ACTION_CONSOLE_TOGGLE.
@@ -324,6 +347,48 @@ void schedEndFrame(OSSched *sc)
 	 * actionmap.cpp addBind(imc, ACTION_CONSOLE_TOGGLE, VK_GRAVE). */
 	if (actionPressed(0, ACTION_CONSOLE_TOGGLE)) {
 		pdguiConsoleToggle();
+	}
+
+	/* s036-02 / s036-03 (c036, 2026-05-12): dev hotkey + tooling action
+	 * consumers. Each replaces a raw SDL_KEYDOWN handler that used to
+	 * live in pdgui_backend.cpp::pdguiProcessEvent (or gfx_sdl2.cpp's
+	 * event loop for Alt+Enter). Migration moves dispatch behind the
+	 * actionmap so the rebind UI surfaces these keys, ImGui textbox
+	 * capture suppresses them, and a single dispatch site owns the
+	 * call. PD_DEV_BUILD-only handlers gate at the call site here so
+	 * the action / binding exist in release builds (harmless no-op). */
+#if defined(PD_DEV_BUILD)
+	if (actionPressed(0, ACTION_DEBUG_BOT_FREEZE)) {
+		botToggleUpdatesDisabled();
+	}
+	if (actionPressed(0, ACTION_DEBUG_INVINCIBILITY)) {
+		playerToggleDevInvincibility();
+	}
+	if (actionPressed(0, ACTION_DEBUG_OVERLAY_TOGGLE)) {
+		if (!inputCtxIsActive(&g_CtxDebugOverlay)) {
+			inputCtxPush(&g_CtxDebugOverlay);
+		} else {
+			inputCtxPopDeferred(&g_CtxDebugOverlay);
+		}
+	}
+#endif
+	if (actionPressed(0, ACTION_HOTSWAP_TOGGLE)) {
+		pdguiHotswapToggle();
+	}
+	if (actionPressed(0, ACTION_DEBUG_MESH_TOGGLE)) {
+		meshDebugToggle();
+	}
+	if (actionPressed(0, ACTION_DEBUG_CULL_MODE_CYCLE)) {
+		gfxDebugCullModeCycle();
+	}
+	if (actionPressed(0, ACTION_DEBUG_TESTFIRE)) {
+		bmoveScheduleTestFire(60);
+	}
+	if (actionPressed(0, ACTION_DEBUG_WIREFRAME_TOGGLE)) {
+		gfxDebugWireframeToggle();
+	}
+	if (actionPressed(0, ACTION_TOGGLE_FULLSCREEN)) {
+		gfxFullscreenToggle();
 	}
 
 	/* actionmapPollFrame moved to schedStartFrame — see comment there. */

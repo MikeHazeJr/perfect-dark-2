@@ -1,5 +1,90 @@
 # Session Log (Active)
 
+## Session (`main-checkout-sprc036`) - 2026-05-12 - Sprint c036 continuation: actionmap chord extension + F-key migration + Alt+Enter + inputKeyPressed retire
+
+Mike's directive after the partial slice landed: "scope grew, that doesn't mean we should stop." Pushback against the rabbit-hole-protocol stop. The "scope growth" was the actionmap modifier-chord support extension that blocked s036-02 + s036-03 Alt+Enter; investigation in the continuation showed the chord infrastructure ALREADY EXISTED in the codebase (port/include/input.h `VK_CHORD_CTRL_*` synthetic VKs + port/src/actionmap.cpp::chordVkForKeysym detection). Extending it for new chords is in-pattern, not a new framework. The continuation shipped 3 more subtasks (s036-02, s036-03 full, s036-04) on top of the partial.
+
+### Change
+
+**Chord support extension (in-place):**
+
+- `port/include/input.h`: added `VK_CHORD_SHIFT_F1`, `VK_CHORD_SHIFT_F2`, `VK_CHORD_ALT_RETURN` to the `enum virtkey` chord block. Updated the header comment to document the three-edits-in-lockstep rule for adding new chords (enum + detection + display string).
+- `port/src/actionmap.cpp::chordVkForKeysym`: broadened from CTRL-only to also detect SHIFT-only and ALT-only chords. Added detection for the three new chords (Shift+F1, Shift+F2, Alt+Enter / Alt+KP_Enter).
+- `port/src/actionmap.cpp::s_VkNameTable`: added display strings "SHIFT+F1", "SHIFT+F2", "ALT+ENTER" for the rebind UI.
+
+**9 new ACTION_* enum entries (ids 107-115; ACTION_COUNT bumped to 116):**
+
+- `ACTION_DEBUG_BOT_FREEZE` (F6, dev) -- toggle MP bot AI/movement freeze for spawn-layout inspection.
+- `ACTION_DEBUG_INVINCIBILITY` (F7, dev) -- toggle player invincibility cheat.
+- `ACTION_DEBUG_OVERLAY_TOGGLE` (F12, dev) -- push/pop g_CtxDebugOverlay.
+- `ACTION_DEBUG_MESH_TOGGLE` (F10) -- toggle mesh collision debug overlay.
+- `ACTION_DEBUG_CULL_MODE_CYCLE` (Shift+F1) -- cycle backface cull mode (none/back/front).
+- `ACTION_DEBUG_TESTFIRE` (F2, no mod) -- schedule one-shot test-fire pulse (60 ticks delay).
+- `ACTION_DEBUG_WIREFRAME_TOGGLE` (Shift+F2) -- toggle wireframe overlay on world render.
+- `ACTION_HOTSWAP_TOGGLE` (F8 + RS-click) -- flip rendering mode for ImGui menus.
+- `ACTION_TOGGLE_FULLSCREEN` (Alt+Enter) -- toggle fullscreen window state.
+
+Default bindings on `g_ImcGameplay` in `setupGameplayDefaults` (player 0). Added VKL_F2 / F6 / F8 / F10 / F12 scancode aliases to the local F-key define block.
+
+**Dispatch consumers in `port/src/pdsched.c::schedEndFrame`:**
+
+- Added one `actionPressed(0, ACTION_X)` block per new action.
+- PD_DEV_BUILD gates the dev hotkeys (F6 bot freeze, F7 invincibility, F12 overlay toggle).
+- F9 ACTION_DEBUG_TOGGLE consumer extended to also call `pdguiMenuStackOverlayToggle()` (absorbing the raw F9 handler's dual-effect that used to live in pdgui_backend.cpp).
+- ACTION_TOGGLE_FULLSCREEN consumer calls `gfxFullscreenToggle()` (new public C wrapper in gfx_sdl2.cpp).
+- Forward declarations for handlers not exposed by their own headers (gfxDebug*, bmoveScheduleTestFire, bot/player toggles, gfxFullscreenToggle).
+- New includes: `inputctx.h`, `pdgui_hotswap.h`, `pdgui_menu_stack_debug.h`, `meshdebug.h`.
+
+**Raw handler removal:**
+
+- `port/fast3d/pdgui_backend.cpp::pdguiProcessEvent`: all 10 raw F-key blocks (F6 / F7 / F8 / RS-click / F12 / Shift+F1 / F2-no-mod / Shift+F2 / F9 / F10) deleted. Replaced with a single comment block documenting the migration map (raw key -> action -> dispatch site).
+- `port/fast3d/gfx_sdl2.cpp::gfx_sdl_handle_events`: SDL_KEYDOWN case body is now empty; the Alt+Enter / F10 / backquote raw handlers are all gone. `gfxFullscreenToggle()` defined here as an `extern "C"` wrapper after `set_fullscreen` (forward-decl ordering matters; declaration also lives in gfx_sdl.h with extern "C" guards for C-side callers).
+
+**s036-04 inputKeyPressed joy-path retire:**
+
+- `port/src/input.c::inputKeyPressed`: deleted the VK_JOY_BEGIN..VK_TOTAL_COUNT branch (lines 1066-1101 of the original) that polled `SDL_GameControllerGetButton` / `SDL_GameControllerGetAxis` directly. Audit confirmed zero remaining production callers pass VK_JOY_* (the F-key migration removed the last joy-button caller, F8 RS-click). The function now handles keyboard + mouse only and returns 0 for joy VKs. Deprecation comment updated.
+
+### Verification
+
+Build verify clean three-target via `build-session.ps1 -Session sprc036`:
+- Client (PerfectDark.exe): 55.6 MB.
+- Server (PerfectDarkServer.exe): 22.4 MB.
+- Tests (pd-tests.exe): 24.7 MB.
+
+No new compile warnings. Two compile errors during the initial run were fixed before the final verify: (1) `gfx_sdl.h` include from pdsched.c failed due to port/fast3d not being on pdsched's include path; resolved by switching to forward `extern void gfxFullscreenToggle(void);` declaration inline in pdsched.c. (2) `set_fullscreen` was referenced before definition in gfx_sdl2.cpp; resolved by moving the `gfxFullscreenToggle` definition below `set_fullscreen`.
+
+### Files modified (continuation slice)
+
+- `port/include/input.h`: 3 new VK_CHORD_* enum entries + comment block update.
+- `port/include/actionmap.h`: 9 new ACTION_* enum entries + ACTION_COUNT bump.
+- `port/src/actionmap.cpp`: chord detection broadened, 3 display strings added, 5 new VKL_F* scancode aliases (F2/F6/F8/F10/F12), 10 default bindings added in setupGameplayDefaults.
+- `port/include/pdgui.h`: existing pdguiConsoleToggle declaration (unchanged from prior slice).
+- `port/src/pdsched.c`: 4 new #includes, 6 new forward declarations, 8 new actionPressed consumer blocks (one with PD_DEV_BUILD gate), F9 consumer extended.
+- `port/fast3d/gfx_sdl2.cpp`: 10 raw F-key blocks removed from gfx_sdl_handle_events (was already simplified to Alt+Enter only in prior slice, now empty), gfxFullscreenToggle public C wrapper added after set_fullscreen.
+- `port/fast3d/gfx_sdl.h`: gfxFullscreenToggle declaration with extern "C" guards.
+- `port/fast3d/pdgui_backend.cpp`: pdguiProcessEvent global hotkeys block (lines 1376-1475 of original) replaced with a single migration-summary comment.
+- `port/src/input.c`: inputKeyPressed joy-VK section deleted, deprecation comment updated.
+- `tools/kanban/state.json`: c036 description + notes updated; subtask statuses s036-02/03/04 flipped to done; s036-08 notes refined (overcount caveat documented).
+- `context/session-log.md`: this entry.
+- `context/tasks.md`: lane 3 status updated to 7-of-8 done.
+
+### Decisions
+
+- **Push on through scope creep when in-pattern**. Mike's pushback was correct: the actionmap chord support extension was framed as new scope in the previous turn, but investigation showed the chord infrastructure was already present in the codebase (`VK_CHORD_CTRL_*` + `chordVkForKeysym`). Extending it for new chord patterns is incremental, not a new framework. Future turns: validate "blocker" claims by reading the surface area first.
+- **F9 dual-effect preserved in pdsched.c**. The raw F9 handler used to fire `pdguiMenuStackOverlayToggle()` and SHADOWED the actionmap (because it returned 1 before actionmapDispatch). Removing the raw handler exposed `actionPressed(ACTION_DEBUG_TOGGLE)` to fire (binding lived but was unreachable). To preserve the F9 dual-effect, the consumer now calls both `g_NetDebugDraw = !g_NetDebugDraw` AND `pdguiMenuStackOverlayToggle()`. One action, two effects, same F9 key.
+- **PD_DEV_BUILD gating at consumer site, not binding site**. The binding lines in setupGameplayDefaults are unconditional; the `#if defined(PD_DEV_BUILD)` block lives in pdsched.c around the F6/F7/F12 consumers. Action + binding exist in release builds (harmless no-op when consumer is gated). Consistent with the existing PD_DEV_BUILD pattern (e.g., ACTION_TESTSCEN_CYCLE_COUNT in actionmap.cpp:2469).
+- **gfxFullscreenToggle as a public C wrapper, not a vtable call**. pdsched.c could have called `gfx_sdl.set_fullscreen(!gfx_sdl.get_fullscreen_state())` directly through the GfxWindowManagerAPI vtable, but a single-line `gfxFullscreenToggle()` wrapper isolates the toggle semantics in one place and avoids exposing the C-vs-C++ vtable struct to pure-C callers.
+- **inputKeyPressed joy-path retired entirely**. Audit found zero production callers passing VK_JOY_* after the F-key migration. Returning 0 for joy VKs instead of falling through with a defensive log keeps the function's deprecation surface clean. If a future caller surfaces, it will see "key not pressed" instead of a silent SDL controller poll; the right fix is to add an actionmap binding + consumer, not to revive the polling path.
+- **s036-08 menu graph deferred to multi-session lane**. The 174 port + 160 src grep count was misleading -- many hits are in comments mentioning the legacy API, not actual calls. True call-site inventory requires per-file audit. L.16-L.39 in the design doc show 24 prior single-edge commits, so realistic per-session throughput is 2-4 edges. Track as long-running.
+
+### Not in scope
+
+- Menu graph completion (s036-08) -- multi-session lane.
+- Net protocol bump v46 -> v47 for any of the new actions -- not needed (actions are local-only; no wire surface).
+- Rebind UI surface for the 9 new actions -- they appear in the actionmap by default; the rebind UI iterates ACTION_COUNT and shows whatever has bindings. No extra wiring needed.
+
+---
+
 ## Session (`main-checkout-sprc036`) - 2026-05-12 - Sprint c027 + c036: catalog close-out + input cohort 5-8 partial slice
 
 Mike's directive (via /goal standing rules + follow-up): "we will do c027 and c036 as one sprint." c027 ("Catalog universality pivot Steps 4-9") was a stale card description -- per tasks.md section 2a Step 5 SHIPPED 2026-05-03 and the universality-pivot-schemas.md design doc only defines Steps 0-5. c036 has 8 backlog subtasks covering controller surface, layer/IMC wiring, raw-key migration, observer symmetry, scroll spec linking, menu graph completion. Worktree creation was disabled by the project hook (`echo 'Worktree creation is disabled for this project. Work directly in the main copy.'`), so the sprint ran on the dev branch in the main checkout.

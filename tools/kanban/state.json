@@ -512,12 +512,12 @@
     {
       "id": "c036",
       "title": "Input - Controller Support Cohorts 5-8",
-      "description": "Branch 2 Cohorts 5-8: full controller support, menu graph completion, remaining transitional shim retirement. Next major lane after Catalog Gate 3. Partial ship 2026-05-12 (sprint sprc036): 4 of 8 subtasks shipped (s036-01 metadata, s036-05 gate swap, s036-06 observer symmetry, s036-07 spec/runtime linking test); s036-03 partial (F10 dead + backquote migrated; Alt+Enter retained pending actionmap modifier-chord support); s036-02, s036-04, s036-08 deferred.",
+      "description": "Branch 2 Cohorts 5-8: full controller support, menu graph completion, remaining transitional shim retirement. Next major lane after Catalog Gate 3. Sprint sprc036 (2026-05-12) shipped 7 of 8 subtasks: s036-01 metadata, s036-02 F-key migration (chord support extended in same sprint), s036-03 Alt+Enter migration, s036-04 inputKeyPressed joy-path retire, s036-05 gate swap, s036-06 observer symmetry, s036-07 spec/runtime linking test. Only s036-08 (menu graph completion, multi-session lane) remains backlog.",
       "pillar": "input",
       "column": "active",
       "order": 1000,
       "priority": 2,
-      "notes": "Design ref: designs/input/input-universality-and-transitions.md. Sprint sprc036 partial ship in main-checkout 2026-05-12: pdgui_spectator.cpp, port/src/inputlayer.c, port/src/pdsched.c, port/fast3d/gfx_sdl2.cpp, port/fast3d/pdgui_backend.cpp (unchanged), port/include/pdgui.h, tests/test_right_stick_scroll.cpp, tests/test_vehicle_observer_layer.cpp. Build verify 4-target clean.",
+      "notes": "Design ref: designs/input/input-universality-and-transitions.md. Sprint sprc036 7-of-8 ship in main-checkout 2026-05-12. Files touched (continuation slice): port/include/input.h (3 new VK_CHORD_*), port/include/actionmap.h (9 new ACTION_*), port/src/actionmap.cpp (chord detection + display + 10 default bindings + VKL_F* aliases), port/include/pdgui.h, port/fast3d/pdgui_spectator.cpp, port/src/inputlayer.c, port/src/pdsched.c (consumer block + chord-driven debug actions), port/fast3d/gfx_sdl2.cpp (gfxFullscreenToggle wrapper + all raw handlers removed), port/fast3d/gfx_sdl.h, port/fast3d/pdgui_backend.cpp (all 10 raw F-key blocks removed), port/src/input.c (s036-04 narrow), tests/test_right_stick_scroll.cpp, tests/test_vehicle_observer_layer.cpp. Build verify 3-target clean (client 55.6 / server 22.4 / tests 24.7 MB).",
       "flag": null,
       "flagged_at": null,
       "pending_completion": null,
@@ -534,23 +534,23 @@
         {
           "id": "s036-02",
           "title": "Migrate 10 F-key handlers to g_ImcDebugOverlay actionmap",
-          "status": "backlog",
+          "status": "done",
           "order": 2000,
-          "notes": "DEFERRED at sprc036. Blocker: actionmap addBind takes a single u32 VK; no chord-modifier support. Shift+F1 / Shift+F2 / F2-no-mod cannot migrate cleanly without extending the actionmap API to support modifier chords (KMOD_SHIFT / KMOD_CTRL / KMOD_ALT). Tracked as part of the cohort 5-8 controller surface; estimate +1-2 sessions for actionmap chord extension + 10 action additions + dispatch wiring. pdgui_backend.cpp:1382-1475 still has 10 raw blocks."
+          "notes": "Shipped 2026-05-12 sprc036 continuation. Extended chord support in port/include/input.h (VK_CHORD_SHIFT_F1, VK_CHORD_SHIFT_F2, VK_CHORD_ALT_RETURN) + actionmap.cpp::chordVkForKeysym (broadened from CTRL-only to also detect SHIFT-only and ALT-only chords) + display strings. Added 9 new ACTION_* enum entries (ACTION_DEBUG_BOT_FREEZE/INVINCIBILITY/OVERLAY_TOGGLE/MESH_TOGGLE/CULL_MODE_CYCLE/TESTFIRE/WIREFRAME_TOGGLE/HOTSWAP_TOGGLE/TOGGLE_FULLSCREEN, ids 107-115; ACTION_COUNT bumped to 116) + default bindings on g_ImcGameplay. Dispatch consumers in pdsched.c::schedEndFrame with PD_DEV_BUILD gating on F6/F7/F12. F9 consumer extended to also call pdguiMenuStackOverlayToggle to absorb the original raw-handler dual-effect. All 10 raw F-key blocks + RS-click joy block removed from pdgui_backend.cpp::pdguiProcessEvent."
         },
         {
           "id": "s036-03",
           "title": "Migrate gfx_sdl2.cpp raw hotkeys (Alt+Enter, F10, backquote)",
-          "status": "partial",
+          "status": "done",
           "order": 3000,
-          "notes": "Partial ship 2026-05-12 sprc036. F10 raw branch deleted (was dead - pdguiProcessEvent consumed first). Backquote migrated through actionPressed(ACTION_CONSOLE_TOGGLE) dispatched in pdsched.c::schedEndFrame; pdguiConsoleToggle declaration moved to pdgui.h. Alt+Enter raw block retained pending actionmap modifier-chord support (same blocker as s036-02). Files: gfx_sdl2.cpp:325-348 (raw block simplified to Alt+Enter only), pdsched.c (+ACTION_CONSOLE_TOGGLE poll), pdgui.h (+pdguiConsoleToggle decl)."
+          "notes": "Shipped 2026-05-12 sprc036. Initial ship: F10 raw branch deleted (was dead - pdguiProcessEvent consumed first); backquote migrated through actionPressed(ACTION_CONSOLE_TOGGLE) in pdsched.c::schedEndFrame; pdguiConsoleToggle declaration moved to pdgui.h. Continuation ship: Alt+Enter migrated through VK_CHORD_ALT_RETURN -> ACTION_TOGGLE_FULLSCREEN in pdsched.c::schedEndFrame; gfxFullscreenToggle public C wrapper added in gfx_sdl2.cpp (declared in gfx_sdl.h). All raw SDL_KEYDOWN handlers removed from gfx_sdl2.cpp::gfx_sdl_handle_events."
         },
         {
           "id": "s036-04",
           "title": "Audit and retire inputKeyPressed() direct controller polling",
-          "status": "backlog",
+          "status": "done",
           "order": 4000,
-          "notes": "DEFERRED at sprc036. Depends on s036-02 + s036-03 being fully complete first. input.c:1066-1101 still does direct SDL_GameControllerGetButton/Axis polling for VK_JOY_* synthetic VKs. Audit must wait until all raw key/joy handlers route through actionmap so the direct-polling path can be safely narrowed to mouse buttons only (per the original cohort plan)."
+          "notes": "Shipped 2026-05-12 sprc036 continuation. After F-key + Alt+Enter migration, zero production callers pass VK_JOY_* to inputKeyPressed. Joy section (lines 1066-1101 - SDL_GameControllerGetButton/Axis polling for VK_JOY_BEGIN..VK_TOTAL_COUNT range) deleted; function now returns 0 for joy VKs. Keyboard + mouse paths retained for optionsmenu.c rebind capture (VK_ESCAPE) and menu.c legacy mouse (VK_MOUSE_LEFT / WHEEL). Deprecation comment updated."
         },
         {
           "id": "s036-05",
@@ -578,7 +578,7 @@
           "title": "Menu graph completion: 127 raw menuPushDialog calls -> menuGraphFire*",
           "status": "backlog",
           "order": 8000,
-          "notes": "DEFERRED at sprc036 - multi-session lane. Current count via grep: 174 raw menuPushDialog/menuPopDialog occurrences in port/ + 160 in src/ across 39 files. Migration is chip-at-a-time; L.16-L.39 in input-universality-and-transitions.md show 24 prior commits each migrating a single edge. Realistic per-session throughput is 2-4 edges. Track as long-running lane."
+          "notes": "DEFERRED at sprc036 continuation - multi-session lane. The raw 174 port + 160 src grep count overcounts via comment mentions; actual call-site count is lower (e.g. pdgui_menu_warning.cpp's grep hit was a comment, not a call). True target inventory requires per-file audit. L.16-L.39 in input-universality-and-transitions.md show 24 prior single-edge commits each migrating a screen-scoped pattern (push edge declaration + helper + edge fire + static pd-test pin). Realistic per-session throughput is 2-4 edges. Track as long-running lane."
         }
       ]
     },

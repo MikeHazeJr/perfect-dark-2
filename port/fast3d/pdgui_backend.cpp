@@ -1373,106 +1373,32 @@ s32 pdguiProcessEvent(void *sdlEvent)
 
     const SDL_Event *ev = (const SDL_Event *)sdlEvent;
 
-    /* ---- Global hotkeys: always consumed regardless of context ----
+    /* s036-02 (c036, 2026-05-12): all raw SDL_KEYDOWN F-key handlers
+     * removed. They were dispatching dev hotkeys + tooling actions
+     * directly from this function (returning 1 to consume the event),
+     * which shadowed the actionmap and bypassed ImGui's textbox-capture
+     * gate. The migration moved them behind the actionmap:
      *
-     * IMPORTANT: any new raw SDL hotkey if-block added below must also
-     * be added to registerDebugShortcuts() above so the pause-menu
-     * Debug Shortcuts modal stays in sync.  Drift here = stale UI. */
-
-#if defined(PD_DEV_BUILD)
-    /* F6: toggle MP bot AI/movement freeze (spawn layout inspection) */
-    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F6) {
-        botToggleUpdatesDisabled();
-        return 1;
-    }
-
-    /* F7: toggle player invincibility (solo/MP debug).
-     * 2026-04-26: dual-bind with ACTION_FORGE_TOGGLE split.  The
-     * actionmap binding for ACTION_FORGE_TOGGLE was moved to F11
-     * (port/src/actionmap.cpp), so F7 is now uniquely the
-     * invincibility cheat.  The earlier forgeIsFreefly() early-return
-     * is removed -- there is no longer any other consumer of F7. */
-    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F7) {
-        playerToggleDevInvincibility();
-        return 1;
-    }
-#endif
-
-    /* F8 / RS-click: hot-swap toggle (flip rendering mode for ImGui menus) */
-    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F8) {
-        pdguiHotswapToggle();
-        return 1;
-    }
-    if (ev->type == SDL_CONTROLLERBUTTONDOWN &&
-        ev->cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSTICK) {
-        pdguiHotswapToggle();
-        return 1;
-    }
-
-#if defined(PD_DEV_BUILD)
-    /* F12: toggle debug overlay via context stack push/pop.
-     * S295 F1: Authoritative state is the input context stack — no mirror bool. */
-    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F12) {
-        if (!inputCtxIsActive(&g_CtxDebugOverlay)) {
-            inputCtxPush(&g_CtxDebugOverlay);
-        } else {
-            inputCtxPopDeferred(&g_CtxDebugOverlay);
-        }
-        return 1;
-    }
-#endif
-
-    /* B-253 follow-up: Shift+F1 cycles the renderer's debug backface-cull
-     * mode for the world render (none -> back -> front -> none).
-     * Diagnostic — useful in The Grid for seeing back-faces of walls when
-     * the freefly camera is outside a room, and for confirming whether a
-     * body's triangle winding is inverted (per-asset data issue). */
-    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F1 &&
-            (ev->key.keysym.mod & KMOD_SHIFT)) {
-        extern void gfxDebugCullModeCycle(void);
-        extern const char *gfxDebugCullModeName(void);
-        gfxDebugCullModeCycle();
-        sysLogPrintf(LOG_NOTE, "DEBUG.CULL: mode -> %s", gfxDebugCullModeName());
-        return 1;
-    }
-
-    /* B-246 round-9: F2 (no modifier) schedules a one-frame test-fire
-     * pulse for player 0 one second after the keypress. Mike uses this
-     * for remote-testing the round-8 bone-snapshot diagnostic when his
-     * full keyboard / mouse rig is unavailable (phone -> RDP into
-     * Windows). Multiple presses queue. Shift+F2 still falls through
-     * to the wireframe toggle below; Ctrl+F2 / Alt+F2 also fall
-     * through (currently unbound). */
-    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F2 &&
-            !(ev->key.keysym.mod & (KMOD_SHIFT | KMOD_CTRL | KMOD_ALT))) {
-        extern void bmoveScheduleTestFire(s32 delay_ticks_60hz);
-        bmoveScheduleTestFire(60);
-        return 1;
-    }
-
-    /* B-253 follow-up: Shift+F2 toggles wireframe overlay on the world
-     * render (glPolygonMode lines).  Useful in The Grid for an
-     * editor-style "see geometry edges" view. */
-    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F2 &&
-            (ev->key.keysym.mod & KMOD_SHIFT)) {
-        extern void gfxDebugWireframeToggle(void);
-        extern int  gfxDebugWireframeGet(void);
-        gfxDebugWireframeToggle();
-        sysLogPrintf(LOG_NOTE, "DEBUG.WIREFRAME: %s",
-                     gfxDebugWireframeGet() ? "on" : "off");
-        return 1;
-    }
-
-    /* F9: toggle read-only menu/input diagnostics (no input-context push). */
-    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F9) {
-        pdguiMenuStackOverlayToggle();
-        return 1;
-    }
-    /* F10: mesh collision debug (was F9 before F9 was reserved for menu diagnostics). */
-    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F10) {
-        meshDebugToggle();
-        return 1;
-    }
+     *   F6  -> ACTION_DEBUG_BOT_FREEZE         (dev)
+     *   F7  -> ACTION_DEBUG_INVINCIBILITY      (dev)
+     *   F8  -> ACTION_HOTSWAP_TOGGLE
+     *   RS-click -> ACTION_HOTSWAP_TOGGLE      (joy alias on the same action)
+     *   F9  -> ACTION_DEBUG_TOGGLE             (now drives BOTH g_NetDebugDraw
+     *                                            and pdguiMenuStackOverlayToggle
+     *                                            in pdsched.c)
+     *   F10 -> ACTION_DEBUG_MESH_TOGGLE
+     *   F12 -> ACTION_DEBUG_OVERLAY_TOGGLE     (dev)
+     *   Shift+F1 -> VK_CHORD_SHIFT_F1   -> ACTION_DEBUG_CULL_MODE_CYCLE
+     *   F2 (no mod) -> ACTION_DEBUG_TESTFIRE
+     *   Shift+F2 -> VK_CHORD_SHIFT_F2   -> ACTION_DEBUG_WIREFRAME_TOGGLE
+     *
+     * Dispatch sites: port/src/pdsched.c::schedEndFrame. Bindings:
+     * port/src/actionmap.cpp::setupGameplayDefaults. Chord detection:
+     * port/src/actionmap.cpp::chordVkForKeysym (Shift+F1/F2 cases).
+     *
+     * The pause-menu Debug Shortcuts modal continues to surface these
+     * via registerDebugShortcuts above; the labels match the new
+     * actionmap bindings since the keys themselves did not move. */
 
     /* ---- B-124 fix: Key suppression on context push ---- */
     /* When a context was just pushed (within grace period), suppress KEY_DOWN

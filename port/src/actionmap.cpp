@@ -85,10 +85,17 @@ void actionmapRefreshStickMultFromUi(void);
 #define VKL_HOME 74
 #define VKL_END 77
 
-/* F-keys: VK_F1=58 -> F5=62, F7=64, F10=67, F11=68 */
+/* F-keys: VK_F1=58 -> F12=69 (one above F11). The full F-row is added here
+ * for s036-02 (c036, 2026-05-12) to migrate the dev hotkeys away from raw
+ * SDL handlers in pdgui_backend.cpp. */
+#define VKL_F2    59
 #define VKL_F5    62
+#define VKL_F6    63
 #define VKL_F7    64
+#define VKL_F8    65
+#define VKL_F10   67
 #define VKL_F11   68
+#define VKL_F12   69
 
 /* Number row: VK_1=30 .. VK_9=38, VK_0=39 */
 #define VKL_2 31
@@ -213,6 +220,9 @@ static const VkNameEntry s_VkNameTable[] = {
     {VK_CHORD_CTRL_SHIFT_Z,   "CTRL+SHIFT+Z"},
     {VK_CHORD_CTRL_Y,         "CTRL+Y"},
     {VK_CHORD_CTRL_S,         "CTRL+S"},
+    {VK_CHORD_SHIFT_F1,       "SHIFT+F1"},
+    {VK_CHORD_SHIFT_F2,       "SHIFT+F2"},
+    {VK_CHORD_ALT_RETURN,     "ALT+ENTER"},
     /* --- Mouse (VK_MOUSE_BEGIN = 512) --- */
     {VK_MOUSE_LEFT,     "MOUSE_LEFT"},
     {VK_MOUSE_MIDDLE,   "MOUSE_MIDDLE"},
@@ -668,25 +678,50 @@ static u32 chordVkForKeysym(const SDL_Keysym *keysym)
         return 0;
     }
 
-    const s32 ctrl = (keysym->mod & KMOD_CTRL) != 0;
+    const s32 ctrl  = (keysym->mod & KMOD_CTRL) != 0;
     const s32 shift = (keysym->mod & KMOD_SHIFT) != 0;
+    const s32 alt   = (keysym->mod & KMOD_ALT) != 0;
 
-    if (!ctrl) {
-        return 0;
+    /* CTRL-prefixed chords (Tab / Z / Y / S). */
+    if (ctrl) {
+        switch (keysym->scancode) {
+        case SDL_SCANCODE_TAB:
+            return shift ? VK_CHORD_CTRL_SHIFT_TAB : VK_CHORD_CTRL_TAB;
+        case SDL_SCANCODE_Z:
+            return shift ? VK_CHORD_CTRL_SHIFT_Z : VK_CHORD_CTRL_Z;
+        case SDL_SCANCODE_Y:
+            return VK_CHORD_CTRL_Y;
+        case SDL_SCANCODE_S:
+            return VK_CHORD_CTRL_S;
+        default:
+            break;
+        }
     }
 
-    switch (keysym->scancode) {
-    case SDL_SCANCODE_TAB:
-        return shift ? VK_CHORD_CTRL_SHIFT_TAB : VK_CHORD_CTRL_TAB;
-    case SDL_SCANCODE_Z:
-        return shift ? VK_CHORD_CTRL_SHIFT_Z : VK_CHORD_CTRL_Z;
-    case SDL_SCANCODE_Y:
-        return VK_CHORD_CTRL_Y;
-    case SDL_SCANCODE_S:
-        return VK_CHORD_CTRL_S;
-    default:
-        return 0;
+    /* s036-02 (c036, 2026-05-12): SHIFT-prefixed chords for the F-key
+     * migrations (Shift+F1 cycles backface cull, Shift+F2 toggles
+     * wireframe; previously raw handlers in pdgui_backend.cpp). */
+    if (shift && !ctrl && !alt) {
+        switch (keysym->scancode) {
+        case SDL_SCANCODE_F1:
+            return VK_CHORD_SHIFT_F1;
+        case SDL_SCANCODE_F2:
+            return VK_CHORD_SHIFT_F2;
+        default:
+            break;
+        }
     }
+
+    /* s036-03 (c036, 2026-05-12): ALT-prefixed chord for Alt+Enter
+     * fullscreen toggle (previously a raw handler in gfx_sdl2.cpp). */
+    if (alt && !ctrl && !shift) {
+        if (keysym->scancode == SDL_SCANCODE_RETURN ||
+            keysym->scancode == SDL_SCANCODE_KP_ENTER) {
+            return VK_CHORD_ALT_RETURN;
+        }
+    }
+
+    return 0;
 }
 
 static u32 s_KeyDownChordVk[SDL_NUM_SCANCODES];
@@ -2453,6 +2488,31 @@ static void setupGameplayDefaults(s32 player)
          * "Invisible" and is otherwise unused across IMCs. */
         addBind(imc, ACTION_TESTSCEN_VIS_TOGGLE, 12);                        /* KEY_I */
     }
+    /* s036-02 / s036-03 (c036, 2026-05-12): dev hotkey + tooling
+     * migration. Previously raw SDL_KEYDOWN handlers in
+     * pdgui_backend.cpp::pdguiProcessEvent (F6, F7, F8, F10, F12,
+     * Shift+F1, F2, Shift+F2, RS-click) and gfx_sdl2.cpp's event loop
+     * (Alt+Enter). Bindings live on g_ImcGameplay so the rebind UI
+     * surfaces them and ImGui textbox capture suppresses them; the
+     * dispatch consumers in port/src/pdsched.c::schedEndFrame gate
+     * PD_DEV_BUILD-only handlers at the call site (so the action and
+     * binding exist unconditionally; only the side-effect is dev-only).
+     * F12 + F8 also bind on g_ImcDebugOverlay so the toggle works
+     * symmetrically from both contexts (open from gameplay, close from
+     * overlay; hotswap from either). */
+    if (p == 0) {
+        addBind(imc, ACTION_DEBUG_BOT_FREEZE,       VKL_F6);
+        addBind(imc, ACTION_DEBUG_INVINCIBILITY,    VKL_F7);
+        addBind(imc, ACTION_HOTSWAP_TOGGLE,         VKL_F8);
+        addBind(imc, ACTION_HOTSWAP_TOGGLE,         JOY_BTN(0, JBTN_RSTICK));
+        addBind(imc, ACTION_DEBUG_MESH_TOGGLE,      VKL_F10);
+        addBind(imc, ACTION_DEBUG_OVERLAY_TOGGLE,   VKL_F12);
+        addBind(imc, ACTION_DEBUG_CULL_MODE_CYCLE,  VK_CHORD_SHIFT_F1);
+        addBind(imc, ACTION_DEBUG_TESTFIRE,         VKL_F2);
+        addBind(imc, ACTION_DEBUG_WIREFRAME_TOGGLE, VK_CHORD_SHIFT_F2);
+        addBind(imc, ACTION_TOGGLE_FULLSCREEN,      VK_CHORD_ALT_RETURN);
+    }
+
     /* Players 1-3: no default gamepad binds. MP slots start unbound.
      * The rebind UI is functional for all players — user configures manually. */
 }

@@ -270,7 +270,25 @@ typedef enum InputAction {
     ACTION_MENU_SKIPUP,            /* = 105 LT trigger (gamepad) -- skip up */
     ACTION_MENU_SKIPDOWN,          /* = 106 RT trigger (gamepad) -- skip down */
 
-    ACTION_COUNT                /* = 107, sentinel - keep last */
+    /* ---- s036-02 / s036-03 (c036, 2026-05-12) ----
+     * Dev hotkeys + tooling chords previously dispatched as raw SDL
+     * handlers in pdgui_backend.cpp::pdguiProcessEvent and
+     * gfx_sdl2.cpp::gfx_sdl_handle_events. Migrated to the actionmap
+     * so the rebind UI sees them, ImGui textbox capture suppresses
+     * them, and a single dispatch site (pdsched.c) drives the
+     * handlers. PD_DEV_BUILD gating lives at the consumer site; the
+     * action and binding exist unconditionally. */
+    ACTION_DEBUG_BOT_FREEZE,        /* = 107 F6 -- toggle MP bot AI/movement freeze (DEV) */
+    ACTION_DEBUG_INVINCIBILITY,     /* = 108 F7 -- toggle player invincibility (DEV) */
+    ACTION_DEBUG_OVERLAY_TOGGLE,    /* = 109 F12 -- push/pop g_CtxDebugOverlay (DEV) */
+    ACTION_DEBUG_MESH_TOGGLE,       /* = 110 F10 -- toggle mesh collision overlay */
+    ACTION_DEBUG_CULL_MODE_CYCLE,   /* = 111 Shift+F1 -- cycle backface cull (none/back/front) */
+    ACTION_DEBUG_TESTFIRE,          /* = 112 F2 (no mod) -- schedule one-shot test-fire pulse */
+    ACTION_DEBUG_WIREFRAME_TOGGLE,  /* = 113 Shift+F2 -- toggle wireframe overlay */
+    ACTION_HOTSWAP_TOGGLE,          /* = 114 F8 / RS-click -- flip hot-swap rendering mode */
+    ACTION_TOGGLE_FULLSCREEN,       /* = 115 Alt+Enter -- toggle fullscreen window */
+
+    ACTION_COUNT                /* = 116, sentinel - keep last */
 } InputAction;
 
 /* Backward-compat aliases */

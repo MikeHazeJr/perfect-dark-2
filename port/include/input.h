@@ -75,13 +75,26 @@ enum virtkey {
 	VK_RSHIFT = 229,
 
 	/* Synthetic keyboard chords emitted by actionmapDispatch. These live below
-	 * VK_MOUSE_BEGIN so they are still treated as keyboard/mouse bindings. */
+	 * VK_MOUSE_BEGIN so they are still treated as keyboard/mouse bindings.
+	 *
+	 * Adding a new chord requires three edits in lockstep:
+	 *   1. New VK_CHORD_<name> enum entry here.
+	 *   2. Detection case in port/src/actionmap.cpp::chordVkForKeysym.
+	 *   3. Display string in port/src/actionmap.cpp::s_VkNameTable.
+	 * Drop any of those = silent drift (binding works at one site, breaks at
+	 * the other two). */
 	VK_CHORD_CTRL_TAB = 300,
 	VK_CHORD_CTRL_SHIFT_TAB,
 	VK_CHORD_CTRL_Z,
 	VK_CHORD_CTRL_SHIFT_Z,
 	VK_CHORD_CTRL_Y,
 	VK_CHORD_CTRL_S,
+	/* s036-02/03 (c036, 2026-05-12): chords for the F-key + Alt+Enter
+	 * migrations away from raw SDL handlers in pdgui_backend.cpp and
+	 * gfx_sdl2.cpp. */
+	VK_CHORD_SHIFT_F1,
+	VK_CHORD_SHIFT_F2,
+	VK_CHORD_ALT_RETURN,
 
 	/* same order as SDL mouse buttons */
 	VK_MOUSE_BEGIN = 512,

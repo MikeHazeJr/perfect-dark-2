@@ -79,6 +79,13 @@ static void set_fullscreen(bool on, bool call_callback) {
     }
 }
 
+extern "C" void gfxFullscreenToggle(void) {
+    /* s036-03 (c036, 2026-05-12): public wrapper for the actionmap
+     * consumer in port/src/pdsched.c. Replaces the raw Alt+Enter
+     * SDL_KEYDOWN handler that used to live in gfx_sdl_handle_events. */
+    set_fullscreen(!fullscreen_state, true);
+}
+
 static void set_maximize_window(bool on) {
 	maximized_state = on;
 	if (on) {
@@ -330,27 +337,18 @@ static void gfx_sdl_handle_events(void) {
 
         switch (event.type) {
             case SDL_KEYDOWN:
-                /* s036-03 (c036, 2026-05-12): raw hotkey migration.
-                 * - F10 mesh-debug branch deleted; pdguiProcessEvent above
-                 *   consumed every F10 event via the meshDebugToggle handler,
-                 *   so this branch was structurally dead.
-                 * - Backquote console-toggle branch deleted; ACTION_CONSOLE_TOGGLE
-                 *   (bound to VK_GRAVE) now drives pdguiConsoleToggle from
-                 *   port/src/pdsched.c::schedEndFrame.
-                 * - Alt+Enter fullscreen-toggle branch retained: the actionmap
-                 *   does not currently support modifier-key chord bindings
-                 *   (addBind takes a single u32 VK). Migration is deferred
-                 *   until the actionmap grows chord support; tracked under
-                 *   s036-03 follow-up.
+                /* s036-03 (c036, 2026-05-12): raw key handlers fully
+                 * removed. Alt+Enter now flows through actionmap as
+                 * VK_CHORD_ALT_RETURN -> ACTION_TOGGLE_FULLSCREEN; the
+                 * consumer in port/src/pdsched.c::schedEndFrame calls
+                 * gfxFullscreenToggle (public C wrapper in this file)
+                 * which drives the same set_fullscreen path the raw
+                 * handler used. Chord detection lives in
+                 * port/src/actionmap.cpp::chordVkForKeysym.
                  *
-                 * Adding a new raw SDL hotkey here? Also add a paired
-                 * pdguiDebugShortcutRegister call to registerDebugShortcuts()
-                 * in port/fast3d/pdgui_backend.cpp so the pause-menu Debug
-                 * Shortcuts modal stays in sync. Drift = stale UI. */
-                if (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT)) {
-                    // alt-enter received, switch fullscreen state
-                    set_fullscreen(!fullscreen_state, true);
-                }
+                 * Backquote (console) and F10 (mesh debug) were removed
+                 * in the prior s036-03 partial slice. There are no
+                 * remaining raw SDL_KEYDOWN handlers in this file. */
                 break;
             case SDL_WINDOWEVENT:
                 if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {

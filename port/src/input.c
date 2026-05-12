@@ -1040,11 +1040,21 @@ s32 inputAssignController(s32 cidx, s32 id)
 /**
  * DEPRECATED: Use actionHeld() instead for gameplay/menu input.
  *
- * Only legitimate remaining callers:
- *   - optionsmenu.c: rebind key capture (needs raw VK, not action)
- *   - menu.c: legacy menu mouse input (VK_MOUSE_LEFT/WHEEL)
- *   - inputKeyJustPressed() below (edge wrapper)
- * All other callers should use the action map.
+ * s036-04 (c036, 2026-05-12): joy-VK polling section retired. The
+ * direct SDL_GameControllerGetButton/Axis path that used to live here
+ * (for VK_JOY_BEGIN..VK_TOTAL_COUNT) had no remaining production
+ * callers after the F-key + Alt+Enter migration in s036-02 / s036-03
+ * moved hotswap / dev hotkeys to actionPressed dispatched from
+ * pdsched.c. Joy VKs now flow exclusively through actionmapDispatch.
+ *
+ * Legitimate remaining callers (keyboard / mouse only):
+ *   - optionsmenu.c: rebind key capture (needs raw VK_ESCAPE)
+ *   - menu.c: legacy menu mouse input (VK_MOUSE_LEFT / WHEEL)
+ *   - inputKeyJustPressed() below (edge wrapper for VK_MOUSE_LEFT)
+ *
+ * If a future caller passes VK_JOY_*, this function returns 0 (no
+ * silent SDL_GameController poll). The right path is to add a binding
+ * + actionPressed consumer.
  */
 s32 inputKeyPressed(u32 vk)
 {
@@ -1063,43 +1073,7 @@ s32 inputKeyPressed(u32 vk)
 		return (mouseButtons & SDL_BUTTON(vk - VK_MOUSE_BEGIN + 1)) != 0;
 	}
 
-	if (vk >= VK_JOY_BEGIN && vk < VK_TOTAL_COUNT) {
-		vk -= VK_JOY_BEGIN;
-		const s32 idx = vk / INPUT_MAX_CONTROLLER_BUTTONS;
-		if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS || !pads[idx]) {
-			return 0;
-		}
-		vk = vk % INPUT_MAX_CONTROLLER_BUTTONS;
-		// triggers
-		if (vk == 30 || vk == 31) {
-			const s32 trig = SDL_CONTROLLER_AXIS_TRIGGERLEFT + vk - 30;
-			return SDL_GameControllerGetAxis(pads[idx], trig) > TRIG_THRESHOLD;
-		}
-		// stick axis directions (synthetic VKs 22-29)
-		if (vk >= 22 && vk <= 29) {
-			s32 axis = 0;
-			s32 wantNeg = 0;
-			switch (vk) {
-			case 22: axis = SDL_CONTROLLER_AXIS_LEFTX;  wantNeg = 1; break; // LSTICK_LEFT
-			case 23: axis = SDL_CONTROLLER_AXIS_LEFTX;  wantNeg = 0; break; // LSTICK_RIGHT
-			case 24: axis = SDL_CONTROLLER_AXIS_LEFTY;  wantNeg = 1; break; // LSTICK_UP
-			case 25: axis = SDL_CONTROLLER_AXIS_LEFTY;  wantNeg = 0; break; // LSTICK_DOWN
-			case 26: axis = SDL_CONTROLLER_AXIS_RIGHTX; wantNeg = 1; break; // RSTICK_LEFT
-			case 27: axis = SDL_CONTROLLER_AXIS_RIGHTX; wantNeg = 0; break; // RSTICK_RIGHT
-			case 28: axis = SDL_CONTROLLER_AXIS_RIGHTY; wantNeg = 1; break; // RSTICK_UP
-			case 29: axis = SDL_CONTROLLER_AXIS_RIGHTY; wantNeg = 0; break; // RSTICK_DOWN
-			default: return 0;
-			}
-			s32 val = SDL_GameControllerGetAxis(pads[idx], axis);
-			if (wantNeg) {
-				return val < -TRIG_THRESHOLD;
-			} else {
-				return val > TRIG_THRESHOLD;
-			}
-		}
-		return SDL_GameControllerGetButton(pads[idx], vk);
-	}
-
+	/* s036-04: VK_JOY_* path retired. Returns 0 instead of polling SDL. */
 	return 0;
 }
 
