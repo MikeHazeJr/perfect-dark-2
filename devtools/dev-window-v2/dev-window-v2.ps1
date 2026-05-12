@@ -1266,15 +1266,9 @@ function Refresh-LatestRelease {
                         <Border Grid.Column="0" Background="#FFFFFF" CornerRadius="3"
                                 BorderBrush="#C0C8D2" BorderThickness="1" Padding="10,8">
                             <DockPanel>
-                                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
-                                    <TextBlock Text="PROMPT" Foreground="#7A8898"
-                                               FontFamily="Consolas" FontSize="20" FontWeight="Bold"
-                                               VerticalAlignment="Center"/>
-                                    <TextBlock x:Name="LblCliPromptDirty" DockPanel.Dock="Right"
-                                               Text="" Foreground="#A06A10"
-                                               FontFamily="Consolas" FontSize="20" FontWeight="Bold"
-                                               VerticalAlignment="Center" TextAlignment="Right"/>
-                                </DockPanel>
+                                <TextBlock DockPanel.Dock="Top" Text="PROMPT" Foreground="#7A8898"
+                                           FontFamily="Consolas" FontSize="20" FontWeight="Bold"
+                                           Margin="0,0,0,4"/>
                                 <TextBox x:Name="TxtCliPrompt" Background="#FFFFFF" Foreground="#1A2434"
                                          BorderBrush="#C0C8D2" Padding="8,6" AcceptsReturn="True"
                                          AcceptsTab="True" TextWrapping="Wrap"
@@ -1342,7 +1336,7 @@ $namedElements = @(
     "DocList","DocContent",
     "BtnCliActionGoal","BtnCliActionPlan","BtnCliActionInvestigate","BtnCliActionBugFix",
     "BtnCliActionReview","BtnCliActionCustom","LblCliActiveAction",
-    "TxtCliPrompt","LblCliPromptDirty","TxtCliCardSearch","LstCliCards",
+    "TxtCliPrompt","TxtCliCardSearch","LstCliCards",
     "LblCliSelectedCards","BtnCliCardsRefresh",
     "RdoCliModeInteractive","RdoCliModeHeadless","BtnCliLaunch","BtnCliCopy","BtnCliReset"
 )
@@ -2969,16 +2963,17 @@ function Start-Build {
 # Design doc: context\designs\devwindow-claude-cli-panel.md
 # ============================================================================
 
-$script:CliActiveAction        = "Goal"     # one of: Goal, Plan, Investigate, BugFix, Review, Custom
-$script:CliCardsCache          = @()         # all active+backlog cards from kanban
-$script:CliSelectedCardIds     = @()         # ids of selected cards (preserved across filter)
-$script:CliClaudeExe           = $null       # resolved on first use
-$script:CliPreallocatedRange   = "c126-c130" # default reservation hint for spawned sessions
-$script:CliLastAppliedTemplate = ""          # c127: text the last action click produced
-$script:CliPromptDirty         = $false      # c127: true when TxtCliPrompt diverges from template
-$script:CliBugIdMemory         = ""          # c127: last entered B-NNN, prefilled on Bug Fix
-$script:CliBranchMemory        = ""          # c127: last entered branch, prefilled on Review
-$script:CliDialogResult        = $null       # c127: stash for modal input dialog return value
+$script:CliActiveAction      = ""           # "" or Goal/Plan/Investigate/BugFix/Review/Custom
+$script:CliCardsCache        = @()           # all active+backlog cards from kanban
+$script:CliSelectedCardIds   = @()           # ids of selected cards (preserved across filter)
+$script:CliClaudeExe         = $null         # resolved on first use
+$script:CliPreallocatedRange = "c126-c130"   # default reservation hint for spawned sessions
+$script:CliBodyText          = ""            # c127 correction: the user's substance (body slot content)
+$script:CliWrapPrefix        = ""            # c127 correction: current wrap's prefix, for body extraction
+$script:CliWrapSuffix        = ""            # c127 correction: current wrap's suffix, for body extraction
+$script:CliBugIdMemory       = ""            # c127: last entered B-NNN, prefilled on Bug Fix
+$script:CliBranchMemory      = ""            # c127: last entered branch, prefilled on Review
+$script:CliDialogResult      = $null         # c127: stash for modal input dialog return value
 
 function Get-CliClaudeExe {
     if ($script:CliClaudeExe) { return $script:CliClaudeExe }
@@ -3243,93 +3238,117 @@ function Build-CliStandingRulesBlock {
 "@
 }
 
-function Build-CliActionTemplate {
-    # c127: action buttons rewrite TxtCliPrompt in place. This function returns
-    # the EMPTY-BODY template (prefix + suffix + cards block + standing rules)
-    # that the action click drops into the prompt textbox. The user then fills
-    # in the body slot directly. LAUNCH sends TxtCliPrompt.Text verbatim.
-    param([string]$action, [string]$bugId, [string]$branch)
-
-    $prefix = Get-CliWrappingPrefix -action $action -bugId $bugId -branch $branch
-    $suffix = Get-CliWrappingSuffix -action $action -bugId $bugId
-
-    $cardsBlock = Build-CliCardsContextBlock
-    $standing   = Build-CliStandingRulesBlock
-
-    $parts = @()
-    $parts += ($prefix + "" + $suffix)
-    if ($cardsBlock -ne "") { $parts += ""; $parts += $cardsBlock }
-    $parts += ""
-    $parts += $standing
-    return ($parts -join "`n")
-}
+# (c127 correction 2026-05-12: the empty-body-template `Build-CliActionTemplate`
+# function was removed. Apply-CliActionTemplate now builds the wrap inline
+# around a non-empty body so the user's substance is preserved across
+# action-button switches.)
 
 function Build-CliComposedPrompt {
-    # c127: TxtCliPrompt IS the composed prompt. Action buttons populate it with
-    # the template; the user types into the body slot directly. LAUNCH sends
-    # whatever TxtCliPrompt currently holds. No separate compose-on-the-fly.
+    # c127 correction: TxtCliPrompt IS the composed prompt. LAUNCH sends it
+    # verbatim. The action-button click flow rewrites TxtCliPrompt with the
+    # new wrap around the preserved user substance (CliBodyText), so the
+    # textbox always reflects what will be sent.
     if ($ui["TxtCliPrompt"]) { return ([string]$ui["TxtCliPrompt"].Text) }
     return ""
 }
 
-function Update-CliPromptDirtyState {
-    # Compare current prompt text against the last applied template. Anything
-    # different = the user has manually edited. The action-button click flow
-    # checks this flag to decide whether to ask for overwrite confirmation.
-    if ($null -eq $ui["TxtCliPrompt"]) { $script:CliPromptDirty = $false; return }
-    $now = [string]$ui["TxtCliPrompt"].Text
-    $script:CliPromptDirty = ($now -ne $script:CliLastAppliedTemplate)
-    if ($null -ne $ui["LblCliPromptDirty"]) {
-        $ui["LblCliPromptDirty"].Text = if ($script:CliPromptDirty) { "(custom)" } else { "" }
+function Extract-CliBodyFromCurrentText {
+    # c127 correction: when a wrap is currently applied (CliActiveAction != ""),
+    # extract the user's substance by stripping the stored prefix and suffix
+    # from TxtCliPrompt.Text. If the wrap markers don't match (user nuked the
+    # wrap wholesale), fall back to treating the entire textbox content as the
+    # new substance.
+    if ($null -eq $ui["TxtCliPrompt"]) { return "" }
+    $text = [string]$ui["TxtCliPrompt"].Text
+    if ($script:CliActiveAction -eq "") { return $text }
+    $prefix = $script:CliWrapPrefix
+    $suffix = $script:CliWrapSuffix
+    if ($text.StartsWith($prefix) -and $text.EndsWith($suffix)) {
+        $bodyLen = $text.Length - $prefix.Length - $suffix.Length
+        if ($bodyLen -ge 0) {
+            return $text.Substring($prefix.Length, $bodyLen)
+        }
     }
+    return $text
 }
 
 function Apply-CliActionTemplate {
-    # Build the template for the requested action, write it into TxtCliPrompt,
-    # and mark the panel clean (TxtCliPrompt now matches CliLastAppliedTemplate).
-    # Bug ID / branch are read from the per-action memory variables which were
-    # already populated by Show-CliInputDialog upstream (or left at last value
-    # if user is re-clicking the same action).
-    param([string]$action, [string]$bugId, [string]$branch)
+    # c127 correction: wrap the given body with the action's prefix/suffix +
+    # cards block + standing rules, and write the full wrap into TxtCliPrompt.
+    # Stores CliWrapPrefix / CliWrapSuffix so a later action click can extract
+    # the body back out of TxtCliPrompt.Text reliably. Caret lands at the
+    # END of the body so the user can keep typing inline.
+    param([string]$action, [string]$body, [string]$bugId, [string]$branch)
 
-    $template = Build-CliActionTemplate -action $action -bugId $bugId -branch $branch
-    $script:CliLastAppliedTemplate = $template
+    $prefix       = Get-CliWrappingPrefix -action $action -bugId $bugId -branch $branch
+    $actionSuffix = Get-CliWrappingSuffix -action $action -bugId $bugId
+    $cardsBlock   = Build-CliCardsContextBlock
+    $standing     = Build-CliStandingRulesBlock
+
+    # Trailing tail = action suffix + cards block (optional) + standing rules.
+    $tailParts = @($actionSuffix)
+    if ($cardsBlock -ne "") { $tailParts += ""; $tailParts += $cardsBlock }
+    $tailParts += ""
+    $tailParts += $standing
+    $tail = ($tailParts -join "`n")
+
+    $script:CliWrapPrefix = $prefix
+    $script:CliWrapSuffix = $tail
+    $script:CliBodyText   = $body
+
+    $full = $prefix + $body + $tail
     if ($ui["TxtCliPrompt"]) {
-        $ui["TxtCliPrompt"].Text = $template
-        # Move the caret to the body-slot position (right after the prefix line)
-        # so the user can immediately start typing their prompt body.
+        $ui["TxtCliPrompt"].Text = $full
         try {
-            $prefix = Get-CliWrappingPrefix -action $action -bugId $bugId -branch $branch
-            $ui["TxtCliPrompt"].SelectionStart  = $prefix.Length
+            $caret = $prefix.Length + $body.Length
+            $ui["TxtCliPrompt"].SelectionStart  = $caret
             $ui["TxtCliPrompt"].SelectionLength = 0
             $ui["TxtCliPrompt"].Focus() | Out-Null
         } catch {}
     }
-    Update-CliPromptDirtyState
 }
 
-function Confirm-CliOverwriteIfDirty {
-    # Returns $true if it is safe to overwrite TxtCliPrompt (clean, or user said
-    # OK to overwrite); $false if user cancelled and the action click should
-    # bail out without changing anything.
-    param([string]$newActionLabel)
-    if (-not $script:CliPromptDirty) { return $true }
-    $msg = ("Your prompt has been manually edited. Overwrite with the new " + $newActionLabel + " template?")
-    $res = [System.Windows.MessageBox]::Show(
-        $msg,
-        "Overwrite custom prompt?",
-        [System.Windows.MessageBoxButton]::OKCancel,
-        [System.Windows.MessageBoxImage]::Question)
-    return ($res -eq [System.Windows.MessageBoxResult]::OK)
+function Update-CliActionButtonVisuals {
+    # c127 correction: highlight the active action button with PD cyan
+    # background + white text + dark cyan border so the user sees at a glance
+    # which wrap is applied. Inactive buttons fall back to the ToolBtn style
+    # defaults via ClearValue (so the style's mouse-over trigger still works).
+    $cyanBrush     = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#0078A8"))
+    $whiteBrush    = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#FFFFFF"))
+    $darkCyanBrush = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#005A80"))
+
+    $map = @{
+        "Goal"        = "BtnCliActionGoal"
+        "Plan"        = "BtnCliActionPlan"
+        "Investigate" = "BtnCliActionInvestigate"
+        "BugFix"      = "BtnCliActionBugFix"
+        "Review"      = "BtnCliActionReview"
+        "Custom"      = "BtnCliActionCustom"
+    }
+    foreach ($action in @($map.Keys)) {
+        $btn = $ui[$map[$action]]
+        if ($null -eq $btn) { continue }
+        if ($action -eq $script:CliActiveAction) {
+            $btn.Background      = $cyanBrush
+            $btn.Foreground      = $whiteBrush
+            $btn.BorderBrush     = $darkCyanBrush
+            $btn.BorderThickness = "2"
+        } else {
+            $btn.ClearValue([System.Windows.Controls.Control]::BackgroundProperty)
+            $btn.ClearValue([System.Windows.Controls.Control]::ForegroundProperty)
+            $btn.ClearValue([System.Windows.Controls.Control]::BorderBrushProperty)
+            $btn.ClearValue([System.Windows.Controls.Control]::BorderThicknessProperty)
+        }
+    }
 }
 
 function Set-CliAction([string]$action) {
-    # c127: action button click handler. Asks for action-specific inputs (Bug
-    # Fix -> B-NNN, Review -> optional branch) via small modal dialogs. Then
-    # checks the dirty flag and asks for overwrite confirmation before rewriting
-    # TxtCliPrompt with the new template. The active-action label always lands
-    # on the newly chosen action only if the overwrite (or input) was confirmed
-    # -- a cancelled click leaves the panel state unchanged.
+    # c127 correction: action button click preserves the user's substance and
+    # swaps the wrapping around it. Bug Fix / Review collect their action-
+    # specific inputs via Show-CliInputDialog first; Cancel aborts the click
+    # with NO change to the panel state. No overwrite-modal, no destruction
+    # of typed content -- the body is extracted from the current textbox and
+    # re-wrapped with the new template.
 
     $bugId  = $script:CliBugIdMemory
     $branch = $script:CliBranchMemory
@@ -3356,31 +3375,32 @@ function Set-CliAction([string]$action) {
         $script:CliBranchMemory = $branch
     }
 
-    if (-not (Confirm-CliOverwriteIfDirty -newActionLabel $action)) {
-        return
-    }
+    $body = Extract-CliBodyFromCurrentText
 
     $script:CliActiveAction = $action
     if ($null -ne $ui["LblCliActiveAction"]) {
         $ui["LblCliActiveAction"].Text = "active: " + $action
     }
-    Apply-CliActionTemplate -action $action -bugId $bugId -branch $branch
+    Apply-CliActionTemplate -action $action -body $body -bugId $bugId -branch $branch
+    Update-CliActionButtonVisuals
 }
 
 function Reset-CliPanel {
     if ($ui["TxtCliPrompt"]) { $ui["TxtCliPrompt"].Text = "" }
     if ($ui["TxtCliCardSearch"]) { $ui["TxtCliCardSearch"].Text = "" }
-    $script:CliSelectedCardIds     = @()
-    $script:CliLastAppliedTemplate = ""
-    $script:CliBugIdMemory         = ""
-    $script:CliBranchMemory        = ""
-    $script:CliActiveAction        = "Goal"
+    $script:CliSelectedCardIds = @()
+    $script:CliActiveAction    = ""
+    $script:CliBodyText        = ""
+    $script:CliWrapPrefix      = ""
+    $script:CliWrapSuffix      = ""
+    $script:CliBugIdMemory     = ""
+    $script:CliBranchMemory    = ""
     if ($ui["LstCliCards"]) { $ui["LstCliCards"].SelectedItems.Clear() }
     if ($null -ne $ui["LblCliActiveAction"]) {
-        $ui["LblCliActiveAction"].Text = "active: Goal"
+        $ui["LblCliActiveAction"].Text = "active: (none)"
     }
     Update-CliSelectedCardLabel
-    Update-CliPromptDirtyState
+    Update-CliActionButtonVisuals
 }
 
 function Get-CliPromptTempPath {
@@ -4139,9 +4159,10 @@ $ui["BtnCliActionBugFix"].Add_Click({ Set-CliAction "BugFix" })
 $ui["BtnCliActionReview"].Add_Click({ Set-CliAction "Review" })
 $ui["BtnCliActionCustom"].Add_Click({ Set-CliAction "Custom" })
 
-# c127: TextChanged just updates the dirty flag. The single prompt textbox IS
-# the composed prompt; there is no separate preview to keep in sync anymore.
-$ui["TxtCliPrompt"].Add_TextChanged({ Update-CliPromptDirtyState })
+# c127 correction: no TextChanged handler on TxtCliPrompt. The single prompt
+# textbox IS the composed prompt and the user can freely edit it. Body
+# extraction happens lazily at action-button-click time via
+# Extract-CliBodyFromCurrentText (strips the stored CliWrapPrefix/Suffix).
 
 $ui["BtnCliCardsRefresh"].Add_Click({ Refresh-CliCardsList })
 $ui["TxtCliCardSearch"].Add_TextChanged({ Apply-CliCardsFilter })
@@ -4787,19 +4808,20 @@ $window.Add_Loaded({
 
         Invoke-GhAuthBackgroundCheck
 
-        # CLI panel (c125 + c127): populate cards list from kanban state and set
-        # the initial active-action label without applying a template. The
-        # textbox starts empty -- the user types or clicks an action button to
-        # populate. This avoids the cold-start template-injection that would
-        # surprise the user with content they did not request.
+        # CLI panel (c125 + c127): populate cards from kanban; init state has
+        # NO active action (no wrap applied yet). User types substance into the
+        # empty prompt and clicks an action button to wrap. Active-button
+        # visuals are also at default until the first click.
         try {
             Refresh-CliCardsList
-            $script:CliActiveAction = "Goal"
-            $script:CliLastAppliedTemplate = ""
+            $script:CliActiveAction = ""
+            $script:CliBodyText     = ""
+            $script:CliWrapPrefix   = ""
+            $script:CliWrapSuffix   = ""
             if ($null -ne $ui["LblCliActiveAction"]) {
-                $ui["LblCliActiveAction"].Text = "active: Goal"
+                $ui["LblCliActiveAction"].Text = "active: (none)"
             }
-            Update-CliPromptDirtyState
+            Update-CliActionButtonVisuals
         } catch {
             Write-DevWindowDebugLog ("CLI init failed: " + ($_ | Out-String)) "WARN"
         }

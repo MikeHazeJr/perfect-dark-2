@@ -12,10 +12,14 @@
 > **c127 refinements (2026-05-12)**: Run Tests / Run Game moved off the always-docked
 > bottom bar (they obscured LAUNCH) and into the BUILD tab. The CLI tab is reduced
 > to a single canonical prompt textbox; Bug ID / Branch text fields and the separate
-> composed-prompt preview pane are gone. Action button clicks rewrite the prompt
-> textbox in place (with an overwrite-confirmation modal when the prompt is dirty),
-> and Bug Fix / Review collect their inputs through a small WPF input dialog.
-> Default window size now fits everything without scrolling.
+> composed-prompt preview pane are gone. Bug Fix / Review collect their inputs
+> through a small WPF input dialog. Default window size now fits everything without
+> scrolling. **Post-ship correction (2026-05-12 same day)**: the overwrite-
+> confirmation modal was replaced by a body-preserving wrap-swap model -- the user's
+> substance is extracted from the textbox at action-click time and re-wrapped with
+> the new template, so switching action buttons never destroys typed content. The
+> active action button is highlighted in PD cyan with a thick border so the user
+> sees at a glance which wrap is applied.
 
 ---
 
@@ -91,43 +95,60 @@ PD cyan accent (`#0078A8`), light-theme primary text (`#1A2434`), `Segoe UI` bod
 and `Consolas` for code-style values. Buttons reuse the existing `AccentBtn`,
 `ToolBtn`, `GreenBtn` styles. No new style resources are introduced.
 
-### Dirty tracking and overwrite confirmation (c127)
+### Body-preserving wrap-swap (c127 corrected 2026-05-12)
 
 `TxtCliPrompt` is the single canonical source of what LAUNCH sends. Action
-buttons (Goal / Plan / Investigate / Bug Fix / Review / Custom) rewrite the
-textbox with their template (prefix + empty body slot + cards block + standing
-rules). The caret lands at the body-slot position so the user can immediately
-type their prompt body.
+buttons (Goal / Plan / Investigate / Bug Fix / Review / Custom) preserve the
+user's substance and only swap the syntactic frame around it.
 
-`$script:CliLastAppliedTemplate` stores the exact text the most recent action
-click produced. `TxtCliPrompt.TextChanged` fires `Update-CliPromptDirtyState`,
-which sets `$script:CliPromptDirty` true if the textbox content has diverged
-from the template, and false if it matches. A small `(custom)` label next to
-the PROMPT header surfaces the flag visually.
+State variables that drive this:
 
-When the user clicks a new action button:
+- `$script:CliActiveAction` -- the currently active action, or `""` if no wrap
+  is applied yet (cold-start state and after Reset).
+- `$script:CliBodyText` -- the user's substance. Updated when the body is
+  extracted at action-click time.
+- `$script:CliWrapPrefix` / `$script:CliWrapSuffix` -- the exact prefix and
+  suffix strings that were prepended / appended to the body in the most recent
+  apply. Used by `Extract-CliBodyFromCurrentText` to recover the body from
+  whatever the user has typed inside the wrap.
 
-1. **Bug Fix** prompts for `B-NNN` via the inline `Show-CliInputDialog`
-   (parented to the dev-window). Cancel -> bail out, no panel change. Empty
-   bug ID -> bail out (Bug Fix needs an ID). The accepted value is remembered
-   in `$script:CliBugIdMemory` so re-clicking Bug Fix prefills with the last
-   value.
-2. **Review** prompts for an optional branch via the same dialog. Cancel ->
-   bail. Empty value is allowed (defaults to "selected cards' affected files"
-   scope). Last value is remembered in `$script:CliBranchMemory`.
+When the user clicks an action button:
+
+1. **Bug Fix** prompts for `B-NNN` via `Show-CliInputDialog` (small WPF modal
+   parented to the dev-window). Cancel -> bail with no panel change. Empty
+   bug ID -> bail. The accepted value is remembered in `$script:CliBugIdMemory`
+   so re-clicking Bug Fix prefills.
+2. **Review** prompts for an optional branch. Cancel -> bail. Empty value is
+   allowed (defaults to "selected cards' affected files" scope). Last value
+   is remembered in `$script:CliBranchMemory`.
 3. **Goal / Plan / Investigate / Custom** skip the input step.
 
-Then the dirty flag is consulted:
+Then:
 
-- **Clean** (textbox matches `CliLastAppliedTemplate`, including the empty
-  initial state): apply the new template silently.
-- **Dirty**: show a `MessageBox.Show` modal with title "Overwrite custom
-  prompt?" and OK/Cancel buttons. Cancel -> no panel change; the previously
-  active action stays active. OK -> apply the new template, mark clean.
+4. `Extract-CliBodyFromCurrentText` reads the current textbox content. If a
+   wrap is currently active and the text both starts with `CliWrapPrefix` AND
+   ends with `CliWrapSuffix`, the middle slice is the body. Otherwise (no
+   active wrap, or the user nuked the wrap markers wholesale) the whole
+   textbox content IS the body.
+5. `Apply-CliActionTemplate` builds the new wrap = `prefix + body +
+   actionSuffix + cardsBlock + standingRules` and writes it into TxtCliPrompt.
+   `CliWrapPrefix` and `CliWrapSuffix` are updated to the new prefix and
+   trailing tail respectively so the next extraction reads correctly.
+6. The caret is placed at the end of the body slot so the user can keep
+   typing inline.
+7. `Update-CliActionButtonVisuals` highlights the new active button in PD
+   cyan (`#0078A8` background, white foreground, `#005A80` border, thickness
+   2) and clears the other five back to the ToolBtn defaults.
 
-The Reset button clears the prompt, drops the card selection, drops the
-remembered bug-id and branch, sets the active action back to Goal without
-applying its template, and marks the panel clean.
+Switching action buttons therefore preserves the user's typed substance and
+re-wraps it with the new frame. There is no destruction of typed content and
+no overwrite-confirmation modal. The previously shipped
+"Overwrite custom prompt?" modal flow was replaced in the post-ship
+correction.
+
+The Reset button clears the prompt, drops the card selection, clears all the
+state variables above (including `CliActiveAction = ""`), and restores all
+six action-button visuals to their default state. Cold start does the same.
 
 ### Why no separate preview pane
 
@@ -142,19 +163,19 @@ window height without scrolling.
 
 ## Action buttons (template wrapping)
 
-Each button sets a current "action" state and rewrites `TxtCliPrompt` with a
-template: prefix + empty body slot + suffix + cards block (if any) + standing
-rules. The user types into the body slot directly. LAUNCH sends the textbox
-content verbatim.
+Each button sets a current "action" state and wraps the user's substance with
+that action's template: prefix + body + actionSuffix + cards block (if any) +
+standing rules. Switching action buttons preserves the body and only swaps
+the prefix / actionSuffix. LAUNCH sends the textbox content verbatim.
 
-| Button       | Template structure                                                                                            |
+| Button       | Template wrap                                                                                                  |
 |--------------|---------------------------------------------------------------------------------------------------------------|
 | Goal         | `/goal <body>` then cards + standing rules. Use for autonomous run-to-completion.                             |
 | Plan         | `Plan the following without executing any code. Output a structured plan:\n\n<body>` then cards + standing.   |
 | Investigate  | `Investigate the following. Do not modify code. Report findings only:\n\n<body>` then cards + standing.       |
-| Bug Fix      | Dialog asks for B-NNN. Template: `Fix bug B-NNN: <body>\n\nWrite or update the regression test ...`           |
-| Review       | Dialog asks for optional branch. Template: `Review the following. Scope: <branch or selected cards>:\n\n<body>`|
-| Custom       | No prefix. Template: blank body slot + cards + standing rules. Use for verbatim prompts.                      |
+| Bug Fix      | Dialog asks for B-NNN. Wrap: `Fix bug B-NNN: <body>\n\nWrite or update the regression test ...`               |
+| Review       | Dialog asks for optional branch. Wrap: `Review the following. Scope: <branch or selected cards>:\n\n<body>`   |
+| Custom       | No prefix. Wrap: `<body>` then cards + standing rules. Use for verbatim prompts with only the standing tail.  |
 
 Slash commands (`/goal`) survive into the launched session because Claude Code CLI
 parses leading-slash skills inside an interactive prompt. The Goal button assumes a
