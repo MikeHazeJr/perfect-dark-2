@@ -969,6 +969,8 @@ function Refresh-LatestRelease {
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <Button x:Name="BtnOpenGitHub" Content="GitHub" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"/>
                                 <Button x:Name="BtnOpenFolder" Content="Project Folder" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"/>
+                                <Button x:Name="BtnOpenKanban" Content="Open Kanban" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                        ToolTip="Start the local kanban server if needed, then open the Active / Parked / Bugs board in the default browser (http://localhost:7531/)"/>
                                 <Button x:Name="BtnCleanBuild" Content="Clean Build" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"/>
                                 <Button x:Name="BtnPull" Content="Pull" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
                                         ToolTip="git pull (current branch, upstream)"/>
@@ -1182,7 +1184,7 @@ $namedElements = @(
     "TxtVerMajor","TxtVerMinor","TxtVerPatch",
     "BtnVerMajDown","BtnVerMajUp","BtnVerMinDown","BtnVerMinUp","BtnVerPatDown","BtnVerPatUp",
     "ChkStable","LblAuthStatus","LblLatestRelease","LblDevVersion",
-    "BtnOpenGitHub","BtnOpenFolder","BtnCleanBuild","BtnPull","BtnPush","BtnPruneWorktrees",
+    "BtnOpenGitHub","BtnOpenFolder","BtnOpenKanban","BtnCleanBuild","BtnPull","BtnPush","BtnPruneWorktrees",
     "BtnLogClear","BtnLogExport","ChkAutoScroll","TxtLogFilter","LogOutput",
     "DocList","DocContent"
 )
@@ -2277,6 +2279,90 @@ $script:WorktreeClearWorker = {
     }
 }
 
+function Test-KanbanServerUp {
+    param([int]$Port = 7531, [int]$TimeoutMs = 250)
+    $client = $null
+    try {
+        $client = New-Object System.Net.Sockets.TcpClient
+        $iar = $client.BeginConnect("127.0.0.1", $Port, $null, $null)
+        $ok = $iar.AsyncWaitHandle.WaitOne($TimeoutMs, $false)
+        if (-not $ok) { return $false }
+        $client.EndConnect($iar)
+        return $client.Connected
+    } catch {
+        return $false
+    } finally {
+        if ($client) { try { $client.Close() } catch {} }
+    }
+}
+
+function Invoke-OpenKanban {
+    $port = 7531
+    $url = "http://localhost:$port/"
+    $serverScript = Join-Path $script:ProjectRoot "tools\kanban\server.py"
+
+    if (Test-KanbanServerUp -Port $port) {
+        Add-LogSessionLine ">>> Open Kanban: server already running on $port; opening browser." "#0078A8"
+        try { Start-Process $url } catch {
+            Add-LogLine ("Open Kanban: Start-Process failed: " + $_.Exception.Message) "#B81818"
+            [System.Windows.MessageBox]::Show("Could not open browser at $url. See the Log tab for details.", "Open Kanban", "OK", "Warning") | Out-Null
+        }
+        return
+    }
+
+    if (-not (Test-Path -LiteralPath $serverScript)) {
+        Add-LogLine ("Open Kanban: server script not found at " + $serverScript) "#B81818"
+        [System.Windows.MessageBox]::Show("Kanban server script not found:`n$serverScript", "Open Kanban", "OK", "Warning") | Out-Null
+        return
+    }
+    if (-not $script:Python -or -not (Test-Path -LiteralPath $script:Python)) {
+        Add-LogLine ("Open Kanban: python interpreter not found at " + $script:Python) "#B81818"
+        [System.Windows.MessageBox]::Show("Python interpreter not found at:`n$($script:Python)", "Open Kanban", "OK", "Warning") | Out-Null
+        return
+    }
+
+    Add-LogSessionLine "" "#C0C8D2"
+    Add-LogSessionLine ">>> Open Kanban: starting server (python tools\kanban\server.py) on port $port..." "#0078A8"
+
+    try {
+        # Hidden background process; same launcher pattern as other dev-window
+        # side processes (BtnOpenFolder etc.). Detached so closing the dev
+        # window does not kill the kanban server -- intentional, server is
+        # cross-session.
+        $proc = Start-Process -FilePath $script:Python `
+                              -ArgumentList @($serverScript) `
+                              -WorkingDirectory $script:ProjectRoot `
+                              -WindowStyle Hidden `
+                              -PassThru
+        Add-LogLine ("Open Kanban: spawned python pid=" + $proc.Id) "#44586C"
+    } catch {
+        Add-LogLine ("Open Kanban: failed to launch server: " + $_.Exception.Message) "#B81818"
+        [System.Windows.MessageBox]::Show("Failed to start kanban server:`n" + $_.Exception.Message, "Open Kanban", "OK", "Warning") | Out-Null
+        return
+    }
+
+    # Poll for port readiness. Server startup is normally well under a second
+    # (single Python HTTPServer bind), but allow up to ~5s to cover slow disk
+    # / Defender first-run scan.
+    $deadline = [DateTime]::Now.AddSeconds(5)
+    $ready = $false
+    while ([DateTime]::Now -lt $deadline) {
+        if (Test-KanbanServerUp -Port $port -TimeoutMs 200) { $ready = $true; break }
+        Start-Sleep -Milliseconds 150
+    }
+
+    if (-not $ready) {
+        Add-LogLine "Open Kanban: server did not come up within 5s. Opening browser anyway; refresh once it is up." "#A07810"
+    } else {
+        Add-LogLine ("Open Kanban: server listening on port " + $port + ".") "#1A8A1A"
+    }
+
+    try { Start-Process $url } catch {
+        Add-LogLine ("Open Kanban: Start-Process failed: " + $_.Exception.Message) "#B81818"
+        [System.Windows.MessageBox]::Show("Could not open browser at $url. See the Log tab for details.", "Open Kanban", "OK", "Warning") | Out-Null
+    }
+}
+
 function Invoke-GitPruneWorktrees {
     if ($script:IsBuilding -or $script:IsPushing) {
         [System.Windows.MessageBox]::Show("Wait for the current build or release to finish.", "Clear Worktrees", "OK", "Information") | Out-Null
@@ -3264,6 +3350,8 @@ $ui["BtnOpenGitHub"].Add_Click({
 $ui["BtnOpenFolder"].Add_Click({
     try { Start-Process "explorer.exe" $script:ProjectRoot } catch {}
 })
+
+$ui["BtnOpenKanban"].Add_Click({ Invoke-OpenKanban })
 
 $ui["BtnPull"].Add_Click({ Invoke-GitPull })
 $ui["BtnPush"].Add_Click({ Invoke-GitPush })

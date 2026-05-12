@@ -1,5 +1,43 @@
 # Session Log (Active)
 
+## Session (`pedantic-neumann-9732f9`) - 2026-05-11 - Dev Window v2: Open Kanban button
+
+Standing ask: "the kanban thing should be linked in the dev window." The kanban browser (Active / Parked / Bugs tabs served by `tools/kanban/server.py` on `http://localhost:7531/`, UI in `tools/kanban/index.html`) shipped earlier today as the canonical task-tracking surface (c116 / `quirky-greider-71722d`) but Dev Window v2 had no launcher for it; users had to remember to run `python tools/kanban/server.py` manually before opening the URL.
+
+### Change
+
+One new button in the Utility Row of `devtools/dev-window-v2/dev-window-v2.ps1`, labelled **Open Kanban**, sitting between `Project Folder` and `Clean Build` (grouped with the other "open external surface" actions: GitHub, Project Folder). Click handler:
+
+1. TCP-probe `localhost:7531` via `System.Net.Sockets.TcpClient.BeginConnect` with a 250ms timeout (helper: `Test-KanbanServerUp`).
+2. If port already up: skip spawn, jump straight to `Start-Process http://localhost:7531/`. Log line `Open Kanban: server already running on 7531; opening browser.`.
+3. If port down: validate that `tools\kanban\server.py` exists on disk and `$script:Python` (auto-detected at startup: `C:/Python312/python.exe` or `C:/msys64/usr/bin/python3.exe`) exists. Hard-fail with MessageBox + Log entry if either is missing.
+4. Spawn the server with `Start-Process -FilePath $script:Python -ArgumentList @($serverScript) -WorkingDirectory $script:ProjectRoot -WindowStyle Hidden -PassThru`. Detached on purpose so closing the Dev Window does not kill the kanban server (cross-session surface).
+5. Poll the port for up to 5s (150ms cadence) for readiness, then `Start-Process` the URL. If the port didn't come up inside 5s, log a yellow warning and still open the browser so the user can refresh once Defender / first-run scan finishes.
+
+All failure paths surface via `Add-LogLine` (red `#B81818` text in the Log tab) *and* a modal MessageBox so the button never fails silently.
+
+### Verification
+
+Probe at `.claude/scratch/probe-open-kanban.ps1` (gitignored) dot-sources the two new functions out of `dev-window-v2.ps1`, stubs the WPF-only surfaces, and runs the cold + warm paths against the real `tools/kanban/server.py`. Results:
+
+- **Cold start**: `Test-KanbanServerUp` returns `False`. Spawned python pid 14708, log says "spawned python pid=14708", port came up inside the 5s window ("server listening on port 7531"), URL fired.
+- **Warm start**: `Test-KanbanServerUp` returns `True`, function short-circuits, no second python spawned, URL fires.
+- **Cleanup**: `Stop-Process` killed pid 14708, port reverted to `False`.
+
+PowerShell parse-check (`[System.Management.Automation.Language.Parser]::ParseFile`) on the modified `dev-window-v2.ps1` returned PARSE OK with zero errors.
+
+### Files modified
+
+- `devtools/dev-window-v2/dev-window-v2.ps1` (+~92 net): XAML `<Button x:Name="BtnOpenKanban">` in the Utility Row, `BtnOpenKanban` added to `$namedElements`, `Test-KanbanServerUp` + `Invoke-OpenKanban` functions placed just before `Invoke-GitPruneWorktrees`, `$ui["BtnOpenKanban"].Add_Click({ Invoke-OpenKanban })` wired next to the other Open buttons.
+- `tools/kanban/state.json`: card `c117` added (tooling pillar, done column, priority 3).
+- `context/session-log.md` (this entry).
+
+### Not in scope
+
+The kanban server itself was untouched. No layout changes to Dev Window v2 beyond the one button. No new dependencies; uses the existing `$script:Python` resolved at script init.
+
+---
+
 ## Session (`agitated-franklin-7f16f3`) - 2026-05-11 - Smoke Verify Gate Phase 1
 
 Smoke verify gate Phase 1 ship from the 2026-05-06 super-audit's "single most valuable next move" recommendation. Audit context: project Stability 35/100, Execution Quality 65/100; the prior week's playtest blockers (B-318 modal-stuck Combat Sim, B-324 boot AV at `bgunCalculateBlend`, B-326 ROM placed at `<BuildDir>\data\` post `DEFAULT_BASEDIR_NAME = "."`, build-tool ROM placement) all shipped because the build artefact had no automated boot or scripted-exit verification before reaching the playtest log.
