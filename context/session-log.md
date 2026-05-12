@@ -1,5 +1,80 @@
 # Session Log (Active)
 
+## Session (`vigilant-stonebraker-a0ef5b`) - 2026-05-11 - Daily-Flow Orchestrator (Spec v0.5)
+
+Mike's directive: "Also, you have the go-ahead" on Daily-Flow Orchestrator Spec v0.5. Implement the automation layer that consumes the Session 3 data layer (parked.json + bugs/state.json + parked_evaluator.py) plus the smoke-verify gate, and turns them into a daily Claude-driven morning workflow.
+
+### Change
+
+New `tools/daily_flow/` Python package (underscore-named for valid Python imports; the product name remains "daily-flow" in user-facing surfaces). Architecture splits mechanical (idempotent Python) from reasoning (Claude inline judgment for dirty-tree resolution + rollup prose).
+
+Files added:
+- `tools/daily_flow/orchestrator.py` -- top-level entrypoint. Runs Steps 1-7 sequentially with per-step try/except so partial failures still produce a partial daily log. Supports `--force`, `--no-merge`, `--no-push`, `--catchup-only`, `--for-date YYYY-MM-DD`.
+- `tools/daily_flow/orchestrator-prompt.md` -- the durable Claude prompt the scheduled task reads each morning. Authoritative on judgment calls (dirty-tree at Step 4, rollup narrative on Mondays / first-Mondays, partial-run recovery).
+- `tools/daily_flow/lib/fsutil.py` -- atomic JSON read/write, audit hashing, posix_rel path helper, em-dash guard.
+- `tools/daily_flow/lib/timefmt.py` -- Eastern Time without tzdata dependency (DST rules implemented inline per Energy Policy Act of 2005), `[mm-dd-yyyy - hh:mm]` display format, week + month labels.
+- `tools/daily_flow/lib/gitutil.py` -- subprocess wrappers (log, status, diff, merge-tree, branches, worktree, push).
+- `tools/daily_flow/lib/priority.py` -- pillar weights table, sort comparators for cards / bugs / parked.
+- `tools/daily_flow/lib/templates.py` -- daily / weekly / monthly markdown renderers with SENTINEL truncation guard and Decisions-section template enforcement.
+- `tools/daily_flow/lib/decisions.py` -- monotonic dec-NNN id registry; scratch-file `### dec-PROPOSED:` scanner; weekly/monthly log pointer updater.
+- `tools/daily_flow/steps/step1_audit.py` through `step7_briefing.py` -- one module per pipeline step. Each writes a per-day JSON breadcrumb under `tools/daily_flow/state/`.
+- `tools/daily_flow/steps/rollup_weekly.py` and `rollup_monthly.py` -- two-phase prepare/finalize. Quality self-check on line counts gates the deletion of source-tier files.
+
+Schedule registered via `anthropic-skills:schedule` as task id `pd2-daily-flow`, cron `0 6 * * *` (Eastern time, evaluated in local). Stored at `C:\Users\mikeh\.claude\scheduled-tasks\pd2-daily-flow\SKILL.md`.
+
+Kanban surface wired:
+- `tools/kanban/server.py`: new `/api/briefing` GET endpoint returning `tools/kanban/daily-briefing.json`.
+- `tools/kanban/index.html`: new `df-banner` element at the top of the page, populated from `/api/briefing` on load. Shows headlines + focus shortlist (kind-color-coded pills for cards / bugs / parked) + ready-thread + blocker-bug counts. Dismisses to a floating round icon at bottom-right; click to restore. Partial-run state styled with an orange gradient. `loadBriefing()` added to the page boot `Promise.all`.
+
+Design doc at `context/designs/daily-flow-orchestrator.md` (~456 lines) is the durable reference. Covers architecture, schedule, every pipeline step's contract, rollup logic with thresholds, decision-ID registry, failure-mode enumeration, file layout, and what the orchestrator explicitly does NOT do (no auto-conflict-resolve, no build-trigger, no asset writes).
+
+### Verification
+
+End-to-end smoke test from project root:
+
+```
+python -m tools.daily_flow.orchestrator --no-merge --no-push --force
+```
+
+All seven steps reported OK in stdout (DAILY-FLOW.ORCHESTRATOR.STEP[1-7].OK). Output files:
+- `context/daily-logs/2026-05-11.md` -- generated with correct sections (none-padded), [05-11-2026 - 23:11] timestamp, SENTINEL line, posix path references.
+- `tools/kanban/daily-briefing.json` -- schema_version 1, semantic_version 0.1.0, partial=false, headlines len 1, blocker_bugs.count 2 (B-323 + B-324 surfaced as expected), focus shortlist of 5 items with B-323 as #1.
+- `tools/daily_flow/state/{audit,state-sync,cascade,kanban-snapshot,last-run}-2026-05-11.json` -- all atomic-written.
+
+Weekly rollup prepare phase tested independently:
+
+```
+python -c "from tools.daily_flow.steps import rollup_weekly; ..."
+```
+
+Identified the correct ISO week (2026-W19, May 4 to May 10), reported all 7 days missing (no daily logs in that range), decision_count 0. Finalize phase with placeholder narrative correctly fired `compaction_quality_review=true` (34 lines < 80 floor) and did NOT delete the source dailies (which there were none of anyway). Test weekly file deleted before commit.
+
+Forbidden constructs checked: `grep -rn em-dash` in new files returns zero hits. All paths in JSON emit forward slashes via `fsutil.posix_rel`.
+
+### Files modified
+
+- `tools/daily_flow/__init__.py`, `lib/__init__.py`, `steps/__init__.py` (empty package markers)
+- `tools/daily_flow/orchestrator.py` (~210 lines)
+- `tools/daily_flow/orchestrator-prompt.md` (~170 lines)
+- `tools/daily_flow/lib/fsutil.py`, `lib/timefmt.py`, `lib/gitutil.py`, `lib/priority.py`, `lib/templates.py`, `lib/decisions.py` (~660 lines total)
+- `tools/daily_flow/steps/step1_audit.py` through `step7_briefing.py`, plus `rollup_weekly.py` and `rollup_monthly.py` (~900 lines total)
+- `tools/kanban/server.py` (+~5 net): `BRIEFING_PATH` const, `/api/briefing` GET, docstring updated
+- `tools/kanban/index.html` (+~80 net): `df-banner` CSS, banner DOM + minimized icon, `loadBriefing()` + `renderBriefingBanner()` + `dismissBriefingBanner()` + `restoreBriefingBanner()` + `escapeHtml()`, hooked into boot `Promise.all`
+- `tools/kanban/state.json`: card `c118` added (tooling pillar, done column)
+- `context/designs/daily-flow-orchestrator.md` (new, ~456 lines)
+- `context/tasks.md`: lane 2g entry "Daily-Flow Orchestrator SHIPPED" added
+- `context/session-log.md` (this entry)
+- Scheduled task `pd2-daily-flow` registered at `C:\Users\mikeh\.claude\scheduled-tasks\pd2-daily-flow\SKILL.md`
+
+### Not in scope
+
+- Smoke-verify runs themselves -- the orchestrator only consumes results that the build pipeline produces.
+- Auto-resolving merge conflicts -- conflicts are surfaced to Mike, not papered over.
+- Modifying `context/session-log.md` from the orchestrator at runtime (entries belong to the sessions that did the work; orchestrator only appends its own session entry on registration, not on subsequent runs).
+- The Dev Window v2 banner surface -- the briefing surfaces in the kanban browser (which the Open Kanban button from c117 opens). No additional Dev Window v2 touchpoints needed.
+
+---
+
 ## Session (`pedantic-neumann-9732f9`) - 2026-05-11 - Dev Window v2: Open Kanban button
 
 Standing ask: "the kanban thing should be linked in the dev window." The kanban browser (Active / Parked / Bugs tabs served by `tools/kanban/server.py` on `http://localhost:7531/`, UI in `tools/kanban/index.html`) shipped earlier today as the canonical task-tracking surface (c116 / `quirky-greider-71722d`) but Dev Window v2 had no launcher for it; users had to remember to run `python tools/kanban/server.py` manually before opening the URL.

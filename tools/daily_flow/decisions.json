@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "semantic_version": "0.1.0",
+  "x_extensibility_rule": "Additive-only. Reserved namespace: x_*. Decision IDs are monotonic and never reused. Bump schema_version only on a breaking change; bump semantic_version on additive change.",
+  "next_id": 1,
+  "decisions": []
+}
