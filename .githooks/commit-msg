@@ -1,0 +1,22 @@
+#!/bin/sh
+# Perfect Dark 2 commit-msg hook entry point.
+# Picks the first available python interpreter and delegates to commit-msg.py.
+# Install with: pwsh tools/install-githooks.ps1
+# Bypass (when explicitly authorized): git commit --no-verify
+set -e
+
+PY=
+for cand in python3 python py; do
+  if command -v "$cand" >/dev/null 2>&1; then
+    PY="$cand"
+    break
+  fi
+done
+
+if [ -z "$PY" ]; then
+  echo "commit-msg hook: no python interpreter found on PATH (tried python3, python, py)." >&2
+  echo "Install Python 3, or set core.hooksPath to a directory without this hook to bypass." >&2
+  exit 1
+fi
+
+exec "$PY" "$(dirname "$0")/commit-msg.py" "$@"
