@@ -1964,6 +1964,37 @@ async function confirmPark() {
   setSaveStatus('saved', 'parked'); setTimeout(() => setSaveStatus('', ''), 1500);
 }
 
+// ---------- heartbeat (keeps the ephemeral server alive while a tab is open) ----------
+
+const HEARTBEAT_INTERVAL_MS = 5000;
+let heartbeatTimer = null;
+
+async function sendHeartbeat() {
+  try {
+    await fetch('/heartbeat', { method: 'POST', keepalive: true });
+  } catch (e) {
+    // server is gone or restarting; do not spam the console
+  }
+}
+
+function startHeartbeat() {
+  sendHeartbeat();
+  heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+}
+
+window.addEventListener('beforeunload', () => {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+  try {
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon('/shutdown-now', new Blob([''], { type: 'text/plain' }));
+    } else {
+      fetch('/shutdown-now', { method: 'POST', keepalive: true }).catch(() => {});
+    }
+  } catch (e) {}
+});
+
+startHeartbeat();
+
 // ---------- boot ----------
 
 applySidebarState();

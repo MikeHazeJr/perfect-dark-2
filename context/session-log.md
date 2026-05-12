@@ -1,5 +1,55 @@
 # Session Log (Active)
 
+## Session (`peaceful-babbage-26b748`) - 2026-05-11 - Kanban server self-start + auto-exit on tab close
+
+Standing ask: "I would like for the kanban webpage to start the server itself, and for the server to close if the page closes." The first half (page open -> server up) shipped this morning as c117 / `pedantic-neumann-9732f9`: the Dev Window v2 Open Kanban button TCP-probes 7531, spawns hidden detached python if down, polls for readiness, opens the URL. The remaining half was ephemerality: the server was a permanent background process once started.
+
+### Change
+
+The kanban server is now self-terminating. Two-sided contract:
+
+**Server side (`tools/kanban/server.py`, +~70 lines):**
+
+- Module globals under `_state_lock` (threading.Lock): `_last_heartbeat_at`, `_server`, `_shutdown_fired`.
+- `IDLE_TIMEOUT_S` from env `KANBAN_IDLE_TIMEOUT_S` (default 15). `STARTUP_GRACE_S` from `KANBAN_STARTUP_GRACE_S` (default 30). `SHUTDOWN_NOW_GRACE_S` from `KANBAN_SHUTDOWN_GRACE_S` (default 6). Watcher pass every 2.0s.
+- Startup: `_last_heartbeat_at = time.time() + STARTUP_GRACE_S` so a slow browser launch never trips the idle exit.
+- Daemon watcher thread spawned right before `serve_forever()`: on each pass computes `idle = time.time() - _last_heartbeat_at`; if `idle > IDLE_TIMEOUT_S`, calls `request_shutdown(reason)`. Once fired the watcher returns and stays returned (single-shot via `_shutdown_fired`).
+- `request_shutdown(reason)` is shutdown-safe: it dispatches `_server.shutdown()` on a separate daemon thread with a 50ms preamble so the current request finishes writing its response before `serve_forever()` unwinds. Without the worker thread, calling `shutdown()` from a handler thread deadlocks against the very `serve_forever()` it is trying to stop.
+- New POST endpoints (placed first in `do_POST` so they short-circuit before the heavier `/api/*` handlers): `/heartbeat` (drains body, bumps `_last_heartbeat_at` to now, replies 200) and `/shutdown-now` (drains body, replies 200, backdates the clock so the watcher fires in `SHUTDOWN_NOW_GRACE_S`). `/shutdown-now` is cooperative: it does NOT call `request_shutdown` directly. Any subsequent `/heartbeat` from another tab resets `_last_heartbeat_at = time.time()` and cancels the impending exit. Idempotent: repeated beacon hits only move the clock earlier, never later.
+- `log_message` filters out `/heartbeat` request lines so the 5-second cadence does not flood stdout. Other POSTs still log normally.
+- `main` block: assigns `_server = server`, starts watcher daemon, runs `serve_forever`, wraps in `try/except KeyboardInterrupt/finally server_close()` and prints a final `[kanban] exited.` so a stale port is not held when the process detaches.
+
+**Page side (`tools/kanban/index.html`, +~25 lines at the boot block):**
+
+- `HEARTBEAT_INTERVAL_MS = 5000`. `sendHeartbeat()` does `fetch('/heartbeat', { method: 'POST', keepalive: true })` with try/catch swallow. `startHeartbeat()` fires one immediate heartbeat then `setInterval`.
+- `window.addEventListener('beforeunload', ...)`: clears the interval, then `navigator.sendBeacon('/shutdown-now', new Blob([''], {type:'text/plain'}))`. sendBeacon survives the page-close teardown; the empty-blob body satisfies the API. Fallback for very old browsers: `fetch('/shutdown-now', { method: 'POST', keepalive: true })`.
+- `startHeartbeat()` is called inline immediately above the existing boot `Promise.all([loadState, loadParked, loadBugs])` so the very first request the page makes is a `/heartbeat` (resets the 30s startup grace as soon as the browser actually connects).
+
+### Verification
+
+`.claude/scratch/probe-ephemeral-kanban.py` (gitignored) spawns a fresh `tools/kanban/server.py` subprocess per scenario with tightened env-var timeouts and asserts each exit. All five scenarios PASS, all four lifecycle subprocesses returned exit code 0:
+
+- **cold-to-close (shutdown-now)**: server up, 3 heartbeats, `/shutdown-now`, server exits within 8s. PASS.
+- **idle-exit (no beacon)**: heartbeats then stop entirely (simulates a crashed tab), server exits via idle timeout. PASS.
+- **multi-tab (one closes, other survives)**: two interleaved heartbeat streams, one tab sends `/shutdown-now`, the other keeps heartbeating for 5 more seconds: server stays up the whole time; both tabs then close and the server exits. PASS.
+- **launch-but-no-connect**: server starts but nothing ever heartbeats, server exits after the configured grace. PASS.
+- **manual-launch smoke**: `python tools/kanban/server.py` standalone (no env overrides), `/api/state` and `/` still serve, `/shutdown-now` cleanly terminates. PASS.
+
+### Files modified
+
+- `tools/kanban/server.py` (+~70 net): threading + time imports, env-tunable constants (`IDLE_TIMEOUT_S`, `STARTUP_GRACE_S`, `SHUTDOWN_NOW_GRACE_S`, `WATCHER_INTERVAL_S`), lifecycle module globals, `heartbeat_now` / `heartbeat_soft_shutdown` / `request_shutdown` / `heartbeat_watcher`, two new POST endpoints, log filter, watcher wired in main with finally `server_close`.
+- `tools/kanban/index.html` (+~25 net at boot): heartbeat interval, beforeunload listener, sendBeacon-with-fetch-fallback. Other ~1900 lines of UI untouched.
+- `tools/kanban/state.json`: card `c118` added (tooling pillar, done column, priority 3, inserted directly after c117).
+- `context/session-log.md` (this entry).
+
+### Not in scope
+
+- The Dev Window v2 Open Kanban button (c117) was not touched. Both its paths still work as designed: warm-start (port already up, the existing server simply inherits the new tab's heartbeats), cold-start (spawn detached, poll for socket, open URL).
+- The Parked / Bugs sidebar layout (`quirky-greider-71722d`) was not touched.
+- No new dependencies; stdlib only (`threading`, `time` already implied).
+
+---
+
 ## Session (`pedantic-neumann-9732f9`) - 2026-05-11 - Dev Window v2: Open Kanban button
 
 Standing ask: "the kanban thing should be linked in the dev window." The kanban browser (Active / Parked / Bugs tabs served by `tools/kanban/server.py` on `http://localhost:7531/`, UI in `tools/kanban/index.html`) shipped earlier today as the canonical task-tracking surface (c116 / `quirky-greider-71722d`) but Dev Window v2 had no launcher for it; users had to remember to run `python tools/kanban/server.py` manually before opening the URL.
