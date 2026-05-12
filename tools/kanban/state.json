@@ -1,4 +1,7 @@
 {
+  "schema_version": 2,
+  "semantic_version": "0.2.0",
+  "x_extensibility_rule": "Additive-only. Unknown fields tolerated by loaders. Reserved namespace: x_*. Field semantics frozen once shipped. Bump schema_version only on a breaking change; bump semantic_version on additive change. v2 (2026-05-12 c121): added cards[].open_questions[] for decision-request mechanism.",
   "settings": {
     "autoSortPriority": false
   },
@@ -88,7 +91,7 @@
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-12T04:08:56Z"
     },
     {
       "id": "c002",
@@ -1572,6 +1575,50 @@
       "flagged_at": null,
       "created": "2026-05-11T00:00:00Z",
       "updated": "2026-05-11T00:00:00Z"
+    },
+    {
+      "id": "c121",
+      "title": "Decision-request mechanism on kanban cards",
+      "description": "Asynchronous decision channel between Mike and AI sessions/orchestrator, mediated through the kanban board. Each card gains an optional open_questions[] array; sessions add questions with curated choices (label + rationale + implication) and Mike answers via badge, banner, side panel, or modal in the kanban browser. Cards with unanswered questions BLOCK active or upcoming work (orchestrator refuses to spawn). Custom answers go through an orchestrator interpretation step that Mike confirms or refines (refines spawn follow-up questions linked by id).",
+      "pillar": "tooling",
+      "column": "active",
+      "order": 154000,
+      "priority": 2,
+      "notes": "Design: context/designs/decision-request-mechanism.md. Schema extension: tools/kanban/state.json schema_version=2 + cards[].open_questions[]. Server: tools/kanban/server.py +6 endpoints. UI: tools/kanban/index.html +badge, +banner, +side panel, +modal, +pulse animation. Orchestrator CLI: tools/kanban_evaluator.py (check-active-blocks, interpret-pending, cascade-on-answer).",
+      "flag": null,
+      "flagged_at": null,
+      "open_questions": [
+        {
+          "id": "q-001",
+          "question": "Smoke-test question for the decision-request mechanism: should the badge color match the card's pillar color or use a fixed yellow across all cards?",
+          "asked_by": "session-clever-swirles-d24f0c",
+          "asked_date": "2026-05-12T00:00:00Z",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Fixed yellow across all cards",
+              "rationale": "Consistent visual signal regardless of pillar. Mike's eye learns one color to mean 'question open'.",
+              "implication": "Loses the pillar-color reinforcement. Pillar filter and badge are visually independent."
+            },
+            {
+              "id": "b",
+              "label": "Pillar color tint",
+              "rationale": "Reinforces which pillar the question is in, which can help when scanning a board with cross-pillar questions.",
+              "implication": "Some pillar colors (e.g. yellow tooling) clash with the 'unread question' yellow convention; engine pillar is indigo, less distinct from neutral chrome."
+            }
+          ],
+          "allow_custom": true,
+          "answer": null,
+          "answer_type": null,
+          "answered_date": null,
+          "custom_text": null,
+          "interpretation": null,
+          "interpretation_confirmed": false,
+          "follow_up_question_ids": []
+        }
+      ],
+      "created": "2026-05-12T00:00:00Z",
+      "updated": "2026-05-12T04:06:39Z"
     }
   ]
 }

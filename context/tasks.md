@@ -184,6 +184,29 @@ Per the 2026-05-06 super-audit's "single most valuable next move" recommendation
 
 **Build-gate integration**: `tools/smoke-verify/run.ps1 -AutoSelect -MergeBase dev` is callable from `devtools/build-headless.ps1` post-build. Initial ship leaves this OFF by default so the first week is advisory; once the noise floor is confirmed low, the auto-merge step will block on it.
 
+### 2h. Decision-Request Mechanism SHIPPED (2026-05-12, clever-swirles-d24f0c)
+
+Per Mike's directive: "When surfacing something in a [card] that has open questions, allow the card to offer me multiple choices curated by you, or an alternate custom response from me, that gets interpreted, solidified, inquired further [if] needed, and put into action when a fresh session or current session reads the kanban board." Plus the design answers given 2026-05-11: badge + banner + animation + modal + side panel together; allow_custom always true; questions never auto-resolve; cards with open questions BLOCK active or upcoming work.
+
+**Capability shipped**:
+
+- Schema extension on `tools/kanban/state.json`: root gains `schema_version: 2` + `semantic_version: 0.2.0` + `x_extensibility_rule`; cards gain optional `open_questions[]` array with `{id (q-NNN), question, asked_by, asked_date, choices[{id,label,rationale,implication}], allow_custom=true, answer, answer_type, answered_date, custom_text, interpretation, interpretation_confirmed, follow_up_question_ids[]}`. Schema is additive-only with reserved `x_*` namespace.
+- 6 server endpoints in `tools/kanban/server.py`: `POST /api/cards/<id>/questions` (add), `POST /api/cards/<id>/questions/<qid>/answer` (Mike answers choice or custom), `POST /api/cards/<id>/questions/<qid>/interpret` (orchestrator writes interpretation of custom answers), `POST /api/cards/<id>/questions/<qid>/confirm-interpretation` (Mike confirms or refines; refine spawns follow-up linked via id), `GET /api/open-questions` (list all unresolved), `GET /api/cards/<id>/blocked-status` (per-card). Atomic writes via temp + os.replace; CORS-permissive.
+- UI surfaces in `tools/kanban/index.html`: yellow `?N` badge in card top-right corner with hover tooltip; subtle pulsing animation + light-yellow tint on cards with open questions; red `BLOCKED ON QUESTIONS (N)` strip on active-column blocked cards; top banner with Review + Dismiss; collapsible right-side panel listing every open question grouped by card with curated-choice buttons + custom textarea + skip + interpretation-pending surface; modal opens one question at a time with full rationale + implication for each choice, custom textarea, confirm + refine controls when interpretation present. Header `Questions <N>` toggle button appears when count > 0.
+- Block-on-active gate: card.open_questions[] with any unresolved entry surfaces visually via the BLOCKED strip in active column; orchestrator gate enforced via the CLI evaluator.
+- New CLI evaluator at `tools/kanban_evaluator.py` (parallel to `parked_evaluator.py`): subcommands `check-active-blocks` (list cards in active or priority-1 upcoming that are blocked), `interpret-pending` (list custom answers awaiting orchestrator interpretation), `cascade-on-answer --question-id q-NNN` (run parked-thread cascade when a question fully unblocks a card). Module-level helpers (`list_blocked_cards`, `list_pending_interpretations`, `find_question`) available as a library import.
+- Park / unpark preserves open_questions (rides inside `x_archived_card_payload`); block-on-active fires again on unpark.
+
+**Verification**: end-to-end probe at `.claude/scratch/probe-decision-request.py` (gitignored) walks every endpoint + CLI subcommand + the curated-answer + custom-answer + interpret + refine + confirm path. All 8 phases PASS. State restored to leave c121 q-001 unanswered so Mike sees the live UX when he opens the kanban browser.
+
+**Design**: [context/designs/decision-request-mechanism.md](designs/decision-request-mechanism.md) (599 lines) - architecture, schema reference, full UI map, lifecycle diagrams for both curated + custom paths, block-on-active gate semantics, integration with parked threads + orchestrator + sessions, anti-patterns, file layout, explicit non-goals.
+
+**Followups (out of scope for this ship)**:
+
+- Daily-flow orchestrator Phase 2 hook: call `kanban_evaluator.py check-active-blocks` in step 1 audit; surface counts in briefing headlines; refuse to spawn worker sessions on blocked cards.
+- Daily-flow orchestrator Phase 2 hook: call `kanban_evaluator.py interpret-pending` in step 2 state-sync; loop the pending list through Claude's reasoning to produce interpretation prose; POST back via the interpret endpoint.
+- Question staleness: if a question has been open > 14 days, surface in daily briefing (same pattern as parked staleness). Not in this ship; daily-flow can layer on top.
+
 ### 2g. Daily-Flow Orchestrator SHIPPED (2026-05-11, vigilant-stonebraker-a0ef5b)
 
 Per Mike's Spec v0.5. Automation layer that consumes the data layer (parked.json, bugs/state.json, parked_evaluator.py) + smoke-verify gate and turns them into a daily Claude-driven workflow.
