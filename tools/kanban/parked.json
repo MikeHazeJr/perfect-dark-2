@@ -20,7 +20,7 @@
         "context/pillars/modding.md"
       ],
       "kanban_card_origin": null,
-      "last_checked": "2026-05-11",
+      "last_checked": "2026-05-12",
       "tags": [
         "editor",
         "forge",
@@ -45,7 +45,7 @@
         "context/designs/in-flight/skedar-surface-normal-locomotion.md"
       ],
       "kanban_card_origin": null,
-      "last_checked": "2026-05-11",
+      "last_checked": "2026-05-12",
       "tags": [
         "locomotion",
         "skedar",
@@ -72,7 +72,7 @@
         "context/audits/char-init-weapon-spawn-comparison-sonnet46-2026-04-26.md"
       ],
       "kanban_card_origin": null,
-      "last_checked": "2026-05-11",
+      "last_checked": "2026-05-12",
       "tags": [
         "investigation",
         "char-init",
@@ -98,7 +98,7 @@
         "context/audits/player-init-comparison-upstream-2026-04-26.md"
       ],
       "kanban_card_origin": null,
-      "last_checked": "2026-05-11",
+      "last_checked": "2026-05-12",
       "tags": [
         "player-init",
         "design-greenlight-pending"
@@ -123,7 +123,7 @@
         "context/designs/in-flight/gpu-swarm-bot-pipeline.md"
       ],
       "kanban_card_origin": null,
-      "last_checked": "2026-05-11",
+      "last_checked": "2026-05-12",
       "tags": [
         "benchmark",
         "gpu",
@@ -149,7 +149,7 @@
         "context/audits/pdmod-verification-matrix-2026-04-25.md"
       ],
       "kanban_card_origin": null,
-      "last_checked": "2026-05-11",
+      "last_checked": "2026-05-12",
       "tags": [
         "cleanup",
         "modding",
@@ -178,7 +178,7 @@
         "context/pillars/connectivity.md"
       ],
       "kanban_card_origin": null,
-      "last_checked": "2026-05-11",
+      "last_checked": "2026-05-12",
       "tags": [
         "connectivity",
         "p2p",
