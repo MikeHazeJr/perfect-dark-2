@@ -1664,6 +1664,30 @@
       "pending_completion": null,
       "created": "2026-05-12T17:00:00Z",
       "updated": "2026-05-12T18:16:30Z"
+    },
+    {
+      "id": "c125",
+      "title": "Dev Window v2 Claude CLI panel + sprint-report contract",
+      "description": "New CLI tab in Dev Window v2 that composes well-formed prompts for Claude Code CLI sessions, scoped to selected kanban cards, with mandatory sprint-report output for the Dispatch orchestrator to consume on its next turn. Six action buttons (Goal, Plan, Investigate, Bug Fix, Review, Custom) drive prompt wrapping; a multi-select card list pulled live from /api/state filters to active+backlog; a read-only composed-prompt preview shows the literal text that will be sent; mode radios pick Interactive (new console + clipboard handoff) or Headless (-p, output streamed to Log tab). Closes the orchestrator-blindness gap by giving CLI sessions a known file surface at .claude/sprint-reports/ that the Dispatch session reads, verifies against kanban + git state, then disposes once verified.",
+      "pillar": "tooling",
+      "column": "active",
+      "order": 158000,
+      "priority": 2,
+      "notes": "Files touched: devtools/dev-window-v2/dev-window-v2.ps1 (new CLI TabItem in XAML ~180 lines + Section 14a ~280 lines of helpers + Section 17 event wiring + Section 21 init hook), context/designs/devwindow-claude-cli-panel.md (NEW 326 lines, SENTINEL-terminated), .claude/sprint-reports/sprint-c125-demo.md (NEW canonical sprint-report schema demo, SENTINEL-terminated). Probes: .claude/scratch/probe-cli-panel-xaml.ps1 (PASS, 20 named elements found), probe-cli-panel-compose.ps1 (PASS, 16 assertions covering all 6 action wrappings + em-dash hygiene), probe-cli-panel-launch.ps1 (PASS, window survived 8s smoke launch). PowerShell AST parse clean.",
+      "flag": null,
+      "flagged_at": null,
+      "pending_completion": {
+        "marked_at": "2026-05-12T15:05:00Z",
+        "marked_by": "claude-code-cli-session-adoring-turing-a53052",
+        "summary": "Claude CLI panel landed in Dev Window v2 with composed-prompt preview, card-aware context, Interactive + Headless launch modes, and sprint-report contract for orchestrator consumption.",
+        "evidence_refs": [
+          "context/designs/devwindow-claude-cli-panel.md",
+          ".claude/sprint-reports/sprint-c125-demo.md",
+          "devtools/dev-window-v2/dev-window-v2.ps1"
+        ]
+      },
+      "created": "2026-05-12T15:00:00Z",
+      "updated": "2026-05-12T15:05:00Z"
     }
   ]
 }

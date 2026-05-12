@@ -1,5 +1,57 @@
 # Session Log (Active)
 
+## Session (`adoring-turing-a53052`) - 2026-05-12 - Dev Window v2 Claude CLI panel + sprint-report contract (c125)
+
+Mike's directive: "Add a Claude CLI button in the Dev window v2. I want a container that has a text box with buttons such as Goal, where I can then select card(s) and it will prompt the CLI with /goal and those as a prompt, as well as other useful functions. In other words, an interface other than just cmd. The prompts should also include the requirement that they update our context and kanban system so you can easily catch back up after sprints. It should file a report specifically intended for you to do so, at which point you can interpret and dispose of the report ONLY, once you are clear and verified what it has done."
+
+Pillar: Tooling. Card: c125. Pre-allocated card range for any sub-cards: c126-c130.
+
+### Change
+
+New `CLI` tab in `devtools/dev-window-v2/dev-window-v2.ps1` (placed after BUILD / LOG / DOCS). Layout: header strip + ACTION row (six buttons) + Bug ID + Branch row + 60/40 split of prompt textbox + multi-select card list + composed-prompt preview + mode radios + LAUNCH / Copy Prompt / Reset. 20 new named elements registered with `FindName`. WPF resources reused from existing v2 styles (AccentBtn / ToolBtn / GreenBtn / etc.); no new style resources.
+
+Action wrapping logic: Goal -> `/goal <text>`; Plan / Investigate -> instruction prefix; Bug Fix -> `Fix bug B-NNN: <text>` plus suffix mandating regression test at `tools/smoke-verify/tests/bugs/B-NNN.json` before the fix; Review -> `Review the following. Scope: branch <X>` when a branch is given, else `Scope: selected cards' affected files`; Custom -> verbatim. All wrappings append a `[Standing rules]` block listing the commit-message standard, pre-allocated card range, kanban update requirement, and the sprint-report write requirement with the eight required sections (Goal / Shipped / Decisions / Blockers / Follow-ups / Kanban Changes / Files Touched / Verification Notes).
+
+Card list pulled from `http://localhost:7531/api/state` (auto-falls back to `tools/kanban/state.json` when the kanban server is down). Filters to `active` + `backlog`; sorts active-first then by priority ascending then order ascending. Live search filter on `title or pillar` substring (case-insensitive). Selection state stored in `$script:CliSelectedCardIds` so it is preserved when the search filter changes or the action button is switched.
+
+Two launch modes via radio buttons. Interactive (default) writes the composed prompt to `$env:TEMP\pd2-cli-prompt-<UTC>.txt`, copies the prompt to the Windows clipboard via `[System.Windows.Clipboard]::SetText`, then opens a new `cmd.exe /K` window at the project root running `claude` (no args). Mike pastes with Ctrl+V into the Claude prompt and converses live. Headless mode runs `claude --print --output-format text < <temp>` via `Start-AsyncPoolAction` on the existing `$script:BgPool` runspace pool; stdout streams to the Log tab on completion. Clipboard handoff was chosen over positional-arg because cmd.exe quoting rules drop or misinterpret newlines, double quotes, and backslashes that arbitrary prompts contain.
+
+Sprint-report contract: every launched session is mandated by the standing-rules suffix to write `.claude/sprint-reports/sprint-YYYY-MM-DDTHHMMSS.md` at session end. The Dispatch orchestrator's session-start routine reads any new reports, cross-references against `tools/kanban/state.json` and `git log` since the earliest mentioned commit, then deletes the report file once verification passes - this closes the orchestrator-blindness gap (CLI sessions live in a separate namespace, so without this surface the orchestrator could not see their work).
+
+### Verification
+
+Three probes at `.claude/scratch/probe-cli-panel-*.ps1` (gitignored, kept for forensic re-run):
+
+- `probe-cli-panel-xaml.ps1`: extracts the embedded `[xml]$xaml` here-string from `dev-window-v2.ps1` and loads it with WPF's `XamlReader.Load`. Enumerates all 20 named CLI-tab elements via `FindName`. PASS - 48,465 chars of XAML parsed, `BtnCliActionGoal` through `BtnCliReset` all found with correct types (Button / TextBox / ListBox / TextBlock / RadioButton).
+- `probe-cli-panel-compose.ps1`: dot-sources the prompt-composition functions in a controlled scope with `FakeTextCtl` / `FakeListBox` stubs for `$ui`. 16 assertions covering all six action wrappings, the cards-context block, the bug-id substitution, the branch-or-cards fallback for Review, and an em-dash hygiene check. PASS.
+- `probe-cli-panel-launch.ps1`: spawns `dev-window-v2.ps1` as a background powershell process, waits 8 s for any startup crash, confirms `HasExited` is false, then `CloseMainWindow()` + `Stop-Process` on the still-running pid. Tails the last 20 lines of `devtools/dev-window-v2/dev-window-v2-debug.log` for diagnostics. PASS - window survived 8 s, debug log shows clean Window Loaded + gh auth success path.
+
+PowerShell AST parse on the modified `.ps1` is clean. Em-dash hygiene: `grep -c "\xe2\x80\x94"` on the design doc + sprint-report demo returns 0; pre-existing em-dashes in `dev-window-v2.ps1` (lines 217, 4194, 4324, 4626) predate this change.
+
+### Files modified / added
+
+- `devtools/dev-window-v2/dev-window-v2.ps1`: new `CLI` TabItem in XAML (~180 lines, placed after the DOCS TabItem), 20 new named elements appended to the `$namedElements` array, new Section 14a (~280 lines) of CLI helper functions (`Get-CliClaudeExe`, `Get-CliKanbanState`, `Refresh-CliCardsList`, `Apply-CliCardsFilter`, `Sync-CliSelectedCardsFromListBox`, `Set-CliAction`, `Get-CliWrappingPrefix`, `Get-CliWrappingSuffix`, `Build-CliCardsContextBlock`, `Build-CliStandingRulesBlock`, `Build-CliComposedPrompt`, `Update-CliPreview`, `Reset-CliPanel`, `Get-CliPromptTempPath`, `Invoke-CliLaunch`, `Invoke-CliLaunchInteractive`, `Invoke-CliLaunchHeadless`), Section 17 event wiring (~25 lines covering 13 controls), and a Section 21 init hook (`Refresh-CliCardsList` + `Set-CliAction "Goal"` on Window.Loaded). File grew from 4108 -> 4690 lines.
+- `context/designs/devwindow-claude-cli-panel.md` (NEW, 326 lines, SENTINEL-terminated): UI map, action wrapping rules, composed prompt structure, card source + filter logic, launch mechanism choice + rationale, sprint-report consumption contract for the orchestrator, future extensions roster, verification procedure.
+- `.claude/sprint-reports/sprint-c125-demo.md` (NEW, SENTINEL-terminated): canonical sprint-report demo showing the full schema (Goal / Shipped / Decisions / Blockers / Follow-ups / Kanban Changes / Files Touched / Verification Notes) with verification steps specifically aimed at the orchestrator's scan-verify-dispose routine.
+- `tools/kanban/state.json` (+~24 lines): new c125 card in `active` column with `pending_completion` populated (`marked_by="claude-code-cli-session-adoring-turing-a53052"`, `summary`, three `evidence_refs`).
+- `context/tasks.md` (+~30 lines): new lane 2i entry under "Dev Window v2 Claude CLI panel + sprint-report contract SHIPPED".
+- `context/session-log.md` (this entry).
+- `.claude/scratch/probe-cli-panel-xaml.ps1`, `.claude/scratch/probe-cli-panel-compose.ps1`, `.claude/scratch/probe-cli-panel-launch.ps1`: three probes (gitignored).
+
+### Decisions
+
+- New dedicated `CLI` tab over an inline panel in BUILD. BUILD is dominated by hero buttons; folding CLI in would push them below the fold and dilute BUILD's identity. Tabs are the established v2 navigation affordance.
+- Interactive launch (clipboard handoff to new cmd console) is the default. Headless `-p` cannot show live progress and cannot accept mid-run intervention, so default to the mode that supports the bulk of Mike's use cases. Headless stays reachable via the opt-in radio.
+- Pre-allocated card range hardcoded to `c126-c130`. Matches the orchestrator's spawn-brief format. The panel does not allocate IDs itself; the standing-rules suffix just embeds the reservation.
+- Kanban data source: HTTP `/api/state` with file fallback. Live server picks up uncommitted edits; file fallback means the panel works even when the server is down. Auto-start of the server is deliberately NOT triggered by opening the CLI tab - decoupled to avoid surprising the user. Mike uses the existing `Open Kanban` button when he wants the server up.
+
+### Not in scope
+
+- Orchestrator consumption logic (memory file `feedback_dispatch_orchestrator_workflow.md` update). The contract is documented; the scan-verify-dispose implementation in the Dispatch session-start routine is a separate change.
+- Saved prompt presets, sprint-report history pane, batch operations, skill awareness: all in the future-extensions roster in the design doc.
+
+---
+
 ## Session (`clever-swirles-d24f0c`) - 2026-05-12 - Decision-request mechanism on kanban cards (c121)
 
 Mike's standing ask, given 2026-05-11: "When surfacing something in a [card] that has open questions, allow the card to offer me multiple choices curated by you, or an alternate custom response from me, that gets interpreted, solidified, inquired further [if] needed, and put into action when a fresh session or current session reads the kanban board." Followed by design answers: notify on badge + banner + animation; surface on modal + side panel; allow_custom always true; never auto-resolve; questions LINKED to cards; cards with unanswered questions BLOCK work; "don't be afraid to stop me to request me to make a call"; orchestrator and sessions actively track kanban for updates.
