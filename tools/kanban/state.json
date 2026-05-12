@@ -1681,6 +1681,30 @@
       "updated": "2026-05-12T19:21:27Z"
     },
     {
+      "id": "c126",
+      "title": "Dispatch state-freshness hooks (external enforcement)",
+      "description": "Claude Code hook layer that externally enforces the Dispatch orchestrator's hard contract: every turn that claims kanban / session / state-of-the-world status must be backed by a same-turn read of the relevant state file (or list_sessions / search_session_transcripts MCP call). Implemented as a PostToolUse logger (logs state-check tool calls + turn-end boundaries to ~/.claude/dispatch-state-log.jsonl) plus a Stop hook (fires at end of every assistant turn; scans last_assistant_message for state-claim patterns; blocks the turn via {decision: block, reason: ...} if a claim was made without a state read since the last turn-end). Adapts the original SendUserMessage matcher plan (no such tool exists in Claude Code) to the Stop event, documented as deliberate. Companion to fixes #1/#3/#4 already encoded in feedback_dispatch_orchestrator_workflow.md auto-memory.",
+      "pillar": "tooling",
+      "column": "active",
+      "order": 160000,
+      "priority": 2,
+      "notes": "SHIPPED in worktree agitated-montalcini-a6f836 (branch claude/agitated-montalcini-a6f836). Files: ~/.claude/scripts/log_state_check.py (NEW, 154 lines), ~/.claude/scripts/check_state_freshness.py (NEW, 155 lines), ~/.claude/settings.json (+hooks block, permissions preserved, backup at ~/.claude/settings.json.pre-c126.bak), context/designs/dispatch-state-freshness-hooks.md (NEW, 270 lines, SENTINEL-terminated), .claude/scratch/probe-state-freshness-hooks.py (NEW, 15-phase probe, all PASS). Discovery: Claude Code has no SendUserMessage tool; orchestrator's PreToolUse-on-SendUserMessage plan adapted to Stop event (deliberate, documented). Windows-path gotcha caught live: forward slashes in JSON command paths (C:/Users/... not C:\\\\Users\\\\...), bash strips backslashes in unrecognized escape sequences. Hook takes effect on every Claude Code session from this machine (user-level settings); design doc notes project-local fallback if noisy for non-Dispatch sessions.",
+      "flag": null,
+      "flagged_at": null,
+      "pending_completion": {
+        "marked_at": "2026-05-12T20:30:00Z",
+        "marked_by": "claude-code-session-agitated-montalcini-a6f836",
+        "summary": "External enforcement layer for Dispatch state-freshness contract shipped. Two scripts (logger + Stop blocker) + settings.json hooks wiring + design doc + 15-phase probe. Discovery: SendUserMessage tool does not exist in Claude Code; adapted to Stop event with same semantics. Windows backslash-path gotcha caught live and documented.",
+        "evidence_refs": [
+          "context/designs/dispatch-state-freshness-hooks.md",
+          ".claude/scratch/probe-state-freshness-hooks.py",
+          ".claude/sprint-reports/sprint-c126-hooks.md"
+        ]
+      },
+      "created": "2026-05-12T20:00:00Z",
+      "updated": "2026-05-12T20:30:00Z"
+    },
+    {
       "id": "c3738",
       "title": "Skedar surface-normal locomotion (Slices 4-5)",
       "pillar": "engine",
