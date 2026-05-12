@@ -1,5 +1,61 @@
 # Session Log (Active)
 
+## Session (`agitated-montalcini-a6f836`) - 2026-05-12 - Dispatch state-freshness hooks (c126)
+
+Mike's directive (via the Dispatch orchestrator): implement structural fix #2 of four (#1 / #3 / #4 are encoded in auto-memory `feedback_dispatch_orchestrator_workflow.md`). External enforcement via Claude Code hooks that block a turn from completing if it claims state (kanban / session / "currently active" facts) without a same-turn read of the relevant state surface. The orchestrator drifted off the in-memory contract four times in one day; this card adds an external process layer the agent cannot bypass.
+
+Pillar: Tooling. Card: c126. Pre-allocated range for sub-cards: c127-c131 (none claimed; left intact for catalog /goal as the orchestrator reserved).
+
+### Change
+
+Two scripts at `~/.claude/scripts/`:
+
+- `log_state_check.py` (PostToolUse + Stop handler, 154 lines). Classifies tool calls into state-check events (Read of `tools/kanban/`, `tools/bugs/`, `.claude/sprint-reports`, `context/session-log.md`, `context/tasks.md`, `context/bugs.md`, `tools/parked_evaluator.py`, `tools/kanban_evaluator.py`; Grep / Glob / MCP session tools; Bash with `git log` / `git status` / `git show` / `git diff HEAD` / kanban / sprint-reports / tasks.md / session-log.md / bugs.md substrings). Stop / StopFailure / PreCompact / SessionEnd events get `action="turn-end"`. Writes one JSONL line per qualifying event to `~/.claude/dispatch-state-log.jsonl`. 5 MB rotation to `.1` (best-effort, never crashes the hook). Always exits 0; all errors swallowed.
+- `check_state_freshness.py` (Stop handler, 155 lines). Scans `last_assistant_message` for state-claim patterns (16 conservative regexes covering card IDs, kanban, session-log, sprint-report, "currently active/working on", "we're on", `tasks.md`, `state.json`, in-flight, dev branch/head, open cards/bugs, last session/commit/merge, project-status). If a claim is detected, walks the log backwards from the most recent turn-end (filtered by session_id) and confirms at least one state-check occurred this turn. If not, emits `{"decision":"block","reason":"..."}` JSON to stdout; the Stop event blocks and Claude is forced to re-read state before declaring the turn done. `stop_hook_active=true` short-circuits to allow (loop guard). Fresh session (no prior turn-end) short-circuits to allow.
+
+Settings wiring at `~/.claude/settings.json`: existing `permissions` block preserved verbatim; added `hooks.PostToolUse` (matcher `Read|Grep|Glob|Bash|mcp__ccd_session_mgmt__list_sessions|mcp__ccd_session_mgmt__search_session_transcripts|mcp__ccd_session_mgmt__archive_session|mcp__ccd_directory__request_directory|mcp__ccd_session__mark_chapter` -> logger) and `hooks.Stop` (two handlers in one matcher group: logger first to mark turn-end, then checker). Backup at `~/.claude/settings.json.pre-c126.bak`.
+
+### Discovery during impl
+
+The orchestrator's plan assumed a `SendUserMessage` tool with `PreToolUse` matchability. No such tool exists in Claude Code; assistant text output does not flow through any tool. The right primitive is the `Stop` event, which fires at end of every assistant turn and provides `last_assistant_message`. Adapted accordingly; documented in the design doc as a deliberate adaptation.
+
+Windows-path gotcha: JSON `\\` becomes one backslash, but on Windows bash interpreters strip backslashes in unrecognized escape sequences (`\U`, `\m`, `\.`), corrupting the script path. Surface symptom: hook fires but Python can't find the file; agent gets a blocking error. Fix: use forward slashes in command paths (`C:/Users/...` not `C:\\Users\\...`). Caught mid-impl via a live PostToolUse blocking error; design doc records the failure mode.
+
+### Verification
+
+`.claude/scratch/probe-state-freshness-hooks.py` (15 phases, all PASS). Probes use a tempdir-based isolated `HOME`/`USERPROFILE` so the real `~/.claude/dispatch-state-log.jsonl` is not touched. Coverage: empty payload, non-state Read (no log), state Read (logged), Grep (logged), Stop (turn-end logged), checker no-claim (allow), checker claim-no-check (deny + JSON shape verified), checker claim-with-check (allow), `stop_hook_active=true` (always allow), fresh session (allow), malformed JSON stdin (no crash on logger or checker), Bash git-log (state-check with `bash_excerpt`), kanban-mention (deny), card-id-mention `\bc\d{2,4}\b` (deny).
+
+Live-session verification: after merging, hook fires in active session on Bash containing `kanban/state.json` and writes a real `state-check` entry to the log. Manual synthetic-stdin probe of the logger writes the expected JSONL line.
+
+Settings.json validates as JSON; permissions block intact; 5 deny rules preserved.
+
+### Files modified / added
+
+- `C:\Users\mikeh\.claude\scripts\log_state_check.py` (NEW, 154 lines).
+- `C:\Users\mikeh\.claude\scripts\check_state_freshness.py` (NEW, 155 lines).
+- `C:\Users\mikeh\.claude\settings.json` (+28 lines hooks block; permissions preserved).
+- `C:\Users\mikeh\.claude\settings.json.pre-c126.bak` (backup of pre-merge settings).
+- `context/designs/dispatch-state-freshness-hooks.md` (NEW, 270 lines, SENTINEL-terminated).
+- `.claude/scratch/probe-state-freshness-hooks.py` (NEW, 15-phase probe).
+- `tools/kanban/state.json` (+~16 lines: c126 card in active column).
+- `context/session-log.md` (this entry).
+
+### Decisions
+
+- `Stop` over `SendUserMessage`. The latter does not exist; the former is the established Claude Code primitive for end-of-turn enforcement. Semantically equivalent (block the turn-end if claim-without-check).
+- Conservative regex set for state-claim detection. False-positive cost: one extra state read (cheap). False-negative cost: orchestrator drift (expensive). Tuned for low false-negative rate.
+- Logger and checker as separate scripts, not one combined handler. Separation of concerns: the logger is pure data capture (and runs on PostToolUse for many tools), the checker is the policy (and only runs on Stop). Easier to extend either independently.
+- Forward slashes in command paths. Cross-platform; sidesteps the bash backslash-stripping bug that surfaced live during impl.
+- Hook registration in user-level `~/.claude/settings.json`, not project-level. Caveat: this applies to every Claude Code session on the machine, not just Dispatch. Acceptable for now; the design doc notes the project-local fallback if non-Dispatch sessions find the check noisy.
+
+### Not in scope
+
+- Project-local hook scoping (per-Dispatch-only).
+- Telemetry / dashboard for hook misfires.
+- Pattern tuning beyond the initial 16 regexes (will tune based on observed false positives once Mike runs fresh sessions).
+
+---
+
 ## Session (`adoring-turing-a53052`) - 2026-05-12 - Dev Window v2 Claude CLI panel + sprint-report contract (c125)
 
 Mike's directive: "Add a Claude CLI button in the Dev window v2. I want a container that has a text box with buttons such as Goal, where I can then select card(s) and it will prompt the CLI with /goal and those as a prompt, as well as other useful functions. In other words, an interface other than just cmd. The prompts should also include the requirement that they update our context and kanban system so you can easily catch back up after sprints. It should file a report specifically intended for you to do so, at which point you can interpret and dispose of the report ONLY, once you are clear and verified what it has done."
