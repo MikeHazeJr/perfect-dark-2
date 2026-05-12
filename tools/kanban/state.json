@@ -1510,6 +1510,20 @@
       ],
       "created": "2026-05-11T00:00:00Z",
       "updated": "2026-05-11T00:00:00Z"
+    },
+    {
+      "id": "c117",
+      "title": "Dev Window v2: Open Kanban button",
+      "description": "SHIPPED 2026-05-11 (worktree pedantic-neumann-9732f9). New Utility Row button in Dev Window v2 launches the kanban browser (Active / Parked / Bugs surface) without manually starting tools/kanban/server.py. Click handler: TCP-probe localhost:7531, spawn $script:Python tools\\kanban\\server.py hidden + detached if down, poll up to 5s for port readiness, then Start-Process the URL. Errors surfaced via Add-LogLine + MessageBox so the button never fails silently. Cold-start and warm-start paths verified end-to-end via .claude/scratch/probe-open-kanban.ps1 (gitignored): cold spawned real python pid, port came up, browser fired; warm short-circuited and went straight to browser open.",
+      "pillar": "tooling",
+      "column": "done",
+      "order": 150000,
+      "priority": 3,
+      "notes": "Files: devtools/dev-window-v2/dev-window-v2.ps1 (+~90 lines: XAML button, namedElements add, Test-KanbanServerUp helper, Invoke-OpenKanban handler, click wire). Server itself unchanged. Matches the launcher pattern of BtnOpenGitHub / BtnOpenFolder for consistency.",
+      "flag": null,
+      "flagged_at": null,
+      "created": "2026-05-11T23:00:00Z",
+      "updated": "2026-05-11T23:00:00Z"
     }
   ]
 }
