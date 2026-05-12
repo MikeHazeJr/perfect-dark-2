@@ -1,5 +1,58 @@
 # Session Log (Active)
 
+## Session (`clever-swirles-d24f0c`) - 2026-05-12 - Decision-request mechanism on kanban cards (c121)
+
+Mike's standing ask, given 2026-05-11: "When surfacing something in a [card] that has open questions, allow the card to offer me multiple choices curated by you, or an alternate custom response from me, that gets interpreted, solidified, inquired further [if] needed, and put into action when a fresh session or current session reads the kanban board." Followed by design answers: notify on badge + banner + animation; surface on modal + side panel; allow_custom always true; never auto-resolve; questions LINKED to cards; cards with unanswered questions BLOCK work; "don't be afraid to stop me to request me to make a call"; orchestrator and sessions actively track kanban for updates.
+
+### Change
+
+Asynchronous decision channel between Mike and AI sessions/orchestrator, mediated through the kanban board. Schema on `tools/kanban/state.json` gains `schema_version: 2` + `semantic_version: 0.2.0` + `x_extensibility_rule` at the root, and each card may now carry an optional `open_questions[]` array. Each question has the shape Mike specified: id (q-NNN), question text, asked_by, asked_date, curated choices (each with id + label + rationale + implication), allow_custom always true, answer fields nulled until answered, interpretation + confirmation fields for the custom-answer-with-orchestrator-interpretation path, follow_up_question_ids[] for refine-spawned sub-questions.
+
+Six server endpoints in `tools/kanban/server.py`: POST `/api/cards/<id>/questions` (add a question), POST `/api/cards/<id>/questions/<qid>/answer` (Mike answers via choice_id or custom_text), POST `/api/cards/<id>/questions/<qid>/interpret` (orchestrator writes interpretation prose for custom answers), POST `/api/cards/<id>/questions/<qid>/confirm-interpretation` (Mike confirms or refines; refine spawns a fresh q-NNN follow-up linked back via follow_up_question_ids), GET `/api/open-questions` (list every unresolved across all cards), GET `/api/cards/<id>/blocked-status` (per-card). All writes go through the existing atomic temp + os.replace pattern. Choice answers resolve immediately and set interpretation_confirmed=true automatically (the choice IS the interpretation); custom answers leave interpretation_confirmed=false until Mike acts on the orchestrator's interpretation.
+
+Five UI surfaces in `tools/kanban/index.html` (~620 lines added across CSS + DOM + JS). Yellow `?N` badge in the top-right corner of every card with open questions, click opens the modal. Subtle pulsing yellow border + light-yellow tint on those cards (CSS-only @keyframes; disabled when a flag is set so flag styling wins). Red `BLOCKED ON QUESTIONS (N)` strip rendered just under card-title on active-column cards with open questions; click also opens the modal. New top banner `<N> question(s) on <M> card(s) awaiting your input` with Review + Dismiss controls. New right-side `#oq-sidebar` parallel to the parked sidebar, lists every open question grouped by card with curated-choice buttons (each carrying rationale + implication on hover and as visible text), custom textarea + Submit, interpretation-pending surface, Confirm + Refine. New `#oq-modal` for one-at-a-time deep-think mode: full card line, the question, every choice with rationale + implication visible (not just hover), custom textarea, Skip + Close + Confirm + Refine. Header gains a Questions <N> button that appears only when count > 0, mirroring the Parked toggle's pattern.
+
+New CLI module at `tools/kanban_evaluator.py` (parallel to `parked_evaluator.py`). Subcommands: `check-active-blocks` returns cards in `active` (or priority-1 in `backlog`) that have unresolved questions, so the daily-flow orchestrator can refuse to spawn worker sessions on them; `interpret-pending` returns custom-answer questions whose interpretation has not been written yet, so the orchestrator's Claude pass can read the queue, apply judgment, and POST interpretations back via the API; `cascade-on-answer --question-id q-NNN` runs the parked-thread cascade when a question's resolution fully unblocks a card (re-uses parked_evaluator.cascade_card_done). Module-level helpers (`list_blocked_cards`, `list_pending_interpretations`, `find_question`) usable as library imports.
+
+Design doc at `context/designs/decision-request-mechanism.md` (599 lines, SENTINEL-terminated). Covers architecture overview, full schema reference (root + card extension + every question field), UI map for all five surfaces, two lifecycle flow diagrams (curated-choice fast path + custom-answer-with-interpretation path), multi-question + park / unpark integration, block-on-active gate semantics including what it does NOT gate (Mike can still drag a blocked card; the orchestrator just refuses to spawn work), full server endpoint reference, CLI integration, daily-flow orchestrator hook points, anti-patterns (questions without rationale; too many choices; should be sub-cards; pointless on done cards; staleness), file layout, explicit non-goals.
+
+### Verification
+
+End-to-end probe at `.claude/scratch/probe-decision-request.py` (gitignored) runs an 8-phase walk of the full mechanism:
+
+1. Capture initial state; assert schema_version=2 + semantic_version=0.2.0 + c121 present + q-001 unanswered.
+2. Launch the server with extended timeouts (KANBAN_IDLE_TIMEOUT_S=120 + KANBAN_STARTUP_GRACE_S=120) so it survives the probe.
+3. GET `/api/open-questions` returns the c121 q-001 entry.
+4. GET `/api/cards/c121/blocked-status` returns blocked=true with q-001.
+5. POST a fresh probe question on c001; assert q-NNN allocated monotonically.
+6. POST a curated answer; assert resolved=true and card unblocks.
+7. POST another fresh probe question on c001, answer with custom_text; assert resolved=false (still blocked); POST interpretation; POST refine spawns a fresh q-NNN follow-up; answer the follow-up; POST confirm-interpretation on the original; assert card_blocked_left=0.
+8. CLI sanity: `kanban_evaluator check-active-blocks` returns the c121 entry; `kanban_evaluator interpret-pending` returns empty (all probe interpretations were either confirmed or were refined-then-answered).
+9. Restore initial state: drop c001's probe artifacts so the kanban shows only c121 q-001 to Mike when he opens the browser. Assert q-001 remains unanswered for the live UX test.
+
+ALL CHECKS PASS on the first run.
+
+Forbidden-construct hygiene: `grep -c em-dash` on every new file returns 0. PowerShell-1252 truncation guard not applicable (no .ps1 files touched).
+
+### Files modified / added
+
+- `tools/kanban/state.json` (+~50 net): schema_version + semantic_version + x_extensibility_rule at root; card c121 added with open_questions[].
+- `tools/kanban/server.py` (+~225 net): decision-request helpers block (`_save_state_atomic`, `_load_state`, `_find_card`, `_next_question_id`, `_utcnow_iso`, `_question_is_resolved`, `_card_blocked_q_ids`, `_find_question`); 2 GET routes (open-questions + blocked-status); 4 POST routes (questions, answer, interpret, confirm-interpretation); docstring updated with the new surface.
+- `tools/kanban/index.html` (+~620 net): decision-request CSS block (pulse keyframe + badge + block-strip + banner + oq-sidebar + oq-modal), header Questions toggle button, banner element, oq-sidebar DOM, oq-modal DOM, buildCard badge + block-strip injection, `questionIsResolved` helper, `loadOpenQuestions` + `refreshOpenQuestionBadge` + `refreshOpenQuestionBanner` + `dismissOpenQuestionsBanner` + `openOpenQuestionsSidebar` + `closeOpenQuestionsSidebar` + `renderOpenQuestionsSidebar` + `buildOpenQuestionRow` + `openOpenQuestionModal` + `populateOpenQuestionModal` + `closeOpenQuestionModal` + `oqModalSkip` + `answerOpenQuestion` + `sidebarConfirmInterpretation` + `confirmOpenQuestionInterpretation` + `refineOpenQuestionInterpretation` + `confirmInterpretationCore`; boot Promise.all extended with `loadOpenQuestions()`.
+- `tools/kanban_evaluator.py` (NEW, ~245 lines): parallel structure to parked_evaluator. Library API (`list_blocked_cards`, `list_pending_interpretations`, `find_question`) plus three CLI subcommands.
+- `context/designs/decision-request-mechanism.md` (NEW, 599 lines, SENTINEL-terminated).
+- `context/tasks.md` (+~30 net): lane 2h entry "Decision-Request Mechanism SHIPPED".
+- `context/session-log.md` (this entry).
+- `.claude/scratch/probe-decision-request.py` (NEW, gitignored): 8-phase end-to-end probe.
+
+### Not in scope
+
+- Daily-flow orchestrator integration: hooks for `check-active-blocks` (step 1 audit + step 4 spawn refusal) and `interpret-pending` (step 2 state-sync) are described in the design doc but not wired into `tools/daily_flow/`. Followup tracked in tasks.md lane 2h.
+- Question staleness threshold (14 days): the design doc references it, but no staleness flagging is implemented in this ship. Daily-flow can layer the surface on top of `/api/open-questions` results.
+- Migration of legacy cards: not needed -- cards without `open_questions` are simply unblocked, identical to legacy behavior.
+
+---
+
 ## Session (`peaceful-babbage-26b748`) - 2026-05-11 - Kanban server self-start + auto-exit on tab close
 
 Standing ask: "I would like for the kanban webpage to start the server itself, and for the server to close if the page closes." The first half (page open -> server up) shipped this morning as c117 / `pedantic-neumann-9732f9`: the Dev Window v2 Open Kanban button TCP-probes 7531, spawns hidden detached python if down, polls for readiness, opens the URL. The remaining half was ephemerality: the server was a permanent background process once started.

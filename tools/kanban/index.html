@@ -327,6 +327,78 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 
 /* Empty-state hint */
 .empty-state{padding:24px 14px;text-align:center;color:#64748b;font-size:0.82rem;font-style:italic}
+
+/* Decision-request mechanism (c121) */
+.card.has-questions{background:#fefce8;animation:questionPulse 3s ease-in-out infinite}
+.card.has-questions.flagged-star,.card.has-questions.flagged-alert,.card.has-questions.flagged-watch{animation:none}
+@keyframes questionPulse{
+  0%,100%{box-shadow:0 1px 3px rgba(0,0,0,0.08),0 0 0 0 rgba(234,179,8,0.0)}
+  50%{box-shadow:0 1px 3px rgba(0,0,0,0.08),0 0 0 3px rgba(234,179,8,0.45)}
+}
+.oq-badge{position:absolute;top:6px;right:30px;height:18px;min-width:22px;padding:0 6px;border-radius:9px;background:#eab308;color:#1e293b;border:none;cursor:pointer;font-size:0.7rem;font-weight:800;line-height:18px;text-align:center;z-index:9;transition:transform 0.1s}
+.oq-badge:hover{transform:scale(1.12)}
+.oq-block-strip{margin-top:6px;padding:3px 8px;background:#ef4444;color:white;border-radius:4px;font-size:0.65rem;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;cursor:pointer;text-align:center}
+.oq-block-strip:hover{background:#dc2626}
+
+#oq-banner{padding:9px 14px;background:linear-gradient(90deg,#a16207 0%,#854d0e 100%);color:#fef9c3;font-size:0.78rem;display:none;align-items:center;gap:10px;flex-shrink:0;border-bottom:2px solid #ca8a04}
+#oq-banner.show{display:flex}
+#oq-banner .oq-banner-title{font-weight:800;letter-spacing:0.04em;text-transform:uppercase;font-size:0.7rem;color:#fef3c7}
+#oq-banner .oq-banner-text{flex:1}
+#oq-banner button{margin-left:auto}
+
+/* Open-questions side panel: piggyback on parked-sidebar but distinct id */
+#oq-sidebar{position:fixed;top:0;right:0;height:100vh;width:380px;background:#0c1426;border-left:1px solid #1e293b;display:none;flex-direction:column;z-index:140;box-shadow:-8px 0 32px rgba(0,0,0,0.4)}
+#oq-sidebar.open{display:flex}
+.oq-sb-head{padding:11px 14px;background:#1e293b;display:flex;align-items:center;gap:8px;border-bottom:1px solid #334155;flex-shrink:0}
+.oq-sb-title{font-size:0.78rem;font-weight:800;color:#fef9c3;letter-spacing:0.06em;text-transform:uppercase}
+.oq-sb-counts{font-size:0.68rem;color:#fef3c7;margin-left:auto}
+.oq-sb-close{background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:2px 8px;font-size:1.1rem;line-height:1}
+.oq-sb-close:hover{color:#fef9c3}
+.oq-sb-list{flex:1;overflow:auto;padding:10px 12px}
+.oq-row{background:#1e293b;border-radius:6px;padding:10px 12px;margin-bottom:10px;border-left:3px solid #eab308}
+.oq-row .oq-row-card{font-size:0.66rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px}
+.oq-row .oq-row-card .oq-cid{color:#fde68a;font-family:ui-monospace,Consolas,monospace;font-weight:700;margin-right:5px}
+.oq-row .oq-row-q{font-size:0.85rem;color:#f1f5f9;line-height:1.4;margin-bottom:8px}
+.oq-row .oq-row-meta{font-size:0.66rem;color:#94a3b8;margin-bottom:8px;font-style:italic}
+.oq-row .oq-choices{display:flex;flex-direction:column;gap:5px;margin-bottom:8px}
+.oq-row .oq-choice{padding:6px 9px;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;cursor:pointer;font-family:inherit;font-size:0.78rem;text-align:left;line-height:1.4;font-weight:600}
+.oq-row .oq-choice:hover{background:#1e3a5f;border-color:#3b82f6}
+.oq-row .oq-choice .oq-cid-letter{display:inline-block;background:#3b82f6;color:white;font-size:0.65rem;font-weight:800;padding:0 6px;border-radius:3px;margin-right:6px;text-transform:uppercase}
+.oq-row .oq-choice .oq-rat{display:block;font-size:0.68rem;color:#94a3b8;font-weight:400;margin-top:3px;font-style:italic}
+.oq-row .oq-choice .oq-impl{display:block;font-size:0.68rem;color:#94a3b8;font-weight:400;margin-top:2px}
+.oq-row .oq-custom-wrap{display:flex;flex-direction:column;gap:5px;margin-top:4px}
+.oq-row .oq-custom-ta{width:100%;padding:6px 8px;background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:5px;font-family:inherit;font-size:0.78rem;resize:vertical;min-height:50px}
+.oq-row .oq-custom-ta:focus{outline:none;border-color:#eab308}
+.oq-row .oq-actions{display:flex;gap:5px;align-items:center;margin-top:6px}
+.oq-row .oq-actions .btn-sm{font-size:0.7rem}
+.oq-row .oq-pending-interp{padding:8px 10px;background:#0f172a;border:1px dashed #f97316;border-radius:5px;margin-top:6px;font-size:0.72rem;color:#fed7aa}
+.oq-row .oq-pending-interp .oq-interp-label{font-size:0.6rem;font-weight:800;color:#f97316;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;display:block}
+.oq-row .oq-pending-interp .oq-interp-body{color:#fef3c7;font-size:0.76rem;line-height:1.4;margin-bottom:6px}
+
+/* Open-questions modal */
+#oq-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);display:none;align-items:center;justify-content:center;z-index:240;padding:16px}
+#oq-modal-overlay.show{display:flex}
+#oq-modal{background:white;color:#1e293b;border-radius:12px;padding:24px;width:100%;max-width:600px;box-shadow:0 24px 64px rgba(0,0,0,0.4);max-height:calc(100vh - 40px);overflow-y:auto}
+#oq-modal h3{font-size:0.95rem;font-weight:700;margin-bottom:5px}
+#oq-modal .oq-modal-cardline{font-size:0.74rem;color:#64748b;margin-bottom:14px}
+#oq-modal .oq-modal-q{font-size:1.04rem;font-weight:600;color:#1e293b;line-height:1.5;margin-bottom:12px;padding:12px 14px;background:#fefce8;border-radius:6px;border-left:3px solid #eab308}
+#oq-modal .oq-modal-meta{font-size:0.7rem;color:#94a3b8;margin-bottom:14px;font-style:italic}
+#oq-modal .oq-modal-choices{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+#oq-modal .oq-modal-choice{padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;cursor:pointer;font-family:inherit;text-align:left;transition:all 0.12s}
+#oq-modal .oq-modal-choice:hover{background:#eff6ff;border-color:#3b82f6}
+#oq-modal .oq-modal-choice .oq-mc-label{font-size:0.88rem;font-weight:700;color:#1e293b}
+#oq-modal .oq-modal-choice .oq-mc-id-letter{display:inline-block;background:#3b82f6;color:white;font-size:0.7rem;font-weight:800;padding:1px 7px;border-radius:4px;margin-right:7px;text-transform:uppercase}
+#oq-modal .oq-modal-choice .oq-mc-rat{display:block;font-size:0.75rem;color:#475569;margin-top:5px;line-height:1.4}
+#oq-modal .oq-modal-choice .oq-mc-impl{display:block;font-size:0.74rem;color:#64748b;margin-top:3px;line-height:1.4;font-style:italic}
+#oq-modal .oq-modal-custom-label{display:block;font-size:0.7rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:5px;margin-top:8px}
+#oq-modal .oq-modal-custom-ta{width:100%;padding:9px 11px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.85rem;font-family:inherit;color:#1e293b;background:white;min-height:75px;resize:vertical}
+#oq-modal .oq-modal-custom-ta:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.15)}
+#oq-modal .oq-modal-pending{margin-top:14px;padding:11px 14px;background:#fff7ed;border:1px dashed #f97316;border-radius:7px}
+#oq-modal .oq-modal-pending .oq-mp-label{font-size:0.7rem;font-weight:800;color:#c2410c;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:5px}
+#oq-modal .oq-modal-pending .oq-mp-custom{font-size:0.82rem;color:#1e293b;margin-bottom:8px;font-style:italic;line-height:1.4}
+#oq-modal .oq-modal-pending .oq-mp-interp{font-size:0.84rem;color:#0c4a6e;background:#e0f2fe;padding:8px 10px;border-radius:5px;line-height:1.45;margin-bottom:9px}
+#oq-modal .oq-modal-actions{display:flex;gap:8px;align-items:center;margin-top:18px;flex-wrap:wrap}
+
 </style>
 </head>
 <body>
@@ -335,6 +407,9 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
   <h1>PD2 Dev Window</h1>
   <span id="save-status"></span>
   <div id="header-right">
+    <button class="sb-toggle" id="oq-toggle-btn" onclick="openOpenQuestionsSidebar()" title="Show open questions awaiting your input" style="display:none">
+      Questions <span class="sb-toggle-badge zero" id="oq-toggle-badge">0</span>
+    </button>
     <button class="sb-toggle" id="sb-toggle-btn" onclick="toggleParkedSidebar()" title="Show/hide parked threads">
       Parked <span class="sb-toggle-badge zero" id="sb-toggle-badge">0</span>
     </button>
@@ -351,6 +426,13 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
   <span id="ready-banner-text"></span>
   <button class="btn btn-primary btn-sm" onclick="openParkedSidebar()">Review</button>
   <button class="btn btn-ghost btn-sm" onclick="dismissReadyBanner()">Dismiss</button>
+</div>
+
+<div id="oq-banner" role="region" aria-label="Open questions awaiting input">
+  <span class="oq-banner-title">Open questions</span>
+  <span id="oq-banner-text" class="oq-banner-text"></span>
+  <button class="btn btn-primary btn-sm" onclick="openOpenQuestionsSidebar()">Review</button>
+  <button class="btn btn-ghost btn-sm" onclick="dismissOpenQuestionsBanner()">Dismiss</button>
 </div>
 
 <div id="df-briefing" class="df-banner" role="region" aria-label="Daily-flow morning briefing">
@@ -419,6 +501,47 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
     </div>
     <div class="sb-list" id="parked-list"></div>
   </aside>
+</div>
+
+<!-- Open-questions side panel -->
+<aside id="oq-sidebar" aria-label="Open questions side panel">
+  <div class="oq-sb-head">
+    <span class="oq-sb-title">Open Questions</span>
+    <span class="oq-sb-counts" id="oq-sb-counts"></span>
+    <button class="oq-sb-close" onclick="closeOpenQuestionsSidebar()" title="Close">&rsaquo;</button>
+  </div>
+  <div class="oq-sb-list" id="oq-sb-list"></div>
+</aside>
+
+<!-- Open-questions modal -->
+<div id="oq-modal-overlay" onclick="if(event.target===this)closeOpenQuestionModal()">
+  <div id="oq-modal">
+    <h3 id="oq-modal-title">Answer question</h3>
+    <div id="oq-modal-cardline" class="oq-modal-cardline"></div>
+    <div id="oq-modal-q" class="oq-modal-q"></div>
+    <div id="oq-modal-meta" class="oq-modal-meta"></div>
+    <div id="oq-modal-choices" class="oq-modal-choices"></div>
+    <div id="oq-modal-custom-wrap">
+      <label class="oq-modal-custom-label">Or write a custom answer</label>
+      <textarea id="oq-modal-custom-ta" class="oq-modal-custom-ta" placeholder="If none of the curated choices fit, type your answer here."></textarea>
+    </div>
+    <div id="oq-modal-pending" class="oq-modal-pending" style="display:none">
+      <div class="oq-mp-label">Awaiting confirmation</div>
+      <div id="oq-modal-pending-custom" class="oq-mp-custom"></div>
+      <div id="oq-modal-pending-interp-wrap" style="display:none">
+        <div class="oq-mp-label" style="margin-top:8px">Orchestrator interpretation</div>
+        <div id="oq-modal-pending-interp" class="oq-mp-interp"></div>
+      </div>
+    </div>
+    <div class="oq-modal-actions">
+      <button class="btn btn-primary btn-sm" id="oq-modal-submit" onclick="submitOpenQuestionAnswer()">Submit custom answer</button>
+      <button class="btn btn-ghost btn-sm" id="oq-modal-confirm" onclick="confirmOpenQuestionInterpretation(true)" style="display:none">Confirm</button>
+      <button class="btn btn-ghost btn-sm" id="oq-modal-refine" onclick="refineOpenQuestionInterpretation()" style="display:none">Refine (add follow-up)</button>
+      <span class="modal-spacer" style="flex:1"></span>
+      <button class="btn btn-ghost btn-sm" onclick="oqModalSkip()">Skip</button>
+      <button class="btn btn-ghost btn-sm" onclick="closeOpenQuestionModal()">Close</button>
+    </div>
+  </div>
 </div>
 
 <!-- Right-click context menu for kanban cards -->
@@ -890,6 +1013,29 @@ function buildCard(card) {
 
     if (expandedCards.has(card.id)) {
       el.appendChild(buildInlineSubtaskList(card));
+    }
+  }
+
+  // Open-questions badge (?N) + card highlight + active-column block strip
+  const unresolvedQs = (card.open_questions || []).filter(q => !questionIsResolved(q));
+  if (unresolvedQs.length > 0) {
+    el.classList.add('has-questions');
+    const qBadge = document.createElement('button');
+    qBadge.className = 'oq-badge';
+    qBadge.textContent = '?' + unresolvedQs.length;
+    qBadge.title = unresolvedQs.length === 1
+      ? unresolvedQs[0].question
+      : `${unresolvedQs.length} questions awaiting your input`;
+    qBadge.onclick = e => { e.stopPropagation(); openOpenQuestionModal(card.id, unresolvedQs[0].id); };
+    el.appendChild(qBadge);
+
+    if (card.column === 'active') {
+      const strip = document.createElement('div');
+      strip.className = 'oq-block-strip';
+      strip.textContent = `BLOCKED ON QUESTIONS (${unresolvedQs.length})`;
+      strip.title = 'Click to answer';
+      strip.onclick = e => { e.stopPropagation(); openOpenQuestionModal(card.id, unresolvedQs[0].id); };
+      el.appendChild(strip);
     }
   }
 
@@ -2072,6 +2218,351 @@ async function confirmPark() {
   setSaveStatus('saved', 'parked'); setTimeout(() => setSaveStatus('', ''), 1500);
 }
 
+// ---------- decision-request mechanism (c121) ----------
+
+let openQuestionsData = null;
+let oqBannerDismissed = false;
+let oqModalCardId = null;
+let oqModalQuestionId = null;
+
+function questionIsResolved(q) {
+  if (!q || !q.answered_date) return false;
+  if (q.answer_type === 'choice') return true;
+  if (q.answer_type === 'custom') return !!q.interpretation_confirmed;
+  return false;
+}
+
+async function loadOpenQuestions() {
+  try {
+    const r = await fetch('/api/open-questions');
+    if (!r.ok) return;
+    openQuestionsData = await r.json();
+    refreshOpenQuestionBadge();
+    refreshOpenQuestionBanner();
+    if (document.getElementById('oq-sidebar').classList.contains('open')) renderOpenQuestionsSidebar();
+  } catch (e) { /* silent */ }
+}
+
+function refreshOpenQuestionBadge() {
+  const btn = document.getElementById('oq-toggle-btn');
+  const badge = document.getElementById('oq-toggle-badge');
+  if (!btn || !badge) return;
+  const count = openQuestionsData ? (openQuestionsData.open_question_count || 0) : 0;
+  if (count > 0) {
+    btn.style.display = '';
+    badge.textContent = String(count);
+    badge.classList.remove('zero');
+    btn.title = `${count} open question${count === 1 ? '' : 's'} awaiting your input`;
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+function refreshOpenQuestionBanner() {
+  const banner = document.getElementById('oq-banner');
+  if (!banner) return;
+  if (oqBannerDismissed) { banner.classList.remove('show'); return; }
+  const blocked = openQuestionsData ? (openQuestionsData.blocked_card_count || 0) : 0;
+  const count = openQuestionsData ? (openQuestionsData.open_question_count || 0) : 0;
+  if (count === 0) { banner.classList.remove('show'); return; }
+  document.getElementById('oq-banner-text').textContent =
+    `${count} question${count === 1 ? '' : 's'} on ${blocked} card${blocked === 1 ? '' : 's'} awaiting your input.`;
+  banner.classList.add('show');
+}
+
+function dismissOpenQuestionsBanner() {
+  oqBannerDismissed = true;
+  document.getElementById('oq-banner').classList.remove('show');
+}
+
+function openOpenQuestionsSidebar() {
+  document.getElementById('oq-sidebar').classList.add('open');
+  renderOpenQuestionsSidebar();
+}
+
+function closeOpenQuestionsSidebar() {
+  document.getElementById('oq-sidebar').classList.remove('open');
+}
+
+function renderOpenQuestionsSidebar() {
+  const list = document.getElementById('oq-sb-list');
+  list.innerHTML = '';
+  const qs = (openQuestionsData && openQuestionsData.questions) || [];
+  const counts = document.getElementById('oq-sb-counts');
+  if (counts) {
+    counts.textContent = `${qs.length} open on ${openQuestionsData ? openQuestionsData.blocked_card_count : 0} card${(openQuestionsData && openQuestionsData.blocked_card_count) === 1 ? '' : 's'}`;
+  }
+  if (qs.length === 0) {
+    list.innerHTML = '<div class="empty-state">No open questions. The board is clear.</div>';
+    return;
+  }
+  // Group by card so multi-question cards show together
+  const groups = new Map();
+  for (const q of qs) {
+    if (!groups.has(q.card_id)) groups.set(q.card_id, []);
+    groups.get(q.card_id).push(q);
+  }
+  for (const [cardId, group] of groups.entries()) {
+    for (const q of group) {
+      list.appendChild(buildOpenQuestionRow(q));
+    }
+  }
+}
+
+function buildOpenQuestionRow(q) {
+  const row = document.createElement('div');
+  row.className = 'oq-row';
+
+  const cardLine = document.createElement('div');
+  cardLine.className = 'oq-row-card';
+  const pillar = pillarById(q.card_pillar);
+  cardLine.innerHTML = `<span class="oq-cid">${escapeHtml(q.card_id)}</span>${escapeHtml(q.card_title)}${pillar ? ' &middot; ' + escapeHtml(pillar.name) : ''}`;
+  row.appendChild(cardLine);
+
+  const qText = document.createElement('div');
+  qText.className = 'oq-row-q'; qText.textContent = q.question;
+  row.appendChild(qText);
+
+  const meta = document.createElement('div');
+  meta.className = 'oq-row-meta';
+  meta.textContent = `asked by ${q.asked_by || 'unknown'} on ${(q.asked_date || '').slice(0, 10)}`;
+  row.appendChild(meta);
+
+  // Pending-interpretation surface trumps choices
+  if (q.needs_confirmation) {
+    const pend = document.createElement('div');
+    pend.className = 'oq-pending-interp';
+    pend.innerHTML =
+      `<span class="oq-interp-label">Your custom answer</span>
+       <div class="oq-interp-body">${escapeHtml(q.custom_text || '')}</div>
+       <span class="oq-interp-label">Orchestrator interpretation</span>
+       <div class="oq-interp-body">${escapeHtml(q.interpretation || '')}</div>`;
+    row.appendChild(pend);
+    const actions = document.createElement('div');
+    actions.className = 'oq-actions';
+    const cBtn = document.createElement('button');
+    cBtn.className = 'btn btn-primary btn-sm';
+    cBtn.textContent = 'Confirm interpretation';
+    cBtn.onclick = () => sidebarConfirmInterpretation(q.card_id, q.question_id);
+    actions.appendChild(cBtn);
+    const rBtn = document.createElement('button');
+    rBtn.className = 'btn btn-ghost btn-sm';
+    rBtn.textContent = 'Refine';
+    rBtn.onclick = () => openOpenQuestionModal(q.card_id, q.question_id);
+    actions.appendChild(rBtn);
+    row.appendChild(actions);
+    return row;
+  }
+
+  if (q.needs_interpretation) {
+    const pend = document.createElement('div');
+    pend.className = 'oq-pending-interp';
+    pend.innerHTML =
+      `<span class="oq-interp-label">Your custom answer (orchestrator interpretation pending)</span>
+       <div class="oq-interp-body">${escapeHtml(q.custom_text || '')}</div>`;
+    row.appendChild(pend);
+    return row;
+  }
+
+  // Curated choices
+  const choices = q.choices || [];
+  if (choices.length > 0) {
+    const wrap = document.createElement('div');
+    wrap.className = 'oq-choices';
+    for (const ch of choices) {
+      const btn = document.createElement('button');
+      btn.className = 'oq-choice';
+      btn.title = (ch.rationale || '') + (ch.implication ? '\n\nImplication: ' + ch.implication : '');
+      btn.innerHTML =
+        `<span class="oq-cid-letter">${escapeHtml(ch.id)}</span>${escapeHtml(ch.label)}` +
+        (ch.rationale ? `<span class="oq-rat">${escapeHtml(ch.rationale)}</span>` : '') +
+        (ch.implication ? `<span class="oq-impl">Implication: ${escapeHtml(ch.implication)}</span>` : '');
+      btn.onclick = () => answerOpenQuestion(q.card_id, q.question_id, ch.id, null);
+      wrap.appendChild(btn);
+    }
+    row.appendChild(wrap);
+  }
+
+  if (q.allow_custom) {
+    const cWrap = document.createElement('div');
+    cWrap.className = 'oq-custom-wrap';
+    const ta = document.createElement('textarea');
+    ta.className = 'oq-custom-ta';
+    ta.placeholder = 'Or write a custom answer';
+    cWrap.appendChild(ta);
+    const actions = document.createElement('div');
+    actions.className = 'oq-actions';
+    const submitBtn = document.createElement('button');
+    submitBtn.className = 'btn btn-primary btn-sm';
+    submitBtn.textContent = 'Submit custom';
+    submitBtn.onclick = () => {
+      const text = ta.value.trim();
+      if (!text) { ta.focus(); return; }
+      answerOpenQuestion(q.card_id, q.question_id, null, text);
+    };
+    actions.appendChild(submitBtn);
+    const openModalBtn = document.createElement('button');
+    openModalBtn.className = 'btn btn-ghost btn-sm';
+    openModalBtn.textContent = 'Open in modal';
+    openModalBtn.onclick = () => openOpenQuestionModal(q.card_id, q.question_id);
+    actions.appendChild(openModalBtn);
+    cWrap.appendChild(actions);
+    row.appendChild(cWrap);
+  }
+  return row;
+}
+
+function openOpenQuestionModal(cardId, questionId) {
+  oqModalCardId = cardId;
+  oqModalQuestionId = questionId;
+  populateOpenQuestionModal();
+  document.getElementById('oq-modal-overlay').classList.add('show');
+}
+
+function populateOpenQuestionModal() {
+  const card = getCard(oqModalCardId);
+  if (!card) return;
+  const q = (card.open_questions || []).find(x => x.id === oqModalQuestionId);
+  if (!q) return;
+  const pillar = pillarById(card.pillar);
+  document.getElementById('oq-modal-title').textContent = 'Decision request';
+  document.getElementById('oq-modal-cardline').innerHTML =
+    `<strong>${escapeHtml(card.id)}</strong> &middot; ${escapeHtml(card.title)}` +
+    (pillar ? ` &middot; <span style="color:${pillar.color}">${escapeHtml(pillar.name)}</span>` : '');
+  document.getElementById('oq-modal-q').textContent = q.question;
+  document.getElementById('oq-modal-meta').textContent =
+    `asked by ${q.asked_by || 'unknown'} on ${(q.asked_date || '').slice(0, 10)}`;
+
+  // choices
+  const cWrap = document.getElementById('oq-modal-choices');
+  cWrap.innerHTML = '';
+  const choices = q.choices || [];
+  for (const ch of choices) {
+    const btn = document.createElement('button');
+    btn.className = 'oq-modal-choice';
+    btn.innerHTML =
+      `<span class="oq-mc-label"><span class="oq-mc-id-letter">${escapeHtml(ch.id)}</span>${escapeHtml(ch.label)}</span>` +
+      (ch.rationale ? `<span class="oq-mc-rat">${escapeHtml(ch.rationale)}</span>` : '') +
+      (ch.implication ? `<span class="oq-mc-impl">Implication: ${escapeHtml(ch.implication)}</span>` : '');
+    btn.onclick = () => {
+      const customNote = document.getElementById('oq-modal-custom-ta').value.trim();
+      answerOpenQuestion(card.id, q.id, ch.id, customNote || null);
+    };
+    cWrap.appendChild(btn);
+  }
+
+  // custom textarea
+  const ta = document.getElementById('oq-modal-custom-ta');
+  ta.value = '';
+  document.getElementById('oq-modal-submit').style.display = q.allow_custom ? '' : 'none';
+  document.getElementById('oq-modal-custom-wrap').style.display = q.allow_custom ? '' : 'none';
+
+  // pending-interpretation surface
+  const pend = document.getElementById('oq-modal-pending');
+  const interpWrap = document.getElementById('oq-modal-pending-interp-wrap');
+  const confirmBtn = document.getElementById('oq-modal-confirm');
+  const refineBtn = document.getElementById('oq-modal-refine');
+  if (q.answer_type === 'custom' && !q.interpretation_confirmed) {
+    pend.style.display = '';
+    document.getElementById('oq-modal-pending-custom').textContent = q.custom_text || '';
+    if (q.interpretation) {
+      interpWrap.style.display = '';
+      document.getElementById('oq-modal-pending-interp').textContent = q.interpretation;
+      confirmBtn.style.display = '';
+      refineBtn.style.display = '';
+      document.getElementById('oq-modal-submit').style.display = 'none';
+      document.getElementById('oq-modal-custom-wrap').style.display = 'none';
+      cWrap.style.display = 'none';
+    } else {
+      interpWrap.style.display = 'none';
+      confirmBtn.style.display = 'none';
+      refineBtn.style.display = 'none';
+    }
+  } else {
+    pend.style.display = 'none';
+    confirmBtn.style.display = 'none';
+    refineBtn.style.display = 'none';
+    cWrap.style.display = '';
+  }
+}
+
+function closeOpenQuestionModal() {
+  document.getElementById('oq-modal-overlay').classList.remove('show');
+  oqModalCardId = null;
+  oqModalQuestionId = null;
+}
+
+function oqModalSkip() {
+  // Find next unresolved question (any card) and open it; if none, close.
+  const qs = (openQuestionsData && openQuestionsData.questions) || [];
+  const idx = qs.findIndex(x => x.card_id === oqModalCardId && x.question_id === oqModalQuestionId);
+  const next = qs[(idx + 1) % qs.length];
+  if (next && (next.card_id !== oqModalCardId || next.question_id !== oqModalQuestionId)) {
+    openOpenQuestionModal(next.card_id, next.question_id);
+  } else {
+    closeOpenQuestionModal();
+  }
+}
+
+async function answerOpenQuestion(cardId, questionId, choiceId, customText) {
+  const body = {};
+  if (choiceId) body.choice_id = choiceId;
+  if (customText) body.custom_text = customText;
+  setSaveStatus('saving', 'submitting...');
+  try {
+    const r = await fetch(`/api/cards/${encodeURIComponent(cardId)}/questions/${encodeURIComponent(questionId)}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const j = await r.json();
+    if (!r.ok) { alert('Answer failed: ' + (j.error || r.statusText)); return; }
+    setSaveStatus('saved', j.resolved ? 'resolved' : 'awaiting interpretation');
+    setTimeout(() => setSaveStatus('', ''), 1800);
+    await Promise.all([loadState(), loadOpenQuestions()]);
+    closeOpenQuestionModal();
+    if (document.getElementById('oq-sidebar').classList.contains('open')) renderOpenQuestionsSidebar();
+  } catch (e) { setSaveStatus('', 'submit failed'); }
+}
+
+async function sidebarConfirmInterpretation(cardId, questionId) {
+  await confirmInterpretationCore(cardId, questionId, true, null);
+}
+
+async function confirmOpenQuestionInterpretation(confirmed) {
+  if (!oqModalCardId || !oqModalQuestionId) return;
+  await confirmInterpretationCore(oqModalCardId, oqModalQuestionId, confirmed, null);
+}
+
+async function refineOpenQuestionInterpretation() {
+  if (!oqModalCardId || !oqModalQuestionId) return;
+  const followQ = window.prompt('Refine: write the follow-up question.\n(Choices can be added later by editing state.json or via API.)');
+  if (!followQ) return;
+  const followText = followQ.trim();
+  if (!followText) return;
+  await confirmInterpretationCore(oqModalCardId, oqModalQuestionId, false, { question: followText, choices: [] });
+}
+
+async function confirmInterpretationCore(cardId, questionId, confirmed, followUp) {
+  const body = { confirmed };
+  if (!confirmed && followUp) body.follow_up = followUp;
+  setSaveStatus('saving', 'submitting...');
+  try {
+    const r = await fetch(`/api/cards/${encodeURIComponent(cardId)}/questions/${encodeURIComponent(questionId)}/confirm-interpretation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const j = await r.json();
+    if (!r.ok) { alert('Failed: ' + (j.error || r.statusText)); return; }
+    setSaveStatus('saved', confirmed ? 'confirmed' : `follow-up ${j.follow_up_id || ''}`);
+    setTimeout(() => setSaveStatus('', ''), 1800);
+    await Promise.all([loadState(), loadOpenQuestions()]);
+    closeOpenQuestionModal();
+    if (document.getElementById('oq-sidebar').classList.contains('open')) renderOpenQuestionsSidebar();
+  } catch (e) { setSaveStatus('', 'submit failed'); }
+}
+
 // ---------- heartbeat (keeps the ephemeral server alive while a tab is open) ----------
 
 const HEARTBEAT_INTERVAL_MS = 5000;
@@ -2111,7 +2602,8 @@ Promise.all([
   loadState(),
   loadParked(),
   loadBugs(),
-  loadBriefing()
+  loadBriefing(),
+  loadOpenQuestions()
 ]).catch(err => {
   document.getElementById('board').innerHTML =
     '<p style="color:#ef4444;padding:20px">Failed to load state: ' + err.message +
