@@ -344,11 +344,31 @@ void menuTick(void)
 	}
 
 	// If a game file hasn't been selected (ie. just powered on),
-	// force the file select menu open
+	// force the file select menu open.
+	//
+	// The cutscene gate (tickmode != TICKMODE_CUTSCENE) makes the menu
+	// wait for the CI intro fly-in to finish in the normal title-sequence
+	// flow. But when --skip-intro / pd.ini SkipIntro=1 bypasses the title
+	// sequence and jumps straight to STAGE_CITRAINING, the AI script's
+	// intro cutscene starts but never ends -- the title-sequence
+	// machinery that would have advanced it is absent. Result: the user
+	// sees a stuck CI cutscene (which renders as dark / black on many
+	// setups because the CI fly-in camera passes through interior
+	// geometry) and the file-select menu never auto-opens. Pressing a
+	// key gets them out manually, but that defeats the "boot to menu"
+	// UX.
+	//
+	// Fix (2026-05-13): add a watchdog. If lvframenum > 300 (5 seconds)
+	// and the cutscene hasn't ended, force-open the file menu anyway.
+	// Normal title-sequence flow ends the CI cutscene well within 5s,
+	// so this only kicks in on the SkipIntro deadlock path.
 	if (g_FileState == FILESTATE_UNSELECTED && g_Vars.stagenum == STAGE_CITRAINING) {
 		g_PlayersWithControl[0] = false;
 
-		if (g_Vars.lvframenum > 30 && g_Vars.tickmode != TICKMODE_CUTSCENE) {
+		const s32 cutscene_watchdog_ready =
+			(g_Vars.tickmode != TICKMODE_CUTSCENE) || (g_Vars.lvframenum > 300);
+
+		if (g_Vars.lvframenum > 30 && cutscene_watchdog_ready) {
 			g_Menus[0].openinhibit = 0;
 			g_Menus[1].openinhibit = 0;
 			g_Menus[2].openinhibit = 0;
