@@ -98,7 +98,18 @@ static swarm_glBindBufferBase_t   s_glBindBufferBase    = NULL;
  * ------------------------------------------------------------------ */
 
 #define SWARM_GPU_LOCAL_X    64
-#define SWARM_GPU_MAX        256       /* must match TESTSCEN_SWARM_MAX_COUNT */
+/* GPU hard cap. CPU side TESTSCEN_SWARM_MAX_COUNT is 4096 but the GPU
+ * pipeline is currently a stub (seek-player only; no bot AI per B-308,
+ * no collision constraints per B-309, no spawn upgrades per B-310, and
+ * B-311 FATAL at the 128-bot cycle). Until those land, the GPU side
+ * caps at 256 so the SSBO + chr->prop pointer array stay bounded.
+ * Audit ref: 2026-05-13-followup-and-migration-sweep.md HF-2. */
+#define SWARM_GPU_MAX        256
+/* Safe operating ceiling below which GPU swarm is known to function
+ * cleanly. Above this, the B-311 FATAL display-list class can fire
+ * during cycle transitions. Logged as a runtime warning so users see
+ * the workaround in-context. */
+#define SWARM_GPU_SAFE_MAX   64
 
 struct boid_record {
 	float px, py, pz, _pad_p;   /* vec4 alignment for std430 */
@@ -303,6 +314,23 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	if (count <= 0)           return;
 	if (count > SWARM_GPU_MAX) count = SWARM_GPU_MAX;
 	if (!ensure_resources())  return;
+
+	/* Rate-limited B-311 warning. The GPU pipeline can crash above
+	 * SWARM_GPU_SAFE_MAX (per bugs.md B-311). Surface the workaround
+	 * in-context instead of letting users discover it via crash. */
+	if (count > SWARM_GPU_SAFE_MAX) {
+		static u32 s_LastWarn = 0;
+		u32 now = SDL_GetTicks();
+		if (now - s_LastWarn > 5000) {
+			s_LastWarn = now;
+			sysLogPrintf(LOG_WARNING,
+				"BENCHMARK.SWARM.GPU: count=%d exceeds safe ceiling %d "
+				"(B-311 GPU compute kernel scaling). Workaround: stay at "
+				"or below %d alive in GPU mode until B-308/B-309/B-310 "
+				"+ B-311 fixes ship.",
+				count, SWARM_GPU_SAFE_MAX, SWARM_GPU_SAFE_MAX);
+		}
+	}
 
 	/* Upload current chr positions into the boid SSBO. CPU is the source
 	 * of truth between frames; the GPU just advances. */

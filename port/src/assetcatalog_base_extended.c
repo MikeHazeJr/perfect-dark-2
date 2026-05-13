@@ -627,8 +627,35 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 		/* The russ table lives in src/lib/snd.c which is client-only.
 		 * Server builds get plain SFX classification for every entry;
 		 * pd-server has no audio runtime and never consults the
-		 * voice/SFX distinction. */
+		 * voice/SFX distinction.
+		 *
+		 * c106 sister fix (2026-05-13): the prior code treated
+		 * g_AudioRussMappings[i] as if i is a leaf SFX index, but the
+		 * russ table is indexed by `confignum` extracted from each
+		 * sound's packed soundnum (per propsnd.c::psGetTheoreticalVolPan
+		 * line 1409-1412 and union soundnumhack in types.h:3484). The
+		 * two index spaces are different. The correct mapping is: walk
+		 * the russ table, decode each entry's packed soundnum to get
+		 * the 11-bit leaf SFX `id`, and flag that index as voice. Then
+		 * during the leaf-SFX seed loop use the bitset instead of the
+		 * raw parallel-array assumption. Identical pattern to the c106
+		 * fix in port/src/romextract_pdsfx.c::s_buildVoiceCache.
+		 *
+		 * Audit ref: context/audits/2026-05-13-followup-and-migration
+		 * -sweep.md MF-2. */
 		const s32 russCount = g_NumAudioRussMappings;
+		u8 voice_cache[NUM_BASE_SFX_ENTRIES];
+		memset(voice_cache, 0, sizeof(voice_cache));
+		for (s32 r = 0; r < russCount; r++) {
+			s32 cfg = (s32)g_AudioRussMappings[r].audioconfig_index;
+			if (!s_audioConfigIsVoice(cfg)) continue;
+			union soundnumhack hack;
+			hack.packed = g_AudioRussMappings[r].soundnum;
+			s32 sfx_idx = (s32)hack.id;
+			if ((u32)sfx_idx < NUM_BASE_SFX_ENTRIES) {
+				voice_cache[sfx_idx] = 1;
+			}
+		}
 #else
 		const s32 russCount = 0;
 #endif
@@ -638,8 +665,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			snprintf(idbuf, sizeof(idbuf), "base:sfx_%04x", i);
 			s32 category = AUDIO_CAT_SFX;
 #if !defined(PD_SERVER)
-			if (i < russCount &&
-				s_audioConfigIsVoice((s32)g_AudioRussMappings[i].audioconfig_index)) {
+			if (voice_cache[i]) {
 				category = AUDIO_CAT_VOICE;
 			}
 #else
