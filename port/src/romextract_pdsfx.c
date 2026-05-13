@@ -213,7 +213,17 @@ static u32 s_offsetFromPointer(void *p)
 /* Pre-build a bitset cache that flags which leaf SFX indices map to
  * a voice audioconfig slot. The russ table has 444 entries (less
  * than the 1545 leaf SFX); flag once at start of walk so the
- * per-sound check is O(1). */
+ * per-sound check is O(1).
+ *
+ * c106 fix (2026-05-13): russ->soundnum is a PACKED bitfield (see
+ * `union soundnumhack` in src/include/types.h:3484). The leaf SFX
+ * bank index is in the 11-bit `id` subfield, NOT the raw s16 value.
+ * Raw values often exceed s16 range (e.g. 0x977a -> -26758 as s16)
+ * and were being rejected by the `sfx_idx >= 0` guard, leaving the
+ * cache all zero. Mike's playtest log showed `pdvoice skipped=1545`
+ * (every sound classified is_voice=0) for this reason. Unpacking via
+ * the union exposes the real leaf index. The audioconfig_index field
+ * is still consulted from the raw struct (it is a normal u16). */
 static void s_buildVoiceCache(u8 *cache, u32 cache_n)
 {
 	memset(cache, 0, cache_n);
@@ -221,8 +231,10 @@ static void s_buildVoiceCache(u8 *cache, u32 cache_n)
 	for (s32 i = 0; i < russ_n; i++) {
 		s32 cfg = (s32)g_AudioRussMappings[i].audioconfig_index;
 		if (!s_audioConfigIsVoice(cfg)) continue;
-		s16 sfx_idx = g_AudioRussMappings[i].soundnum;
-		if (sfx_idx >= 0 && (u32)sfx_idx < cache_n) {
+		union soundnumhack hack;
+		hack.packed = g_AudioRussMappings[i].soundnum;
+		s32 sfx_idx = (s32)hack.id;
+		if ((u32)sfx_idx < cache_n) {
 			cache[sfx_idx] = 1;
 		}
 	}

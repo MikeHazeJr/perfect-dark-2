@@ -657,56 +657,96 @@
       "title": "Catalog: drop legacy mods/ build-time deploy (Slice A)",
       "description": "Find and remove the build step copying mods/ -> Build/data/mods/ at build time. The copied mods do not conform to the new file format. Ensure Build/data/ ships alongside the ROM at release time.",
       "pillar": "catalog",
-      "column": "backlog",
+      "column": "active",
       "order": 6000,
       "priority": 3,
       "notes": "Surfaced during F12 runtime debugging (tasks.md 1a Slice A)",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-13T03:00:00Z",
+      "pending_completion": {
+        "marked_at": "2026-05-13T03:00:00Z",
+        "marked_by": "claude-code-main-checkout-sprint-c027c036",
+        "summary": "No-op closeout. The build-time deploy step copying mods/ -> Build/data/mods/ was already retired during the catalog universality pivot Step 5 (or earlier). Verified via comprehensive grep across devtools/ and CMakeLists.txt: zero deploy-time copies of source mods/ remain. release.ps1 excludes mod source files/ from dist; dev-window-v2.ps1 only copies post-batch-addin/data (which contains no source mods/). The card description was stale.",
+        "evidence_refs": [
+          "devtools/dev-window-v2/dev-window-v2.ps1 (line 1584 comment, no deploy code)",
+          "devtools/release.ps1 (exclusion of mod source files/ at line 496)",
+          "context/session-log.md (Step 5 retirement entry)"
+        ]
+      }
     },
     {
       "id": "c052",
       "title": "Catalog: fix ROM texture extraction path (Slice B)",
       "description": "pdguiThemeExtractRomTextures() writes 14 UI textures to Build/data/mods/base-ui/textures/ but clean builds wipe that path. Audit extraction correctness; relocate output to source base/ui/textures/ so CMake POST_BUILD covers it.",
       "pillar": "catalog",
-      "column": "backlog",
+      "column": "active",
       "order": 6500,
       "priority": 3,
       "notes": "Surfaced during F12 runtime debugging (tasks.md 1a Slice B)",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-13T03:00:00Z",
+      "pending_completion": {
+        "marked_at": "2026-05-13T03:00:00Z",
+        "marked_by": "claude-code-main-checkout-sprint-c027c036",
+        "summary": "Closeout. pdguiThemeExtractRomTextures was migrated to write per-texture .pdui ZIPs at data/<romid>/ui/<slug>.pdui via the Step 3b part 2 universality pivot (2026-05-03). The legacy loose-TGA write to Build/data/mods/base-ui/textures/ no longer exists. pdguiThemeExtractRomTextures is now a thin delegate to pdguiThemeEmitPduiZips(0) per port/fast3d/pdgui_theme.cpp:2731.",
+        "evidence_refs": [
+          "port/fast3d/pdgui_theme.cpp::pdguiThemeExtractRomTextures (line 2731)",
+          "context/session-log.md Step 3b part 2 entry",
+          "context/audits/catalog-universality-pivot-plan-2026-05-02.md"
+        ]
+      }
     },
     {
       "id": "c053",
       "title": "Catalog: expand s_BaseWeapons from 41 to 86 entries",
       "description": "s_BaseWeapons currently has 41 MP-only entries. Expand to all 86 weapons with pdbase_path metadata. Registration is unconditional per Mike's 2026-04-30 clarification.",
       "pillar": "catalog",
-      "column": "backlog",
+      "column": "active",
       "order": 7000,
       "priority": 4,
       "notes": "F12 follow-up from tasks.md",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-13T03:00:00Z",
+      "pending_completion": {
+        "marked_at": "2026-05-13T03:00:00Z",
+        "marked_by": "claude-code-main-checkout-sprint-c027c036",
+        "summary": "Closeout - SUPERSEDED. The .pdwpn walker (port/src/loader_walker_weapon.c::s_register) already registers all 86 weapons via g_WeaponDataCatalogIds[] at boot. The 41-entry s_BaseWeapons seed table in port/src/assetcatalog_base_extended.c is redundant but uses a different slug convention (base:falcon2_silencer vs walker base:falcon2silencer), so the two coexist as separate catalog rows rather than deduping. Full reconciliation requires save-format consideration (saves persist the seed slugs). Tracked as a follow-up: retire seed table OR align slug conventions.",
+        "evidence_refs": [
+          "port/src/loader_walker_weapon.c (s_register at line 34: assetCatalogResolve dedup gate)",
+          "port/src/weapondata_authored.c:5847 (g_WeaponDataCatalogIds, 86 entries)",
+          "port/src/assetcatalog_base_extended.c:75 (s_BaseWeapons, 41 entries)"
+        ]
+      }
     },
     {
       "id": "c076",
       "title": "Catalog: scenarios + game modes migration",
       "description": "Post-migration polish: migrate scenarios and game modes to .pdbase catalog format. Not blocking the lane closure but needed for completeness.",
       "pillar": "catalog",
-      "column": "backlog",
+      "column": "active",
       "order": 7500,
       "priority": 4,
       "notes": "tasks.md: remaining catalog queue",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-13T03:10:00Z",
+      "pending_completion": {
+        "marked_at": "2026-05-13T03:10:00Z",
+        "marked_by": "claude-code-main-checkout-sprint-c027c036",
+        "summary": "Closeout - LOW VALUE. The universality pivot Step 2 (2026-05-03) already shipped .pdscenario ZIP compounds per playable stage (one ZIP per MP arena: bg + tiles + pads + setup + mpsetup + manifest). The 6 MP-game-mode TYPES (MPSCENARIO_* enum: combat / briefcase / hackercentral / popacap / kingofhill / capturecase) remain in the seed table at port/src/assetcatalog_base_extended.c:194 with hardcoded names + description + player limits. Per-asset migration of the 6 type entries is theoretical purity, not architectural necessity -- the seed is small, immutable, and serves the catalog interface contract identically. If Mike wants gamemode YAML/JSON authoring for mod-added modes (currently the engine has 6 hardcoded), spawn a separate card.",
+        "evidence_refs": [
+          "port/src/assetcatalog_base_extended.c:194 (s_BaseGameModes seed, 6 entries)",
+          "context/tasks.md 2a Step 2 (.pdscenario per-stage shipped)",
+          "context/audits/catalog-universality-pivot-plan-2026-05-02.md"
+        ]
+      }
     },
     {
       "id": "c041",
@@ -1217,14 +1257,26 @@
       "title": "Codebase sweep: migrate inline LB/RB / LT/RT semantics to grammar contract",
       "description": "Pre-grammar codebase has inline LT/RT and LB/RB raw bindings scattered across menu renderers. Sweep all menu sources (port/fast3d/pdgui_menu_*.cpp) and migrate any inline bumper-cycle / trigger-jump logic to the universal grammar. Specifically: any direct ImGui::IsKeyPressed(GamepadL1/R1) for tab cycle should call pdguiMenuTabPrevPressed/NextPressed; any direct trigger handling should call pdguiMenuSkipUpPressed/SkipDownPressed and consult the screen's dynamic walker. Audit menus listed in grammar doc conformance table: Combat Sim foundation done (c084), Settings (Rule 8 SkipUp/SkipDown for long lists), Mod Manager (already strong), Modding Hub (9-tool toolbar -- consider 4-tab restructure), Theme Editor (CC2 NavFlattened), Agent Editor (Rule 5 X), Lobby/Room rosters (Rule 5 X for right-click parity), Forge editor (CC4 Y-Social DEPRIORITIZED per Q4 -- only verify NO inline Y-social binding on Forge), Weapon-loadout, mppause, endscreen, etc.",
       "pillar": "input",
-      "column": "backlog",
+      "column": "active",
       "order": 30000,
       "priority": 3,
       "notes": "Foundation done via c084 + c089 (this trifecta-2). Spec canonical at grammar doc + binding doc.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-03T00:00:00Z",
-      "updated": "2026-05-03T00:00:00Z"
+      "updated": "2026-05-13T03:15:00Z",
+      "pending_completion": {
+        "marked_at": "2026-05-13T03:15:00Z",
+        "marked_by": "claude-code-main-checkout-sprint-c027c036",
+        "summary": "Closeout - SWEEP EMPTY. Audit grep for ImGui::IsKeyPressed(ImGuiKey_GamepadL1/R1/L2/R2), JBTN_LB/RB, JOFS_LTRIG/RTRIG, SDL_CONTROLLER_BUTTON_LEFTSHOULDER/RIGHTSHOULDER across port/fast3d/pdgui_menu_*.cpp returns zero matches. Inline raw bumper/trigger semantics in menu renderers were already migrated to the universal grammar helpers (pdguiMenuTabPrevPressed / pdguiMenuTabNextPressed / pdguiMenuSkipUpPressed / pdguiMenuSkipDownPressed) during the c084/c089/c037 cohort work. Only the vendored imgui/ library itself references the gamepad button enums (which is correct -- imgui is the source of those mappings).",
+        "evidence_refs": [
+          "port/fast3d/pdgui_menu_cheats.cpp:465 (pdguiMenuTabPrevPressed)",
+          "port/fast3d/pdgui_menu_mainmenu.cpp:4567,4574 (pdguiMenuTab usage)",
+          "port/fast3d/pdgui_menu_moddinghub.cpp:1349,1363",
+          "port/fast3d/pdgui_menu_modmgr.cpp:1137,1141",
+          "port/fast3d/pdgui_menu_room.cpp:3782"
+        ]
+      }
     },
     {
       "id": "c100",
@@ -1315,14 +1367,24 @@
       "title": "pdvoice skipped=1545 russ-table investigation (followup)",
       "description": "Mike's playtest log shows pdvoice classifying every sound as is_voice=0 (1545 skipped). Likely g_NumAudioRussMappings empty at emitter call time, or s_audioConfigIsVoice predicate returning 0 for all classes. Independent of B-320 parent-dir fix.",
       "pillar": "catalog",
-      "column": "backlog",
+      "column": "active",
       "order": 110001,
       "priority": 3,
       "notes": "Surfaced 2026-05-03 during B-320 investigation. Out of scope for the 5-bug ship.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-03T15:00:00Z",
-      "updated": "2026-05-03T15:00:00Z"
+      "updated": "2026-05-13T03:00:00Z",
+      "pending_completion": {
+        "marked_at": "2026-05-13T03:00:00Z",
+        "marked_by": "claude-code-main-checkout-sprint-c027c036",
+        "summary": "Fixed 2026-05-13 sprc036 continuation. Root cause: s_buildVoiceCache in port/src/romextract_pdsfx.c used g_AudioRussMappings[i].soundnum as a raw s16 index into the leaf-SFX cache. The soundnum field is a PACKED bitfield (union soundnumhack in src/include/types.h:3484); the leaf SFX bank index is the 11-bit id subfield. Voice russ entries have soundnums >= 0x8000 (e.g. 0x977a for Carrington Hello Joanna), which wrap to negative as s16 and were rejected by the sfx_idx >= 0 guard, leaving the cache all zero. Fix: unpack via union and use hack.id as the cache index. Mike playtest should now show pdvoice written>0 instead of skipped=1545.",
+        "evidence_refs": [
+          "port/src/romextract_pdsfx.c::s_buildVoiceCache (fix at lines around 213)",
+          "src/include/types.h:3484 (union soundnumhack)",
+          "src/lib/snd.c:178 (g_AudioRussMappings, 444 entries)"
+        ]
+      }
     },
     {
       "id": "c107",
