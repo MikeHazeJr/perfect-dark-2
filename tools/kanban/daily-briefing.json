@@ -62,4 +62,6 @@
   ],
   "daily_log_path": "context/daily-logs/2026-05-13.md",
   "decisions_allocated": [],
-  "x_failure_point":
+  "x_failure_point": null,
+  "x_compaction_quality_review": false
+}
