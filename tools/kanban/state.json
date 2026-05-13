@@ -489,11 +489,11 @@
       "column": "active",
       "order": 3000,
       "priority": 2,
-      "notes": "B-307 open in bugs.md",
+      "notes": "B-307 open in bugs.md  HF-3 in 2026-05-13 audit: still open. Needs debug build with SEH stack capture to isolate.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-13T16:00:00Z"
     },
     {
       "id": "c030",
@@ -517,12 +517,12 @@
       "column": "active",
       "order": 1000,
       "priority": 2,
-      "notes": "Design ref: designs/input/input-universality-and-transitions.md. Sprint sprc036 7-of-8 ship in main-checkout 2026-05-12. Files touched (continuation slice): port/include/input.h (3 new VK_CHORD_*), port/include/actionmap.h (9 new ACTION_*), port/src/actionmap.cpp (chord detection + display + 10 default bindings + VKL_F* aliases), port/include/pdgui.h, port/fast3d/pdgui_spectator.cpp, port/src/inputlayer.c, port/src/pdsched.c (consumer block + chord-driven debug actions), port/fast3d/gfx_sdl2.cpp (gfxFullscreenToggle wrapper + all raw handlers removed), port/fast3d/gfx_sdl.h, port/fast3d/pdgui_backend.cpp (all 10 raw F-key blocks removed), port/src/input.c (s036-04 narrow), tests/test_right_stick_scroll.cpp, tests/test_vehicle_observer_layer.cpp. Build verify 3-target clean (client 55.6 / server 22.4 / tests 24.7 MB).",
+      "notes": "Design ref: designs/input/input-universality-and-transitions.md. Sprint sprc036 7-of-8 ship in main-checkout 2026-05-12. Files touched (continuation slice): port/include/input.h (3 new VK_CHORD_*), port/include/actionmap.h (9 new ACTION_*), port/src/actionmap.cpp (chord detection + display + 10 default bindings + VKL_F* aliases), port/include/pdgui.h, port/fast3d/pdgui_spectator.cpp, port/src/inputlayer.c, port/src/pdsched.c (consumer block + chord-driven debug actions), port/fast3d/gfx_sdl2.cpp (gfxFullscreenToggle wrapper + all raw handlers removed), port/fast3d/gfx_sdl.h, port/fast3d/pdgui_backend.cpp (all 10 raw F-key blocks removed), port/src/input.c (s036-04 narrow), tests/test_right_stick_scroll.cpp, tests/test_vehicle_observer_layer.cpp. Build verify 3-target clean (client 55.6 / server 22.4 / tests 24.7 MB).  LF-1 in 2026-05-13 audit: 7-of-8 subtasks done; s036-08 menu graph is the remaining multi-session lane (35 raw call sites, ~2-4 edges per session).",
       "flag": null,
       "flagged_at": null,
       "pending_completion": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-12T22:30:00Z",
+      "updated": "2026-05-13T16:00:00Z",
       "subtasks": [
         {
           "id": "s036-01",
@@ -604,11 +604,11 @@
       "column": "backlog",
       "order": 3000,
       "priority": 3,
-      "notes": "B-308 open in bugs.md",
+      "notes": "B-308 open in bugs.md  HF-1 in 2026-05-13 audit: multi-session lane, gated on Mike's 4 design calls per Phase 2 design doc.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-13T16:00:00Z"
     },
     {
       "id": "c032",
@@ -618,11 +618,11 @@
       "column": "backlog",
       "order": 4000,
       "priority": 3,
-      "notes": "B-309 open in bugs.md",
+      "notes": "B-309 open in bugs.md  HF-1 in 2026-05-13 audit: same gating as c031.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-13T16:00:00Z"
     },
     {
       "id": "c033",
@@ -632,11 +632,11 @@
       "column": "backlog",
       "order": 5000,
       "priority": 3,
-      "notes": "B-310 open in bugs.md",
+      "notes": "B-310 open in bugs.md  HF-1 in 2026-05-13 audit: same gating as c031.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-13T16:00:00Z"
     },
     {
       "id": "c080",
@@ -646,11 +646,11 @@
       "column": "backlog",
       "order": 5500,
       "priority": 3,
-      "notes": "B-311 open in bugs.md",
+      "notes": "B-311 open in bugs.md  HF-1 in 2026-05-13 audit: same root-cause class as B-308/B-309/B-310. SWARM_GPU_SAFE_MAX warning shipped at c129 as a same-day workaround until the underlying GPU compute kernel migration lands.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-13T16:00:00Z"
     },
     {
       "id": "c051",
@@ -1789,12 +1789,12 @@
       "order": 1000,
       "priority": 3,
       "description": "Slices 1+2 (chr-struct plumbing + visual tilt) shipped at dev 0d08b4cc. Slice 3 (MP sync) shipped at dev ae705aa6. Slices 4 (gravity-flip on edge transitions) and 5 (aim projection through world space) deferred pending Mike's playtest gate on the foundation. Slice 6 (GPU parity in compute kernel) remains deferred to gpu-swarm-bot-pipeline scope.",
-      "notes": "",
+      "notes": " MF-3 in 2026-05-13 audit: Slices 1-3 shipped + v47 wire bump; Slices 4-5 + Slice 6 (GPU parity) deferred pending Mike's playtest gate.",
       "subtasks": [],
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-01",
-      "updated": "2026-05-12"
+      "updated": "2026-05-13T16:00:00Z"
     },
     {
       "id": "c3746",
@@ -1897,6 +1897,20 @@
           "context/audits/2026-05-13-followup-and-migration-sweep.md HF-2"
         ]
       }
+    },
+    {
+      "id": "c130",
+      "title": "Daily-flow orchestrator: stale .git/HEAD.lock hardening",
+      "description": "The daily-flow orchestrator (c118) runs at 06:00 daily. Observed 2026-05-13 to leave .git/HEAD.lock behind after a transient error -- the lock was still present at 09:40, ~3.5 hours stale, blocking subsequent sessions from committing until manually removed. Wrap git operations in try/finally that removes stale locks on its own crash; or surface a watchdog that detects stale locks and cleans them up.",
+      "pillar": "tooling",
+      "column": "backlog",
+      "order": 163000,
+      "priority": 3,
+      "notes": "Surfaced by 2026-05-13 super-audit (MS-1). Estimate 30 min. Files: tools/daily_flow/orchestrator.py + possibly a pre-run lock-staleness check.",
+      "flag": null,
+      "flagged_at": null,
+      "created": "2026-05-13T16:00:00Z",
+      "updated": "2026-05-13T16:00:00Z"
     }
   ]
 }
