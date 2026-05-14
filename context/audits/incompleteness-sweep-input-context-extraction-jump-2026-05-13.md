@@ -11,7 +11,7 @@ Status: published; awaiting Mike's prioritisation pass.
 
 Four investigation tracks were run in parallel against the current dev tip (HEAD `4080cea3`, post c036 s036-08 slice). Each track was tasked with finding incomplete work; each returned file:line evidence and a severity grade. The headline findings:
 
-1. **Input pillar is structurally clean.** No raw-input call sites remain outside documented bypass seams. The only large open lane is **s036-08 menu graph completion** with **~75 remaining raw `menuPopDialog()` / `menuPushDialog()` sites** (the 2026-05-13 audit's "~35" undercount; my line-anchored grep finds more). 15-25+ sessions at the documented 2-4-edges-per-session cadence to finish. The `gameplayInputSuppressed()` predicate is still a transitional wrapper pending verification playtest. Two ledger-hygiene items (B-298, B-195) are closed in code but not closed in `bugs.md`.
+1. **Input pillar is structurally clean.** No raw-input call sites remain outside documented bypass seams. The only large open lane is **s036-08 menu graph completion** with **~75 remaining raw `menuPopDialog()` / `menuPushDialog()` sites** (the 2026-05-13 audit's "~35" undercount; my line-anchored grep finds more). 15-25+ sessions at the documented 2-4-edges-per-session cadence to finish. The `gameplayInputSuppressed()` predicate is still a transitional wrapper pending verification playtest. One ledger-hygiene item: **B-298** (vehicle IMC consumers) is closed in code (`src/game/bondbike.c:236-272`, Phase 2 fix #4) but still labeled OPEN in `bugs.md:43`. (Audit-v1 also flagged "B-195 forge editor leak" -- correction: B-195 is actually a separate Complex stage overflow fix; the historical "B-195 leak class" tag in code comments and warning strings refers to a generalised input-focus leak class whose ledger entries are B-196 (WASD-after-menu-close, FIXED 2026-04-19) and B-302 (forge toggle + focus, FIXED-PENDING-PLAYTEST 2026-05-01) -- both correctly labeled, no ledger drift.)
 
 2. **Context system has systemic retention drift.** Nine of eleven pillar docs are 13+ days stale (last touched 2026-04-30 rebuild); `context/README.md`'s "Live state at a glance" cites wire protocol v46 when live is v47, build v0.0.175+ when live is v0.0.197+, and a critical path that has been complete for 10+ days. 19 audits sit beyond the 14-day retention window. `bugs.md` has 90+ `FIXED-PENDING-PLAYTEST` entries that should have been promoted to `FIXED` with commit SHAs. The `.claude/sprint-reports/archive/` directory does not exist -- a small but real orchestrator-flow hole. **HIGH severity** for README drift; **MED** for the rest. Fixable in one focused retention-pass session.
 
@@ -28,7 +28,7 @@ Four investigation tracks were run in parallel against the current dev tip (HEAD
 | 3 | **Modder accessibility decoders** -- ship at least `.pdmesh` → `.gltf`/`.obj` + `.pdsfx`/`.pdvoice` → `.wav` (with ALADPCMBook embedded in manifest). Per asset kind; can ship one at a time. Also add `.pdtex` emitter for non-UI textures. | 3-5 sessions | modding |
 | 4 | **In-game `.pdmod` packer UI** -- expose `modpackPdmodFromFolder` in Modding Hub so users can pack a folder of `.pd<ext>` into a valid `.pdmod` from inside the game. Today only reachable via auto-migration code path. | 1 session | modding |
 | 5 | **Menu graph s036-08 continuation** -- continue 2-4 edges/session. 75 sites remaining. Top targets by hot-path frequency: `pdgui_menu_solomission.cpp` (15 sites), `pdgui_menu_cheats.cpp` (9 sites), `pdgui_menu_mainmenu.cpp` (4 sites). Defer `pdgui_menu_training.cpp` (35 sites; static flow, low hot-path value). | 15-25 sessions | input |
-| 6 | **Ledger-hygiene close-outs** -- mark B-298 (vehicle IMC, fixed in bondbike.c) and B-195 (forge editor focus leak, architecturally closed via g_CtxForgeEditor) as FIXED-PENDING-PLAYTEST with their actual commit SHAs. | 30 min | bugs |
+| 6 | **Ledger-hygiene close-out** -- mark B-298 (vehicle IMC, fixed in `src/game/bondbike.c:236-272` Phase 2 fix #4) as FIXED-PENDING-PLAYTEST with its actual commit SHA. Confirm B-196 and B-302 are still correctly labeled (no action expected; just verify against today's state). | 30 min | bugs |
 | 7 | **Diagnose c038 wall-jump glitch.** Now that the structural cause is known (jump uses cdTestVolume substrate; rendered tris with no WALL-flagged tile pass through), file as B-NNN, re-pillar from "vehicles" to "physics-collision", attach action item 2 as the fix shape. | 30 min ledger | bugs |
 | 8 | **`gameplayInputSuppressed()` retirement playtest** -- per L.59, retire the transitional wrapper once verification passes. Schedule the playtest checkpoint Mike committed to in L.59 (mission transitions, cutscene skip/continue, menus, vehicle, observer/freefly, focus loss/regain). | 1 playtest + 1 session | input |
 
@@ -111,9 +111,18 @@ Per L.59 (2026-04-28): explicitly retained as transitional wrapper "until verifi
 
 `context/bugs.md:43` still lists B-298 as **OPEN** as of 2026-05-01 entry; audit `2026-05-08-full.md:44` carries it forward as "still deferred". Severity: **LOW** (ledger drift only).
 
-### 1.7 B-195 (ImGui WantCaptureKeyboard leak in forge editor) -- closed
+### 1.7 Forge editor input-focus leak class -- closed (correction to audit-v1)
 
-`port/src/inputctx.c:917-933` introduces `g_CtxForgeEditor` (Phase 2 fix #9 "B-195 architectural close") -- hybrid context with visible cursor + ImGui kbd claim but gameplay-axis passthrough. Defensive `pdguiClearImGuiFocusAndNav()` on push/pop. Diagnostic warning at `pdgui_backend.cpp:1439-1456` rate-limits to 1/sec and remains as a leak-class tripwire. B-302 fix (2026-05-01) also dialed in editor-visible promotion. Severity: LOW.
+**Correction note**: audit-v1 cited "B-195" as the forge editor focus leak ledger entry. Live `context/bugs.md:149` shows B-195 is actually a separate HIGH bug ("FATAL: overflow when trying to preprocess a bg room", Complex stage `preprocessBgRoom` 8× scratch buffer fix). The historical "B-195 leak class" tag persists in code comments and a rate-limited `pdguiProcessEvent` warning string per B-196's note ("WARNING text retains the B-195 tag from the original filing -- harmless, just a bug-id mismatch in the log string").
+
+The actual ledger entries for the input-focus leak class:
+
+- **B-196** (`bugs.md:148`): WASD/Space stuck after menu close. **FIXED -- PLAYTEST CONFIRMED 2026-04-19** (`brave-bouman-13bd68`). Introduced `pdguiClearImGuiFocusAndNav()` helper in `port/fast3d/pdgui_backend.cpp` + `imguiMenuOnPop` invocation in `port/src/inputctx.c`. Diagnostic warning retains the historical "B-195" tag.
+- **B-302** (`bugs.md:39`): Grid editor toggle visibility + focus leak. **FIXED-PENDING-PLAYTEST 2026-05-01** (S594, `infallible-mestorf-8463b9`). Promoted `s_SidebarVisible` -> `s_EditorVisible`, gated the entire `pdguiForgeEditorRender` body, added defensive `pdguiClearImGuiFocusAndNav()` calls in `forgeTransitionToNormal` / `forgeTransitionToInactive`.
+
+`port/src/inputctx.c:917-933` does introduce `g_CtxForgeEditor` (hybrid context with visible cursor + ImGui kbd claim but gameplay-axis passthrough); comment may reference "B-195 architectural close" as a historical tag.
+
+Both B-196 and B-302 are correctly labeled in the ledger. **No drift.** Severity: LOW.
 
 ### 1.8 c086 + c081 cards
 
@@ -127,7 +136,7 @@ Pillar is in good shape. Biggest open lanes:
 1. Menu graph completion (75 raw sites; multi-session).
 2. `gameplayInputSuppressed()` transitional wrapper retirement (awaiting playtest verification).
 
-Two ledger hygiene items (B-298, B-195) are documentation-only.
+One ledger hygiene item: B-298 closed in code but still labeled OPEN in `bugs.md`. (Audit-v1 incorrectly added B-195; that was a bug-id confusion -- corrected in section 1.7.)
 
 ---
 
