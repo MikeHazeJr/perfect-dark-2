@@ -65,6 +65,11 @@
       "id": "engine",
       "name": "Engine",
       "color": "#6366f1"
+    },
+    {
+      "id": "physics-collision",
+      "name": "Physics-collision",
+      "color": "#0ea5e9"
     }
   ],
   "columns": [
@@ -1064,17 +1069,17 @@
     },
     {
       "id": "c038",
-      "title": "Vehicles: wall-jump glitch (deferred)",
-      "description": "Wall-jump glitch: deferred, not on critical path.",
-      "pillar": "vehicles",
+      "title": "Physics-collision: wall-jump glitch (two-stage capsule sweep design landed)",
+      "description": "Jump sweep uses cdTestVolume substrate (flagged tiles + AABB props + chr cylinders); rendered display-list triangles without WALL-flagged tiles pass through. Two-stage upgrade designed at context/designs/physics-collision/jump-two-stage-sweep.md (2026-05-13). Implementation deferred pending Mike's approval of the design.",
+      "pillar": "physics-collision",
       "column": "backlog",
       "order": 21000,
-      "priority": 5,
+      "priority": 3,
       "notes": "",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-14T02:28:26Z"
     },
     {
       "id": "c081",
