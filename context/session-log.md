@@ -30,7 +30,7 @@ Continuation of s036-08 menu graph completion in the main checkout. Per LF-1 in 
 - `context/designs/input/input-universality-and-transitions.md` (L.60 entry)
 - `tools/kanban/state.json` (c036 / s036-08 notes)
 - `context/session-log.md` (this entry)
-- `.claude/sprint-reports/sprint-2026-05-14T013130.md` (sprint report)
+- `.claude/sprint-reports/sprint-2026-05-14T013236.md` (sprint report)
 
 ### Outstanding for s036-08
 
