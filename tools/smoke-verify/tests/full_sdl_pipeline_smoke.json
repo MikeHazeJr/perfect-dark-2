@@ -1,0 +1,64 @@
+{
+  "scenario_name": "full_sdl_pipeline_smoke",
+  "description": "c115 input-pillar coverage: drives the FULL SDL -> ImGui -> actionmap -> menugraph pipeline using real key events only (no action injection). Sister tests (mp_room_flow, mission_intro_flow, vehicle_flow) use action-injection to bypass focus / windowID concerns; this test deliberately exercises smokePushKey + windowID stamping (iter-2 follow-up 7531cece) + ImGui SDL2 backend forwarding + actionmap fireVk dispatch + menugraph edge fire. Boots via --launch-mp-room base:arena_mp_felicity base:combat 4 --main-menu; --main-menu arms g_PostExitMainMenuView=0 so main_menu auto-opens at ~13s, before the agent_select dialog can gate the screen. The test then drives: Return on main_menu (proves Return reaches actionmap as ACTION_USE; main_menu row 0 = Solo Play push, which triggers MENUPOOL release/acquire churn around 13.44s as evidence the Return was consumed), Down/Up arrows (drive ImGui nav cursor; no edge expected from cursor motion, only confirms smokePushKey gets to the SDL queue with correct scancode), Escape (CANCEL trigger=25 -> MENU.GRAPH.FIRE source=main_menu edge=close ok=1 -- the canonical full-pipeline assertion). Failure of any required_lines pattern indicates a regression in the SDL -> ImGui -> actionmap -> menugraph chain (e.g., windowID gate dropping events, ImGui backend mis-routing, actionmap VK -> action mapping breaking, or menugraph dispatcher failing).",
+  "tags": ["menu", "input", "smoke", "pillar:input"],
+  "paths_of_interest": [
+    "port/src/smoke_harness.c",
+    "port/src/actionmap.cpp",
+    "port/src/inputctx.c",
+    "port/src/menugraph.c",
+    "port/fast3d/imgui/imgui_impl_sdl2.cpp",
+    "port/fast3d/pdgui_backend.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "4",
+    "--main-menu"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot path: --launch-mp-room seeds g_MatchConfig + 4 bots; --main-menu arms g_PostExitMainMenuView=0 so main_menu auto-opens at ~13.2s with cursor on row 0 (Solo Play). agent_select dialog is bypassed by the --main-menu arm in this flow (it only appears later if the user backs out of main_menu)." },
+    { "at_ms": 13800, "type": "key", "key": "Return", "action": "tap", "comment": "main_menu row 0 (Solo Play) accept. Drives FULL pipeline: smokePushKey -> SDL_PushEvent windowID stamped -> imgui_impl_sdl2 windowID gate passes -> pdguiProcessEvent -> actionmapDispatch fireVk scancode 40 -> action=ACTION_USE (trigger=24). The Solo Play push routes through legacy menuhandler (not menugraph dispatcher), so MENU.GRAPH.FIRE may or may not log for this transition; the assertion target is the MENUPOOL release/acquire churn that proves the Return was consumed downstream." },
+    { "at_ms": 18000, "type": "key", "key": "Down",   "action": "tap", "comment": "Down arrow moves ImGui nav cursor row 0 -> row 1 in whatever submenu Solo Play pushed. Edge does NOT fire on cursor motion (only on accept), so the assertion target here is the SMOKE: tap-press scancode=81 marker (proves arrow keys reach the harness queue with correct scancode)." },
+    { "at_ms": 19000, "type": "key", "key": "Down",   "action": "tap", "comment": "Down again -> row 2." },
+    { "at_ms": 20000, "type": "key", "key": "Up",     "action": "tap", "comment": "Up back to row 1 -- exercises the inverse arrow path (scancode=82)." },
+    { "at_ms": 22000, "type": "key", "key": "Escape", "action": "tap", "comment": "main_menu close: Escape -> ACTION_CANCEL_USE (trigger=25) -> MENU.GRAPH.FIRE source=main_menu edge=close trigger=25 dest=pop_to_root. This IS the canonical full-pipeline assertion -- if the SDL -> ImGui -> actionmap -> menugraph chain is healthy, this exact line fires. If the chain is broken anywhere, this line is missing and the test fails." },
+    { "at_ms": 26000, "type": "wait", "comment": "settle for the deferred imgui_menu pop after Escape so INPUTCTX: imgui_menu on_pop fires before the scripted exit." },
+    { "at_ms": 28000, "type": "exit", "comment": "scripted exit -- locks in regression coverage of the full SDL key pipeline through the Escape -> CANCEL -> menugraph close edge." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=full_sdl_pipeline_smoke timeout_ms=\\d+ events=\\d+",
+      "Asset Catalog: \\d+ entries registered",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "BOOT: --launch-mp-room arena='base:arena_mp_felicity'",
+      "BOOT: --main-menu armed",
+      "INPUTCTX: imgui_menu on_push -- g_ImcMenu activated",
+      "ACTIONMAP: activated 'menu'",
+      "MENUPOOL: acquired main_menu",
+      "MENU\\.GRAPH\\.FIRE source=main_menu edge=close trigger=25",
+      "SMOKE: tap-press scancode=40",
+      "SMOKE: tap-press scancode=41",
+      "SMOKE: tap-press scancode=81",
+      "SMOKE: tap-press scancode=82",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "INPUTCTX: focus LOST",
+      "MENU\\.GRAPH\\.FIRE .* ok=0"
+    ],
+    "required_counts": []
+  }
+}
