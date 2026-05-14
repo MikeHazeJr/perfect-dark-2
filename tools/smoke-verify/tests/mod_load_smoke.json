@@ -1,0 +1,58 @@
+{
+  "scenario_name": "mod_load_smoke",
+  "description": "c118 modding-pillar coverage: proves a .pdmod fixture placed in <install>/mods/ is detected by modmgrScanDirectory, validated by modmgrParseModJsonBuf, and registered into g_ModRegistry at boot. The fixture (tools/smoke-verify/fixtures/test_smoke_skin.pdmod) is a 500-byte zip with a single mod.json declaring id='pd2.smoke.testskin' and zero body/head/arena content -- the smallest valid envelope that passes the modarchive validator (deflate-compressed zip with root mod.json + M-2.3 zip-comment mirror) and the modmgrParseModJsonBuf validator (id field present). Run.ps1::Copy-SmokeFixtures stages the file at <installDir>/mods/test_smoke_skin.pdmod before launch via the fixtures array. The mod loads as enabled=0 (no mods-enabled.json entry); that's intentional -- the pillar contract under test is discovery + parse + registry insert at boot, not catalog hot-load. Asserts modmgr emits the canonical scan/discover/parse/scan-complete sequence with the fixture id surfaced in the log. Sister test for the modding pillar.",
+  "tags": ["modding", "smoke", "pillar:modding", "boot"],
+  "paths_of_interest": [
+    "port/src/modmgr.c",
+    "port/src/modarchive.c",
+    "port/src/modvfs.c",
+    "port/include/modmgr.h",
+    "port/include/modarchive.h",
+    "tools/smoke-verify/lib/Install-Harness.ps1",
+    "tools/smoke-verify/run.ps1"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 60,
+  "install_state": "clean",
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/test_smoke_skin.pdmod", "dst": "mods/test_smoke_skin.pdmod" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--skip-intro"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot path: vanilla --no-net boot, no scripted nav. modmgrInit() fires during gameInit() -> modmgrScanDirectory() walks ./mods/ and picks up the fixture .pdmod file. modArchiveOpen parses the EOCD + central-directory + reads mod.json into memory; modmgrParseModJsonBuf validates the id field (lowest validator bar -- empty buffer or missing-id would emit the WARNING line in our forbidden_patterns). Discovery completes before main_menu pushes, ~02-03s in." },
+    { "at_ms": 15000, "type": "exit", "comment": "scripted exit at 15s -- boot + modmgr scan completes by ~3s on a clean install (per the shared-install reference run); 12s headroom covers cold-start variance + asset catalog warm-up. modmgr: shutdown fires on exit which produces the SMOKE: result=scripted_exit sentinel." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mod_load_smoke",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "modmgr: initializing\\.\\.\\.",
+      "modmgr: scanning '.*mods' for mods\\.\\.\\.",
+      "modmgr: parsed mod\\.json for 'pd2\\.smoke\\.testskin'.*archive=yes",
+      "modmgr: discovered mod \\[\\d+\\] 'pd2\\.smoke\\.testskin'.*\\[\\.pdmod\\] file=.*test_smoke_skin\\.pdmod sha256=[0-9a-f]+\\.\\.",
+      "modmgr: scan complete -- \\d+ mods found",
+      "modmgr: initialized — \\d+ mods, \\d+ enabled",
+      "Asset Catalog: \\d+ entries registered",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "modmgr: archive '.*test_smoke_skin\\.pdmod' could not be opened",
+      "modmgr: archive '.*test_smoke_skin\\.pdmod' has no root mod\\.json",
+      "modmgr: REFUSING to register archive '.*test_smoke_skin\\.pdmod'",
+      "modmgr: mod\\.json validation failed for 'pd2\\.smoke\\.testskin'"
+    ],
+    "required_counts": [
+      { "pattern": "modmgr: discovered mod \\[\\d+\\] 'pd2\\.smoke\\.testskin'", "min": 1, "max": 1 }
+    ]
+  }
+}
