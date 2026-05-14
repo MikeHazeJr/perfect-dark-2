@@ -40,6 +40,8 @@
       "BOOT: --launch-scenario consuming latch: testScenarioLaunch",
       "BOOT: --no-net set; netInit\\(\\) skipped",
       "TESTSCEN\\.LAUNCH: Swarm-CPU",
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x43",
+      "TICK: lvTick enter tick=\\d+ stagenum=0x43",
       "BENCHMARK\\.SWARM\\.CPU",
       "TESTSCEN\\.SWARM: cycle NEXT prev_idx=0 -> idx=1 target=8",
       "TESTSCEN\\.SWARM: cycle NEXT .* target=128",
@@ -50,7 +52,8 @@
       "EXCEPTION_ACCESS_VIOLATION",
       "FATAL: ",
       "SMOKE: result=timeout",
-      "LOUDFAIL\\.LOAD: .*unrecoverable"
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x32"
     ],
     "required_counts": [
       { "pattern": "BENCHMARK\\.SWARM\\.CPU", "min": 1 },

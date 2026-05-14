@@ -48,6 +48,8 @@
       "BOOT: --launch-mp-room arena='base:arena_mp_felicity'",
       "BOOT: --no-net set; netInit\\(\\) skipped",
       "BOOT: --main-menu armed",
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x26",
+      "TICK: lvTick enter tick=\\d+ stagenum=0x26",
       "MENUPOOL: acquired main_menu",
       "MENU\\.GRAPH\\.FIRE source=main_menu edge=solo_play",
       "MENU\\.GRAPH\\.FIRE source=main_solo_view edge=combat_simulator",
@@ -57,7 +59,9 @@
       "EXCEPTION_ACCESS_VIOLATION",
       "FATAL: ",
       "SMOKE: result=timeout",
-      "LOUDFAIL\\.LOAD: .*unrecoverable"
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x30",
+      "TICK: lvTick enter tick=\\d+ stagenum=0x30"
     ],
     "required_counts": []
   }

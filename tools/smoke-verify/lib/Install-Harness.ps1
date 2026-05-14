@@ -45,6 +45,16 @@
 
 Set-StrictMode -Version Latest
 
+# c115 follow-up (2026-05-14): shared-install inter-test settle counter.
+# Tracks how many tests have already re-seeded the shared install during
+# this run.ps1 invocation. The second-and-later New-SmokeSharedInstall
+# call inserts a brief Start-Sleep before wiping pd-client.log so the
+# prior process's atexit flush has time to land on disk -- otherwise
+# trailing harness sentinel writes can race with the wipe and the next
+# test sees a polluted log header. Single-test runs increment to 1 but
+# never trigger the delay (counter is checked BEFORE increment).
+$script:SmokeSharedInstallCount = 0
+
 function Get-SmokeProjectRoot {
     [CmdletBinding()] param()
     $scriptPath = $PSCommandPath
@@ -201,6 +211,19 @@ function New-SmokeSharedInstall {
     if (-not (Test-Path -LiteralPath $installDir)) {
         New-Item -ItemType Directory -Path $installDir -Force | Out-Null
     }
+
+    # c115 follow-up (2026-05-14): inter-test settle delay. The prior
+    # PerfectDark.exe writes its harness atexit sentinel ("SMOKE: result=...")
+    # to pd-client.log via a buffered stream; the buffer flush is racing
+    # with the next test's wipe-log step further down. A 1-second pause
+    # at the START of every second-or-later shared-install seed gives the
+    # OS time to settle the prior write before we delete the file. First
+    # call (counter == 0) skips the sleep so single-test runs are not
+    # penalised.
+    if ($script:SmokeSharedInstallCount -gt 0) {
+        Start-Sleep -Milliseconds 1000
+    }
+    $script:SmokeSharedInstallCount++
 
     $bin = Find-SourceBinary -ProjectRoot $ProjectRoot -ExplicitPath $SourceBinary
     if (-not $bin) {
