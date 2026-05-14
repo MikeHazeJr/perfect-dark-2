@@ -695,6 +695,16 @@ void mainTick(void)
 	 * input dispatch downstream picks them up this frame. */
 	smokeHarnessTick();
 
+	/* c115 (2026-05-13): --debug-mount-bike one-shot. Walks
+	 * g_Vars.activeprops once the load black-frame is over, mounts
+	 * player 0 on the first OBJTYPE_HOVERBIKE, then clears its latch.
+	 * Cheap no-op when the flag wasn't on the command line (early
+	 * return on g_BootMountBikePending == 0). */
+	{
+		extern s32 bootDebugMountBikeTick(void);
+		(void)bootDebugMountBikeTick();
+	}
+
 	/* Phase 1 connectivity layer: drives LAN broadcast, direct UDP probes,
 	 * STUN/UPnP/ICE/TURN tier polling, and pair-state escalation. Runs
 	 * every frame regardless of stage state so presence stays alive across

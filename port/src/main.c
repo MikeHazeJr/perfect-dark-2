@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <PR/ultratypes.h>
@@ -38,6 +39,8 @@
 #include "scene.h"
 #include "savemigrate.h"
 #include "savefile.h"
+#include "testscenarios.h"
+#include "net/matchsetup.h"
 #include "prefs_agent.h"
 #include "discord.h"
 #include "identity.h"
@@ -105,6 +108,66 @@ s32 g_InteractCastDebugDraw = 0;
 s32 g_FileAutoSelect = -1;
 
 extern s32 g_StageNum;
+
+/* ---------------------------------------------------------------- *
+ * Smoke-verify CLI fast-paths (c115, 2026-05-13).
+ *
+ * These flags exist so the smoke-verify pipeline (and Mike's manual
+ * playtest dashboard) can drive directly to specific test points
+ * without needing scripted menu navigation.  Each flag is parsed at
+ * boot, captured into a static global below, and consumed at the
+ * relevant lifecycle hook (pre-netInit, post-catalog-init, post-
+ * setupCreateProps).  All flags are inert when absent from argv.
+ *
+ *   --no-net
+ *       Gates netInit() entirely.  The network stack never binds,
+ *       no UDP listener is created, ENet is never initialised.
+ *       Closes the Windows Defender Firewall focus-steal class
+ *       (smoke-verify-dispatch-findings-2026-05-13.md, S-3).
+ *
+ *   --main-menu
+ *       Skips boot animation and lands at the title screen with
+ *       the main menu auto-opened.  Behaviour: boots through
+ *       STAGE_CITRAINING (same path --skip-intro takes) but arms
+ *       g_PostExitMainMenuView so the main menu pops on the first
+ *       in-CI frame.  --skip-intro is left untouched.
+ *
+ *   --launch-scenario <empty_map|swarm_cpu|swarm_gpu>
+ *       After catalog init, calls testScenarioLaunch(...) for the
+ *       named scenario.  empty_map -> TESTSCEN_EMPTY_MAP,
+ *       swarm_cpu -> TESTSCEN_SWARM_CPU, swarm_gpu -> TESTSCEN_SWARM_GPU.
+ *
+ *   --launch-mission <stage_id> [--difficulty <agent|special|perfect>]
+ *       stage_id can be hex (0x21) or a symbolic catalog ID
+ *       (base:defection).  Seeds g_MissionConfig (difficulty,
+ *       stage_id, stagenum) and routes the boot through the resolved
+ *       stagenum.
+ *
+ *   --launch-mp-room <arena_id> <scenario_id> <bot_count>
+ *       Seeds g_MatchConfig (stage_id, scenario_id, plus
+ *       matchConfigAddBot * bot_count) so the Room screen renders
+ *       with everything ready to launch.  Routes the boot through
+ *       STAGE_CITRAINING with the Combat Sim room overlay auto-opened.
+ *
+ *   --debug-mount-bike
+ *       Post-setupCreateProps hook: walks g_Vars.activeprops on the
+ *       first frame after stage load and mounts player 0 on the
+ *       first OBJTYPE_HOVERBIKE prop found.  One-shot per boot;
+ *       no effect on stages without a hoverbike.
+ * ---------------------------------------------------------------- */
+
+static bool        g_BootNoNet            = false;
+static bool        g_BootMainMenu         = false;
+static const char *g_BootLaunchScenario   = NULL;
+static const char *g_BootLaunchMission    = NULL;
+static const char *g_BootLaunchDifficulty = NULL;
+static const char *g_BootLaunchMpArena    = NULL;
+static const char *g_BootLaunchMpScenario = NULL;
+static s32         g_BootLaunchMpBotCount = 0;
+static bool        g_BootMountBike        = false;
+/* Latched one-shot for the bike-mount hook; tickled by pdmain.c's
+ * mainTick once activeprops is populated and player 0 is alive. */
+static s32         g_BootMountBikePending = 0;
 
 s32 bootGetMemSize(void)
 {
@@ -183,7 +246,17 @@ static void bootRunCatalogWork(void *arg)
 	romdataReleaseRom();
 	bootProgressEndPhase();
 
-	netInit();
+	/* c115 (2026-05-13): --no-net gates the entire network stack.  When
+	 * set, g_NetInit stays false, every net.c entry point early-returns
+	 * cleanly, and Windows never raises the "Allow on networks?" prompt.
+	 * Smoke-verify-dispatch-findings-2026-05-13.md S-3 explains why this
+	 * matters: the firewall dialog steals SDL focus and breaks every
+	 * scripted test that copies the binary into a fresh per-test dir. */
+	if (!g_BootNoNet) {
+		netInit();
+	} else {
+		sysLogPrintf(LOG_NOTE, "BOOT: --no-net set; netInit() skipped");
+	}
 	g_ValidGbcRomFound = romdataCheckGbcRom();
 	gameInit();
 	modmgrInit();
@@ -325,6 +398,300 @@ static void cleanup(void)
 	SDL_Quit();
 }
 
+/* ---------------------------------------------------------------- *
+ * c115 smoke-verify CLI fast-paths.                                *
+ * ---------------------------------------------------------------- */
+
+/* Extern shims for game-side symbols not exposed via port/include
+ * headers.  Keeping these inline (rather than including
+ * src/include/game/*) avoids pulling the game's local CLAUDE.md
+ * legacy-types contract into this PC-port file. */
+extern void setCurrentPlayerNum(s32 playernum);
+extern bool currentPlayerTryMountHoverbike(struct prop *prop);
+extern s32 g_PostExitMainMenuView;
+
+/* Map a --difficulty string to the DIFF_* constants used by g_MissionConfig
+ * and lvSetDifficulty.  Returns DIFF_A on unknown / NULL input. */
+static s32 bootResolveDifficulty(const char *name)
+{
+	if (!name || !name[0]) {
+		return DIFF_A;
+	}
+	if (strcasecmp(name, "agent") == 0 || strcasecmp(name, "a") == 0) {
+		return DIFF_A;
+	}
+	if (strcasecmp(name, "special") == 0
+			|| strcasecmp(name, "sa") == 0
+			|| strcasecmp(name, "special-agent") == 0) {
+		return DIFF_SA;
+	}
+	if (strcasecmp(name, "perfect") == 0
+			|| strcasecmp(name, "pa") == 0
+			|| strcasecmp(name, "perfect-agent") == 0) {
+		return DIFF_PA;
+	}
+	sysLogPrintf(LOG_WARNING,
+		"BOOT: --difficulty '%s' unrecognised; defaulting to Agent", name);
+	return DIFF_A;
+}
+
+/* Try to resolve a stage identifier (catalog ID like "base:defection" OR
+ * hex like "0x21") into a stagenum.  Returns -1 on failure. */
+static s32 bootResolveStageIdToNum(const char *id)
+{
+	if (!id || !id[0]) {
+		return -1;
+	}
+	/* Hex / decimal numeric form. */
+	if (id[0] == '0' && (id[1] == 'x' || id[1] == 'X')) {
+		char *endp = NULL;
+		long v = strtol(id, &endp, 16);
+		if (endp && endp != id && v > 0 && v < 0x100) {
+			return (s32)v;
+		}
+	}
+	/* Catalog ID. */
+	catalog_stage_result_t sresult;
+	if (catalogResolveStage(id, &sresult)) {
+		return sresult.stagenum;
+	}
+	return -1;
+}
+
+/* Apply --main-menu's post-CI main menu auto-open arm.  Must run after
+ * catalog init (so g_PostExitMainMenuView is reachable in BSS).  No-op
+ * unless --main-menu was on the command line. */
+static void bootApplyMainMenu(void)
+{
+	if (!g_BootMainMenu) {
+		return;
+	}
+	g_PostExitMainMenuView = 0;
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --main-menu armed g_PostExitMainMenuView=0 (top-level)");
+}
+
+/* Apply --launch-scenario by calling testScenarioLaunch.  Routes through
+ * the same dispatch the Settings -> Debug -> Test Scenarios dropdown
+ * uses, so the existing g_State machine + canvas guards apply. */
+static void bootApplyLaunchScenario(void)
+{
+	if (!g_BootLaunchScenario || !g_BootLaunchScenario[0]) {
+		return;
+	}
+	test_scenario_t scen = TESTSCEN_NONE;
+	if (strcasecmp(g_BootLaunchScenario, "empty_map") == 0
+			|| strcasecmp(g_BootLaunchScenario, "empty-map") == 0
+			|| strcasecmp(g_BootLaunchScenario, "empty") == 0) {
+		scen = TESTSCEN_EMPTY_MAP;
+	} else if (strcasecmp(g_BootLaunchScenario, "swarm_cpu") == 0
+			|| strcasecmp(g_BootLaunchScenario, "swarm-cpu") == 0) {
+		scen = TESTSCEN_SWARM_CPU;
+	} else if (strcasecmp(g_BootLaunchScenario, "swarm_gpu") == 0
+			|| strcasecmp(g_BootLaunchScenario, "swarm-gpu") == 0) {
+		scen = TESTSCEN_SWARM_GPU;
+	} else {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --launch-scenario '%s' unknown (expected empty_map|swarm_cpu|swarm_gpu)",
+			g_BootLaunchScenario);
+		return;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --launch-scenario '%s' -> testScenarioLaunch(%d)",
+		g_BootLaunchScenario, (s32)scen);
+	if (!testScenarioLaunch(scen, NULL)) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --launch-scenario failed; falling back to default boot stage");
+	}
+}
+
+/* Apply --launch-mission by seeding g_MissionConfig and pointing
+ * g_StageNum at the resolved stagenum.  We do NOT route through
+ * menuhandlerAcceptMission here because the menupool / IMC stack
+ * isn't safe to push to from pre-mainProc state.  Instead we mirror
+ * the subset of state menuhandlerAcceptMission writes that the
+ * stage-load path actually consumes. */
+static void bootApplyLaunchMission(void)
+{
+	if (!g_BootLaunchMission || !g_BootLaunchMission[0]) {
+		return;
+	}
+	s32 stagenum = bootResolveStageIdToNum(g_BootLaunchMission);
+	if (stagenum < 0) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --launch-mission '%s' unresolved (try 0xNN hex or base:* catalog ID)",
+			g_BootLaunchMission);
+		return;
+	}
+	s32 diff = bootResolveDifficulty(g_BootLaunchDifficulty);
+
+	memset(&g_MissionConfig, 0, sizeof(g_MissionConfig));
+	g_MissionConfig.difficulty = (u8)diff;
+	g_MissionConfig.pdmode = 0;
+	g_MissionConfig.iscoop = 0;
+	g_MissionConfig.isanti = 0;
+	g_MissionConfig.pdmodereaction = 0;
+	g_MissionConfig.pdmodehealth = 128;
+	g_MissionConfig.pdmodedamage = 128;
+	g_MissionConfig.pdmodeaccuracy = 128;
+	/* Stash the catalog ID when one was supplied so endscreen restart
+	 * paths can re-resolve through the catalog.  Falls back to legacy
+	 * stagenum when the input was numeric. */
+	if (g_BootLaunchMission[0] != '0' || (g_BootLaunchMission[1] != 'x' && g_BootLaunchMission[1] != 'X')) {
+		strncpy(g_MissionConfig.stage_id, g_BootLaunchMission,
+			sizeof(g_MissionConfig.stage_id) - 1);
+		g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0';
+	}
+	g_MissionConfig.stagenum = (u8)stagenum;
+	g_MissionConfig.stageindex = 0;
+
+	g_StageNum = stagenum;
+	if (g_FileAutoSelect < 0) {
+		g_FileAutoSelect = 0;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --launch-mission '%s' -> stagenum=0x%02x difficulty=%d",
+		g_BootLaunchMission, (u32)stagenum, diff);
+}
+
+/* Apply --launch-mp-room by seeding g_MatchConfig (the lobby/Room
+ * screen's input state) and arming the solo-room overlay so the
+ * Room screen opens on first CI frame.  The actual match start
+ * still requires the user to press Start Match in the Room screen
+ * -- this fast-path only gets the smoke test to the screen, where
+ * the existing keyboard-driven Start Match button is reachable. */
+static void bootApplyLaunchMpRoom(void)
+{
+	if (!g_BootLaunchMpArena || !g_BootLaunchMpArena[0]) {
+		return;
+	}
+	matchConfigInit();
+	strncpy(g_MatchConfig.stage_id, g_BootLaunchMpArena,
+		sizeof(g_MatchConfig.stage_id) - 1);
+	g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+	if (g_BootLaunchMpScenario && g_BootLaunchMpScenario[0]) {
+		strncpy(g_MatchConfig.scenario_id, g_BootLaunchMpScenario,
+			sizeof(g_MatchConfig.scenario_id) - 1);
+		g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
+	}
+	/* Resolve stage_id -> stagenum so the room screen displays the
+	 * right arena thumbnail even before matchStart() runs. */
+	{
+		const asset_entry_t *ae = assetCatalogResolve(g_MatchConfig.stage_id);
+		if (ae && ae->type == ASSET_ARENA) {
+			g_MatchConfig.stagenum = (u8)ae->ext.arena.stagenum;
+		}
+	}
+	/* Add bots up to the requested count.  matchConfigAddBot enforces
+	 * MATCH_MAX_SLOTS and the per-humans-cap clamp, so passing 31 on
+	 * a malformed config is safe (excess slots silently dropped). */
+	for (s32 i = 0; i < g_BootLaunchMpBotCount; ++i) {
+		(void)matchConfigAddBot(BOTTYPE_GENERAL, BOTDIFF_NORMAL, NULL, NULL, NULL);
+	}
+	/* Arm CI -> main menu auto-pop with view=0 (top-level) so the
+	 * smoke test's scripted keys can navigate from main menu ->
+	 * Combat Simulator to reach the room.  A future enhancement
+	 * could open the Room directly via pdguiSoloRoomOpen, but that
+	 * pushes the s_SoloRoomActive flag which is only consumed inside
+	 * pdguiLobbyRender's NETMODE_NONE branch -- safer to walk the
+	 * normal main-menu path which the smoke harness already knows
+	 * how to drive. */
+	g_PostExitMainMenuView = 0;
+	/* Drop into CI like the other Room entry points. */
+	if (g_StageNum == STAGE_TITLE) {
+		g_StageNum = STAGE_CITRAINING;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --launch-mp-room arena='%s' scenario='%s' bots=%d (seeded g_MatchConfig)",
+		g_BootLaunchMpArena,
+		g_BootLaunchMpScenario ? g_BootLaunchMpScenario : "(default)",
+		g_BootLaunchMpBotCount);
+}
+
+/* Arm the --debug-mount-bike one-shot.  The actual mount runs inside
+ * mainTick once activeprops is populated; see
+ * bootDebugMountBikeTick() below. */
+static void bootApplyDebugMountBike(void)
+{
+	if (!g_BootMountBike) {
+		return;
+	}
+	g_BootMountBikePending = 1;
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-mount-bike armed (will mount on first hoverbike prop after stage load)");
+}
+
+/* Dispatcher called once from main() after the catalog is fully
+ * initialised. */
+static void bootApplyCliFastPaths(void)
+{
+	bootApplyMainMenu();
+	bootApplyLaunchScenario();
+	bootApplyLaunchMission();
+	bootApplyLaunchMpRoom();
+	bootApplyDebugMountBike();
+}
+
+/* Called once per frame from pdmain.c's mainTick when the
+ * --debug-mount-bike one-shot is armed.  Walks g_Vars.activeprops
+ * looking for the first OBJTYPE_HOVERBIKE prop, and on match calls
+ * currentPlayerTryMountHoverbike(prop) once, then clears the latch.
+ *
+ * Gates:
+ *   - g_BootMountBikePending must be set (caller checks before calling)
+ *   - g_Vars.lvframenum >= 4 (CI fly-in / load black frames out of the way)
+ *   - g_Vars.players[0] must be alive and have a valid prop
+ *   - prop must be PROPTYPE_OBJ + obj->type == OBJTYPE_HOVERBIKE
+ *
+ * Returns 1 when the mount was attempted (whether or not it succeeded),
+ * else 0.  Caller clears g_BootMountBikePending on either outcome. */
+s32 bootDebugMountBikeTick(void)
+{
+	if (!g_BootMountBikePending) {
+		return 0;
+	}
+	if (g_Vars.lvframenum < 4) {
+		return 0;
+	}
+	if (!g_Vars.players[0] || !g_Vars.players[0]->prop) {
+		return 0;
+	}
+
+	struct prop *prop = g_Vars.activeprops;
+	while (prop) {
+		if (prop->type == PROPTYPE_OBJ
+				&& prop->obj
+				&& prop->obj->type == OBJTYPE_HOVERBIKE
+				&& (prop->obj->hidden & OBJHFLAG_MOUNTED) == 0) {
+			/* currentPlayerTryMountHoverbike reads g_Vars.currentplayer +
+			 * g_Vars.currentplayerstats, so make sure player 0 is current
+			 * before we call.  Don't dereference unless setCurrentPlayerNum
+			 * succeeded -- but it's a void function, so we trust the
+			 * caller's invariant (lvFrame >= 4 implies player 0 alive). */
+			setCurrentPlayerNum(0);
+			bool ok = currentPlayerTryMountHoverbike(prop);
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-mount-bike consumed: prop=%p stagenum=0x%02x result=%s",
+				(void *)prop, (u32)g_Vars.stagenum, ok ? "MOUNTED" : "REJECTED");
+			g_BootMountBikePending = 0;
+			return 1;
+		}
+		prop = prop->next;
+	}
+	/* No hoverbike on this stage.  Clear the latch after the load
+	 * settles so we don't keep scanning every frame for the entire
+	 * session; a follow-up stage change won't re-fire (one-shot). */
+	if (g_Vars.lvframenum > 120) {
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-mount-bike: no hoverbike prop on stagenum=0x%02x; one-shot consumed",
+			(u32)g_Vars.stagenum);
+		g_BootMountBikePending = 0;
+		return 1;
+	}
+	return 0;
+}
+
 int main(int argc, const char **argv)
 {
 	sysInitArgs(argc, argv);
@@ -349,6 +716,43 @@ int main(int argc, const char **argv)
 	if (sysArgCheck("--dedicated")) {
 		extern s32 g_NetDedicated;
 		g_NetDedicated = 1;
+	}
+
+	/* c115 (2026-05-13): smoke-verify CLI fast-paths.  Parse here so
+	 * the netInit gate (--no-net) and the post-catalog hooks
+	 * (--launch-scenario, --launch-mission, --launch-mp-room) all see
+	 * the same captured values.  Each flag is opt-in; absent flags
+	 * leave the corresponding global at its zero-init default. */
+	g_BootNoNet            = sysArgCheck("--no-net") ? true : false;
+	g_BootMainMenu         = sysArgCheck("--main-menu") ? true : false;
+	g_BootLaunchScenario   = sysArgGetString("--launch-scenario");
+	g_BootLaunchMission    = sysArgGetString("--launch-mission");
+	g_BootLaunchDifficulty = sysArgGetString("--difficulty");
+	g_BootLaunchMpArena    = sysArgGetString("--launch-mp-room");
+	g_BootMountBike        = sysArgCheck("--debug-mount-bike") ? true : false;
+	/* --launch-mp-room takes three positional args: <arena> <scenario>
+	 * <bot_count>.  sysArgGetString returns the slot immediately after
+	 * the flag; we scan argv linearly for the next two.  Unset on
+	 * malformed input so the post-init hook degrades to no-op. */
+	if (g_BootLaunchMpArena) {
+		s32 found = -1;
+		for (s32 i = 1; i < argc - 1; ++i) {
+			if (argv[i] && strcmp(argv[i], "--launch-mp-room") == 0) {
+				found = i;
+				break;
+			}
+		}
+		if (found >= 0 && (found + 3) < argc) {
+			g_BootLaunchMpScenario = argv[found + 2];
+			g_BootLaunchMpBotCount = (s32)strtol(argv[found + 3], NULL, 0);
+			if (g_BootLaunchMpBotCount < 0) {
+				g_BootLaunchMpBotCount = 0;
+			} else if (g_BootLaunchMpBotCount > 31) {
+				g_BootLaunchMpBotCount = 31;
+			}
+		} else {
+			g_BootLaunchMpArena = NULL;
+		}
 	}
 
 	conInit();
@@ -383,7 +787,18 @@ int main(int argc, const char **argv)
 	 * instead, and does not load social state. */
 	identityInit();
 	socialInit();
-	p2pInit();
+	/* c115 (2026-05-13): --no-net also gates p2pInit() because
+	 * p2pLanStart() binds UDP 27101 for LAN-broadcast discovery -- that
+	 * bind alone is enough to trigger the Windows Defender Firewall
+	 * dialog and steal SDL focus, defeating the smoke harness.
+	 * Skipping p2pInit leaves s_Initialised=false, which makes every
+	 * p2pTick()/p2pLanTick()/p2pStartProbe() entry early-return as a
+	 * cheap no-op. */
+	if (!g_BootNoNet) {
+		p2pInit();
+	} else {
+		sysLogPrintf(LOG_NOTE, "BOOT: --no-net set; p2pInit() skipped");
+	}
 	presenceInit();
 	groupSessionInit();
 	chatInit();
@@ -510,6 +925,16 @@ int main(int argc, const char **argv)
 		g_StageNum = STAGE_TITLE;
 	}
 
+	/* c115 --main-menu: corrected --skip-intro semantics.  Boot through
+	 * STAGE_CITRAINING (same path --skip-intro takes), then arm the
+	 * post-exit main menu auto-pop so the player lands at the main menu
+	 * on the first in-CI frame.  Distinct from --skip-intro (which
+	 * drops the player into CI free-roam with no menu).  See
+	 * smoke-verify-dispatch-findings-2026-05-13.md S-5. */
+	if (g_BootMainMenu && g_StageNum == STAGE_TITLE) {
+		g_StageNum = STAGE_CITRAINING;
+	}
+
 	if (g_NetJoinLatch || g_NetHostLatch) {
 		if (g_FileAutoSelect < 0) {
 			// default to profile 0 if going into a net game
@@ -552,6 +977,13 @@ int main(int argc, const char **argv)
 	 * mainProc enters its loop) shows them as fresh notifications.
 	 * Server build: no-op. */
 	romExtractToastDrain();
+
+	/* c115 (2026-05-13): apply smoke-verify CLI fast-paths now that the
+	 * catalog is fully initialised and the game state is ready for
+	 * scenario / match seeding.  Each fast-path is self-contained; on
+	 * failure they log a warning and the boot continues to whatever
+	 * stage g_StageNum points at. */
+	bootApplyCliFastPaths();
 
 	mainProc();
 
