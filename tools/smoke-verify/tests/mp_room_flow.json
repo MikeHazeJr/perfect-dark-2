@@ -1,0 +1,63 @@
+{
+  "scenario_name": "mp_room_flow",
+  "description": "Drives the client through Main Menu -- Solo Play -- Combat Simulator -- Room screen, exercises the menu graph migrations at MP_SETUP / MP_ADVANCED / MP_BOT_SETUP (commit 8f81c063), the room renderer, and back navigation. Surfaces any modal-stuck or crash class in the MP setup path -- broken nav, missing button handlers, ok=0 graph fires, AVs.",
+  "tags": ["menu", "input", "mp", "combatsim", "room", "stability"],
+  "paths_of_interest": [
+    "port/fast3d/pdgui_menu_mainmenu.cpp",
+    "port/fast3d/pdgui_menu_room.cpp",
+    "port/fast3d/pdgui_menu_mpsetup.cpp",
+    "port/fast3d/pdgui_menu_mpadvanced.cpp",
+    "port/fast3d/pdgui_menu_botsetup.cpp",
+    "port/src/menugraph.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait",  "comment": "boot to title screen" },
+    { "at_ms": 12000, "type": "key",   "key": "Return", "action": "tap", "comment": "advance past PD logo / intro" },
+    { "at_ms": 13500, "type": "key",   "key": "Return", "action": "tap" },
+    { "at_ms": 15000, "type": "key",   "key": "Return", "action": "tap", "comment": "enter main menu" },
+    { "at_ms": 17000, "type": "key",   "key": "Down",   "action": "tap", "comment": "main menu: nav to Solo Play row" },
+    { "at_ms": 17500, "type": "key",   "key": "Return", "action": "tap", "comment": "enter Solo Play submenu" },
+    { "at_ms": 19000, "type": "key",   "key": "Down",   "action": "tap", "comment": "solo submenu: nav off Solo Missions" },
+    { "at_ms": 19500, "type": "key",   "key": "Return", "action": "tap", "comment": "Combat Simulator -- opens Room screen" },
+    { "at_ms": 24000, "type": "key",   "key": "Down",   "action": "tap", "comment": "Room: nav to next row" },
+    { "at_ms": 24500, "type": "key",   "key": "Down",   "action": "tap" },
+    { "at_ms": 25500, "type": "key",   "key": "Return", "action": "tap", "comment": "open a sub-dialog (Bot Setup / Scenario / Weapons)" },
+    { "at_ms": 28000, "type": "key",   "key": "Escape", "action": "tap", "comment": "back-edge -- should fire MENU.GRAPH.FIRE source=mp_setup|mp_advanced|mp_bot_setup edge=back ok=1" },
+    { "at_ms": 30000, "type": "key",   "key": "Down",   "action": "tap", "comment": "Room: try another sub-dialog" },
+    { "at_ms": 30500, "type": "key",   "key": "Return", "action": "tap" },
+    { "at_ms": 33000, "type": "key",   "key": "Escape", "action": "tap", "comment": "another back-edge" },
+    { "at_ms": 35000, "type": "key",   "key": "Up",     "action": "tap", "comment": "Room: try Advanced/Bots row" },
+    { "at_ms": 35500, "type": "key",   "key": "Return", "action": "tap" },
+    { "at_ms": 38000, "type": "key",   "key": "Escape", "action": "tap" },
+    { "at_ms": 41000, "type": "key",   "key": "Escape", "action": "tap", "comment": "leave Room back to Solo submenu" },
+    { "at_ms": 43000, "type": "key",   "key": "Escape", "action": "tap", "comment": "Solo submenu back to Main Menu" },
+    { "at_ms": 45000, "type": "key",   "key": "Escape", "action": "tap", "comment": "settle on Main Menu" },
+    { "at_ms": 90000, "type": "exit",  "comment": "scripted exit before harness timeout" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mp_room_flow",
+      "Asset Catalog: \\d+ entries registered",
+      "SMOKE: result=scripted_exit",
+      "MENU\\.GRAPH\\.FIRE source=(mp_setup|mp_advanced|mp_bot_setup) edge=back .* ok=1"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "MENU\\.GRAPH\\.FIRE .* ok=0"
+    ],
+    "required_counts": [
+      { "pattern": "memp heap at", "min": 1, "max": 1 }
+    ]
+  }
+}
