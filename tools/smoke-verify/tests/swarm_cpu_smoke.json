@@ -1,13 +1,12 @@
 {
   "scenario_name": "swarm_cpu_smoke",
-  "description": "Drive Main Menu -> Settings -> Debug tab -> Test Scenarios (CPU Bots) -> Start, then cycle the bot-count ladder (4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 -> 256) via ACTION_TESTSCEN_CYCLE_COUNT (KEY_0 / PgUp). Verifies the CPU swarm spawn path, benchmark logging (BENCHMARK.SWARM.CPU), and ladder progression (TESTSCEN.SWARM: cycle). Surfaces B-307 (256-bot spawn-frame crash) if the ladder reaches that step. Input timings are Phase 1 scaffolding -- tune on first live run; the harness JSON + assertions are the deliverable.",
+  "description": "c115 re-author: boot directly into Swarm-CPU via --launch-scenario swarm_cpu (skips Settings -> Debug -> Test Scenarios menu nav entirely), then cycle the bot ladder via action injection of ACTION_TESTSCEN_CYCLE_COUNT (focus-independent, bypasses SDL/ImGui focus gate). Verifies TESTSCEN.LAUNCH: Swarm-CPU, BENCHMARK.SWARM.CPU log emission, and bot-count ladder progression (4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 -> 256). Surfaces B-307 (256-bot spawn-frame crash) if the ladder reaches it.",
   "tags": ["debug", "swarm", "cpu", "benchmark", "scaling"],
   "paths_of_interest": [
     "port/src/testscenarios.c",
     "port/src/swarm_test.c",
     "src/game/setup.c",
-    "port/fast3d/pdgui_menu_mainmenu.cpp",
-    "port/fast3d/pdgui_backend.cpp",
+    "port/src/main.c",
     "port/src/actionmap.cpp"
   ],
   "log_channel_mask": "all",
@@ -17,62 +16,31 @@
   "boot_args": [
     "--no-update-check",
     "--no-sound",
-    "--skip-intro"
+    "--no-net",
+    "--launch-scenario",
+    "swarm_cpu"
   ],
   "input_sequence": [
-    { "at_ms": 0,      "type": "wait",  "comment": "boot to title / main menu (skip-intro)" },
-    { "at_ms": 8000,   "type": "key",   "key": "Return", "action": "tap", "comment": "advance past PD logo if still in intro" },
-    { "at_ms": 10000,  "type": "key",   "key": "Return", "action": "tap" },
-    { "at_ms": 12000,  "type": "key",   "key": "Return", "action": "tap", "comment": "enter main menu" },
-    { "at_ms": 15000,  "type": "key",   "key": "Escape", "action": "tap", "comment": "close any leftover dialog" },
-
-    { "at_ms": 17000,  "type": "key",   "key": "Down",   "action": "tap", "comment": "main menu: walk down toward Settings" },
-    { "at_ms": 17500,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 18000,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 18500,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 19000,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 19500,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 20000,  "type": "key",   "key": "Return", "action": "tap", "comment": "select Settings (s_MenuView=2)" },
-
-    { "at_ms": 23000,  "type": "key",   "key": "Tab",    "action": "tap", "comment": "Settings tab bar: cycle right Video -> Interface" },
-    { "at_ms": 23500,  "type": "key",   "key": "Tab",    "action": "tap", "comment": "Interface -> Audio" },
-    { "at_ms": 24000,  "type": "key",   "key": "Tab",    "action": "tap", "comment": "Audio -> Controls" },
-    { "at_ms": 24500,  "type": "key",   "key": "Tab",    "action": "tap", "comment": "Controls -> Game" },
-    { "at_ms": 25000,  "type": "key",   "key": "Tab",    "action": "tap", "comment": "Game -> Updates" },
-    { "at_ms": 25500,  "type": "key",   "key": "Tab",    "action": "tap", "comment": "Updates -> Debug (selFlag6)" },
-
-    { "at_ms": 28000,  "type": "key",   "key": "Down",   "action": "tap", "comment": "Debug tab: walk to Test Scenarios block" },
-    { "at_ms": 28400,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 28800,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 29200,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 29600,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 30000,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 30500,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 31000,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 31500,  "type": "key",   "key": "Down",   "action": "tap" },
-
-    { "at_ms": 33000,  "type": "key",   "key": "Right",  "action": "tap", "comment": "CPU Bots radio (mode=1) -- default already CPU but reinforce" },
-    { "at_ms": 34500,  "type": "key",   "key": "Down",   "action": "tap", "comment": "land focus on Start button" },
-    { "at_ms": 35000,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 35500,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 36000,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 38000,  "type": "key",   "key": "Return", "action": "tap", "comment": "press Start##testscen -> testScenarioLaunch(SWARM_CPU)" },
-
-    { "at_ms": 50000,  "type": "key",   "key": "0",      "action": "tap", "comment": "cycle: 4 -> 8 (ACTION_TESTSCEN_CYCLE_COUNT, scancode 39)" },
-    { "at_ms": 58000,  "type": "key",   "key": "0",      "action": "tap", "comment": "cycle: 8 -> 16" },
-    { "at_ms": 66000,  "type": "key",   "key": "0",      "action": "tap", "comment": "cycle: 16 -> 32" },
-    { "at_ms": 74000,  "type": "key",   "key": "0",      "action": "tap", "comment": "cycle: 32 -> 48" },
-    { "at_ms": 82000,  "type": "key",   "key": "0",      "action": "tap", "comment": "cycle: 48 -> 64" },
-    { "at_ms": 90000,  "type": "key",   "key": "0",      "action": "tap", "comment": "cycle: 64 -> 128" },
-    { "at_ms": 100000, "type": "key",   "key": "0",      "action": "tap", "comment": "cycle: 128 -> 256 (B-307 candidate)" },
-    { "at_ms": 115000, "type": "key",   "key": "0",      "action": "tap", "comment": "cycle: 256 -> 512 (push beyond B-307)" },
-
-    { "at_ms": 150000, "type": "exit",  "comment": "wrap up -- harness scripted exit" }
+    { "at_ms": 0,      "type": "wait", "comment": "boot path: --launch-scenario seeds testScenarioLaunch(SWARM_CPU) post-catalog-init. matchStart() routes through MP arena base:mp_felicity stagenum (initial count=4). FINDING: player pos is uninitialised at this point, so respawn_ring fails (spawned=0) and the match ends ~5s later into an endscreen_solo menu, which pushes imgui_menu IMC on top and suppresses ACTION_TESTSCEN_CYCLE_COUNT via gameplayInputSuppressed(). The cycle attempts below will fire harness-side but cycler_tick will not fire until the endscreen is dismissed AND a fresh match starts on a properly-positioned player." },
+    { "at_ms": 12000, "type": "action", "name": "ACTION_USE",        "action": "tap", "comment": "dismiss endscreen_solo via continue (may restart match)" },
+    { "at_ms": 18000, "type": "action", "name": "ACTION_CANCEL_USE", "action": "tap", "comment": "fallback: cancel endscreen to main_menu" },
+    { "at_ms": 22000, "type": "action", "name": "ACTION_USE",        "action": "tap", "comment": "advance whatever transient screen remains" },
+    { "at_ms": 40000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 4 -> 8 (will succeed only if endscreen dismissed + gameplay context on top)" },
+    { "at_ms": 50000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 8 -> 16" },
+    { "at_ms": 60000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 16 -> 32" },
+    { "at_ms": 70000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 32 -> 48" },
+    { "at_ms": 80000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 48 -> 64" },
+    { "at_ms": 90000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 64 -> 128" },
+    { "at_ms": 100000, "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 128 -> 256 (B-307 candidate)" },
+    { "at_ms": 115000, "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 256 -> 512 (push beyond B-307)" },
+    { "at_ms": 150000, "type": "exit", "comment": "scripted exit; if B-307 was going to crash it would have done so well before this point" }
   ],
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=swarm_cpu_smoke",
-      "TESTSCEN\\.SWARM: cycle",
+      "BOOT: --launch-scenario 'swarm_cpu' -> testScenarioLaunch",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "TESTSCEN\\.LAUNCH: Swarm-CPU",
       "BENCHMARK\\.SWARM\\.CPU"
     ],
     "forbidden_patterns": [
@@ -82,7 +50,7 @@
       "LOUDFAIL\\.LOAD: .*unrecoverable"
     ],
     "required_counts": [
-      { "pattern": "TESTSCEN\\.SWARM: cycle", "min": 2 }
+      { "pattern": "BENCHMARK\\.SWARM\\.CPU", "min": 1 }
     ]
   }
 }

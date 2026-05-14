@@ -1,6 +1,6 @@
 {
   "scenario_name": "vehicle_flow",
-  "description": "Vehicle-IMC + bondbike smoke. Boot directly to STAGE_CITRAINING (--skip-intro -> 0x26, uses FILE_USETUPDISH which contains a hoverbike at PAD_DISH_01F9). After stage load completes, hold W to walk forward while occasionally tapping F (ACTION_USE / ACTION_VEHICLE_EXIT) to interact with any hoverbike encountered. If mount succeeds, drive briefly with W/S/A/D, then F to dismount. Best-effort exploration: scripted reach to the bike pad is not guaranteed, so assertions are conservative -- the harness surfaces vehicle IMC fire lines and any post-B-298 wiring gap as findings rather than hard fails. Verifies bondbike init/tick path and imcVehicleMount/Dismount lifecycle hooks (port/src/inputlayer.c onVehicleDriverPush/Pop -> imcActivate g_ImcVehicle).",
+  "description": "c115 re-author: boot to STAGE_CITRAINING via --skip-intro and arm --debug-mount-bike one-shot. Post-setupCreateProps hook scans g_Vars.activeprops for an OBJTYPE_HOVERBIKE and mounts player 0 on the first match (one-shot per boot). Note: CITRAINING does NOT spawn the player adjacent to its hoverbike, so the mount is expected to be REJECTED unless a future change moves player 0 to the bike pad or the bike to the player. The test surfaces this as a finding via the BOOT: --debug-mount-bike consumed result=REJECTED / MOUNTED line. --no-net bakes in to close firewall focus-steal class.",
   "tags": ["vehicle", "input", "imc", "bondbike", "stability"],
   "paths_of_interest": [
     "src/game/bondbike.c",
@@ -8,67 +8,37 @@
     "port/include/actionmap.h",
     "port/src/actionmap.cpp",
     "port/src/inputlayer.c",
-    "src/setups/setupdish.c"
+    "src/setups/setupdish.c",
+    "port/src/main.c"
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 240,
+  "timeout_seconds": 180,
   "install_state": "clean",
   "boot_args": [
     "--no-update-check",
     "--no-sound",
-    "--skip-intro"
+    "--no-net",
+    "--skip-intro",
+    "--debug-mount-bike"
   ],
   "input_sequence": [
-    { "at_ms": 0,      "type": "wait",  "comment": "boot phase: --skip-intro sets g_StageNum=STAGE_CITRAINING (0x26) and routes through agent select -> main menu -> CI free-roam" },
-
-    { "at_ms": 18000,  "type": "key",   "key": "Return", "action": "tap", "comment": "agent_select accept: MENU.GRAPH.FIRE source=agent_select edge=load -> opens main menu" },
-    { "at_ms": 21000,  "type": "key",   "key": "Escape", "action": "tap", "comment": "main menu CLOSE via ESC -> CI free-roam (lvIsPaused 1 -> 0). DO NOT press Escape again or it pauses + reopens main menu." },
-
-    { "at_ms": 24000,  "type": "key",   "key": "W",      "action": "press",   "comment": "phase 1 -- walk forward exploring for hoverbike at PAD_DISH_01F9" },
-    { "at_ms": 27000,  "type": "key",   "key": "F",      "action": "tap",     "comment": "interact attempt #1 (ACTION_USE -> currentPlayerTryMountHoverbike if in range)" },
-    { "at_ms": 30000,  "type": "key",   "key": "F",      "action": "tap",     "comment": "interact attempt #2" },
-    { "at_ms": 33000,  "type": "key",   "key": "F",      "action": "tap",     "comment": "interact attempt #3" },
-    { "at_ms": 36000,  "type": "key",   "key": "F",      "action": "tap",     "comment": "interact attempt #4" },
-    { "at_ms": 39000,  "type": "key",   "key": "F",      "action": "tap",     "comment": "interact attempt #5" },
-    { "at_ms": 42000,  "type": "key",   "key": "W",      "action": "release", "comment": "stop forward motion" },
-
-    { "at_ms": 44000,  "type": "key",   "key": "A",      "action": "press",   "comment": "phase 2 -- strafe / look-around for bike from another vantage" },
-    { "at_ms": 47000,  "type": "key",   "key": "A",      "action": "release" },
-    { "at_ms": 47500,  "type": "key",   "key": "W",      "action": "press",   "comment": "walk forward again" },
-    { "at_ms": 50000,  "type": "key",   "key": "F",      "action": "tap" },
-    { "at_ms": 53000,  "type": "key",   "key": "F",      "action": "tap" },
-    { "at_ms": 56000,  "type": "key",   "key": "F",      "action": "tap" },
-    { "at_ms": 59000,  "type": "key",   "key": "W",      "action": "release" },
-
-    { "at_ms": 61000,  "type": "key",   "key": "D",      "action": "press",   "comment": "phase 3 -- strafe right" },
-    { "at_ms": 64000,  "type": "key",   "key": "D",      "action": "release" },
-    { "at_ms": 64500,  "type": "key",   "key": "W",      "action": "press" },
-    { "at_ms": 67000,  "type": "key",   "key": "F",      "action": "tap" },
-    { "at_ms": 70000,  "type": "key",   "key": "F",      "action": "tap" },
-    { "at_ms": 73000,  "type": "key",   "key": "F",      "action": "tap" },
-    { "at_ms": 75000,  "type": "key",   "key": "W",      "action": "release" },
-
-    { "at_ms": 78000,  "type": "key",   "key": "W",      "action": "press",   "comment": "phase 4 -- drive-test segment: if vehicle IMC mounted, W = ACTION_VEHICLE_ACCELERATE" },
-    { "at_ms": 82000,  "type": "key",   "key": "A",      "action": "press",   "comment": "if mounted: ACTION_VEHICLE_STEER_LEFT" },
-    { "at_ms": 84000,  "type": "key",   "key": "A",      "action": "release" },
-    { "at_ms": 85000,  "type": "key",   "key": "D",      "action": "press",   "comment": "if mounted: ACTION_VEHICLE_STEER_RIGHT" },
-    { "at_ms": 87000,  "type": "key",   "key": "D",      "action": "release" },
-    { "at_ms": 88000,  "type": "key",   "key": "W",      "action": "release" },
-    { "at_ms": 89000,  "type": "key",   "key": "S",      "action": "press",   "comment": "if mounted: ACTION_VEHICLE_BRAKE" },
-    { "at_ms": 91000,  "type": "key",   "key": "S",      "action": "release" },
-
-    { "at_ms": 93000,  "type": "key",   "key": "F",      "action": "tap",     "comment": "dismount attempt (ACTION_VEHICLE_EXIT -> bmoveSetMode(MOVEMODE_WALK))" },
-    { "at_ms": 95000,  "type": "key",   "key": "F",      "action": "tap",     "comment": "dismount retry in case first tap mis-aligned" },
-
-    { "at_ms": 97000,  "type": "wait",  "comment": "settle, allow any deferred dismount / scene work to complete" },
-    { "at_ms": 110000, "type": "exit",  "comment": "scripted exit -- findings live in the log regardless of mount success" }
+    { "at_ms": 0,     "type": "wait", "comment": "boot path: --skip-intro routes to STAGE_CITRAINING (0x26). --debug-mount-bike armed; bootDebugMountBikeTick scans activeprops post-load (lvframenum >= 4)." },
+    { "at_ms": 25000, "type": "action", "name": "ACTION_USE", "action": "tap", "comment": "agent_select accept (focus-independent)" },
+    { "at_ms": 28000, "type": "action", "name": "ACTION_CANCEL_USE", "action": "tap", "comment": "close Main Menu -> CI free-roam (lvIsPaused 1 -> 0)" },
+    { "at_ms": 32000, "type": "wait", "comment": "settle so bootDebugMountBikeTick can walk activeprops and either mount or report REJECTED / no-bike-on-stage" },
+    { "at_ms": 40000, "type": "action", "name": "ACTION_USE", "action": "tap", "comment": "manual mount attempt #1 (in case bike is nearby but mount-during-load failed)" },
+    { "at_ms": 44000, "type": "action", "name": "ACTION_USE", "action": "tap", "comment": "manual mount attempt #2" },
+    { "at_ms": 60000, "type": "wait", "comment": "settle for one-shot consumption (lvframenum > 120 timeout in bootDebugMountBikeTick)" },
+    { "at_ms": 90000, "type": "exit", "comment": "scripted exit -- findings live in the BOOT: --debug-mount-bike consumed line regardless of mount success" }
   ],
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=vehicle_flow",
       "Asset Catalog: \\d+ entries registered",
-      "boot stage set to 0x26",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "BOOT: --debug-mount-bike armed",
+      "BOOT: --debug-mount-bike (consumed|no hoverbike)",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [

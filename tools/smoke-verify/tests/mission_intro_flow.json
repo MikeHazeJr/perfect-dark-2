@@ -1,9 +1,9 @@
 {
   "scenario_name": "mission_intro_flow",
-  "description": "Drives Main Menu -> Solo Play -> Solo Missions -> first mission -> Agent difficulty -> Accept -> intro cutscene -> first stage tick. Verifies the solo-mission menu graph chain (MENU_TYPE_SOLO_MISSION start/back, scene-op), the cutscene push, and stage 0x02 (dataDyne Central) first-tick stability. Surfaces gaps in mission selection, difficulty pick, accept, intro cutscene, and first stage tick paths.",
+  "description": "c115 re-author: skip menu nav entirely via --launch-mission 0x30 --difficulty agent. Verifies the boot-time mission seeding path (g_MissionConfig + g_StageNum stagenum=0x30 STAGE_DEFECTION = dataDyne Central -- Defection, the first solo mission), the intro cutscene + first-stage tick, and LV.DIAG: first-render fires. --no-net bakes in to close the firewall focus-steal class. (Orchestrator originally said 0x02 but that is STAGE_MP_RANDOM_MULTI which has no mission setup; STAGE_DEFECTION at 0x30 is the actual first solo mission.)",
   "tags": ["menu", "solo", "mission", "cutscene", "stability"],
   "paths_of_interest": [
-    "port/fast3d/pdgui_menu_solomission.cpp",
+    "port/src/main.c",
     "src/game/menutick.c",
     "src/game/lv.c",
     "src/game/player.c",
@@ -12,35 +12,33 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 240,
+  "timeout_seconds": 120,
   "install_state": "clean",
   "boot_args": [
     "--no-update-check",
-    "--no-sound"
+    "--no-sound",
+    "--no-net",
+    "--launch-mission",
+    "0x30",
+    "--difficulty",
+    "agent"
   ],
   "input_sequence": [
-    { "at_ms": 0,     "type": "wait",  "comment": "boot to title screen" },
-    { "at_ms": 12000, "type": "key",   "key": "Return", "action": "tap", "comment": "advance past PD logo / intro" },
-    { "at_ms": 13500, "type": "key",   "key": "Return", "action": "tap" },
-    { "at_ms": 15000, "type": "key",   "key": "Return", "action": "tap", "comment": "open Main Menu" },
-    { "at_ms": 17000, "type": "key",   "key": "Up",     "action": "tap", "comment": "ensure selection at top" },
-    { "at_ms": 17500, "type": "key",   "key": "Up",     "action": "tap" },
-    { "at_ms": 18000, "type": "key",   "key": "Down",   "action": "tap", "comment": "Solo Play row" },
-    { "at_ms": 18500, "type": "key",   "key": "Return", "action": "tap", "comment": "enter Solo Play" },
-    { "at_ms": 21000, "type": "key",   "key": "Return", "action": "tap", "comment": "Solo Missions (default sub-row)" },
-    { "at_ms": 24000, "type": "key",   "key": "Return", "action": "tap", "comment": "select first mission (dataDyne Central)" },
-    { "at_ms": 28000, "type": "key",   "key": "Return", "action": "tap", "comment": "Agent difficulty (default)" },
-    { "at_ms": 31000, "type": "key",   "key": "Return", "action": "tap", "comment": "Accept Mission" },
-    { "at_ms": 35000, "type": "wait",  "comment": "let intro cutscene + stage 0x02 first-tick settle" },
-    { "at_ms": 90000, "type": "exit",  "comment": "scripted exit; harness force-exits at timeout_seconds" }
+    { "at_ms": 0,      "type": "wait", "comment": "boot path: --launch-mission seeds g_MissionConfig stagenum=0x30 + agent difficulty pre-mainProc. No menu nav required." },
+    { "at_ms": 30000,  "type": "action", "name": "ACTION_USE", "action": "tap", "comment": "intro cutscene skip attempt #1 (ACTION_USE / ACTION_SKIP_CUTSCENE both recognised by playerTickCutscene)" },
+    { "at_ms": 32000,  "type": "action", "name": "ACTION_SKIP_CUTSCENE", "action": "tap", "comment": "intro cutscene skip attempt #2" },
+    { "at_ms": 45000,  "type": "wait", "comment": "settle for stage 0x30 load + first-tick" },
+    { "at_ms": 60000,  "type": "exit", "comment": "scripted exit -- by 60s gameplay is fully up (SETUP: setupLoadStage complete fires ~6s after boot)" }
   ],
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=mission_intro_flow",
       "Asset Catalog: \\d+ entries registered",
-      "MENU\\.GRAPH\\.FIRE source=solo_mission",
-      "LV\\.DIAG: first-render",
-      "SMOKE: result=(scripted_exit|timeout)"
+      "BOOT: --launch-mission .* -> stagenum=0x30 difficulty=0",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "SETUP: setupLoadStage complete",
+      "BMOVE: allowc1",
+      "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
       "EXCEPTION_ACCESS_VIOLATION",

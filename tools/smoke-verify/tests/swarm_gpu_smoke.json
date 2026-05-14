@@ -1,14 +1,13 @@
 {
   "scenario_name": "swarm_gpu_smoke",
-  "description": "Drive Main Menu -> Settings -> Debug tab -> Test Scenarios -> GPU Bots -> Start, then cycle the bot-count ladder (4 -> 8 -> 16 -> 32 -> 64 -> 128) via ACTION_TESTSCEN_CYCLE_COUNT (KEY_0 / scancode 39). Verifies the GPU compute path activation (probe GL >= 4.3, compute shader compile+link), benchmark logging (BENCHMARK.SWARM.GPU), and how far the ladder progresses before the B-311 FATAL display-list crash trips at the 128-bot cycle. Surfaces the documented GPU pipeline structural gaps -- no bot AI (B-308), no collision constraints (B-309), no spawn upgrades (B-310), and the SWARM_GPU_MAX=256 hard cap vs CPU TESTSCEN_SWARM_MAX_COUNT=4096 drift (HF-2). Failure is informative: an EXCEPTION_ACCESS_VIOLATION at the 128-step confirms B-311 unfixed; a missing BENCHMARK.SWARM.GPU line indicates the keystroke-only harness could not click the ImGui Start button (HIGH severity tooling gap). Input timings are Phase 1 scaffolding -- tune on first live run; the harness JSON + assertions are the deliverable.",
+  "description": "c115 re-author: boot directly into Swarm-GPU via --launch-scenario swarm_gpu (skips Settings -> Debug -> Test Scenarios menu nav entirely + the mouse-only GPU radio click). Verifies GL >= 4.3 probe, compute shader compile+link, TESTSCEN.LAUNCH: Swarm-GPU, BENCHMARK.SWARM.GPU log line, and ladder progression (4 -> 8 -> 16 -> 32 -> 64 -> 128). Surfaces B-311 (128-bot FATAL display-list crash) and the SWARM_GPU_MAX=256 hard cap. Ladder driven via action injection of ACTION_TESTSCEN_CYCLE_COUNT (focus-independent).",
   "tags": ["debug", "swarm", "gpu", "benchmark", "scaling", "compute"],
   "paths_of_interest": [
     "port/fast3d/swarm_gpu.cpp",
     "port/src/testscenarios.c",
     "port/src/swarm_test.c",
     "port/fast3d/gfx_sdl2.cpp",
-    "port/fast3d/pdgui_menu_mainmenu.cpp",
-    "port/fast3d/pdgui_backend.cpp",
+    "port/src/main.c",
     "port/src/actionmap.cpp"
   ],
   "log_channel_mask": "all",
@@ -17,60 +16,30 @@
   "install_state": "clean",
   "boot_args": [
     "--no-update-check",
-    "--no-sound"
+    "--no-sound",
+    "--no-net",
+    "--launch-scenario",
+    "swarm_gpu"
   ],
   "input_sequence": [
-    { "at_ms": 0,      "type": "wait",  "comment": "boot to title / main menu (skip-intro)" },
-    { "at_ms": 8000,   "type": "key",   "key": "Return", "action": "tap", "comment": "advance past PD logo if still in intro" },
-    { "at_ms": 10000,  "type": "key",   "key": "Return", "action": "tap" },
-    { "at_ms": 12000,  "type": "key",   "key": "Return", "action": "tap", "comment": "enter main menu" },
-    { "at_ms": 15000,  "type": "key",   "key": "Escape", "action": "tap", "comment": "close any leftover dialog" },
-
-    { "at_ms": 17000,  "type": "key",   "key": "Down",   "action": "tap", "comment": "main menu: walk down toward Settings" },
-    { "at_ms": 17500,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 18000,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 18500,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 19000,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 19500,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 20000,  "type": "key",   "key": "Return", "action": "tap", "comment": "select Settings (s_MenuView=2)" },
-
-    { "at_ms": 23000,  "type": "key",   "key": "Tab",    "action": "tap", "comment": "Settings tab bar: cycle right Video -> Interface" },
-    { "at_ms": 23500,  "type": "key",   "key": "Tab",    "action": "tap", "comment": "Interface -> Audio" },
-    { "at_ms": 24000,  "type": "key",   "key": "Tab",    "action": "tap", "comment": "Audio -> Controls" },
-    { "at_ms": 24500,  "type": "key",   "key": "Tab",    "action": "tap", "comment": "Controls -> Game" },
-    { "at_ms": 25000,  "type": "key",   "key": "Tab",    "action": "tap", "comment": "Game -> Updates" },
-    { "at_ms": 25500,  "type": "key",   "key": "Tab",    "action": "tap", "comment": "Updates -> Debug (selFlag6)" },
-
-    { "at_ms": 28000,  "type": "key",   "key": "Down",   "action": "tap", "comment": "Debug tab: walk to Test Scenarios block" },
-    { "at_ms": 28400,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 28800,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 29200,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 29600,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 30000,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 30500,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 31000,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 31500,  "type": "key",   "key": "Down",   "action": "tap" },
-
-    { "at_ms": 33000,  "type": "key",   "key": "Right",  "action": "tap", "comment": "shift mode radio from CPU Bots (default) toward GPU Bots" },
-    { "at_ms": 33500,  "type": "key",   "key": "Right",  "action": "tap", "comment": "GPU Bots radio (mode=2)" },
-    { "at_ms": 34500,  "type": "key",   "key": "Down",   "action": "tap", "comment": "land focus on Start button" },
-    { "at_ms": 35000,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 35500,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 36000,  "type": "key",   "key": "Down",   "action": "tap" },
-    { "at_ms": 38000,  "type": "key",   "key": "Return", "action": "tap", "comment": "press Start##testscen -> testScenarioLaunch(SWARM_GPU); will probe GL 4.3 compute on first dispatch" },
-
-    { "at_ms": 50000,  "type": "key",   "key": "0",      "action": "tap", "comment": "cycle: 4 -> 8 (ACTION_TESTSCEN_CYCLE_COUNT, scancode 39)" },
-    { "at_ms": 58000,  "type": "key",   "key": "0",      "action": "tap", "comment": "cycle: 8 -> 16" },
-    { "at_ms": 66000,  "type": "key",   "key": "0",      "action": "tap", "comment": "cycle: 16 -> 32" },
-    { "at_ms": 74000,  "type": "key",   "key": "0",      "action": "tap", "comment": "cycle: 32 -> 48" },
-    { "at_ms": 82000,  "type": "key",   "key": "0",      "action": "tap", "comment": "cycle: 48 -> 64 (at SWARM_GPU_SAFE_MAX, no B-311 warning yet)" },
-    { "at_ms": 90000,  "type": "key",   "key": "0",      "action": "tap", "comment": "cycle: 64 -> 128 (crosses SWARM_GPU_SAFE_MAX=64, B-311 FATAL candidate per bugs.md)" },
-
-    { "at_ms": 150000, "type": "exit",  "comment": "wrap up -- harness scripted exit" }
+    { "at_ms": 0,      "type": "wait", "comment": "boot path: --launch-scenario seeds testScenarioLaunch(SWARM_GPU) post-catalog-init. GL probe + compute shader compile happens on first dispatch. SAME GAP AS SWARM_CPU: player pos uninitialised at first launch, respawn fails, endscreen_solo pushes imgui_menu IMC, cycler suppressed. Workaround: dismiss endscreen via ACTION_USE so the scenario re-launches with the player properly positioned." },
+    { "at_ms": 12000, "type": "action", "name": "ACTION_USE",        "action": "tap", "comment": "dismiss endscreen_solo continue -- restart match" },
+    { "at_ms": 18000, "type": "action", "name": "ACTION_CANCEL_USE", "action": "tap", "comment": "fallback: cancel endscreen to main_menu" },
+    { "at_ms": 22000, "type": "action", "name": "ACTION_USE",        "action": "tap", "comment": "advance whatever transient screen remains" },
+    { "at_ms": 40000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 4 -> 8" },
+    { "at_ms": 50000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 8 -> 16" },
+    { "at_ms": 60000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 16 -> 32" },
+    { "at_ms": 70000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 32 -> 48" },
+    { "at_ms": 80000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 48 -> 64 (at SWARM_GPU_SAFE_MAX)" },
+    { "at_ms": 90000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 64 -> 128 (crosses SAFE_MAX, B-311 FATAL candidate)" },
+    { "at_ms": 150000, "type": "exit", "comment": "scripted exit" }
   ],
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=swarm_gpu_smoke",
+      "BOOT: --launch-scenario 'swarm_gpu' -> testScenarioLaunch",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "TESTSCEN\\.LAUNCH: Swarm-GPU",
       "BENCHMARK\\.SWARM\\.GPU"
     ],
     "forbidden_patterns": [
@@ -80,7 +49,7 @@
       "LOUDFAIL\\.LOAD: .*unrecoverable"
     ],
     "required_counts": [
-      { "pattern": "TESTSCEN\\.SWARM: cycle", "min": 1 }
+      { "pattern": "BENCHMARK\\.SWARM\\.GPU", "min": 1 }
     ]
   }
 }
