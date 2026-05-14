@@ -2,12 +2,12 @@
   "schema_version": 1,
   "semantic_version": "0.1.0",
   "x_extensibility_rule": "Additive-only. Unknown fields tolerated. Reserved namespace: x_*. Bump schema_version only on a breaking change.",
-  "generated_at": "2026-05-13T06:05:34.720267-04:00",
-  "generated_display": "[05-13-2026 - 06:05]",
-  "for_date": "2026-05-13",
+  "generated_at": "2026-05-14T06:06:08.441542-04:00",
+  "generated_display": "[05-14-2026 - 06:06]",
+  "for_date": "2026-05-14",
   "partial": false,
   "headlines": [
-    "26 commits and 7 sessions in the last 24 h"
+    "22 commits and 1 sessions in the last 24 h"
   ],
   "ready_to_resume": {
     "count": 0,
@@ -49,18 +49,18 @@
     },
     {
       "kind": "card",
-      "id": "c027",
-      "title": "Catalog universality pivot post-Phase-3 cleanup",
-      "rationale": "catalog card, column active"
+      "id": "c054",
+      "title": "Networking: wire ICE peer candidate exchange",
+      "rationale": "networking card, column backlog"
     },
     {
       "kind": "card",
-      "id": "c051",
-      "title": "Catalog: drop legacy mods/ build-time deploy (Slice A)",
-      "rationale": "catalog card, column backlog"
+      "id": "c055",
+      "title": "Networking: publish STUN reflexive to peer",
+      "rationale": "networking card, column backlog"
     }
   ],
-  "daily_log_path": "context/daily-logs/2026-05-13.md",
+  "daily_log_path": "context/daily-logs/2026-05-14.md",
   "decisions_allocated": [],
   "x_failure_point": null,
   "x_compaction_quality_review": false
