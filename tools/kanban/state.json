@@ -70,6 +70,11 @@
       "id": "physics-collision",
       "name": "Physics-collision",
       "color": "#0ea5e9"
+    },
+    {
+      "id": "modding",
+      "name": "Modding",
+      "color": "#f59e0b"
     }
   ],
   "columns": [
@@ -1751,6 +1756,21 @@
       "flagged_at": null,
       "created": "2026-04-27",
       "updated": "2026-05-12"
+    },
+    {
+      "id": "c3808",
+      "title": "Modding: in-game .pdmod packer UI (folder -> .pdmod)",
+      "description": "Expose modpackPdmodFromFolder via the Modding Hub. Per 2026-05-13 audit Track 3 finding 3.8 (archive creation entry points gap).",
+      "pillar": "modding",
+      "column": "active",
+      "order": 25000,
+      "priority": 3,
+      "notes": "v1 shipped 2026-05-13: two text inputs (folder path, output .pdmod path), one button. Calls modpackPdmodFromFolder. Future: file-system folder browser, .pdpack migration helper.",
+      "flag": null,
+      "flagged_at": null,
+      "pending_completion": null,
+      "created": "2026-05-14T00:00:00Z",
+      "updated": "2026-05-14T00:00:00Z"
     },
     {
       "id": "c127",

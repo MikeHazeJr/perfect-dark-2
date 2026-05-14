@@ -42,6 +42,7 @@
 #include "pdgui_charpreview.h"
 #include "fs.h"
 #include "modpack.h"
+#include "modpack_pdmod.h"
 #include "../external/stb_image.h"
 
 /* ========================================================================
@@ -1250,7 +1251,89 @@ static void renderPackTool(float contentW, float contentH, float scale)
                                "%s", s_PackStatusMsg);
         }
     } else {
-        ImGui::TextDisabled("Mod Pack — export/import .pdpack files");
+        ImGui::TextDisabled("Mod Pack -- export/import .pdpack files");
+    }
+
+    /* ================================================================
+     * PACK .pdmod FROM FOLDER (c3808)
+     *
+     * v1 minimal UI: two text inputs (source folder + output .pdmod
+     * path) and one button that calls modpackPdmodFromFolder. The
+     * helper recursively archives every file under the folder into a
+     * single .pdmod, reading mod.json from the folder root to embed
+     * the comment mirror. Surfaces the legacy first-run auto-migration
+     * path (port/src/modmigrate.c) as a first-class authoring tool.
+     * ============================================================== */
+    static char s_PdmodSrcFolder[FS_MAXPATH] = "mods/staging/";
+    static char s_PdmodOutPath[FS_MAXPATH]   = "mods/packed.pdmod";
+    static char s_PdmodStatusMsg[256]        = "";
+    static bool s_PdmodStatusOk              = true;
+
+    ImGui::Spacing();
+    ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TextWarning());
+    ImGui::TextUnformatted("PACK .pdmod FROM FOLDER");
+    ImGui::PopStyleColor();
+    ImGui::Separator();
+
+    {
+        float lblW = 80.0f * scale;
+        ImGui::SetNextItemWidth(contentW - lblW);
+        ImGui::InputText("##pdmodsrc", s_PdmodSrcFolder, sizeof(s_PdmodSrcFolder));
+        ImGui::SameLine();
+        ImGui::TextDisabled("Folder");
+
+        ImGui::SetNextItemWidth(contentW - lblW);
+        ImGui::InputText("##pdmodout", s_PdmodOutPath, sizeof(s_PdmodOutPath));
+        ImGui::SameLine();
+        ImGui::TextDisabled("Output");
+    }
+
+    {
+        bool canPack = (s_PdmodSrcFolder[0] != '\0') && (s_PdmodOutPath[0] != '\0');
+        float btnW = 140.0f * scale;
+        float btnH = 26.0f * scale;
+        ImGui::SetCursorPosX(contentW - btnW);
+
+        if (!canPack) ImGui::BeginDisabled();
+        if (PdButton("Pack .pdmod", ImVec2(btnW, btnH))) {
+            s32 ret = modpackPdmodFromFolder(s_PdmodSrcFolder, s_PdmodOutPath);
+            if (ret == MODPACK_PDMOD_OK) {
+                snprintf(s_PdmodStatusMsg, sizeof(s_PdmodStatusMsg),
+                         "Packed %s -> %s",
+                         s_PdmodSrcFolder, s_PdmodOutPath);
+                s_PdmodStatusOk = true;
+                sysLogPrintf(LOG_NOTE,
+                             "MODPACK.PDMOD: packed %s -> %s",
+                             s_PdmodSrcFolder, s_PdmodOutPath);
+            } else {
+                const char *reason = "unknown error";
+                switch (ret) {
+                    case MODPACK_PDMOD_ERR_OPEN:    reason = "could not open destination"; break;
+                    case MODPACK_PDMOD_ERR_NO_MFST: reason = "mod.json not found in folder"; break;
+                    case MODPACK_PDMOD_ERR_BAD_MFST:reason = "mod.json failed to parse"; break;
+                    case MODPACK_PDMOD_ERR_IO:      reason = "read/write failure"; break;
+                    case MODPACK_PDMOD_ERR_TOO_BIG: reason = "source exceeds 4 GiB"; break;
+                    default: break;
+                }
+                snprintf(s_PdmodStatusMsg, sizeof(s_PdmodStatusMsg),
+                         "Pack failed: %s (rc=%d)", reason, (int)ret);
+                s_PdmodStatusOk = false;
+                sysLogPrintf(LOG_WARNING,
+                             "MODPACK.PDMOD: failed folder=%s output=%s rc=%d",
+                             s_PdmodSrcFolder, s_PdmodOutPath, (int)ret);
+            }
+        }
+        if (!canPack) ImGui::EndDisabled();
+    }
+
+    if (s_PdmodStatusMsg[0]) {
+        if (s_PdmodStatusOk) {
+            ImGui::TextColored(pdguiVec4TintSuccess(), "%s", s_PdmodStatusMsg);
+        } else {
+            ImGui::TextColored(pdguiVec4TintDanger(),  "%s", s_PdmodStatusMsg);
+        }
+    } else {
+        ImGui::TextDisabled("Pack a folder mod (mod.json + .pd<ext> files) into a single .pdmod archive.");
     }
 }
 
