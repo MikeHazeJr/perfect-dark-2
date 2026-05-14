@@ -35,6 +35,21 @@
     Use an existing install directory instead of a per-test fresh copy.
     Implies -Keep; never used in CI.
 
+.PARAMETER SharedInstall
+    Re-seed a single canonical install at .claude/smoke-verify-install/
+    for every test, instead of a fresh per-test directory. Closes the
+    Windows Defender Firewall prompt class because the same
+    PerfectDark.exe path is launched every time. Default ON. To force
+    the legacy per-test layout pass -PerTestInstall (e.g. for tests
+    that genuinely require pristine isolation).
+
+.PARAMETER PerTestInstall
+    Force the legacy per-test install layout
+    (.claude/smoke-verify-runs/<utc>-<test>/PerfectDark.exe). Disables
+    -SharedInstall. Every fresh path will retrigger the Windows Defender
+    Firewall prompt; pair with --no-net or pre-seed the firewall allow
+    rule manually.
+
 .PARAMETER Keep
     Do not delete the per-run dir on success.
 
@@ -69,6 +84,8 @@ param(
     [string]   $Session = "",
 
     [string]   $Install = "",
+    [switch]   $SharedInstall,
+    [switch]   $PerTestInstall,
     [switch]   $Keep,
     [int]      $Timeout = 0,
 
@@ -95,6 +112,20 @@ $ResultsFile = ""
 
 . (Join-Path $LibDir "Test-Assertions.ps1")
 . (Join-Path $LibDir "Install-Harness.ps1")
+
+# ----------------------------------------------------------------
+# Resolve install mode (c115, 2026-05-14)
+# ----------------------------------------------------------------
+# SharedInstall is ON by default. -PerTestInstall forces the legacy
+# per-test layout. -Install (existing dir) overrides both. If both
+# -SharedInstall and -PerTestInstall are passed explicitly, the latter
+# wins for backward-compat with anyone scripting around the old layout.
+$useSharedInstall = $true
+if ($PerTestInstall) { $useSharedInstall = $false }
+if ($Install)        { $useSharedInstall = $false }  # honour explicit -Install
+if ($PerTestInstall -and $SharedInstall) {
+    Write-Warning "Both -SharedInstall and -PerTestInstall passed; -PerTestInstall wins."
+}
 
 function Write-Info([string]$t) { Write-Host $t -ForegroundColor Gray }
 function Write-Ok([string]$t)   { Write-Host $t -ForegroundColor Green }
@@ -246,7 +277,8 @@ function Invoke-SmokeTest {
         [int] $TimeoutOverride = 0,
         [switch] $VerboseEval,
         [string] $BinaryOverride = "",
-        [string] $RomOverride = ""
+        [string] $RomOverride = "",
+        [switch] $Shared
     )
 
     $name = $Test.Name
@@ -275,6 +307,14 @@ function Invoke-SmokeTest {
             RomId = ""
             InstallState = "current"
         }
+    } elseif ($Shared) {
+        # Single canonical install path; firewall rule seeded inside.
+        $installInfo = New-SmokeSharedInstall `
+            -ProjectRoot $ProjectRoot `
+            -TestName $name `
+            -InstallState $installState `
+            -SourceBinary $BinaryOverride `
+            -SourceRom $RomOverride
     } else {
         $installInfo = New-SmokeInstall `
             -RunRoot $RunRoot `
@@ -347,7 +387,11 @@ function Invoke-SmokeTest {
         $assertions = [PSCustomObject]@{}
     }
 
-    $assertResult = Invoke-SmokeAssertions -LogPath $logPath -Assertions $assertions -Verbose:$VerboseEval
+    # c115 S-2 fix: rename to -VerboseAssertions to avoid PowerShell's
+    # auto-binding collision with the common -Verbose parameter. Under
+    # PS 5.1 the collision surfaced as a misleading "Count not found"
+    # strict-mode crash.
+    $assertResult = Invoke-SmokeAssertions -LogPath $logPath -Assertions $assertions -VerboseAssertions:$VerboseEval
 
     $testOk = $assertResult.Passed -and ($exitCode -eq 0)
     $reasonExitNonZero = $false
@@ -366,7 +410,10 @@ function Invoke-SmokeTest {
         Write-Fail "  exit code non-zero: harness force-exited (timeout or fatal)"
     }
 
-    if ($testOk -and -not $KeepOnSuccess -and -not $ExistingInstall) {
+    # Cleanup: only nuke per-test dirs. Shared install survives across
+    # tests because deleting it would defeat the firewall-rule pinning
+    # and force re-elevation; -ExistingInstall is user-managed.
+    if ($testOk -and -not $KeepOnSuccess -and -not $ExistingInstall -and -not $Shared) {
         try {
             Remove-Item -LiteralPath $installInfo.InstallDir -Recurse -Force -ErrorAction Stop
             Write-Info "  cleaned install dir"
@@ -436,12 +483,15 @@ if ($all.Count -eq 0) {
     throw "No tests found in $TestsDir"
 }
 
-$selected = Select-SmokeTests `
+# c115 S-1 fix: wrap in @(...) so a single-test return doesn't get
+# auto-unwrapped to a PSCustomObject -- otherwise $selected.Count
+# crashes under Set-StrictMode -Version Latest with PropertyNotFound.
+$selected = @(Select-SmokeTests `
     -All $all `
     -Names $Test `
     -Tags $Tag `
     -UseAutoSelect:$AutoSelect `
-    -AutoSelectBase $MergeBase
+    -AutoSelectBase $MergeBase)
 
 if ($selected.Count -eq 0) {
     Write-Warn "No tests matched the selection criteria."
@@ -457,6 +507,14 @@ foreach ($t in $selected) {
 # Run
 # ----------------------------------------------------------------
 
+if ($useSharedInstall) {
+    Write-Info "Install mode: shared (.claude/smoke-verify-install/). Firewall rule pinned to canonical path."
+} elseif ($Install) {
+    Write-Info ("Install mode: existing dir at {0}" -f $Install)
+} else {
+    Write-Info "Install mode: per-test (.claude/smoke-verify-runs/<utc>-<test>/). Firewall prompt may appear on each new path."
+}
+
 $results = @()
 foreach ($t in $selected) {
     $r = Invoke-SmokeTest `
@@ -466,7 +524,8 @@ foreach ($t in $selected) {
         -TimeoutOverride $Timeout `
         -VerboseEval:$VerboseAssertions `
         -BinaryOverride $SourceBinary `
-        -RomOverride $SourceRom
+        -RomOverride $SourceRom `
+        -Shared:$useSharedInstall
     $results += $r
 }
 

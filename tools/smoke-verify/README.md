@@ -164,3 +164,67 @@ behaviour:
 
 The runner streams the log file in real time and validates after exit; there
 is no in-engine assertion path. Keep assertions log-pattern based.
+
+## Install modes (c115, 2026-05-14)
+
+The runner supports two install layouts. `shared` is the default.
+
+### `-SharedInstall` (default ON)
+
+Re-seeds a single canonical install directory at
+`.claude/smoke-verify-install/` before each test. Binary, ROM, and (when
+`install_state` is `prefilled`) `data/<romid>/` are refreshed in place;
+`pd-client.log` is wiped so each test sees a clean log.
+
+Why: Windows Defender Firewall keys its inbound allow rules by absolute
+program path. The pre-c115 per-test layout copied `PerfectDark.exe` to a
+fresh `<utc>-<test>` directory every run, which made Defender treat each
+launch as a new executable and surface a "Windows Security Alert" dialog
+that stole focus from the SDL window. Shared mode eliminates that class
+of failure because the same path is launched every time.
+
+On the first run the harness adds an idempotent
+`New-NetFirewallRule -DisplayName "PD2 Smoke Verify" -Direction Inbound
+-Action Allow -Program <canonical-path>` entry. The rule survives
+reboots; first-run elevation is the only UAC prompt the user ever sees.
+Subsequent runs verify the rule still points at the canonical path and
+re-apply it if drift occurred. If elevation fails (non-admin shell) the
+harness logs a warning and proceeds -- worker alpha's `--no-net` boot
+arg closes the prompt class for offline smokes.
+
+Per-test artefacts (results JSON, retained install dir on failure) still
+land in `.claude/smoke-verify-runs/<utc>-<test>/` so debugging trails
+remain isolated per run.
+
+### `-PerTestInstall` (legacy)
+
+Forces the pre-c115 layout: a fresh
+`.claude/smoke-verify-runs/<utc>-<test>/PerfectDark.exe` per test.
+Useful only when you genuinely need two concurrent runs against
+different binaries, since every fresh path retrigger the firewall
+prompt. Pair with `--no-net` (added by worker alpha in c115) to keep the
+network stack from initialising.
+
+### `-Install <dir>`
+
+Use an existing install dir as-is. Implies `-Keep` and disables both
+shared and per-test modes. The runner will not refresh the binary or
+ROM; the dir is expected to be ready-to-launch.
+
+## Firewall allow rule
+
+Created automatically by `Add-SmokeFirewallAllowRule` in
+`lib/Install-Harness.ps1` whenever shared mode is active. To inspect or
+remove the rule manually:
+
+```powershell
+# Show
+Get-NetFirewallRule -DisplayName "PD2 Smoke Verify"
+Get-NetFirewallRule -DisplayName "PD2 Smoke Verify" | Get-NetFirewallApplicationFilter
+
+# Remove (e.g. for a smoke install path that no longer exists)
+Remove-NetFirewallRule -DisplayName "PD2 Smoke Verify"
+```
+
+The next shared-mode run will recreate the rule against the current
+canonical path.

@@ -17,6 +17,14 @@
 
     Designed to be dot-sourced by run.ps1; no parameters or side effects
     at load time.
+
+    c115 (2026-05-14): the assertion verbose switch is named
+    $VerboseAssertions, NOT $Verbose. PowerShell auto-binds the common
+    -Verbose parameter on every [CmdletBinding()] function, so a custom
+    [switch] $Verbose collides at the call site -- under pwsh 7 you get
+    a clear binding error; under PowerShell 5.1 it surfaces as the
+    misleading "Count not found" strict-mode crash. Keep the name as
+    $VerboseAssertions; do not "fix" it back to $Verbose.
 #>
 
 Set-StrictMode -Version Latest
@@ -26,7 +34,7 @@ function Invoke-SmokeAssertions {
     param(
         [Parameter(Mandatory)] [string] $LogPath,
         [Parameter(Mandatory)] [psobject] $Assertions,
-        [switch] $Verbose
+        [switch] $VerboseAssertions
     )
 
     $result = [PSCustomObject]@{
@@ -71,9 +79,9 @@ function Invoke-SmokeAssertions {
         }
         if (-not $hit) {
             $result.Met++
-            if ($Verbose) { Write-Host "  ok  forbidden absent: $pat" -ForegroundColor DarkGreen }
+            if ($VerboseAssertions) { Write-Host "  ok  forbidden absent: $pat" -ForegroundColor DarkGreen }
         } else {
-            if ($Verbose) { Write-Host "  FAIL forbidden matched: $pat" -ForegroundColor Red }
+            if ($VerboseAssertions) { Write-Host "  FAIL forbidden matched: $pat" -ForegroundColor Red }
         }
     }
 
@@ -91,13 +99,13 @@ function Invoke-SmokeAssertions {
         }
         if ($hit) {
             $result.Met++
-            if ($Verbose) { Write-Host "  ok  required matched: $pat" -ForegroundColor DarkGreen }
+            if ($VerboseAssertions) { Write-Host "  ok  required matched: $pat" -ForegroundColor DarkGreen }
         } else {
             $result.Failures.Add([PSCustomObject]@{
                 Kind = "required_line_missing"
                 Pattern = $pat
             })
-            if ($Verbose) { Write-Host "  FAIL required missing: $pat" -ForegroundColor Red }
+            if ($VerboseAssertions) { Write-Host "  FAIL required missing: $pat" -ForegroundColor Red }
         }
     }
 
@@ -124,7 +132,7 @@ function Invoke-SmokeAssertions {
         $okMax = ($max -lt 0) -or ($count -le $max)
         if ($okMin -and $okMax) {
             $result.Met++
-            if ($Verbose) {
+            if ($VerboseAssertions) {
                 $cap = if ($max -lt 0) { "unbounded" } else { "$max" }
                 Write-Host "  ok  count in range [$min..$cap]: $pat -> $count" -ForegroundColor DarkGreen
             }
@@ -136,7 +144,7 @@ function Invoke-SmokeAssertions {
                 Min = $min
                 Max = $max
             })
-            if ($Verbose) {
+            if ($VerboseAssertions) {
                 Write-Host "  FAIL count out of range: $pat -> $count (min=$min max=$max)" -ForegroundColor Red
             }
         }
