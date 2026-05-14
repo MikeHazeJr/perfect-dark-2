@@ -1,0 +1,55 @@
+{
+  "scenario_name": "listen_host_init_smoke",
+  "description": "c118 connectivity-pillar coverage: proves the client boots with the network stack alive (netInit + p2pInit + presenceInit all run) without the firewall focus-steal class crashing the harness or producing connectivity-error log channels. All five existing smoke tests (boot_smoke, mod_load_smoke, mp_room_flow, mission_intro_flow, full_sdl_pipeline_smoke) drop --no-net + skip netInit/p2pInit; this test deliberately omits --no-net so the ENet stack initialises (enet_initialize -> stunInit -> arg-latch parsing), p2pLanStart binds UDP 27101 for LAN-broadcast advertising, and presenceInit binds UDP 27105 for the Ed25519 v2 presence signal. The firewall allow rule pinned by Install-Harness.ps1 is path-pinned to <install>/PerfectDark.exe -- the same exe path boot_smoke + mod_load_smoke already use -- so no firewall prompt fires on this run (closes the dispatch's main risk class). netStartServer is NOT auto-called from any CLI flag (--host only sets g_NetHostLatch -- the actual host bind requires menu interaction), so this test asserts on the connectivity-stack INIT contract instead: ENet init success (absence of 'NET: could not init ENet'), P2P LAN tier socket bound, PRESENCE socket bound + initialised state. Sister test for the connectivity pillar; first smoke fixture in the suite to exercise the post-netInit code path.",
+  "tags": ["connectivity", "net", "p2p", "presence", "smoke", "pillar:connectivity", "boot"],
+  "paths_of_interest": [
+    "port/src/net/net.c",
+    "port/src/net/p2p.c",
+    "port/src/net/p2p_lan.c",
+    "port/src/net/netstun.c",
+    "port/src/presence.c",
+    "port/src/main.c",
+    "tools/smoke-verify/lib/Install-Harness.ps1",
+    "tools/smoke-verify/run.ps1"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 30,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--skip-intro"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot path: --skip-intro re-routes g_StageNum from STAGE_TITLE to STAGE_CITRAINING so we don't sit in the bouncy attract loop, but the connectivity-stack init we're asserting on (netInit, p2pInit, presenceInit) all fire BEFORE mainProc enters its loop. Per the recorded mod_load_smoke run, PRESENCE: socket bound and P2P.LAN: listener bound both land within the first 100ms of boot. No --no-net here -- the whole point is to prove the firewall path-pinned allow rule lets the network stack come up cleanly on the same canonical PerfectDark.exe used by every other smoke test." },
+    { "at_ms": 12000, "type": "exit", "comment": "scripted exit at 12s -- connectivity init is complete by ~3s on a clean install; 9s headroom covers cold-start variance + asset catalog warm-up + lvTick first-render. modmgr: shutdown fires on exit which produces the SMOKE: result=scripted_exit sentinel." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=listen_host_init_smoke",
+      "PRESENCE: socket bound on UDP 27105",
+      "PRESENCE: initialised state=",
+      "P2P\\.NAT: layer initialised \\(max pairs=\\d+\\)",
+      "P2P\\.LAN: listener bound on UDP 27101",
+      "Asset Catalog: \\d+ entries registered",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "BOOT: --no-net set; p2pInit\\(\\) skipped",
+      "NET: could not init ENet, disabling networking",
+      "NET: could not create ENet host on port \\d+",
+      "P2P\\.LAN: bind\\(\\d+\\) failed",
+      "P2P\\.LAN: socket\\(\\) failed",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable"
+    ],
+    "required_counts": [
+      { "pattern": "PRESENCE: socket bound on UDP \\d+", "min": 1, "max": 1 },
+      { "pattern": "P2P\\.LAN: listener bound on UDP \\d+", "min": 1, "max": 1 }
+    ]
+  }
+}
