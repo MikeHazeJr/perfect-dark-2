@@ -97,9 +97,10 @@ smart-clean.
 
 ## Commit
 
-SHA TBD (committed by orchestrator after this report is in the
-tree). Subject: `Modding - c3808: in-game .pdmod packer UI (folder
-to .pdmod)`. Refs trailer references c3808.
+SHA: `431131bf`. Subject: `Modding - c3808: in-game .pdmod packer
+UI (folder to .pdmod)`. Refs trailer references c3808. Commit-msg
+hook passed cleanly (pillar `Modding` -> registered, card c3808
+-> exists, pillar match -> ok, Refs: c3808 -> present).
 
 ## Follow-ups
 
