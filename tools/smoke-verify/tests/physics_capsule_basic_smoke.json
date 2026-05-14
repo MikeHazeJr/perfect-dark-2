@@ -1,0 +1,67 @@
+{
+  "scenario_name": "physics_capsule_basic_smoke",
+  "description": "c115 physics-collision pillar coverage: boot to STAGE_CITRAINING via --skip-intro, then arm --debug-spawn-at (fc9645a one-shot latch) to teleport player 0 to the canonical CITRAINING spawn (637.0, 360.0, 923.0, room 16) once setupCreateProps has placed the player prop. The teleport calls chrMoveToPos with force=true so the capsule pipeline + chr tick keep running across the teleport. Test proves: (1) the new --debug-spawn-at flag parses + arms, (2) bootDebugSpawnAtTick consumes the latch (lvframenum >= 4, players[0]->prop->chr valid) and emits the consumed line with result=OK, (3) the capsule sweep + chr tick pipeline continues running for >=30 frames post-teleport without crashing or emitting collision-error log channels. Spawn position lifted from a prior CITRAINING boot log (.claude/smoke-verify-runs/20260514T031147Z-mission_intro_flow/pd-client.log line 992: 'SPAWN: pre-ground pos=(637.0,360.0,923.0) room=16 angle=1.570'). NOT trying to assert wall-jump or specific capsule behavior -- that is the wall_jump_capsule_smoke sibling test. This test is the harness-flag baseline that proves --debug-spawn-at works end-to-end before relying on it for richer physics scenarios. --no-net bakes in to close the firewall focus-steal class.",
+  "tags": ["physics", "collision", "smoke", "pillar:physics-collision"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/pdmain.c",
+    "src/game/chr.c",
+    "src/game/bondmove.c",
+    "src/game/bondwalk.c",
+    "src/lib/capsule.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--skip-intro",
+    "--debug-spawn-at",
+    "637.0,360.0,923.0,16"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot path: --skip-intro routes to STAGE_CITRAINING (0x26). --debug-spawn-at parses (637.0,360.0,923.0,16) into g_BootSpawnAt* latch globals and emits 'BOOT: --debug-spawn-at armed' before mainProc." },
+    { "at_ms": 15000, "type": "wait", "comment": "settle past setupCreateProps (~6s post-boot) so bootDebugSpawnAtTick's gates (lvframenum >= 4 AND players[0]->prop->chr alive) pass and chrMoveToPos fires. The consumed line should fire within ~7s of boot." },
+    { "at_ms": 30000, "type": "wait", "comment": "settle for >=30 frames of player tick post-teleport (lvframe60 < 30 window fires bgunTickGameplay 30 times unconditionally; that span proves the capsule + chr pipeline continued running past the teleport without crashing)." },
+    { "at_ms": 45000, "type": "wait", "comment": "extra settle for BMOVE periodic logs (every 120 frames = ~2s) so we land 4+ BMOVE samples post-spawn-at consumption." },
+    { "at_ms": 55000, "type": "exit", "comment": "scripted exit -- by 55s the capsule + chr tick pipeline has had ~50s of post-teleport ticks; if anything was going to AV / collision-fault from the teleport, it would have surfaced." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=physics_capsule_basic_smoke",
+      "Asset Catalog: \\d+ entries registered",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "BOOT: --debug-spawn-at armed: pos=\\(637\\.\\d+,360\\.\\d+,923\\.\\d+\\) room=16",
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x26",
+      "LOAD: calling setupCreateProps stagenum=0x26",
+      "SETUP: setupLoadStage complete",
+      "TICK: lvTick enter tick=\\d+ stagenum=0x26",
+      "BOOT: --debug-spawn-at consumed: prop=(?:0x)?[0-9a-fA-F]+ stagenum=0x26 result=OK pos=\\(637\\.\\d+,360\\.\\d+,923\\.\\d+\\) room=16",
+      "BMOVE: allowc1x=\\d+ allowc1y=\\d+ allowc1buttons=\\d+",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "BOOT: --debug-spawn-at consumed: .* result=FAILED",
+      "BOOT: --debug-spawn-at expects 4 comma-separated tokens"
+    ],
+    "required_counts": [
+      {
+        "pattern": "LOG\\.WPN\\.DIAG: bgunTickGameplay enter player=0 frame=",
+        "min": 30,
+        "comment": "bgunTickGameplay enter player=0 fires unconditionally on the first 30 ticks of the match (bondgun.c:12609 -- lvframe60 < 30 || lvframenum % 120 == 7). The --debug-spawn-at teleport fires at lvframenum >= 4, so the first 30 ticks are entirely post-arm and the bulk are post-consumption. Hitting >=30 of these proves the chr tick + bgun tick + (transitively) capsule sweep pipeline kept running for at least 30 frames after the teleport without crashing. Extra fires every 120 frames push the actual count to ~35+ in a 55s run."
+      },
+      {
+        "pattern": "BMOVE: allowc1x=\\d+ allowc1y=\\d+ allowc1buttons=\\d+",
+        "min": 2,
+        "comment": "BMOVE fires every 120 frames of lvframenum (~2s @ 60fps when not in cutscene). Hitting >=2 samples proves the bondmove tick ran past the initial boot frame and continued surviving downstream of the chr teleport. Conservative floor: CITRAINING's intro cutscene throttles lvframenum increments, so even healthy runs see only ~3 BMOVE in 55s; the bgunTickGameplay >=30 assertion above carries the heavier 'tick alive for 30+ frames' load."
+      }
+    ]
+  }
+}
