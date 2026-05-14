@@ -25,6 +25,7 @@
     "required_lines": [
       "SMOKE: scenario=boot_smoke",
       "Asset Catalog: \\d+ entries registered",
+      "LOADER\\.UNIVERSAL\\.OK: kind=weapon scanned=86 registered=86 envelope_failures=0 register_failures=0",
       "LOADER\\.UNIVERSAL\\.SUMMARY:",
       "SMOKE: result=scripted_exit"
     ],
