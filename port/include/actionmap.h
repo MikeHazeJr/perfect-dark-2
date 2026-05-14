@@ -659,6 +659,37 @@ void imcVehicleDismount(void);
 void imcCutsceneEnter(void);
 void imcCutsceneExit(void);
 
+/* ============================================================
+ * Smoke verify harness helpers (c115, 2026-05-14)
+ *
+ * These helpers exist so the smoke harness can drive the actionmap
+ * directly, bypassing SDL events and ImGui's focus gate. They are
+ * deterministic and focus-independent -- the right tool for steering
+ * after the SDL window has lost focus to a firewall prompt or other
+ * OS modal.
+ *
+ * Both calls are inert when the smoke harness is not active (gated
+ * via smokeHarnessIsActive() in the implementation), so production
+ * paths cannot accidentally mutate state through them.
+ * ============================================================ */
+
+/** Resolve a textual action name to an InputAction enum value.
+ *  Accepts the full enum identifier ("ACTION_MENU_ACCEPT") as well as
+ *  the CamelCase short form used in pd.ini keys ("MenuUp", "Use").
+ *  Returns the action index on success, or -1 if the name is unknown.
+ *  Backward-compat aliases (ACTION_INTERACT / ACTION_MENU_ACCEPT /
+ *  ACTION_MENU_CANCEL / ACTION_MENU_CONTEXT / ACTION_MENU_SOCIAL)
+ *  resolve to their canonical targets. */
+s32 actionmapResolveByName(const char *name);
+
+/** Inject a press (down=1) or release (down=0) edge on `action` for
+ *  `player`, writing directly to the per-player ActionState. The
+ *  smoke harness uses this to drive menu navigation deterministically
+ *  even when the SDL window has lost focus. Returns 1 if the inject
+ *  was applied, 0 if it was rejected (harness not active, out-of-range
+ *  player, or out-of-range action). */
+s32 actionmapInjectStateForSmoke(s32 player, s32 action, s32 down);
+
 #ifdef __cplusplus
 }
 #endif

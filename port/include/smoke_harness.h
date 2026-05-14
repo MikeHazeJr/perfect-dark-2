@@ -6,13 +6,22 @@ extern "C" {
 #endif
 
 /*
- * Smoke verify harness (Phase 1, 2026-05-11).
+ * Smoke verify harness (Phase 1, 2026-05-11; action / mouse added c115,
+ * 2026-05-14).
  *
  * The harness drives the client through a scripted scenario described by
- * a JSON test definition (tools/smoke-verify/tests/*.json). It pushes
- * SDL keyboard events at scheduled millisecond offsets, force-exits on
- * timeout, and writes a SMOKE: result=... marker that the PowerShell
- * runner can parse after the binary has exited.
+ * a JSON test definition (tools/smoke-verify/tests/*.json). It dispatches
+ * input events at scheduled millisecond offsets, force-exits on timeout,
+ * and writes a SMOKE: result=... marker that the PowerShell runner can
+ * parse after the binary has exited.
+ *
+ * Supported event types (see port/src/smoke_harness.c for the full
+ * schema and tools/smoke-verify/README.md for examples):
+ *   - wait    : inert sequencing marker
+ *   - exit    : scripted clean exit
+ *   - key     : SDL_KEYDOWN / KEYUP
+ *   - action  : actionmap press/release injected directly (focus-independent)
+ *   - mouse   : SDL_MOUSEBUTTONDOWN / UP at {x, y}
  *
  * Design ref: context/designs/engine/smoke-verify-gate.md.
  *

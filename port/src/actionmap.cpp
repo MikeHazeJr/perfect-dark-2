@@ -35,6 +35,7 @@
 #include "system.h"     /* sysLogPrintf, LOG_NOTE, LOG_WARNING */
 #include "inputctx.h"   /* inputCtxGetTop, g_CtxGameplay — for menu axis suppression */
 #include "inputlayer.h" /* layer-declared action aperture for transition layers */
+#include "smoke_harness.h" /* smokeHarnessIsActive -- gates inject helpers */
 
 /* Priority D (2026-04-24): FREEFLY observer suppression. Single extern
  * decl keeps forgemode.h (and its types.h dependency) out of this TU. */
@@ -3016,4 +3017,238 @@ void actionmapInit(void)
 
     sysLogPrintf(LOG_NOTE, "ACTIONMAP: initialized — %d actions, %d players, %d IMCs",
                  (s32)ACTION_COUNT, ACTIONMAP_MAX_PLAYERS, s_NumActive);
+}
+
+/* ============================================================
+ * Smoke verify harness helpers (c115, 2026-05-14)
+ *
+ * Used only when smokeHarnessIsActive() is non-zero. Provide a
+ * focus-independent, deterministic path for the smoke harness to
+ * drive the actionmap during scripted scenarios.
+ * ============================================================ */
+
+/* ACTION_* enum-identifier lookup table. Covers every enum value in
+ * actionmap.h. Kept separate from s_ActionNames because s_ActionNames
+ * uses CamelCase short names (for pd.ini keys) and only spans
+ * indices 0-104. */
+struct SmokeActionEntry {
+    const char *name;
+    s32         action;
+};
+
+static const SmokeActionEntry s_SmokeActionTable[] = {
+    /* 0-5: movement */
+    { "ACTION_MOVE_FORWARD",         ACTION_MOVE_FORWARD },
+    { "ACTION_MOVE_BACKWARD",        ACTION_MOVE_BACKWARD },
+    { "ACTION_MOVE_LEFT",            ACTION_MOVE_LEFT },
+    { "ACTION_MOVE_RIGHT",           ACTION_MOVE_RIGHT },
+    { "ACTION_AXIS_MOVE_X",          ACTION_AXIS_MOVE_X },
+    { "ACTION_AXIS_MOVE_Y",          ACTION_AXIS_MOVE_Y },
+    /* 6-11: aim */
+    { "ACTION_AIM_UP",               ACTION_AIM_UP },
+    { "ACTION_AIM_DOWN",             ACTION_AIM_DOWN },
+    { "ACTION_AIM_LEFT",             ACTION_AIM_LEFT },
+    { "ACTION_AIM_RIGHT",            ACTION_AIM_RIGHT },
+    { "ACTION_AXIS_AIM_X",           ACTION_AXIS_AIM_X },
+    { "ACTION_AXIS_AIM_Y",           ACTION_AXIS_AIM_Y },
+    /* 12-15: C-buttons */
+    { "ACTION_CBUTTON_UP",           ACTION_CBUTTON_UP },
+    { "ACTION_CBUTTON_DOWN",         ACTION_CBUTTON_DOWN },
+    { "ACTION_CBUTTON_LEFT",         ACTION_CBUTTON_LEFT },
+    { "ACTION_CBUTTON_RIGHT",        ACTION_CBUTTON_RIGHT },
+    /* 16-19: D-pad */
+    { "ACTION_DPAD_UP",              ACTION_DPAD_UP },
+    { "ACTION_DPAD_DOWN",            ACTION_DPAD_DOWN },
+    { "ACTION_DPAD_LEFT",            ACTION_DPAD_LEFT },
+    { "ACTION_DPAD_RIGHT",           ACTION_DPAD_RIGHT },
+    /* 20-31: combat */
+    { "ACTION_FIRE_PRIMARY",         ACTION_FIRE_PRIMARY },
+    { "ACTION_FIRE_SECONDARY",       ACTION_FIRE_SECONDARY },
+    { "ACTION_FIRE_MODE",            ACTION_FIRE_MODE },
+    { "ACTION_RELOAD",               ACTION_RELOAD },
+    { "ACTION_USE",                  ACTION_USE },
+    { "ACTION_CANCEL_USE",           ACTION_CANCEL_USE },
+    { "ACTION_THROW_WEAPON",         ACTION_THROW_WEAPON },
+    { "ACTION_CROUCH",               ACTION_CROUCH },
+    { "ACTION_JUMP",                 ACTION_JUMP },
+    { "ACTION_SPRINT",               ACTION_SPRINT },
+    { "ACTION_ZOOM_IN",              ACTION_ZOOM_IN },
+    { "ACTION_ZOOM_OUT",             ACTION_ZOOM_OUT },
+    /* 32-39: weapon selection */
+    { "ACTION_WEAPON_PREV",          ACTION_WEAPON_PREV },
+    { "ACTION_WEAPON_NEXT",          ACTION_WEAPON_NEXT },
+    { "ACTION_WEAPON_1",             ACTION_WEAPON_1 },
+    { "ACTION_WEAPON_2",             ACTION_WEAPON_2 },
+    { "ACTION_WEAPON_3",             ACTION_WEAPON_3 },
+    { "ACTION_WEAPON_4",             ACTION_WEAPON_4 },
+    { "ACTION_WEAPON_5",             ACTION_WEAPON_5 },
+    { "ACTION_WEAPON_6",             ACTION_WEAPON_6 },
+    /* 40-44: vehicle */
+    { "ACTION_VEHICLE_ACCELERATE",   ACTION_VEHICLE_ACCELERATE },
+    { "ACTION_VEHICLE_BRAKE",        ACTION_VEHICLE_BRAKE },
+    { "ACTION_VEHICLE_STEER_LEFT",   ACTION_VEHICLE_STEER_LEFT },
+    { "ACTION_VEHICLE_STEER_RIGHT",  ACTION_VEHICLE_STEER_RIGHT },
+    { "ACTION_VEHICLE_EXIT",         ACTION_VEHICLE_EXIT },
+    /* 45-50: menu nav */
+    { "ACTION_MENU_UP",              ACTION_MENU_UP },
+    { "ACTION_MENU_DOWN",            ACTION_MENU_DOWN },
+    { "ACTION_MENU_LEFT",            ACTION_MENU_LEFT },
+    { "ACTION_MENU_RIGHT",           ACTION_MENU_RIGHT },
+    { "ACTION_MENU_TAB_PREV",        ACTION_MENU_TAB_PREV },
+    { "ACTION_MENU_TAB_NEXT",        ACTION_MENU_TAB_NEXT },
+    /* 51-56: system */
+    { "ACTION_PAUSE",                ACTION_PAUSE },
+    { "ACTION_SCREENSHOT",           ACTION_SCREENSHOT },
+    { "ACTION_CONSOLE_TOGGLE",       ACTION_CONSOLE_TOGGLE },
+    { "ACTION_DEBUG_TOGGLE",         ACTION_DEBUG_TOGGLE },
+    { "ACTION_CHEAT_ENTER",          ACTION_CHEAT_ENTER },
+    { "ACTION_SCORECARD",            ACTION_SCORECARD },
+    /* 57-61: forge core */
+    { "ACTION_FORGE_TOGGLE",         ACTION_FORGE_TOGGLE },
+    { "ACTION_FORGE_ASCEND",         ACTION_FORGE_ASCEND },
+    { "ACTION_FORGE_DESCEND",        ACTION_FORGE_DESCEND },
+    { "ACTION_FORGE_BOOST",          ACTION_FORGE_BOOST },
+    { "ACTION_FORGE_PRECISION",      ACTION_FORGE_PRECISION },
+    /* 62-67: forge sidebar + tab */
+    { "ACTION_FORGE_SIDEBAR_TOGGLE", ACTION_FORGE_SIDEBAR_TOGGLE },
+    { "ACTION_FORGE_SIDEBAR_UP",     ACTION_FORGE_SIDEBAR_UP },
+    { "ACTION_FORGE_SIDEBAR_DOWN",   ACTION_FORGE_SIDEBAR_DOWN },
+    { "ACTION_FORGE_SIDEBAR_ACTIVATE", ACTION_FORGE_SIDEBAR_ACTIVATE },
+    { "ACTION_FORGE_TAB_PREV",       ACTION_FORGE_TAB_PREV },
+    { "ACTION_FORGE_TAB_NEXT",       ACTION_FORGE_TAB_NEXT },
+    /* 68: scorecard hold */
+    { "ACTION_SCORECARD_HOLD",       ACTION_SCORECARD_HOLD },
+    /* 69: social toggle */
+    { "ACTION_SOCIAL_TOGGLE",        ACTION_SOCIAL_TOGGLE },
+    /* 70: test scenarios cycler */
+    { "ACTION_TESTSCEN_CYCLE_COUNT", ACTION_TESTSCEN_CYCLE_COUNT },
+    /* 71: text paste */
+    { "ACTION_TEXT_PASTE",           ACTION_TEXT_PASTE },
+    /* 72: cutscene skip */
+    { "ACTION_SKIP_CUTSCENE",        ACTION_SKIP_CUTSCENE },
+    /* 73-75: menu secondary commands */
+    { "ACTION_MENU_SECONDARY",       ACTION_MENU_SECONDARY },
+    { "ACTION_MENU_TERTIARY",        ACTION_MENU_TERTIARY },
+    { "ACTION_MENU_DELETE",          ACTION_MENU_DELETE },
+    /* 76-84: observer / spectator */
+    { "ACTION_OBSERVER_SUBSET_PREV", ACTION_OBSERVER_SUBSET_PREV },
+    { "ACTION_OBSERVER_SUBSET_NEXT", ACTION_OBSERVER_SUBSET_NEXT },
+    { "ACTION_OBSERVER_MEMBER_PREV", ACTION_OBSERVER_MEMBER_PREV },
+    { "ACTION_OBSERVER_MEMBER_NEXT", ACTION_OBSERVER_MEMBER_NEXT },
+    { "ACTION_OBSERVER_CAMERA_TOGGLE", ACTION_OBSERVER_CAMERA_TOGGLE },
+    { "ACTION_OBSERVER_FREEFLY",     ACTION_OBSERVER_FREEFLY },
+    { "ACTION_OBSERVER_STOP",        ACTION_OBSERVER_STOP },
+    { "ACTION_OBSERVER_ASCEND",      ACTION_OBSERVER_ASCEND },
+    { "ACTION_OBSERVER_DESCEND",     ACTION_OBSERVER_DESCEND },
+    /* 85: voice push-to-talk */
+    { "ACTION_VOICE_PTT",            ACTION_VOICE_PTT },
+    /* 86-90: forge editor */
+    { "ACTION_FORGE_PLACE_CANCEL",   ACTION_FORGE_PLACE_CANCEL },
+    { "ACTION_FORGE_BOT_ADD",        ACTION_FORGE_BOT_ADD },
+    { "ACTION_FORGE_BOT_REMOVE_ALL", ACTION_FORGE_BOT_REMOVE_ALL },
+    { "ACTION_FORGE_BOT_FREEZE_TOGGLE", ACTION_FORGE_BOT_FREEZE_TOGGLE },
+    { "ACTION_FORGE_BOT_SPAWN_CYCLE", ACTION_FORGE_BOT_SPAWN_CYCLE },
+    /* 91-102: skin editor */
+    { "ACTION_SKIN_BRUSH_DECREASE",  ACTION_SKIN_BRUSH_DECREASE },
+    { "ACTION_SKIN_BRUSH_INCREASE",  ACTION_SKIN_BRUSH_INCREASE },
+    { "ACTION_SKIN_TOOL_DRAW",       ACTION_SKIN_TOOL_DRAW },
+    { "ACTION_SKIN_TOOL_ERASE",      ACTION_SKIN_TOOL_ERASE },
+    { "ACTION_SKIN_TOOL_FILL",       ACTION_SKIN_TOOL_FILL },
+    { "ACTION_SKIN_TOOL_EYEDROPPER", ACTION_SKIN_TOOL_EYEDROPPER },
+    { "ACTION_SKIN_TOOL_LINE",       ACTION_SKIN_TOOL_LINE },
+    { "ACTION_SKIN_GRID_TOGGLE",     ACTION_SKIN_GRID_TOGGLE },
+    { "ACTION_SKIN_UV_TOGGLE",       ACTION_SKIN_UV_TOGGLE },
+    { "ACTION_SKIN_UNDO",            ACTION_SKIN_UNDO },
+    { "ACTION_SKIN_REDO",            ACTION_SKIN_REDO },
+    { "ACTION_SKIN_SAVE",            ACTION_SKIN_SAVE },
+    /* 103-104: test scenarios reverse cycler + vis toggle */
+    { "ACTION_TESTSCEN_CYCLE_PREV",  ACTION_TESTSCEN_CYCLE_PREV },
+    { "ACTION_TESTSCEN_VIS_TOGGLE",  ACTION_TESTSCEN_VIS_TOGGLE },
+    /* 105-106: menu skip-up / skip-down (Rule 8) */
+    { "ACTION_MENU_SKIPUP",          ACTION_MENU_SKIPUP },
+    { "ACTION_MENU_SKIPDOWN",        ACTION_MENU_SKIPDOWN },
+    /* 107-115: debug hotkeys + tooling chords (s036) */
+    { "ACTION_DEBUG_BOT_FREEZE",     ACTION_DEBUG_BOT_FREEZE },
+    { "ACTION_DEBUG_INVINCIBILITY",  ACTION_DEBUG_INVINCIBILITY },
+    { "ACTION_DEBUG_OVERLAY_TOGGLE", ACTION_DEBUG_OVERLAY_TOGGLE },
+    { "ACTION_DEBUG_MESH_TOGGLE",    ACTION_DEBUG_MESH_TOGGLE },
+    { "ACTION_DEBUG_CULL_MODE_CYCLE", ACTION_DEBUG_CULL_MODE_CYCLE },
+    { "ACTION_DEBUG_TESTFIRE",       ACTION_DEBUG_TESTFIRE },
+    { "ACTION_DEBUG_WIREFRAME_TOGGLE", ACTION_DEBUG_WIREFRAME_TOGGLE },
+    { "ACTION_HOTSWAP_TOGGLE",       ACTION_HOTSWAP_TOGGLE },
+    { "ACTION_TOGGLE_FULLSCREEN",    ACTION_TOGGLE_FULLSCREEN },
+    /* Backward-compat aliases (resolve to canonical targets). */
+    { "ACTION_INTERACT",             ACTION_USE },
+    { "ACTION_MENU_ACCEPT",          ACTION_USE },
+    { "ACTION_MENU_CANCEL",          ACTION_CANCEL_USE },
+    { "ACTION_MENU_CONTEXT",         ACTION_MENU_SECONDARY },
+    { "ACTION_MENU_SOCIAL",          ACTION_MENU_TERTIARY },
+};
+
+static const s32 s_SmokeActionTableLen =
+    (s32)(sizeof(s_SmokeActionTable) / sizeof(s_SmokeActionTable[0]));
+
+s32 actionmapResolveByName(const char *name)
+{
+    if (!name || !name[0]) {
+        return -1;
+    }
+    /* Strict ACTION_* match first. */
+    for (s32 i = 0; i < s_SmokeActionTableLen; i++) {
+        if (!strcmp(s_SmokeActionTable[i].name, name)) {
+            return s_SmokeActionTable[i].action;
+        }
+    }
+    /* Fall back to the CamelCase short form used in pd.ini keys
+     * (indices 0-104 only -- see comment on s_ActionNames). */
+    for (s32 a = 0; a < ACTION_COUNT; a++) {
+        if (s_ActionNames[a] && !strcmp(s_ActionNames[a], name)) {
+            return a;
+        }
+    }
+    return -1;
+}
+
+s32 actionmapInjectStateForSmoke(s32 player, s32 action, s32 down)
+{
+    if (!smokeHarnessIsActive()) {
+        return 0;
+    }
+    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) {
+        return 0;
+    }
+    if (action < 0 || action >= (s32)ACTION_COUNT) {
+        return 0;
+    }
+
+    ActionState *st = &s_State[player][action];
+    u32 now = SDL_GetTicks();
+
+    if (down) {
+        /* Mirror the rising-edge bookkeeping in fireVk(). Idempotent on
+         * the held flag so a stuck-down inject does not double-fire the
+         * pressed edge. */
+        if (!st->held) {
+            st->held          = 1;
+            st->pressed       = 1;
+            st->value         = 1.0f;
+            st->down_time_ms  = now;
+            st->hold_consumed = 0;
+            st->hold_vis_grace_until_ms = 0;
+            st->hold_pin_full_until_ms = 0;
+            if (action != ACTION_AXIS_MOVE_X && action != ACTION_AXIS_MOVE_Y &&
+                action != ACTION_AXIS_AIM_X  && action != ACTION_AXIS_AIM_Y) {
+                cheatRecord((InputAction)action);
+            }
+        }
+    } else {
+        if (st->held) {
+            st->held       = 0;
+            st->released   = 1;
+            st->value      = 0.0f;
+            st->up_time_ms = now;
+            st->hold_vis_grace_until_ms = now + 100;
+        }
+    }
+    return 1;
 }

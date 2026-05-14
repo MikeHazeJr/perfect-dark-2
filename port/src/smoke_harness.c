@@ -26,6 +26,44 @@
  *   smokeHarnessExit(code, reason)
  *     - log "SMOKE: result=<reason> elapsed_ms=<N> events_fired=<M>"
  *     - exit(code)
+ *
+ * Event schema (input_sequence[] in the JSON test file):
+ *
+ *   { "at_ms": N, "type": "wait" }
+ *     -- inert marker; useful for sequencing comments / dwell.
+ *
+ *   { "at_ms": N, "type": "exit" }
+ *     -- scripted clean exit; produces SMOKE: result=scripted_exit.
+ *
+ *   { "at_ms": N, "type": "key", "key": "Return", "action": "tap" }
+ *     -- inject SDL_KEYDOWN / KEYUP for a named key or numeric scancode.
+ *        `action` may be "tap" (auto-release one frame later), "press"
+ *        (no auto-release) or "release". `tap` is the default.
+ *
+ *   { "at_ms": N, "type": "action",
+ *     "name": "ACTION_MENU_ACCEPT", "action": "tap" }
+ *     -- inject an action-map press/release edge directly via
+ *        actionmapInjectStateForSmoke(). Bypasses SDL events and the
+ *        ImGui focus gate. Deterministic, focus-independent. Use this
+ *        when the SDL window cannot reliably hold focus (firewall prompt,
+ *        OS modal, alt-tab to a different process). `name` accepts the
+ *        full ACTION_* enum identifier or its CamelCase short form
+ *        (e.g. "Use", "MenuUp"). `action` may be "tap" / "press" /
+ *        "release"; `tap` is the default.
+ *
+ *   { "at_ms": N, "type": "mouse",
+ *     "x": 640, "y": 400, "button": "left", "action": "click" }
+ *     -- synthesise an SDL_MOUSEBUTTONDOWN / UP pair at {x, y} for
+ *        "left" / "right" / "middle". Needed for genuinely-mouse-only
+ *        UIs (Settings -> Debug -> Test Scenarios radios, modding hub
+ *        file pickers, skin editor canvas). `action` may be "tap" /
+ *        "click" / "press" / "release"; `tap` and `click` are aliases
+ *        and produce an auto-release on the next tick. `tap` is the
+ *        default.
+ *
+ *   Both `action` and `mouse` events use the same tap-release sweep
+ *   path that the existing key-tap events use, so they share the
+ *   one-frame auto-release timing (SMOKE_TAP_RELEASE_MS).
  */
 
 #include <stdlib.h>
@@ -38,6 +76,7 @@
 
 #include "smoke_harness.h"
 #include "system.h"
+#include "actionmap.h"   /* actionmapResolveByName, actionmapInjectStateForSmoke */
 
 /* Use the port-level config registration so harness-set values can be
  * queried by other subsystems if needed.  No new pd.ini keys are
@@ -60,6 +99,12 @@ typedef enum {
     SMOKE_EVENT_KEY_PRESS,
     SMOKE_EVENT_KEY_RELEASE,
     SMOKE_EVENT_KEY_TAP,
+    SMOKE_EVENT_ACTION_PRESS,
+    SMOKE_EVENT_ACTION_RELEASE,
+    SMOKE_EVENT_ACTION_TAP,
+    SMOKE_EVENT_MOUSE_PRESS,
+    SMOKE_EVENT_MOUSE_RELEASE,
+    SMOKE_EVENT_MOUSE_TAP,
     SMOKE_EVENT_EXIT
 } SmokeEventType;
 
@@ -67,6 +112,10 @@ typedef struct {
     s32            at_ms;
     SmokeEventType type;
     s32            scancode;          /* for key events */
+    s32            action_id;         /* for action events: resolved InputAction */
+    s32            mouse_x;           /* for mouse events */
+    s32            mouse_y;           /* for mouse events */
+    s32            mouse_button;      /* for mouse events: SDL_BUTTON_LEFT/RIGHT/MIDDLE */
     s32            release_at_ms;     /* for tap: scheduled release time */
     s32            released;          /* tap: 0 = press pending, 1 = release pending, 2 = done */
 } SmokeEvent;
@@ -342,6 +391,18 @@ static char *smokeReadFile(const char *path, s32 *out_size)
     return buf;
 }
 
+/* Resolve a mouse button name to an SDL_BUTTON_* code. */
+static s32 smokeMouseButtonNameToCode(const char *name)
+{
+    if (!name || !name[0]) return SDL_BUTTON_LEFT;
+    if (!strcasecmp(name, "left")   || !strcasecmp(name, "lmb")) return SDL_BUTTON_LEFT;
+    if (!strcasecmp(name, "right")  || !strcasecmp(name, "rmb")) return SDL_BUTTON_RIGHT;
+    if (!strcasecmp(name, "middle") || !strcasecmp(name, "mmb")) return SDL_BUTTON_MIDDLE;
+    if (!strcasecmp(name, "x1") || !strcasecmp(name, "side1"))   return SDL_BUTTON_X1;
+    if (!strcasecmp(name, "x2") || !strcasecmp(name, "side2"))   return SDL_BUTTON_X2;
+    return 0;
+}
+
 static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
 {
     JTok t = p->cur;
@@ -351,13 +412,21 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
     ev->at_ms = 0;
     ev->type = SMOKE_EVENT_NONE;
     ev->scancode = 0;
+    ev->action_id = -1;
+    ev->mouse_x = 0;
+    ev->mouse_y = 0;
+    ev->mouse_button = 0;
     ev->release_at_ms = -1;
     ev->released = 0;
 
-    char type_str[32] = {0};
-    char key_str[32]  = {0};
+    char type_str[32]   = {0};
+    char key_str[32]    = {0};
     char action_str[16] = {0};
+    char name_str[64]   = {0};
+    char button_str[16] = {0};
     s32  scancode = 0;
+    s32  has_x = 0;
+    s32  has_y = 0;
 
     while (t.type != JT_RBRACE && t.type != JT_EOF) {
         if (t.type != JT_STRING) { t = j_next(p); continue; }
@@ -375,6 +444,16 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
             scancode = (s32)j_tok_int(&t);
         } else if (!strcmp(field, "action")) {
             j_tok_copy_str(&t, action_str, sizeof(action_str));
+        } else if (!strcmp(field, "name")) {
+            j_tok_copy_str(&t, name_str, sizeof(name_str));
+        } else if (!strcmp(field, "x")) {
+            ev->mouse_x = (s32)j_tok_int(&t);
+            has_x = 1;
+        } else if (!strcmp(field, "y")) {
+            ev->mouse_y = (s32)j_tok_int(&t);
+            has_y = 1;
+        } else if (!strcmp(field, "button")) {
+            j_tok_copy_str(&t, button_str, sizeof(button_str));
         } else {
             j_skip_value(p);
         }
@@ -405,6 +484,52 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
             ev->type = SMOKE_EVENT_KEY_RELEASE;
         } else {
             ev->type = SMOKE_EVENT_KEY_TAP;
+            ev->release_at_ms = ev->at_ms + SMOKE_TAP_RELEASE_MS;
+        }
+        return 1;
+    }
+    if (!strcmp(type_str, "action")) {
+        if (!name_str[0]) {
+            sysLogPrintf(LOG_ERROR, "SMOKE: action event missing 'name' (at_ms=%d)", ev->at_ms);
+            return 0;
+        }
+        s32 aid = actionmapResolveByName(name_str);
+        if (aid < 0) {
+            sysLogPrintf(LOG_ERROR, "SMOKE: action event has unknown name '%s' (at_ms=%d)",
+                name_str, ev->at_ms);
+            return 0;
+        }
+        ev->action_id = aid;
+        if (!strcmp(action_str, "press")) {
+            ev->type = SMOKE_EVENT_ACTION_PRESS;
+        } else if (!strcmp(action_str, "release")) {
+            ev->type = SMOKE_EVENT_ACTION_RELEASE;
+        } else {
+            /* tap (default) or any other value -- treat as tap with auto-release. */
+            ev->type = SMOKE_EVENT_ACTION_TAP;
+            ev->release_at_ms = ev->at_ms + SMOKE_TAP_RELEASE_MS;
+        }
+        return 1;
+    }
+    if (!strcmp(type_str, "mouse")) {
+        if (!has_x || !has_y) {
+            sysLogPrintf(LOG_ERROR, "SMOKE: mouse event missing x/y (at_ms=%d)", ev->at_ms);
+            return 0;
+        }
+        s32 btn = smokeMouseButtonNameToCode(button_str);
+        if (btn <= 0) {
+            sysLogPrintf(LOG_ERROR, "SMOKE: mouse event has unknown button '%s' (at_ms=%d)",
+                button_str, ev->at_ms);
+            return 0;
+        }
+        ev->mouse_button = btn;
+        if (!strcmp(action_str, "press")) {
+            ev->type = SMOKE_EVENT_MOUSE_PRESS;
+        } else if (!strcmp(action_str, "release")) {
+            ev->type = SMOKE_EVENT_MOUSE_RELEASE;
+        } else {
+            /* tap / click / default -- press now, schedule release next frame. */
+            ev->type = SMOKE_EVENT_MOUSE_TAP;
             ev->release_at_ms = ev->at_ms + SMOKE_TAP_RELEASE_MS;
         }
         return 1;
@@ -516,6 +641,27 @@ static void smokePushKey(s32 scancode, s32 down)
     SDL_PushEvent(&ev);
 }
 
+/* Synthesise an SDL_MOUSEBUTTONDOWN / UP event at {x, y} for the named
+ * button. Uses SDL_PushEvent so the event flows through the same path
+ * as a real user click -- this matters because ImGui's IsItemHovered /
+ * IsItemActive only fire when the press / release sequence is correct. */
+static void smokePushMouse(s32 x, s32 y, s32 button, s32 down)
+{
+    if (button <= 0) return;
+    SDL_Event ev;
+    SDL_zero(ev);
+    ev.type            = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+    ev.button.timestamp = SDL_GetTicks();
+    ev.button.windowID = 0;
+    ev.button.which    = 0;
+    ev.button.button   = (Uint8)button;
+    ev.button.state    = down ? SDL_PRESSED : SDL_RELEASED;
+    ev.button.clicks   = 1;
+    ev.button.x        = (Sint32)x;
+    ev.button.y        = (Sint32)y;
+    SDL_PushEvent(&ev);
+}
+
 /* ---------------------------------------------------------------- */
 /* Public API                                                       */
 /* ---------------------------------------------------------------- */
@@ -582,14 +728,28 @@ void smokeHarnessTick(void)
 
     /* Pending-release sweep: scan all fired tap events whose release_at_ms
      * has come due.  Since events are dispatched in JSON order, we keep
-     * the scan bounded to entries between [0, next_event_idx). */
+     * the scan bounded to entries between [0, next_event_idx). All three
+     * tap variants (key, action, mouse) share this sweep. */
     for (s32 i = 0; i < s_State.next_event_idx; i++) {
         SmokeEvent *ev = &s_State.events[i];
-        if (ev->type != SMOKE_EVENT_KEY_TAP) continue;
+        if (ev->type != SMOKE_EVENT_KEY_TAP &&
+            ev->type != SMOKE_EVENT_ACTION_TAP &&
+            ev->type != SMOKE_EVENT_MOUSE_TAP) continue;
         if (ev->released >= 2) continue;
         if (ev->released == 1 && elapsed >= ev->release_at_ms) {
-            smokePushKey(ev->scancode, 0);
-            sysLogPrintf(LOG_NOTE, "SMOKE: tap-release scancode=%d at_ms=%d", ev->scancode, elapsed);
+            if (ev->type == SMOKE_EVENT_KEY_TAP) {
+                smokePushKey(ev->scancode, 0);
+                sysLogPrintf(LOG_NOTE, "SMOKE: tap-release scancode=%d at_ms=%d",
+                    ev->scancode, elapsed);
+            } else if (ev->type == SMOKE_EVENT_ACTION_TAP) {
+                actionmapInjectStateForSmoke(0, ev->action_id, 0);
+                sysLogPrintf(LOG_NOTE, "SMOKE: action tap-release id=%d at_ms=%d",
+                    ev->action_id, elapsed);
+            } else { /* SMOKE_EVENT_MOUSE_TAP */
+                smokePushMouse(ev->mouse_x, ev->mouse_y, ev->mouse_button, 0);
+                sysLogPrintf(LOG_NOTE, "SMOKE: mouse tap-release btn=%d at_ms=%d",
+                    ev->mouse_button, elapsed);
+            }
             ev->released = 2;
         }
     }
@@ -614,6 +774,35 @@ void smokeHarnessTick(void)
         case SMOKE_EVENT_KEY_TAP:
             sysLogPrintf(LOG_NOTE, "SMOKE: tap-press scancode=%d at_ms=%d", ev->scancode, ev->at_ms);
             smokePushKey(ev->scancode, 1);
+            ev->released = 1;
+            break;
+        case SMOKE_EVENT_ACTION_PRESS:
+            sysLogPrintf(LOG_NOTE, "SMOKE: action press id=%d at_ms=%d", ev->action_id, ev->at_ms);
+            actionmapInjectStateForSmoke(0, ev->action_id, 1);
+            break;
+        case SMOKE_EVENT_ACTION_RELEASE:
+            sysLogPrintf(LOG_NOTE, "SMOKE: action release id=%d at_ms=%d", ev->action_id, ev->at_ms);
+            actionmapInjectStateForSmoke(0, ev->action_id, 0);
+            break;
+        case SMOKE_EVENT_ACTION_TAP:
+            sysLogPrintf(LOG_NOTE, "SMOKE: action tap-press id=%d at_ms=%d", ev->action_id, ev->at_ms);
+            actionmapInjectStateForSmoke(0, ev->action_id, 1);
+            ev->released = 1;
+            break;
+        case SMOKE_EVENT_MOUSE_PRESS:
+            sysLogPrintf(LOG_NOTE, "SMOKE: mouse press btn=%d xy=(%d,%d) at_ms=%d",
+                ev->mouse_button, ev->mouse_x, ev->mouse_y, ev->at_ms);
+            smokePushMouse(ev->mouse_x, ev->mouse_y, ev->mouse_button, 1);
+            break;
+        case SMOKE_EVENT_MOUSE_RELEASE:
+            sysLogPrintf(LOG_NOTE, "SMOKE: mouse release btn=%d xy=(%d,%d) at_ms=%d",
+                ev->mouse_button, ev->mouse_x, ev->mouse_y, ev->at_ms);
+            smokePushMouse(ev->mouse_x, ev->mouse_y, ev->mouse_button, 0);
+            break;
+        case SMOKE_EVENT_MOUSE_TAP:
+            sysLogPrintf(LOG_NOTE, "SMOKE: mouse tap-press btn=%d xy=(%d,%d) at_ms=%d",
+                ev->mouse_button, ev->mouse_x, ev->mouse_y, ev->at_ms);
+            smokePushMouse(ev->mouse_x, ev->mouse_y, ev->mouse_button, 1);
             ev->released = 1;
             break;
         case SMOKE_EVENT_EXIT:
