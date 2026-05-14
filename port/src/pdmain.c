@@ -719,6 +719,15 @@ void mainTick(void)
 		(void)bootDebugMountBikeTick();
 	}
 
+	/* c115 (2026-05-14): --debug-spawn-at one-shot. Teleports player 0
+	 * to a (x,y,z,room) target once setupCreateProps has placed the
+	 * player prop, then clears its latch. Cheap no-op when the flag
+	 * wasn't on the command line. */
+	{
+		extern s32 bootDebugSpawnAtTick(void);
+		(void)bootDebugSpawnAtTick();
+	}
+
 	/* Phase 1 connectivity layer: drives LAN broadcast, direct UDP probes,
 	 * STUN/UPnP/ICE/TURN tier polling, and pair-state escalation. Runs
 	 * every frame regardless of stage state so presence stays alive across

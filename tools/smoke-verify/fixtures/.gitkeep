@@ -1,0 +1,17 @@
+# Smoke verify fixtures
+
+This directory holds pre-staged files copied into a per-test install dir
+via the `fixtures` array in a test JSON definition. Example entry:
+
+```jsonc
+"fixtures": [
+  { "src": "tools/smoke-verify/fixtures/test_skin_redmund.pdmod",
+    "dst": "mods/test_skin_redmund.pdmod" }
+]
+```
+
+Source paths are repo-relative. Destination paths are install-relative
+(so the example above lands at `<InstallDir>/mods/test_skin_redmund.pdmod`).
+
+Add fixtures alongside the test that consumes them. Keep binary blobs
+small -- the smoke gate runs on every PR.

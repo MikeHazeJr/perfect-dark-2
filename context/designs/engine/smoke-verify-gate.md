@@ -169,6 +169,19 @@ The Phase 2 expansion plan lives in the closing section of this doc.
   // of these. Use this for --boot-stage, --profile, --skip-intro, etc.
   "boot_args": ["--skip-intro"],
 
+  // Optional. Repo-relative source files copied into the install dir
+  // before the binary launches. Each entry shape:
+  //   { "src": "<repo-relative path>", "dst": "<install-relative path>" }
+  // Used by mod_load_smoke (pre-stage a `.pdmod` under mods/) and
+  // save_roundtrip_smoke (pre-stage a v1 agent file under
+  // data/<romid>/saves/). Parent dirs are created. Missing src emits a
+  // warning and continues; the binary launch decides whether the missing
+  // fixture is fatal. Fixtures live under tools/smoke-verify/fixtures/.
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/test_skin_redmund.pdmod",
+      "dst": "mods/test_skin_redmund.pdmod" }
+  ],
+
   // Scripted event stream. Times are wall-clock milliseconds since
   // smokeHarnessInit returned. Events fire in JSON order; the harness
   // does NOT reorder by at_ms (intentional, so authoring stays linear).
@@ -206,6 +219,35 @@ The Phase 2 expansion plan lives in the closing section of this doc.
   }
 }
 ```
+
+### Boot-time CLI fast paths
+
+The harness lives next to a small family of CLI flags parsed by
+`bootApplyCliFastPaths` in `port/src/main.c`. Tests reach for these via
+`boot_args` when they need deterministic state before the scripted
+input stream takes over:
+
+- `--no-net` -- skip `netInit()` (closes the Windows Firewall dialog).
+- `--main-menu` -- skip intro, drop straight into the main menu.
+- `--launch-scenario <n>` -- arm a test-scenario launch, dispatched on
+  the first frame where the player prop exists.
+- `--launch-mission <stage_id> [--difficulty agent|special|perfect]` --
+  seed `g_MissionConfig` and boot into the resolved stagenum.
+- `--launch-mp-room <arena_id> <scenario_id> <bot_count>` -- seed
+  `g_MatchConfig` and boot into Combat Sim with the Room screen ready.
+- `--debug-mount-bike` -- post-setupCreateProps hook: mount player 0
+  on the first OBJTYPE_HOVERBIKE prop after stage load.
+- `--debug-spawn-at x,y,z,room` -- post-setupCreateProps hook: teleport
+  player 0 to the given world coord + room id on the first frame where
+  `g_Vars.lvframenum >= 4` and `g_Vars.players[0]->prop->chr` exists.
+  Four comma-separated tokens (x,y,z parsed as floats; room as s16
+  RoomNum). Calls `chrMoveToPos(chr, &target, [room,-1], 0.0f, true)`
+  -- the canonical AI-script teleport path, force flag on so
+  bg-collision near the target does not refuse the move. One-shot per
+  boot. Logs `BOOT: --debug-spawn-at consumed: prop=<addr>
+  stagenum=<hex> result=<OK|FAILED> pos=<x,y,z> room=<id>`. Used by
+  future `wall_jump_capsule_smoke` and any physics-collision regression
+  that needs deterministic positioning.
 
 ### Key event types
 

@@ -328,6 +328,17 @@ function Invoke-SmokeTest {
     Write-Info ("  install dir: {0}" -f $installInfo.InstallDir)
     Write-Info ("  state: {0}" -f $installInfo.InstallState)
 
+    # Stage test-declared fixtures (mods, save files, etc.) into the
+    # install dir before launching the binary. Optional `fixtures` array
+    # in test JSON; entries shaped { src: <repo-relative>, dst: <install-relative> }.
+    # Used by future mod_load_smoke / save_roundtrip_smoke / wall_jump_capsule_smoke.
+    if ($def.PSObject.Properties.Match('fixtures').Count -gt 0 -and $def.fixtures) {
+        $fixCount = Copy-SmokeFixtures -ProjectRoot $ProjectRoot -InstallDir $installInfo.InstallDir -Fixtures $def.fixtures
+        if ($fixCount -gt 0) {
+            Write-Info ("  staged {0} fixture(s)" -f $fixCount)
+        }
+    }
+
     # Resolve timeout
     $timeoutSeconds = 90
     if ($def.PSObject.Properties.Match('timeout_seconds').Count -gt 0 -and $def.timeout_seconds) {

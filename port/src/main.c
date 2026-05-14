@@ -154,6 +154,15 @@ extern s32 g_StageNum;
  *       first frame after stage load and mounts player 0 on the
  *       first OBJTYPE_HOVERBIKE prop found.  One-shot per boot;
  *       no effect on stages without a hoverbike.
+ *
+ *   --debug-spawn-at x,y,z,room
+ *       Post-setupCreateProps hook: teleports player 0 to the given
+ *       world coordinate + room id on the first frame after stage
+ *       load (g_Vars.lvframenum >= 4).  Used by smoke tests that need
+ *       deterministic positioning (wall-jump regression, physics
+ *       coverage).  Four comma-separated tokens: x, y, z, room (all
+ *       parsed as integers via strtol with float coercion for x/y/z;
+ *       room is s16 / RoomNum).  One-shot per boot.
  * ---------------------------------------------------------------- */
 
 static bool        g_BootNoNet            = false;
@@ -168,6 +177,17 @@ static bool        g_BootMountBike        = false;
 /* Latched one-shot for the bike-mount hook; tickled by pdmain.c's
  * mainTick once activeprops is populated and player 0 is alive. */
 static s32         g_BootMountBikePending = 0;
+
+/* c115 (2026-05-14): --debug-spawn-at one-shot latch. Parsed at boot,
+ * fired on the first frame where the player prop exists. Mirrors the
+ * --debug-mount-bike pattern. RoomNum is s16 in src/include/types.h
+ * but we store as s32 to avoid pulling types.h into this file; the
+ * tick path narrows at the chrMoveToPos call. */
+static s32         g_BootSpawnAtPending = 0;
+static f32         g_BootSpawnAtX = 0.0f;
+static f32         g_BootSpawnAtY = 0.0f;
+static f32         g_BootSpawnAtZ = 0.0f;
+static s32         g_BootSpawnAtRoom = 0;
 
 /* c115 (2026-05-14): deferred launch-scenario state. Worker delta's
  * iter-2 re-run showed that calling testScenarioLaunch synchronously
@@ -424,6 +444,13 @@ extern void setCurrentPlayerNum(s32 playernum);
 extern bool currentPlayerTryMountHoverbike(struct prop *prop);
 extern s32 g_PostExitMainMenuView;
 
+/* c115 (2026-05-14): chrMoveToPos lives in src/game/chraction.c; declare
+ * an extern shim rather than #include "game/chraction.h" to keep this
+ * PC-port file outside the chr*.h dependency surface (which transitively
+ * drags in PR/gbi.h and N64 micro-code defines). Signature must match
+ * src/include/game/chraction.h:208 exactly. */
+extern bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 angle, bool ignorebg);
+
 /* Map a --difficulty string to the DIFF_* constants used by g_MissionConfig
  * and lvSetDifficulty.  Returns DIFF_A on unknown / NULL input. */
 static s32 bootResolveDifficulty(const char *name)
@@ -638,6 +665,47 @@ static void bootApplyDebugMountBike(void)
 		"BOOT: --debug-mount-bike armed (will mount on first hoverbike prop after stage load)");
 }
 
+/* c115 (2026-05-14): Arm the --debug-spawn-at one-shot. Parses the
+ * comma-separated tokens captured at CLI-parse time into x/y/z/room
+ * floats + s32 and sets g_BootSpawnAtPending. The actual teleport
+ * runs inside mainTick once the player prop exists; see
+ * bootDebugSpawnAtTick() below. Malformed input (wrong token count,
+ * unparseable numbers) leaves the latch off and emits a WARNING. */
+static void bootApplyDebugSpawnAt(const char *arg)
+{
+	if (!arg || !arg[0]) {
+		return;
+	}
+
+	/* Local copy so strtok_r can mutate it. */
+	char buf[128];
+	strncpy(buf, arg, sizeof(buf) - 1);
+	buf[sizeof(buf) - 1] = '\0';
+
+	/* strtok is fine here -- we run on the main thread before any
+	 * subsystem has spun up worker threads, and we don't nest calls. */
+	const char *tokX = strtok(buf, ",");
+	const char *tokY = strtok(NULL, ",");
+	const char *tokZ = strtok(NULL, ",");
+	const char *tokR = strtok(NULL, ",");
+	if (!tokX || !tokY || !tokZ || !tokR) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-spawn-at expects 4 comma-separated tokens (x,y,z,room); got: '%s'",
+			arg);
+		return;
+	}
+
+	g_BootSpawnAtX    = (f32)strtod(tokX, NULL);
+	g_BootSpawnAtY    = (f32)strtod(tokY, NULL);
+	g_BootSpawnAtZ    = (f32)strtod(tokZ, NULL);
+	g_BootSpawnAtRoom = (s32)strtol(tokR, NULL, 0);
+	g_BootSpawnAtPending = 1;
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-spawn-at armed: pos=(%f,%f,%f) room=%d",
+		g_BootSpawnAtX, g_BootSpawnAtY, g_BootSpawnAtZ, g_BootSpawnAtRoom);
+}
+
 /* Dispatcher called once from main() after the catalog is fully
  * initialised. */
 static void bootApplyCliFastPaths(void)
@@ -647,6 +715,7 @@ static void bootApplyCliFastPaths(void)
 	bootApplyLaunchMission();
 	bootApplyLaunchMpRoom();
 	bootApplyDebugMountBike();
+	bootApplyDebugSpawnAt(sysArgGetString("--debug-spawn-at"));
 }
 
 /* Called once per frame from pdmain.c's mainTick when the
@@ -741,6 +810,63 @@ s32 bootDebugMountBikeTick(void)
 		return 1;
 	}
 	return 0;
+}
+
+/* c115 (2026-05-14): Called once per frame from pdmain.c's mainTick
+ * when the --debug-spawn-at one-shot is armed. Teleports the current
+ * player (player 0) to the JSON-parsed (x,y,z,room) using chrMoveToPos
+ * once the stage setup has placed the player prop.
+ *
+ * Gates (mirror the bike-mount hook):
+ *   - g_BootSpawnAtPending must be set
+ *   - g_Vars.lvframenum >= 4 (load black frame out of the way, player
+ *     prop spawned by setupCreateProps)
+ *   - g_Vars.players[0] must be alive and have a valid prop->chr
+ *
+ * One-shot: clears the latch regardless of chrMoveToPos's success/fail
+ * so a subsequent stage change does not re-teleport. */
+s32 bootDebugSpawnAtTick(void)
+{
+	if (!g_BootSpawnAtPending) {
+		return 0;
+	}
+	if (g_Vars.lvframenum < 4) {
+		return 0;
+	}
+	if (!g_Vars.players[0] || !g_Vars.players[0]->prop || !g_Vars.players[0]->prop->chr) {
+		return 0;
+	}
+
+	struct prop *prop = g_Vars.players[0]->prop;
+	struct chrdata *chr = prop->chr;
+
+	struct coord target;
+	target.x = g_BootSpawnAtX;
+	target.y = g_BootSpawnAtY;
+	target.z = g_BootSpawnAtZ;
+
+	/* chrMoveToPos wants a RoomNum[] terminated by -1 (-2 in some
+	 * call sites means "any room"); the AI-script call site at
+	 * chraicommands.c:5215 uses [room, -1] which is the canonical
+	 * single-room form. */
+	RoomNum rooms[2];
+	rooms[0] = (RoomNum)g_BootSpawnAtRoom;
+	rooms[1] = -1;
+
+	/* Pass angle=0.0f -- the smoke tests that use this flag set up
+	 * their own look state via subsequent scripted input. The force
+	 * flag (final arg) is true so chrAdjustPosForSpawn doesn't refuse
+	 * the teleport because of bg-collision near the target. */
+	setCurrentPlayerNum(0);
+	bool ok = chrMoveToPos(chr, &target, rooms, 0.0f, true);
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-spawn-at consumed: prop=%p stagenum=0x%02x result=%s pos=(%f,%f,%f) room=%d",
+		(void *)prop, (u32)g_Vars.stagenum, ok ? "OK" : "FAILED",
+		g_BootSpawnAtX, g_BootSpawnAtY, g_BootSpawnAtZ, g_BootSpawnAtRoom);
+
+	g_BootSpawnAtPending = 0;
+	return 1;
 }
 
 int main(int argc, const char **argv)

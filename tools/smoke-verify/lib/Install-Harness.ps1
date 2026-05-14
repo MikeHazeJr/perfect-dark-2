@@ -341,3 +341,90 @@ function Get-SmokeLogPath {
     [CmdletBinding()] param([Parameter(Mandatory)] [string] $InstallDir)
     return (Join-Path $InstallDir "pd-client.log")
 }
+
+function Copy-SmokeFixtures {
+    <#
+    .SYNOPSIS
+        Stage test-declared fixture files into the install directory.
+
+    .DESCRIPTION
+        Phase 1 smoke tests can pre-position files inside the install dir
+        before the binary launches via the optional `fixtures` array in
+        the test JSON. Each entry has the shape:
+
+            { "src": "<repo-relative path>", "dst": "<install-relative path>" }
+
+        Use cases:
+          * mod_load_smoke: pre-stage `tools/smoke-verify/fixtures/<id>.pdmod`
+            under `mods/<id>.pdmod` so modmgrScanDirectory picks it up.
+          * save_roundtrip_smoke: pre-stage a v1 agent save under
+            `data/<romid>/saves/agent_001.sav` so the migrator runs.
+          * Any future fixture-dependent test.
+
+        Called after install seeding completes and before the binary
+        launches. Source paths resolve against $ProjectRoot; destination
+        paths resolve against $InstallDir. Parent directories are created
+        as needed. Existing destinations are overwritten (Copy-Item
+        -Force).
+
+        Non-fatal on missing src: emits a warning and continues. The
+        binary launch decides whether the missing fixture is fatal -- the
+        runner does not pre-judge.
+
+    .PARAMETER ProjectRoot
+        Absolute path to the project root (repo top). Used to resolve
+        `src` paths relative to the repo.
+
+    .PARAMETER InstallDir
+        Absolute path to the per-test or shared install directory. Used
+        to resolve `dst` paths.
+
+    .PARAMETER Fixtures
+        Array of PSCustomObject entries with `src` and `dst` string
+        properties. Empty / $null is a no-op.
+
+    .OUTPUTS
+        Number of fixtures successfully copied (int).
+    #>
+    [CmdletBinding()] param(
+        [Parameter(Mandatory)] [string] $ProjectRoot,
+        [Parameter(Mandatory)] [string] $InstallDir,
+        [object] $Fixtures
+    )
+
+    if (-not $Fixtures) { return 0 }
+    if ($Fixtures -isnot [System.Collections.IEnumerable]) { return 0 }
+
+    $copied = 0
+    foreach ($f in $Fixtures) {
+        if (-not $f) { continue }
+        $src = $null
+        $dst = $null
+        if ($f.PSObject.Properties.Match('src').Count -gt 0) { $src = [string]$f.src }
+        if ($f.PSObject.Properties.Match('dst').Count -gt 0) { $dst = [string]$f.dst }
+        if (-not $src -or -not $dst) {
+            Write-Warning ("Copy-SmokeFixtures: fixture entry missing src/dst; skipping.")
+            continue
+        }
+
+        $absSrc = Join-Path $ProjectRoot $src
+        if (-not (Test-Path -LiteralPath $absSrc)) {
+            Write-Warning ("Copy-SmokeFixtures: src does not exist: {0}; skipping." -f $absSrc)
+            continue
+        }
+
+        $absDst = Join-Path $InstallDir $dst
+        $absDstParent = Split-Path -Parent $absDst
+        if ($absDstParent -and -not (Test-Path -LiteralPath $absDstParent)) {
+            New-Item -ItemType Directory -Path $absDstParent -Force | Out-Null
+        }
+        try {
+            Copy-Item -LiteralPath $absSrc -Destination $absDst -Force -ErrorAction Stop
+            $copied++
+            Write-Host ("  fixture: {0} -> {1}" -f $src, $dst) -ForegroundColor DarkGray
+        } catch {
+            Write-Warning ("Copy-SmokeFixtures: failed to copy {0} -> {1}: {2}" -f $absSrc, $absDst, $_.Exception.Message)
+        }
+    }
+    return $copied
+}
