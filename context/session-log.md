@@ -1,5 +1,50 @@
 # Session Log (Active)
 
+## Session (`main-checkout-incompleteness-sweep`) - 2026-05-13 PM - Incompleteness sweep audit: input / context / extraction / jump collision
+
+Mike's goal directive: "Find anything that is incomplete with regard to the input, context, file extraction and archive creation (including being accessible to users externally as files such as models, uv'd textures, animations, audio files etc), and collision function for the jump system including using either full normal rendered geometry or the colliders that the Laptop Gun uses."
+
+Four parallel investigation tracks were run as subagents. Findings consolidated into a single audit doc.
+
+### Output
+
+- `context/audits/incompleteness-sweep-input-context-extraction-jump-2026-05-13.md` (573 lines, 0 em-dashes, sentinel-terminated).
+
+### Top findings (one-line each)
+
+1. **Input pillar clean structurally; 75 menu-graph sites remain in s036-08 lane.** `gameplayInputSuppressed()` transitional wrapper still pending L.59 verification playtest. B-298, B-195 closed in code but not in ledger.
+2. **Context system has systemic 13-day staleness across pillars + README.** README cites NET_PROTOCOL_VER 46 / build v0.0.175+; live is 47 / v0.0.197+. 19 audits beyond retention window. 90+ FIXED-PENDING-PLAYTEST bugs unpromoted. `.claude/sprint-reports/archive/` directory missing.
+3. **Universality-pivot extraction structurally complete (13/13 emitters); modder-accessibility only 4-5 of 13.** `.pdmesh`, `.pdanim` chr, `.pdsfx`, `.pdvoice`, `.pdsong`, `.pdscenario`, `.pdfont`, `.pdlang` ship raw N64 ROM bytes inside ZIP envelopes. No `.pdtex` kind. No PC-side decoder for meshes/animations/audio. No in-game UI tool to pack a folder of `.pd<ext>` files into a `.pdmod`.
+4. **Jump collision uses simpler substrate than the Laptop Gun.** Jump's `capsuleSweep` -> `cdTestVolume` collects `GEOFLAG_WALL`-flagged BG tiles + AABB props + chr cylinders only. Laptop Gun's `bgTestHitInRoom` walks actual `G_TRI1`/`G_TRI4` rendered triangles in `vtxbatches`. Wall-jump glitch (kanban c038, mis-pillared as "vehicles", no B-NNN) is structurally explained by this gap. Fix shape: two-stage sweep (cdTestVolume pre-cull + bgTestHitInRoom per-triangle validate). Also unlocks real surface normals for Skedar Slice 5.
+
+### Recommended next sprints (rollup)
+
+Per the audit's action items table:
+
+1. Context Retention Pass -- 1 session (touches README + 9 pillars + bug promotion + audit retention + archive dir creation).
+2. Jump Collision Two-Stage -- 1-2 sessions (closes c038 + unblocks Skedar Slice 5).
+3. Modder Accessibility Decoders -- 3-5 sessions (per asset kind).
+4. In-Game `.pdmod` Packer UI -- 1 session.
+5. Menu graph s036-08 continuation -- 15-25 sessions.
+6. Ledger hygiene -- 30 min.
+7. `gameplayInputSuppressed()` retirement -- 1 playtest + 1 session.
+
+### Methodology
+
+- Four parallel `general-purpose` subagents, each scoped to one track with explicit file:line evidence requirement and severity tagging.
+- Each agent's output was lightly edited for tone consistency and consolidated into the audit doc. No facts were invented; all file:line references grounded by the investigators on live 2026-05-13 tree.
+- This session did NOT spawn new kanban cards; the audit proposes c132-c135 sketches but defers to Mike's prioritisation pass.
+
+### Files touched
+
+- `context/audits/incompleteness-sweep-input-context-extraction-jump-2026-05-13.md` (new, 573 lines).
+- `context/session-log.md` (this entry).
+- `context/tasks.md` (pointer to the audit added to the audits section).
+
+### Outstanding
+
+Mike's prioritisation pass over the audit's action items. Orchestrator should triage and decide whether to spawn c132-c135 cards.
+
 ## Session (`main-checkout-c036-s036-08-slice`) - 2026-05-13 - c036 s036-08 slice: four small priority-node graph migrations
 
 Continuation of s036-08 menu graph completion in the main checkout. Per LF-1 in `audits/2026-05-13-followup-and-migration-sweep.md`, the remaining s036-08 surface is ~35 raw menu push/pop sites across 12 files. This slice migrated five raw `menuPopDialog()` call sites across four small priority screens, following the L.16-L.55 single-edge-per-screen pattern.

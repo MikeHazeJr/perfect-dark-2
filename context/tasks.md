@@ -303,6 +303,8 @@ Per Mike's Spec v0.5. Automation layer that consumes the data layer (parked.json
 
 ## Active investigations / unresolved bugs
 
+> Cross-track audit: [audits/incompleteness-sweep-input-context-extraction-jump-2026-05-13.md](audits/incompleteness-sweep-input-context-extraction-jump-2026-05-13.md) covers input pillar / context system / file extraction + external user accessibility / jump collision in one read. Proposes c132-c135 sprint sketches; awaiting Mike's prioritisation pass.
+
 Open per [bugs.md](bugs.md). Latest entries (B-280 through B-290) are all FIXED-PENDING-BUILD as of S575 (2026-04-28); promote to FIXED with commit SHA when the build verification clears.
 
 Older still-open bugs:

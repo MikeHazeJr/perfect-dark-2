@@ -110,6 +110,8 @@ Sub-bucketed by pillar. Designs that have shipped move to `_old/designs-shipped/
 [audits/](audits/) holds point-in-time assessments within a 14-day window. Older audits live in `_old/audits/` per [retention.md](retention.md).
 
 Currently active:
+- [audits/incompleteness-sweep-input-context-extraction-jump-2026-05-13.md](audits/incompleteness-sweep-input-context-extraction-jump-2026-05-13.md) - input pillar / context system / file extraction + external accessibility / jump collision four-track sweep (proposes c132-c135 sprint sketches; awaits Mike's prioritisation)
+- [audits/2026-05-13-followup-and-migration-sweep.md](audits/2026-05-13-followup-and-migration-sweep.md)
 - [audits/rom-extraction-audit-2026-04-30.md](audits/rom-extraction-audit-2026-04-30.md)
 - [audits/ui-asset-pipeline-investigation-2026-04-30.md](audits/ui-asset-pipeline-investigation-2026-04-30.md) (Phase 1 findings + Phase 2 .pdui schema sketch)
 - [audits/infrastructure-pillars-status-2026-04-27.md](audits/infrastructure-pillars-status-2026-04-27.md)
