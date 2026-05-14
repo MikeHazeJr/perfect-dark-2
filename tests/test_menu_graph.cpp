@@ -997,3 +997,83 @@ TEST_CASE("menu graph: solo mission pause uses graph helpers for pause subdialog
     REQUIRE(inventory.find("menuPopDialog()") == std::string::npos);
     REQUIRE(options.find("menuPopDialog()") == std::string::npos);
 }
+
+/* -------------------------------------------------------------------------
+ * c036 / s036-08 menu-graph completion slice -- four small priority nodes.
+ *
+ * Adds graph nodes + edges + call-site migrations for four screens whose
+ * only remaining raw menuPopDialog() shortcut had not yet been migrated:
+ *   - MENU_TYPE_AGENT_CREATE       (save / cancel pops)
+ *   - MENU_TYPE_CHALLENGES         (back pop)
+ *   - MENU_TYPE_MP_TEAM_SETUP      (done pop)
+ *   - MENU_TYPE_MP_PLAYER_CONFIG   (close pop)
+ *
+ * Mirrors the L.16-L.55 slice pattern: declare the graph edges, route the
+ * legacy pop through menuGraphFirePop, and pin the renderer against
+ * re-introducing raw menuPopDialog() in the migrated function blocks.
+ * ------------------------------------------------------------------------- */
+
+TEST_CASE("menu graph: Agent Create save and cancel use graph pop edges", "[input][menu_graph][agent][static]")
+{
+    const std::string create = readTextFile("port/fast3d/pdgui_menu_agentcreate.cpp");
+    const std::string graph = readTextFile("port/src/menugraph.c");
+
+    REQUIRE_FALSE(create.empty());
+    REQUIRE_FALSE(graph.empty());
+    REQUIRE(create.find("#include \"menugraph.h\"") != std::string::npos);
+    REQUIRE(graph.find("EDGE_POP(\"save\", ACTION_MENU_ACCEPT, \"Save Agent\")") != std::string::npos);
+    REQUIRE(graph.find("EDGE_POP(\"cancel\", ACTION_MENU_CANCEL, \"Cancel\")") != std::string::npos);
+    REQUIRE(graph.find("NODE(MENU_TYPE_AGENT_CREATE, \"agent_create\", s_AgentCreateEdges)") != std::string::npos);
+
+    REQUIRE(create.find("menuGraphFirePop(MENU_TYPE_AGENT_CREATE, \"save\")") != std::string::npos);
+    REQUIRE(create.find("menuGraphFirePop(MENU_TYPE_AGENT_CREATE, \"cancel\")") != std::string::npos);
+    REQUIRE(create.find("menuPopDialog();") == std::string::npos);
+}
+
+TEST_CASE("menu graph: Challenges back uses graph pop edge", "[input][menu_graph][challenges][static]")
+{
+    const std::string challenges = readTextFile("port/fast3d/pdgui_menu_challenges.cpp");
+    const std::string graph = readTextFile("port/src/menugraph.c");
+
+    REQUIRE_FALSE(challenges.empty());
+    REQUIRE_FALSE(graph.empty());
+    REQUIRE(challenges.find("#include \"menugraph.h\"") != std::string::npos);
+    REQUIRE(graph.find("NODE(MENU_TYPE_CHALLENGES, \"challenges\", s_ChallengesEdges)") != std::string::npos);
+
+    const std::string render = functionBlock(challenges, "renderChallenges");
+    REQUIRE_FALSE(render.empty());
+    REQUIRE(render.find("menuGraphFirePop(MENU_TYPE_CHALLENGES, \"back\")") != std::string::npos);
+    REQUIRE(render.find("menuPopDialog();") == std::string::npos);
+}
+
+TEST_CASE("menu graph: MP Team Setup done uses graph pop edge", "[input][menu_graph][teamsetup][static]")
+{
+    const std::string team = readTextFile("port/fast3d/pdgui_menu_teamsetup.cpp");
+    const std::string graph = readTextFile("port/src/menugraph.c");
+
+    REQUIRE_FALSE(team.empty());
+    REQUIRE_FALSE(graph.empty());
+    REQUIRE(team.find("#include \"menugraph.h\"") != std::string::npos);
+    REQUIRE(graph.find("EDGE_POP(\"done\", ACTION_MENU_ACCEPT, \"Done\")") != std::string::npos);
+    REQUIRE(graph.find("NODE(MENU_TYPE_MP_TEAM_SETUP, \"mp_team_setup\", s_MpTeamSetupEdges)") != std::string::npos);
+
+    REQUIRE(team.find("menuGraphFirePop(MENU_TYPE_MP_TEAM_SETUP, \"done\")") != std::string::npos);
+    REQUIRE(team.find("menuPopDialog();") == std::string::npos);
+}
+
+TEST_CASE("menu graph: MP Player Config close uses graph pop edge", "[input][menu_graph][playerconfig][static]")
+{
+    const std::string config = readTextFile("port/fast3d/pdgui_menu_playerconfig.cpp");
+    const std::string graph = readTextFile("port/src/menugraph.c");
+
+    REQUIRE_FALSE(config.empty());
+    REQUIRE_FALSE(graph.empty());
+    REQUIRE(config.find("#include \"menugraph.h\"") != std::string::npos);
+    REQUIRE(graph.find("EDGE_POP(\"close\", ACTION_MENU_CANCEL, \"Close\")") != std::string::npos);
+    REQUIRE(graph.find("NODE(MENU_TYPE_MP_PLAYER_CONFIG, \"mp_player_config\", s_MpPlayerConfigEdges)") != std::string::npos);
+
+    const std::string close = functionBlock(config, "pc_CloseCurrentDialog");
+    REQUIRE_FALSE(close.empty());
+    REQUIRE(close.find("menuGraphFirePop(MENU_TYPE_MP_PLAYER_CONFIG, \"close\")") != std::string::npos);
+    REQUIRE(close.find("menuPopDialog()") == std::string::npos);
+}

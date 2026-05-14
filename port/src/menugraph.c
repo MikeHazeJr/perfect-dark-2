@@ -157,6 +157,23 @@ static const MenuGraphEdge s_AgentSelectEdges[] = {
     EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
 };
 
+static const MenuGraphEdge s_AgentCreateEdges[] = {
+    EDGE_POP("save", ACTION_MENU_ACCEPT, "Save Agent"),
+    EDGE_POP("cancel", ACTION_MENU_CANCEL, "Cancel"),
+};
+
+static const MenuGraphEdge s_ChallengesEdges[] = {
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+};
+
+static const MenuGraphEdge s_MpTeamSetupEdges[] = {
+    EDGE_POP("done", ACTION_MENU_ACCEPT, "Done"),
+};
+
+static const MenuGraphEdge s_MpPlayerConfigEdges[] = {
+    EDGE_POP("close", ACTION_MENU_CANCEL, "Close"),
+};
+
 static const MenuGraphEdge s_FrDifficultyEdges[] = {
     EDGE_PUSH("start", ACTION_MENU_ACCEPT, "Start Firing Range", MENU_TYPE_FR_INFO),
     EDGE_POP("cancel", ACTION_MENU_CANCEL, "Cancel"),
@@ -191,6 +208,10 @@ static const MenuGraphNode s_Nodes[] = {
     NODE(MENU_TYPE_SOCIAL_SHELL, "social_shell", s_SocialShellEdges),
     NODE(MENU_TYPE_NETWORK, "network", s_NetworkEdges),
     NODE(MENU_TYPE_AGENT_SELECT, "agent_select", s_AgentSelectEdges),
+    NODE(MENU_TYPE_AGENT_CREATE, "agent_create", s_AgentCreateEdges),
+    NODE(MENU_TYPE_CHALLENGES, "challenges", s_ChallengesEdges),
+    NODE(MENU_TYPE_MP_TEAM_SETUP, "mp_team_setup", s_MpTeamSetupEdges),
+    NODE(MENU_TYPE_MP_PLAYER_CONFIG, "mp_player_config", s_MpPlayerConfigEdges),
     NODE(MENU_TYPE_FR_DIFFICULTY, "fr_difficulty", s_FrDifficultyEdges),
     NODE(MENU_TYPE_WARNING_MODAL, "warning_modal", s_WarningModalEdges),
 };

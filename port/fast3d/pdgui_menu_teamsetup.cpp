@@ -28,6 +28,7 @@
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "menugraph.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -405,7 +406,7 @@ static s32 renderTeamSetup(struct menudialog *dialog,
         || pdguiMenuCancelPressed())
     {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_MP_TEAM_SETUP, "done");
     }
 
     ImGui::End();

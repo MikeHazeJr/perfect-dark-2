@@ -1,5 +1,41 @@
 # Session Log (Active)
 
+## Session (`main-checkout-c036-s036-08-slice`) - 2026-05-13 - c036 s036-08 slice: four small priority-node graph migrations
+
+Continuation of s036-08 menu graph completion in the main checkout. Per LF-1 in `audits/2026-05-13-followup-and-migration-sweep.md`, the remaining s036-08 surface is ~35 raw menu push/pop sites across 12 files. This slice migrated five raw `menuPopDialog()` call sites across four small priority screens, following the L.16-L.55 single-edge-per-screen pattern.
+
+### Change
+
+- `port/src/menugraph.c`: added four nodes + five EDGE_POP edges -- `MENU_TYPE_AGENT_CREATE` (save + cancel), `MENU_TYPE_CHALLENGES` (back), `MENU_TYPE_MP_TEAM_SETUP` (done), `MENU_TYPE_MP_PLAYER_CONFIG` (close).
+- `port/fast3d/pdgui_menu_agentcreate.cpp`: added `#include "menupool.h"` + `#include "menugraph.h"`; migrated save (line 746) and cancel (line 765) pops to `menuGraphFirePop(MENU_TYPE_AGENT_CREATE, "save" / "cancel")`.
+- `port/fast3d/pdgui_menu_challenges.cpp`: added `#include "menupool.h"` + `#include "menugraph.h"`; migrated back pop in `renderChallenges` to `menuGraphFirePop(MENU_TYPE_CHALLENGES, "back")`.
+- `port/fast3d/pdgui_menu_teamsetup.cpp`: added `#include "menugraph.h"` (menupool.h already present); migrated done pop in `renderAutoTeam` to `menuGraphFirePop(MENU_TYPE_MP_TEAM_SETUP, "done")`.
+- `port/fast3d/pdgui_menu_playerconfig.cpp`: added `#include "menugraph.h"` (menupool.h already present); migrated `pc_CloseCurrentDialog`'s pop to `menuGraphFirePop(MENU_TYPE_MP_PLAYER_CONFIG, "close")`.
+- `tests/test_menu_graph.cpp`: appended four TEST_CASE blocks pinning the include, edge declarations, node registration, the new `menuGraphFirePop` call sites, and absence of raw `menuPopDialog()` in the migrated function blocks. Tags: `[input][menu_graph][agent/challenges/teamsetup/playerconfig][static]`.
+
+### Verification
+
+- Build verify clean three-target via `devtools/build-session.ps1 -Session c036b8 / c036b8s / c036b8t`: client 55.6 MB, server 22.4 MB, tests 24.7 MB.
+- `pd-tests.exe '[input][menu_graph]'` PASS: 472 assertions / 27 test cases. The four new test cases all pass.
+- Full-suite run shows three pre-existing test files still failing (`test_uichrome_paths_pin`, `test_pdbase_retired_audit`, `test_catalog_provider_static`) -- documented as carry-over in c129 sprint and the 2026-05-13 audit, NOT introduced by this slice.
+
+### Files touched
+
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_agentcreate.cpp`
+- `port/fast3d/pdgui_menu_challenges.cpp`
+- `port/fast3d/pdgui_menu_teamsetup.cpp`
+- `port/fast3d/pdgui_menu_playerconfig.cpp`
+- `tests/test_menu_graph.cpp`
+- `context/designs/input/input-universality-and-transitions.md` (L.60 entry)
+- `tools/kanban/state.json` (c036 / s036-08 notes)
+- `context/session-log.md` (this entry)
+- `.claude/sprint-reports/sprint-2026-05-14T013130.md` (sprint report)
+
+### Outstanding for s036-08
+
+Remaining surface after this slice: ~30 raw menu push/pop sites across the bigger files (training.cpp 11 pops, solomission.cpp leftover pops, cheats.cpp pops, mpadvanced/mpsetup/mpsettings/botsetup/controldiagram/mainmenu push residue). Continues to be a multi-session lane with 2-4 edges per slice.
+
 ## Session (`main-checkout-sprc036`) - 2026-05-12 - Sprint c036 continuation: actionmap chord extension + F-key migration + Alt+Enter + inputKeyPressed retire
 
 Mike's directive after the partial slice landed: "scope grew, that doesn't mean we should stop." Pushback against the rabbit-hole-protocol stop. The "scope growth" was the actionmap modifier-chord support extension that blocked s036-02 + s036-03 Alt+Enter; investigation in the continuation showed the chord infrastructure ALREADY EXISTED in the codebase (port/include/input.h `VK_CHORD_CTRL_*` synthetic VKs + port/src/actionmap.cpp::chordVkForKeysym detection). Extending it for new chords is in-pattern, not a new framework. The continuation shipped 3 more subtasks (s036-02, s036-03 full, s036-04) on top of the partial.

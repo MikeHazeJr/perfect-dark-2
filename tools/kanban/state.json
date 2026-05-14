@@ -508,7 +508,7 @@
       "flagged_at": null,
       "pending_completion": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-13T16:00:00Z",
+      "updated": "2026-05-14T01:31:25Z",
       "subtasks": [
         {
           "id": "s036-01",
@@ -564,7 +564,7 @@
           "title": "Menu graph completion: 127 raw menuPushDialog calls -> menuGraphFire*",
           "status": "backlog",
           "order": 8000,
-          "notes": "DEFERRED at sprc036 continuation - multi-session lane. The raw 174 port + 160 src grep count overcounts via comment mentions; actual call-site count is lower (e.g. pdgui_menu_warning.cpp's grep hit was a comment, not a call). True target inventory requires per-file audit. L.16-L.39 in input-universality-and-transitions.md show 24 prior single-edge commits each migrating a screen-scoped pattern (push edge declaration + helper + edge fire + static pd-test pin). Realistic per-session throughput is 2-4 edges. Track as long-running lane."
+          "notes": "DEFERRED at sprc036 continuation - multi-session lane. The raw 174 port + 160 src grep count overcounts via comment mentions; actual call-site count is lower (e.g. pdgui_menu_warning.cpp's grep hit was a comment, not a call). True target inventory requires per-file audit. L.16-L.39 in input-universality-and-transitions.md show 24 prior single-edge commits each migrating a screen-scoped pattern (push edge declaration + helper + edge fire + static pd-test pin). Realistic per-session throughput is 2-4 edges. Track as long-running lane. 2026-05-13 slice continuation in main-checkout: shipped 5 raw menuPopDialog migrations across 4 screens (Agent Create save+cancel; Challenges back; MP Team Setup done; MP Player Config close). Added 4 graph nodes + 5 EDGE_POP edges to port/src/menugraph.c (MENU_TYPE_AGENT_CREATE / MENU_TYPE_CHALLENGES / MENU_TYPE_MP_TEAM_SETUP / MENU_TYPE_MP_PLAYER_CONFIG). 4 new TEST_CASE pins in tests/test_menu_graph.cpp ([input][menu_graph][agent/challenges/teamsetup/playerconfig][static]). Build verify clean 3-target (client 55.6 / server 22.4 / tests 24.7 MB). pd-tests [input][menu_graph] PASS 472 assertions / 27 cases. Remaining: 30 raw call sites across 8 files (~6-10 more sessions)."
         }
       ]
     },

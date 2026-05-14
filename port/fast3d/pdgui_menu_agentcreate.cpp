@@ -36,6 +36,8 @@
 #include "pdgui_nav.h"
 #include "system.h"
 #include "assetcatalog.h"
+#include "menupool.h"
+#include "menugraph.h"
 
 /* ========================================================================
  * Forward declarations for game symbols
@@ -743,7 +745,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         mpPlayerConfigSetName(pnum, s_AgentName);
 
         /* Pop the Agent Create dialog to return to Agent Select */
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_AGENT_CREATE, "save");
 
         filemgrPushSelectLocationDialog(0, FILETYPE_GAME);
 
@@ -762,7 +764,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     /* ---- Execute Cancel ---- */
     if (doCancel) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_AGENT_CREATE, "cancel");
 
         s_AgentName[0] = '\0';
         s_SelectedBody = 0;

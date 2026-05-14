@@ -81,6 +81,7 @@
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "menugraph.h"
 #include "assetcatalog.h"         /* heads catalog migration: assetCatalogIterateUnlockedByType */
 
 extern "C" {
@@ -458,7 +459,7 @@ static void pc_CloseCurrentDialog(void)
 {
     pdguiPlaySound(PDGUI_SND_KBCANCEL);
     /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
-    menuPopDialog();
+    menuGraphFirePop(MENU_TYPE_MP_PLAYER_CONFIG, "close");
 }
 
 static bool pc_BackPressed(void)

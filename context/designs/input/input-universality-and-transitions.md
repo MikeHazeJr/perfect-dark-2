@@ -1354,6 +1354,16 @@ Source audit after L.58:
 - Therefore the next step is verification, not another code slice: run the isolated build/test flow, then playtest mission transitions, cutscene skip/continue, menus, vehicle, observer/freefly, and focus loss/regain.
 - Keep `gameplayInputSuppressed()` as a transitional wrapper until that verification passes. Do not convert it to pure `inputLayerTopType() != LAYER_GAMEPLAY` in this unverified slice.
 
+### L.60 s036-08 slice: four small priority-node migrations (2026-05-13)
+
+The next menu graph slice migrated four small priority nodes whose only remaining raw menu-stack call was a single Back/Done/Close `menuPopDialog()`.
+
+- Added four nodes to `port/src/menugraph.c`: `MENU_TYPE_AGENT_CREATE` (save / cancel pops), `MENU_TYPE_CHALLENGES` (back pop), `MENU_TYPE_MP_TEAM_SETUP` (done pop), `MENU_TYPE_MP_PLAYER_CONFIG` (close pop). Five `EDGE_POP` declarations total.
+- Migrated five raw `menuPopDialog()` call sites to `menuGraphFirePop(MENU_TYPE_*, "edge_id")` across `pdgui_menu_agentcreate.cpp` (save + cancel), `pdgui_menu_challenges.cpp` (back), `pdgui_menu_teamsetup.cpp` (done), and `pdgui_menu_playerconfig.cpp` (close).
+- Added four static pd-test cases to `tests/test_menu_graph.cpp` ([input][menu_graph][agent/challenges/teamsetup/playerconfig][static]) pinning the include, the edge declarations, the node registration, the new `menuGraphFirePop` call sites, and the absence of raw `menuPopDialog()` in the migrated function blocks.
+- Build verify clean three-target via `build-session.ps1 -Session c036b8 / c036b8s / c036b8t`: client 55.6 MB, server 22.4 MB, tests 24.7 MB. Pd-tests `[input][menu_graph]` PASS 472 assertions / 27 cases. Pre-existing source-grep failures in `test_pdbase_retired_audit`, `test_catalog_provider_static`, and `test_uichrome_paths_pin` unchanged (not introduced by this slice).
+- Remaining s036-08 surface after this slice: ~30 raw menu push/pop sites across the larger files (training.cpp 11 pops, solomission.cpp leftover pops, cheats.cpp pops, mpadvanced/mpsetup/mpsettings/botsetup/controldiagram/mainmenu push residue). Multi-session continuation per LF-1 in `audits/2026-05-13-followup-and-migration-sweep.md`.
+
 ---
 
 ## Appendix A: Audit raw findings

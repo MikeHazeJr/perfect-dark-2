@@ -41,6 +41,8 @@
 #include "pdgui_layout.h"
 #include "pdgui_nav.h"
 #include "system.h"
+#include "menupool.h"
+#include "menugraph.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -360,7 +362,7 @@ static s32 renderChallenges(struct menudialog *dialog,
     {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_NeedsInit = true;
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_CHALLENGES, "back");
     }
 
     ImGui::End();
