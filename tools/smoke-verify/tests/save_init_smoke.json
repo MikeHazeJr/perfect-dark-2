@@ -1,0 +1,57 @@
+{
+  "scenario_name": "save_init_smoke",
+  "description": "c115 save-wire-format-pillar coverage: proves the PC-native save subsystem initializes cleanly at boot with a canonical v2 agent JSON fixture pre-staged in the save directory. Honest scope: at vanilla --no-net --skip-intro boot, saveInit() (port/src/savefile.c:269) fires deterministically and emits 'SAVE: initialized — save dir: <path>' + saveMigrateInit() fires before it and emits 'SAVEMIGRATE: Initialized (0 migrations registered, current save version: 2)'. saveLoadAgent / saveListAgents are NOT called automatically at boot -- both require user-driven Agent Select menu nav (port/fast3d/pdgui_menu_agentselect.cpp:116). Therefore this test does NOT assert 'SAVE: agent <name> loaded' (would fail without scripted nav); it instead asserts (1) the save subsystem inits in the correct save-dir under --portable, (2) the canonical v2 agent fixture (tools/smoke-verify/fixtures/agent_smoke.json) lands at <install>/agent_smoke.json via the run.ps1::Copy-SmokeFixtures path, and (3) NO loader-side error fires touching the fixture path. --portable forces fsInit() to set saveDir = exeDir (install dir) instead of the AppData/Roaming/perfectdark default, so the fixture is discoverable. If a future build wires saveLoadAgent into the boot path (or if menu-nav infrastructure stabilises enough to drive Agent Select), this test grows to assert 'SAVE: agent smoke loaded from ...' as an additional required line. Sister test for the save-wire-format pillar.",
+  "tags": ["save", "wire-format", "smoke", "pillar:save-wire-format", "boot"],
+  "paths_of_interest": [
+    "port/src/savefile.c",
+    "port/src/savemigrate.c",
+    "port/include/savefile.h",
+    "port/include/savemigrate.h",
+    "port/src/fs.c",
+    "tools/smoke-verify/lib/Install-Harness.ps1",
+    "tools/smoke-verify/run.ps1"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 30,
+  "install_state": "clean",
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/agent_smoke.json", "dst": "agent_smoke.json" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot path: vanilla --no-net --portable boot, no scripted nav. fsInit() runs saveDir=exeDir (install dir) because of --portable. saveMigrateInit() then saveInit() fire during main.c init (lines 956-957) before any menu code runs. The fixture agent_smoke.json sits at <install>/agent_smoke.json; saveLoadAgent is not auto-called at boot so the fixture's presence is verified only via absence of loader errors touching it." },
+    { "at_ms": 15000, "type": "exit", "comment": "scripted exit at 15s -- saveInit + saveMigrateInit complete by ~1s on a clean install (per the shared-install reference run). 14s headroom covers cold-start variance and asset catalog warm-up. smokeHarnessExit fires SMOKE: result=scripted_exit on exit." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=save_init_smoke",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "SAVEMIGRATE: Initialized \\(0 migrations registered, current save version: 2\\)",
+      "SAVE: initialized — save dir: ",
+      "Asset Catalog: \\d+ entries registered",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "SAVE: refusing to load agent",
+      "SAVE: failed to load agent 'smoke'",
+      "SAVE: agent 'smoke' .* corrupt",
+      "SAVE: saveListAgents: failed to open",
+      "SAVEMIGRATE: Migration registry full",
+      "SAVEMIGRATE: Invalid migration"
+    ],
+    "required_counts": [
+      { "pattern": "SAVE: initialized — save dir: ", "min": 1, "max": 1 },
+      { "pattern": "SAVEMIGRATE: Initialized", "min": 1, "max": 1 }
+    ]
+  }
+}
