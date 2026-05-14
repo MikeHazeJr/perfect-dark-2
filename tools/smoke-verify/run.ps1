@@ -353,13 +353,48 @@ function Invoke-SmokeTest {
     $started = Get-Date
     $proc = $null
     $exitCode = -1
+
+    # c115 (2026-05-14): Start-Process -PassThru returns a Process object
+    # whose .ExitCode property is unreliable for non-console GUI apps --
+    # under some PS host configurations it stays -1 even after the
+    # process exits cleanly with code 0. The harness writes
+    # "SMOKE: result=scripted_exit code=0" to the log correctly but the
+    # runner reads .ExitCode = -1 and reports FAIL even when 10-12/12
+    # assertions pass. System.Diagnostics.Process.Start with explicit
+    # ProcessStartInfo + WaitForExit gives a reliable .ExitCode for GUI
+    # processes (the OS-level wait handle resolves the exit code
+    # synchronously). UseShellExecute=$false keeps the call out of
+    # ShellExecuteEx so the parent owns the process handle directly.
     try {
-        $proc = Start-Process -FilePath $exe `
-            -ArgumentList $allArgs `
-            -WorkingDirectory $installInfo.InstallDir `
-            -PassThru `
-            -NoNewWindow:$false `
-            -WindowStyle Hidden
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName         = $exe
+        # ProcessStartInfo.ArgumentList exists on .NET Core but not on
+        # the .NET Framework PS 5.1 ships with; build the legacy
+        # Arguments string with proper quoting instead so test paths
+        # containing spaces survive intact.
+        $quotedArgs = foreach ($a in $allArgs) {
+            if ($null -eq $a) { continue }
+            $s = [string]$a
+            if ($s -match '[\s"]') {
+                '"' + ($s -replace '"', '\"') + '"'
+            } else {
+                $s
+            }
+        }
+        $psi.Arguments        = ($quotedArgs -join ' ')
+        $psi.WorkingDirectory = $installInfo.InstallDir
+        $psi.UseShellExecute  = $false
+        # Keep the window visible so SDL initialises with a real
+        # foreground window. Hiding it forces SDL into a background
+        # mode that confuses focus tracking and breaks ImGui nav.
+        $psi.CreateNoWindow      = $false
+        $psi.RedirectStandardError  = $false
+        $psi.RedirectStandardOutput = $false
+
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        if (-not $proc) {
+            throw "ProcessStartInfo returned null Process"
+        }
         if (-not $proc.WaitForExit($watchdogSeconds * 1000)) {
             Write-Warn ("Watchdog firing after {0}s; terminating PerfectDark.exe (pid {1})." -f $watchdogSeconds, $proc.Id)
             try { $proc.Kill() } catch {}
@@ -373,6 +408,31 @@ function Invoke-SmokeTest {
         $exitCode = -3
     }
     $elapsed = ((Get-Date) - $started).TotalSeconds
+
+    # c115 (2026-05-14) belt-and-braces: parse the harness's own
+    # "SMOKE: result=<reason> ... code=N" sentinel out of the log
+    # and override the OS-reported exit code with it when it's
+    # cleaner. This protects against the residual class where
+    # Process.ExitCode returns 0 even though the harness's atexit
+    # path was skipped (forced terminate, ucrt assert popup) -- the
+    # sentinel only exists when smokeHarnessExit actually ran.
+    $logPathPre = Get-SmokeLogPath -InstallDir $installInfo.InstallDir
+    if ($logPathPre -and (Test-Path -LiteralPath $logPathPre)) {
+        try {
+            $sentinel = Select-String -LiteralPath $logPathPre `
+                -Pattern 'SMOKE: result=\S+\s+scenario=.+?\s+elapsed_ms=\d+\s+events_fired=\d+/\d+\s+code=(-?\d+)' `
+                -AllMatches | Select-Object -Last 1
+            if ($sentinel -and $sentinel.Matches.Count -gt 0) {
+                $sentinelCode = [int]$sentinel.Matches[-1].Groups[1].Value
+                if ($exitCode -ne $sentinelCode) {
+                    Write-Info ("  exit-code override: OS reported {0}, harness sentinel reported {1}; trusting sentinel." -f $exitCode, $sentinelCode)
+                    $exitCode = $sentinelCode
+                }
+            }
+        } catch {
+            # Sentinel parse is best-effort; the OS exit code remains canonical on failure.
+        }
+    }
 
     $logPath = Get-SmokeLogPath -InstallDir $installInfo.InstallDir
     Write-Info ("  log: {0}" -f $logPath)

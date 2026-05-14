@@ -78,6 +78,13 @@
 #include "system.h"
 #include "actionmap.h"   /* actionmapResolveByName, actionmapInjectStateForSmoke */
 
+/* c115 (2026-05-14): need gfxGetSdlWindow to stamp the correct windowID
+ * on synthesised SDL events. ImGui's SDL2 backend filters events whose
+ * windowID does not match the window captured at ImGui_ImplSDL2_Init
+ * time -- with windowID=0 the synthesised keys reach the SDL queue but
+ * ImGui drops them on the floor, so menu nav never advances. */
+#include "../fast3d/gfx_sdl.h"
+
 /* Use the port-level config registration so harness-set values can be
  * queried by other subsystems if needed.  No new pd.ini keys are
  * registered -- the harness reads its config from the test JSON. */
@@ -625,6 +632,31 @@ static SDL_Keycode smokeScancodeToKeycode(s32 scancode)
     return SDL_GetKeyFromScancode((SDL_Scancode)scancode);
 }
 
+/* Resolve the active SDL window so we can stamp windowID on synthesised
+ * events. ImGui's SDL2 backend (imgui_impl_sdl2.cpp:400) compares the
+ * incoming event's windowID against the one captured at init; a zero
+ * windowID causes ImGui to drop the event silently, which broke menu
+ * nav in worker delta's iter-2 re-run. We try the public accessor
+ * first, then fall back to SDL_GetKeyboardFocus / SDL_GetMouseFocus
+ * for the (unlikely) case where the harness fires before gfx_sdl_init
+ * has populated the window pointer. Returns 0 if no window resolves;
+ * the caller still pushes the event so SDL-side debug consumers still
+ * receive it. */
+static Uint32 smokeResolveWindowId(void)
+{
+    SDL_Window *w = gfxGetSdlWindow();
+    if (!w) {
+        w = SDL_GetKeyboardFocus();
+    }
+    if (!w) {
+        w = SDL_GetMouseFocus();
+    }
+    if (!w) {
+        return 0;
+    }
+    return SDL_GetWindowID(w);
+}
+
 static void smokePushKey(s32 scancode, s32 down)
 {
     if (scancode <= 0) return;
@@ -632,7 +664,7 @@ static void smokePushKey(s32 scancode, s32 down)
     SDL_zero(ev);
     ev.type = down ? SDL_KEYDOWN : SDL_KEYUP;
     ev.key.timestamp = SDL_GetTicks();
-    ev.key.windowID  = 0;
+    ev.key.windowID  = smokeResolveWindowId();
     ev.key.state     = down ? SDL_PRESSED : SDL_RELEASED;
     ev.key.repeat    = 0;
     ev.key.keysym.scancode = (SDL_Scancode)scancode;
@@ -644,15 +676,40 @@ static void smokePushKey(s32 scancode, s32 down)
 /* Synthesise an SDL_MOUSEBUTTONDOWN / UP event at {x, y} for the named
  * button. Uses SDL_PushEvent so the event flows through the same path
  * as a real user click -- this matters because ImGui's IsItemHovered /
- * IsItemActive only fire when the press / release sequence is correct. */
+ * IsItemActive only fire when the press / release sequence is correct.
+ *
+ * c115 (2026-05-14): also synthesise an SDL_MOUSEMOTION event before the
+ * button event so ImGui's hover state catches up to the click position.
+ * Without the motion event ImGui treats the click as happening at the
+ * mouse cursor's last real position, which is usually still the title
+ * bar on the freshly-launched harness window. */
 static void smokePushMouse(s32 x, s32 y, s32 button, s32 down)
 {
     if (button <= 0) return;
+    const Uint32 ts  = SDL_GetTicks();
+    const Uint32 wid = smokeResolveWindowId();
+    if (down) {
+        /* Move-then-click so ImGui's hover hit-test lands on the right
+         * widget. Only needed on the press edge; the release edge fires
+         * at the same coords so no extra motion is required. */
+        SDL_Event mev;
+        SDL_zero(mev);
+        mev.type             = SDL_MOUSEMOTION;
+        mev.motion.timestamp = ts;
+        mev.motion.windowID  = wid;
+        mev.motion.which     = 0;
+        mev.motion.state     = 0;
+        mev.motion.x         = (Sint32)x;
+        mev.motion.y         = (Sint32)y;
+        mev.motion.xrel      = 0;
+        mev.motion.yrel      = 0;
+        SDL_PushEvent(&mev);
+    }
     SDL_Event ev;
     SDL_zero(ev);
     ev.type            = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
-    ev.button.timestamp = SDL_GetTicks();
-    ev.button.windowID = 0;
+    ev.button.timestamp = ts;
+    ev.button.windowID = wid;
     ev.button.which    = 0;
     ev.button.button   = (Uint8)button;
     ev.button.state    = down ? SDL_PRESSED : SDL_RELEASED;

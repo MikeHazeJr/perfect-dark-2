@@ -169,6 +169,20 @@ static bool        g_BootMountBike        = false;
  * mainTick once activeprops is populated and player 0 is alive. */
 static s32         g_BootMountBikePending = 0;
 
+/* c115 (2026-05-14): deferred launch-scenario state. Worker delta's
+ * iter-2 re-run showed that calling testScenarioLaunch synchronously
+ * from bootApplyCliFastPaths fires before the stage setup has placed
+ * the player prop. The first match's respawn fails (player at
+ * y=-2^31), the match ends instantly into endscreen_solo, imgui_menu
+ * IMC pushes on top, and gameplay-gated actions (the swarm-cycler
+ * ACTION_TESTSCEN_CYCLE_COUNT, ACTION_USE) get suppressed by
+ * gameplayInputSuppressed(). Fix: latch the parsed scenario id at
+ * boot, return without calling testScenarioLaunch, and dispatch it on
+ * the first mainTick frame where g_Vars.lvframenum >= 4 -- the same
+ * gate the --debug-mount-bike hook uses for the activeprops walk. */
+static s32         g_BootLaunchScenarioPending = 0;
+static s32         g_BootLaunchScenarioId      = 0;  /* TESTSCEN_NONE */
+
 s32 bootGetMemSize(void)
 {
 	return (s32)g_OsMemSize;
@@ -471,9 +485,13 @@ static void bootApplyMainMenu(void)
 		"BOOT: --main-menu armed g_PostExitMainMenuView=0 (top-level)");
 }
 
-/* Apply --launch-scenario by calling testScenarioLaunch.  Routes through
- * the same dispatch the Settings -> Debug -> Test Scenarios dropdown
- * uses, so the existing g_State machine + canvas guards apply. */
+/* Arm the --launch-scenario one-shot. Resolves the scenario id string
+ * to a test_scenario_t enum and latches it for bootLaunchScenarioTick
+ * to consume on the first frame where the player prop is positioned
+ * (lvframenum >= 4). Synchronous testScenarioLaunch here would fire
+ * before stage setup placed the player, causing matchStart to bounce
+ * straight into endscreen_solo. See g_BootLaunchScenarioPending
+ * comment block above for the full failure mode. */
 static void bootApplyLaunchScenario(void)
 {
 	if (!g_BootLaunchScenario || !g_BootLaunchScenario[0]) {
@@ -496,13 +514,11 @@ static void bootApplyLaunchScenario(void)
 			g_BootLaunchScenario);
 		return;
 	}
+	g_BootLaunchScenarioId      = (s32)scen;
+	g_BootLaunchScenarioPending = 1;
 	sysLogPrintf(LOG_NOTE,
-		"BOOT: --launch-scenario '%s' -> testScenarioLaunch(%d)",
+		"BOOT: --launch-scenario '%s' armed (will dispatch testScenarioLaunch(%d) once lvframenum >= 4)",
 		g_BootLaunchScenario, (s32)scen);
-	if (!testScenarioLaunch(scen, NULL)) {
-		sysLogPrintf(LOG_WARNING,
-			"BOOT: --launch-scenario failed; falling back to default boot stage");
-	}
 }
 
 /* Apply --launch-mission by seeding g_MissionConfig and pointing
@@ -631,6 +647,41 @@ static void bootApplyCliFastPaths(void)
 	bootApplyLaunchMission();
 	bootApplyLaunchMpRoom();
 	bootApplyDebugMountBike();
+}
+
+/* Called once per frame from pdmain.c's mainTick when the
+ * --launch-scenario one-shot is armed. Dispatches testScenarioLaunch
+ * once the stage setup has placed the player prop, so the scenario's
+ * matchStart sees a positioned player and the first respawn succeeds
+ * (instead of failing into endscreen_solo). Returns 1 when the
+ * scenario was attempted, else 0.
+ *
+ * Gates:
+ *   - g_BootLaunchScenarioPending must be set
+ *   - g_Vars.lvframenum >= 4 (same gate --debug-mount-bike uses; load
+ *     black frames are out of the way and the player prop has been
+ *     spawned + positioned by setupCreateProps).
+ *
+ * One-shot: clears the latch on either success or failure so a
+ * subsequent stage change does not re-fire the scenario. */
+s32 bootLaunchScenarioTick(void)
+{
+	if (!g_BootLaunchScenarioPending) {
+		return 0;
+	}
+	if (g_Vars.lvframenum < 4) {
+		return 0;
+	}
+	test_scenario_t scen = (test_scenario_t)g_BootLaunchScenarioId;
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --launch-scenario consuming latch: testScenarioLaunch(%d) at lvframenum=%d",
+		(s32)scen, (s32)g_Vars.lvframenum);
+	if (!testScenarioLaunch(scen, NULL)) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --launch-scenario deferred dispatch failed; falling back to default boot stage");
+	}
+	g_BootLaunchScenarioPending = 0;
+	return 1;
 }
 
 /* Called once per frame from pdmain.c's mainTick when the

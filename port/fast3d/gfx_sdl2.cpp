@@ -86,6 +86,16 @@ extern "C" void gfxFullscreenToggle(void) {
     set_fullscreen(!fullscreen_state, true);
 }
 
+extern "C" SDL_Window *gfxGetSdlWindow(void) {
+    /* c115 (2026-05-14): public C accessor for the SDL window handle.
+     * Smoke harness needs this so it can populate event.key.windowID /
+     * event.button.windowID on synthesised events -- the ImGui SDL2
+     * backend filters events whose windowID does not match the one
+     * captured at ImGui_ImplSDL2_Init time. Returns NULL before
+     * gfx_sdl_init runs (window not yet created). */
+    return wnd;
+}
+
 static void set_maximize_window(bool on) {
 	maximized_state = on;
 	if (on) {

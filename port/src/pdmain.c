@@ -695,6 +695,20 @@ void mainTick(void)
 	 * input dispatch downstream picks them up this frame. */
 	smokeHarnessTick();
 
+	/* c115 (2026-05-14): --launch-scenario one-shot. Dispatches the
+	 * latched testScenarioLaunch on the first frame where the player
+	 * prop is positioned (lvframenum >= 4), so matchStart sees a
+	 * valid player and the first respawn succeeds. Worker delta's
+	 * iter-2 re-run showed that calling testScenarioLaunch
+	 * synchronously from bootApplyCliFastPaths fires before stage
+	 * setup, causing the match to end instantly into endscreen_solo
+	 * and the swarm cycler to be suppressed by gameplayInputSuppressed.
+	 * Cheap no-op when the flag wasn't on the command line. */
+	{
+		extern s32 bootLaunchScenarioTick(void);
+		(void)bootLaunchScenarioTick();
+	}
+
 	/* c115 (2026-05-13): --debug-mount-bike one-shot. Walks
 	 * g_Vars.activeprops once the load black-frame is over, mounts
 	 * player 0 on the first OBJTYPE_HOVERBIKE, then clears its latch.
