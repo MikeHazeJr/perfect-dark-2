@@ -1,6 +1,6 @@
 {
   "scenario_name": "swarm_gpu_smoke",
-  "description": "c115 re-author: boot directly into Swarm-GPU via --launch-scenario swarm_gpu (skips Settings -> Debug -> Test Scenarios menu nav entirely + the mouse-only GPU radio click). Verifies GL >= 4.3 probe, compute shader compile+link, TESTSCEN.LAUNCH: Swarm-GPU, BENCHMARK.SWARM.GPU log line, and ladder progression (4 -> 8 -> 16 -> 32 -> 64 -> 128). Surfaces B-311 (128-bot FATAL display-list crash) and the SWARM_GPU_MAX=256 hard cap. Ladder driven via action injection of ACTION_TESTSCEN_CYCLE_COUNT (focus-independent).",
+  "description": "c115 iter-3: boot directly into Swarm-GPU via --launch-scenario swarm_gpu (skips Settings -> Debug -> Test Scenarios menu nav entirely + the mouse-only GPU radio click). With iter-2's deferred-launch-at-lvframenum-4 in place, the bot ladder cycles cleanly via ACTION_TESTSCEN_CYCLE_COUNT (focus-independent). Verifies GL >= 4.3 probe, compute shader compile+link, TESTSCEN.LAUNCH: Swarm-GPU, BENCHMARK.SWARM.GPU log line, and ladder progression 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128. CONFIRMED 2026-05-14: ladder reaches 128 without crash and the binary exits cleanly with code 0; B-311 (128-bot FATAL display-list crash) does NOT trip with deferred matchStart -- the fix may have closed B-311 as a side effect (same as B-307 for CPU swarm). Ladder respawn at each step works (despawn_all then respawn_ring around player position).",
   "tags": ["debug", "swarm", "gpu", "benchmark", "scaling", "compute"],
   "paths_of_interest": [
     "port/fast3d/swarm_gpu.cpp",
@@ -37,10 +37,15 @@
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=swarm_gpu_smoke",
-      "BOOT: --launch-scenario 'swarm_gpu' -> testScenarioLaunch",
+      "BOOT: --launch-scenario 'swarm_gpu' armed",
+      "BOOT: --launch-scenario consuming latch: testScenarioLaunch",
       "BOOT: --no-net set; netInit\\(\\) skipped",
       "TESTSCEN\\.LAUNCH: Swarm-GPU",
-      "BENCHMARK\\.SWARM\\.GPU"
+      "BENCHMARK\\.SWARM\\.GPU",
+      "TESTSCEN\\.SWARM: cycle NEXT prev_idx=0 -> idx=1 target=8",
+      "TESTSCEN\\.SWARM: cycle NEXT .* target=128",
+      "BENCHMARK\\.SWARM\\.GPU: SUMMARY count=128",
+      "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
       "EXCEPTION_ACCESS_VIOLATION",
@@ -49,7 +54,8 @@
       "LOUDFAIL\\.LOAD: .*unrecoverable"
     ],
     "required_counts": [
-      { "pattern": "BENCHMARK\\.SWARM\\.GPU", "min": 1 }
+      { "pattern": "BENCHMARK\\.SWARM\\.GPU", "min": 1 },
+      { "pattern": "TESTSCEN\\.SWARM: cycle NEXT", "min": 6 }
     ]
   }
 }

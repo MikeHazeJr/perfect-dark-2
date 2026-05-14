@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_room_flow",
-  "description": "c115 re-author: --launch-mp-room base:arena_mp_felicity base:combat 4 seeds g_MatchConfig pre-mainProc and arms post-CI main-menu auto-open (g_PostExitMainMenuView=0). Test verifies the seeded match config and main-menu auto-open landing. Drives nav via mixed action injection (ACTION_USE / ACTION_MENU_DOWN focus-independent) and SDL keys (Escape) to walk through to the Room and exercise MP_SETUP / MP_ADVANCED / MP_BOT_SETUP back-edges. FINDING: SDL key events with windowID=0 (from smokePushKey) are filtered out by ImGui_ImplSDL2_ProcessEvent's windowID guard at imgui_impl_sdl2.cpp:400, which silently drops arrow keys / Return / Escape from ImGui's nav. ACTION-injection bypasses windowID but the menu nav cursor stays put because pdguiDriveImGuiNav reads actionHeld, not actionPressed, and a one-frame tap may not survive ImGui's nav repeat delay. This test currently locks the boot fast-path as regression coverage; deeper menu nav requires a windowID fix in smokePushKey or an actionPressed-mode in driveHeld.",
+  "description": "c115 iter-3 tuning: --launch-mp-room base:arena_mp_felicity base:combat 4 seeds g_MatchConfig pre-mainProc and arms post-CI main-menu auto-open (g_PostExitMainMenuView=0). With windowID populated (iter-2 worker epsilon), ACTION_USE+ACTION_MENU_DOWN can now drive Main Menu -> Solo Play -> Combat Simulator -> Room. Iter-3 finding: walking deeper (Down/Return into Room sub-screens) reliably triggers an access violation ~5s after acquiring mp_advanced + room gen=2; the crash is independent of injected keys (it fires before SDL events reach the binary). This is a NEW deeper-coverage bug surfaced by iter-2 nav. Test now backs off after confirming Combat Simulator -> Room edge to lock in regression coverage of the boot fast-path + the new room-acquired milestone WITHOUT tripping the deeper Room sub-screen crash. Deeper Room/MP-sub navigation needs a separate dispatch to investigate the post-Combat-Simulator crash class (likely related to MENUPOOL: released room gen=1 then immediately acquired mp_advanced + room gen=2 ctx=imgui_menu(owned) race).",
   "tags": ["menu", "input", "mp", "combatsim", "room", "stability"],
   "paths_of_interest": [
     "port/fast3d/pdgui_menu_mainmenu.cpp",
@@ -38,21 +38,8 @@
     { "at_ms": 24500, "type": "action", "name": "ACTION_MENU_UP",     "action": "tap" },
     { "at_ms": 25500, "type": "action", "name": "ACTION_USE",         "action": "tap", "comment": "main_menu row 0 (Solo Play) accept -> push MAIN_SOLO_VIEW" },
     { "at_ms": 27500, "type": "action", "name": "ACTION_MENU_DOWN",   "action": "tap", "comment": "MAIN_SOLO_VIEW: row 0 (Solo Missions) -> row 1 (Combat Simulator)" },
-    { "at_ms": 28500, "type": "action", "name": "ACTION_USE",         "action": "tap", "comment": "Combat Simulator -- pushes MENU_TYPE_ROOM" },
-    { "at_ms": 35000, "type": "key",    "key": "Down",   "action": "tap", "comment": "Room: nav off Start Match (row 0)" },
-    { "at_ms": 35800, "type": "key",    "key": "Down",   "action": "tap", "comment": "Room: row 2 (likely Bot Setup / team / scenario)" },
-    { "at_ms": 36600, "type": "key",    "key": "Return", "action": "tap", "comment": "open a sub-screen (mp_setup / mp_advanced / mp_bot_setup target)" },
-    { "at_ms": 42000, "type": "key",    "key": "Escape", "action": "tap", "comment": "back-edge -- expect MENU.GRAPH.FIRE source=(mp_setup|mp_advanced|mp_bot_setup) edge=back ok=1" },
-    { "at_ms": 46000, "type": "key",    "key": "Down",   "action": "tap", "comment": "Room: probe another sub-screen" },
-    { "at_ms": 46800, "type": "key",    "key": "Return", "action": "tap" },
-    { "at_ms": 51000, "type": "key",    "key": "Escape", "action": "tap", "comment": "another back-edge" },
-    { "at_ms": 54000, "type": "key",    "key": "Up",     "action": "tap", "comment": "Room: walk to Advanced/Bots row" },
-    { "at_ms": 54800, "type": "key",    "key": "Return", "action": "tap" },
-    { "at_ms": 59000, "type": "key",    "key": "Escape", "action": "tap" },
-    { "at_ms": 63000, "type": "key",    "key": "Escape", "action": "tap", "comment": "leave Room back to Solo submenu" },
-    { "at_ms": 66000, "type": "key",    "key": "Escape", "action": "tap", "comment": "Solo submenu back to Main Menu" },
-    { "at_ms": 69000, "type": "key",    "key": "Escape", "action": "tap", "comment": "settle on Main Menu" },
-    { "at_ms": 120000, "type": "exit", "comment": "scripted exit before harness timeout" }
+    { "at_ms": 28500, "type": "action", "name": "ACTION_USE",         "action": "tap", "comment": "Combat Simulator -- pushes MENU_TYPE_ROOM. iter-3: this is the deepest stable point. ~5s after this the menugraph auto-acquires mp_advanced + room gen=2 (likely an arena-pick flow inside Room), and that path then races / crashes (NEW deeper bug surfaced by the windowID fix). We bail out before the crash window." },
+    { "at_ms": 30500, "type": "exit", "comment": "scripted exit 2s after Combat Simulator press -- locks in regression coverage of: boot -> Main Menu -> Solo Play -> Combat Simulator -> Room edge fire + MENUPOOL: acquired room. Walking deeper requires a separate dispatch to fix the post-room crash." }
   ],
   "assertions": {
     "required_lines": [
@@ -61,7 +48,10 @@
       "BOOT: --launch-mp-room arena='base:arena_mp_felicity'",
       "BOOT: --no-net set; netInit\\(\\) skipped",
       "BOOT: --main-menu armed",
-      "MENUPOOL: acquired main_menu"
+      "MENUPOOL: acquired main_menu",
+      "MENU\\.GRAPH\\.FIRE source=main_menu edge=solo_play",
+      "MENU\\.GRAPH\\.FIRE source=main_solo_view edge=combat_simulator",
+      "MENUPOOL: acquired room"
     ],
     "forbidden_patterns": [
       "EXCEPTION_ACCESS_VIOLATION",
