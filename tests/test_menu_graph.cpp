@@ -1077,3 +1077,68 @@ TEST_CASE("menu graph: MP Player Config close uses graph pop edge", "[input][men
     REQUIRE(close.find("menuGraphFirePop(MENU_TYPE_MP_PLAYER_CONFIG, \"close\")") != std::string::npos);
     REQUIRE(close.find("menuPopDialog()") == std::string::npos);
 }
+
+/* -------------------------------------------------------------------------
+ * c036 / s036-08 menu-graph completion slice -- helper-funnel pop migrations
+ * (2026-05-14).
+ *
+ * Adds graph nodes + edges + call-site migrations for three MP screens whose
+ * back-pop is funneled through a single per-file close-helper:
+ *   - MENU_TYPE_MP_SETUP      (pdgui_menu_mpsetup.cpp / mp_CloseCurrentDialog)
+ *   - MENU_TYPE_MP_ADVANCED   (pdgui_menu_mpadvanced.cpp / ma_CloseCurrentDialog)
+ *   - MENU_TYPE_MP_BOT_SETUP  (pdgui_menu_botsetup.cpp / bs_CloseCurrentDialog)
+ *
+ * Each helper services many sibling renderers (Arena / Scenario / Weapons /
+ * Limits / Ready under MP_SETUP, Advanced Setup / Quick Go / Quick Team under
+ * MP_ADVANCED, Simulants roster + Add / Change / Edit / Character under
+ * MP_BOT_SETUP). All callers map to the same pool slot, so a single
+ * menuGraphFirePop call inside the helper is the correct migration.
+ * ------------------------------------------------------------------------- */
+
+TEST_CASE("menu graph: MP Setup back uses graph pop edge", "[input][menu_graph][mpsetup][static]")
+{
+    const std::string source = readTextFile("port/fast3d/pdgui_menu_mpsetup.cpp");
+    const std::string graph = readTextFile("port/src/menugraph.c");
+
+    REQUIRE_FALSE(source.empty());
+    REQUIRE_FALSE(graph.empty());
+    REQUIRE(source.find("#include \"menugraph.h\"") != std::string::npos);
+    REQUIRE(graph.find("NODE(MENU_TYPE_MP_SETUP, \"mp_setup\", s_MpSetupEdges)") != std::string::npos);
+
+    const std::string close = functionBlock(source, "mp_CloseCurrentDialog");
+    REQUIRE_FALSE(close.empty());
+    REQUIRE(close.find("menuGraphFirePop(MENU_TYPE_MP_SETUP, \"back\")") != std::string::npos);
+    REQUIRE(close.find("menuPopDialog()") == std::string::npos);
+}
+
+TEST_CASE("menu graph: MP Advanced back uses graph pop edge", "[input][menu_graph][mpadvanced][static]")
+{
+    const std::string source = readTextFile("port/fast3d/pdgui_menu_mpadvanced.cpp");
+    const std::string graph = readTextFile("port/src/menugraph.c");
+
+    REQUIRE_FALSE(source.empty());
+    REQUIRE_FALSE(graph.empty());
+    REQUIRE(source.find("#include \"menugraph.h\"") != std::string::npos);
+    REQUIRE(graph.find("NODE(MENU_TYPE_MP_ADVANCED, \"mp_advanced\", s_MpAdvancedEdges)") != std::string::npos);
+
+    const std::string close = functionBlock(source, "ma_CloseCurrentDialog");
+    REQUIRE_FALSE(close.empty());
+    REQUIRE(close.find("menuGraphFirePop(MENU_TYPE_MP_ADVANCED, \"back\")") != std::string::npos);
+    REQUIRE(close.find("menuPopDialog()") == std::string::npos);
+}
+
+TEST_CASE("menu graph: MP Bot Setup back uses graph pop edge", "[input][menu_graph][botsetup][static]")
+{
+    const std::string source = readTextFile("port/fast3d/pdgui_menu_botsetup.cpp");
+    const std::string graph = readTextFile("port/src/menugraph.c");
+
+    REQUIRE_FALSE(source.empty());
+    REQUIRE_FALSE(graph.empty());
+    REQUIRE(source.find("#include \"menugraph.h\"") != std::string::npos);
+    REQUIRE(graph.find("NODE(MENU_TYPE_MP_BOT_SETUP, \"mp_bot_setup\", s_MpBotSetupEdges)") != std::string::npos);
+
+    const std::string close = functionBlock(source, "bs_CloseCurrentDialog");
+    REQUIRE_FALSE(close.empty());
+    REQUIRE(close.find("menuGraphFirePop(MENU_TYPE_MP_BOT_SETUP, \"back\")") != std::string::npos);
+    REQUIRE(close.find("menuPopDialog()") == std::string::npos);
+}

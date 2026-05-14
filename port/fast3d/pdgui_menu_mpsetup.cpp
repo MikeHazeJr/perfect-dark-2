@@ -62,6 +62,7 @@
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "menugraph.h"
 #include "assetcatalog.h" /* maps/arenas catalog migration: ASSET_ARENA iteration */
 
 extern "C" {
@@ -454,8 +455,12 @@ static WindowFrame mp_BeginStandardWindow(const char *imguiId, const char *title
 static void mp_CloseCurrentDialog(void)
 {
     pdguiPlaySound(PDGUI_SND_KBCANCEL);
-    /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
-    menuPopDialog();
+    /* S300: menuCloseDialog releases pool slot + pops owned ctx.
+     * s036-08 slice (2026-05-14): every renderer in this file drives a
+     * MENU_TYPE_MP_SETUP pool slot (Arena, Scenario, Weapons, Limits, the
+     * scenario-option family, Ready), so the back-pop is routed through
+     * the graph fire with a uniform source. */
+    menuGraphFirePop(MENU_TYPE_MP_SETUP, "back");
 }
 
 /* M-19 (menu-stack §6 progressive focus helper):

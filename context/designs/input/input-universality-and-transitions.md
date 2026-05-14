@@ -1364,6 +1364,21 @@ The next menu graph slice migrated four small priority nodes whose only remainin
 - Build verify clean three-target via `build-session.ps1 -Session c036b8 / c036b8s / c036b8t`: client 55.6 MB, server 22.4 MB, tests 24.7 MB. Pd-tests `[input][menu_graph]` PASS 472 assertions / 27 cases. Pre-existing source-grep failures in `test_pdbase_retired_audit`, `test_catalog_provider_static`, and `test_uichrome_paths_pin` unchanged (not introduced by this slice).
 - Remaining s036-08 surface after this slice: ~30 raw menu push/pop sites across the larger files (training.cpp 11 pops, solomission.cpp leftover pops, cheats.cpp pops, mpadvanced/mpsetup/mpsettings/botsetup/controldiagram/mainmenu push residue). Multi-session continuation per LF-1 in `audits/2026-05-13-followup-and-migration-sweep.md`.
 
+### L.61 s036-08 slice: three helper-funnel pop migrations (2026-05-14)
+
+The next menu graph slice migrated three MP screens whose back-pop is funneled through a single per-file close-helper. Each helper services a fan of sibling renderers that all drive the same pool slot, so a single `menuGraphFirePop` inside the helper is the correct migration. The slice continues s036-08 from L.60 and stays inside the "one graph node per file, one EDGE_POP per call site" envelope set by the earlier four-node slice.
+
+- Added three nodes to `port/src/menugraph.c`: `MENU_TYPE_MP_SETUP` (back pop), `MENU_TYPE_MP_ADVANCED` (back pop), `MENU_TYPE_MP_BOT_SETUP` (back pop). Three `EDGE_POP` declarations total.
+- Migrated three raw `menuPopDialog()` call sites to `menuGraphFirePop(MENU_TYPE_*, "back")` inside the per-file close-helper:
+  - `port/fast3d/pdgui_menu_mpsetup.cpp` -- `mp_CloseCurrentDialog` services Arena, Scenario, Weapons, Limits, Combat / CTC / KOH / HTB / HTM / PAC scenario options, and Ready (all `MENU_TYPE_MP_SETUP`).
+  - `port/fast3d/pdgui_menu_mpadvanced.cpp` -- `ma_CloseCurrentDialog` services Advanced Setup, Quick Go, Quick Team root, and Quick Team Game Setup (all `MENU_TYPE_MP_ADVANCED`).
+  - `port/fast3d/pdgui_menu_botsetup.cpp` -- `bs_CloseCurrentDialog` services Simulants roster, Add / Change / Edit Simulant, and Simulant Character (all `MENU_TYPE_MP_BOT_SETUP`).
+- Each touched source added `#include "menugraph.h"` next to the existing `menupool.h` include. The forward declaration of `menuPopDialog` stays as a prototype because the linker still resolves it inside `menuGraphFirePop` -- only the call site moves.
+- Push sites in these files were deliberately left raw for a future slice because their push targets either (a) target a `menu_type_t` whose graph node does not yet exist (`g_MpSelectTunesMenuDialog` -> `MENU_TYPE_MP_TUNES` has no node), (b) target an unregistered dialogdef (`g_ExtGameOptionsMenuDialog`, `g_MpSimulantCharacterMenuDialog`), or (c) take a variable target unknown at compile time (`hubPushRow(... struct menudialogdef *target ...)`). Per the slice rule, no stub nodes were added to make pushes migrateable.
+- Added three static pd-test cases to `tests/test_menu_graph.cpp` ([input][menu_graph][mpsetup/mpadvanced/botsetup][static]) pinning the include, the node registration, the new `menuGraphFirePop` call inside each close-helper, and the absence of raw `menuPopDialog()` in the helper.
+- Build verify deferred to orchestrator post-merge per slice rules.
+- Remaining s036-08 surface after this slice: ~27 raw menu push/pop sites across training.cpp (11 pops), solomission.cpp residue, cheats.cpp pops, controldiagram.cpp (4 pops + 1 push), mainmenu push residue, mpsettings push residue, and the deferred pushes called out above. Multi-session continuation per LF-1 in `audits/2026-05-13-followup-and-migration-sweep.md`.
+
 ---
 
 ## Appendix A: Audit raw findings

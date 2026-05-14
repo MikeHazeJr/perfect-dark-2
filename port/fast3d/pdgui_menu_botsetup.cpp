@@ -64,6 +64,7 @@
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "menugraph.h"
 #include "assetcatalog.h"  /* heads catalog migration: assetCatalogIterateUnlockedByType */
 
 extern "C" {
@@ -670,8 +671,12 @@ static WindowFrame bs_BeginStandardWindow(const char *imguiId, const char *title
 static void bs_CloseCurrentDialog(void)
 {
     pdguiPlaySound(PDGUI_SND_KBCANCEL);
-    /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
-    menuPopDialog();
+    /* S300: menuCloseDialog releases pool slot + pops owned ctx.
+     * s036-08 slice (2026-05-14): every renderer in this file drives a
+     * MENU_TYPE_MP_BOT_SETUP pool slot (Simulants roster, Add / Change /
+     * Edit Simulant, Simulant Character picker), so the back-pop is routed
+     * through the graph fire with a uniform source. */
+    menuGraphFirePop(MENU_TYPE_MP_BOT_SETUP, "back");
 }
 
 /* True if this frame saw Escape or gamepad-B (the universal back button). */

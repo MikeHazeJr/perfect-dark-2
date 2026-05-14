@@ -77,6 +77,7 @@
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "menugraph.h"
 
 extern "C" {
 #include "pdgui_menus.h"  /* for pdguiMenuMpAdvancedRegister declaration */
@@ -399,8 +400,12 @@ static WindowFrame ma_BeginStandardWindow(const char *imguiId, const char *title
 static void ma_CloseCurrentDialog(void)
 {
     pdguiPlaySound(PDGUI_SND_KBCANCEL);
-    /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
-    menuPopDialog();
+    /* S300: menuCloseDialog releases pool slot + pops owned ctx.
+     * s036-08 slice (2026-05-14): every renderer in this file drives a
+     * MENU_TYPE_MP_ADVANCED pool slot (Advanced Setup hub, Quick Go, Quick
+     * Team variants, challenge list/details), so the back-pop is routed
+     * through the graph fire with a uniform source. */
+    menuGraphFirePop(MENU_TYPE_MP_ADVANCED, "back");
 }
 
 /* True if this frame saw Escape or gamepad-B (the universal back button). */

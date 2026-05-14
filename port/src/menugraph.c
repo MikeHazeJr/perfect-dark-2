@@ -174,6 +174,18 @@ static const MenuGraphEdge s_MpPlayerConfigEdges[] = {
     EDGE_POP("close", ACTION_MENU_CANCEL, "Close"),
 };
 
+static const MenuGraphEdge s_MpSetupEdges[] = {
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+};
+
+static const MenuGraphEdge s_MpAdvancedEdges[] = {
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+};
+
+static const MenuGraphEdge s_MpBotSetupEdges[] = {
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+};
+
 static const MenuGraphEdge s_FrDifficultyEdges[] = {
     EDGE_PUSH("start", ACTION_MENU_ACCEPT, "Start Firing Range", MENU_TYPE_FR_INFO),
     EDGE_POP("cancel", ACTION_MENU_CANCEL, "Cancel"),
@@ -212,6 +224,9 @@ static const MenuGraphNode s_Nodes[] = {
     NODE(MENU_TYPE_CHALLENGES, "challenges", s_ChallengesEdges),
     NODE(MENU_TYPE_MP_TEAM_SETUP, "mp_team_setup", s_MpTeamSetupEdges),
     NODE(MENU_TYPE_MP_PLAYER_CONFIG, "mp_player_config", s_MpPlayerConfigEdges),
+    NODE(MENU_TYPE_MP_SETUP, "mp_setup", s_MpSetupEdges),
+    NODE(MENU_TYPE_MP_ADVANCED, "mp_advanced", s_MpAdvancedEdges),
+    NODE(MENU_TYPE_MP_BOT_SETUP, "mp_bot_setup", s_MpBotSetupEdges),
     NODE(MENU_TYPE_FR_DIFFICULTY, "fr_difficulty", s_FrDifficultyEdges),
     NODE(MENU_TYPE_WARNING_MODAL, "warning_modal", s_WarningModalEdges),
 };
