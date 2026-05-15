@@ -269,6 +269,377 @@ function Select-SmokeTests {
 # Run one test
 # ----------------------------------------------------------------
 
+# c118 (2026-05-15): multi-process orchestration helper.
+#
+# Test JSON schema for two-or-more-process smokes (currently used by the
+# connectivity pillar's listen_host_peer_smoke):
+#
+#   {
+#     "scenario_name": "...",
+#     "timeout_seconds": 25,
+#     "processes": [
+#       {
+#         "name": "host",
+#         "log_file": "pd-host.log",   // optional; defaults per --host routing
+#         "boot_args": ["--host", "--listen-bind", "27200", ...],
+#         "wait_for": "NET: created server on port 27200"  // emit barrier
+#       },
+#       {
+#         "name": "client",
+#         "log_file": "pd-client.log",
+#         "boot_args": ["--connect-host", "127.0.0.1:27200", ...],
+#         "wait_after_launch_ms": 0
+#       }
+#     ],
+#     "assertions": { ... }            // run against concatenation of all logs
+#   }
+#
+# Behaviour:
+#   - All processes share a single install directory (same as single-process
+#     tests). The natural log-routing in port/src/system.c::sysInit means
+#     --host writes to pd-host.log and plain client mode writes to
+#     pd-client.log, so two processes coexist in one install dir without
+#     trampling each other's log.
+#   - Processes launch sequentially. After each launch, the runner polls
+#     the process's log file for `wait_for` (if specified) before
+#     proceeding to the next process. Poll cadence: 200ms. If the marker
+#     does not appear within process[i].wait_timeout_seconds (default 15s)
+#     the orchestration aborts -- the late-launching processes are not
+#     started, the already-running ones are killed, and the test fails.
+#   - Once all processes are launched, the runner waits up to
+#     timeout_seconds for ALL processes to exit. Any still running after
+#     the timeout are killed.
+#   - Assertions run against the concatenation of every process's log
+#     (separator: a blank line + a `--- <log_file> ---` header). This
+#     keeps the single-pattern Test-Assertions engine intact.
+function Invoke-SmokeTestMultiProcess {
+    [CmdletBinding()] param(
+        [Parameter(Mandatory)] [psobject] $Test,
+        [string] $ExistingInstall = "",
+        [switch] $KeepOnSuccess,
+        [int] $TimeoutOverride = 0,
+        [switch] $VerboseEval,
+        [string] $BinaryOverride = "",
+        [string] $RomOverride = "",
+        [switch] $Shared
+    )
+
+    $name = $Test.Name
+    $def = $Test.Definition
+
+    $installState = "clean"
+    if ($def.PSObject.Properties.Match('install_state').Count -gt 0 -and $def.install_state) {
+        $installState = [string]$def.install_state
+    }
+
+    if (-not (Test-Path -LiteralPath $RunRoot)) {
+        New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
+    }
+
+    # Multi-process tests are pd-only today (pd-server has its own log
+    # routing rules and we'd need a richer per-process target field to
+    # mix targets). Default target stays "pd" and is shared by every
+    # process; install dir is seeded once.
+    $target = "pd"
+    if ($def.PSObject.Properties.Match('target').Count -gt 0 -and $def.target) {
+        $target = [string]$def.target
+    }
+
+    $installInfo = $null
+    if ($ExistingInstall) {
+        $installInfo = [PSCustomObject]@{
+            InstallDir = (Resolve-Path -LiteralPath $ExistingInstall).Path
+            SourceBinary = ""
+            SourceRom = ""
+            RomId = ""
+            InstallState = "current"
+            ExeName = "PerfectDark.exe"
+        }
+    } elseif ($Shared) {
+        $installInfo = New-SmokeSharedInstall `
+            -ProjectRoot $ProjectRoot `
+            -TestName $name `
+            -InstallState $installState `
+            -SourceBinary $BinaryOverride `
+            -SourceRom $RomOverride `
+            -Target $target
+    } else {
+        $installInfo = New-SmokeInstall `
+            -RunRoot $RunRoot `
+            -TestName $name `
+            -InstallState $installState `
+            -SourceBinary $BinaryOverride `
+            -SourceRom $RomOverride `
+            -ProjectRoot $ProjectRoot `
+            -Target $target
+    }
+
+    Write-Info ("  install dir: {0}" -f $installInfo.InstallDir)
+    Write-Info ("  state: {0}" -f $installInfo.InstallState)
+
+    if ($def.PSObject.Properties.Match('fixtures').Count -gt 0 -and $def.fixtures) {
+        $fixCount = Copy-SmokeFixtures -ProjectRoot $ProjectRoot -InstallDir $installInfo.InstallDir -Fixtures $def.fixtures
+        if ($fixCount -gt 0) {
+            Write-Info ("  staged {0} fixture(s)" -f $fixCount)
+        }
+    }
+
+    $timeoutSeconds = 30
+    if ($def.PSObject.Properties.Match('timeout_seconds').Count -gt 0 -and $def.timeout_seconds) {
+        $timeoutSeconds = [int]$def.timeout_seconds
+    }
+    if ($TimeoutOverride -gt 0) { $timeoutSeconds = $TimeoutOverride }
+    $watchdogSeconds = $timeoutSeconds + 30
+
+    $exeLeaf = "PerfectDark.exe"
+    if ($installInfo.PSObject.Properties.Match('ExeName').Count -gt 0 -and $installInfo.ExeName) {
+        $exeLeaf = [string]$installInfo.ExeName
+    }
+    $exe = Join-Path $installInfo.InstallDir $exeLeaf
+    if (-not (Test-Path -LiteralPath $exe)) {
+        throw "$exeLeaf missing inside install dir after seeding: $exe"
+    }
+
+    # Pre-clear known log files in the install dir so wait-for polling
+    # is deterministic. The shared-install harness already wipes
+    # pd-client.log; ensure pd-host.log is wiped too if it exists from a
+    # prior run.
+    foreach ($leaf in @("pd-client.log", "pd-host.log", "pd-server.log")) {
+        $p = Join-Path $installInfo.InstallDir $leaf
+        if (Test-Path -LiteralPath $p) {
+            Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $started = Get-Date
+    $procs = @()  # array of @{ Name; Process; LogPath; }
+    $launchFailed = $false
+
+    foreach ($pdef in $def.processes) {
+        $pname = "unknown"
+        if ($pdef.PSObject.Properties.Match('name').Count -gt 0 -and $pdef.name) {
+            $pname = [string]$pdef.name
+        }
+
+        $pBootArgs = @()
+        if ($pdef.PSObject.Properties.Match('boot_args').Count -gt 0 -and $pdef.boot_args) {
+            $pBootArgs = @($pdef.boot_args)
+        }
+
+        # Default log routing: --host or --listen-bind without explicit
+        # log_file => pd-host.log; otherwise pd-client.log. Caller can
+        # override via process.log_file.
+        $logFile = "pd-client.log"
+        $usesHostLog = $false
+        foreach ($a in $pBootArgs) {
+            if ($a -eq "--host" -or $a -eq "--listen-bind") {
+                $usesHostLog = $true
+                break
+            }
+        }
+        if ($usesHostLog) { $logFile = "pd-host.log" }
+        if ($pdef.PSObject.Properties.Match('log_file').Count -gt 0 -and $pdef.log_file) {
+            $logFile = [string]$pdef.log_file
+        }
+        $logPath = Join-Path $installInfo.InstallDir $logFile
+
+        # All processes share the same --smoke <test-path> so each binary
+        # loads the same scripted schedule (typically just a single exit
+        # event at timeout_seconds * 1000 ms). The boot_args of the
+        # process override binary-level behaviour like --host /
+        # --connect-host.
+        $allArgs = @("--smoke", $Test.Path, "--no-crash-handler") + $pBootArgs
+
+        Write-Info ""
+        Write-Info ("  launch[{0}]: {1}" -f $pname, ($allArgs -join ' '))
+        Write-Info ("    log: {0}" -f $logPath)
+
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName         = $exe
+        $quotedArgs = foreach ($a in $allArgs) {
+            if ($null -eq $a) { continue }
+            $s = [string]$a
+            if ($s -match '[\s"]') {
+                '"' + ($s -replace '"', '\"') + '"'
+            } else {
+                $s
+            }
+        }
+        $psi.Arguments        = ($quotedArgs -join ' ')
+        $psi.WorkingDirectory = $installInfo.InstallDir
+        $psi.UseShellExecute  = $false
+        $psi.CreateNoWindow      = $false
+        $psi.RedirectStandardError  = $false
+        $psi.RedirectStandardOutput = $false
+
+        $p = $null
+        try {
+            $p = [System.Diagnostics.Process]::Start($psi)
+        } catch {
+            Write-Fail ("    launch failed: {0}" -f $_.Exception.Message)
+            $launchFailed = $true
+            break
+        }
+
+        $procs += [PSCustomObject]@{
+            Name = $pname
+            Process = $p
+            LogPath = $logPath
+        }
+
+        # Optional barrier: poll the just-launched process's log for the
+        # `wait_for` marker before launching the next process.
+        $waitFor = $null
+        if ($pdef.PSObject.Properties.Match('wait_for').Count -gt 0 -and $pdef.wait_for) {
+            $waitFor = [string]$pdef.wait_for
+        }
+        $waitTimeoutSec = 15
+        if ($pdef.PSObject.Properties.Match('wait_timeout_seconds').Count -gt 0 -and $pdef.wait_timeout_seconds) {
+            $waitTimeoutSec = [int]$pdef.wait_timeout_seconds
+        }
+
+        if ($waitFor) {
+            Write-Info ("    waiting for marker: {0} (timeout {1}s)" -f $waitFor, $waitTimeoutSec)
+            $deadline = (Get-Date).AddSeconds($waitTimeoutSec)
+            $matched = $false
+            while ((Get-Date) -lt $deadline) {
+                if ($p.HasExited) {
+                    Write-Fail ("    process exited (code {0}) before emitting wait_for marker" -f $p.ExitCode)
+                    $launchFailed = $true
+                    break
+                }
+                if (Test-Path -LiteralPath $logPath) {
+                    try {
+                        $hit = Select-String -LiteralPath $logPath -Pattern $waitFor -SimpleMatch:$false -List -ErrorAction SilentlyContinue
+                        if ($hit) {
+                            $matched = $true
+                            break
+                        }
+                    } catch {}
+                }
+                Start-Sleep -Milliseconds 200
+            }
+            if (-not $matched -and -not $launchFailed) {
+                Write-Fail ("    wait_for marker not seen within {0}s: {1}" -f $waitTimeoutSec, $waitFor)
+                $launchFailed = $true
+            }
+            if ($matched) {
+                Write-Info "    marker reached"
+            }
+        }
+
+        if ($launchFailed) { break }
+
+        # Optional inter-process settle (rare; used when the marker
+        # appears mid-init and the next process needs the host's
+        # post-marker state to be stable).
+        if ($pdef.PSObject.Properties.Match('wait_after_launch_ms').Count -gt 0 -and $pdef.wait_after_launch_ms) {
+            $extraMs = [int]$pdef.wait_after_launch_ms
+            if ($extraMs -gt 0) { Start-Sleep -Milliseconds $extraMs }
+        }
+    }
+
+    # If a launch failed, mass-kill any survivors and let the assertion
+    # pass below report on whatever log content exists.
+    if ($launchFailed) {
+        foreach ($entry in $procs) {
+            try { if (-not $entry.Process.HasExited) { $entry.Process.Kill() } } catch {}
+        }
+    }
+
+    # Wait for everything to exit (or hit watchdog).
+    $allExited = $true
+    $deadline = (Get-Date).AddSeconds($watchdogSeconds)
+    foreach ($entry in $procs) {
+        $remainingMs = [int][math]::Max(0, ($deadline - (Get-Date)).TotalMilliseconds)
+        if (-not $entry.Process.WaitForExit($remainingMs)) {
+            Write-Warn ("Watchdog firing on [{0}] pid={1} after {2}s; terminating." -f $entry.Name, $entry.Process.Id, $watchdogSeconds)
+            try { $entry.Process.Kill() } catch {}
+            try { $entry.Process.WaitForExit(5000) | Out-Null } catch {}
+            $allExited = $false
+        }
+    }
+
+    $elapsed = ((Get-Date) - $started).TotalSeconds
+
+    # Build the aggregated log: concatenate every process's log file with
+    # a header so the assertion engine can grep across both.
+    $aggLogPath = Join-Path $installInfo.InstallDir ("pd-aggregated-{0}.log" -f $name)
+    $aggBody = New-Object System.Text.StringBuilder
+    foreach ($entry in $procs) {
+        [void]$aggBody.AppendLine(("--- {0} ({1}) ---" -f $entry.Name, $entry.LogPath))
+        if (Test-Path -LiteralPath $entry.LogPath) {
+            try {
+                $content = Get-Content -LiteralPath $entry.LogPath -Raw -ErrorAction SilentlyContinue
+                if ($content) { [void]$aggBody.Append($content) }
+            } catch {}
+        } else {
+            [void]$aggBody.AppendLine("(log file missing)")
+        }
+        [void]$aggBody.AppendLine("")
+    }
+    Set-Content -LiteralPath $aggLogPath -Value $aggBody.ToString() -Encoding UTF8 -NoNewline
+    Write-Info ("  aggregated log: {0}" -f $aggLogPath)
+    Write-Info ("  elapsed: {0:N1}s" -f $elapsed)
+
+    # Run assertions against the aggregated log.
+    $assertions = $null
+    if ($def.PSObject.Properties.Match('assertions').Count -gt 0) {
+        $assertions = $def.assertions
+    } else {
+        $assertions = [PSCustomObject]@{}
+    }
+    $assertResult = Invoke-SmokeAssertions -LogPath $aggLogPath -Assertions $assertions -VerboseAssertions:$VerboseEval
+
+    $testOk = $assertResult.Passed -and -not $launchFailed
+
+    foreach ($line in (Format-AssertionFailures -Result $assertResult)) {
+        if ($testOk) { Write-Info $line } else { Write-Fail $line }
+    }
+    if ($launchFailed) {
+        Write-Fail "  launch barrier failed (see logs for context)"
+    }
+
+    if ($testOk -and -not $KeepOnSuccess -and -not $ExistingInstall -and -not $Shared) {
+        try {
+            Remove-Item -LiteralPath $installInfo.InstallDir -Recurse -Force -ErrorAction Stop
+            Write-Info "  cleaned install dir"
+        } catch {
+            Write-Warn ("  cleanup skipped: {0}" -f $_.Exception.Message)
+        }
+    } elseif (-not $testOk) {
+        Write-Info ("  retained for debugging: {0}" -f $installInfo.InstallDir)
+        try {
+            $tail = Get-Content -LiteralPath $aggLogPath -Tail 60 -ErrorAction SilentlyContinue
+            if ($tail) {
+                Write-Host "  --- aggregated log tail (last 60 lines) ---" -ForegroundColor DarkGray
+                foreach ($t in $tail) { Write-Host ("    {0}" -f $t) -ForegroundColor DarkGray }
+            }
+        } catch {}
+    }
+
+    $bugId = $null
+    if ($Test.PSObject.Properties.Match('BugId').Count -gt 0) { $bugId = $Test.BugId }
+    $regressionFor = $null
+    if ($Test.PSObject.Properties.Match('RegressionFor').Count -gt 0) { $regressionFor = $Test.RegressionFor }
+    $category = "scenario"
+    if ($Test.PSObject.Properties.Match('Category').Count -gt 0 -and $Test.Category) { $category = $Test.Category }
+
+    return [PSCustomObject]@{
+        Name = $name
+        Category = $category
+        BugId = $bugId
+        RegressionFor = $regressionFor
+        Passed = $testOk
+        ExitCode = $(if ($testOk) { 0 } else { 1 })
+        ElapsedSeconds = $elapsed
+        InstallDir = $installInfo.InstallDir
+        AssertionsTotal = $assertResult.Total
+        AssertionsMet = $assertResult.Met
+        Failures = @($assertResult.Failures)
+    }
+}
+
 function Invoke-SmokeTest {
     [CmdletBinding()] param(
         [Parameter(Mandatory)] [psobject] $Test,
@@ -287,6 +658,25 @@ function Invoke-SmokeTest {
     Write-Host ("=== {0} ===" -f $name) -ForegroundColor Cyan
     if ($def.PSObject.Properties.Match('description').Count -gt 0) {
         Write-Info ("  {0}" -f $def.description)
+    }
+
+    # c118 (2026-05-15): multi-process branch. A test JSON may declare a
+    # `processes: [...]` array (each entry describes one binary launch with
+    # its own boot_args + optional wait-for marker barrier). The dispatch
+    # to Invoke-SmokeTestMultiProcess handles sequential launch with
+    # log-tail polling for the wait-for marker, then collects each
+    # process's log and runs the top-level assertions against the
+    # concatenation. Used for the listen_host_peer_smoke (host + client).
+    if ($def.PSObject.Properties.Match('processes').Count -gt 0 -and $def.processes) {
+        return Invoke-SmokeTestMultiProcess `
+            -Test $Test `
+            -ExistingInstall $ExistingInstall `
+            -KeepOnSuccess:$KeepOnSuccess `
+            -TimeoutOverride $TimeoutOverride `
+            -VerboseEval:$VerboseEval `
+            -BinaryOverride $BinaryOverride `
+            -RomOverride $RomOverride `
+            -Shared:$Shared
     }
 
     $installState = "clean"

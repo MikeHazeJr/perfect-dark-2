@@ -740,6 +740,26 @@ void mainTick(void)
 		(void)bootLaunchLoadAgentTick();
 	}
 
+	/* c118 (2026-05-15): --listen-bind one-shot. Invokes netStartServer
+	 * on the first frame where g_NetInit is true so the client boots
+	 * straight into a listen-host UDP bind. Sister to --connect-host
+	 * for the two-process peer-link smoke. Cheap no-op when the flag
+	 * wasn't on the command line. */
+	{
+		extern s32 bootListenBindTick(void);
+		(void)bootListenBindTick();
+	}
+
+	/* c118 (2026-05-15): --connect-host one-shot. Invokes netStartClient
+	 * on the first frame where g_NetInit is true so the client boots
+	 * straight into a connect-to-host attempt. Sister to --listen-bind
+	 * for the two-process peer-link smoke. Cheap no-op when the flag
+	 * wasn't on the command line. */
+	{
+		extern s32 bootConnectHostTick(void);
+		(void)bootConnectHostTick();
+	}
+
 	/* Phase 1 connectivity layer: drives LAN broadcast, direct UDP probes,
 	 * STUN/UPnP/ICE/TURN tier polling, and pair-state escalation. Runs
 	 * every frame regardless of stage state so presence stays alive across

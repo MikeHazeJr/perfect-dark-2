@@ -174,6 +174,26 @@ extern s32 g_StageNum;
  *       saveLoadAgent; see port/PHASE_D5_PLAN.md:89 for the intended
  *       wiring).  Name is limited to 63 chars (buffer size 64) and
  *       sanitized inside buildSavePath().  One-shot per boot.
+ *
+ *   --listen-bind <port>
+ *       Post-netInit hook: invokes netStartServer(port, NET_MAX_CLIENTS)
+ *       on the first mainTick frame so the client boots straight into a
+ *       listen-server bound on the requested UDP port -- bypassing the
+ *       menu nav (Multiplayer -> Host Game) that production code requires.
+ *       Provides smoke-test coverage of the listen-host bind path. Pair
+ *       with the natural --host log routing so a sister --connect-host
+ *       client process writes to a distinct log. Port is parsed via
+ *       strtol; out-of-range values (<=0 or >0xFFFF) leave the latch off
+ *       with a WARNING. One-shot per boot.
+ *
+ *   --connect-host <addr>:<port>
+ *       Post-netInit hook: invokes netStartClient(addr) on the first
+ *       mainTick frame so the client boots straight into a connect-to-
+ *       host attempt -- bypassing the menu nav (Multiplayer -> Join Game
+ *       -> Enter Connect Code) that production code requires. addr is
+ *       passed through unchanged to netParseAddr, so both "ip:port" and
+ *       bare hostname forms work. Provides smoke-test coverage of the
+ *       client connect path. One-shot per boot.
  * ---------------------------------------------------------------- */
 
 static bool        g_BootNoNet            = false;
@@ -226,6 +246,36 @@ static s32         g_BootLaunchScenarioId      = 0;  /* TESTSCEN_NONE */
  * tick, so the save dir is wired when this fires. One-shot per boot. */
 static s32         g_BootLoadAgentArmed = 0;
 static char        g_BootLoadAgentName[64] = {0};
+
+/* c118 (2026-05-15): --listen-bind <port> one-shot. CLI fast-path that
+ * invokes netStartServer(port, NET_MAX_CLIENTS) on the first mainTick
+ * frame so the client boots straight into a listen-server bound on the
+ * requested UDP port -- bypassing the menu nav (Multiplayer -> Host
+ * Game) that production code requires. Sister test fast-path for the
+ * connectivity pillar's two-process peer-link smoke. Deferred to a tick
+ * rather than fired from bootApplyCliFastPaths so netInit's threaded
+ * boot-pool path has fully drained (g_NetInit is set inside the worker)
+ * and so the smoke harness's SMOKE: scenario= sentinel lands before the
+ * NET: created server log line -- which keeps assertion ordering
+ * deterministic for the two-process smoke test reader.
+ * One-shot per boot. */
+static s32         g_BootListenBindArmed = 0;
+static s32         g_BootListenBindPort  = 0;
+
+/* c118 (2026-05-15): --connect-host <addr>:<port> one-shot. CLI
+ * fast-path that invokes netStartClient(addr) on the first mainTick
+ * frame so the client boots straight into a connect-to-host attempt --
+ * bypassing the menu nav (Multiplayer -> Join Game -> Enter Connect
+ * Code) that production code requires. Sister to --listen-bind for the
+ * two-process peer-link smoke. addr is captured into a static buffer
+ * (NET_MAX_ADDR = 64 in port/include/net/net.h, but we keep this file
+ * independent of net.h's constants and use the same 64-byte limit
+ * directly). Deferred to mainTick for the same reason --listen-bind is:
+ * netInit must be complete before netStartClient is invoked, and
+ * deferring lets the sentinel land before the connect log line.
+ * One-shot per boot. */
+static s32         g_BootConnectHostArmed   = 0;
+static char        g_BootConnectHostAddr[64] = {0};
 
 s32 bootGetMemSize(void)
 {
@@ -760,6 +810,63 @@ static void bootApplyLaunchLoadAgent(const char *arg)
 		g_BootLoadAgentName);
 }
 
+/* c118 (2026-05-15): Arm the --listen-bind <port> one-shot. Parses the
+ * port string into an s32 and validates it's in the legal UDP range.
+ * The actual netStartServer call runs inside mainTick once g_NetInit
+ * is set; see bootListenBindTick() below. Out-of-range values leave
+ * the latch off and emit a WARNING. */
+static void bootApplyListenBind(const char *arg)
+{
+	if (!arg || !arg[0]) {
+		return;
+	}
+
+	char *end = NULL;
+	long portval = strtol(arg, &end, 0);
+	if (!end || *end != '\0' || portval <= 0 || portval > 0xFFFF) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --listen-bind expects a UDP port in 1..65535; got: '%s'",
+			arg);
+		return;
+	}
+
+	g_BootListenBindPort = (s32)portval;
+	g_BootListenBindArmed = 1;
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --listen-bind armed: port=%d",
+		g_BootListenBindPort);
+}
+
+/* c118 (2026-05-15): Arm the --connect-host <addr>:<port> one-shot.
+ * Captures the address+port string into a static buffer; the actual
+ * netStartClient call runs inside mainTick once g_NetInit is set; see
+ * bootConnectHostTick() below. Empty / missing arg leaves the latch
+ * off. Buffer is 64 bytes (matches NET_MAX_ADDR in port/include/net/
+ * net.h but we keep this file independent of that header's constants). */
+static void bootApplyConnectHost(const char *arg)
+{
+	if (!arg || !arg[0]) {
+		return;
+	}
+
+	const size_t maxLen = sizeof(g_BootConnectHostAddr) - 1;
+	if (strlen(arg) > maxLen) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --connect-host address too long (max %zu chars); got: '%s'",
+			maxLen, arg);
+		return;
+	}
+
+	strncpy(g_BootConnectHostAddr, arg, maxLen);
+	g_BootConnectHostAddr[maxLen] = '\0';
+	g_BootConnectHostArmed = 1;
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --connect-host armed: addr='%s'",
+		g_BootConnectHostAddr);
+}
+
 /* Dispatcher called once from main() after the catalog is fully
  * initialised. */
 static void bootApplyCliFastPaths(void)
@@ -771,6 +878,8 @@ static void bootApplyCliFastPaths(void)
 	bootApplyDebugMountBike();
 	bootApplyDebugSpawnAt(sysArgGetString("--debug-spawn-at"));
 	bootApplyLaunchLoadAgent(sysArgGetString("--launch-load-agent"));
+	bootApplyListenBind(sysArgGetString("--listen-bind"));
+	bootApplyConnectHost(sysArgGetString("--connect-host"));
 }
 
 /* Called once per frame from pdmain.c's mainTick when the
@@ -960,6 +1069,103 @@ s32 bootLaunchLoadAgentTick(void)
 		g_BootLoadAgentName, result == 0 ? "OK" : "FAILED");
 
 	g_BootLoadAgentArmed = 0;
+	return 1;
+}
+
+/* c118 (2026-05-15): Called once per frame from pdmain.c's mainTick
+ * when the --listen-bind one-shot is armed. Invokes netStartServer
+ * with the parsed port and NET_MAX_CLIENTS so the client boots
+ * straight into a listen-server bound on the requested UDP port --
+ * sister to bootConnectHostTick() for the two-process peer-link
+ * smoke. The actual ENet bind log line ("NET: created server on port
+ * %u") comes from netStartServer itself; the BOOT: consumed line is
+ * the smoke-runner's wait-for marker.
+ *
+ * Gates:
+ *   - g_BootListenBindArmed must be set
+ *   - g_NetInit must be true (netInit() drained inside the boot pool's
+ *     bootRunCatalogWork worker; by the time mainTick fires the boot
+ *     overlay shutdown is done and the worker has joined). If the
+ *     binary was launched with --no-net the latch will sit armed
+ *     forever -- intentional: --no-net + --listen-bind is nonsense
+ *     and the operator should be told via a single WARNING. We log
+ *     that warning once on the first tick where netInit is missing.
+ *
+ * One-shot: clears the latch regardless of netStartServer's result so
+ * a subsequent stage change does not re-bind. */
+s32 bootListenBindTick(void)
+{
+	if (!g_BootListenBindArmed) {
+		return 0;
+	}
+
+	extern s32 g_NetInit;
+	if (!g_NetInit) {
+		static s32 warned = 0;
+		if (!warned) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --listen-bind cannot fire: g_NetInit is false (likely --no-net was also passed)");
+			warned = 1;
+		}
+		/* Hold the latch; if netInit eventually completes we'll fire.
+		 * If --no-net was passed the latch sits forever, which is fine
+		 * for a smoke test -- the assertion will catch the missing
+		 * NET: created server log. */
+		return 0;
+	}
+
+	extern s32 netStartServer(u16 port, s32 maxclients);
+	extern s32 g_NetMaxClients;
+	s32 rc = netStartServer((u16)g_BootListenBindPort, g_NetMaxClients);
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --listen-bind consumed: port=%d maxclients=%d result=%s rc=%d",
+		g_BootListenBindPort, g_NetMaxClients,
+		rc == 0 ? "OK" : "FAILED", (int)rc);
+
+	g_BootListenBindArmed = 0;
+	return 1;
+}
+
+/* c118 (2026-05-15): Called once per frame from pdmain.c's mainTick
+ * when the --connect-host one-shot is armed. Invokes netStartClient
+ * with the captured "addr:port" string so the client boots straight
+ * into a connect-to-host attempt -- sister to bootListenBindTick() for
+ * the two-process peer-link smoke. The actual ENet connect log line
+ * ("NET: connecting to %s...") comes from netStartClient itself; the
+ * BOOT: consumed line is the smoke-runner's wait-for marker.
+ *
+ * Gates:
+ *   - g_BootConnectHostArmed must be set
+ *   - g_NetInit must be true (same constraint as bootListenBindTick).
+ *
+ * One-shot: clears the latch regardless of netStartClient's result so
+ * a subsequent stage change does not re-connect. */
+s32 bootConnectHostTick(void)
+{
+	if (!g_BootConnectHostArmed) {
+		return 0;
+	}
+
+	extern s32 g_NetInit;
+	if (!g_NetInit) {
+		static s32 warned = 0;
+		if (!warned) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --connect-host cannot fire: g_NetInit is false (likely --no-net was also passed)");
+			warned = 1;
+		}
+		return 0;
+	}
+
+	extern s32 netStartClient(const char *addr);
+	s32 rc = netStartClient(g_BootConnectHostAddr);
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --connect-host consumed: addr='%s' result=%s rc=%d",
+		g_BootConnectHostAddr, rc == 0 ? "OK" : "FAILED", (int)rc);
+
+	g_BootConnectHostArmed = 0;
 	return 1;
 }
 

@@ -143,7 +143,13 @@ struct netbuf g_NetMsg = { .data = g_NetMsgBuf, .size = sizeof(g_NetMsgBuf) };
 static u8 g_NetMsgRelBuf[65536]; // 64KB reliable buffer (control/auth/lobby — no bot bulk data)
 struct netbuf g_NetMsgRel = { .data = g_NetMsgRelBuf, .size = sizeof(g_NetMsgRelBuf) };
 
-static s32 g_NetInit = false;
+/* c118 (2026-05-15): made non-static so the smoke-verify CLI fast-paths
+ * --listen-bind / --connect-host in port/src/main.c can gate their
+ * deferred-tick fire on netInit completion. The boot pool's
+ * bootRunCatalogWork worker sets this to true inside netInit() once
+ * enet_initialize succeeds; the main thread reads it from mainTick
+ * after bootPoolWaitIdle has joined the worker. */
+s32 g_NetInit = false;
 static ENetHost *g_NetHost;
 static ENetAddress g_NetLocalAddr;
 static ENetAddress g_NetRemoteAddr;
