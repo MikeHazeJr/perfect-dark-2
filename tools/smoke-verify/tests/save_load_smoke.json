@@ -1,0 +1,69 @@
+{
+  "scenario_name": "save_load_smoke",
+  "description": "c118 (2026-05-15) save-wire-format-pillar deep coverage: drives the saveLoadAgent JSON parse path end-to-end at boot. The PC port has saveLoadAgent (port/src/savefile.c:367) but zero production call-sites -- Agent Select UI routes through gamefileLoad, not saveLoadAgent (see port/PHASE_D5_PLAN.md:89 for the planned-but-unwired hook). This test uses the new --launch-load-agent <name> CLI fast-path (main.c bootApplyLaunchLoadAgent + bootLaunchLoadAgentTick, wired into pdmain.c::mainTick alongside --debug-mount-bike and --debug-spawn-at). The fast-path latches the agent name at CLI parse time and fires saveLoadAgent on the first frame past lvframenum>=4. The agent_smoke.json v2 fixture is pre-staged at <install>/agent_smoke.json via run.ps1::Copy-SmokeFixtures + --portable. Boot sequence: saveMigrateInit (version 2) -> saveInit (save dir = exeDir under --portable) -> [stage tick reaches lvframenum>=4] -> bootLaunchLoadAgentTick fires -> saveLoadAgent('smoke') opens agent_smoke.json, parses version=2 / name=smoke / counters all zero, populates g_GameFile, returns 0. The harness asserts (1) save subsystem initialised cleanly, (2) the fast-path armed log line on CLI parse, (3) the fast-path consumed result=OK log line after the deferred dispatch, (4) the SAVE: agent 'smoke' loaded line from inside saveLoadAgent itself. Sister of save_init_smoke (inits-only); together they cover the save-wire-format pillar boot path and the JSON parse path.",
+  "tags": ["save", "wire-format", "smoke", "pillar:save-wire-format", "boot"],
+  "paths_of_interest": [
+    "port/src/savefile.c",
+    "port/src/savemigrate.c",
+    "port/include/savefile.h",
+    "port/src/main.c",
+    "port/src/pdmain.c",
+    "port/src/fs.c",
+    "tools/smoke-verify/lib/Install-Harness.ps1",
+    "tools/smoke-verify/run.ps1"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 30,
+  "install_state": "clean",
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/agent_smoke.json", "dst": "agent_smoke.json" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--skip-intro",
+    "--portable",
+    "--launch-load-agent",
+    "smoke"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot path: --no-net + --portable + --skip-intro routes boot through STAGE_CITRAINING (skip-intro shortcut at main.c:1097). The --launch-load-agent CLI parser captures name='smoke' into g_BootLoadAgentName and sets g_BootLoadAgentArmed=1. saveMigrateInit + saveInit fire during main.c init (~lines 956-957) before the bootPool runs, so the save dir is wired by the time the deferred tick gates open. After stage load completes and lvframenum>=4, bootLaunchLoadAgentTick (called from pdmain.c::mainTick) calls saveLoadAgent('smoke') -- this reads <savedir>/agent_smoke.json, validates version=2, parses fields into g_GameFile, returns 0. The harness logs BOOT: --launch-load-agent consumed result=OK and saveLoadAgent itself logs SAVE: agent 'smoke' loaded from <path>." },
+    { "at_ms": 15000, "type": "exit", "comment": "scripted exit at 15s -- saveInit + saveMigrateInit complete by ~1s on clean install; the deferred saveLoadAgent fires within a few seconds of CI load. 14s headroom covers cold-start variance and asset catalog warm-up." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=save_load_smoke",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "BOOT: --launch-load-agent armed: name='smoke'",
+      "SAVEMIGRATE: Initialized \\(0 migrations registered, current save version: 2\\)",
+      "SAVE: initialized — save dir: ",
+      "Asset Catalog: \\d+ entries registered",
+      "BOOT: --launch-load-agent consumed: name='smoke' result=OK",
+      "SAVE: agent 'smoke' loaded from ",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "SAVE: refusing to load agent",
+      "SAVE: failed to load agent 'smoke'",
+      "SAVE: agent 'smoke' .* corrupt",
+      "SAVE: saveListAgents: failed to open",
+      "SAVEMIGRATE: Migration registry full",
+      "SAVEMIGRATE: Invalid migration",
+      "BOOT: --launch-load-agent consumed: .* result=FAILED",
+      "BOOT: --launch-load-agent name too long"
+    ],
+    "required_counts": [
+      { "pattern": "SAVE: initialized — save dir: ", "min": 1, "max": 1 },
+      { "pattern": "SAVEMIGRATE: Initialized", "min": 1, "max": 1 },
+      { "pattern": "BOOT: --launch-load-agent armed:", "min": 1, "max": 1 },
+      { "pattern": "BOOT: --launch-load-agent consumed:", "min": 1, "max": 1 },
+      { "pattern": "SAVE: agent 'smoke' loaded from ", "min": 1, "max": 1 }
+    ]
+  }
+}

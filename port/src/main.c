@@ -163,6 +163,17 @@ extern s32 g_StageNum;
  *       coverage).  Four comma-separated tokens: x, y, z, room (all
  *       parsed as integers via strtol with float coercion for x/y/z;
  *       room is s16 / RoomNum).  One-shot per boot.
+ *
+ *   --launch-load-agent <name>
+ *       Post-saveInit hook: invokes saveLoadAgent(name) on the first
+ *       frame after stage load (g_Vars.lvframenum >= 4) to read the
+ *       pre-staged <savedir>/agent_<safeName>.json fixture into
+ *       g_GameFile.  Provides smoke-test coverage of the saveLoadAgent
+ *       wire-format path -- the production code has zero call-sites
+ *       today (Agent Select routes through gamefileLoad, not
+ *       saveLoadAgent; see port/PHASE_D5_PLAN.md:89 for the intended
+ *       wiring).  Name is limited to 63 chars (buffer size 64) and
+ *       sanitized inside buildSavePath().  One-shot per boot.
  * ---------------------------------------------------------------- */
 
 static bool        g_BootNoNet            = false;
@@ -202,6 +213,19 @@ static s32         g_BootSpawnAtRoom = 0;
  * gate the --debug-mount-bike hook uses for the activeprops walk. */
 static s32         g_BootLaunchScenarioPending = 0;
 static s32         g_BootLaunchScenarioId      = 0;  /* TESTSCEN_NONE */
+
+/* c118 (2026-05-15): --launch-load-agent one-shot. CLI fast-path that
+ * invokes saveLoadAgent(name) directly at boot, mirroring the
+ * --debug-mount-bike / --debug-spawn-at deferred-tick pattern. Provides
+ * smoke-test coverage of the saveLoadAgent wire-format path without
+ * scripted Agent Select menu nav (which routes through gamefileLoad,
+ * not saveLoadAgent -- see port/PHASE_D5_PLAN.md:89 for the intended
+ * wiring that was planned but never executed). The fixture is the v2
+ * agent JSON pre-staged via run.ps1::Copy-SmokeFixtures. saveInit()
+ * fires synchronously in main() at line ~957, well before any deferred
+ * tick, so the save dir is wired when this fires. One-shot per boot. */
+static s32         g_BootLoadAgentArmed = 0;
+static char        g_BootLoadAgentName[64] = {0};
 
 s32 bootGetMemSize(void)
 {
@@ -706,6 +730,36 @@ static void bootApplyDebugSpawnAt(const char *arg)
 		g_BootSpawnAtX, g_BootSpawnAtY, g_BootSpawnAtZ, g_BootSpawnAtRoom);
 }
 
+/* c118 (2026-05-15): Arm the --launch-load-agent one-shot. Captures
+ * the agent name into a static buffer; the actual saveLoadAgent call
+ * runs inside mainTick once g_Vars.lvframenum >= 4 (same gate as the
+ * other deferred ticks). Empty / missing arg leaves the latch off.
+ * Name longer than 63 chars is rejected with a WARNING (the file-side
+ * limit is SAVE_NAME_MAX but the CLI capture buffer is 64 to keep this
+ * file independent of savefile.h's constants). */
+static void bootApplyLaunchLoadAgent(const char *arg)
+{
+	if (!arg || !arg[0]) {
+		return;
+	}
+
+	const size_t maxLen = sizeof(g_BootLoadAgentName) - 1;
+	if (strlen(arg) > maxLen) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --launch-load-agent name too long (max %zu chars); got: '%s'",
+			maxLen, arg);
+		return;
+	}
+
+	strncpy(g_BootLoadAgentName, arg, maxLen);
+	g_BootLoadAgentName[maxLen] = '\0';
+	g_BootLoadAgentArmed = 1;
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --launch-load-agent armed: name='%s'",
+		g_BootLoadAgentName);
+}
+
 /* Dispatcher called once from main() after the catalog is fully
  * initialised. */
 static void bootApplyCliFastPaths(void)
@@ -716,6 +770,7 @@ static void bootApplyCliFastPaths(void)
 	bootApplyLaunchMpRoom();
 	bootApplyDebugMountBike();
 	bootApplyDebugSpawnAt(sysArgGetString("--debug-spawn-at"));
+	bootApplyLaunchLoadAgent(sysArgGetString("--launch-load-agent"));
 }
 
 /* Called once per frame from pdmain.c's mainTick when the
@@ -866,6 +921,45 @@ s32 bootDebugSpawnAtTick(void)
 		g_BootSpawnAtX, g_BootSpawnAtY, g_BootSpawnAtZ, g_BootSpawnAtRoom);
 
 	g_BootSpawnAtPending = 0;
+	return 1;
+}
+
+/* c118 (2026-05-15): Called once per frame from pdmain.c's mainTick
+ * when the --launch-load-agent one-shot is armed. Invokes
+ * saveLoadAgent(name) which reads the pre-staged JSON fixture from
+ * <savedir>/agent_<safeName>.json and populates g_GameFile.
+ *
+ * Gates (mirror the other deferred-tick hooks):
+ *   - g_BootLoadAgentArmed must be set
+ *   - g_Vars.lvframenum >= 4 (deferred just like spawn-at / mount-bike;
+ *     even though saveLoadAgent doesn't need stage/player props,
+ *     deferring keeps the harness assertion ordering deterministic so
+ *     the smoke test sees the SAVE: log lines after the SAVE: initialized
+ *     line from saveInit())
+ *
+ * saveLoadAgent returns 0 on success, -1 on failure. Logs OK or FAILED
+ * based on the return; saveLoadAgent itself emits its own SAVE: log
+ * lines (loaded / failed to load / refusing to load) which the smoke
+ * test can additionally assert on.
+ *
+ * One-shot: clears the latch regardless of result so a subsequent
+ * stage change does not re-fire. */
+s32 bootLaunchLoadAgentTick(void)
+{
+	if (!g_BootLoadAgentArmed) {
+		return 0;
+	}
+	if (g_Vars.lvframenum < 4) {
+		return 0;
+	}
+
+	s32 result = saveLoadAgent(g_BootLoadAgentName);
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --launch-load-agent consumed: name='%s' result=%s",
+		g_BootLoadAgentName, result == 0 ? "OK" : "FAILED");
+
+	g_BootLoadAgentArmed = 0;
 	return 1;
 }
 
