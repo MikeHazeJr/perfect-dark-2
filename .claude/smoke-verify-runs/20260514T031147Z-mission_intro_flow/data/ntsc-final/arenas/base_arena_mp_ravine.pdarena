@@ -1,0 +1,13 @@
+{
+  "pd_kind": "arena",
+  "pd_schema_version": 1,
+  "id": "base:arena_mp_ravine",
+  "arena_index": 2,
+  "slug": "mp_ravine",
+  "category": "Dark",
+  "stagenum": 23,
+  "requirefeature": 0,
+  "name_langid": 20601,
+  "load_mode": "ARENA_LOADMODE_PLAYABLE",
+  "scenario": "base:scenario_mp_ravine"
+}

@@ -1,0 +1,13 @@
+{
+  "pd_kind": "head",
+  "pd_schema_version": 1,
+  "id": "base:head_darkaqua",
+  "headnum": 47,
+  "ismale": 0,
+  "unk00_01": 1,
+  "type": "HEADBODYTYPE_FEMALE",
+  "height": 13,
+  "mesh": "FILE_CHEADDARKAQUA",
+  "scale": 1,
+  "animscale": 1
+}

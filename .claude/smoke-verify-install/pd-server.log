@@ -1,0 +1,105 @@
+[00:00.00] version: dev 5d2d67f7 (x86_64-windows)
+[00:00.00] startup date: 14 May 2026 20:05:02
+[00:00.00] LOG: Channel filter mask: 0xFFFF (all channels active), verbose: off
+[00:00.00] base dir: C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/smoke-verify-install
+[00:00.00] save dir: C:/Users/mikeh/AppData/Roaming/perfectdark
+[00:00.00] ERROR: configLoad: malformed keyvalue line: (null)=ALT+ENTER
+
+[00:00.00] ERROR: configLoad: malformed keyvalue line: (null)=
+
+[00:00.00] ERROR: configLoad: malformed keyvalue line: (null)=
+
+[00:00.01] UPDATER: install dir: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\smoke-verify-install
+[00:00.01] UPDATER: update path: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\smoke-verify-install\pd.update.zip
+[00:00.01] UPDATER: Ed25519 self-test passed
+[00:00.01] UPDATER: Initialized — v0.0.197 (server, show-dev=on)
+[00:00.01] assetcatalog: registered 63 base bodies
+[00:00.01] assetcatalog: registered 76 base heads (all g_MpHeads[])
+[00:00.01] assetcatalog: arena[0] id="base:arena_mp_skedar" stagenum=0x32 langid=0x5077 cat="Dark" loadmode=playable
+[00:00.01] assetcatalog: arena[1] id="base:arena_mp_pipes" stagenum=0x29 langid=0x5078 cat="Dark" loadmode=playable
+[00:00.01] assetcatalog: arena[2] id="base:arena_mp_ravine" stagenum=0x17 langid=0x5079 cat="Dark" loadmode=playable
+[00:00.01] assetcatalog: arena[3] id="base:arena_mp_g5building" stagenum=0x20 langid=0x507a cat="Dark" loadmode=playable
+[00:00.01] assetcatalog: arena[4] id="base:arena_mp_sewers" stagenum=0x42 langid=0x507b cat="Dark" loadmode=playable
+[00:00.01] assetcatalog: arena[5] id="base:arena_mp_warehouse" stagenum=0x3c langid=0x507c cat="Dark" loadmode=playable
+[00:00.01] assetcatalog: arena[6] id="base:arena_mp_grid" stagenum=0x47 langid=0x507d cat="Dark" loadmode=playable
+[00:00.01] assetcatalog: arena[7] id="base:arena_mp_ruins" stagenum=0x41 langid=0x507e cat="Dark" loadmode=playable
+[00:00.01] assetcatalog: arena[8] id="base:arena_mp_area52" stagenum=0x3b langid=0x507f cat="Dark" loadmode=playable
+[00:00.01] assetcatalog: arena[9] id="base:arena_mp_base" stagenum=0x39 langid=0x5080 cat="Dark" loadmode=playable
+[00:00.01] assetcatalog: arena[10] id="base:arena_mp_fortress" stagenum=0x44 langid=0x5082 cat="Dark" loadmode=playable
+[00:00.01] assetcatalog: arena[11] id="base:arena_mp_villa" stagenum=0x45 langid=0x5083 cat="Dark" loadmode=playable
+[00:00.01] assetcatalog: arena[12] id="base:arena_mp_carpark" stagenum=0x3d langid=0x5084 cat="Dark" loadmode=playable
+[00:00.01] assetcatalog: arena[13] id="base:arena_defection" stagenum=0x30 langid=0x5685 cat="Solo Missions" loadmode=canvas
+[00:00.01] assetcatalog: arena[14] id="base:arena_investigation" stagenum=0x33 langid=0x5687 cat="Solo Missions" loadmode=canvas
+[00:00.01] assetcatalog: arena[15] id="base:arena_villa" stagenum=0x2c langid=0x568b cat="Solo Missions" loadmode=canvas
+[00:00.01] assetcatalog: arena[16] id="base:arena_chicago" stagenum=0x1d langid=0x568d cat="Solo Missions" loadmode=canvas
+[00:00.01] assetcatalog: arena[17] id="base:arena_g5building" stagenum=0x1e langid=0x568f cat="Solo Missions" loadmode=canvas
+[00:00.01] assetcatalog: arena[18] id="base:arena_infiltration" stagenum=0x2f langid=0x5691 cat="Solo Missions" loadmode=canvas
+[00:00.01] assetcatalog: arena[19] id="base:arena_airbase" stagenum=0x27 langid=0x5697 cat="Solo Missions" loadmode=canvas
+[00:00.01] assetcatalog: arena[20] id="base:arena_airforceone" stagenum=0x31 langid=0x5699 cat="Solo Missions" loadmode=canvas
+[00:00.01] assetcatalog: arena[21] id="base:arena_crashsite" stagenum=0x1c langid=0x569b cat="Solo Missions" loadmode=canvas
+[00:00.01] assetcatalog: arena[22] id="base:arena_pelagic" stagenum=0x21 langid=0x569d cat="Solo Missions" loadmode=canvas
+[00:00.01] assetcatalog: arena[23] id="base:arena_deepsea" stagenum=0x38 langid=0x569f cat="Solo Missions" loadmode=canvas
+[00:00.01] assetcatalog: arena[24] id="base:arena_defense" stagenum=0x2d langid=0x56a1 cat="Solo Missions" loadmode=canvas
+[00:00.01] assetcatalog: arena[25] id="base:arena_attackship" stagenum=0x34 langid=0x56a3 cat="Solo Missions" loadmode=canvas
+[00:00.01] assetcatalog: arena[26] id="base:arena_skedarruins" stagenum=0x2a langid=0x56a5 cat="Solo Missions" loadmode=canvas
+[00:00.01] assetcatalog: arena[27] id="base:arena_mp_temple" stagenum=0x25 langid=0x5085 cat="Classic" loadmode=playable
+[00:00.01] assetcatalog: arena[28] id="base:arena_mp_complex" stagenum=0x1f langid=0x5086 cat="Classic" loadmode=playable
+[00:00.01] assetcatalog: arena[29] id="base:arena_mp_grid6" stagenum=0x3e langid=0x5132 cat="Classic" loadmode=playable
+[00:00.01] assetcatalog: arena[30] id="base:arena_mp_grid2" stagenum=0x3a langid=0x5081 cat="Classic" loadmode=playable
+[00:00.01] assetcatalog: arena[31] id="base:arena_mp_felicity" stagenum=0x43 langid=0x5087 cat="Classic" loadmode=playable
+[00:00.01] assetcatalog: arena[32] id="base:arena_test_arch" stagenum=0x18 langid=0x5144 cat="Bonus" loadmode=playable
+[00:00.01] assetcatalog: arena[33] id="base:arena_test_dest" stagenum=0x1a langid=0x5145 cat="Bonus" loadmode=playable
+[00:00.01] assetcatalog: arena[34] id="base:arena_extra16" stagenum=0x51 langid=0x5147 cat="Bonus" loadmode=playable
+[00:00.01] assetcatalog: arena[35] id="base:arena_extra17" stagenum=0x52 langid=0x5148 cat="Bonus" loadmode=playable
+[00:00.01] assetcatalog: arena[36] id="base:arena_extra18" stagenum=0x53 langid=0x5149 cat="Bonus" loadmode=playable
+[00:00.01] assetcatalog: arena[37] id="base:arena_extra19" stagenum=0x54 langid=0x514a cat="Bonus" loadmode=playable
+[00:00.01] assetcatalog: arena[38] id="base:arena_extra20" stagenum=0x55 langid=0x514b cat="Bonus" loadmode=playable
+[00:00.01] assetcatalog: arena[39] id="base:arena_extra21" stagenum=0x56 langid=0x514c cat="Bonus" loadmode=playable
+[00:00.01] assetcatalog: arena[40] id="base:arena_extra22" stagenum=0x57 langid=0x514d cat="Bonus" loadmode=playable
+[00:00.01] assetcatalog: arena[41] id="base:arena_extra23" stagenum=0x58 langid=0x514e cat="Bonus" loadmode=playable
+[00:00.01] assetcatalog: arena[42] id="base:arena_extra24" stagenum=0x59 langid=0x514f cat="Bonus" loadmode=playable
+[00:00.01] assetcatalog: arena[43] id="base:arena_extra26" stagenum=0x5f langid=0x5151 cat="Bonus" loadmode=playable
+[00:00.01] assetcatalog: arena[44] id="base:arena_test_lam" stagenum=0x50 langid=0x5152 cat="Bonus" loadmode=playable
+[00:00.01] assetcatalog: arena[45] id="base:arena_mp_random_multi" stagenum=0x02 langid=0x5126 cat="Random" loadmode=playable
+[00:00.01] assetcatalog: arena[46] id="base:arena_mp_random_solo" stagenum=0x03 langid=0x5127 cat="Random" loadmode=playable
+[00:00.01] assetcatalog: registered 47 base arenas
+[00:00.01] assetcatalog: registered 67 sp bodies, 83 sp heads from authoring tables
+[00:00.01] assetcatalog: base game registration complete (337 total entries)
+[00:00.01] CATALOG.SWEEP: registered 41 base weapons (with requirefeature)
+[00:00.02] assetcatalog: registered 1207 base animations
+[00:00.06] assetcatalog: registered 3503 base textures
+[00:00.06] assetcatalog: registered 8 base props
+[00:00.06] CATALOG.SWEEP: registered 6 base game modes (with requirefeature)
+[00:00.10] assetcatalog: registered 1545 base audio entries (1545 SFX + 0 VOICE)
+[00:00.10] CATALOG.SWEEP: registered 43 base music tracks (with unlockstage)
+[00:00.10] CATALOG.SWEEP: registered 18 base bot profiles
+[00:00.10] assetcatalog: registered 6 base HUD elements
+[00:00.12] assetcatalog: registered 441 base prop models (ASSET_MODEL)
+[00:00.12] assetcatalog: registered 29 base first-person hand models (ASSET_MODEL)
+[00:00.12] assetcatalog: registered 68 base lang banks (with source_filenum)
+[00:00.12] assetcatalog: T3/T4/T5 extended registration complete (6915 entries)
+[00:00.12] assetcatalog: extended registration added 6915 entries (7252 total)
+[00:00.12] LOBBY: initialized (dedicated server model)
+[00:00.12] HUB ROOM: subsystem initialised, room 0 open
+[00:00.12] IDENTITY: loaded, UUID=06814cc96258ccd7d62f38968dd4d7a0 profiles=1 active=0
+[00:00.12] HUB: initialised, state=LOUNGE
+[00:00.12] BANS: no ban file at C:/Users/mikeh/AppData/Roaming/perfectdark/bans.ini (0 bans loaded)
+[00:00.12] ADMIN: no admin token configured — RCON disabled
+[00:00.13] SERVER: Running in headless mode
+[00:00.13] NET: using protocol version 47
+[00:00.13] NET: created server on port 27200
+[00:00.13] UPNP: Starting async discovery for port 27200...
+[00:00.13] STUN: starting async discovery for port 27200...
+[00:00.13] UPNP: [thread] Discovering devices...
+[00:00.13] LOBBY: initialized (dedicated server model)
+[00:00.13] STUN: [thread] probing (bound to port 27200)...
+[00:00.13] SERVER: Listening on port 27200 (max 4 clients)
+[00:00.13] SERVER: Entering main loop
+[00:00.16] STUN: [thread] probe 1 => 67.8.148.199:27200 via stun.l.google.com:19302
+[00:00.19] STUN: [thread] probe 2 => 67.8.148.199:27200 (port match — cone NAT, hole punch viable)
+[00:00.19] STUN: Connect code: wicked spider sliding under a savanna spotted cheese
+[00:02.22] UPNP: [thread] Found devices, looking for IGD...
+[00:02.23] UPNP: [thread] IGD found (type 1), LAN: 192.168.1.10
+[00:02.23] UPNP: [thread] External IP: 67.8.148.199
+[00:02.23] UPNP: [thread] Port 27200/UDP mapped! Connect to 67.8.148.199:27200
+[00:02.23] UPNP: Connect code: wicked spider sliding under a savanna

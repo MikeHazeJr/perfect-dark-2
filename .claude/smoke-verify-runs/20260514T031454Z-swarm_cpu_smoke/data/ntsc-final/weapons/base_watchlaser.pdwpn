@@ -1,0 +1,100 @@
+{
+  "pd_kind": "weapon",
+  "pd_schema_version": 1,
+  "id": "base:watchlaser",
+  "weapon_id": 82,
+  "hi_model": 0,
+  "lo_model": 0,
+  "equip_animation": null,
+  "unequip_animation": null,
+  "pritosec_animation": null,
+  "sectopri_animation": null,
+  "functions": [
+    {
+      "type": 257,
+      "name": "L_GUN_086",
+      "unk06": 0,
+      "ammoindex": 0,
+      "noisesettings": {
+        "minradius": 0,
+        "maxradius": 14,
+        "incradius": 2,
+        "decbasespeed": 1,
+        "decremspeed": 6
+      },
+      "fire_animation": null,
+      "flags": 0,
+      "recoilsettings": {
+        "xrange": 0.6,
+        "yrange": 0.6,
+        "zrange": 0.6,
+        "unk0c": 0.2,
+        "unk10": 1
+      },
+      "recoverytime60": 0,
+      "damage": 1,
+      "spread": 6,
+      "unk24": 6,
+      "unk25": 18,
+      "unk26": 2,
+      "unk27": 8,
+      "recoildist": 5,
+      "recoilangle": 2,
+      "slidemax": 0,
+      "impactforce": 4,
+      "duration60": 4,
+      "shootsound": "SFX_803F",
+      "penetration": 1,
+      "initialrpm": 900,
+      "maxrpm": 900,
+      "turretaccel": 0,
+      "turretdecel": 0
+    },
+    null
+  ],
+  "ammos": [
+    {
+      "type": 2,
+      "casingeject": 2,
+      "clipsize": 27,
+      "reload_animation": null,
+      "flags": 0
+    },
+    null
+  ],
+  "aimsettings": {
+    "zoomfov": 0,
+    "guntransup": 3,
+    "guntransdown": 8,
+    "guntransside": 15,
+    "aimdamppal": 0.9721,
+    "aimdamp": 0.9767,
+    "tracktype": 1,
+    "unk18_04": 0,
+    "flags": 2
+  },
+  "muzzlez": 1,
+  "posx": 16.5,
+  "posy": -19.5,
+  "posz": -24,
+  "sway": 1,
+  "gunviscmds": [
+  ],
+  "partvisibility": [
+  ],
+  "shortname": "L_GUN_000",
+  "name": "L_GUN_000",
+  "manufacturer": "L_GUN_000",
+  "description": "L_GUN_000",
+  "flags": 4688,
+  "bot_pref": {
+    "unk00": 0,
+    "unk01": 0,
+    "unk02": 0,
+    "unk03": 0,
+    "haspriammogoal": 0,
+    "hassecammogoal": 0,
+    "pridistconfig": 2,
+    "secdistconfig": 2
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_combatknife_slash",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["random", 50, "invanim_combatknife_slash2"],
+    ["include", 0, "invanim_combatknife_equip"],
+    ["end"]
+  ]
+}

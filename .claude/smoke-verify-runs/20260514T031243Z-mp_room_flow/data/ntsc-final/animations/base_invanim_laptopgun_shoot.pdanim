@@ -1,0 +1,12 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_laptopgun_shoot",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_LAPTOP_SHOOT", 0, 10000],
+    ["waittime", 10, 5],
+    ["waitforzreleased", 10],
+    ["end"]
+  ]
+}

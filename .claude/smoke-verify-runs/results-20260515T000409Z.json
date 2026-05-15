@@ -1,0 +1,18 @@
+﻿{
+    "Name":  "dedicated_server_boot_smoke",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  -1,
+    "ElapsedSeconds":  12.866804499999999,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  21,
+    "AssertionsMet":  20,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "NET: dedicated server mode enabled"
+                     }
+                 ]
+}

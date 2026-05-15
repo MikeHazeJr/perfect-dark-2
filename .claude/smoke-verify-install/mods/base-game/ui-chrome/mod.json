@@ -1,0 +1,29 @@
+{
+    "id": "base.ui-chrome",
+    "name": "Base Game UI Chrome",
+    "version": "1.1.0",
+    "description": "PD-authentic metallic blue chrome frame with beveled borders. Generated procedurally from PD palette colors.",
+    "author": "PD2 Team",
+    "tags": ["base-game", "template", "chrome"],
+    "template": true,
+    "bundled": true,
+    "enabled": true,
+    "components": {
+        "textures": [
+            { "id": "base:ui_chrome_frame", "file": "ui_chrome_frame.tga" }
+        ],
+        "nineslice": [
+            {
+                "id": "base:ui_chrome_frame",
+                "texture": "base:ui_chrome_frame",
+                "src_inset": { "top": 16, "bottom": 16, "left": 16, "right": 16 },
+                "dst_corner_px": { "top": 16, "bottom": 16, "left": 16, "right": 16 },
+                "top_mode": "stretch",
+                "bottom_mode": "stretch",
+                "left_mode": "stretch",
+                "right_mode": "stretch",
+                "center_mode": "tile"
+            }
+        ]
+    }
+}

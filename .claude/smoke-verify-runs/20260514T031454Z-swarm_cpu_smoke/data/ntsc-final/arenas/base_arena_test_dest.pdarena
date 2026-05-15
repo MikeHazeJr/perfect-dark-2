@@ -1,0 +1,13 @@
+{
+  "pd_kind": "arena",
+  "pd_schema_version": 1,
+  "id": "base:arena_test_dest",
+  "arena_index": 33,
+  "slug": "test_dest",
+  "category": "Bonus",
+  "stagenum": 26,
+  "requirefeature": 0,
+  "name_langid": 20805,
+  "load_mode": "ARENA_LOADMODE_PLAYABLE",
+  "scenario": "base:scenario_test_dest"
+}

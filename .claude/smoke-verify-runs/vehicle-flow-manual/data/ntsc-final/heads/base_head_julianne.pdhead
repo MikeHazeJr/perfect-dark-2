@@ -1,0 +1,13 @@
+{
+  "pd_kind": "head",
+  "pd_schema_version": 1,
+  "id": "base:head_julianne",
+  "headnum": 70,
+  "ismale": 0,
+  "unk00_01": 1,
+  "type": "HEADBODYTYPE_FEMALEGUARD",
+  "height": 13,
+  "mesh": "FILE_CHEADJULIANNE",
+  "scale": 1,
+  "animscale": 1
+}

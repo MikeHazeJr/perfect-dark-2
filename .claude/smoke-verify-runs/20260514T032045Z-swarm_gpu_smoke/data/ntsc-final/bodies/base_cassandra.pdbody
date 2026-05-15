@@ -1,0 +1,15 @@
+{
+  "pd_kind": "body",
+  "pd_schema_version": 1,
+  "id": "base:cassandra",
+  "bodynum": 102,
+  "ismale": 0,
+  "unk00_01": 0,
+  "canvaryheight": 0,
+  "type": "HEADBODYTYPE_MAIAN",
+  "height": 167,
+  "mesh": "FILE_CCASSANDRA",
+  "scale": 1,
+  "animscale": 0.9859155,
+  "hand": "FILE_GHAND_VRIES"
+}

@@ -1,0 +1,15 @@
+{
+  "pd_kind": "body",
+  "pd_schema_version": 1,
+  "id": "base:dark_combat",
+  "bodynum": 86,
+  "ismale": 0,
+  "unk00_01": 0,
+  "canvaryheight": 0,
+  "type": "HEADBODYTYPE_FEMALE",
+  "height": 159,
+  "mesh": "FILE_CDARK_COMBAT",
+  "scale": 1,
+  "animscale": 0.9530516,
+  "hand": "FILE_GCOMBATHANDSLOD"
+}

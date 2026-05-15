@@ -1,0 +1,15 @@
+{
+  "pd_kind": "body",
+  "pd_schema_version": 1,
+  "id": "base:moore",
+  "bodynum": 3,
+  "ismale": 1,
+  "unk00_01": 0,
+  "canvaryheight": 0,
+  "type": "HEADBODYTYPE_DEFAULT",
+  "height": 167,
+  "mesh": "FILE_CMOORE",
+  "scale": 1,
+  "animscale": 1.039906,
+  "hand": "FILE_GHAND_DDSECURITY"
+}

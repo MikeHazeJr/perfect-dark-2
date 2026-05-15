@@ -1,0 +1,16 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_shotgun_reload",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_SHOTGUN_RELOAD", 0, 10000],
+    ["showpart", 1, 43],
+    ["playsound", 67, "SFX_01D8"],
+    ["waittime", 74, 1],
+    ["hidepart", 75, 43],
+    ["repeatuntilfull", 84, 0, 50],
+    ["playsound", 103, "SFX_RELOAD_04FB"],
+    ["end"]
+  ]
+}

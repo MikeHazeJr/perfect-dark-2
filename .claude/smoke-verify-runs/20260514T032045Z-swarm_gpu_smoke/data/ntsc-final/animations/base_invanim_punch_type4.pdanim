@@ -1,0 +1,12 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_punch_type4",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_UNARMED_DOUBLEPUNCH", 0, 10000],
+    ["waittime", 8, 2],
+    ["waittime", 18, 3],
+    ["end"]
+  ]
+}

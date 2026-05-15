@@ -1,0 +1,26 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_tranquilizer_reload",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_TRANQUILIZER_RELOAD", 0, 10000],
+    ["showpart", 1, 53],
+    ["showpart", 1, 40],
+    ["showpart", 1, 42],
+    ["hidepart", 1, 41],
+    ["popoutsackofpills", 1],
+    ["setsoundspeed", 3, 3500],
+    ["playsound", 3, "SFX_DOOR_8016"],
+    ["waittime", 39, 1],
+    ["hidepart", 39, 42],
+    ["showpart", 39, 41],
+    ["setsoundspeed", 39, 3500],
+    ["playsound", 39, "SFX_HIT_MUD_8083"],
+    ["setsoundspeed", 63, 2070],
+    ["playsound", 63, "SFX_04F5"],
+    ["setsoundspeed", 72, 3000],
+    ["playsound", 72, "SFX_PRESS_SWITCH"],
+    ["end"]
+  ]
+}

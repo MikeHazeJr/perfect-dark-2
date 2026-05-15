@@ -1,0 +1,20 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_falcon2_reload_singlewield",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_FALCON2_RELOAD", 0, 10000],
+    ["showpart", 1, 53],
+    ["showpart", 1, 43],
+    ["showpart", 1, 42],
+    ["playsound", 10, "SFX_01D8"],
+    ["hidepart", 19, 42],
+    ["waittime", 24, 1],
+    ["playsound", 24, "SFX_80F6"],
+    ["hidepart", 24, 43],
+    ["playsound", 53, "SFX_01DB"],
+    ["waittime", 53, 3],
+    ["end"]
+  ]
+}

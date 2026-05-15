@@ -1,0 +1,139 @@
+{
+  "pd_kind": "weapon",
+  "pd_schema_version": 1,
+  "id": "base:magsec",
+  "weapon_id": 5,
+  "hi_model": "FILE_GLEEGUN1",
+  "lo_model": "FILE_GMAGSECLOD",
+  "equip_animation": "invanim_magsec_shoot",
+  "unequip_animation": null,
+  "pritosec_animation": null,
+  "sectopri_animation": null,
+  "functions": [
+    {
+      "type": 1,
+      "name": "L_GUN_085",
+      "unk06": 0,
+      "ammoindex": 0,
+      "noisesettings": {
+        "minradius": 0,
+        "maxradius": 14,
+        "incradius": 2,
+        "decbasespeed": 1,
+        "decremspeed": 6
+      },
+      "fire_animation": "invanim_magsec_shoot",
+      "flags": 0,
+      "recoilsettings": {
+        "xrange": 0.6,
+        "yrange": 0.6,
+        "zrange": 0.6,
+        "unk0c": 0.2,
+        "unk10": 1
+      },
+      "recoverytime60": 16,
+      "damage": 1.1,
+      "spread": 6,
+      "unk24": 4,
+      "unk25": 8,
+      "unk26": 3,
+      "unk27": 0,
+      "recoildist": 5,
+      "recoilangle": 10,
+      "slidemax": 60,
+      "impactforce": 10,
+      "duration60": 0,
+      "shootsound": "SFX_804C",
+      "penetration": 1
+    },
+    {
+      "type": 1,
+      "name": "L_GUN_128",
+      "unk06": 0,
+      "ammoindex": 0,
+      "noisesettings": {
+        "minradius": 0,
+        "maxradius": 14,
+        "incradius": 2,
+        "decbasespeed": 1,
+        "decremspeed": 6
+      },
+      "fire_animation": "invanim_magsec_shoot",
+      "flags": 2,
+      "recoilsettings": {
+        "xrange": 0.6,
+        "yrange": 0.6,
+        "zrange": 0.6,
+        "unk0c": 0.2,
+        "unk10": 1
+      },
+      "recoverytime60": 16,
+      "damage": 1.1,
+      "spread": 10,
+      "unk24": 9,
+      "unk25": 14,
+      "unk26": 0,
+      "unk27": 0,
+      "recoildist": 8,
+      "recoilangle": 12,
+      "slidemax": 60,
+      "impactforce": 10,
+      "duration60": 0,
+      "shootsound": "SFX_804C",
+      "penetration": 1
+    }
+  ],
+  "ammos": [
+    {
+      "type": 1,
+      "casingeject": 0,
+      "clipsize": 9,
+      "reload_animation": "invanim_magsec_reload",
+      "flags": 0
+    },
+    null
+  ],
+  "aimsettings": {
+    "zoomfov": 25,
+    "guntransup": 3,
+    "guntransdown": 8,
+    "guntransside": 15,
+    "aimdamppal": 0.9721,
+    "aimdamp": 0.9767,
+    "tracktype": 1,
+    "unk18_04": 1,
+    "flags": 2
+  },
+  "muzzlez": 2,
+  "posx": 10.5,
+  "posy": -17.2,
+  "posz": -26.5,
+  "sway": 1,
+  "gunviscmds": [
+    [1, 0, 1, 53, 0],
+    [1, 0, 1, 42, 0],
+    [1, 0, 1, 41, 0],
+    [0, 0, 0, 0, 0]
+  ],
+  "partvisibility": [
+    [90, 0],
+    [41, 0],
+    [42, 0],
+    [255]
+  ],
+  "shortname": "L_GUN_010",
+  "name": "L_GUN_010",
+  "manufacturer": "L_GUN_151",
+  "description": "L_GUN_159",
+  "flags": 685692,
+  "bot_pref": {
+    "unk00": 76,
+    "unk01": 88,
+    "unk02": 104,
+    "unk03": 120,
+    "haspriammogoal": 1,
+    "hassecammogoal": 1,
+    "pridistconfig": 1,
+    "secdistconfig": 2
+  }
+}

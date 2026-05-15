@@ -1,0 +1,15 @@
+﻿{
+    "Name":  "mp_room_flow",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  true,
+    "ExitCode":  0,
+    "ElapsedSeconds":  31.023373999999997,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  13,
+    "AssertionsMet":  13,
+    "Failures":  [
+
+                 ]
+}

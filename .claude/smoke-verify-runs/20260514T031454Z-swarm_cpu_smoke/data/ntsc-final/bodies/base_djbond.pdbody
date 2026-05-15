@@ -1,0 +1,15 @@
+{
+  "pd_kind": "body",
+  "pd_schema_version": 1,
+  "id": "base:djbond",
+  "bodynum": 0,
+  "ismale": 1,
+  "unk00_01": 0,
+  "canvaryheight": 0,
+  "type": "HEADBODYTYPE_DEFAULT",
+  "height": 167,
+  "mesh": "FILE_CDJBOND",
+  "scale": 1,
+  "animscale": 1.044601,
+  "hand": "FILE_GHAND_DDSECURITY"
+}

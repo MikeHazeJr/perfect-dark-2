@@ -1,0 +1,21 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_cmp150_reload_dualwield",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_CMP150_RELOAD_DUALWIELD", 0, 10000],
+    ["hidepart", 23, 42],
+    ["showpart", 33, 53],
+    ["showpart", 33, 43],
+    ["setsoundspeed", 20, 950],
+    ["playsound", 20, "SFX_01D8"],
+    ["setsoundspeed", 61, 950],
+    ["playsound", 61, "SFX_80F6"],
+    ["hidepart", 61, 43],
+    ["showpart", 61, 42],
+    ["waittime", 61, 1],
+    ["playsound", 76, "SFX_0431"],
+    ["end"]
+  ]
+}

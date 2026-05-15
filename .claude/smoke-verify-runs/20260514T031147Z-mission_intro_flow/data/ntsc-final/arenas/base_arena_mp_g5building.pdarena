@@ -1,0 +1,13 @@
+{
+  "pd_kind": "arena",
+  "pd_schema_version": 1,
+  "id": "base:arena_mp_g5building",
+  "arena_index": 3,
+  "slug": "mp_g5building",
+  "category": "Dark",
+  "stagenum": 32,
+  "requirefeature": 0,
+  "name_langid": 20602,
+  "load_mode": "ARENA_LOADMODE_PLAYABLE",
+  "scenario": "base:scenario_mp_g5building"
+}

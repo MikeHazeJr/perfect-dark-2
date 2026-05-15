@@ -1,0 +1,21 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_rocketlauncher_reload",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_ROCKETLAUNCHER_RELOAD", 0, 10000],
+    ["setsoundspeed", 16, 900],
+    ["playsound", 16, "SFX_04F9"],
+    ["playsound", 40, "SFX_0053"],
+    ["showpart", 24, 40],
+    ["waittime", 76, 1],
+    ["hidepart", 76, 40],
+    ["playsound", 77, "SFX_05D1"],
+    ["setsoundspeed", 106, 1000],
+    ["playsound", 106, "SFX_04F9"],
+    ["playsound", 123, "SFX_0053"],
+    ["playsound", 135, "SFX_04FA"],
+    ["end"]
+  ]
+}

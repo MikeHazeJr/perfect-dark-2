@@ -1,0 +1,103 @@
+{
+  "pd_kind": "weapon",
+  "pd_schema_version": 1,
+  "id": "base:psychosisgun",
+  "weapon_id": 36,
+  "hi_model": "FILE_GDRUGGUN",
+  "lo_model": "FILE_GDRUGGUNLOD",
+  "equip_animation": "invanim_tranquilizer_shoot",
+  "unequip_animation": null,
+  "pritosec_animation": null,
+  "sectopri_animation": null,
+  "functions": [
+    {
+      "type": 1,
+      "name": "L_GUN_131",
+      "unk06": 0,
+      "ammoindex": 0,
+      "noisesettings": {
+        "minradius": 0,
+        "maxradius": 3,
+        "incradius": 1.4,
+        "decbasespeed": 1,
+        "decremspeed": 6
+      },
+      "fire_animation": "invanim_tranquilizer_shoot",
+      "flags": 2097664,
+      "recoilsettings": {
+        "xrange": 0.6,
+        "yrange": 0.6,
+        "zrange": 0.6,
+        "unk0c": 0.2,
+        "unk10": 1
+      },
+      "recoverytime60": 16,
+      "damage": 0.5,
+      "spread": 3,
+      "unk24": 3,
+      "unk25": 5,
+      "unk26": 5,
+      "unk27": 0,
+      "recoildist": 1,
+      "recoilangle": 0,
+      "slidemax": 60,
+      "impactforce": 0,
+      "duration60": 0,
+      "shootsound": "SFX_DRUGSPY_FIREDART",
+      "penetration": 1
+    },
+    null
+  ],
+  "ammos": [
+    {
+      "type": 22,
+      "casingeject": 4294967295,
+      "clipsize": 8,
+      "reload_animation": "invanim_tranquilizer_reload",
+      "flags": 0
+    },
+    null
+  ],
+  "aimsettings": {
+    "zoomfov": 0,
+    "guntransup": 3,
+    "guntransdown": 8,
+    "guntransside": 15,
+    "aimdamppal": 0.9721,
+    "aimdamp": 0.9767,
+    "tracktype": 1,
+    "unk18_04": 0,
+    "flags": 2
+  },
+  "muzzlez": 1,
+  "posx": 10,
+  "posy": -16.2,
+  "posz": -28.5,
+  "sway": 1,
+  "gunviscmds": [
+    [1, 0, 1, 40, 0],
+    [1, 0, 1, 53, 0],
+    [0, 0, 0, 0, 0]
+  ],
+  "partvisibility": [
+    [40, 0],
+    [41, 0],
+    [42, 0],
+    [255]
+  ],
+  "shortname": "L_GUN_082",
+  "name": "L_GUN_049",
+  "manufacturer": "L_GUN_000",
+  "description": "L_GUN_210",
+  "flags": 190044,
+  "bot_pref": {
+    "unk00": 0,
+    "unk01": 0,
+    "unk02": 0,
+    "unk03": 0,
+    "haspriammogoal": 0,
+    "hassecammogoal": 0,
+    "pridistconfig": 2,
+    "secdistconfig": 2
+  }
+}

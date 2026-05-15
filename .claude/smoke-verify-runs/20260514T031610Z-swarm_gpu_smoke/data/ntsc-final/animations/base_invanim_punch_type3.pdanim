@@ -1,0 +1,11 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_punch_type3",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_UNARMED_LEFTPUNCH", 0, 10000],
+    ["waittime", 7, 2],
+    ["end"]
+  ]
+}

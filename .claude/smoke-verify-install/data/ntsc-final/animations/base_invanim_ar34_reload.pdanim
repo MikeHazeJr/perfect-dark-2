@@ -1,0 +1,21 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_ar34_reload",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_AR34_RELOAD", 0, 10000],
+    ["setsoundspeed", 16, 900],
+    ["playsound", 16, "SFX_0053"],
+    ["hidepart", 21, 41],
+    ["showpart", 50, 42],
+    ["setsoundspeed", 67, 1400],
+    ["playsound", 67, "SFX_8025"],
+    ["hidepart", 72, 42],
+    ["showpart", 72, 41],
+    ["waittime", 72, 1],
+    ["setsoundspeed", 95, 900],
+    ["playsound", 95, "SFX_05C5"],
+    ["end"]
+  ]
+}

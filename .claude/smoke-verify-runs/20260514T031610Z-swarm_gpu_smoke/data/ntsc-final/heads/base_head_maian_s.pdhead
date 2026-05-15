@@ -1,0 +1,13 @@
+{
+  "pd_kind": "head",
+  "pd_schema_version": 1,
+  "id": "base:head_maian_s",
+  "headnum": 41,
+  "ismale": 1,
+  "unk00_01": 1,
+  "type": "HEADBODYTYPE_CASS",
+  "height": 27,
+  "mesh": "FILE_CHEADMAIAN_S",
+  "scale": 1,
+  "animscale": 1
+}

@@ -1,0 +1,79 @@
+{
+  "pd_kind": "weapon",
+  "pd_schema_version": 1,
+  "id": "base:ecmmine",
+  "weapon_id": 45,
+  "hi_model": "FILE_GECMMINE",
+  "lo_model": "FILE_GECMMINE",
+  "equip_animation": "invanim_ecmmine_equip",
+  "unequip_animation": "invanim_ecmmine_unequip",
+  "pritosec_animation": null,
+  "sectopri_animation": null,
+  "functions": [
+    {
+      "type": 2,
+      "name": "L_GUN_140",
+      "unk06": 0,
+      "ammoindex": 0,
+      "noisesettings": {
+        "minradius": 0,
+        "maxradius": 0,
+        "incradius": 0,
+        "decbasespeed": 1,
+        "decremspeed": 6
+      },
+      "fire_animation": "invanim_ecmmine_throw",
+      "flags": 8396864,
+      "projectilemodelnum": 278,
+      "activatetime60": 240,
+      "recoverytime60": 60,
+      "damage": 0
+    },
+    null
+  ],
+  "ammos": [
+    {
+      "type": 32,
+      "casingeject": 4294967295,
+      "clipsize": 1,
+      "reload_animation": "invanim_ecmmine_equip",
+      "flags": 2
+    },
+    null
+  ],
+  "aimsettings": {
+    "zoomfov": 0,
+    "guntransup": 3,
+    "guntransdown": 8,
+    "guntransside": 15,
+    "aimdamppal": 0.9721,
+    "aimdamp": 0.9767,
+    "tracktype": 1,
+    "unk18_04": 0,
+    "flags": 2
+  },
+  "muzzlez": 1,
+  "posx": 14,
+  "posy": -25,
+  "posz": -31.5,
+  "sway": 1,
+  "gunviscmds": [
+  ],
+  "partvisibility": [
+  ],
+  "shortname": "L_GUN_041",
+  "name": "L_GUN_041",
+  "manufacturer": "L_GUN_000",
+  "description": "L_GUN_188",
+  "flags": 140648537,
+  "bot_pref": {
+    "unk00": 0,
+    "unk01": 0,
+    "unk02": 0,
+    "unk03": 0,
+    "haspriammogoal": 0,
+    "hassecammogoal": 0,
+    "pridistconfig": 2,
+    "secdistconfig": 2
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_cyclone_shoot",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_CYCLONE_SHOOT", 0, 10000],
+    ["waittime", 5, 5],
+    ["waitforzreleased", 5],
+    ["end"]
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "pd_kind": "arena",
+  "pd_schema_version": 1,
+  "id": "base:arena_skedarruins",
+  "arena_index": 26,
+  "slug": "skedarruins",
+  "category": "Solo Missions",
+  "stagenum": 42,
+  "requirefeature": 0,
+  "name_langid": 22181,
+  "load_mode": "ARENA_LOADMODE_CANVAS",
+  "scenario": "base:scenario_skedarruins"
+}

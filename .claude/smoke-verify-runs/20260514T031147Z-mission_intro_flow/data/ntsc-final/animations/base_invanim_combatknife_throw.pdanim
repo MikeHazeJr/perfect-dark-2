@@ -1,0 +1,12 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_combatknife_throw",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_KNIFE_THROW", 0, 10000],
+    ["waitforzreleased", 12],
+    ["waittime", 16, 2],
+    ["end"]
+  ]
+}

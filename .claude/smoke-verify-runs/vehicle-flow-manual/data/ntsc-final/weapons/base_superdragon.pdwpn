@@ -1,0 +1,145 @@
+{
+  "pd_kind": "weapon",
+  "pd_schema_version": 1,
+  "id": "base:superdragon",
+  "weapon_id": 18,
+  "hi_model": "FILE_GDYSUPERDRAGON",
+  "lo_model": "FILE_GDYSUPERDRAGONLOD",
+  "equip_animation": "invanim_superdragon_shoot",
+  "unequip_animation": null,
+  "pritosec_animation": "invanim_superdragon_pritosec",
+  "sectopri_animation": "invanim_superdragon_sectopri",
+  "functions": [
+    {
+      "type": 257,
+      "name": "L_GUN_086",
+      "unk06": 0,
+      "ammoindex": 0,
+      "noisesettings": {
+        "minradius": 0,
+        "maxradius": 22,
+        "incradius": 3,
+        "decbasespeed": 1,
+        "decremspeed": 6
+      },
+      "fire_animation": "invanim_superdragon_shoot",
+      "flags": 0,
+      "recoilsettings": {
+        "xrange": 0.6,
+        "yrange": 0.6,
+        "zrange": 0.6,
+        "unk0c": 0.2,
+        "unk10": 1
+      },
+      "recoverytime60": 0,
+      "damage": 1.2,
+      "spread": 6,
+      "unk24": 6,
+      "unk25": 18,
+      "unk26": 2,
+      "unk27": 8,
+      "recoildist": 5,
+      "recoilangle": 2,
+      "slidemax": 0,
+      "impactforce": 4,
+      "duration60": 4,
+      "shootsound": "SFX_8049",
+      "penetration": 1,
+      "initialrpm": 700,
+      "maxrpm": 700,
+      "turretaccel": 0,
+      "turretdecel": 0
+    },
+    {
+      "type": 513,
+      "name": "L_GUN_098",
+      "unk06": 0,
+      "ammoindex": 1,
+      "noisesettings": {
+        "minradius": 0,
+        "maxradius": 25,
+        "incradius": 15,
+        "decbasespeed": 5,
+        "decremspeed": 6
+      },
+      "fire_animation": "invanim_superdragon_shootgrenade",
+      "flags": 805306432,
+      "recoilsettings": null,
+      "recoverytime60": 0,
+      "damage": 1.2,
+      "spread": 6,
+      "recoildist": 3,
+      "recoilangle": 2,
+      "slidemax": 0,
+      "impactforce": 4,
+      "duration60": 4,
+      "shootsound": "SFX_8073",
+      "penetration": 1,
+      "projectilemodelnum": 291,
+      "scale": 1,
+      "speed": 0,
+      "traveldist": 30,
+      "timer60": 1200,
+      "reflectangle": 0.1,
+      "soundnum": -32685
+    }
+  ],
+  "ammos": [
+    {
+      "type": 4,
+      "casingeject": 2,
+      "clipsize": 30,
+      "reload_animation": "invanim_superdragon_reload",
+      "flags": 0
+    },
+    {
+      "type": 11,
+      "casingeject": 4294967295,
+      "clipsize": 6,
+      "reload_animation": "invanim_superdragon_grenadereload",
+      "flags": 0
+    }
+  ],
+  "aimsettings": {
+    "zoomfov": 30,
+    "guntransup": 3,
+    "guntransdown": 8,
+    "guntransside": 15,
+    "aimdamppal": 0.9721,
+    "aimdamp": 0.9767,
+    "tracktype": 1,
+    "unk18_04": 5,
+    "flags": 6
+  },
+  "muzzlez": 1,
+  "posx": 15,
+  "posy": -29.5,
+  "posz": -27,
+  "sway": 1,
+  "gunviscmds": [
+    [1, 0, 1, 40, 0],
+    [1, 0, 1, 41, 0],
+    [0, 0, 0, 0, 0]
+  ],
+  "partvisibility": [
+    [40, 0],
+    [41, 0],
+    [90, 0],
+    [255]
+  ],
+  "shortname": "L_GUN_018",
+  "name": "L_GUN_018",
+  "manufacturer": "L_GUN_149",
+  "description": "L_GUN_167",
+  "flags": 157264,
+  "bot_pref": {
+    "unk00": 164,
+    "unk01": 188,
+    "unk02": 0,
+    "unk03": 0,
+    "haspriammogoal": 1,
+    "hassecammogoal": 1,
+    "pridistconfig": 2,
+    "secdistconfig": 3
+  }
+}

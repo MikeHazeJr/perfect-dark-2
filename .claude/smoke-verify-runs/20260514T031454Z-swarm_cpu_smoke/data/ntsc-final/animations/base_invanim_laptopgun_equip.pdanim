@@ -1,0 +1,14 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_laptopgun_equip",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_LAPTOP_EQUIP", 0, 10000],
+    ["setsoundspeed", 15, 720],
+    ["playsound", 15, "SFX_04F7"],
+    ["playsound", 35, "SFX_04F7"],
+    ["playsound", 58, "SFX_04F8"],
+    ["end"]
+  ]
+}

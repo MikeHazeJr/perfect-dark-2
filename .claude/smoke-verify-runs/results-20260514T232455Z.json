@@ -1,0 +1,33 @@
+﻿{
+    "Name":  "physics_capsule_basic_smoke",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  0,
+    "ElapsedSeconds":  55.520161599999994,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  19,
+    "AssertionsMet":  15,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SMOKE: scenario=physics_capsule_basic_smoke"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "BOOT: --debug-spawn-at armed: pos=\\(637\\.\\d+,360\\.\\d+,923\\.\\d+\\) room=16"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "BOOT: --debug-spawn-at consumed: prop=0x[0-9a-fA-F]+ stagenum=0x26 result=OK pos=\\(637\\.\\d+,360\\.\\d+,923\\.\\d+\\) room=16"
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "BMOVE: allowc1x=\\d+ allowc1y=\\d+ allowc1buttons=\\d+",
+                         "Count":  3,
+                         "Min":  4,
+                         "Max":  -1
+                     }
+                 ]
+}

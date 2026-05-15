@@ -1,0 +1,57 @@
+﻿{
+    "Name":  "swarm_gpu_smoke",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  0,
+    "ElapsedSeconds":  150.5438083,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  19,
+    "AssertionsMet":  9,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SMOKE: scenario=swarm_gpu_smoke"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "BOOT: --launch-scenario \u0027swarm_gpu\u0027 armed"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "BOOT: --launch-scenario consuming latch: testScenarioLaunch"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "TESTSCEN\\.LAUNCH: Swarm-GPU"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "LOAD: lv\\.c entering stage load sequence for stagenum=0x43"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "TICK: lvTick enter tick=\\d+ stagenum=0x43"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "TESTSCEN\\.SWARM: cycle NEXT prev_idx=0 -\u003e idx=1 target=8"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "TESTSCEN\\.SWARM: cycle NEXT .* target=128"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "BENCHMARK\\.SWARM\\.GPU: SUMMARY count=128"
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "TESTSCEN\\.SWARM: cycle NEXT",
+                         "Count":  0,
+                         "Min":  6,
+                         "Max":  -1
+                     }
+                 ]
+}

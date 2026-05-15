@@ -1,0 +1,11 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_phoenix_shoot",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_PHOENIX_SHOOT", 0, 10000],
+    ["waittime", 9, 5],
+    ["end"]
+  ]
+}

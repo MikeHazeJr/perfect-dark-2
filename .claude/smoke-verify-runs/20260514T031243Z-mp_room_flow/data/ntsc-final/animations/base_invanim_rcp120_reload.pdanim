@@ -1,0 +1,18 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_rcp120_reload",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_RCP120_RELOAD", 0, 10000],
+    ["setsoundspeed", 18, 1100],
+    ["playsound", 18, "SFX_0053"],
+    ["showpart", 25, 40],
+    ["showpart", 50, 41],
+    ["playsound", 74, "SFX_05C5"],
+    ["hidepart", 75, 41],
+    ["showpart", 75, 40],
+    ["playsound", 112, "SFX_0431"],
+    ["end"]
+  ]
+}

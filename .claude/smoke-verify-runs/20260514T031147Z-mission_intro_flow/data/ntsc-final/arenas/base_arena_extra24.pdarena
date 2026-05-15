@@ -1,0 +1,13 @@
+{
+  "pd_kind": "arena",
+  "pd_schema_version": 1,
+  "id": "base:arena_extra24",
+  "arena_index": 42,
+  "slug": "extra24",
+  "category": "Bonus",
+  "stagenum": 89,
+  "requirefeature": 0,
+  "name_langid": 20815,
+  "load_mode": "ARENA_LOADMODE_PLAYABLE",
+  "scenario": "base:scenario_extra24"
+}

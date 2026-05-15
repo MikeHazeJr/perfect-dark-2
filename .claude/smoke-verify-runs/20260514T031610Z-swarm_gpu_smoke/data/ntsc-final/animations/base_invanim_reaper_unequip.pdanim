@@ -1,0 +1,10 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_reaper_unequip",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_REAPER_UNEQUIP", 0, 10000],
+    ["end"]
+  ]
+}

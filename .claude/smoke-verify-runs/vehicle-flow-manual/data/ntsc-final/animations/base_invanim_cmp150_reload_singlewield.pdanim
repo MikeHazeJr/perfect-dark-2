@@ -1,0 +1,21 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_cmp150_reload_singlewield",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_CMP150_RELOAD", 0, 10000],
+    ["hidepart", 23, 42],
+    ["showpart", 33, 53],
+    ["showpart", 33, 43],
+    ["setsoundspeed", 9, 950],
+    ["playsound", 9, "SFX_01D8"],
+    ["setsoundspeed", 44, 950],
+    ["playsound", 44, "SFX_80F6"],
+    ["hidepart", 45, 43],
+    ["showpart", 45, 42],
+    ["waittime", 45, 1],
+    ["playsound", 86, "SFX_0431"],
+    ["end"]
+  ]
+}

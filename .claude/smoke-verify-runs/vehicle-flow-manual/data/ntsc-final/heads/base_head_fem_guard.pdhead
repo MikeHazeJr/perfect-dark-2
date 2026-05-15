@@ -1,0 +1,13 @@
+{
+  "pd_kind": "head",
+  "pd_schema_version": 1,
+  "id": "base:head_fem_guard",
+  "headnum": 16,
+  "ismale": 0,
+  "unk00_01": 1,
+  "type": "HEADBODYTYPE_DEFAULT",
+  "height": 13,
+  "mesh": "FILE_CHEADFEM_GUARD",
+  "scale": 1,
+  "animscale": 1
+}

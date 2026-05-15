@@ -1,0 +1,15 @@
+{
+  "pd_kind": "body",
+  "pd_schema_version": 1,
+  "id": "base:maian_soldier",
+  "bodynum": 131,
+  "ismale": 1,
+  "unk00_01": 0,
+  "canvaryheight": 1,
+  "type": "HEADBODYTYPE_CASS",
+  "height": 106,
+  "mesh": "FILE_CMAIAN_SOLDIER",
+  "scale": 1,
+  "animscale": 0.5727699,
+  "hand": "FILE_GHAND_ELVIS"
+}

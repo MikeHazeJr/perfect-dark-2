@@ -1,0 +1,18 @@
+﻿{
+    "Name":  "full_sdl_pipeline_smoke",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  0,
+    "ElapsedSeconds":  28.546867499999998,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  22,
+    "AssertionsMet":  21,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "MENU\\.GRAPH\\.FIRE source=agent_select edge=load trigger=24"
+                     }
+                 ]
+}

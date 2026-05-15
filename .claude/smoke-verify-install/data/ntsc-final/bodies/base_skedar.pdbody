@@ -1,0 +1,15 @@
+{
+  "pd_kind": "body",
+  "pd_schema_version": 1,
+  "id": "base:skedar",
+  "bodynum": 92,
+  "ismale": 1,
+  "unk00_01": 1,
+  "canvaryheight": 1,
+  "type": "HEADBODYTYPE_DEFAULT",
+  "height": 159,
+  "mesh": "FILE_CSKEDAR",
+  "scale": 1,
+  "animscale": 1,
+  "hand": null
+}

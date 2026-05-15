@@ -1,0 +1,20 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_k7avenger_reload",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_K7AVENGER_RELOAD", 0, 10000],
+    ["setsoundspeed", 15, 1200],
+    ["playsound", 15, "SFX_0053"],
+    ["hidepart", 22, 41],
+    ["showpart", 48, 42],
+    ["waittime", 68, 1],
+    ["hidepart", 69, 42],
+    ["showpart", 69, 41],
+    ["setsoundspeed", 69, 1400],
+    ["playsound", 69, "SFX_8025"],
+    ["playsound", 91, "SFX_05C5"],
+    ["end"]
+  ]
+}

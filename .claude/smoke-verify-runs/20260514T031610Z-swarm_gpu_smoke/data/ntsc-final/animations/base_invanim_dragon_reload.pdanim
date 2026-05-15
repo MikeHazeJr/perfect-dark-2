@@ -1,0 +1,17 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_dragon_reload",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_DRAGON_RELOAD", 0, 10000],
+    ["playsound", 8, "SFX_0053"],
+    ["hidepart", 17, 42],
+    ["showpart", 17, 40],
+    ["waittime", 41, 1],
+    ["playsound", 41, "SFX_05C5"],
+    ["showpart", 41, 42],
+    ["hidepart", 41, 40],
+    ["end"]
+  ]
+}

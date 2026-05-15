@@ -1,0 +1,11 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_tranquilizer_lethalinject",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_TRANQUILIZER_INJECT", 0, 10000],
+    ["waittime", 18, 2],
+    ["end"]
+  ]
+}

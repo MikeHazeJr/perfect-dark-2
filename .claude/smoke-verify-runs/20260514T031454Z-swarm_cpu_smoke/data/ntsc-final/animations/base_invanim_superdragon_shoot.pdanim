@@ -1,0 +1,10 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_superdragon_shoot",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_SUPERDRAGON_SHOOT_PRI", 0, 10000],
+    ["end"]
+  ]
+}

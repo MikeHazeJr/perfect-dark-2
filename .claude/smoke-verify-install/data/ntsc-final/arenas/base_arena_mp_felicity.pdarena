@@ -1,0 +1,13 @@
+{
+  "pd_kind": "arena",
+  "pd_schema_version": 1,
+  "id": "base:arena_mp_felicity",
+  "arena_index": 31,
+  "slug": "mp_felicity",
+  "category": "Classic",
+  "stagenum": 67,
+  "requirefeature": 0,
+  "name_langid": 20615,
+  "load_mode": "ARENA_LOADMODE_PLAYABLE",
+  "scenario": "base:scenario_mp_felicity"
+}

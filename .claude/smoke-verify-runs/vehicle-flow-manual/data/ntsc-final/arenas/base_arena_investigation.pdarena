@@ -1,0 +1,13 @@
+{
+  "pd_kind": "arena",
+  "pd_schema_version": 1,
+  "id": "base:arena_investigation",
+  "arena_index": 14,
+  "slug": "investigation",
+  "category": "Solo Missions",
+  "stagenum": 51,
+  "requirefeature": 0,
+  "name_langid": 22151,
+  "load_mode": "ARENA_LOADMODE_CANVAS",
+  "scenario": "base:scenario_investigation"
+}

@@ -1,0 +1,15 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_slayer_reload",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_SLAYER_RELOAD", 0, 10000],
+    ["setsoundspeed", 52, 800],
+    ["playsound", 52, "SFX_0053"],
+    ["playsound", 79, "SFX_EYESPYHIT"],
+    ["setsoundspeed", 126, 900],
+    ["playsound", 126, "SFX_RELOAD_04FB"],
+    ["end"]
+  ]
+}

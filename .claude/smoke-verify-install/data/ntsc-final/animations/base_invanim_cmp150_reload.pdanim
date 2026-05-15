@@ -1,0 +1,11 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_cmp150_reload",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["include", 1, "invanim_cmp150_reload_dualwield"],
+    ["include", 0, "invanim_cmp150_reload_singlewield"],
+    ["end"]
+  ]
+}

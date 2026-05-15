@@ -1,0 +1,11 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_combatknife_slash2",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_KNIFE_SLASH", 0, 10000],
+    ["waittime", 24, 2],
+    ["end"]
+  ]
+}

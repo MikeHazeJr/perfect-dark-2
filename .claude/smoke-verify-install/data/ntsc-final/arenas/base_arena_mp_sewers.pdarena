@@ -1,0 +1,13 @@
+{
+  "pd_kind": "arena",
+  "pd_schema_version": 1,
+  "id": "base:arena_mp_sewers",
+  "arena_index": 4,
+  "slug": "mp_sewers",
+  "category": "Dark",
+  "stagenum": 66,
+  "requirefeature": 0,
+  "name_langid": 20603,
+  "load_mode": "ARENA_LOADMODE_PLAYABLE",
+  "scenario": "base:scenario_mp_sewers"
+}

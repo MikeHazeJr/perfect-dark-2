@@ -1,0 +1,18 @@
+﻿{
+    "Name":  "swarm_cpu_smoke",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  -1073740791,
+    "ElapsedSeconds":  100.8324706,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  10,
+    "AssertionsMet":  9,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "BOOT: --launch-scenario \u0027swarm_cpu\u0027 -\u003e testScenarioLaunch"
+                     }
+                 ]
+}

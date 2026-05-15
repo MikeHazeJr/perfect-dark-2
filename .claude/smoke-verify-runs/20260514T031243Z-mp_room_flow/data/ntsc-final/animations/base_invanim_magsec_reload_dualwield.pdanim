@@ -1,0 +1,19 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_magsec_reload_dualwield",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_MAGSEC4_RELOAD_DUALWIELD", 0, 10000],
+    ["showpart", 1, 41],
+    ["setsoundspeed", 5, 1300],
+    ["playsound", 5, "SFX_01D8"],
+    ["hidepart", 25, 41],
+    ["setsoundspeed", 47, 1300],
+    ["playsound", 47, "SFX_80F6"],
+    ["waittime", 49, 1],
+    ["setsoundspeed", 69, 1300],
+    ["playsound", 69, "SFX_01DB"],
+    ["end"]
+  ]
+}

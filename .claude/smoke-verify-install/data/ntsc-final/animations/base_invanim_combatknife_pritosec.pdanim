@@ -1,0 +1,12 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_combatknife_pritosec",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_KNIFE_CHANGEFUNC", 0, 10000],
+    ["playsound", 30, "SFX_80A7"],
+    ["playsound", 40, "SFX_80A6"],
+    ["end"]
+  ]
+}

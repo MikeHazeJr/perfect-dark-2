@@ -1,0 +1,18 @@
+﻿{
+    "Name":  "mission_intro_flow",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  null,
+    "ElapsedSeconds":  120.5188347,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  11,
+    "AssertionsMet":  10,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "LV\\.DIAG: first-render"
+                     }
+                 ]
+}

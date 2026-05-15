@@ -1,0 +1,77 @@
+﻿[
+    {
+        "Name":  "mission_intro_flow",
+        "Category":  "scenario",
+        "BugId":  null,
+        "RegressionFor":  null,
+        "Passed":  true,
+        "ExitCode":  0,
+        "ElapsedSeconds":  60.5134571,
+        "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+        "AssertionsTotal":  12,
+        "AssertionsMet":  12,
+        "Failures":  [
+
+                     ]
+    },
+    {
+        "Name":  "mp_room_flow",
+        "Category":  "scenario",
+        "BugId":  null,
+        "RegressionFor":  null,
+        "Passed":  true,
+        "ExitCode":  0,
+        "ElapsedSeconds":  31.008198699999998,
+        "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+        "AssertionsTotal":  13,
+        "AssertionsMet":  13,
+        "Failures":  [
+
+                     ]
+    },
+    {
+        "Name":  "swarm_cpu_smoke",
+        "Category":  "scenario",
+        "BugId":  null,
+        "RegressionFor":  null,
+        "Passed":  true,
+        "ExitCode":  0,
+        "ElapsedSeconds":  95.5181643,
+        "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+        "AssertionsTotal":  16,
+        "AssertionsMet":  16,
+        "Failures":  [
+
+                     ]
+    },
+    {
+        "Name":  "swarm_gpu_smoke",
+        "Category":  "scenario",
+        "BugId":  null,
+        "RegressionFor":  null,
+        "Passed":  true,
+        "ExitCode":  0,
+        "ElapsedSeconds":  150.53256299999998,
+        "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+        "AssertionsTotal":  16,
+        "AssertionsMet":  16,
+        "Failures":  [
+
+                     ]
+    },
+    {
+        "Name":  "vehicle_flow",
+        "Category":  "scenario",
+        "BugId":  null,
+        "RegressionFor":  null,
+        "Passed":  true,
+        "ExitCode":  0,
+        "ElapsedSeconds":  90.4865317,
+        "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+        "AssertionsTotal":  10,
+        "AssertionsMet":  10,
+        "Failures":  [
+
+                     ]
+    }
+]

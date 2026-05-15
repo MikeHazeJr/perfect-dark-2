@@ -1,0 +1,23 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_dy357_reload_dualwield",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_DY357_RELOAD_DUALWIELD", 0, 10000],
+    ["playsound", 50, "SFX_05CF"],
+    ["setsoundspeed", 80, 1830],
+    ["playsound", 80, "SFX_01D8"],
+    ["popoutsackofpills", 80],
+    ["popoutsackofpills", 81],
+    ["popoutsackofpills", 82],
+    ["popoutsackofpills", 83],
+    ["popoutsackofpills", 84],
+    ["popoutsackofpills", 85],
+    ["setsoundspeed", 114, 1210],
+    ["playsound", 114, "SFX_01D8"],
+    ["waittime", 123, 1],
+    ["playsound", 147, "SFX_05CD"],
+    ["end"]
+  ]
+}

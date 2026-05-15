@@ -1,0 +1,13 @@
+{
+  "pd_kind": "arena",
+  "pd_schema_version": 1,
+  "id": "base:arena_mp_grid2",
+  "arena_index": 30,
+  "slug": "mp_grid2",
+  "category": "Classic",
+  "stagenum": 58,
+  "requirefeature": 0,
+  "name_langid": 20609,
+  "load_mode": "ARENA_LOADMODE_PLAYABLE",
+  "scenario": "base:scenario_mp_grid2"
+}

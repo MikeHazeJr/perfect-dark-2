@@ -1,0 +1,15 @@
+{
+  "pd_kind": "body",
+  "pd_schema_version": 1,
+  "id": "base:stewardess_coat",
+  "bodynum": 122,
+  "ismale": 0,
+  "unk00_01": 0,
+  "canvaryheight": 0,
+  "type": "HEADBODYTYPE_FEMALE",
+  "height": 143,
+  "mesh": "FILE_CSTEWARDESS_COAT",
+  "scale": 1,
+  "animscale": 0.8544601,
+  "hand": "FILE_GHAND_STEWARDESS_COAT"
+}

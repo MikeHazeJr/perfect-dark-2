@@ -1,0 +1,94 @@
+{
+  "pd_kind": "weapon",
+  "pd_schema_version": 1,
+  "id": "base:timedmine",
+  "weapon_id": 32,
+  "hi_model": "FILE_GTIMEDMINE",
+  "lo_model": "FILE_GTIMEDMINE",
+  "equip_animation": "invanim_mine_equip",
+  "unequip_animation": "invanim_mine_unequip",
+  "pritosec_animation": null,
+  "sectopri_animation": null,
+  "functions": [
+    {
+      "type": 2,
+      "name": "L_GUN_120",
+      "unk06": 0,
+      "ammoindex": 0,
+      "noisesettings": {
+        "minradius": 0,
+        "maxradius": 0,
+        "incradius": 0,
+        "decbasespeed": 1,
+        "decremspeed": 6
+      },
+      "fire_animation": "invanim_mine_throw",
+      "flags": 8396864,
+      "projectilemodelnum": 275,
+      "activatetime60": 240,
+      "recoverytime60": 0,
+      "damage": 0
+    },
+    {
+      "type": 0,
+      "name": "L_GUN_119",
+      "unk06": 0,
+      "ammoindex": -1,
+      "noisesettings": {
+        "minradius": 0,
+        "maxradius": 0,
+        "incradius": 0,
+        "decbasespeed": 1,
+        "decremspeed": 6
+      },
+      "fire_animation": null,
+      "flags": 524288,
+      "_no_subtype_fields": 0
+    }
+  ],
+  "ammos": [
+    {
+      "type": 14,
+      "casingeject": 4294967295,
+      "clipsize": 1,
+      "reload_animation": "invanim_mine_equip",
+      "flags": 2
+    },
+    null
+  ],
+  "aimsettings": {
+    "zoomfov": 0,
+    "guntransup": 3,
+    "guntransdown": 8,
+    "guntransside": 15,
+    "aimdamppal": 0.9721,
+    "aimdamp": 0.9767,
+    "tracktype": 1,
+    "unk18_04": 0,
+    "flags": 2
+  },
+  "muzzlez": 1,
+  "posx": 8,
+  "posy": -15,
+  "posz": -23,
+  "sway": 1,
+  "gunviscmds": [
+  ],
+  "partvisibility": [
+  ],
+  "shortname": "L_GUN_038",
+  "name": "L_GUN_038",
+  "manufacturer": "L_GUN_000",
+  "description": "L_GUN_185",
+  "flags": 139865,
+  "bot_pref": {
+    "unk00": 12,
+    "unk01": 12,
+    "unk02": 0,
+    "unk03": 0,
+    "haspriammogoal": 0,
+    "hassecammogoal": 0,
+    "pridistconfig": 7,
+    "secdistconfig": 2
+  }
+}

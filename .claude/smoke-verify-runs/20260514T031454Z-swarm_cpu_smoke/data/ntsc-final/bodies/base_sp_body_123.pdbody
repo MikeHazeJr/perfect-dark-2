@@ -1,0 +1,15 @@
+{
+  "pd_kind": "body",
+  "pd_schema_version": 1,
+  "id": "base:sp_body_123",
+  "bodynum": 123,
+  "ismale": 1,
+  "unk00_01": 1,
+  "canvaryheight": 0,
+  "type": "HEADBODYTYPE_DEFAULT",
+  "height": 159,
+  "mesh": "FILE_CMINISKEDAR",
+  "scale": 0.75,
+  "animscale": 0.5,
+  "hand": null
+}

@@ -1,0 +1,61 @@
+{
+  "pd_kind": "weapon",
+  "pd_schema_version": 1,
+  "id": "base:rocket",
+  "weapon_id": 75,
+  "hi_model": "FILE_GCYCLONE",
+  "lo_model": "FILE_GCYCLONELOD",
+  "equip_animation": null,
+  "unequip_animation": null,
+  "pritosec_animation": null,
+  "sectopri_animation": null,
+  "functions": [
+    null,
+    null
+  ],
+  "ammos": [
+    {
+      "type": 4,
+      "casingeject": 2,
+      "clipsize": 30,
+      "reload_animation": null,
+      "flags": 0
+    },
+    null
+  ],
+  "aimsettings": {
+    "zoomfov": 0,
+    "guntransup": 3,
+    "guntransdown": 8,
+    "guntransside": 15,
+    "aimdamppal": 0.9721,
+    "aimdamp": 0.9767,
+    "tracktype": 1,
+    "unk18_04": 0,
+    "flags": 2
+  },
+  "muzzlez": 1,
+  "posx": 12.5,
+  "posy": -17,
+  "posz": -27.5,
+  "sway": 1,
+  "gunviscmds": [
+  ],
+  "partvisibility": [
+  ],
+  "shortname": "L_GUN_044",
+  "name": "L_GUN_044",
+  "manufacturer": "L_GUN_000",
+  "description": "L_GUN_000",
+  "flags": 0,
+  "bot_pref": {
+    "unk00": 0,
+    "unk01": 0,
+    "unk02": 0,
+    "unk03": 0,
+    "haspriammogoal": 0,
+    "hassecammogoal": 0,
+    "pridistconfig": 2,
+    "secdistconfig": 2
+  }
+}

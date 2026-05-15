@@ -1,0 +1,15 @@
+{
+  "pd_kind": "body",
+  "pd_schema_version": 1,
+  "id": "base:biotech",
+  "bodynum": 113,
+  "ismale": 1,
+  "unk00_01": 0,
+  "canvaryheight": 1,
+  "type": "HEADBODYTYPE_DEFAULT",
+  "height": 155,
+  "mesh": "FILE_CBIOTECH",
+  "scale": 1,
+  "animscale": 0.9389672,
+  "hand": "FILE_GHAND_DDBIO"
+}
