@@ -1,5 +1,83 @@
 # Session Log (Active)
 
+## Session (`main-checkout-pillar-smoke-coverage-expansion`) - 2026-05-14/15 - c115 Phase-2 expansion: smoke-verify per-pillar coverage matrix completed
+
+Mike's goal directive: dispatch a multi-wave c115 (Smoke Verify Gate Phase 1) Phase-2 expansion so every pillar has at least one in-client smoke fixture and the runtime suite has a meta-smoke. Coordinator ran the dispatch across overlapping child sessions in the main checkout (worktrees disabled). Outcome: 10 commits on `dev` between dev `189e67be` and dev `1b581d4d`, two deliverables -- (a) per-pillar smoke coverage matrix at full coverage, (b) the user-visible "missing weapons" symptom resolved as a test-tighten (catalog pipeline was already healthy per B-318/B-324/B-325/B-326 pending-playtest; the smoke assertions were silently passing wrong-stage loads and not pinning the per-kind walker count).
+
+### Change
+
+- `fc9645aaab5272077726dd9609bc1fd4d701a218` Tests - c115: smoke harness extensions (fixtures + debug-spawn-at) -- adds optional `fixtures: [{src,dst}]` array support to test JSON + `Copy-SmokeFixtures` helper, plus the `--debug-spawn-at x,y,z,room` boot-flag latch in `port/src/main.c` / `port/src/pdmain.c` for deterministic player positioning at frame >= 4. Both unblock subsequent pillar tests.
+- `9d22eb59b6a5424dd71d7c216f18f6aff4c0caaf` Tests - c115: tighten smoke assertions for missing-weapons class -- `mission_intro_flow.json` gets canonical `LOAD: lv.c entering stage load sequence for stagenum=0x30` / `LOAD: calling setupCreateProps stagenum=0x30` / `TICK: lvTick enter tick=N stagenum=0x30` triplet + forbidden patterns for the SkipIntro `stagenum=0x26` fallback. `boot_smoke.json` gets the per-kind `LOADER.UNIVERSAL.OK: kind=weapon scanned=86 registered=86 envelope_failures=0 register_failures=0` weapons-count pin.
+- `9d380f411ed6066001711b36a9bec5b24f3a1712` Tests - c115: full-pipeline SDL smoke test (input pillar coverage) -- new `full_sdl_pipeline_smoke.json` driving real `key`-type events (Return/Down/Up/Escape) through SDL -> ImGui -> actionmap -> menugraph and asserting `MENU.GRAPH.FIRE source=main_menu edge=close trigger=25`. Pins the iter-2 windowID stamping fix from `7531cece`.
+- `a9e531b5abf540d267111b5d03bcc30ddb2b803f` Tests - c115: mod_load_smoke (modding pillar) -- new `mod_load_smoke.json` + 500-byte `tools/smoke-verify/fixtures/test_smoke_skin.pdmod` (Python-built deflate zip, single `mod.json` entry, EOCD comment mirror per `pdmod-format.md` Section 4.5.5). Asserts modmgr scan/parse/discovery + SHA-256 surface for the staged `.pdmod`.
+- `a12327a77f233795f1e51f9b81bbcfa152136bff` Tests - c115: physics_capsule_basic_smoke (physics-collision pillar) -- new `physics_capsule_basic_smoke.json` using `--debug-spawn-at 637.0,360.0,923.0,16` (canonical CITRAINING spawn point lifted from a recent mission_intro log). Chain-of-evidence coverage: `BOOT: --debug-spawn-at consumed: result=OK` + `bgunTickGameplay` >= 30 ticks + no AV.
+- `241176358ca29f0c60d3d1950f37018369fc7345` Tests - c115: stage-verify propagation + Install-Harness settle delay -- propagates the lv.c stage-verify triplet pattern from `mission_intro_flow.json` into `mp_room_flow.json` (CITRAINING 0x26 stays), `swarm_cpu_smoke.json` and `swarm_gpu_smoke.json` (matchStart transitions to Felicity 0x43). Adds a 1000 ms inter-test settle delay in `New-SmokeSharedInstall` (module-scope counter; first call exempt) to absorb the atexit-log-flush race.
+- `9a3f306edb2895270178a184adf2f9804d8da400` Tests - c115: save_init_smoke (save-wire-format pillar) -- new `save_init_smoke.json` + 228-byte `tools/smoke-verify/fixtures/agent_smoke.json` v2 fixture. Booted with `--portable` so `saveDir = install dir`. Asserts `SAVEMIGRATE: Initialized (0 migrations registered, current save version: 2)` + `SAVE: initialized -- save dir:` plus six save-specific forbidden patterns (refuse-to-load, failed-to-load, corrupt, saveListAgents-failed, migration-full, invalid-migration).
+- `605faf3fb47c239d1bc165ab474ddb8e3f535fe0` Tests - c115: listen_host_init_smoke (connectivity pillar) -- new `listen_host_init_smoke.json` deliberately omits `--no-net` and pins ENet init + P2P.LAN UDP 27101 bind + PRESENCE UDP 27105 bind + presence-initialised log markers. Path-pinned firewall allow rule (existing `Install-Harness.ps1::Add-SmokeFirewallAllowRule` keyed on the exe path) covers the binds.
+- `367f6c160c09cae1959b59921d0f36750cbc20d7` Tests - c115: pd_tests_runtime_smoke (tests pillar meta-smoke) -- new standalone wrapper `tools/smoke-verify/run-pd-tests-smoke.ps1` (~310 lines). Strategy A (allowlist of 6 carry-over TEST_CASE names from `test_uichrome_paths_pin.cpp`, `test_pdbase_retired_audit.cpp`, `test_catalog_provider_static.cpp`). Soft-guards on the pre-existing teardown segfault exit code (`0xC0000005`).
+- `1b581d4d104656b518fe19c229e10594d872ab05` Tests - c115: dedicated_server_boot_smoke + runner target-swap -- extends `run.ps1` + `lib/Install-Harness.ps1` with an optional `target` field (`pd` default vs `pd-server`) and `runtime_strategy` field (`harness` default vs `timeout-kill`). New `dedicated_server_boot_smoke.json` exercises `--headless --port 27200 --maxclients 4` boot and asserts the 8 canonical server-bring-up markers (NET/HUB/BANS/ADMIN/SERVER x4) plus a positive forbidden of `CLC_AUTH: ROM hash check fired` (dedicated invariant per `context/pillars/server.md`).
+
+### Verification
+
+- `mission_intro_flow.json` (tightened): PASS 18/18 assertions, 60.5s elapsed.
+- `boot_smoke.json` (tightened): PASS 10/10 assertions, 90.5s elapsed.
+- `full_sdl_pipeline_smoke.json`: PASS 20/20 assertions, 28.5s elapsed.
+- `mod_load_smoke.json`: PASS 19/19 assertions, 15.5s elapsed.
+- `physics_capsule_basic_smoke.json`: PASS 19/19 assertions, 55.5s elapsed (two minor regex fixes for `prop=` hex format and BMOVE count min).
+- `mp_room_flow.json` (propagated): PASS 17/17 assertions, 31.0s elapsed (was 13/13 pre-patch).
+- `swarm_cpu_smoke.json` (propagated): PASS 19/19 assertions (was 16/16 pre-patch).
+- `swarm_gpu_smoke.json` (propagated): PASS 19/19 assertions (was 16/16 pre-patch).
+- `save_init_smoke.json`: PASS 18/18 assertions, 15.7s elapsed.
+- `listen_host_init_smoke.json`: PASS 19/19 assertions, 12.5s elapsed.
+- `pd_tests_runtime_smoke.ps1`: PASS full-suite (0 new failures, 6 allowlisted carry-overs detected, exit `0xC0000005` accepted); PASS scoped `[netbuf]` confidence run (23/23 cases, 133/133 assertions).
+- `dedicated_server_boot_smoke.json`: PASS 20/20 assertions, 12.0s elapsed. Back-compat regression check on `mission_intro_flow` (client path): PASS 18/18, exit 0.
+- 5-test sequential run after the settle-delay patch (boot_smoke, full_sdl_pipeline_smoke, mission_intro_flow, mp_room_flow, vehicle_flow): 5 PASS / 0 FAIL.
+
+Sprint-report evidence under `.claude/sprint-reports/`: `sprint-2026-05-14T231112-harness-extensions-fixtures-spawn.md`, `sprint-2026-05-14T231334-input-pillar-smoke.md`, `sprint-2026-05-14T231707-missing-weapons-tighten.md`, `sprint-2026-05-14T232522-modding-pillar-smoke.md`, `sprint-2026-05-14T233700-physics-pillar-smoke.md`, `sprint-2026-05-14T194451-2a-followups-stage-verify-settle.md`, `sprint-2026-05-14T235300-save-pillar-smoke.md`, `sprint-2026-05-14T235500-connectivity-pillar-smoke.md`, `sprint-2026-05-14T000548-tests-pillar-smoke.md`, `sprint-2026-05-15T000639-server-pillar-smoke.md`.
+
+### Decisions
+
+- **Save pillar test named `save_init_smoke`, not `save_roundtrip_smoke`.** The worker investigated and found `saveLoadAgent` fires only from `port/fast3d/pdgui_menu_agentselect.cpp:116` (Agent Select UI accept), and `saveListAgents` is similarly UI-driven. A vanilla `--no-net` boot does not emit `SAVE: agent <name> loaded`. Naming reflects honest coverage: subsystem init contract pinned, deeper load path deferred to a future menu-driven test once `mp_room_flow`'s post-Combat-Sim crash class is fixed. Per the dispatch's explicit fallback ("Naming: avoid the word 'roundtrip' if no write-back is asserted").
+- **Connectivity pillar test named `listen_host_init_smoke`, not `listen_host_full`.** The `--host` flag latches `g_NetHostLatch` but does not auto-call `netStartServer`; the actual listen-host bind requires menu nav via `pdgui_menu_network.cpp::networkGraphStartServer`, and `--host` also re-routes the log path to `pd-host.log` (the smoke runner reads `pd-client.log`). Two structural blockers, both deferred. The test asserts on the connectivity-stack init contract (ENet init + P2P.LAN bind + PRESENCE bind), not on listen-host steady state.
+- **Server pillar uses `timeout-kill` runtime strategy.** `CMakeLists.txt` `SRC_SERVER` (lines 629-742) does not include `port/src/smoke_harness.c`, so Case A (`--smoke <test.json>` harness injection) is unavailable. Case B: launch with vanilla boot_args, wait `timeout_seconds`, forcibly kill. Assertions are log-only; the non-zero exit code from the kill is accepted for this strategy. Defaults set up so `target == "pd-server"` selects `timeout-kill`; a future commit linking `smoke_harness.c` into `SRC_SERVER` would let server tests opt into `harness` strategy without runner changes.
+- **Physics pillar uses chain-of-evidence coverage, not capsule-specific log markers.** `src/lib/capsule.c` has zero `sysLogPrintf` call sites today, so direct "capsule sweep fired" assertions are not possible without first instrumenting capsule.c. Coverage is: `BOOT: --debug-spawn-at consumed: result=OK` (chrMoveToPos succeeded) + `bgunTickGameplay enter player=0 frame=` count >= 30 (player tick advanced 30+ frames through `playerTickBondMovement` -> `bwalkUpdate` -> capsule sweep) + absence of AV.
+- **Missing-weapons symptom resolved as test-tighten, not catalog fix.** The catalog pipeline is healthy: 86 `.pdwpn` files emit, walker registers all 86, `weaponFindById(0)` returns a valid pointer (B-318 / B-324 / B-325 / B-326 pending playtest). Two assertion gaps were silently passing -- `mission_intro_flow.json` asserted the CLI parse echo but not the actual loaded stage, and `boot_smoke.json` asserted the walker SUMMARY but not the per-kind weapons count. Both gaps closed in `9d22eb59`.
+- **`boot stage set to 0xNN` is unreliable for stage-load assertions.** This log line fires at `port/src/main.c:1006` BEFORE `bootApplyCliFastPaths()` runs at `:1037`. The fix is to anchor on `g_Vars.stagenum`-derived lv.c log lines (`:452`, `:563`, `:2318`) that fire AFTER the fast-path applies. Propagated to mp_room_flow / swarm_cpu_smoke / swarm_gpu_smoke in commit `24117635`.
+
+### Outstanding (follow-ups)
+
+1. **Capsule.c instrumentation**. Add `sysLogPrintf` markers at `capsuleSweep` entry / `cdTestVolume` early-out so a future `wall_jump_capsule_smoke` sibling can assert capsule-sweep fired (and not just chain-of-evidence). Out of scope this session.
+2. **Link `smoke_harness.c` into `pd-server`**. CMake change to add `port/src/smoke_harness.c` to `SRC_SERVER` so server tests can opt into the `harness` runtime strategy. After that, the existing `dedicated_server_boot_smoke` JSON can flip `runtime_strategy: harness` without any runner change.
+3. **Save round-trip deeper coverage**. Once scripted Agent Select menu nav is reliable (depends on `mp_room_flow`'s post-Combat-Sim crash class fix), write `save_load_agent_smoke` that drives `ACTION_MENU_DOWN` + `ACTION_USE` to the file picker and asserts `SAVE: agent 'smoke' loaded from <path>`.
+4. **Listen-host two-process test**. After the `--host` log-path quirk is reconciled (or after `Get-SmokeLogPath` becomes target-conditional for `--host`), author `listen_host_full_smoke` that scripts the host's `networkGraphStartServer` plus a second client process connecting via connect-code.
+5. **Wall-jump physics test**. Sibling to `physics_capsule_basic_smoke`: teleport via `--debug-spawn-at` to a known-wall coordinate in CITRAINING, inject `ACTION_JUMP` + `ACTION_AXIS_MOVE_Y` at known timings, assert the resulting trajectory. Depends on capsule.c instrumentation (#1) + a player.pos sampler logged at gameplay-tick boundaries.
+6. **Cross-session install lock**. The `New-SmokeSharedInstall` 1000 ms settle delay is intra-session only; concurrent `run.ps1` invocations across two Claude sessions can still race on the shared install dir. A file-lock on `.claude/smoke-verify-install/.lock` would serialise.
+
+### Files touched
+
+- `tools/smoke-verify/tests/full_sdl_pipeline_smoke.json` (new, 64 lines).
+- `tools/smoke-verify/tests/mod_load_smoke.json` (new, 58 lines).
+- `tools/smoke-verify/tests/physics_capsule_basic_smoke.json` (new, 67 lines).
+- `tools/smoke-verify/tests/save_init_smoke.json` (new).
+- `tools/smoke-verify/tests/listen_host_init_smoke.json` (new, 55 lines).
+- `tools/smoke-verify/tests/dedicated_server_boot_smoke.json` (new, 60 lines).
+- `tools/smoke-verify/tests/mission_intro_flow.json` (tightened: +4 required, +2 forbidden).
+- `tools/smoke-verify/tests/boot_smoke.json` (tightened: +1 required).
+- `tools/smoke-verify/tests/mp_room_flow.json` (propagated: +2 required, +2 forbidden).
+- `tools/smoke-verify/tests/swarm_cpu_smoke.json` (propagated: +2 required, +1 forbidden).
+- `tools/smoke-verify/tests/swarm_gpu_smoke.json` (propagated: +2 required, +1 forbidden).
+- `tools/smoke-verify/fixtures/test_smoke_skin.pdmod` (new, 500 bytes).
+- `tools/smoke-verify/fixtures/agent_smoke.json` (new, 228 bytes).
+- `tools/smoke-verify/fixtures/.gitkeep` (new; documents fixture convention).
+- `tools/smoke-verify/run.ps1` (target + runtime_strategy field plumbing).
+- `tools/smoke-verify/lib/Install-Harness.ps1` (`Copy-SmokeFixtures` helper, target-aware exe/log/firewall, settle delay).
+- `tools/smoke-verify/run-pd-tests-smoke.ps1` (new, ~310 lines).
+- `port/src/main.c` (`bootApplyDebugSpawnAt` parse + `bootDebugSpawnAtTick` deferred firing).
+- `port/src/pdmain.c` (mainTick wiring of `bootDebugSpawnAtTick`).
+- `context/designs/engine/smoke-verify-gate.md` (extension notes).
+- `context/pillars/tests.md` (this session: smoke-verify gate section added; per-pillar coverage matrix).
+- `context/session-log.md` (this entry).
+
 ## Session (`main-checkout-incompleteness-sweep`) - 2026-05-13 PM - Incompleteness sweep audit: input / context / extraction / jump collision
 
 Mike's goal directive: "Find anything that is incomplete with regard to the input, context, file extraction and archive creation (including being accessible to users externally as files such as models, uv'd textures, animations, audio files etc), and collision function for the jump system including using either full normal rendered geometry or the colliders that the Laptop Gun uses."

@@ -137,6 +137,40 @@ Use `-Scope <alias>` instead of memorizing raw Catch2 selectors.
 
 ---
 
+## Smoke verify gate (c115)
+
+Per-binary smoke fixtures that exercise the production exes end-to-end. Distinct from the Catch2 unit suite above. Runner: `tools/smoke-verify/run.ps1`. Fixtures live under `tools/smoke-verify/tests/*.json` (declarative log-assertion schema with `required_lines`, `forbidden_patterns`, `required_counts`, `fixtures`, `boot_args`, optional `target`, optional `runtime_strategy`). Shared and per-test install modes managed by `tools/smoke-verify/lib/Install-Harness.ps1`. Tests-pillar meta-smoke at `tools/smoke-verify/run-pd-tests-smoke.ps1`.
+
+### Per-pillar coverage matrix (Phase-2 complete 2026-05-14/15)
+
+- **catalog** -- `boot_smoke.json` asserts `LOADER.UNIVERSAL.OK: kind=weapon scanned=86 registered=86 envelope_failures=0 register_failures=0` plus the universal-summary line. Commits: `9d22eb59` (tighten).
+- **input** -- `full_sdl_pipeline_smoke.json` drives real `key`-type events (Return / Down / Up / Escape) through SDL -> ImGui -> actionmap -> menugraph and asserts `MENU.GRAPH.FIRE source=main_menu edge=close trigger=25`. Commit `9d380f41`.
+- **modding** -- `mod_load_smoke.json` + 500-byte `test_smoke_skin.pdmod` fixture. Asserts modmgr scan / parse / discovery + SHA-256 surface for a `.pdmod` staged into `<install>/mods/`. Commit `a9e531b5`.
+- **physics-collision** -- `physics_capsule_basic_smoke.json` uses `--debug-spawn-at 637.0,360.0,923.0,16` (canonical CITRAINING spawn point). Chain-of-evidence (no AV + bgunTickGameplay >= 30 ticks) because `src/lib/capsule.c` has zero `sysLogPrintf` sites today. Commit `a12327a7` (depends on harness extensions `fc9645aa`).
+- **save-wire-format** -- `save_init_smoke.json` + v2 `agent_smoke.json` fixture. Booted with `--portable` so `saveDir = install dir`. Asserts `SAVEMIGRATE: Initialized ...` + `SAVE: initialized -- save dir:`. Deeper `saveLoadAgent` path deferred (Agent Select UI nav not yet harnessable). Commit `9a3f306e`.
+- **connectivity** -- `listen_host_init_smoke.json` omits `--no-net`, pins ENet init + P2P.LAN UDP 27101 bind + PRESENCE UDP 27105 bind + presence-initialised. Path-pinned firewall allow rule covers the binds. Commit `605faf3f`.
+- **tests** (meta) -- `run-pd-tests-smoke.ps1` wraps the `pd-tests` Catch2 binary with an allowlist of 6 carry-over TEST_CASE names (`test_uichrome_paths_pin`, `test_pdbase_retired_audit`, `test_catalog_provider_static`) and soft-guards the pre-existing teardown segfault exit `0xC0000005`. Commit `367f6c16`.
+- **server** -- `dedicated_server_boot_smoke.json` exercises `--headless --port 27200 --maxclients 4` boot of `PerfectDarkServer.exe`. Pins 8 bring-up markers (NET / HUB / BANS / ADMIN / SERVER x4) plus positive forbidden of `CLC_AUTH: ROM hash check fired` (dedicated invariant from `pillars/server.md`). Uses `runtime_strategy: "timeout-kill"` because `SRC_SERVER` does not link `smoke_harness.c` today. Commit `1b581d4d`.
+- **input (stage-verify propagation)** -- `mp_room_flow.json`, `swarm_cpu_smoke.json`, `swarm_gpu_smoke.json` got the `LOAD: lv.c entering stage load sequence for stagenum=0xNN` + `TICK: lvTick enter tick=N stagenum=0xNN` triplet pattern that `mission_intro_flow` introduced. mp_room stays at CITRAINING 0x26; swarm tests transition to Felicity 0x43. Commit `24117635` (also adds the 1000 ms `New-SmokeSharedInstall` settle delay).
+
+### Harness extensions delivered this phase
+
+- `fixtures: [{src, dst}]` array in test JSON, copied by `Copy-SmokeFixtures` after install seed and before binary launch. Pre-stages `.pdmod`, agent JSON, or any other file under the install root.
+- `--debug-spawn-at x,y,z,room` boot-flag (port/src/main.c `bootApplyDebugSpawnAt` + `port/src/pdmain.c` mainTick wiring of `bootDebugSpawnAtTick`). Latches at boot, fires once at frame >= 4 via `chrMoveToPos(force=true)`. Deterministic player positioning without depending on AI-script triggers. Commit `fc9645aa`.
+- `target: "pd" | "pd-server"` field in test JSON, switching the install harness between `PerfectDark.exe` and `PerfectDarkServer.exe` (skips ROM seed for pd-server; switches log path to `pd-server.log`; switches firewall rule display name).
+- `runtime_strategy: "harness" | "timeout-kill"` field. `harness` (default for pd target) injects `--smoke <test.json>`, parses the scripted-exit sentinel, gates on exit code 0. `timeout-kill` (default for pd-server target) waits `timeout_seconds` then kills the process; assertions are log-only; non-zero exit code accepted. Both commits `1b581d4d`.
+- `New-SmokeSharedInstall` settle delay: module-scope counter; first call exempt, subsequent calls sleep 1000 ms before wipe / seed to absorb the prior `PerfectDark.exe` atexit log flush race. Commit `24117635`.
+
+### Known gaps in the smoke gate
+
+- **Cross-session install lock missing.** The settle delay is intra-session only; concurrent `run.ps1` invocations across two Claude sessions can still race on `.claude/smoke-verify-install/`. Future hardening: `.claude/smoke-verify-install/.lock` file lock.
+- **`smoke_harness.c` not linked into `pd-server`.** Server tests cannot use the scripted-exit `harness` strategy yet. CMake change to add `port/src/smoke_harness.c` to `SRC_SERVER` is the follow-up; existing pd-server JSON would then opt into `runtime_strategy: harness` without runner changes.
+- **`capsule.c` has zero `sysLogPrintf` sites.** Physics-collision smoke coverage is chain-of-evidence (no AV + tick count) rather than capsule-sweep-direct. Instrumenting `capsuleSweep` entry / `cdTestVolume` early-out unlocks a real `wall_jump_capsule_smoke` sibling.
+- **Save-pillar deeper paths not exercised.** `saveLoadAgent` requires scripted Agent Select UI nav (blocked by post-Combat-Sim crash class in `mp_room_flow`'s deeper Room sub-screens); `saveLoadSystem` is not auto-called at boot; v1->v2 migration lives in `mpsetupfileLoadWad` only.
+- **`--host` log-path quirk in connectivity.** `--host` re-routes the log to `pd-host.log`; the runner's `Get-SmokeLogPath` is hardcoded to `pd-client.log`. Listen-host steady-state coverage requires either reconciling the log path or a two-process driver.
+
+---
+
 ## Active invariants
 
 Per [constraints.md](../constraints.md), [procedures.md](../procedures.md), and the live test files:
