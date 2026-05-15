@@ -38,13 +38,27 @@ void chrSurfaceLocoForceDisabled(struct chrdata *chr);
 /* Clear both override bits. The chr falls back to its race default. */
 void chrSurfaceLocoClearOverride(struct chrdata *chr);
 
-/* Slice 2: sample the floor surface normal under the chr by raycasting
- * three offset positions and triangulating. Result written into out_up
- * (length 3, normalized, world-up bias enforced).
+/* Sample the surface normal "below" the chr along its current local up.
  *
- * Cheap (3x cdFindGroundAtCyl); call once per chr per render frame.
- * Returns 1 if the sample succeeded (out_up is the surface normal),
- * 0 if the surface could not be resolved (out_up = world-up fallback).
+ * Behaviour depends on whether the chr is surface-loco enabled
+ * (chrSurfaceLocoIsEnabled):
+ *
+ *   - Disabled (humans, etc.): legacy world-down sample via
+ *     cdFindFloorRoomYColourNormalPropAtPos. Bit-exact behaviour for
+ *     every non-surface-loco caller.
+ *
+ *   - Enabled (Skedars etc.): Slice 5 upgrade -- raycast along
+ *     -chr->surface_up via cdExamLos08 with FLOOR + WALL + BLOCK_SIGHT
+ *     geometry. Returns the hit geo's normal, flipped to point back
+ *     toward the chr. On flat ground with surface_up == world-up this
+ *     collapses to the legacy behaviour; on walls / ceilings it returns
+ *     the wall / ceiling normal so the chr aligns to climb.
+ *
+ * Result written into out_up (length 3, normalized).
+ * Returns 1 on success.
+ * Returns 0 on raycast miss -- the caller is responsible for triggering
+ * the airborne / drop-back-to-world-up blend (chrSurfaceLocoTick already
+ * does this). out_up is set to world-up on failure.
  */
 bool chrSurfaceLocoSampleFloorNormal(struct chrdata *chr, f32 *out_up);
 

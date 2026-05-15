@@ -97,11 +97,40 @@ void chrSurfaceLocoTick(struct chrdata *chr)
 	const bool ok = chrSurfaceLocoSampleFloorNormal(chr, sampled);
 
 	if (!ok) {
-		/* No surface under chr (vent over a pit, raycast missed). For
-		 * Slice 3 we hold the current surface_up; Slice 5 will add the
-		 * seam-safety hold-then-airborne logic with a frame counter. */
+		/* Slice 5 drop heuristic: raycast along -surface_up missed,
+		 * meaning there is no surface within reach in the chr's current
+		 * local-down direction. Mark airborne and gracefully blend the
+		 * surface_up back to world-up so standard gravity reclaims the
+		 * chr. Hold steady (don't restart the blend) once we're already
+		 * pointed at world-up. */
+		chr->surface_loco_flags |= SURFACE_LOCO_FLAG_AIRBORNE;
+
+		const f32 world_dot = chr->surface_up[1];
+		if (world_dot >= SURFACE_LOCO_BLEND_KICK_COS) {
+			/* Already (effectively) world-up: snap and clear the blend. */
+			chr->surface_up[0] = 0.0f;
+			chr->surface_up[1] = 1.0f;
+			chr->surface_up[2] = 0.0f;
+			if (chr->surface_blend_frames <= 0) {
+				chr->surface_loco_flags &= ~SURFACE_LOCO_FLAG_BLENDING;
+			}
+			return;
+		}
+
+		/* Not yet world-up: kick a blend toward (0,1,0). */
+		chr->surface_up_prev[0] = chr->surface_up[0];
+		chr->surface_up_prev[1] = chr->surface_up[1];
+		chr->surface_up_prev[2] = chr->surface_up[2];
+		chr->surface_up[0] = 0.0f;
+		chr->surface_up[1] = 1.0f;
+		chr->surface_up[2] = 0.0f;
+		chr->surface_blend_frames = SURFACE_LOCO_BLEND_FRAMES;
+		chr->surface_loco_flags |= SURFACE_LOCO_FLAG_BLENDING;
 		return;
 	}
+
+	/* Surface re-acquired: clear airborne. */
+	chr->surface_loco_flags &= ~SURFACE_LOCO_FLAG_AIRBORNE;
 
 	const f32 dot = chr->surface_up[0] * sampled[0]
 			+ chr->surface_up[1] * sampled[1]
@@ -119,7 +148,11 @@ void chrSurfaceLocoTick(struct chrdata *chr)
 		return;
 	}
 
-	/* Larger delta: kick a blend. Save current as prev, target as new. */
+	/* Slice 5 edge / corner blend: a larger delta means a real surface
+	 * transition (floor -> wall, wall -> ceiling, slope -> slope at
+	 * angle). Save current as prev, target as new; the render path
+	 * lerps prev -> target over SURFACE_LOCO_BLEND_FRAMES so the visual
+	 * transition is smooth instead of snapping. */
 	chr->surface_up_prev[0] = chr->surface_up[0];
 	chr->surface_up_prev[1] = chr->surface_up[1];
 	chr->surface_up_prev[2] = chr->surface_up[2];
@@ -173,20 +206,47 @@ void chrSurfaceLocoGetRenderUp(struct chrdata *chr, f32 *out_up)
 	out_up[2] = lz * inv;
 }
 
-/* Sample the floor surface normal under the chr.
+/* Sample the surface normal "below" the chr along its current local-up.
  *
- * cdFindFloorRoomYColourNormalPropAtPos collects the floor geometry the
- * chr is standing on, finds the closest tile under prop->pos, and
- * writes the tile's normal via cdGetGeoNormal. One collision sweep, no
- * triangulation. On a flat floor the normal is (0, 1, 0); on a slope
- * the Y component shrinks proportionally.
+ * BEHAVIOUR BY CHR CLASS
  *
- * Slice 2 visual budget: this runs once per surface-loco chr per render
- * frame, sharing the same collision-collect cost as the chr's existing
- * ground-find. Negligible at 256 Skedars.
+ *   Non-surface-loco chrs (humans, etc.):
+ *     Use the legacy world-down sampler. cdFindFloorRoomYColourNormalPropAtPos
+ *     collects the floor geometry the chr is standing on, finds the closest
+ *     tile under prop->pos, and writes the tile's normal. On a flat floor
+ *     the normal is (0, 1, 0); on a slope the Y component shrinks
+ *     proportionally. This preserves all human/civilian behaviour bit-exact.
  *
- * Slice 3 will replace the world-up sample direction with a ray cast
- * along -surface_up so the chr can detect wall and ceiling surfaces.
+ *   Surface-loco chrs (Skedars by default, scenario opt-in for others):
+ *     Cast a ray from chr->prop->pos along -chr->surface_up out to a
+ *     length of ~1.5 * chr->height + safety pad. If the ray hits BG or
+ *     prop collision, the hit geo's normal becomes the new target up.
+ *     On a flat floor with surface_up == world-up this collapses to the
+ *     same answer as the legacy sampler. On a wall (surface_up horizontal)
+ *     the ray points INTO the wall and returns the wall's normal -- this
+ *     is the wallrun-enabling change.
+ *
+ *     The hit normal is flipped to face the chr (i.e. point opposite the
+ *     ray direction) so the matrix builder always has a consistent
+ *     orientation regardless of which side of the geometry was hit.
+ *
+ *     Edge / corner handling and per-frame blending live in
+ *     chrSurfaceLocoTick (see below). The sampler just returns the best
+ *     instantaneous target normal for THIS frame.
+ *
+ *   Drop heuristic (Slice 5):
+ *     A raycast miss means there is no surface within reach along the
+ *     current surface_up -- the chr has stepped off an edge or has nothing
+ *     to "stand on" along its current local-up. The sampler returns false
+ *     with out_up biased to world-up so the tick layer (or downstream
+ *     consumers like swarm_gpu) gracefully reorient the chr back to
+ *     standard gravity. The tick layer is responsible for kicking the
+ *     blend back to world-up; the sampler stays stateless.
+ *
+ * Cost budget: legacy path uses one cdFindFloorRoomYColourNormalPropAtPos.
+ * Surface-loco path uses one cdExamLos08 (BG + props, GEOFLAG_WALL |
+ * GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2). Comparable cost; both are O(rooms +
+ * props) and run once per chr per tick.
  */
 bool chrSurfaceLocoSampleFloorNormal(struct chrdata *chr, f32 *out_up)
 {
@@ -202,28 +262,102 @@ bool chrSurfaceLocoSampleFloorNormal(struct chrdata *chr, f32 *out_up)
 		return false;
 	}
 
-	struct coord normal = { { 0.0f, 1.0f, 0.0f } };
-	f32 floor_y = -1.0e30f;
-	struct prop *floor_prop = NULL;
-	const RoomNum room = cdFindFloorRoomYColourNormalPropAtPos(
-			&chr->prop->pos,
-			chr->prop->rooms,
-			&floor_y,
-			NULL,
-			&normal,
-			&floor_prop);
+	if (!chrSurfaceLocoIsEnabled(chr)) {
+		/* Legacy world-down sampler for humans / other races. Preserve
+		 * bit-exact behaviour for every non-surface-loco caller. */
+		struct coord normal = { { 0.0f, 1.0f, 0.0f } };
+		f32 floor_y = -1.0e30f;
+		struct prop *floor_prop = NULL;
+		const RoomNum room = cdFindFloorRoomYColourNormalPropAtPos(
+				&chr->prop->pos,
+				chr->prop->rooms,
+				&floor_y,
+				NULL,
+				&normal,
+				&floor_prop);
 
-	(void)room;
-	(void)floor_prop;
+		(void)room;
+		(void)floor_prop;
 
-	if (floor_y <= -1.0e29f) {
-		/* No floor under chr: nothing to align to. Slice 3 will treat
-		 * this case as airborne; for Slice 2 we fall back to world-up
-		 * so the chr renders as if on level ground. */
+		if (floor_y <= -1.0e29f) {
+			return false;
+		}
+
+		if (normal.y < 0.0f) {
+			normal.x = -normal.x;
+			normal.y = -normal.y;
+			normal.z = -normal.z;
+		}
+
+		const f32 len_sq = normal.x * normal.x + normal.y * normal.y + normal.z * normal.z;
+		if (len_sq < 1.0e-6f) {
+			return false;
+		}
+
+		const f32 inv_len = 1.0f / sqrtf(len_sq);
+		out_up[0] = normal.x * inv_len;
+		out_up[1] = normal.y * inv_len;
+		out_up[2] = normal.z * inv_len;
+		return true;
+	}
+
+	/* Surface-loco branch: raycast along -chr->surface_up. */
+
+	f32 sux = chr->surface_up[0];
+	f32 suy = chr->surface_up[1];
+	f32 suz = chr->surface_up[2];
+	const f32 su_len_sq = sux * sux + suy * suy + suz * suz;
+	if (su_len_sq < 1.0e-6f) {
+		/* Degenerate stored up. Fall back to world-up so we don't
+		 * shoot a zero-length ray. */
+		sux = 0.0f;
+		suy = 1.0f;
+		suz = 0.0f;
+	} else if (su_len_sq < 0.999f || su_len_sq > 1.001f) {
+		const f32 inv = 1.0f / sqrtf(su_len_sq);
+		sux *= inv;
+		suy *= inv;
+		suz *= inv;
+	}
+
+	/* Ray distance: 1.5x chr->height gives a comfortable margin past
+	 * the chr's own capsule + room to detect surfaces a bit further
+	 * away (wall the bot is "near" but not yet touching). 200 unit
+	 * minimum so very-small chrs still sample reliably. */
+	f32 ray_len = chr->height * 1.5f;
+	if (ray_len < 200.0f) {
+		ray_len = 200.0f;
+	}
+
+	struct coord from = chr->prop->pos;
+	struct coord to;
+	to.x = from.x - sux * ray_len;
+	to.y = from.y - suy * ray_len;
+	to.z = from.z - suz * ray_len;
+
+	/* cdExamLos08 returns CDRESULT_COLLISION on hit. We want walls
+	 * (climbing geometry), floors (standing on slopes / floors), and
+	 * sight blockers (catch-all for solid block geometry). */
+	const u16 geoflags = GEOFLAG_WALL | GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2 | GEOFLAG_BLOCK_SIGHT;
+	const s32 los = cdExamLos08(&from, chr->prop->rooms, &to, CDTYPE_ALL, geoflags);
+
+	if (los != CDRESULT_COLLISION) {
+		/* No surface within reach along surface_up. Drop heuristic:
+		 * orient back to world-up so the chr falls naturally under
+		 * standard gravity. Caller (chrSurfaceLocoTick) sees the
+		 * false return and kicks the blend. */
 		return false;
 	}
 
-	if (normal.y < 0.0f) {
+	struct coord normal = { { 0.0f, 1.0f, 0.0f } };
+	cdGetObstacleNormal(&normal);
+
+	/* Flip the hit normal so it points back toward the chr (i.e.
+	 * opposite the ray direction = aligned with the chr's surface_up).
+	 * Without this we'd sometimes get the normal pointing INTO the
+	 * geometry on double-sided hits. */
+	const f32 ndotu = normal.x * sux + normal.y * suy + normal.z * suz;
+	if (ndotu < 0.0f) {
 		normal.x = -normal.x;
 		normal.y = -normal.y;
 		normal.z = -normal.z;
