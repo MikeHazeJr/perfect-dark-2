@@ -65,6 +65,18 @@ extern "C" {
 extern bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
 	f32 theta, bool findground);
 
+/* From src/game/surface_loco.c -- per-chr surface-normal locomotion
+ * sampler. Called once per GPU bot per frame to feed the surface_up
+ * vector into the compute kernel. Returns 1 on success, 0 if the floor
+ * under the chr could not be resolved (out_up = world-up fallback).
+ *
+ * This is the CPU-side half of Slice 6 GPU parity. The shader projects
+ * its seek vector onto the surface plane defined by this vector, so
+ * GPU bots on sloped floors (and eventually walls/ceilings, once the
+ * sampler ray-casts along surface_up rather than world-down) move
+ * along the plane just like CPU surface-loco chrs already do. */
+extern bool chrSurfaceLocoSampleFloorNormal(struct chrdata *chr, f32 *out_up);
+
 /* ------------------------------------------------------------------
  * GL 4.3 compute symbols loaded on demand
  * ------------------------------------------------------------------ */
@@ -100,20 +112,29 @@ static swarm_glBindBufferBase_t   s_glBindBufferBase    = NULL;
 #define SWARM_GPU_LOCAL_X    64
 /* GPU hard cap. CPU side TESTSCEN_SWARM_MAX_COUNT is 4096 but the GPU
  * pipeline is currently a stub (seek-player only; no bot AI per B-308,
- * no collision constraints per B-309, no spawn upgrades per B-310, and
- * B-311 FATAL at the 128-bot cycle). Until those land, the GPU side
- * caps at 256 so the SSBO + chr->prop pointer array stay bounded.
- * Audit ref: 2026-05-13-followup-and-migration-sweep.md HF-2. */
+ * no collision constraints per B-309, no spawn upgrades per B-310).
+ * Until those land, the GPU side caps at 256 so the SSBO + chr->prop
+ * pointer array stay bounded. Audit ref:
+ * 2026-05-13-followup-and-migration-sweep.md HF-2.
+ *
+ * B-311 (CHRVTX pool exhaustion at 128+ alive chrs) was fixed at
+ * c029/2026-05-15 by bumping the chr vertex-store pool to 4096 slots
+ * (src/game/vtxstore.c). The SWARM_GPU_SAFE_MAX=64 runtime warning that
+ * surfaced the B-311 workaround in-context has been retired; users can
+ * now climb the full ladder up to SWARM_GPU_MAX without the display-list
+ * corruption class. */
 #define SWARM_GPU_MAX        256
-/* Safe operating ceiling below which GPU swarm is known to function
- * cleanly. Above this, the B-311 FATAL display-list class can fire
- * during cycle transitions. Logged as a runtime warning so users see
- * the workaround in-context. */
-#define SWARM_GPU_SAFE_MAX   64
 
 struct boid_record {
 	float px, py, pz, _pad_p;   /* vec4 alignment for std430 */
 	float vx, vy, vz, _pad_v;
+	/* Slice 6 GPU surface-loco parity: per-bot surface-normal vector,
+	 * sampled CPU-side every frame from chrSurfaceLocoSampleFloorNormal
+	 * and consumed shader-side to project the seek vector onto the
+	 * surface plane. Defaults to world-up (0,1,0) when the floor
+	 * cannot be resolved, which makes the projection a no-op and the
+	 * pre-Slice-6 XZ seek behaviour falls out naturally. .w spare. */
+	float sux, suy, suz, _pad_u;
 };
 
 struct swarm_params {
@@ -143,6 +164,7 @@ layout(local_size_x = 64) in;
 struct Boid {
     float px, py, pz, _pp;
     float vx, vy, vz, _pv;
+    float sux, suy, suz, _pu;
 };
 
 layout(std430, binding = 0) buffer Boids {
@@ -162,7 +184,29 @@ void main() {
     if (i >= uint(P.count)) return;
 
     vec3 pos = vec3(b[i].px, b[i].py, b[i].pz);
-    vec3 to_player = vec3(P.player_x - pos.x, 0.0, P.player_z - pos.z);
+
+    /* Slice 6 GPU surface-loco parity: seek vector is now full 3D and
+     * is projected onto the surface plane defined by the per-bot
+     * surface_up vector. For flat floors (surface_up == world-up), the
+     * dot-product term is zero on X/Z and the projection degrades to
+     * the prior XZ-only seek. For sloped floors, walls, and ceilings,
+     * the seek runs along the plane just like the CPU-side
+     * chrSurfaceLocoTick path does for CPU swarm bots. */
+    vec3 surface_up = vec3(b[i].sux, b[i].suy, b[i].suz);
+    /* Defensive normalize: CPU sampler returns a unit vector on
+     * success and (0,1,0) on failure, but we cheap-guard against
+     * pathological zero just in case. */
+    float sup_len = length(surface_up);
+    if (sup_len < 0.001) {
+        surface_up = vec3(0.0, 1.0, 0.0);
+    } else {
+        surface_up /= sup_len;
+    }
+
+    vec3 to_player = vec3(P.player_x - pos.x,
+                          P.player_y - pos.y,
+                          P.player_z - pos.z);
+    to_player -= dot(to_player, surface_up) * surface_up;
     float d = length(to_player);
     if (d > 1.0) {
         float step = P.max_speed * P.dt * 60.0;
@@ -171,10 +215,9 @@ void main() {
             speed = d / (P.dt * 60.0);
         }
         vec3 vel = (to_player / d) * speed;
-        pos.x += vel.x * P.dt * 60.0;
-        pos.z += vel.z * P.dt * 60.0;
+        pos += vel * P.dt * 60.0;
         b[i].vx = vel.x;
-        b[i].vy = 0.0;
+        b[i].vy = vel.y;
         b[i].vz = vel.z;
     }
     b[i].px = pos.x;
@@ -315,32 +358,36 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	if (count > SWARM_GPU_MAX) count = SWARM_GPU_MAX;
 	if (!ensure_resources())  return;
 
-	/* Rate-limited B-311 warning. The GPU pipeline can crash above
-	 * SWARM_GPU_SAFE_MAX (per bugs.md B-311). Surface the workaround
-	 * in-context instead of letting users discover it via crash. */
-	if (count > SWARM_GPU_SAFE_MAX) {
-		static u32 s_LastWarn = 0;
-		u32 now = SDL_GetTicks();
-		if (now - s_LastWarn > 5000) {
-			s_LastWarn = now;
-			sysLogPrintf(LOG_WARNING,
-				"BENCHMARK.SWARM.GPU: count=%d exceeds safe ceiling %d "
-				"(B-311 GPU compute kernel scaling). Workaround: stay at "
-				"or below %d alive in GPU mode until B-308/B-309/B-310 "
-				"+ B-311 fixes ship.",
-				count, SWARM_GPU_SAFE_MAX, SWARM_GPU_SAFE_MAX);
-		}
-	}
+	/* B-311 SAFE_MAX=64 rate-limited warning retired at c029/2026-05-15.
+	 * The CHRVTX pool exhaustion that caused display-list corruption at
+	 * 128+ alive chrs was structurally fixed by bumping the chr vtxstore
+	 * slot count to 4096; the runtime workaround is no longer needed. */
 
-	/* Upload current chr positions into the boid SSBO. CPU is the source
-	 * of truth between frames; the GPU just advances. */
+	/* Upload current chr positions + per-bot surface_up into the boid
+	 * SSBO. CPU is the source of truth between frames; the GPU just
+	 * advances. The surface_up sample is the Slice 6 hook into the
+	 * CPU surface-loco path: chrSurfaceLocoSampleFloorNormal raycasts
+	 * the floor under the chr and returns the surface normal. The
+	 * shader projects its seek vector onto that plane. On flat ground
+	 * the normal is (0,1,0) and the projection collapses to the
+	 * pre-Slice-6 XZ seek behaviour. */
 	memset(s_BoidScratch, 0, sizeof(boid_record) * SWARM_GPU_MAX);
 	for (s32 i = 0; i < count; i++) {
 		struct chrdata *chr = chrs[i];
+		/* Default to world-up; sampler overrides on success. */
+		s_BoidScratch[i].sux = 0.0f;
+		s_BoidScratch[i].suy = 1.0f;
+		s_BoidScratch[i].suz = 0.0f;
 		if (chr && chr->prop) {
 			s_BoidScratch[i].px = chr->prop->pos.x;
 			s_BoidScratch[i].py = chr->prop->pos.y;
 			s_BoidScratch[i].pz = chr->prop->pos.z;
+
+			f32 sup[3];
+			(void)chrSurfaceLocoSampleFloorNormal(chr, sup);
+			s_BoidScratch[i].sux = sup[0];
+			s_BoidScratch[i].suy = sup[1];
+			s_BoidScratch[i].suz = sup[2];
 		}
 	}
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_BoidSsbo);
