@@ -1,0 +1,61 @@
+{
+  "scenario_name": "dedicated_server_boot_smoke",
+  "description": "c115 server-pillar coverage: proves PerfectDarkServer.exe boots cleanly to the main loop on a vanilla, no-config invocation. The dedicated server target does NOT link smoke_harness.c (see CMakeLists.txt SRC_SERVER -- the harness is client-only), so this test uses the runtime_strategy='timeout-kill' workflow: launch with vanilla CLI args, wait timeout_seconds, then teardown the long-running daemon process. Assertions are log-only. Confirms the canonical boot sequence: sysInit -> fsInit -> updaterInit (skipped via --no-update-check) -> assetCatalogInit + base BYOR registration -> netInit -> hubInit -> serverBansInit (clean install -> 'no ban file' marker) -> serverAdminInit (no token -> 'no admin token configured' marker) -> SDL_Init (headless via --headless) -> netStartServer -> 'Listening on port' -> 'Entering main loop'. Note: the 'NET: dedicated server mode enabled' line in netInit() is gated on sysArgCheck('--dedicated') (the in-client path), not on g_NetDedicated -- it fires for the client launched with --dedicated, not for the standalone PerfectDarkServer.exe, so this test does NOT assert it. The dedicated path skips the ROM hash check at CLC_AUTH (per context/pillars/server.md): no ROM is loaded, so this test does NOT seed a ROM file in the install dir (Install-Harness.ps1's Target=pd-server branch). Failure modes guarded: ENet init failure (NET: could not init ENet), bind failure (NET: could not create ENet host on port), unexpected ROM check firing (would only happen if g_NetDedicated invariant breaks), and a SERVER: Failed to start error log. First server-pillar smoke fixture; future regression of the pd-server bring-up path lights up here.",
+  "tags": ["server", "dedicated", "smoke", "pillar:server", "boot", "stability"],
+  "paths_of_interest": [
+    "port/src/server_main.c",
+    "port/src/server_stubs.c",
+    "port/src/server_bridge.c",
+    "port/src/net/net.c",
+    "port/src/hub.c",
+    "port/src/server_admin.c",
+    "port/src/server_bans.c",
+    "tools/smoke-verify/run.ps1",
+    "tools/smoke-verify/lib/Install-Harness.ps1",
+    "CMakeLists.txt"
+  ],
+  "target": "pd-server",
+  "runtime_strategy": "timeout-kill",
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 12,
+  "install_state": "clean",
+  "boot_args": [
+    "--headless",
+    "--port", "27200",
+    "--maxclients", "4",
+    "--no-update-check"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "no scripted input: pd-server has no harness link, so smoke event injection is not wired. Documented here for parity with client tests so future readers know the absence is intentional." },
+    { "at_ms": 11000, "type": "exit", "comment": "advisory only -- timeout-kill workflow tears the process down at timeout_seconds (12s); the daemon never auto-exits. 12s covers cold-start variance: SDL_Init(timer), netInit + ENet bind, assetCatalog registration, hubInit, ban/admin parse. Recorded server boot lands the 'Entering main loop' marker around 1.5s." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "NET: using protocol version \\d+",
+      "NET: created server on port 27200",
+      "HUB: initialised, state=LOUNGE",
+      "BANS: no ban file at .* \\(0 bans loaded\\)",
+      "ADMIN: no admin token configured",
+      "SERVER: Running in headless mode",
+      "SERVER: Listening on port 27200 \\(max 4 clients\\)",
+      "SERVER: Entering main loop"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SERVER: Failed to start",
+      "SERVER: SDL_Init failed",
+      "SERVER: SDL_CreateWindow failed",
+      "SERVER: SDL_GL_CreateContext failed",
+      "NET: could not init ENet, disabling networking",
+      "NET: could not create ENet host on port \\d+",
+      "CLC_AUTH: ROM hash check fired",
+      "LOUDFAIL\\.LOAD: .*unrecoverable"
+    ],
+    "required_counts": [
+      { "pattern": "SERVER: Entering main loop", "min": 1, "max": 1 },
+      { "pattern": "NET: created server on port 27200", "min": 1, "max": 1 }
+    ]
+  }
+}

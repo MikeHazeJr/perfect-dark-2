@@ -294,6 +294,38 @@ function Invoke-SmokeTest {
         $installState = [string]$def.install_state
     }
 
+    # c115 server-pillar extension (2026-05-14). Test JSON gains two
+    # optional fields:
+    #
+    #   target            "pd" (default) -> PerfectDark.exe + pd-client.log
+    #                     "pd-server"   -> PerfectDarkServer.exe + pd-server.log
+    #
+    #   runtime_strategy  "harness" (default) -> launch with `--smoke <path>`
+    #                                            and trust the harness sentinel
+    #                                            (only valid when smoke_harness.c
+    #                                            is compiled into the target;
+    #                                            today that is pd only).
+    #                     "timeout-kill"      -> launch with boot_args only,
+    #                                            wait timeout_seconds, then Kill
+    #                                            the process and rely on
+    #                                            log-only assertions. Non-zero
+    #                                            exit code is acceptable.
+    #
+    # pd-server defaults to "timeout-kill" because the server target does NOT
+    # link smoke_harness.c (see CMakeLists.txt SRC_SERVER). If a future
+    # commit adds smoke_harness.c to SRC_SERVER, set runtime_strategy
+    # explicitly in the test JSON to opt back in.
+    $target = "pd"
+    if ($def.PSObject.Properties.Match('target').Count -gt 0 -and $def.target) {
+        $target = [string]$def.target
+    }
+    $runtimeStrategy = "harness"
+    if ($def.PSObject.Properties.Match('runtime_strategy').Count -gt 0 -and $def.runtime_strategy) {
+        $runtimeStrategy = [string]$def.runtime_strategy
+    } elseif ($target -eq "pd-server") {
+        $runtimeStrategy = "timeout-kill"
+    }
+
     if (-not (Test-Path -LiteralPath $RunRoot)) {
         New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
     }
@@ -314,7 +346,8 @@ function Invoke-SmokeTest {
             -TestName $name `
             -InstallState $installState `
             -SourceBinary $BinaryOverride `
-            -SourceRom $RomOverride
+            -SourceRom $RomOverride `
+            -Target $target
     } else {
         $installInfo = New-SmokeInstall `
             -RunRoot $RunRoot `
@@ -322,7 +355,8 @@ function Invoke-SmokeTest {
             -InstallState $installState `
             -SourceBinary $BinaryOverride `
             -SourceRom $RomOverride `
-            -ProjectRoot $ProjectRoot
+            -ProjectRoot $ProjectRoot `
+            -Target $target
     }
 
     Write-Info ("  install dir: {0}" -f $installInfo.InstallDir)
@@ -349,17 +383,36 @@ function Invoke-SmokeTest {
     # is the side that fires "result=timeout", not the runner.
     $watchdogSeconds = $timeoutSeconds + 60
 
-    # Assemble process args
-    $exe = Join-Path $installInfo.InstallDir "PerfectDark.exe"
+    # Assemble process args. ExeName comes from the install harness so
+    # the runner stays target-agnostic (pd vs pd-server).
+    $exeLeaf = "PerfectDark.exe"
+    if ($installInfo.PSObject.Properties.Match('ExeName').Count -gt 0 -and $installInfo.ExeName) {
+        $exeLeaf = [string]$installInfo.ExeName
+    }
+    $exe = Join-Path $installInfo.InstallDir $exeLeaf
     if (-not (Test-Path -LiteralPath $exe)) {
-        throw "PerfectDark.exe missing inside install dir after seeding: $exe"
+        throw "$exeLeaf missing inside install dir after seeding: $exe"
     }
 
     $bootArgs = @()
     if ($def.PSObject.Properties.Match('boot_args').Count -gt 0) {
         $bootArgs = @($def.boot_args)
     }
-    $allArgs = @("--smoke", $Test.Path, "--no-crash-handler") + $bootArgs
+
+    # c115 server-pillar extension (2026-05-14). The "harness" strategy
+    # injects `--smoke <path>` and `--no-crash-handler` because the
+    # client smoke harness reads the JSON, schedules input/exit events,
+    # and emits the SMOKE: result=... sentinel on atexit. The
+    # "timeout-kill" strategy is for binaries that do not link
+    # smoke_harness.c (today: pd-server) -- the runner launches with
+    # boot_args only and tears down the process after timeout_seconds.
+    if ($runtimeStrategy -eq "harness") {
+        $allArgs = @("--smoke", $Test.Path, "--no-crash-handler") + $bootArgs
+    } else {
+        $allArgs = @() + $bootArgs
+    }
+    Write-Info ("  target: {0} ({1})" -f $target, $exeLeaf)
+    Write-Info ("  strategy: {0}" -f $runtimeStrategy)
 
     $started = Get-Date
     $proc = $null
@@ -406,16 +459,40 @@ function Invoke-SmokeTest {
         if (-not $proc) {
             throw "ProcessStartInfo returned null Process"
         }
-        if (-not $proc.WaitForExit($watchdogSeconds * 1000)) {
-            Write-Warn ("Watchdog firing after {0}s; terminating PerfectDark.exe (pid {1})." -f $watchdogSeconds, $proc.Id)
-            try { $proc.Kill() } catch {}
-            try { $proc.WaitForExit(5000) | Out-Null } catch {}
-            $exitCode = -2
+        if ($runtimeStrategy -eq "timeout-kill") {
+            # c115 server-pillar extension (2026-05-14): the binary is
+            # expected to run forever (pd-server has no auto-exit path);
+            # let it boot, then kill it after timeout_seconds. The
+            # assertions are log-only -- non-zero exit code is treated as
+            # acceptable for this strategy.
+            if (-not $proc.WaitForExit($timeoutSeconds * 1000)) {
+                Write-Info ("  timeout-kill: shutting down {0} (pid {1}) after {2}s." -f $exeLeaf, $proc.Id, $timeoutSeconds)
+                try { $proc.Kill() } catch {}
+                try { $proc.WaitForExit(5000) | Out-Null } catch {}
+                # Exit code from Kill() is 1 / -1 / 0xC000013A on Windows
+                # depending on the binary; we record it but don't gate on it.
+                try { $exitCode = $proc.ExitCode } catch { $exitCode = -2 }
+            } else {
+                # Process exited on its own before the timeout. That's
+                # unusual for pd-server (it's a long-running daemon) --
+                # treat as a hint that something failed; surface the
+                # actual exit code and let the log assertions catch the
+                # real failure (e.g. "SERVER: Failed to start").
+                $exitCode = $proc.ExitCode
+                Write-Info ("  timeout-kill: process exited early with code {0}." -f $exitCode)
+            }
         } else {
-            $exitCode = $proc.ExitCode
+            if (-not $proc.WaitForExit($watchdogSeconds * 1000)) {
+                Write-Warn ("Watchdog firing after {0}s; terminating {1} (pid {2})." -f $watchdogSeconds, $exeLeaf, $proc.Id)
+                try { $proc.Kill() } catch {}
+                try { $proc.WaitForExit(5000) | Out-Null } catch {}
+                $exitCode = -2
+            } else {
+                $exitCode = $proc.ExitCode
+            }
         }
     } catch {
-        Write-Fail ("Failed to launch PerfectDark.exe: {0}" -f $_.Exception.Message)
+        Write-Fail ("Failed to launch {0}: {1}" -f $exeLeaf, $_.Exception.Message)
         $exitCode = -3
     }
     $elapsed = ((Get-Date) - $started).TotalSeconds
@@ -427,8 +504,12 @@ function Invoke-SmokeTest {
     # Process.ExitCode returns 0 even though the harness's atexit
     # path was skipped (forced terminate, ucrt assert popup) -- the
     # sentinel only exists when smokeHarnessExit actually ran.
-    $logPathPre = Get-SmokeLogPath -InstallDir $installInfo.InstallDir
-    if ($logPathPre -and (Test-Path -LiteralPath $logPathPre)) {
+    #
+    # Sentinel override is harness-only. timeout-kill never emits a
+    # sentinel (the harness isn't linked), so we skip the parse and
+    # leave the OS exit code untouched.
+    $logPathPre = Get-SmokeLogPath -InstallDir $installInfo.InstallDir -Target $target
+    if ($runtimeStrategy -eq "harness" -and $logPathPre -and (Test-Path -LiteralPath $logPathPre)) {
         try {
             $sentinel = Select-String -LiteralPath $logPathPre `
                 -Pattern 'SMOKE: result=\S+\s+scenario=.+?\s+elapsed_ms=\d+\s+events_fired=\d+/\d+\s+code=(-?\d+)' `
@@ -445,7 +526,7 @@ function Invoke-SmokeTest {
         }
     }
 
-    $logPath = Get-SmokeLogPath -InstallDir $installInfo.InstallDir
+    $logPath = Get-SmokeLogPath -InstallDir $installInfo.InstallDir -Target $target
     Write-Info ("  log: {0}" -f $logPath)
     Write-Info ("  exit code: {0}" -f $exitCode)
     Write-Info ("  elapsed: {0:N1}s" -f $elapsed)
@@ -464,14 +545,24 @@ function Invoke-SmokeTest {
     # strict-mode crash.
     $assertResult = Invoke-SmokeAssertions -LogPath $logPath -Assertions $assertions -VerboseAssertions:$VerboseEval
 
-    $testOk = $assertResult.Passed -and ($exitCode -eq 0)
-    $reasonExitNonZero = $false
-    if ($exitCode -ne 0 -and $assertResult.Passed) {
-        # The runner expects the harness to exit 0 on scripted-exit. A non-zero
-        # exit when assertions pass suggests timeout-fired or the binary
-        # crashed; treat as a failure but log it explicitly.
-        $reasonExitNonZero = $true
-        $testOk = $false
+    # c115 server-pillar extension (2026-05-14): the timeout-kill strategy
+    # tears down the process forcibly after timeout_seconds, so a non-zero
+    # exit code is the expected steady state. Gate solely on assertions
+    # for that strategy. The harness strategy keeps the historical
+    # exit-code-must-be-zero requirement.
+    if ($runtimeStrategy -eq "timeout-kill") {
+        $testOk = $assertResult.Passed
+        $reasonExitNonZero = $false
+    } else {
+        $testOk = $assertResult.Passed -and ($exitCode -eq 0)
+        $reasonExitNonZero = $false
+        if ($exitCode -ne 0 -and $assertResult.Passed) {
+            # The runner expects the harness to exit 0 on scripted-exit. A non-zero
+            # exit when assertions pass suggests timeout-fired or the binary
+            # crashed; treat as a failure but log it explicitly.
+            $reasonExitNonZero = $true
+            $testOk = $false
+        }
     }
 
     foreach ($line in (Format-AssertionFailures -Result $assertResult)) {

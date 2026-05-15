@@ -69,19 +69,26 @@ function Get-SmokeProjectRoot {
 function Find-SourceBinary {
     [CmdletBinding()] param(
         [Parameter(Mandatory)] [string] $ProjectRoot,
-        [string] $ExplicitPath = ""
+        [string] $ExplicitPath = "",
+        [string] $Target = "pd"
     )
 
     if ($ExplicitPath -and (Test-Path -LiteralPath $ExplicitPath)) {
         return (Resolve-Path -LiteralPath $ExplicitPath).Path
     }
 
+    # c115 server-pillar extension (2026-05-14): pd-server target maps to
+    # PerfectDarkServer.exe, otherwise fall back to the client exe. The
+    # session-build search path is shared because devtools/build-session.ps1
+    # writes both targets into the same session dir.
+    $exeName = if ($Target -eq "pd-server") { "PerfectDarkServer.exe" } else { "PerfectDark.exe" }
+
     $candidates = @()
-    $candidates += Join-Path $ProjectRoot "Build\PerfectDark.exe"
+    $candidates += Join-Path $ProjectRoot (Join-Path "Build" $exeName)
     $sessionRoot = Join-Path $ProjectRoot ".claude\session-builds"
     if (Test-Path -LiteralPath $sessionRoot) {
         $candidates += Get-ChildItem -LiteralPath $sessionRoot -Directory -ErrorAction SilentlyContinue |
-            ForEach-Object { Join-Path $_.FullName "PerfectDark.exe" }
+            ForEach-Object { Join-Path $_.FullName $exeName }
     }
 
     foreach ($c in $candidates) {
@@ -132,7 +139,8 @@ function New-SmokeInstall {
         [string] $InstallState = "clean",
         [string] $SourceBinary = "",
         [string] $SourceRom = "",
-        [string] $ProjectRoot = ""
+        [string] $ProjectRoot = "",
+        [string] $Target = "pd"
     )
 
     if (-not $ProjectRoot) { $ProjectRoot = Get-SmokeProjectRoot }
@@ -141,29 +149,36 @@ function New-SmokeInstall {
     $installDir = Join-Path $RunRoot $stampedName
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 
-    $bin = Find-SourceBinary -ProjectRoot $ProjectRoot -ExplicitPath $SourceBinary
+    $exeName = if ($Target -eq "pd-server") { "PerfectDarkServer.exe" } else { "PerfectDark.exe" }
+    $bin = Find-SourceBinary -ProjectRoot $ProjectRoot -ExplicitPath $SourceBinary -Target $Target
     if (-not $bin) {
-        throw "Cannot find PerfectDark.exe to seed the smoke install. Build the client first or pass -SourceBinary."
+        throw "Cannot find $exeName to seed the smoke install. Build the corresponding target first or pass -SourceBinary."
     }
+    Copy-Item -LiteralPath $bin -Destination (Join-Path $installDir $exeName) -Force
 
-    $rom = Find-SourceRom -ProjectRoot $ProjectRoot -ExplicitPath $SourceRom
-    if (-not $rom) {
-        throw "Cannot find pd.<romid>.z64 to seed the smoke install. Place a ROM in the project root or pass -SourceRom."
-    }
+    # c115 server-pillar extension (2026-05-14): dedicated server target has
+    # no ROM-load path (CLC_AUTH skips the ROM hash check when g_NetDedicated
+    # is set). Skip the ROM seed for pd-server so tests do not gate on a
+    # ROM being present; for the client target the ROM remains mandatory.
+    $rom = $null
+    $romId = ""
+    if ($Target -ne "pd-server") {
+        $rom = Find-SourceRom -ProjectRoot $ProjectRoot -ExplicitPath $SourceRom
+        if (-not $rom) {
+            throw "Cannot find pd.<romid>.z64 to seed the smoke install. Place a ROM in the project root or pass -SourceRom."
+        }
+        Copy-Item -LiteralPath $rom -Destination (Join-Path $installDir ([System.IO.Path]::GetFileName($rom))) -Force
+        $romId = Get-RomIdFromName -RomPath $rom
 
-    Copy-Item -LiteralPath $bin -Destination (Join-Path $installDir "PerfectDark.exe") -Force
-    Copy-Item -LiteralPath $rom -Destination (Join-Path $installDir ([System.IO.Path]::GetFileName($rom))) -Force
-
-    $romId = Get-RomIdFromName -RomPath $rom
-
-    if ($InstallState -eq "prefilled") {
-        $cache = Join-Path $ProjectRoot (".claude\smoke-verify-cache\$romId")
-        if (Test-Path -LiteralPath $cache) {
-            $dataDir = Join-Path $installDir "data"
-            New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
-            Copy-Item -LiteralPath $cache -Destination (Join-Path $dataDir $romId) -Recurse -Force
-        } else {
-            Write-Warning ("Prefilled cache not found at {0}; falling back to clean state for this run." -f $cache)
+        if ($InstallState -eq "prefilled") {
+            $cache = Join-Path $ProjectRoot (".claude\smoke-verify-cache\$romId")
+            if (Test-Path -LiteralPath $cache) {
+                $dataDir = Join-Path $installDir "data"
+                New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+                Copy-Item -LiteralPath $cache -Destination (Join-Path $dataDir $romId) -Recurse -Force
+            } else {
+                Write-Warning ("Prefilled cache not found at {0}; falling back to clean state for this run." -f $cache)
+            }
         }
     }
 
@@ -173,6 +188,8 @@ function New-SmokeInstall {
         SourceRom = $rom
         RomId = $romId
         InstallState = $InstallState
+        Target = $Target
+        ExeName = $exeName
     }
 }
 
@@ -204,7 +221,8 @@ function New-SmokeSharedInstall {
         [Parameter(Mandatory)] [string] $TestName,
         [string] $InstallState = "clean",
         [string] $SourceBinary = "",
-        [string] $SourceRom = ""
+        [string] $SourceRom = "",
+        [string] $Target = "pd"
     )
 
     $installDir = Join-Path $ProjectRoot ".claude\smoke-verify-install"
@@ -225,18 +243,13 @@ function New-SmokeSharedInstall {
     }
     $script:SmokeSharedInstallCount++
 
-    $bin = Find-SourceBinary -ProjectRoot $ProjectRoot -ExplicitPath $SourceBinary
+    $exeName = if ($Target -eq "pd-server") { "PerfectDarkServer.exe" } else { "PerfectDark.exe" }
+    $bin = Find-SourceBinary -ProjectRoot $ProjectRoot -ExplicitPath $SourceBinary -Target $Target
     if (-not $bin) {
-        throw "Cannot find PerfectDark.exe to seed the shared smoke install. Build the client first or pass -SourceBinary."
+        throw "Cannot find $exeName to seed the shared smoke install. Build the corresponding target first or pass -SourceBinary."
     }
 
-    $rom = Find-SourceRom -ProjectRoot $ProjectRoot -ExplicitPath $SourceRom
-    if (-not $rom) {
-        throw "Cannot find pd.<romid>.z64 to seed the shared smoke install. Place a ROM in the project root or pass -SourceRom."
-    }
-
-    $destBin = Join-Path $installDir "PerfectDark.exe"
-    $destRom = Join-Path $installDir ([System.IO.Path]::GetFileName($rom))
+    $destBin = Join-Path $installDir $exeName
 
     # Refresh binary only if source is newer or sizes differ.
     $copyBin = $true
@@ -251,34 +264,54 @@ function New-SmokeSharedInstall {
         Copy-Item -LiteralPath $bin -Destination $destBin -Force
     }
 
-    # Always refresh ROM file (cheap; ensures tests start consistent).
-    Copy-Item -LiteralPath $rom -Destination $destRom -Force
+    # c115 server-pillar extension (2026-05-14): dedicated server has no
+    # ROM-load path -- pd-server's CLC_AUTH skips the ROM hash check
+    # because no ROM is loaded. Skip the ROM seed for pd-server so the
+    # test does not gate on a ROM being present. The client target keeps
+    # the ROM seed mandatory.
+    $rom = $null
+    $romId = ""
+    $logFileName = if ($Target -eq "pd-server") { "pd-server.log" } else { "pd-client.log" }
+    if ($Target -ne "pd-server") {
+        $rom = Find-SourceRom -ProjectRoot $ProjectRoot -ExplicitPath $SourceRom
+        if (-not $rom) {
+            throw "Cannot find pd.<romid>.z64 to seed the shared smoke install. Place a ROM in the project root or pass -SourceRom."
+        }
+        $destRom = Join-Path $installDir ([System.IO.Path]::GetFileName($rom))
+        # Always refresh ROM file (cheap; ensures tests start consistent).
+        Copy-Item -LiteralPath $rom -Destination $destRom -Force
+        $romId = Get-RomIdFromName -RomPath $rom
 
-    # Stale prior test artefacts in the shared dir: nuke pd-client.log so
-    # the test sees a fresh log, and remove any prior data/<romid>/ dir
-    # so install_state semantics are honoured cleanly.
-    $logPath = Join-Path $installDir "pd-client.log"
-    if (Test-Path -LiteralPath $logPath) {
-        Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
-    }
-    $romId = Get-RomIdFromName -RomPath $rom
-    $existingDataDir = Join-Path $installDir "data\$romId"
-    if (Test-Path -LiteralPath $existingDataDir) {
-        Remove-Item -LiteralPath $existingDataDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
+        $existingDataDir = Join-Path $installDir "data\$romId"
+        if (Test-Path -LiteralPath $existingDataDir) {
+            Remove-Item -LiteralPath $existingDataDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
 
-    if ($InstallState -eq "prefilled") {
-        $cache = Join-Path $ProjectRoot (".claude\smoke-verify-cache\$romId")
-        if (Test-Path -LiteralPath $cache) {
-            $dataDir = Join-Path $installDir "data"
-            New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
-            Copy-Item -LiteralPath $cache -Destination (Join-Path $dataDir $romId) -Recurse -Force
-        } else {
-            Write-Warning ("Prefilled cache not found at {0}; falling back to clean state for this run." -f $cache)
+        if ($InstallState -eq "prefilled") {
+            $cache = Join-Path $ProjectRoot (".claude\smoke-verify-cache\$romId")
+            if (Test-Path -LiteralPath $cache) {
+                $dataDir = Join-Path $installDir "data"
+                New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+                Copy-Item -LiteralPath $cache -Destination (Join-Path $dataDir $romId) -Recurse -Force
+            } else {
+                Write-Warning ("Prefilled cache not found at {0}; falling back to clean state for this run." -f $cache)
+            }
         }
     }
 
+    # Stale prior test artefacts in the shared dir: nuke the relevant log
+    # so the test sees a fresh log file. Client tests target pd-client.log;
+    # server tests target pd-server.log. Both can coexist in the shared
+    # install dir without interference.
+    $logPath = Join-Path $installDir $logFileName
+    if (Test-Path -LiteralPath $logPath) {
+        Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
+    }
+
     # Seed the firewall allow rule against the canonical path (idempotent).
+    # Add a separate rule entry for the server binary so the OS doesn't
+    # prompt on the first pd-server smoke run. The client and server rules
+    # are independent (different DisplayName + program path).
     Add-SmokeFirewallAllowRule -Program $destBin | Out-Null
 
     return [PSCustomObject]@{
@@ -287,6 +320,8 @@ function New-SmokeSharedInstall {
         SourceRom = $rom
         RomId = $romId
         InstallState = $InstallState
+        Target = $Target
+        ExeName = $exeName
     }
 }
 
@@ -325,7 +360,15 @@ function Add-SmokeFirewallAllowRule {
     }
 
     $absProgram = (Resolve-Path -LiteralPath $Program).Path
-    $displayName = "PD2 Smoke Verify"
+    # c115 server-pillar extension (2026-05-14): distinct display names per
+    # exe so the client and server rules can coexist without one path
+    # overwriting the other on every install seed.
+    $exeLeaf = [System.IO.Path]::GetFileName($absProgram)
+    $displayName = if ($exeLeaf -ieq "PerfectDarkServer.exe") {
+        "PD2 Smoke Verify (Server)"
+    } else {
+        "PD2 Smoke Verify"
+    }
 
     # NetSecurity cmdlets are only present on Windows; bail gracefully
     # elsewhere (the smoke runner is Windows-only today, but keep this
@@ -361,8 +404,17 @@ function Add-SmokeFirewallAllowRule {
 }
 
 function Get-SmokeLogPath {
-    [CmdletBinding()] param([Parameter(Mandatory)] [string] $InstallDir)
-    return (Join-Path $InstallDir "pd-client.log")
+    [CmdletBinding()] param(
+        [Parameter(Mandatory)] [string] $InstallDir,
+        [string] $Target = "pd"
+    )
+    # c115 server-pillar extension (2026-05-14): port/src/system.c routes
+    # sysLog output to pd-server.log when g_NetDedicated is set (which
+    # server_main.c does before sysInit). The client target keeps the
+    # historical pd-client.log destination. The two files coexist in the
+    # shared install dir.
+    $leaf = if ($Target -eq "pd-server") { "pd-server.log" } else { "pd-client.log" }
+    return (Join-Path $InstallDir $leaf)
 }
 
 function Copy-SmokeFixtures {
