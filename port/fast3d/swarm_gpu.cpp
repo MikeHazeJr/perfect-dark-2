@@ -14,9 +14,10 @@
  *    seek path.
  *  - Compute shader is compiled lazily on first dispatch and cached for
  *    the program lifetime.
- *  - A single SSBO holds the boid state (pos + vel + alive flag, 32
- *    bytes per boid; capacity = TESTSCEN_SWARM_MAX_COUNT = 256). A
- *    smaller params SSBO carries player_pos / count / max_speed / dt.
+ *  - A single SSBO holds the boid state (pos + vel + surface_up, 48
+ *    bytes per boid; capacity = SWARM_GPU_MAX = TESTSCEN_SWARM_MAX_COUNT
+ *    = 4096 post-c029/2026-05-15). A smaller params SSBO carries
+ *    player_pos / count / max_speed / dt.
  *  - swarmGpuStepAndApply uploads positions from the chr table (so the
  *    CPU is the source of truth between frames -- positions can be
  *    written by despawn / respawn / engine collision response and the
@@ -110,20 +111,38 @@ static swarm_glBindBufferBase_t   s_glBindBufferBase    = NULL;
  * ------------------------------------------------------------------ */
 
 #define SWARM_GPU_LOCAL_X    64
-/* GPU hard cap. CPU side TESTSCEN_SWARM_MAX_COUNT is 4096 but the GPU
- * pipeline is currently a stub (seek-player only; no bot AI per B-308,
- * no collision constraints per B-309, no spawn upgrades per B-310).
- * Until those land, the GPU side caps at 256 so the SSBO + chr->prop
- * pointer array stay bounded. Audit ref:
- * 2026-05-13-followup-and-migration-sweep.md HF-2.
+/* GPU hard cap. Bumped to 4096 at c029/2026-05-15 to match the engine
+ * ceiling (TESTSCEN_SWARM_MAX_COUNT = 4096). The previous 256 cap was a
+ * holding pattern from the pre-B-311 era when the chr vertex pool
+ * (CHRVTX = 120 slots) couldn't sustain a higher cycle; that root cause
+ * was removed at c029/715424c4 (CHRVTX pool bump to 4096). With the
+ * upstream pool removed, the SSBO can grow to the full ladder ceiling.
  *
- * B-311 (CHRVTX pool exhaustion at 128+ alive chrs) was fixed at
- * c029/2026-05-15 by bumping the chr vertex-store pool to 4096 slots
- * (src/game/vtxstore.c). The SWARM_GPU_SAFE_MAX=64 runtime warning that
- * surfaced the B-311 workaround in-context has been retired; users can
- * now climb the full ladder up to SWARM_GPU_MAX without the display-list
- * corruption class. */
-#define SWARM_GPU_MAX        256
+ * Capacity math (c029, 2026-05-15):
+ *  - SSBO    = 4096 * sizeof(boid_record=48) = 196,608 B (~192 KB) once
+ *    at first dispatch via glBufferData. OpenGL 4.3 spec requires
+ *    GL_MAX_SHADER_STORAGE_BLOCK_SIZE >= 128 MB; nVidia/AMD typically
+ *    advertise GB-class limits. Trivial.
+ *  - s_BoidScratch BSS = 4096 * 48 = ~192 KB. Static, no allocation.
+ *  - Per-frame upload = sizeof(boid_record) * count (NOT * SWARM_GPU_MAX);
+ *    scales with active bots, not the cap.
+ *  - Dispatch groups = ceil(count / 64). At 4096 that's 64 groups, far
+ *    under GL_MAX_COMPUTE_WORK_GROUP_COUNT minimum (65535).
+ *  - chrSurfaceLocoSampleFloorNormal CPU cost scales with count; CPU
+ *    swarm already runs 4096 bots through full AI ticks, so this is
+ *    lighter than the CPU path.
+ *
+ * B-309 (collision constraints) and B-310 (spawn upgrades) parity:
+ * spawn_one_skedar() in port/src/swarm_test.c is the SHARED spawn helper
+ * for both methods. Lines 598-624 apply the per-bot radius/height
+ * scaling (30 * scale, 185 * scale) and the perim-disable lock
+ * (0x00040000 + CHRHFLAG_PERIMDISABLED) UNCONDITIONALLY before the
+ * method branch. respawn_volume() / respawn_ring() / respawn_slot() /
+ * death_poll_and_respawn() are also method-agnostic; the volume picker
+ * with 1.2x retry and the 16/frame streaming refill apply to both
+ * methods. So bumping SWARM_GPU_MAX exposes the same collision +
+ * spawn-quality treatment to GPU mode that CPU mode already has. */
+#define SWARM_GPU_MAX        TESTSCEN_SWARM_MAX_COUNT
 
 struct boid_record {
 	float px, py, pz, _pad_p;   /* vec4 alignment for std430 */
