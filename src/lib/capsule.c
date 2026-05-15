@@ -23,6 +23,23 @@
 #include "types.h"
 #include "system.h"
 
+/* CAPSULE: log markers (Track G prep, c038).
+ *
+ * Canonical instrumentation for the physics-collision pillar.  Each marker
+ * uses the "CAPSULE:" prefix so smoke-verify assertions can grep a single
+ * stable token and so the log channel filter routes them with the rest of
+ * the engine logs (no dedicated channel -- prefix is unfiltered, falls
+ * through the default LOG_CH_GAME pass).
+ *
+ * Gated on PD_DEV_BUILD: dev / prerelease / local builds get the lines,
+ * stable release builds compile them out entirely (no printf cost).
+ * capsule.c links into pd only (never pd-server), so the gate is sound. */
+#if defined(PD_DEV_BUILD)
+#define CAPSULE_LOG(...) sysLogPrintf(LOG_NOTE, "CAPSULE: " __VA_ARGS__)
+#else
+#define CAPSULE_LOG(...) ((void)0)
+#endif
+
 /* Number of sub-steps for the sweep. 16 gives ~2-unit resolution for typical
  * jump moves of ~30 units. On modern hardware this is trivially cheap. */
 #define CAPSULE_SWEEP_STEPS 16
@@ -53,6 +70,11 @@ f32 capsuleSweep(struct capsulecast *cast)
 	if (movelen2 < 0.001f) {
 		return 1.0f;
 	}
+
+	CAPSULE_LOG("sweep enter start=(%.1f,%.1f,%.1f) move=(%.1f,%.1f,%.1f) radius=%.1f ymin=%.1f ymax=%.1f",
+			cast->start.x, cast->start.y, cast->start.z,
+			cast->move.x, cast->move.y, cast->move.z,
+			cast->radius, cast->ymin_offset, cast->ymax_offset);
 
 	/* Disable own perim so we don't collide with ourselves */
 	propSetPerimEnabled(g_Vars.currentplayer->prop, false);
@@ -124,11 +146,28 @@ f32 capsuleSweep(struct capsulecast *cast)
 			cast->hitnormal.z = -cast->move.z * invlen;
 
 			propSetPerimEnabled(g_Vars.currentplayer->prop, true);
+
+#if defined(PD_DEV_BUILD)
+			{
+				const char *hitclass;
+				switch (cast->hittype) {
+				case CAPSULE_HIT_FLOOR:   hitclass = "FLOOR";   break;
+				case CAPSULE_HIT_CEILING: hitclass = "CEILING"; break;
+				case CAPSULE_HIT_WALL:    hitclass = "WALL";    break;
+				case CAPSULE_HIT_PROP:    hitclass = "PROP";    break;
+				default:                  hitclass = "NONE";    break;
+				}
+				CAPSULE_LOG("sweep result=BLOCKED type=%s dist=%.3f geoflags=0x%04x step=%d/%d",
+						hitclass, safefrac, cast->hitgeoflags, i, CAPSULE_SWEEP_STEPS);
+			}
+#endif
+
 			return safefrac;
 		}
 	}
 
 	propSetPerimEnabled(g_Vars.currentplayer->prop, true);
+	CAPSULE_LOG("sweep result=CLEAR dist=1.000");
 	return 1.0f;
 }
 
@@ -205,9 +244,12 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
 	}
 
 	if (propFloor > bgGround + 1.0f) {
+		CAPSULE_LOG("findFloor result=PROP y=%.2f bgGround=%.2f flags=0x%04x",
+				propFloor, bgGround, floorflags);
 		return propFloor;
 	}
 
+	CAPSULE_LOG("findFloor result=BG y=%.2f flags=0x%04x", bgGround, floorflags);
 	return bgGround;
 }
 
@@ -277,5 +319,11 @@ f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off
 		}
 	}
 
-	return (propCeiling < bgCeiling) ? propCeiling : bgCeiling;
+	{
+		f32 result = (propCeiling < bgCeiling) ? propCeiling : bgCeiling;
+		CAPSULE_LOG("findCeiling result=%s y=%.2f bgCeiling=%.2f propCeiling=%.2f",
+				(propCeiling < bgCeiling) ? "PROP" : "BG",
+				result, bgCeiling, propCeiling);
+		return result;
+	}
 }
