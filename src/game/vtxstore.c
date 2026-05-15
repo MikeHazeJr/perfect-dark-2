@@ -35,11 +35,50 @@ const char var7f1b54c0[] = "vtxstore: Out of vertices type %d wanted %d free %d 
 const char var7f1b5508[] = "vtxstore: freevertices type %d, list %x\n";
 const char var7f1b5534[] = "freevertices: address not found in array %x\n";
 
+/*
+ * Per-pool sizing for the vertex store sub-allocator.
+ *
+ * Fields: { valifsp, numifsp, valifmp, numifmp, valifspecial, numifspecial,
+ *           unk18, unk1c, unk20, unk24, val1, val2, numallocated }.
+ *
+ * val* = total per-frame VERTEX BUDGET (sum of all live sub-allocations).
+ * num* = SLOT COUNT (number of concurrent sub-allocations the table can hold).
+ *
+ * The four rows index by VTXSTORETYPE_ enum (constants.h:4425-4428):
+ *   [0] CHRVTX  -- chr (character) display-list vertex copies. Allocated
+ *                  exclusively by chrDisfigure (chr.c:4448) when a chr dies
+ *                  and needs its model vertices mutated (per-corpse blood /
+ *                  wound geometry). Freed by chrFreeProp -> modelFreeVertices.
+ *   [1] OBJVTX  -- obj (prop) display-list vertex copies. Allocated by
+ *                  propobj.c:14358 for destructible objects.
+ *   [2] CHRCOL  -- chr display-list colour copies (peer of CHRVTX).
+ *   [3] OBJCOL  -- obj display-list colour copies (peer of OBJVTX).
+ *
+ * B-311 fix (2026-05-15, c029): the original chr-pool counts of 120/80 were
+ * sized for the N64 release (8 player slots + ~16 dynamically-spawned NPCs).
+ * The PC port's Swarm GPU/CPU benchmark scenario spawns up to 4096 Skedars
+ * (TESTSCEN_SWARM_MAX_COUNT). Above ~64-128 concurrent dying chrs the slot
+ * table was exhausted and chrDisfigure silently no-op'd, leaving the disfig
+ * walker iterating ROM-data display lists. Combined with the fast3d 64-bit
+ * opcode truncation (fixed at gfx_pc.cpp:2451), this produced the B-311
+ * "FATAL: Unknown GBI opcode 0xbb0000ff" crash class at 128+ swarm bots.
+ *
+ * Modern PC headroom: 4096 slots * sizeof(var8007e3d0_data)=24 = ~96 KB per
+ * chr pool from MEMPOOL_STAGE (40 MB total). val (vertex budget) bumped to
+ * 200000 so all 4096 slots can hold a worst-case ~50-vertex Skedar DL node
+ * without budget starvation. SP and MP both bumped equally; the Swarm
+ * scenario is most-often exercised in MP, but the SP counts must also cover
+ * solo Combat Sim tests that arm the swarm path.
+ *
+ * OBJVTX / OBJCOL (rows [1] and [3]) untouched -- the destructible-prop
+ * count per stage is bounded by the level designer, not the swarm scenario,
+ * so original 40/20 slot counts remain correct.
+ */
 struct vtxstoretype g_VtxstoreTypes[] = {
-	{ 3000, 120, 3000, 80, 0, 0, 500,  20, 12, 0, 0, 0, 0 },
-	{ 1500, 40,  500,  20, 0, 0, 500,  20, 12, 0, 0, 0, 0 },
-	{ 6000, 120, 6000, 80, 0, 0, 1000, 20, 4,  0, 0, 0, 0 },
-	{ 1500, 40,  500,  20, 0, 0, 500,  20, 4,  0, 0, 0, 0 },
+	{ 200000, 4096, 200000, 4096, 0, 0, 500,  20, 12, 0, 0, 0, 0 },
+	{   1500,   40,    500,   20, 0, 0, 500,  20, 12, 0, 0, 0, 0 },
+	{ 200000, 4096, 200000, 4096, 0, 0, 1000, 20, 4,  0, 0, 0, 0 },
+	{   1500,   40,    500,   20, 0, 0, 500,  20, 4,  0, 0, 0, 0 },
 };
 
 /**
