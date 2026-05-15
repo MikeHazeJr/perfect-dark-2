@@ -707,6 +707,17 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/crash.c
   ${CMAKE_SOURCE_DIR}/port/src/crashbreadcrumb.c
 
+  # c115 (2026-05-15): smoke verify harness on the server target.
+  # Previously client-only -- the harness now compiles into pd-server so
+  # dedicated_server_boot_smoke.json (and any future server-pillar test)
+  # can opt into runtime_strategy='harness' for scripted exit + clean
+  # exit codes. Client-only deps (actionmap*, gfxGetSdlWindow) are
+  # stubbed in server_stubs.c; the action/key/mouse event paths are
+  # no-ops on the server (no input consumers), but the wait/exit/timeout
+  # path is fully functional. server_main.c calls smokeHarnessInit()
+  # after sysInit() and smokeHarnessTick() once per main-loop iteration.
+  ${CMAKE_SOURCE_DIR}/port/src/smoke_harness.c
+
   # Server GUI (ImGui, SDL2, OpenGL -- self-contained)
   ${CMAKE_SOURCE_DIR}/port/fast3d/server_gui.cpp
   ${CMAKE_SOURCE_DIR}/port/fast3d/glad/glad.c

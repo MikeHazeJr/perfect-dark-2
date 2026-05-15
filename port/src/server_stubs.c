@@ -478,8 +478,39 @@ s32 catalogManagerWeaponCount(void) { return 0; }
  * but the registration loop is reachable only via assetCatalogRegisterBaseGame. */
 u16 g_CartFileNums[1] = {0};
 
-/* smoke_harness.c -- client only. The shared system.c references
- * smokeHarnessIsActive() in sysFatalError to skip the modal dialog
- * when the smoke gate is driving the client. The server has no
- * harness, so the stub always returns 0 (harness inactive). */
-int smokeHarnessIsActive(void) { return 0; }
+/* smoke_harness.c -- compiled into pd-server as of c115 (2026-05-15).
+ * The harness itself comes from port/src/smoke_harness.c (now in
+ * SRC_SERVER). The harness pulls in three client-only deps that we
+ * stub here so the pd-server link still resolves:
+ *
+ *   - actionmapResolveByName / actionmapInjectStateForSmoke
+ *     port/src/actionmap.cpp is client-only (it transitively pulls in
+ *     input.h / inputctx.h / inputlayer.h and SDL_GameController state
+ *     that the server never wires up). The server has no input pipeline
+ *     to inject into anyway -- the dedicated server reads nothing from
+ *     keyboards/controllers -- so the resolver returns -1 (unknown name)
+ *     and the inject path is a no-op. Test JSON for pd-server should
+ *     avoid `action` events; `exit`/`wait` events are sufficient for
+ *     scripted-exit boot smokes.
+ *
+ *   - gfxGetSdlWindow
+ *     port/fast3d/gfx_sdl2.cpp is client-only (the server has its own
+ *     window-management path in port/fast3d/server_gui.cpp). The harness
+ *     uses this to stamp synthesised SDL_KEYDOWN/etc. events with a
+ *     valid windowID so ImGui's SDL2 backend doesn't drop them. The
+ *     server has no need to push key events at all (no input
+ *     consumers); returning NULL causes the harness to fall back to
+ *     SDL_GetKeyboardFocus / SDL_GetMouseFocus inside smokeResolveWindowId,
+ *     and ultimately to windowID=0 which is also fine because nothing
+ *     on the server consumes synthesised input events.
+ */
+struct SDL_Window;
+struct SDL_Window *gfxGetSdlWindow(void) { return NULL; }
+s32 actionmapResolveByName(const char *name) { (void)name; return -1; }
+s32 actionmapInjectStateForSmoke(s32 player, s32 action, s32 down)
+{
+    (void)player;
+    (void)action;
+    (void)down;
+    return 0;
+}

@@ -39,6 +39,7 @@
 #include "updateversion.h"
 #include "server_admin.h"
 #include "server_bans.h"
+#include "smoke_harness.h"
 
 /* Functions stubbed in server_stubs.c */
 extern void conInit(void);
@@ -403,6 +404,15 @@ int main(int argc, char **argv)
 
     sysLogPrintf(LOG_NOTE, "SERVER: Entering main loop");
 
+    /* c115 (2026-05-15): smoke verify harness init. No-op when --smoke
+     * is not present. Must come after SDL_Init (the harness uses
+     * SDL_GetTicks for event scheduling) and after configInit /
+     * sysLogSet* registration so the test-declared channel mask + verbose
+     * flag override pd.ini cleanly. Action/key/mouse event paths are no-ops
+     * on pd-server (no input consumers) but the wait/exit/timeout path
+     * still runs -- that's what server-pillar boot smokes use. */
+    (void)smokeHarnessInit();
+
     /* === Main loop === */
     s32 running = 1;
     while (running && !s_ShutdownRequested) {
@@ -416,6 +426,14 @@ int main(int argc, char **argv)
                 serverGuiProcessEvent(&ev);
             }
         }
+
+        /* c115 (2026-05-15): smoke verify tick. Cheap no-op when the
+         * harness is inactive (no --smoke flag); when active it dispatches
+         * scheduled events, fires the timeout exit, and writes the
+         * SMOKE: result=... sentinel before exit(). Placed before the
+         * heavy network tick so a scripted exit fires promptly without
+         * one final round-trip through the network code. */
+        smokeHarnessTick();
 
         /* D13: Tick update system + log if check just completed */
         updaterTick();

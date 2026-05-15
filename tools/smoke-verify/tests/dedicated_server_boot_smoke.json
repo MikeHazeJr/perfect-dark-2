@@ -1,11 +1,12 @@
 {
   "scenario_name": "dedicated_server_boot_smoke",
-  "description": "c115 server-pillar coverage: proves PerfectDarkServer.exe boots cleanly to the main loop on a vanilla, no-config invocation. The dedicated server target does NOT link smoke_harness.c (see CMakeLists.txt SRC_SERVER -- the harness is client-only), so this test uses the runtime_strategy='timeout-kill' workflow: launch with vanilla CLI args, wait timeout_seconds, then teardown the long-running daemon process. Assertions are log-only. Confirms the canonical boot sequence: sysInit -> fsInit -> updaterInit (skipped via --no-update-check) -> assetCatalogInit + base BYOR registration -> netInit -> hubInit -> serverBansInit (clean install -> 'no ban file' marker) -> serverAdminInit (no token -> 'no admin token configured' marker) -> SDL_Init (headless via --headless) -> netStartServer -> 'Listening on port' -> 'Entering main loop'. Note: the 'NET: dedicated server mode enabled' line in netInit() is gated on sysArgCheck('--dedicated') (the in-client path), not on g_NetDedicated -- it fires for the client launched with --dedicated, not for the standalone PerfectDarkServer.exe, so this test does NOT assert it. The dedicated path skips the ROM hash check at CLC_AUTH (per context/pillars/server.md): no ROM is loaded, so this test does NOT seed a ROM file in the install dir (Install-Harness.ps1's Target=pd-server branch). Failure modes guarded: ENet init failure (NET: could not init ENet), bind failure (NET: could not create ENet host on port), unexpected ROM check firing (would only happen if g_NetDedicated invariant breaks), and a SERVER: Failed to start error log. First server-pillar smoke fixture; future regression of the pd-server bring-up path lights up here.",
+  "description": "c115 server-pillar coverage: proves PerfectDarkServer.exe boots cleanly to the main loop on a vanilla, no-config invocation. As of c115 (2026-05-15) smoke_harness.c is compiled into pd-server (CMakeLists.txt SRC_SERVER), so this test uses runtime_strategy='harness' for a scripted clean exit and a reliable exit-code-0 result. Confirms the canonical boot sequence: sysInit -> fsInit -> updaterInit (skipped via --no-update-check) -> assetCatalogInit + base BYOR registration -> netInit -> hubInit -> serverBansInit (clean install -> 'no ban file' marker) -> serverAdminInit (no token -> 'no admin token configured' marker) -> SDL_Init (headless via --headless) -> netStartServer -> 'Listening on port' -> 'Entering main loop' -> smokeHarnessInit (no events scheduled apart from the scripted exit) -> first smokeHarnessTick fires the exit event -> SMOKE: result=scripted_exit code=0. Note: the 'NET: dedicated server mode enabled' line in netInit() is gated on sysArgCheck('--dedicated') (the in-client path), not on g_NetDedicated -- it fires for the client launched with --dedicated, not for the standalone PerfectDarkServer.exe, so this test does NOT assert it. The dedicated path skips the ROM hash check at CLC_AUTH (per context/pillars/server.md): no ROM is loaded, so this test does NOT seed a ROM file in the install dir (Install-Harness.ps1's Target=pd-server branch). Failure modes guarded: ENet init failure (NET: could not init ENet), bind failure (NET: could not create ENet host on port), unexpected ROM check firing (would only happen if g_NetDedicated invariant breaks), and a SERVER: Failed to start error log. Anchors the server-pillar bring-up regression.",
   "tags": ["server", "dedicated", "smoke", "pillar:server", "boot", "stability"],
   "paths_of_interest": [
     "port/src/server_main.c",
     "port/src/server_stubs.c",
     "port/src/server_bridge.c",
+    "port/src/smoke_harness.c",
     "port/src/net/net.c",
     "port/src/hub.c",
     "port/src/server_admin.c",
@@ -15,10 +16,10 @@
     "CMakeLists.txt"
   ],
   "target": "pd-server",
-  "runtime_strategy": "timeout-kill",
+  "runtime_strategy": "harness",
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 12,
+  "timeout_seconds": 15,
   "install_state": "clean",
   "boot_args": [
     "--headless",
@@ -27,8 +28,8 @@
     "--no-update-check"
   ],
   "input_sequence": [
-    { "at_ms": 0,     "type": "wait", "comment": "no scripted input: pd-server has no harness link, so smoke event injection is not wired. Documented here for parity with client tests so future readers know the absence is intentional." },
-    { "at_ms": 11000, "type": "exit", "comment": "advisory only -- timeout-kill workflow tears the process down at timeout_seconds (12s); the daemon never auto-exits. 12s covers cold-start variance: SDL_Init(timer), netInit + ENet bind, assetCatalog registration, hubInit, ban/admin parse. Recorded server boot lands the 'Entering main loop' marker around 1.5s." }
+    { "at_ms": 0,    "type": "wait", "comment": "boot marker -- the harness emits SMOKE: harness init / scenario= lines on smokeHarnessInit, then the first smokeHarnessTick walks any due events. Action/key/mouse injection is no-op on pd-server (no input pipeline) so this test relies on wait/exit only." },
+    { "at_ms": 5000, "type": "exit", "comment": "scripted clean shutdown at 5s -- well after the 'Entering main loop' marker (recorded server boot lands it around 1.5s). smokeHarnessExit writes SMOKE: result=scripted_exit code=0 and calls exit(0), giving the runner a deterministic non-timeout outcome to assert against." }
   ],
   "assertions": {
     "required_lines": [
@@ -39,7 +40,11 @@
       "ADMIN: no admin token configured",
       "SERVER: Running in headless mode",
       "SERVER: Listening on port 27200 \\(max 4 clients\\)",
-      "SERVER: Entering main loop"
+      "SERVER: Entering main loop",
+      "SMOKE: harness init, test=.*dedicated_server_boot_smoke",
+      "SMOKE: scenario=dedicated_server_boot_smoke",
+      "SMOKE: scripted exit at_ms=5000",
+      "SMOKE: result=scripted_exit scenario=dedicated_server_boot_smoke .* code=0"
     ],
     "forbidden_patterns": [
       "EXCEPTION_ACCESS_VIOLATION",
@@ -51,11 +56,13 @@
       "NET: could not init ENet, disabling networking",
       "NET: could not create ENet host on port \\d+",
       "CLC_AUTH: ROM hash check fired",
-      "LOUDFAIL\\.LOAD: .*unrecoverable"
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "SMOKE: result=timeout"
     ],
     "required_counts": [
       { "pattern": "SERVER: Entering main loop", "min": 1, "max": 1 },
-      { "pattern": "NET: created server on port 27200", "min": 1, "max": 1 }
+      { "pattern": "NET: created server on port 27200", "min": 1, "max": 1 },
+      { "pattern": "SMOKE: result=scripted_exit", "min": 1, "max": 1 }
     ]
   }
 }
