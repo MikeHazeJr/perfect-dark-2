@@ -113,7 +113,15 @@ def _smoke_results(window_start: dt.datetime, window_end: dt.datetime) -> list[d
             data = json.loads(jf.read_text(encoding="utf-8", errors="replace"))
         except (json.JSONDecodeError, OSError):
             continue
-        out.append({"result_file": fsutil.posix_rel(jf), "results": data})
+        # Normalize: smoke runner may emit a single result dict OR a list of dicts.
+        # Consumers (step2, step6) iterate `results` as a list -- always wrap.
+        if isinstance(data, dict):
+            results_payload = [data]
+        elif isinstance(data, list):
+            results_payload = [r for r in data if isinstance(r, dict)]
+        else:
+            results_payload = []
+        out.append({"result_file": fsutil.posix_rel(jf), "results": results_payload})
     return out
 
 

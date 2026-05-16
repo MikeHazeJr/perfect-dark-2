@@ -2,10 +2,10 @@
   "schema_version": 1,
   "semantic_version": "0.1.0",
   "x_extensibility_rule": "Additive-only. Unknown fields tolerated. Reserved namespace: x_*. Bump schema_version only on a breaking change.",
-  "generated_at": "2026-05-16T06:09:17.194444-04:00",
-  "generated_display": "[05-16-2026 - 06:09]",
+  "generated_at": "2026-05-16T06:21:33.993375-04:00",
+  "generated_display": "[05-16-2026 - 06:21]",
   "for_date": "2026-05-16",
-  "partial": true,
+  "partial": false,
   "headlines": [
     "16 commits and 0 sessions in the last 24 h"
   ],
@@ -14,12 +14,54 @@
     "items": []
   },
   "blocker_bugs": {
-    "count": 0,
-    "items": []
+    "count": 2,
+    "items": [
+      {
+        "id": "B-323",
+        "title": "Post-boot AV in challengesInit: N64-vs-PC mpconfig/mpstrings stride mismatch",
+        "severity": "blocker"
+      },
+      {
+        "id": "B-324",
+        "title": "AV at boot in bgunCalculateBlend (weapon NULL via empty loader pool)",
+        "severity": "blocker"
+      }
+    ]
   },
-  "focus": [],
-  "daily_log_path": null,
+  "focus": [
+    {
+      "kind": "bug",
+      "id": "B-323",
+      "title": "Post-boot AV in challengesInit: N64-vs-PC mpconfig/mpstrings stride mismatch",
+      "rationale": "open blocker severity, filed 2026-05-03"
+    },
+    {
+      "kind": "card",
+      "id": "c3746",
+      "title": "Player init architectural fixes",
+      "rationale": "engine card, column active"
+    },
+    {
+      "kind": "card",
+      "id": "c3738",
+      "title": "Skedar surface-normal locomotion (Slices 4-5)",
+      "rationale": "engine card, column active"
+    },
+    {
+      "kind": "card",
+      "id": "c054",
+      "title": "Networking: wire ICE peer candidate exchange",
+      "rationale": "networking card, column backlog"
+    },
+    {
+      "kind": "card",
+      "id": "c055",
+      "title": "Networking: publish STUN reflexive to peer",
+      "rationale": "networking card, column backlog"
+    }
+  ],
+  "daily_log_path": "context/daily-logs/2026-05-16.md",
   "decisions_allocated": [],
-  "x_failure_point": "step2_state_sync",
+  "x_failure_point": null,
   "x_compaction_quality_review": false
 }
