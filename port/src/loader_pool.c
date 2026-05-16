@@ -250,8 +250,15 @@ const char *loaderPoolAnimationNameForCmds(const struct guncmd *cmds)
 static struct guncmd *resolveAnimByName(const char *name)
 {
 	if (name == NULL) return NULL;
+	/* B-329 (2026-05-16): tolerate a leading "<ns>:" namespace prefix on
+	 * the caller's name in case a future .pdwpn emitter ships catalog-ID
+	 * form. Pool storage is bare (parseAnimation strips), so compare the
+	 * bare part of the inbound name. */
+	const char *bare = name;
+	const char *colon = strchr(name, ':');
+	if (colon != NULL) bare = colon + 1;
 	for (s32 i = 0; i < s_AnimationsUsed; i++) {
-		if (strcmp(s_Animations[i].name, name) == 0) {
+		if (strcmp(s_Animations[i].name, bare) == 0) {
 			return &s_Guncmds[s_Animations[i].cmd_offset];
 		}
 	}
@@ -774,9 +781,22 @@ static void parseAnimation(jstream_t *s)
 
 	if (anim_name[0] != '\0' && s_AnimationsUsed < POOL_ANIMATIONS) {
 		pool_anim_entry_t *e = &s_Animations[s_AnimationsUsed++];
-		size_t n = strlen(anim_name);
+		/* B-329 (2026-05-16): the .pdanim emitter writes the catalog ID
+		 * with a namespace prefix (e.g. "base:invanim_falcon2_equip"),
+		 * but the .pdwpn emitter writes anim refs as the bare symbol
+		 * (e.g. "invanim_falcon2_equip") via g_AnimData[].name. The local
+		 * pool name table is the lookup that resolveAnimByName uses for
+		 * weapon equip/unequip/pritosec/sectopri/fire/reload references;
+		 * it must store the bare symbol so the .pdwpn refs resolve.
+		 * Strip any leading "<ns>:" prefix before storing. Asset-catalog
+		 * identity is unaffected -- that lives in the asset_entry_t row
+		 * registered by loaderWalkerScanAnimations, not in this pool. */
+		const char *bare = anim_name;
+		const char *colon = strchr(anim_name, ':');
+		if (colon != NULL) bare = colon + 1;
+		size_t n = strlen(bare);
 		if (n >= sizeof(e->name)) n = sizeof(e->name) - 1;
-		memcpy(e->name, anim_name, n);
+		memcpy(e->name, bare, n);
 		e->name[n] = '\0';
 		e->cmd_offset = (s32)(cmds_start - s_Guncmds);
 		e->cmd_count = cmds_count;
