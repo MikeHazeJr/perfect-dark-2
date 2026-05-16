@@ -1251,6 +1251,53 @@ void chrInit(struct prop *prop, u8 *ailist)
 	chr->firecount[0] = 0;
 	chr->firecount[1] = 0;
 
+	/* B-331 (2026-05-16): myspecial / setup-data fields default-init.
+	 *
+	 * The setup-data init blocks at body.c:707-713 (MP packed init) write
+	 * naturalanim/myspecial/yvisang/teamscandist/convtalk from packed data,
+	 * and botmgr.c:181 explicitly sets myspecial=-1 for AI bot allocs. But
+	 * chrInit itself never wrote these, leaving them as MEMPOOL_STAGE
+	 * garbage from previous allocations.
+	 *
+	 * For chrs allocated outside the standard SP-pad/MP-packed/botmgr paths
+	 * -- the GPU swarm benchmark (port/src/swarm_test.c::spawn_one_skedar)
+	 * is the canonical case -- chr->myspecial inherited whatever was in the
+	 * recycled g_ChrSlots[] entry's memory. At small swarm counts (<= 491)
+	 * the slots happened to land on fresh-zeroed memory and myspecial == 0
+	 * was either valid or rejected harmlessly. At the 768 tier, slots
+	 * crossed into memory previously used by the arena's tagged-object
+	 * setup data; myspecial picked up a tagnum-shaped garbage value, the
+	 * bounds check in tagFindById passed, g_TagPtrs[tagnum] returned a
+	 * stale pointer to freed tag memory, and objFindByTagId's `tag->obj`
+	 * deref (chr.c::chrCalculatePushPos:293) crashed with 0xc0000005.
+	 *
+	 * Backtrace at crash:
+	 *   objFindByTagId +0xe  <- AV at tag->obj (offset 0x10)
+	 *   chrCalculatePushPos +0x1e9
+	 *   chr0f01f378 +0x704 (the modelSetAnim70 callback for chr animation)
+	 *   modelUpdateChrInfo +0x1a7
+	 *   chr0f0220ec +0xcd (called for fulltick from chraTick path)
+	 *   chrTick +0x81d
+	 *   propsTickPlayer +0x48e
+	 *
+	 * The fix is canonical-default-init in chrInit so every chrAllocate
+	 * caller, including future swarm-class users that bypass the
+	 * setup-data init blocks, starts from a known-safe state. Readers all
+	 * gate on `myspecial != -1` or `myspecial >= 0` (chr.c:292,
+	 * chraction.c:3279, chraicommands.c:4958), so -1 is the "no chair"
+	 * sentinel they already expect.
+	 *
+	 * yvisang/teamscandist/convtalk/naturalanim are zeroed in the same
+	 * spirit -- no current ptr-deref risk, but the setup-data path writes
+	 * them so the implicit contract is "post-chrInit they have a defined
+	 * value". Predecessor B-330 (256->512 stack overflow) was fixed in
+	 * b6f1c3d0 (different crash class -- 0xc0000409, not 0xc0000005). */
+	chr->myspecial = -1;
+	chr->yvisang = 0;
+	chr->teamscandist = 0;
+	chr->convtalk = 0;
+	chr->naturalanim = 0;
+
 	chr->darkroomthing = 0;
 	chr->playerdeadthing = 0;
 	chr->unk32c_12 = 0;

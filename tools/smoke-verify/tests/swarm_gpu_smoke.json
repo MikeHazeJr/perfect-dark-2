@@ -1,8 +1,10 @@
 {
   "scenario_name": "swarm_gpu_smoke",
-  "description": "c115 iter-3: boot directly into Swarm-GPU via --launch-scenario swarm_gpu (skips Settings -> Debug -> Test Scenarios menu nav entirely + the mouse-only GPU radio click). With iter-2's deferred-launch-at-lvframenum-4 in place, the bot ladder cycles cleanly via ACTION_TESTSCEN_CYCLE_COUNT (focus-independent). Verifies GL >= 4.3 probe, compute shader compile+link, TESTSCEN.LAUNCH: Swarm-GPU, BENCHMARK.SWARM.GPU log line, and ladder progression 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128. CONFIRMED 2026-05-14: ladder reaches 128 without crash and the binary exits cleanly with code 0; B-311 (128-bot FATAL display-list crash) does NOT trip with deferred matchStart -- the fix may have closed B-311 as a side effect (same as B-307 for CPU swarm). Ladder respawn at each step works (despawn_all then respawn_ring around player position).",
-  "tags": ["debug", "swarm", "gpu", "benchmark", "scaling", "compute"],
+  "description": "c115 iter-3 + B-331 (2026-05-16): cycle the GPU swarm ladder all the way to 768 bots to exercise the chrInit myspecial-init class crash. Pre-fix this scenario reproduced FATAL: ACCESS_VIOLATION 0xc0000005 in objFindByTagId at the 512->768 transition (slot 747 first chrTick, uninitialised chr->myspecial pointing into stale tag memory). Post-fix chrInit now defaults myspecial=-1 + yvisang/teamscandist/convtalk/naturalanim=0; ladder must reach 768 cleanly. Verifies GL >= 4.3 probe, compute shader compile+link, TESTSCEN.LAUNCH: Swarm-GPU, BENCHMARK.SWARM.GPU log line, and ladder progression 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 -> 256 -> 512 -> 768.",
+  "tags": ["debug", "swarm", "gpu", "benchmark", "scaling", "compute", "B-331"],
   "paths_of_interest": [
+    "src/game/chr.c",
+    "src/game/objectives.c",
     "port/fast3d/swarm_gpu.cpp",
     "port/src/testscenarios.c",
     "port/src/swarm_test.c",
@@ -12,7 +14,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 240,
+  "timeout_seconds": 360,
   "install_state": "clean",
   "boot_args": [
     "--no-update-check",
@@ -30,9 +32,12 @@
     { "at_ms": 50000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 8 -> 16" },
     { "at_ms": 60000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 16 -> 32" },
     { "at_ms": 70000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 32 -> 48" },
-    { "at_ms": 80000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 48 -> 64 (at SWARM_GPU_SAFE_MAX)" },
-    { "at_ms": 90000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 64 -> 128 (crosses SAFE_MAX, B-311 FATAL candidate)" },
-    { "at_ms": 150000, "type": "exit", "comment": "scripted exit" }
+    { "at_ms": 80000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 48 -> 64" },
+    { "at_ms": 90000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 64 -> 128 (prior B-311 trigger; closed)" },
+    { "at_ms": 110000, "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 128 -> 256" },
+    { "at_ms": 140000, "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 256 -> 512 (prior B-330 trigger; closed b6f1c3d0)" },
+    { "at_ms": 180000, "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 512 -> 768 (B-331 chrInit/myspecial AV trigger)" },
+    { "at_ms": 240000, "type": "exit", "comment": "scripted exit after 768 settles" }
   ],
   "assertions": {
     "required_lines": [
@@ -46,7 +51,10 @@
       "BENCHMARK\\.SWARM\\.GPU",
       "TESTSCEN\\.SWARM: cycle NEXT prev_idx=0 -> idx=1 target=8",
       "TESTSCEN\\.SWARM: cycle NEXT .* target=128",
-      "BENCHMARK\\.SWARM\\.GPU: SUMMARY count=128",
+      "TESTSCEN\\.SWARM: cycle NEXT .* target=256",
+      "TESTSCEN\\.SWARM: cycle NEXT .* target=512",
+      "TESTSCEN\\.SWARM: cycle NEXT .* target=768",
+      "BENCHMARK\\.SWARM\\.GPU: SUMMARY count=768",
       "BENCHMARK\\.SWARM\\.GPU\\.VEL: count=\\d+ active=\\d+ max_unit_per_frame=\\d+\\.\\d+ avg_unit_per_frame=\\d+\\.\\d+ max_cm_per_sec=\\d+ avg_cm_per_sec=\\d+ max_speed_cap=5\\.0",
       "SMOKE: result=scripted_exit"
     ],
@@ -61,7 +69,7 @@
     ],
     "required_counts": [
       { "pattern": "BENCHMARK\\.SWARM\\.GPU", "min": 1 },
-      { "pattern": "TESTSCEN\\.SWARM: cycle NEXT", "min": 6 },
+      { "pattern": "TESTSCEN\\.SWARM: cycle NEXT", "min": 9 },
       { "pattern": "BENCHMARK\\.SWARM\\.GPU\\.VEL", "min": 1 }
     ]
   }
