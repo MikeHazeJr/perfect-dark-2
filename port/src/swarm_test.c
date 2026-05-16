@@ -1162,11 +1162,19 @@ static void respawn_ring(s32 count)
  * The CPU-mode bots run real AI and don't need this -- their motion
  * comes from chraTick / chraiExecute via the AIBOT_INIT ailist.
  * ------------------------------------------------------------------ */
-/* 1.5x normal seek-toward-player speed for the GPU-fallback path.
- * Matches the BOTDIFF_PERFECT speed bump for CPU-mode bots
- * (botCalculateMaxSpeed multiplies by 11.2 for PERFECT vs 7.6 for
- * NORMAL; ratio 1.47 ~= 1.5x). 27 = 18 * 1.5. */
-#define SWARM_MAX_SPEED      27.0f
+/* GPU-fallback per-frame seek step.
+ *
+ * c029 (2026-05-16): tuned from 27.0 -> 5.0. Mike playtest "GPU bots
+ * are insanely fast" surfaced that both the GPU compute kernel and
+ * this fallback path were applying max_speed as units-per-frame
+ * (not units-per-second), so 27.0 produced ~1620 cm/sec beelines --
+ * 5-9x faster than the OG running-enemy feel.
+ *
+ * Kept identical to s_Params.max_speed in port/fast3d/swarm_gpu.cpp
+ * so the fallback path (GL < 4.3 or compute compile failure) produces
+ * visually-matching motion to the compute path. See the long docblock
+ * on s_Params.max_speed for the units math + tuning rationale. */
+#define SWARM_MAX_SPEED      5.0f
 
 static void gpu_fallback_seek_tick(struct coord *player_pos)
 {

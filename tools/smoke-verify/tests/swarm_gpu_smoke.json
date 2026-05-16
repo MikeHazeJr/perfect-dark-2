@@ -47,6 +47,7 @@
       "TESTSCEN\\.SWARM: cycle NEXT prev_idx=0 -> idx=1 target=8",
       "TESTSCEN\\.SWARM: cycle NEXT .* target=128",
       "BENCHMARK\\.SWARM\\.GPU: SUMMARY count=128",
+      "BENCHMARK\\.SWARM\\.GPU\\.VEL: count=\\d+ active=\\d+ max_unit_per_frame=\\d+\\.\\d+ avg_unit_per_frame=\\d+\\.\\d+ max_cm_per_sec=\\d+ avg_cm_per_sec=\\d+ max_speed_cap=5\\.0",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
@@ -54,11 +55,14 @@
       "FATAL: ",
       "SMOKE: result=timeout",
       "LOUDFAIL\\.LOAD: .*unrecoverable",
-      "LOAD: lv\\.c entering stage load sequence for stagenum=0x32"
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x32",
+      "BENCHMARK\\.SWARM\\.GPU\\.VEL: .* max_unit_per_frame=([6-9]|[1-9]\\d+)\\.",
+      "BENCHMARK\\.SWARM\\.GPU\\.VEL: .* max_cm_per_sec=([4-9]\\d{2}|\\d{4,})\\b"
     ],
     "required_counts": [
       { "pattern": "BENCHMARK\\.SWARM\\.GPU", "min": 1 },
-      { "pattern": "TESTSCEN\\.SWARM: cycle NEXT", "min": 6 }
+      { "pattern": "TESTSCEN\\.SWARM: cycle NEXT", "min": 6 },
+      { "pattern": "BENCHMARK\\.SWARM\\.GPU\\.VEL", "min": 1 }
     ]
   }
 }

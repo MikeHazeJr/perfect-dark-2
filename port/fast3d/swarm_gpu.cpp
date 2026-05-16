@@ -61,6 +61,14 @@
  * Option B-R-2.
  */
 
+/* <cmath> must come BEFORE PR/ultratypes.h so the C++ standard library
+ * sees the genuine `bool` type rather than the project's `typedef int
+ * bool` alias. Same ordering as gfx_pc.cpp / pdgui_theme.cpp /
+ * actionmap.cpp. c029/2026-05-16 added the velocity sampler in this
+ * file that uses `sqrt(double)`, which surfaced the include-order
+ * requirement for the first time in this TU. */
+#include <cmath>
+
 #include <PR/ultratypes.h>
 #include "types.h"
 #include "swarm_test.h"
@@ -74,10 +82,10 @@
 #include <string.h>
 #include <math.h>
 
-/* Forward declare so that atan2f resolves in C++ context. <math.h> exposes
- * it as ::atan2f in the global namespace on MinGW; redeclaring with the
- * same C linkage is harmless and avoids a build break if a future header
- * order change hides it. */
+/* Forward declare so that atan2f resolves in C++ context. <math.h>
+ * exposes it as ::atan2f in the global namespace on MinGW; redeclaring
+ * with the same C linkage is harmless and avoids a build break if a
+ * future header order change hides it. */
 extern "C" float atan2f(float y, float x);
 
 extern "C" {
@@ -588,11 +596,49 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	s_Params.player_y      = player_pos ? player_pos->y : 0.0f;
 	s_Params.player_z      = player_pos ? player_pos->z : 0.0f;
 	s_Params.count         = count;
-	/* 1.5x normal seek speed (S593d 2026-05-01). 18.0 * 1.5 = 27.0.
-	 * Matches the CPU-side BOTDIFF_PERFECT 1.47x bump in
-	 * swarm_test.c::s_SwarmBotConfig and the
-	 * gpu_fallback_seek_tick SWARM_MAX_SPEED constant. */
-	s_Params.max_speed     = 27.0f;
+	/* c029 (2026-05-16): tuned from 27.0 -> 5.0 per Mike playtest "GPU
+	 * bots are insanely fast." See the sprint report at
+	 * .claude/sprint-reports/sprint-2026-05-16T160500-gpu-bot-speed.md
+	 * for the full triage path; the math summary is inline below.
+	 *
+	 * Effective per-frame motion math
+	 * -------------------------------
+	 * The compute kernel computes:
+	 *   step  = max_speed * dt * 60.0 = max_speed * 1.0  (dt = 1/60)
+	 *   vel   = (to_player / d) * step                   (|vel| = step)
+	 *   pos  += vel * dt * 60.0      = vel * 1.0
+	 *
+	 * Both `dt * 60.0` factors collapse to identity at the 60 Hz target,
+	 * so `max_speed` is functionally `units of position per dispatch`
+	 * NOT `units per second`. One dispatch happens per rendered frame.
+	 *
+	 * 1 game unit ~ 1 cm in this engine. The prior 27.0 produced
+	 *  ~1620 cm/sec straight-line beelines -- 5-9x faster than the
+	 *  Perfect Dark "running enemy" feel and visibly teleporty.
+	 *
+	 * Why 5.0:
+	 *  - CPU swarm bots cap at botCalculateMaxSpeed = 7.5 (the swarm
+	 *    CHRHFLAG-gated ceiling in bot.c). Their per-frame motion runs
+	 *    through the moverate accumulator + cosf/sinf heading + navnet
+	 *    face-turn time + obstacle avoidance, so the effective beeline
+	 *    velocity is well under 7.5 / frame. The GPU shader has no such
+	 *    throttle -- it always moves the full max_speed per dispatch in
+	 *    a perfect line at the player.
+	 *  - 5.0 units/frame at 60 Hz = 300 cm/sec straight-line, which
+	 *    sits comfortably in the OG "running enemy" 180-360 cm/sec
+	 *    band the player feels in regular MP combat.
+	 *  - The prior 27.0 was sourced from 18.0 * 1.5 (S593d, 2026-05-01)
+	 *    where "18.0" was the original GPU constant and "1.5" was a
+	 *    BOTDIFF_PERFECT difficulty bump intent. Both turned out to be
+	 *    units-per-frame, NOT units-per-second, so the *1.5 stacked on
+	 *    a value that was already too high.
+	 *
+	 * Tunable. If 5.0 feels too sluggish in the next playtest, bump in
+	 * 1.0 increments and re-check the GPU.AI summary log range_min /
+	 * avg / max values for "bots stop closing on the player" behaviour.
+	 * The shader's d-clamp at line ~327 below already prevents
+	 * overshoot when range is smaller than one step. */
+	s_Params.max_speed     = 5.0f;
 	s_Params.dt            = 1.0f / 60.0f;
 	s_Params.do_ai         = do_ai;
 	s_Params.fire_range    = SWARM_AI_FIRE_RANGE;
@@ -646,6 +692,75 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 			rooms[r] = chr->prop->rooms[r];
 		}
 		chrSetPos(chr, &newpos, rooms, face_deg, true);
+	}
+
+	/* c029 (2026-05-16) per-frame velocity sampler.
+	 *
+	 * Fires once every 60 dispatches (~1 Hz at 60 FPS), walks the
+	 * readback once to find max + average XZ-speed across active bots,
+	 * and emits a single line the smoke test can regex on to confirm
+	 * the kernel produced visually-plausible motion. Velocity is
+	 * `units per dispatch` (= `units per frame` at 60 Hz target); 1
+	 * unit ~ 1 cm, so multiplying by 60 yields cm/sec.
+	 *
+	 * Sampling both modes (POS_ONLY + FULL) because the regression Mike
+	 * reported in the playtest affects BOTH paths (kernel max_speed is
+	 * applied identically; only the AI write-out gates on do_ai). The
+	 * smoke test default scenario uses GPU_POS_ONLY so we need a log
+	 * line that fires there.
+	 *
+	 * Implementation detail: we accumulate the squared magnitudes
+	 * inside the bot loop (no per-bot sqrt) and call sqrt() twice at
+	 * log emit time -- once for max, once for the sum->avg path.
+	 * Avoids the sqrtf-in-C++ linkage hazard surfaced during the
+	 * c029/2026-05-16 build: include/PR/gu.h declares sqrtf without
+	 * `extern "C"` so the C++ compiler mangles the reference and the
+	 * MSYS2 libm-side C symbol does not match. The C-mangled `sqrt`
+	 * (double) has the same hazard on a stricter setup; using `sqrt`
+	 * via the math.h-supplied inline in <cmath> keeps things portable
+	 * because the inline materialises a definition in this TU. */
+	{
+		static s32 s_VelLogTick = 0;
+		s_VelLogTick++;
+		if (s_VelLogTick >= 60) {
+			s_VelLogTick = 0;
+			f32 max_v2 = 0.0f;       /* max squared magnitude */
+			double sum_v = 0.0;      /* sum of per-bot sqrt-magnitudes */
+			s32 v_samples = 0;
+			for (s32 i = 0; i < count; i++) {
+				struct chrdata *chr = chrs[i];
+				if (!chr || !chr->prop || chr->chrnum < 0
+						|| chr->model == NULL) {
+					continue;
+				}
+				const f32 vx = s_BoidScratch[i].vx;
+				const f32 vz = s_BoidScratch[i].vz;
+				const f32 v2 = vx * vx + vz * vz;
+				if (v2 > max_v2) max_v2 = v2;
+				/* Per-bot sqrt via the double-precision sqrt inline
+				 * from math.h; cast back to f32 on accumulate so the
+				 * f32 ops in the body match the rest of the
+				 * pipeline. */
+				sum_v += sqrt((double)v2);
+				v_samples++;
+			}
+			const double max_v = sqrt((double)max_v2);
+			const double avg_v = (v_samples > 0)
+				? (sum_v / (double)v_samples) : 0.0;
+			/* cm_per_sec assumes 60 Hz dispatch; if the engine drops
+			 * frames the ratio is approximate but the assertion band
+			 * is wide enough to absorb that. */
+			sysLogPrintf(LOG_NOTE,
+				"BENCHMARK.SWARM.GPU.VEL: count=%d active=%d "
+				"max_unit_per_frame=%.2f avg_unit_per_frame=%.2f "
+				"max_cm_per_sec=%.0f avg_cm_per_sec=%.0f "
+				"max_speed_cap=%.1f",
+				count, v_samples,
+				max_v, avg_v,
+				max_v * 60.0,
+				avg_v * 60.0,
+				(double)s_Params.max_speed);
+		}
 	}
 
 	/* B-308 slice 2 (c3807-finish, 2026-05-15) AI readback consumer.
