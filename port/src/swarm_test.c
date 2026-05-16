@@ -1317,6 +1317,186 @@ static void cycler_tick(void)
 }
 
 /* ------------------------------------------------------------------
+ * GPU AI -> CPU side-effect dispatcher (B-308 slice 2, 2026-05-15).
+ *
+ * Called once per frame per GPU bot from `swarmGpuStepAndApply` (C++).
+ * Translates the compute kernel's decision (action_class / fire_request
+ * / anim_key / target_propnum) into the CPU-side game state changes
+ * that GPU bots cannot make themselves -- damage application via
+ * chrDamageByImpact, and animation transitions via modelSetAnimation.
+ *
+ * Why this function lives in swarm_test.c (game-C land) instead of
+ * swarm_gpu.cpp (port-C++ land):
+ *
+ *  - chrDamageByImpact / modelSetAnimation / chrGetTargetProp / gset
+ *    are all part of the legacy C game ABI. Calling them from C++ is
+ *    fine in principle, but the includes (`chraction.h`, `lib/model.h`,
+ *    legacy `types.h`) drag in the macro `bool = s32` and the legacy
+ *    typedefs which collide with the C++ standard headers used in
+ *    fast3d. Cleaner to keep the side-effect layer in C and call it
+ *    through a thin extern "C" boundary.
+ *
+ *  - The function reads `g_Vars.*` globals and per-chr state that the
+ *    swarm code already touches in its CPU paths; keeping it co-located
+ *    with the rest of the swarm tick keeps the per-bot state (cooldown
+ *    timestamps, anim transitions) module-local and avoids exposing
+ *    those as ABI.
+ *
+ * Throttling rationale:
+ *
+ *  - Fire: at 4096 bots in range, raising 4096 chrDamageByImpact calls
+ *    per frame would (a) deal absurd damage even with the player invul
+ *    short-circuit (the COMBAT debug log line in chrDamage would flood
+ *    the disk), (b) trigger MP-stats writes through NETMODE_SERVER
+ *    even in solo benchmark since the swarm enters via matchStart.
+ *    Per-bot cooldown = SWARM_GPU_FIRE_COOLDOWN_60 ticks (default 30 =
+ *    half a second between shots per bot). At 4096 bots all in-range
+ *    this caps the total at ~8192 events/second across the whole pool
+ *    -- acceptable for the player-invul short-circuit path.
+ *
+ *  - Anim: modelSetAnimation is cheap but the AnimationWithMerge
+ *    block underneath does allocate per-call merge state. Per-bot
+ *    transition guard: only call modelSetAnimation when the *desired*
+ *    anim differs from the *current* anim. This collapses 4096
+ *    redundant "I'm still walking" calls per frame to zero.
+ *
+ * Return value: 1 if a fire side-effect was applied, 0 otherwise. The
+ * GPU consumer uses this for per-frame fire counters in the summary
+ * log so Mike can correlate "GPU requested N fires" vs "CPU applied M
+ * fires".
+ * ------------------------------------------------------------------ */
+
+/* Cooldown frames between fire events per bot. 30 = half a second at
+ * 60 Hz. Tunable; the value just throttles damage-event volume, the
+ * GPU's per-frame fire_request bit is independent. */
+#define SWARM_GPU_FIRE_COOLDOWN_60 30
+
+/* Last-fire timestamp (lvframe60) per swarm slot. Indexed by slot
+ * (0..TESTSCEN_SWARM_MAX_COUNT-1). Zero = never fired. The cooldown
+ * check uses (g_Vars.lvframe60 - last_fire) so wraparound at u32::MAX
+ * is handled by 2's-complement subtraction. */
+static s32 s_SwarmLastFire60[TESTSCEN_SWARM_MAX_COUNT];
+
+/* Tracking counter so we can report from the GPU consumer's summary log
+ * how many fire requests actually became CPU side-effects this frame.
+ * Reset by swarmTestGetAndResetGpuAiFireCount() at the end of each
+ * readback cycle. */
+static s32 s_SwarmGpuAiFiresApplied;
+
+s32 swarmTestApplyAiDecision(struct chrdata *chr,
+                             s32 slot_index,
+                             s32 target_propnum,
+                             s32 action_class,
+                             s32 fire_request,
+                             s32 anim_key,
+                             f32 range_to_target)
+{
+	if (!chr || !chr->prop || !chr->model || chr->chrnum < 0) {
+		return 0;
+	}
+	if (slot_index < 0 || slot_index >= TESTSCEN_SWARM_MAX_COUNT) {
+		/* Caller bug; bail rather than read garbage cooldown state. */
+		return 0;
+	}
+
+	s32 fired = 0;
+
+	/* ---- Fire path ---- */
+	if (fire_request && target_propnum >= 0 && target_propnum < g_Vars.maxprops) {
+		struct prop *target_prop = &g_Vars.props[target_propnum];
+		const s32 last_fire = s_SwarmLastFire60[slot_index];
+		const s32 elapsed   = (s32)g_Vars.lvframe60 - last_fire;
+		const bool ready    = (last_fire == 0) || (elapsed >= SWARM_GPU_FIRE_COOLDOWN_60);
+
+		if (ready && target_prop->chr) {
+			/* gset matches chrPunchInflictDamage's "thin attacker"
+			 * pattern -- WEAPON_UNARMED + FUNC_PRIMARY is the cheapest
+			 * valid gset and matches the COMBATKNIFE-class damage
+			 * profile the CPU swarm bots use against the player. We
+			 * intentionally use WEAPON_UNARMED rather than COMBATKNIFE
+			 * to keep the fire path melee-like (no projectile spawn,
+			 * no ammo bookkeeping). The player's invincibility
+			 * short-circuit in chrDamage (line ~4425) makes the
+			 * damage no-op against the swarm scenario's player, which
+			 * is what we want for benchmark mode. */
+			struct gset gset = {WEAPON_UNARMED, 0, 0, FUNC_PRIMARY};
+			struct coord vector;
+			vector.x = target_prop->pos.x - chr->prop->pos.x;
+			vector.y = 0.0f;
+			vector.z = target_prop->pos.z - chr->prop->pos.z;
+			f32 vlen = sqrtf(vector.x * vector.x + vector.z * vector.z);
+			if (vlen > 0.001f) {
+				vector.x /= vlen;
+				vector.z /= vlen;
+			} else {
+				/* Co-located target -- pick an arbitrary unit vector
+				 * rather than passing zeros (some downstream consumers
+				 * normalize). */
+				vector.x = 1.0f;
+				vector.z = 0.0f;
+			}
+
+			/* Damage magnitude: 1.0 base * 1.0 scale -> ~1.0 raw
+			 * damage. With invul ON this is a no-op, but it still
+			 * walks the full chrDamage path so MP-stats / kill-counter
+			 * mechanics observe the side-effect. */
+			chrDamageByImpact(target_prop->chr, 1.0f, &vector, &gset,
+				chr->prop, HITPART_GENERAL);
+
+			s_SwarmLastFire60[slot_index] = (s32)g_Vars.lvframe60;
+			s_SwarmGpuAiFiresApplied++;
+			fired = 1;
+		}
+	}
+
+	/* ---- Anim path ----
+	 *
+	 * Map the GPU's anim_key to a Skedar-specific anim:
+	 *   0 (stand)  -> ANIM_STANDING_TYPE_ONE_HAND (idle pose; the
+	 *                 Skedar's idle is generic enough)
+	 *   1 (walk)   -> ANIM_SKEDAR_RUNNING (the real Skedar run anim;
+	 *                 used by chrRunPos at chraction.c:2207)
+	 *   2 (attack) -> ANIM_034C (first entry in g_SkedarPunchAnims;
+	 *                 frontal punch; visually reads as "swing")
+	 *
+	 * Transition guard: skip modelSetAnimation when the current anim
+	 * already matches the desired anim. This drops 4096 redundant
+	 * "still walking" calls per frame to zero. */
+	s16 desired_anim;
+	switch (anim_key) {
+	case 2:  desired_anim = (s16)ANIM_034C;                   break;
+	case 1:  desired_anim = (s16)ANIM_SKEDAR_RUNNING;         break;
+	default: desired_anim = (s16)ANIM_STANDING_TYPE_ONE_HAND; break;
+	}
+
+	const s16 cur_anim = (chr->model && chr->model->anim)
+		? chr->model->anim->animnum
+		: 0;
+	if (cur_anim != desired_anim) {
+		const f32 speed = (anim_key == 1) ? 0.5f : 1.0f;
+		modelSetAnimation(chr->model, desired_anim,
+			0,       /* flip */
+			0.0f,    /* startframe */
+			speed,
+			16.0f);  /* merge */
+	}
+
+	(void)action_class;
+	(void)range_to_target;
+	return fired;
+}
+
+/* Read-and-reset accessor for the per-frame fire-events-applied
+ * counter. Called by swarm_gpu.cpp's readback consumer once per
+ * summary log emission. */
+s32 swarmTestGetAndResetGpuAiFireCount(void)
+{
+	const s32 n = s_SwarmGpuAiFiresApplied;
+	s_SwarmGpuAiFiresApplied = 0;
+	return n;
+}
+
+/* ------------------------------------------------------------------
  * Per-frame entry
  * ------------------------------------------------------------------ */
 void swarmTestTick(void)

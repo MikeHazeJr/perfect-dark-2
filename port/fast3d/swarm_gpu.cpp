@@ -99,6 +99,22 @@ extern bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
  * along the plane just like CPU surface-loco chrs already do. */
 extern bool chrSurfaceLocoSampleFloorNormal(struct chrdata *chr, f32 *out_up);
 
+/* From port/src/swarm_test.c -- B-308 slice 2 GPU AI -> CPU side-effect
+ * dispatcher. Called once per active GPU bot from the AI readback block
+ * below when SWARM_METHOD_GPU_FULL is armed. The CPU side translates
+ * the compute kernel's per-bot decision (fire_request + anim_key) into
+ * chrDamageByImpact + modelSetAnimation calls. See swarm_test.c docblock
+ * above the implementation for the throttling / transition-guard rules
+ * that keep 4096-bot dispatch costs bounded. */
+extern s32 swarmTestApplyAiDecision(struct chrdata *chr,
+                                    s32 slot_index,
+                                    s32 target_propnum,
+                                    s32 action_class,
+                                    s32 fire_request,
+                                    s32 anim_key,
+                                    f32 range_to_target);
+extern s32 swarmTestGetAndResetGpuAiFireCount(void);
+
 /* ------------------------------------------------------------------
  * GL 4.3 compute symbols loaded on demand
  * ------------------------------------------------------------------ */
@@ -632,36 +648,41 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 		chrSetPos(chr, &newpos, rooms, face_deg, true);
 	}
 
-	/* B-308 first slice (c3807, 2026-05-15) AI readback consumer.
+	/* B-308 slice 2 (c3807-finish, 2026-05-15) AI readback consumer.
 	 *
 	 * In GPU_POS_ONLY mode the AI fields are zero (do_ai = 0) and we
 	 * skip the consumer entirely.
 	 *
-	 * In GPU_FULL mode we walk the readback, count action classes +
-	 * fire requests, log a summary line, and burst-log the first few
-	 * decisions so Mike can see the round trip in the log. The
-	 * projectile-spawn / damage / animation side effects are the
-	 * NEXT slice and are intentionally not done here. The current
-	 * slice's success criterion is "GPU shader writes AI fields, CPU
-	 * reads them back, log line confirms the data flow."
+	 * In GPU_FULL mode we walk the readback ONCE: per-bot we (1) call
+	 * the CPU-side dispatcher to apply fire/anim side effects, and
+	 * (2) accumulate stats for the throttled summary log. The single
+	 * pass keeps the per-frame cost bounded -- one chr+prop NULL
+	 * check + one swarmTestApplyAiDecision call per active bot. The
+	 * dispatcher itself short-circuits when fire_request is zero or
+	 * the per-bot cooldown is still ticking, so the common idle/seek
+	 * case is just an anim transition check (cheap when the desired
+	 * anim already matches the model's current anim).
 	 *
-	 * Rate-limit: emit one summary line per call (the caller is
-	 * already calling us at ~60 Hz so this is one line per frame).
-	 * Bot-id detail log is capped at SWARM_AI_LOG_MAX per call so the
-	 * log stays readable at 4096-bot scale.
+	 * Per-bot side-effect mapping (implemented in swarm_test.c):
+	 *   - fire_request -> chrDamageByImpact with WEAPON_UNARMED gset
+	 *     against props[target_propnum], throttled to 1 event per bot
+	 *     per SWARM_GPU_FIRE_COOLDOWN_60 ticks (default 30 = 2 Hz per
+	 *     bot, so 4096 bots fully in range emit at most ~8 K events/s
+	 *     -- the player's invul short-circuit absorbs the load).
+	 *   - anim_key=0|1|2 -> modelSetAnimation with
+	 *     ANIM_STANDING_TYPE_ONE_HAND | ANIM_SKEDAR_RUNNING | ANIM_034C,
+	 *     transition-guarded so identical-frame calls are skipped.
+	 *
+	 * Rate-limit on summary log: 60-frame throttle (~1 Hz at 60 Hz),
+	 * matching the cadence of BENCHMARK.SWARM.* in swarm_test.c so
+	 * the two log streams interleave cleanly.
 	 *
 	 * Performance note: the readback above is blocking
 	 * (glGetBufferSubData). At 4096 bots * 80 B = ~320 KB read per
 	 * frame this is acceptable on a 60 Hz target but should be
 	 * promoted to a PBO + fence ring once GPU_FULL grows into a
-	 * default-on path. Filed as a follow-up in the design doc. */
+	 * default-on path. Filed as follow-up (c) in the sprint report. */
 	if (do_ai) {
-		/* 60-frame throttle for the AI summary log -- matches the
-		 * cadence of BENCHMARK.SWARM.* in swarm_test.c so the two log
-		 * streams interleave cleanly at ~1 Hz. Decision counters are
-		 * still gathered every frame (so a future PBO ring-buffer
-		 * consumer that wants per-frame data can drop in here), but
-		 * only one line per second hits the log. */
 		static s32 s_AiLogTick = 0;
 		s32 n_idle = 0, n_seek = 0, n_attack = 0, n_fire = 0;
 		f32 sum_range = 0.0f;
@@ -673,9 +694,18 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 					|| chr->model == NULL) {
 				continue;
 			}
-			const s32 act = s_BoidScratch[i].action_class;
+			const s32 act  = s_BoidScratch[i].action_class;
 			const s32 fire = s_BoidScratch[i].fire_request;
-			const f32 r = s_BoidScratch[i].range_to_target;
+			const s32 anim = s_BoidScratch[i].anim_key;
+			const s32 tgt  = s_BoidScratch[i].target_propnum;
+			const f32 r    = s_BoidScratch[i].range_to_target;
+
+			/* Apply CPU side effects (damage + animation). The
+			 * dispatcher gates internally on per-bot fire cooldown
+			 * and anim-transition state, so calling it unconditionally
+			 * each frame is the intended shape. */
+			(void)swarmTestApplyAiDecision(chr, i, tgt, act, fire, anim, r);
+
 			if      (act == 2) n_attack++;
 			else if (act == 1) n_seek++;
 			else               n_idle++;
@@ -685,6 +715,11 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 			if (r > max_range) max_range = r;
 			sample_count++;
 		}
+
+		/* Drain the CPU's per-frame "fires actually applied" counter
+		 * each pass so it stays in sync with the log throttle. */
+		const s32 fires_applied = swarmTestGetAndResetGpuAiFireCount();
+
 		s_AiLogTick++;
 		if (s_AiLogTick >= 60) {
 			s_AiLogTick = 0;
@@ -692,9 +727,10 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 				? (sum_range / (f32)sample_count) : 0.0f;
 			sysLogPrintf(LOG_NOTE,
 				"BENCHMARK.SWARM.GPU.AI: count=%d idle=%d seek=%d attack=%d "
-				"fire_req=%d range_min=%.0f avg=%.0f max=%.0f fire_range=%.0f "
-				"target_propnum=%d",
+				"fire_req=%d fire_applied_lastframe=%d range_min=%.0f avg=%.0f "
+				"max=%.0f fire_range=%.0f target_propnum=%d",
 				count, n_idle, n_seek, n_attack, n_fire,
+				fires_applied,
 				(double)((min_range > 1.0e29f) ? 0.0f : min_range),
 				(double)avg_range,
 				(double)max_range,

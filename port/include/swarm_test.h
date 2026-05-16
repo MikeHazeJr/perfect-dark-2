@@ -112,6 +112,39 @@ typedef enum {
 void swarmTestSetSpawnStrategy(swarm_spawn_strategy_t strategy);
 swarm_spawn_strategy_t swarmTestGetSpawnStrategy(void);
 
+/* B-308 slice 2 (c3807, 2026-05-15): GPU AI -> CPU side-effect
+ * dispatcher. Called from swarm_gpu.cpp's per-frame readback consumer
+ * once per active GPU bot when SWARM_METHOD_GPU_FULL is armed.
+ *
+ * Translates the compute kernel's per-bot AI decision into CPU side
+ * effects:
+ *   - fire_request != 0 -> chrDamageByImpact against props[target_propnum]
+ *     (subject to per-bot cooldown so 4096 bots don't generate 4096
+ *     damage events per frame).
+ *   - anim_key {0=stand, 1=walk, 2=attack} -> modelSetAnimation against
+ *     the Skedar anim catalog (transition-guarded so identical-frame
+ *     calls are skipped).
+ *
+ * `chr` is the GPU bot's chrdata. `slot_index` is the bot's index in
+ * the swarm slot table (0..TESTSCEN_SWARM_MAX_COUNT-1), used to key
+ * the per-bot fire cooldown.
+ *
+ * Returns 1 if a fire side-effect was applied this call, 0 otherwise.
+ * The caller may track the sum across all slots for a frame-summary
+ * log line. */
+struct chrdata; /* forward decl so swarm_test.h doesn't pull types.h */
+s32 swarmTestApplyAiDecision(struct chrdata *chr,
+                             s32 slot_index,
+                             s32 target_propnum,
+                             s32 action_class,
+                             s32 fire_request,
+                             s32 anim_key,
+                             f32 range_to_target);
+
+/* Read-and-reset the per-frame counter of "fire requests that became
+ * CPU side effects". Used by swarm_gpu.cpp's summary log. */
+s32 swarmTestGetAndResetGpuAiFireCount(void);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
