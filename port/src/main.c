@@ -194,6 +194,23 @@ extern s32 g_StageNum;
  *       passed through unchanged to netParseAddr, so both "ip:port" and
  *       bare hostname forms work. Provides smoke-test coverage of the
  *       client connect path. One-shot per boot.
+ *
+ *   --dump-swarm-state <path>
+ *       Track 2c (c3807, 2026-05-16): post-dispatch hook for the GPU
+ *       swarm benchmark scenarios. Once per 60 frames (~1 Hz) after
+ *       the player prop is positioned, calls
+ *       swarmGpuReadbackTextureRows(0, 5, ...) to extract all 5 rows
+ *       of the READ-side state texture (pos / vel / surface_up /
+ *       AI ints / range) for SWARM_GPU_MAX bots, and appends the
+ *       result to the configured file with a header of magic
+ *       "PDSWARMv1", frame index, bot count, and row count. Stops
+ *       after SWARM_DUMP_MAX_FRAMES (10) dumps so the file size is
+ *       bounded at ~3.2 MB. Path is taken as-is and passed to fopen
+ *       in binary mode; relative paths resolve to the process CWD.
+ *       One-shot CLI capture; no live debug-key. Cheap no-op when a
+ *       GPU swarm scenario is not active or the GL state texture is
+ *       not armed. See context/designs/in-flight/gpu-swarm-and-test-
+ *       scenarios.md Track 2c for the file format spec.
  * ---------------------------------------------------------------- */
 
 static bool        g_BootNoNet            = false;
@@ -276,6 +293,43 @@ static s32         g_BootListenBindPort  = 0;
  * One-shot per boot. */
 static s32         g_BootConnectHostArmed   = 0;
 static char        g_BootConnectHostAddr[64] = {0};
+
+/* Track 2c (c3807, 2026-05-16): --dump-swarm-state <path> one-shot.
+ * CLI fast-path that periodically extracts the GPU swarm state texture
+ * and appends it to a file for offline inspection / replay. Path is
+ * captured into a static buffer; the actual readback runs inside
+ * mainTick once g_Vars.lvframenum >= 4 (player positioned), throttled
+ * to 1 Hz via a frame counter. Latches off after SWARM_DUMP_MAX_FRAMES
+ * dumps so the file is bounded. Cheap no-op when the flag wasn't on
+ * the command line OR when no GPU swarm scenario is active OR when
+ * the state texture isn't armed (driver missing glBindImageTexture).
+ *
+ * File format (little-endian, frame N is the N-th appended block):
+ *   bytes [0..9):    magic = "PDSWARMv1" (9 ASCII chars, NO terminator)
+ *   bytes [9..10):   pad byte (zero) for 4-byte alignment of u32 fields
+ *   bytes [10..14):  reserved (zero)
+ *   bytes [14..16):  pad
+ *   bytes [16..20):  frame_idx (u32, dispatch counter monotonic 0..)
+ *   bytes [20..24):  count     (u32, SWARM_GPU_MAX = 4096; mirrors the
+ *                                texture width / bots-per-row capacity)
+ *   bytes [24..28):  row_count (u32, 5; pos / vel / surface_up / AI /
+ *                                range)
+ *   bytes [28..32):  pad (zero)
+ *   bytes [32..end): row_count * count * 4 floats, in row-major order
+ *                    (row 0 then row 1 ...; each row is `count` 4-float
+ *                    texels). Total per block = 5 * 4096 * 16 = 320 KB +
+ *                    32 B header = 320032 bytes. After 10 dumps the
+ *                    file is ~3.2 MB.
+ *
+ * Consumers should fread the 32 B header, validate the magic prefix,
+ * then fread 5 * 4096 * 16 B of float data. A future replay / sync
+ * tool maps the 4 ints out of row 3 via memcpy into a u32 + 3 spare. */
+#define SWARM_DUMP_MAX_FRAMES   10
+#define SWARM_DUMP_INTERVAL_FRAMES  60   /* ~1 Hz at 60 fps */
+static s32         g_BootDumpSwarmArmed   = 0;
+static char        g_BootDumpSwarmPath[260] = {0};
+static s32         g_BootDumpSwarmDumpsLeft = 0;
+static s32         g_BootDumpSwarmTickCounter = 0;
 
 s32 bootGetMemSize(void)
 {
@@ -867,6 +921,38 @@ static void bootApplyConnectHost(const char *arg)
 		g_BootConnectHostAddr);
 }
 
+/* Track 2c (c3807, 2026-05-16): Arm the --dump-swarm-state <path>
+ * one-shot. Captures the path into the static buffer and primes the
+ * dump countdown to SWARM_DUMP_MAX_FRAMES. The actual readback +
+ * append runs inside bootDumpSwarmStateTick() once the player prop
+ * is positioned and the GPU dispatch loop has had a chance to populate
+ * the texture. Path strings longer than the buffer or empty input
+ * leave the latch off with a WARNING. */
+static void bootApplyDumpSwarmState(const char *arg)
+{
+	if (!arg || !arg[0]) {
+		return;
+	}
+
+	const size_t maxLen = sizeof(g_BootDumpSwarmPath) - 1;
+	if (strlen(arg) > maxLen) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --dump-swarm-state path too long (max %zu chars); got: '%s'",
+			maxLen, arg);
+		return;
+	}
+
+	strncpy(g_BootDumpSwarmPath, arg, maxLen);
+	g_BootDumpSwarmPath[maxLen] = '\0';
+	g_BootDumpSwarmArmed       = 1;
+	g_BootDumpSwarmDumpsLeft   = SWARM_DUMP_MAX_FRAMES;
+	g_BootDumpSwarmTickCounter = 0;
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --dump-swarm-state armed: path='%s' max_dumps=%d interval=%d_frames",
+		g_BootDumpSwarmPath, SWARM_DUMP_MAX_FRAMES, SWARM_DUMP_INTERVAL_FRAMES);
+}
+
 /* Dispatcher called once from main() after the catalog is fully
  * initialised. */
 static void bootApplyCliFastPaths(void)
@@ -880,6 +966,7 @@ static void bootApplyCliFastPaths(void)
 	bootApplyLaunchLoadAgent(sysArgGetString("--launch-load-agent"));
 	bootApplyListenBind(sysArgGetString("--listen-bind"));
 	bootApplyConnectHost(sysArgGetString("--connect-host"));
+	bootApplyDumpSwarmState(sysArgGetString("--dump-swarm-state"));
 }
 
 /* Called once per frame from pdmain.c's mainTick when the
@@ -1166,6 +1253,102 @@ s32 bootConnectHostTick(void)
 		g_BootConnectHostAddr, rc == 0 ? "OK" : "FAILED", (int)rc);
 
 	g_BootConnectHostArmed = 0;
+	return 1;
+}
+
+/* Track 2c (c3807, 2026-05-16): --dump-swarm-state deferred tick.
+ *
+ * Called once per frame from pdmain.c's mainTick when the latch is
+ * armed. Throttles itself to SWARM_DUMP_INTERVAL_FRAMES so the file
+ * grows at ~1 Hz. On fire:
+ *   1. Calls swarmGpuReadbackTextureRows(0, 5, ...) to pull the full
+ *      READ-side state texture.
+ *   2. Appends a 32 B header + 320 KB float payload to the configured
+ *      path (binary append; file is created on the first write).
+ *   3. Decrements the dumps-left counter; clears the latch once zero.
+ *
+ * Gates:
+ *   - g_BootDumpSwarmArmed must be set
+ *   - g_Vars.lvframenum >= 4 (player positioned, stage settled)
+ *   - swarmGpuReadbackTextureRows must return a non-zero texel count
+ *     (otherwise the GPU swarm isn't armed; skip silently this frame)
+ *
+ * The throttle counter increments every gated frame (not every armed
+ * frame) so the spacing between dumps reflects gameplay frames, not
+ * wall-clock. At 60 fps that's 1 second between dumps. Returns 1 on
+ * any decision (dump fired OR throttled), 0 if the latch was off. */
+s32 bootDumpSwarmStateTick(void)
+{
+	extern int swarmGpuReadbackTextureRows(int row_start, int row_count,
+		float *out_buf, int out_capacity);
+
+	if (!g_BootDumpSwarmArmed) {
+		return 0;
+	}
+	if (g_Vars.lvframenum < 4) {
+		return 0;
+	}
+
+	g_BootDumpSwarmTickCounter++;
+	if (g_BootDumpSwarmTickCounter < SWARM_DUMP_INTERVAL_FRAMES) {
+		return 1;
+	}
+	g_BootDumpSwarmTickCounter = 0;
+
+	/* SWARM_GPU_MAX = TESTSCEN_SWARM_MAX_COUNT = 4096. 5 rows * 4096
+	 * texels * 4 floats = 81920 floats = 320 KB. Stack would be tight;
+	 * use a static so we don't blow the 8 MB main stack. The buffer
+	 * is rewritten on every dump call so no aliasing between dumps. */
+	static float s_DumpBuf[5 * 4096 * 4];
+	const int got = swarmGpuReadbackTextureRows(0, 5,
+		s_DumpBuf, (int)(sizeof(s_DumpBuf) / sizeof(float)));
+	if (got <= 0) {
+		/* GPU swarm not armed this frame (e.g. scenario not launched
+		 * yet, or compute unavailable). Silently skip; we'll try again
+		 * next interval. */
+		return 1;
+	}
+
+	FILE *f = fopen(g_BootDumpSwarmPath, "ab");
+	if (!f) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --dump-swarm-state fopen failed for '%s'; disarming",
+			g_BootDumpSwarmPath);
+		g_BootDumpSwarmArmed = 0;
+		return 1;
+	}
+
+	/* 32 B header. Magic is 9 ASCII chars + 1 pad + 22 B reserved/data
+	 * to land the payload at offset 32 (16-byte-aligned for RGBA32F).
+	 * Layout MUST match the docblock above g_BootDumpSwarmPath. */
+	unsigned char header[32];
+	memset(header, 0, sizeof(header));
+	memcpy(header + 0, "PDSWARMv1", 9);
+	const u32 frame_idx = (u32)g_Vars.lvframenum;
+	const u32 count_w   = 4096;   /* SWARM_GPU_MAX; mirrors texture width */
+	const u32 row_count = 5;
+	memcpy(header + 16, &frame_idx, sizeof(u32));
+	memcpy(header + 20, &count_w,   sizeof(u32));
+	memcpy(header + 24, &row_count, sizeof(u32));
+
+	size_t hwrite = fwrite(header, 1, sizeof(header), f);
+	size_t pwrite = fwrite(s_DumpBuf, sizeof(float), (size_t)got * 4, f);
+	fclose(f);
+
+	const s32 dump_no = SWARM_DUMP_MAX_FRAMES - g_BootDumpSwarmDumpsLeft + 1;
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --dump-swarm-state dump %d/%d wrote frame=%u texels=%d "
+		"header_bytes=%zu payload_floats=%zu path='%s'",
+		(int)dump_no, (int)SWARM_DUMP_MAX_FRAMES,
+		(unsigned)frame_idx, got, hwrite, pwrite,
+		g_BootDumpSwarmPath);
+
+	g_BootDumpSwarmDumpsLeft--;
+	if (g_BootDumpSwarmDumpsLeft <= 0) {
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --dump-swarm-state consumed: max_dumps reached; disarming");
+		g_BootDumpSwarmArmed = 0;
+	}
 	return 1;
 }
 

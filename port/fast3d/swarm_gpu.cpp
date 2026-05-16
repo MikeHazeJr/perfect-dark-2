@@ -1125,6 +1125,105 @@ void swarmGpuInvalidateFloorCache(void)
 	memset(s_FloorCache, 0, sizeof(s_FloorCache));
 }
 
+/* ------------------------------------------------------------------
+ * Track 2c (c3807, 2026-05-16): state-texture extraction primitive.
+ * ------------------------------------------------------------------
+ *
+ * Read N rows from the READ-side state texture into the caller's
+ * float buffer. Used by:
+ *   - the --dump-swarm-state CLI fast-path (see port/src/main.c) for
+ *     ad-hoc inspection / replay capture;
+ *   - future Track 2d ENet sync, which encodes a row range into a
+ *     network message per frame.
+ *
+ * READ-side selection: swarmGpuStepAndApply() swaps s_StateTexReadIdx
+ * post-dispatch (line ~1394), so AFTER a dispatch the texture indexed
+ * by s_StateTexReadIdx holds the MOST RECENT dispatch's per-bot
+ * column. When read from a frame-deferred consumer (typical), that's
+ * "the texture just written this frame". Reading mid-dispatch is not
+ * supported (and the memory barrier guarantees the writes are visible
+ * before the consumer runs).
+ *
+ * Implementation: glGetTextureSubImage (GL 4.5+) would give us a true
+ * row-slice read, but the project's pinned glad gen does not export
+ * it -- and the desktop GL minimum probe (GL >= 4.3, line ~899) does
+ * not guarantee 4.5. We use the compatibility fallback: glGetTexImage
+ * (core GL 1.0, unconditionally in glad) reads the WHOLE 4096x5 RGBA32F
+ * texture into a static scratch buffer, then memcpy's the requested
+ * row range into the caller's buffer. Total readback cost is 320 KB
+ * per call (4096 * 5 * 16 B); negligible vs the dispatch itself, and
+ * the caller controls call rate (the --dump CLI throttles to 1 dump
+ * per second). No additional dynamic allocations.
+ *
+ * Failure modes (all return 0):
+ *   - swarmGpuAvailable() == 0 (GL < 4.3 or compute symbols missing)
+ *   - ensure_resources() failed (compile error / glGenBuffers fail)
+ *   - s_StateTexArmed == 0 (glBindImageTexture missing, or the
+ *     ensure_resources texture-alloc path failed)
+ *   - row_start / row_count / out_capacity out of range
+ *   - out_buf NULL
+ *
+ * Thread safety: caller must invoke from the same thread that owns
+ * the GL context (i.e. the render / main thread). All other entry
+ * points on this module obey the same rule.
+ */
+#define SWARM_GPU_STATE_TEX_ROWS    5
+#define SWARM_GPU_STATE_TEX_TEXELS (SWARM_GPU_MAX * SWARM_GPU_STATE_TEX_ROWS)
+
+/* Static scratch sized to the full texture. 4096 * 5 * 4 floats = 320 KB.
+ * BSS, no allocation; static lifetime matches the rest of the file's
+ * state. */
+static float s_StateTexReadScratch[SWARM_GPU_STATE_TEX_TEXELS * 4];
+
+int swarmGpuReadbackTextureRows(int row_start, int row_count,
+                                float *out_buf, int out_capacity)
+{
+	if (!swarmGpuAvailable())  return 0;
+	if (!ensure_resources())   return 0;
+	if (!s_StateTexArmed)      return 0;
+	if (out_buf == NULL)       return 0;
+	if (row_start < 0 || row_count <= 0)                              return 0;
+	if (row_start + row_count > SWARM_GPU_STATE_TEX_ROWS)             return 0;
+	const int needed = SWARM_GPU_MAX * 4 * row_count;
+	if (out_capacity < needed)                                        return 0;
+
+	/* Read-side texture is the one s_StateTexReadIdx points at after
+	 * the post-dispatch swap (= the texture the most recent dispatch
+	 * wrote into). See the swap logic at the bottom of
+	 * swarmGpuStepAndApply for the ping-pong invariant. */
+	const GLuint tex = (s_StateTexReadIdx == 0) ? s_StateTexA : s_StateTexB;
+	if (tex == 0) return 0;
+
+	/* Compatibility fallback: glGetTexImage reads the entire mip 0
+	 * into the static scratch (320 KB), then we memcpy the requested
+	 * row range into the caller's buffer. glGetTextureSubImage would
+	 * be a single-step row-slice read but is GL 4.5+ and not exposed
+	 * by the project's pinned glad gen (which only loads up to 3.3 +
+	 * compute selectively). The GL spec requires glGetTexImage to
+	 * return packed pixels for GL_RGBA / GL_FLOAT; row width = 4096
+	 * texels * 4 floats = 16384 floats per row. */
+	glBindTexture(GL_TEXTURE_2D, tex);
+	/* Ensure tight packing (4-byte aligned floats are tight anyway, but
+	 * be explicit: some drivers default GL_PACK_ALIGNMENT to 4 which
+	 * is correct for float, but a non-default GL_PACK_ROW_LENGTH from
+	 * an earlier draw could break the read. Reset both to defaults. */
+	glPixelStorei(GL_PACK_ALIGNMENT, 4);
+#ifdef GL_PACK_ROW_LENGTH
+	glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+#endif
+	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT,
+		s_StateTexReadScratch);
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	const size_t row_floats = (size_t)SWARM_GPU_MAX * 4;
+	const size_t src_offset = (size_t)row_start * row_floats;
+	const size_t copy_floats = (size_t)row_count * row_floats;
+	memcpy(out_buf, s_StateTexReadScratch + src_offset,
+		copy_floats * sizeof(float));
+
+	return SWARM_GPU_MAX * row_count;
+}
+
 /* B-308 first slice (c3807, 2026-05-15) tuning constants. Picked to give
  * Mike something visible the first time he toggles GPU_FULL on the
  * mp_felicity arena (open beach, ~600-2000 game-unit player-to-bot

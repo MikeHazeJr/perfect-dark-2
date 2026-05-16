@@ -760,6 +760,18 @@ void mainTick(void)
 		(void)bootConnectHostTick();
 	}
 
+	/* Track 2c (c3807, 2026-05-16): --dump-swarm-state one-shot.
+	 * Periodically extracts the GPU swarm state texture and appends
+	 * to the configured file once a GPU swarm scenario is dispatching.
+	 * Cheap no-op when the flag wasn't on the command line OR before
+	 * the player prop is positioned (lvframenum >= 4 gate) OR when no
+	 * GPU swarm scenario is active. Disarms after SWARM_DUMP_MAX_FRAMES
+	 * captures so the file stays bounded. */
+	{
+		extern s32 bootDumpSwarmStateTick(void);
+		(void)bootDumpSwarmStateTick();
+	}
+
 	/* Phase 1 connectivity layer: drives LAN broadcast, direct UDP probes,
 	 * STUN/UPnP/ICE/TURN tier polling, and pair-state escalation. Runs
 	 * every frame regardless of stage state so presence stays alive across
