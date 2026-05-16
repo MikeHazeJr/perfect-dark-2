@@ -139,17 +139,48 @@ extern s32 swarmTestGetAndResetGpuAiFireCount(void);
 #ifndef GL_DYNAMIC_DRAW
 #define GL_DYNAMIC_DRAW                   0x88E8
 #endif
+#ifndef GL_COPY_READ_BUFFER
+#define GL_COPY_READ_BUFFER               0x8F36
+#endif
+#ifndef GL_COPY_WRITE_BUFFER
+#define GL_COPY_WRITE_BUFFER              0x8F37
+#endif
+#ifndef GL_SYNC_GPU_COMMANDS_COMPLETE
+#define GL_SYNC_GPU_COMMANDS_COMPLETE     0x9117
+#endif
+#ifndef GL_ALREADY_SIGNALED
+#define GL_ALREADY_SIGNALED               0x911A
+#endif
+#ifndef GL_CONDITION_SATISFIED
+#define GL_CONDITION_SATISFIED            0x911C
+#endif
+#ifndef GL_SYNC_FLUSH_COMMANDS_BIT
+#define GL_SYNC_FLUSH_COMMANDS_BIT        0x00000001
+#endif
 #ifndef APIENTRY
 #define APIENTRY
 #endif
 
-typedef void (APIENTRY *swarm_glDispatchCompute_t)(GLuint, GLuint, GLuint);
-typedef void (APIENTRY *swarm_glMemoryBarrier_t)(GLbitfield);
-typedef void (APIENTRY *swarm_glBindBufferBase_t)(GLenum, GLuint, GLuint);
+typedef void   (APIENTRY *swarm_glDispatchCompute_t)(GLuint, GLuint, GLuint);
+typedef void   (APIENTRY *swarm_glMemoryBarrier_t)(GLbitfield);
+typedef void   (APIENTRY *swarm_glBindBufferBase_t)(GLenum, GLuint, GLuint);
+typedef void   (APIENTRY *swarm_glCopyBufferSubData_t)(GLenum, GLenum,
+                                                       GLintptr, GLintptr, GLsizeiptr);
+/* glFenceSync returns a GLsync. GLsync is `struct __GLsync *` per GL spec;
+ * use `void *` here so we don't have to drag in a header that may not be
+ * available with this MinGW SDK. The signedness is irrelevant -- we treat
+ * the value as an opaque handle. */
+typedef void * (APIENTRY *swarm_glFenceSync_t)(GLenum, GLbitfield);
+typedef GLenum (APIENTRY *swarm_glClientWaitSync_t)(void *, GLbitfield, GLuint64);
+typedef void   (APIENTRY *swarm_glDeleteSync_t)(void *);
 
-static swarm_glDispatchCompute_t  s_glDispatchCompute   = NULL;
-static swarm_glMemoryBarrier_t    s_glMemoryBarrier     = NULL;
-static swarm_glBindBufferBase_t   s_glBindBufferBase    = NULL;
+static swarm_glDispatchCompute_t    s_glDispatchCompute    = NULL;
+static swarm_glMemoryBarrier_t      s_glMemoryBarrier      = NULL;
+static swarm_glBindBufferBase_t     s_glBindBufferBase     = NULL;
+static swarm_glCopyBufferSubData_t  s_glCopyBufferSubData  = NULL;
+static swarm_glFenceSync_t          s_glFenceSync          = NULL;
+static swarm_glClientWaitSync_t     s_glClientWaitSync     = NULL;
+static swarm_glDeleteSync_t         s_glDeleteSync         = NULL;
 
 /* ------------------------------------------------------------------
  * State
@@ -255,6 +286,85 @@ static GLuint        s_BoidSsbo     = 0;
 static GLuint        s_ParamsSsbo   = 0;
 static boid_record   s_BoidScratch[SWARM_GPU_MAX];
 static struct swarm_params s_Params;
+
+/* ------------------------------------------------------------------
+ * Slice 2 c029 (2026-05-16): async readback ring.
+ *
+ * Problem: pre-Slice-2 we called glGetBufferSubData(BoidSsbo) immediately
+ * after the compute dispatch every frame. That call is a SYNCHRONOUS
+ * pipeline drain -- it blocks the CPU until ALL queued GL commands
+ * complete, then copies the data. At 4096 bots * 80 bytes = 320 KB the
+ * memcpy itself is trivial (~50us); the kill was the GPU sync at the
+ * tail of a render pipeline that already includes the deferred game
+ * frame, ImGui, swap, and the next frame's setup. The fence drain cost
+ * scaled badly: ~1-3 ms at 64 bots, but Mike's 512-bot playtest hit
+ * ~80 ms/frame (12.5 ticks/sec, 6x slowdown vs 256).
+ *
+ * Solution: 2-deep PBO-style ring. Each frame N:
+ *   1. Dispatch compute (writes boid SSBO)
+ *   2. glCopyBufferSubData(BoidSsbo -> ring[write_idx]) -- queues a
+ *      GPU-side memcpy, NO sync
+ *   3. glFenceSync after the copy -- marks "when this fence signals,
+ *      ring[write_idx] holds frame N's data"
+ *   4. Look at ring[read_idx] (= write_idx XOR 1 for depth=2). If its
+ *      fence is non-NULL AND glClientWaitSync(0 timeout) == SIGNALED,
+ *      then glGetBufferSubData(ring[read_idx]) reads previous frame's
+ *      data WITHOUT a pipeline drain (the data has already landed).
+ *   5. Advance write_idx; the OLD write_idx becomes next-frame's read.
+ *
+ * Latency cost: AI / chrSetPos decisions are now driven by frame N-1's
+ * boid positions (one frame stale). Visually imperceptible at 60 Hz;
+ * the player's own input loop is similarly buffered through SDL pump +
+ * fast3d frame queue. Position application via chrSetPos at frame N
+ * uses N-1's positions; the GPU shader at frame N+1 will pick up the
+ * latest chr->prop->pos (which IS the frame-N positions we read at
+ * frame N+1's tick). So bots lag the player by one frame but converge
+ * correctly. Same trade as classic triple-buffering.
+ *
+ * First 1-2 frames: ring[read_idx]'s fence is NULL, consumer skips. No
+ * fire / anim decisions for those frames. Imperceptible warm-up cost.
+ *
+ * Why 2 deep, not 3:
+ *   - 2 deep is enough to break the sync. The compute, copy, and fence
+ *     are all on the GPU side; the readback always gets last frame's
+ *     data immediately because the fence has had ~16 ms to signal.
+ *   - 3 deep would add 1 more frame of position lag with no perf gain
+ *     in typical cases. 3 is what triple-buffered swapchains use to
+ *     hide V-sync wait; we don't have a V-sync issue here.
+ *   - Memory cost: 2 * 320 KB = 640 KB. Trivial.
+ *
+ * Fence handle: GLsync. We use void* (see typedef above) to avoid GL
+ * header coupling. NULL = "no fence inserted yet" / "previous fence
+ * already consumed".
+ *
+ * If the compute symbols failed to load (probe_compute) we keep the
+ * pre-Slice-2 behaviour by NOT initializing ring buffers and falling
+ * back to the blocking readback at the call-site. */
+#define SWARM_READBACK_RING_DEPTH 2
+static GLuint  s_ReadbackRingBuf[SWARM_READBACK_RING_DEPTH] = {0, 0};
+static void   *s_ReadbackRingFence[SWARM_READBACK_RING_DEPTH] = {NULL, NULL};
+static s32     s_ReadbackRingCount[SWARM_READBACK_RING_DEPTH] = {0, 0};
+static s32     s_ReadbackWriteIdx = 0;
+
+/* Per-slot chrnum snapshot, sized to SWARM_GPU_MAX (= 4096).
+ *
+ * The async readback ring delivers last frame's positions, but slot i
+ * may have been refilled by death_poll_and_respawn since the dispatch
+ * (a new chr with a different chrnum). Applying last frame's position
+ * to a fresh chr would teleport it. To detect this, we record the
+ * chrnum we dispatched for at write time and re-check it at read time;
+ * any slot where snap_chrnum != chrs[i]->chrnum skips the apply.
+ *
+ * Two slots in parallel with the GL ring so we can keep the GPU-side
+ * boid record at exactly 80 bytes (the std430 mirror). Stored as
+ * int16 since chrnum is s16; -1 sentinel means "no chr was dispatched
+ * for this slot at write time" (i.e. consumer must skip even if chrs[i]
+ * is non-NULL at read time, because we'd be applying garbage). */
+static s16     s_ReadbackRingChrnum[SWARM_READBACK_RING_DEPTH][SWARM_GPU_MAX];
+/* Active chrnum snapshot for the data currently in s_BoidScratch.
+ * Set by the consumer when copying from the ring; used by the apply /
+ * sample / AI loops to skip slots whose chr identity has changed. */
+static s16     s_ScratchChrnum[SWARM_GPU_MAX];
 
 /* ------------------------------------------------------------------
  * Compute shader source (GLSL 4.3)
@@ -460,12 +570,26 @@ static int probe_compute(void)
 		return 0;
 	}
 
-	s_glDispatchCompute  = (swarm_glDispatchCompute_t)
+	s_glDispatchCompute   = (swarm_glDispatchCompute_t)
 		SDL_GL_GetProcAddress("glDispatchCompute");
-	s_glMemoryBarrier    = (swarm_glMemoryBarrier_t)
+	s_glMemoryBarrier     = (swarm_glMemoryBarrier_t)
 		SDL_GL_GetProcAddress("glMemoryBarrier");
-	s_glBindBufferBase   = (swarm_glBindBufferBase_t)
+	s_glBindBufferBase    = (swarm_glBindBufferBase_t)
 		SDL_GL_GetProcAddress("glBindBufferBase");
+	/* Slice 2 c029 (2026-05-16): async readback ring symbols. Required
+	 * for the new code path; if any fail to load we silently keep the
+	 * blocking fallback. glCopyBufferSubData is core in GL 3.1+; the
+	 * fence/sync trio is core in GL 3.2+. Both are guaranteed by the
+	 * GL 4.3 minimum we already checked above, but we still verify
+	 * each symbol load to be defensive against driver quirks. */
+	s_glCopyBufferSubData = (swarm_glCopyBufferSubData_t)
+		SDL_GL_GetProcAddress("glCopyBufferSubData");
+	s_glFenceSync         = (swarm_glFenceSync_t)
+		SDL_GL_GetProcAddress("glFenceSync");
+	s_glClientWaitSync    = (swarm_glClientWaitSync_t)
+		SDL_GL_GetProcAddress("glClientWaitSync");
+	s_glDeleteSync        = (swarm_glDeleteSync_t)
+		SDL_GL_GetProcAddress("glDeleteSync");
 	if (!s_glDispatchCompute || !s_glMemoryBarrier || !s_glBindBufferBase) {
 		sysLogPrintf(LOG_WARNING,
 			"BENCHMARK.SWARM.GPU: GL 4.3 advertised but compute symbol load "
@@ -473,6 +597,18 @@ static int probe_compute(void)
 			(void *)s_glDispatchCompute, (void *)s_glMemoryBarrier,
 			(void *)s_glBindBufferBase);
 		return 0;
+	}
+	if (!s_glCopyBufferSubData || !s_glFenceSync || !s_glClientWaitSync
+			|| !s_glDeleteSync) {
+		/* Async-readback symbols missing -- not fatal. The dispatch loop
+		 * detects NULL function pointers and falls back to the synchronous
+		 * glGetBufferSubData path. Pre-Slice-2 perf in that case (still
+		 * functional, just slower at 256+ bots). */
+		sysLogPrintf(LOG_WARNING,
+			"BENCHMARK.SWARM.GPU: async-readback symbols missing "
+			"(copy=%p fence=%p wait=%p delete=%p); using blocking readback",
+			(void *)s_glCopyBufferSubData, (void *)s_glFenceSync,
+			(void *)s_glClientWaitSync, (void *)s_glDeleteSync);
 	}
 	sysLogPrintf(LOG_NOTE,
 		"BENCHMARK.SWARM.GPU: compute shaders available (GL %d.%d)",
@@ -500,6 +636,23 @@ static int ensure_resources(void)
 			NULL, GL_DYNAMIC_DRAW);
 		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 	}
+	/* Slice 2 c029: allocate the readback ring buffers. Skip if the
+	 * async symbols failed probe; the blocking path doesn't need them. */
+	if (s_glCopyBufferSubData && s_glFenceSync && s_glClientWaitSync
+			&& s_glDeleteSync && s_ReadbackRingBuf[0] == 0) {
+		glGenBuffers(SWARM_READBACK_RING_DEPTH, s_ReadbackRingBuf);
+		for (s32 i = 0; i < SWARM_READBACK_RING_DEPTH; i++) {
+			/* Bind as COPY_WRITE so the driver knows the intended usage;
+			 * we'll bind it as COPY_READ when reading. Either binding
+			 * point is fine for the underlying GL buffer object -- the
+			 * binding semantics are just hints. */
+			glBindBuffer(GL_COPY_WRITE_BUFFER, s_ReadbackRingBuf[i]);
+			glBufferData(GL_COPY_WRITE_BUFFER,
+				sizeof(boid_record) * SWARM_GPU_MAX,
+				NULL, GL_DYNAMIC_DRAW);
+		}
+		glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+	}
 	return 1;
 }
 
@@ -514,6 +667,44 @@ s32 swarmGpuAvailable(void)
 		s_Available = probe_compute();
 	}
 	return s_Available;
+}
+
+/* Slice 2 c029 (2026-05-16): invalidate the async readback ring.
+ *
+ * Called from swarm_test.c whenever the chr-slot identity has changed
+ * (cycler tick after respawn_swarm, session start/end, stage transition).
+ * Drops any in-flight fences and zeroes the per-slot count so the next
+ * 2 frames produce consumed_count=0 in swarmGpuStepAndApply, meaning
+ * downstream apply / sample / AI loops bound by apply_count skip
+ * entirely. The freshly dispatched compute fills the ring on those
+ * frames; by frame N+2 the consumer has valid current-identity data.
+ *
+ * If the async ring isn't armed (driver failed probe / first call
+ * before ensure_resources()), the function is a safe no-op. */
+void swarmGpuInvalidateReadback(void)
+{
+	if (!s_glDeleteSync) return;
+	for (s32 i = 0; i < SWARM_READBACK_RING_DEPTH; i++) {
+		if (s_ReadbackRingFence[i]) {
+			s_glDeleteSync(s_ReadbackRingFence[i]);
+			s_ReadbackRingFence[i] = NULL;
+		}
+		s_ReadbackRingCount[i] = 0;
+		/* Wipe the per-slot chrnum snapshot. Defensive: even if a future
+		 * code path reads s_ReadbackRingChrnum without re-stamping, the
+		 * -1 sentinel guarantees the consumer's identity check fails
+		 * cleanly (i.e. no false-match against a brand-new chr that
+		 * happens to share a chrnum with one freed during the cycler). */
+		memset(s_ReadbackRingChrnum[i], 0xff,
+			sizeof(s_ReadbackRingChrnum[i]));
+	}
+	/* And the active scratch chrnum array. The fence path normally
+	 * refills this only on a successful consume; an invalidate just
+	 * before a tick should treat the existing scratch as garbage. */
+	memset(s_ScratchChrnum, 0xff, sizeof(s_ScratchChrnum));
+	/* s_ReadbackWriteIdx intentionally not reset -- the next dispatch
+	 * advances it normally. The XOR-1 read slot will simply have its
+	 * fence NULL so the consumer skips. */
 }
 
 /* B-308 first slice (c3807, 2026-05-15) tuning constants. Picked to give
@@ -657,21 +848,165 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	s_glDispatchCompute(groups, 1, 1);
 	s_glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-	/* Readback */
-	glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_BoidSsbo);
-	glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0,
-		sizeof(boid_record) * count, s_BoidScratch);
-	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+	/* ------------------------------------------------------------------
+	 * Slice 2 c029 (2026-05-16): async readback ring.
+	 *
+	 * The pre-Slice-2 code did a single synchronous glGetBufferSubData
+	 * here, which pipeline-drained the GPU every frame and dominated
+	 * frame time at 256+ bots (Mike's playtest showed 12.5 ticks/sec at
+	 * 512 bots / 80ms/frame). The new path uses a 2-deep PBO-style ring:
+	 *
+	 *   write_idx = current ring slot (where we copy THIS frame's data)
+	 *   read_idx  = write_idx ^ 1 (where LAST frame's data lives)
+	 *
+	 * Steps per frame:
+	 *   1. Consume ring[read_idx]: if its fence is signaled, read into
+	 *      s_BoidScratch (= last frame's results). The fence has had a
+	 *      full frame to land, so glGetBufferSubData here does NOT
+	 *      stall -- the data is already on the CPU-visible side.
+	 *   2. Copy this frame's BoidSsbo -> ring[write_idx] via
+	 *      glCopyBufferSubData (GPU-side memcpy, no sync).
+	 *   3. Insert a fence after the copy; record count snapshot.
+	 *   4. Advance write_idx.
+	 *
+	 * Bootstrap: first 2 frames have no consumable data; downstream
+	 * chr position application and AI dispatch skip if the consumed
+	 * count is 0.
+	 *
+	 * Fallback: if probe_compute() failed to load the async symbols
+	 * (s_glCopyBufferSubData / s_glFenceSync / s_glClientWaitSync /
+	 * s_glDeleteSync NULL), we fall back to the synchronous path so
+	 * the GPU swarm still works on quirky drivers. */
+	s32 consumed_count = 0;
+	const bool ring_armed =
+		(s_glCopyBufferSubData != NULL && s_glFenceSync != NULL
+		 && s_glClientWaitSync != NULL && s_glDeleteSync != NULL
+		 && s_ReadbackRingBuf[0] != 0);
+
+	if (ring_armed) {
+		const s32 read_idx = s_ReadbackWriteIdx ^ 1; /* depth=2 */
+		void *fence = s_ReadbackRingFence[read_idx];
+		if (fence) {
+			/* Non-blocking poll. Timeout=0 means "check if signaled and
+			 * return immediately." Driver returns ALREADY_SIGNALED if
+			 * the fence was already done, CONDITION_SATISFIED if it
+			 * just signaled during the call, or TIMEOUT_EXPIRED if
+			 * still pending. We treat the first two as "data is ready,"
+			 * the third as "skip this frame's consumer" (the GPU is
+			 * still working, don't drain it). The GL spec guarantees
+			 * fences become signaled when ALL prior commands complete;
+			 * since we issued the copy a full frame ago, it should
+			 * essentially always be signaled by now. If we DO hit
+			 * TIMEOUT_EXPIRED that's a stronger perf signal than the
+			 * blocking get -- the GPU is genuinely behind. */
+			const GLenum wait = s_glClientWaitSync(fence, 0, 0);
+			if (wait == GL_ALREADY_SIGNALED
+					|| wait == GL_CONDITION_SATISFIED) {
+				consumed_count = s_ReadbackRingCount[read_idx];
+				if (consumed_count > 0) {
+					glBindBuffer(GL_COPY_READ_BUFFER,
+						s_ReadbackRingBuf[read_idx]);
+					glGetBufferSubData(GL_COPY_READ_BUFFER, 0,
+						sizeof(boid_record) * consumed_count,
+						s_BoidScratch);
+					glBindBuffer(GL_COPY_READ_BUFFER, 0);
+					/* Mirror the per-slot chrnum snapshot into the
+					 * apply-side array so the consumer can detect chr
+					 * identity changes (death_poll_and_respawn refills
+					 * one slot per frame; the cycler can swap all
+					 * slots in one tick -- swarmGpuInvalidateReadback
+					 * covers the latter, this covers the former). */
+					memcpy(s_ScratchChrnum,
+						s_ReadbackRingChrnum[read_idx],
+						sizeof(s16) * consumed_count);
+				}
+				s_glDeleteSync(fence);
+				s_ReadbackRingFence[read_idx] = NULL;
+				s_ReadbackRingCount[read_idx] = 0;
+			}
+			/* If wait == TIMEOUT_EXPIRED, leave the fence in place;
+			 * we'll try again next frame. consumed_count stays 0 so
+			 * the downstream consumer skips this frame. */
+		}
+
+		/* Queue THIS frame's copy + fence into the write slot. */
+		const s32 write_idx = s_ReadbackWriteIdx;
+		/* Drop any stale fence in the write slot (shouldn't happen with
+		 * depth-2 ring, but defensive against double-fence leak). */
+		if (s_ReadbackRingFence[write_idx]) {
+			s_glDeleteSync(s_ReadbackRingFence[write_idx]);
+			s_ReadbackRingFence[write_idx] = NULL;
+		}
+		glBindBuffer(GL_COPY_READ_BUFFER, s_BoidSsbo);
+		glBindBuffer(GL_COPY_WRITE_BUFFER, s_ReadbackRingBuf[write_idx]);
+		s_glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER,
+			0, 0, (GLsizeiptr)(sizeof(boid_record) * count));
+		glBindBuffer(GL_COPY_READ_BUFFER, 0);
+		glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+		s_ReadbackRingFence[write_idx] =
+			s_glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+		s_ReadbackRingCount[write_idx] = count;
+		/* Stamp the chrnum the GPU just computed for. The consumer (next
+		 * frame's pass through this function) checks this against the
+		 * live chrs[i]->chrnum and skips the apply if death_poll_and_
+		 * respawn swapped a fresh chr into the slot. NULL chr -> -1
+		 * sentinel; the consumer never matches -1 so those slots also
+		 * get skipped, which is correct (no position to apply). */
+		for (s32 i = 0; i < count; i++) {
+			struct chrdata *c = chrs[i];
+			s_ReadbackRingChrnum[write_idx][i] =
+				(c && c->chrnum >= 0) ? (s16)c->chrnum : (s16)-1;
+		}
+		s_ReadbackWriteIdx = (s_ReadbackWriteIdx + 1) % SWARM_READBACK_RING_DEPTH;
+	} else {
+		/* Fallback: blocking readback (pre-Slice-2 behaviour). The data
+		 * is current-frame so chr identity is trivially consistent;
+		 * stamp s_ScratchChrnum from the live chrs so the downstream
+		 * identity check matches and the apply proceeds normally. */
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_BoidSsbo);
+		glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0,
+			sizeof(boid_record) * count, s_BoidScratch);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+		for (s32 i = 0; i < count; i++) {
+			struct chrdata *c = chrs[i];
+			s_ScratchChrnum[i] = (c && c->chrnum >= 0)
+				? (s16)c->chrnum : (s16)-1;
+		}
+		consumed_count = count;
+	}
+
+	/* From here on, `consumed_count` is the authoritative number of
+	 * bots whose data lives in s_BoidScratch[]. In the async ring path
+	 * that may be 0 (bootstrap or fence not yet signaled) or last-frame's
+	 * count (which could differ from THIS frame's count if the cycler
+	 * just changed the ladder). We clamp downstream loops to the smaller
+	 * of (consumed_count, count) so we never read past the snapshot OR
+	 * past the live chr array. */
+	const s32 apply_count = (consumed_count < count) ? consumed_count : count;
 
 	/* Apply to chr positions via chrSetPos so the model root, ground
 	 * tracking, and room registration stay in sync with the new
 	 * position. Direct prop->pos writes leave the model rendering at
 	 * the old root location. Heading is derived from the velocity
 	 * vector the shader produced; idle (vel ~ 0) keeps the existing
-	 * yaw. findground=true so chrs follow uneven floors. */
-	for (s32 i = 0; i < count; i++) {
+	 * yaw. findground=true so chrs follow uneven floors.
+	 *
+	 * Slice 2 c029: loop bound is `apply_count`, not `count`. In the
+	 * async-readback path apply_count may be 0 (no consumable frame yet)
+	 * or last frame's count (if the cycler just changed ladder rung).
+	 * On a 0, we skip the entire loop -- bots hold their previous
+	 * frame's position for one tick. Imperceptible at 60 Hz. */
+	for (s32 i = 0; i < apply_count; i++) {
 		struct chrdata *chr = chrs[i];
 		if (!chr || !chr->prop || chr->chrnum < 0 || chr->model == NULL) {
+			continue;
+		}
+		/* Slice 2 c029: chrnum identity guard. If death_poll_and_respawn
+		 * refilled slot i since the snapshot was taken, the snapshot
+		 * has the OLD chr's position; applying it to the new chr would
+		 * teleport. Skip; the new chr will get its own snapshot in
+		 * 1-2 more frames. */
+		if (s_ScratchChrnum[i] != (s16)chr->chrnum) {
 			continue;
 		}
 		struct coord newpos;
@@ -727,10 +1062,19 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 			f32 max_v2 = 0.0f;       /* max squared magnitude */
 			double sum_v = 0.0;      /* sum of per-bot sqrt-magnitudes */
 			s32 v_samples = 0;
-			for (s32 i = 0; i < count; i++) {
+			/* Slice 2 c029: bound by apply_count (= consumed snapshot
+			 * size), not raw `count`. The s_BoidScratch only holds valid
+			 * data for indices < apply_count after the async-ring
+			 * consume. Reading past would surface stale or zero entries,
+			 * skewing the max/avg velocity stats. */
+			for (s32 i = 0; i < apply_count; i++) {
 				struct chrdata *chr = chrs[i];
 				if (!chr || !chr->prop || chr->chrnum < 0
 						|| chr->model == NULL) {
+					continue;
+				}
+				/* Identity guard -- see apply loop above. */
+				if (s_ScratchChrnum[i] != (s16)chr->chrnum) {
 					continue;
 				}
 				const f32 vx = s_BoidScratch[i].vx;
@@ -792,21 +1136,33 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	 * matching the cadence of BENCHMARK.SWARM.* in swarm_test.c so
 	 * the two log streams interleave cleanly.
 	 *
-	 * Performance note: the readback above is blocking
-	 * (glGetBufferSubData). At 4096 bots * 80 B = ~320 KB read per
-	 * frame this is acceptable on a 60 Hz target but should be
-	 * promoted to a PBO + fence ring once GPU_FULL grows into a
-	 * default-on path. Filed as follow-up (c) in the sprint report. */
+	 * Performance note: prior to Slice 2 the readback above was blocking
+	 * (glGetBufferSubData). Slice 2 c029/2026-05-16 promoted it to a
+	 * 2-deep PBO-style ring so AI decisions are now based on frame N-1's
+	 * boid positions. The AI dispatcher's per-bot cooldown / transition
+	 * gating absorbs the 1-frame lag (it was already cooldown-throttled
+	 * to ~2 Hz per bot anyway). */
 	if (do_ai) {
 		static s32 s_AiLogTick = 0;
 		s32 n_idle = 0, n_seek = 0, n_attack = 0, n_fire = 0;
 		f32 sum_range = 0.0f;
 		f32 min_range = 1.0e30f, max_range = 0.0f;
 		s32 sample_count = 0;
-		for (s32 i = 0; i < count; i++) {
+		/* Slice 2 c029: bound by apply_count (= consumed snapshot size),
+		 * not raw `count`. Reading past the snapshot would surface stale
+		 * fire_request=0 / range_to_target=0 entries that would skew
+		 * action_class counts toward idle and trigger spurious fire
+		 * cooldown drains. */
+		for (s32 i = 0; i < apply_count; i++) {
 			struct chrdata *chr = chrs[i];
 			if (!chr || !chr->prop || chr->chrnum < 0
 					|| chr->model == NULL) {
+				continue;
+			}
+			/* Identity guard -- see apply loop above. Avoids damaging /
+			 * animating a freshly-respawned chr based on the prior
+			 * chr's AI state. */
+			if (s_ScratchChrnum[i] != (s16)chr->chrnum) {
 				continue;
 			}
 			const s32 act  = s_BoidScratch[i].action_class;
@@ -855,12 +1211,17 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 			/* Burst-log up to SWARM_AI_LOG_MAX individual firing-bot
 			 * decisions so the log shows specific examples (slot
 			 * index + range). This lets Mike pick a slot and visually
-			 * correlate with the bot count progression on-screen. */
+			 * correlate with the bot count progression on-screen.
+			 *
+			 * Slice 2 c029: bound by apply_count -- see comment above. */
 			s32 logged = 0;
-			for (s32 i = 0; i < count && logged < SWARM_AI_LOG_MAX; i++) {
+			for (s32 i = 0; i < apply_count && logged < SWARM_AI_LOG_MAX; i++) {
 				struct chrdata *chr = chrs[i];
 				if (!chr || !chr->prop || chr->chrnum < 0
 						|| chr->model == NULL) {
+					continue;
+				}
+				if (s_ScratchChrnum[i] != (s16)chr->chrnum) {
 					continue;
 				}
 				if (s_BoidScratch[i].fire_request) {

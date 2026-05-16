@@ -16,6 +16,16 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <SDL.h>  /* SDL_GetPerformanceCounter / SDL_GetPerformanceFrequency for
+                   * wall-clock dt measurement (Slice 1 c029, 2026-05-16).
+                   * Replaces the broken g_Vars.lvframenum-based dt that always
+                   * reported a constant 16.667 ms regardless of actual
+                   * wall-clock frame time. The g_Vars.lvframenum delta tracks
+                   * engine-target ticks (60 Hz nominal), NOT the wall-clock
+                   * elapsed between swarmTestTick invocations. Mike's playtest
+                   * report exposed the gap: 512-bot tier runs at ~12.5 ticks/s
+                   * but the metric still reported 16.667 ms/frame. */
+
 #include "constants.h"
 #include "memsizes.h"  /* AMMO_TYPE_COUNT */
 #include "system.h"
@@ -160,6 +170,16 @@ extern s32  swarmGpuAvailable(void);
 extern void swarmGpuStepAndApply(struct coord *player_pos,
                                  struct chrdata **chrs, s32 count,
                                  s32 method, s32 player_propnum);
+/* Slice 2 c029 (2026-05-16): invalidate the async readback ring.
+ * Called after any respawn that changes chr identity at slot indices
+ * (cycler tick, session start, session end, despawn_all). The ring
+ * holds last frame's positions; if the chr at slot i has been replaced
+ * by a different chrnum, applying the stale snapshot would teleport
+ * the new chr. Invalidating drops the next 2 frames of position
+ * application, which is visually imperceptible during the cycler's
+ * own respawn burst. No-op if the ring isn't armed (driver fell back
+ * to blocking readback). */
+extern void swarmGpuInvalidateReadback(void);
 
 /* ------------------------------------------------------------------
  * Cycle ladder (S594h-Unit-A, 2026-05-01).
@@ -239,10 +259,26 @@ static s32 s_LadderIdx = 0; /* 0 = lowest ladder count (4) */
  * unchanged. 0xff = sentinel "not snapshotted yet". */
 static u8 s_PriorTeamsEnabledSnapshot = 0xff;
 
-/* Frame-time accumulators for the BENCHMARK.SWARM.* summary line. */
+/* Frame-time accumulators for the BENCHMARK.SWARM.* summary line.
+ *
+ * c029 (2026-05-16) Slice 1: switched from engine-tick deltas
+ * (g_Vars.lvframenum * 16.667ms) to SDL wall-clock deltas. The
+ * engine-tick path always reported 16.667 ms per frame regardless
+ * of actual wall-clock time, which masked the 6x slowdown going
+ * from 256 to 512 bots that Mike caught in playtest.
+ *
+ *   s_LastPerfCounter   = SDL_GetPerformanceCounter() snapshot from
+ *                         the prior swarmTestTick. Zero on first
+ *                         tick after session start / stage change /
+ *                         session end (so the first frame's delta
+ *                         is dropped rather than fabricated).
+ *   s_FrameMsAcc        = sum of wall-clock dt in ms since the last
+ *                         cycler_tick summary emit.
+ *   s_FrameMsSamples    = number of summed samples; avg = acc / N.
+ */
 static f32 s_FrameMsAcc;
 static s32 s_FrameMsSamples;
-static u32 s_LastFrameTick;
+static u64 s_LastPerfCounter;
 
 /* Private aibot pool -- escapes the MAX_BOTS=32 cap that gates the
  * normal botmgr/match path. Each swarm Skedar gets its own aibot
@@ -1426,6 +1462,15 @@ static void cycler_tick(void)
 
 	respawn_swarm(next);
 
+	/* Slice 2 c029 (2026-05-16): the cycler just despawned all chrs and
+	 * spawned fresh ones at the new count. Drop the async readback ring
+	 * so we don't apply last frame's positions (for now-freed chrs) to
+	 * the newly-spawned chrs sharing the same slot indices. The next 2
+	 * frames consume nothing; from frame 3 onward the ring is back in
+	 * steady state with current-identity data. No-op if the ring isn't
+	 * armed (CPU mode / driver fallback). */
+	swarmGpuInvalidateReadback();
+
 	/* Post-respawn diagnostic: target / actual / alive. If target != actual
 	 * the respawn loop dropped some slots (height failure, pool exhausted,
 	 * spawnPoolCorrectPosition rejection); if actual != alive the death-
@@ -1450,6 +1495,10 @@ static void cycler_tick(void)
 		s_SwarmRespawnsThisCycle);
 	s_FrameMsAcc = 0.0f;
 	s_FrameMsSamples = 0;
+	/* Drop the wall-clock snapshot so the spike caused by respawn_swarm()
+	 * (mass spawn/despawn loops can take 10s of ms) does NOT bleed into
+	 * the next tier's frame_avg_ms measurement. Slice 1 c029 2026-05-16. */
+	s_LastPerfCounter = 0;
 	s_SwarmKills = 0;
 	s_SwarmRespawnsThisCycle = 0;
 }
@@ -1658,6 +1707,7 @@ void swarmTestTick(void)
 		s_SwarmKills       = 0;
 		s_FrameMsAcc       = 0.0f;
 		s_FrameMsSamples   = 0;
+		s_LastPerfCounter  = 0;  /* drop first post-transition dt sample */
 		s_SwarmLogTickAcc  = 0;
 
 		/* Mirror of STAGE_IS_SYSTEM (constants.h) but inlined to avoid
@@ -1674,14 +1724,34 @@ void swarmTestTick(void)
 		}
 	}
 
-	/* Frame-time accumulator (delta from last tick in ms). */
-	if (s_LastFrameTick != 0) {
-		u32 delta = g_Vars.lvframenum - s_LastFrameTick;
-		f32 ms = (f32)delta * (1000.0f / 60.0f);
-		s_FrameMsAcc += ms;
-		s_FrameMsSamples++;
+	/* Frame-time accumulator (wall-clock delta from last tick in ms).
+	 *
+	 * Slice 1 c029 (2026-05-16): replaces the prior g_Vars.lvframenum
+	 * delta * 16.667 ms math. The engine tick counter advances at the
+	 * configured engine rate (60 Hz target); a single swarmTestTick call
+	 * sees delta=1 every time, yielding a constant 16.667 ms regardless
+	 * of actual wall-clock pace. Mike's playtest at 512 bots showed
+	 * tick rate dropping to ~12.5 Hz (= 80 ms/frame) but the broken
+	 * metric still reported 16.667. We now snapshot SDL_GetPerformance
+	 * counters which advance at hardware monotonic resolution, so the
+	 * metric reflects whatever pace the actual frame loop is hitting. */
+	{
+		const u64 now_perf = SDL_GetPerformanceCounter();
+		if (s_LastPerfCounter != 0) {
+			const u64 freq = SDL_GetPerformanceFrequency();
+			if (freq != 0) {
+				/* Promote to double for the divide so we don't lose
+				 * precision on long sessions (counter is 64-bit and
+				 * can hit very large values). */
+				const double dt_seconds =
+					(double)(now_perf - s_LastPerfCounter) / (double)freq;
+				const f32 ms = (f32)(dt_seconds * 1000.0);
+				s_FrameMsAcc += ms;
+				s_FrameMsSamples++;
+			}
+		}
+		s_LastPerfCounter = now_perf;
 	}
-	s_LastFrameTick = g_Vars.lvframenum;
 
 	/* Session-start work the first tick we run after a stage load. */
 	if (!s_SwarmInitialized) {
@@ -1709,6 +1779,9 @@ void swarmTestTick(void)
 		/* Reset ladder position to the initial-count entry (idx 0 = 4). */
 		s_LadderIdx = 0;
 		respawn_swarm(TESTSCEN_SWARM_INITIAL_COUNT);
+		/* Slice 2 c029: drop any stale ring contents from a prior session
+		 * before the first dispatch fills it with current-session data. */
+		swarmGpuInvalidateReadback();
 		s_SwarmInitialized = 1;
 		{
 		const swarm_method_t armed_method = testScenarioActiveMethod();
@@ -1911,10 +1984,22 @@ void swarmTestTick(void)
 		const s32 in_play = swarmTestGetInPlayCount();
 		const s32 pending = swarmTestGetPendingRespawnCount();
 		const s32 empty   = s_SwarmCount - in_play - pending;
+		/* Slice 1 c029 (2026-05-16): include the running frame_avg_ms +
+		 * derived ticks_per_sec on the 1 Hz log line so per-tier slowdown
+		 * is visible in the smoke / playtest log without having to wait
+		 * for the cycler SUMMARY line. The values are summed over the
+		 * whole tier (since the last cycle reset); ticks_per_sec is the
+		 * exact inverse so it tracks live engine pacing including readback
+		 * stalls and CPU-side floor-sampling cost. */
+		const f32 avg_ms = (s_FrameMsSamples > 0)
+			? (s_FrameMsAcc / (f32)s_FrameMsSamples) : 0.0f;
+		const f32 ticks_per_sec = (avg_ms > 0.01f) ? (1000.0f / avg_ms) : 0.0f;
 		sysLogPrintf(LOG_NOTE,
-			"BENCHMARK.SWARM.%s: target=%d in_play=%d dying=%d empty=%d kills=%d",
+			"BENCHMARK.SWARM.%s: target=%d in_play=%d dying=%d empty=%d kills=%d "
+			"frame_avg_ms=%.3f ticks_per_sec=%.2f",
 			(testScenarioActiveMethod() != SWARM_METHOD_CPU) ? "GPU" : "CPU",
-			s_SwarmCount, in_play, pending, empty, s_SwarmKills);
+			s_SwarmCount, in_play, pending, empty, s_SwarmKills,
+			(double)avg_ms, (double)ticks_per_sec);
 
 		/* S594h-Unit-C diag: surface the first swarm bot's targeting
 		 * state so Mike's "bots not targeting me" report can be
@@ -1969,6 +2054,10 @@ void swarmTestTick(void)
 void swarmTestOnSessionEnd(void)
 {
 	despawn_all();
+	/* Slice 2 c029: invalidate the async readback ring so a re-arm after
+	 * a stage transition / system-stage bounce doesn't reuse stale data
+	 * from the prior session. */
+	swarmGpuInvalidateReadback();
 	/* Defensive: zero the in-use bitmap so a fresh session start (after
 	 * a stage transition that didn't go through despawn_all) cannot
 	 * inherit an old leak of "in use" markers. The aibot structs
@@ -1995,7 +2084,7 @@ void swarmTestOnSessionEnd(void)
 	s_PlayerLoadoutGiven     = 0; /* re-give power weapons on next session */
 	s_FrameMsAcc             = 0.0f;
 	s_FrameMsSamples         = 0;
-	s_LastFrameTick          = 0;
+	s_LastPerfCounter        = 0;
 	testScenarioReset();
 }
 
