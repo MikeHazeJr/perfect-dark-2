@@ -221,8 +221,15 @@ s32 testScenarioLaunch(test_scenario_t scen, const char *map_id)
 		}
 
 		s_State.scen          = scen;
+		/* B-308 first slice (c3807, 2026-05-15): TESTSCEN_SWARM_GPU
+		 * defaults to GPU_POS_ONLY (the historical S593d behaviour
+		 * before the GPU AI pipeline existed). The runtime
+		 * ACTION_TESTSCEN_GPU_FULL_TOGGLE key promotes to GPU_FULL
+		 * without re-launching. Keeping the launch path on POS_ONLY
+		 * preserves a stable baseline for the smoke tests and lets
+		 * the AI path be opted-into deliberately. */
 		s_State.method        = (scen == TESTSCEN_SWARM_GPU)
-			? SWARM_METHOD_GPU : SWARM_METHOD_CPU;
+			? SWARM_METHOD_GPU_POS_ONLY : SWARM_METHOD_CPU;
 		s_State.stagenum      = stagenum;
 		s_State.current_count = TESTSCEN_SWARM_INITIAL_COUNT;
 		strncpy(s_State.map_id, resolved_id, sizeof(s_State.map_id) - 1);
@@ -278,6 +285,28 @@ test_scenario_t testScenarioActive(void)
 swarm_method_t testScenarioActiveMethod(void)
 {
 	return s_State.method;
+}
+
+/* B-308 first slice (c3807, 2026-05-15). See header docblock for the full
+ * rationale. Only valid in a GPU swarm scenario; logs and no-ops otherwise.
+ * The HUD reads testScenarioActiveMethod() so the new state is reflected
+ * immediately on the next frame. */
+void testScenarioCycleGpuSubmode(void)
+{
+	if (s_State.scen != TESTSCEN_SWARM_GPU) {
+		sysLogPrintf(LOG_NOTE,
+			"TESTSCEN.SWARM: GPU_FULL toggle ignored (scen=%d not GPU swarm)",
+			(int)s_State.scen);
+		return;
+	}
+	if (s_State.method == SWARM_METHOD_GPU_POS_ONLY) {
+		s_State.method = SWARM_METHOD_GPU_FULL;
+	} else {
+		s_State.method = SWARM_METHOD_GPU_POS_ONLY;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"TESTSCEN.SWARM: GPU sub-method -> %s",
+		(s_State.method == SWARM_METHOD_GPU_FULL) ? "GPU_FULL" : "GPU_POS_ONLY");
 }
 
 s32 testScenarioIsSwarmActive(void)

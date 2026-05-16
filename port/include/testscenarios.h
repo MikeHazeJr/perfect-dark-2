@@ -32,10 +32,41 @@ typedef enum {
     TESTSCEN_COUNT
 } test_scenario_t;
 
+/* Swarm execution method.
+ *
+ * B-308 first slice (c3807, 2026-05-15): expanded from the original 2-value
+ * CPU/GPU enum to a 3-value CPU/GPU_POS_ONLY/GPU_FULL enum so the GPU bot AI
+ * pipeline (see context/designs/in-flight/gpu-swarm-bot-pipeline.md) can be
+ * staged incrementally:
+ *
+ *   - SWARM_METHOD_CPU         -- real bot AI on CPU via GAILIST_AIBOT_INIT.
+ *   - SWARM_METHOD_GPU_POS_ONLY -- GPU compute drives positions only; chrs
+ *     are passive props with no aibot. This is the historical "Swarm-GPU"
+ *     behaviour (S593d) -- unchanged.
+ *   - SWARM_METHOD_GPU_FULL    -- GPU compute also makes AI decisions
+ *     (per-bot action class, anim key, fire request, target index). CPU
+ *     reads the decisions back and applies side effects. First-slice scope
+ *     (c3807): GPU writes a trivial "in-range fire request"; CPU logs the
+ *     decisions to verify the round trip. Projectile / animation side
+ *     effects are deferred to the next slice (see gpu-swarm-bot-pipeline.md
+ *     Tier 3).
+ *
+ * SWARM_METHOD_GPU is kept as a backward-compat alias for GPU_POS_ONLY so
+ * existing call sites (HUD label, log lines) compile unchanged. The launch
+ * dispatch in testscenarios.c maps TESTSCEN_SWARM_GPU to GPU_POS_ONLY; the
+ * runtime cycler key (ACTION_TESTSCEN_GPU_FULL_TOGGLE) flips between
+ * GPU_POS_ONLY and GPU_FULL without a full scenario relaunch. */
 typedef enum {
-    SWARM_METHOD_CPU = 0,
-    SWARM_METHOD_GPU = 1,
+    SWARM_METHOD_CPU          = 0,
+    SWARM_METHOD_GPU_POS_ONLY = 1,
+    SWARM_METHOD_GPU_FULL     = 2,
+    SWARM_METHOD_COUNT,
 } swarm_method_t;
+
+/* Backward-compat alias: the original code referred to "GPU mode" without
+ * distinguishing the AI subtype. New code should use GPU_POS_ONLY or
+ * GPU_FULL explicitly. */
+#define SWARM_METHOD_GPU SWARM_METHOD_GPU_POS_ONLY
 
 /* Maximum swarm count across the cycle. S594h-Unit-A bumped this
  * from 256 to 4096 (16x) so the benchmark can probe heavy-load
@@ -55,6 +86,14 @@ s32 testScenarioLaunch(test_scenario_t scen, const char *map_id);
  * currently armed. */
 test_scenario_t testScenarioActive(void);
 swarm_method_t  testScenarioActiveMethod(void);
+
+/* B-308 first slice (c3807, 2026-05-15): cycle the GPU sub-method between
+ * GPU_POS_ONLY and GPU_FULL while a GPU swarm scenario is armed. No-op
+ * when the active scenario is not TESTSCEN_SWARM_GPU. Does NOT respawn
+ * chrs; both GPU sub-methods share the same passive-prop chr layout, so
+ * the only thing that changes is which compute kernel path runs (and
+ * which fields the readback consumer applies). */
+void testScenarioCycleGpuSubmode(void);
 
 /* True iff the active scenario is one of the swarm variants (CPU or GPU). */
 s32 testScenarioIsSwarmActive(void);

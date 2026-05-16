@@ -2488,6 +2488,11 @@ static void setupGameplayDefaults(s32 player)
          * V to avoid the existing VOICE_PTT bind. The 'I' is mnemonic for
          * "Invisible" and is otherwise unused across IMCs. */
         addBind(imc, ACTION_TESTSCEN_VIS_TOGGLE, 12);                        /* KEY_I */
+        /* B-308 first slice (c3807, 2026-05-15): GPU swarm sub-method
+         * toggle. KEY_O (SDL scan 18) -- next to KEY_I; mnemonic for
+         * "On / Off" the GPU AI path. Only consumed by swarm_test.c
+         * when a GPU swarm scenario is active. */
+        addBind(imc, ACTION_TESTSCEN_GPU_FULL_TOGGLE, 18);                   /* KEY_O */
     }
     /* s036-02 / s036-03 (c036, 2026-05-12): dev hotkey + tooling
      * migration. Previously raw SDL_KEYDOWN handlers in
@@ -3177,6 +3182,8 @@ static const SmokeActionEntry s_SmokeActionTable[] = {
     { "ACTION_DEBUG_WIREFRAME_TOGGLE", ACTION_DEBUG_WIREFRAME_TOGGLE },
     { "ACTION_HOTSWAP_TOGGLE",       ACTION_HOTSWAP_TOGGLE },
     { "ACTION_TOGGLE_FULLSCREEN",    ACTION_TOGGLE_FULLSCREEN },
+    /* 116: GPU swarm sub-method toggle (B-308 first slice). */
+    { "ACTION_TESTSCEN_GPU_FULL_TOGGLE", ACTION_TESTSCEN_GPU_FULL_TOGGLE },
     /* Backward-compat aliases (resolve to canonical targets). */
     { "ACTION_INTERACT",             ACTION_USE },
     { "ACTION_MENU_ACCEPT",          ACTION_USE },

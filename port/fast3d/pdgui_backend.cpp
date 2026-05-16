@@ -1037,10 +1037,18 @@ void pdguiRender(void)
                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize
                 | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove
                 | ImGuiWindowFlags_NoSavedSettings);
+        /* B-308 first slice (c3807, 2026-05-15): label now distinguishes
+         * GPU_POS_ONLY from GPU_FULL so the user can verify the toggle
+         * key took effect. CPU label stays "CPU Bots". */
+        const char *method_lbl = "CPU Bots";
+        switch (testScenarioActiveMethod()) {
+        case SWARM_METHOD_GPU_POS_ONLY: method_lbl = "GPU Boids (pos-only)"; break;
+        case SWARM_METHOD_GPU_FULL:     method_lbl = "GPU Boids (AI on)";    break;
+        default: break;
+        }
         ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f),
                 "TEST SCENARIO  Swarm - %s",
-                (testScenarioActiveMethod() == SWARM_METHOD_GPU)
-                    ? "GPU Boids" : "CPU Bots");
+                method_lbl);
         ImGui::Separator();
         ImGui::Text("Target:  %d", cur);
         ImGui::Text("In play: %d", in_play);
@@ -1055,6 +1063,7 @@ void pdguiRender(void)
         ImGui::TextDisabled("PgUp/[0]/D-Down  next: %d", next_count);
         ImGui::TextDisabled("PgDn/D-Up        prev: %d", prev_count);
         ImGui::TextDisabled("I                vis cycle");
+        ImGui::TextDisabled("O                GPU AI toggle");
         ImGui::End();
     }
 #endif

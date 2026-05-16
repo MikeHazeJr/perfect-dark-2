@@ -48,10 +48,19 @@ extern bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
 	f32 theta, bool findground);
 
 /* GPU swarm module (port/fast3d/swarm_gpu.cpp). When that module is not
- * yet built, the stub below is used and swarmGpuAvailable() returns 0. */
+ * yet built, the stub below is used and swarmGpuAvailable() returns 0.
+ *
+ * B-308 first slice (c3807, 2026-05-15): swarmGpuStepAndApply now takes
+ * a `method` argument and a `player_propnum`. `method` is one of
+ * SWARM_METHOD_GPU_POS_ONLY or SWARM_METHOD_GPU_FULL (passing CPU here is
+ * a no-op caller error); the GPU side gates the AI compute step on it.
+ * player_propnum is the CPU's prop index for the local player; the GPU
+ * writes it back into the per-bot target_propnum field so the CPU
+ * consumer can correlate. */
 extern s32  swarmGpuAvailable(void);
 extern void swarmGpuStepAndApply(struct coord *player_pos,
-                                 struct chrdata **chrs, s32 count);
+                                 struct chrdata **chrs, s32 count,
+                                 s32 method, s32 player_propnum);
 
 /* ------------------------------------------------------------------
  * Cycle ladder (S594h-Unit-A, 2026-05-01).
@@ -1289,10 +1298,14 @@ static void cycler_tick(void)
 		"TESTSCEN.SWARM: post-cycle target=%d actual=%d alive=%d kills=%d",
 		next, s_SwarmCount, alive, s_SwarmKills);
 
-	/* End-of-cycle summary log for the just-finished count. */
+	/* End-of-cycle summary log for the just-finished count. The label
+	 * stays "CPU" / "GPU" so the smoke-test regex BENCHMARK\\.SWARM\\.GPU
+	 * keeps matching across GPU_POS_ONLY and GPU_FULL. The AI sub-method
+	 * is logged separately via TESTSCEN.SWARM lines and the
+	 * BENCHMARK.SWARM.GPU.AI summary in swarm_gpu.cpp. */
 	sysLogPrintf(LOG_NOTE,
 		"BENCHMARK.SWARM.%s: SUMMARY count=%d kills=%d frame_avg_ms=%.3f respawns=%d",
-		(testScenarioActiveMethod() == SWARM_METHOD_GPU) ? "GPU" : "CPU",
+		(testScenarioActiveMethod() != SWARM_METHOD_CPU) ? "GPU" : "CPU",
 		s_SwarmCount, s_SwarmKills,
 		(s_FrameMsSamples > 0)
 			? (s_FrameMsAcc / (f32)s_FrameMsSamples) : 0.0f,
@@ -1379,10 +1392,14 @@ void swarmTestTick(void)
 		s_LadderIdx = 0;
 		respawn_swarm(TESTSCEN_SWARM_INITIAL_COUNT);
 		s_SwarmInitialized = 1;
+		{
+		const swarm_method_t armed_method = testScenarioActiveMethod();
+		const char *method_label = "CPU";
+		if (armed_method == SWARM_METHOD_GPU_POS_ONLY) method_label = "GPU_POS_ONLY";
+		else if (armed_method == SWARM_METHOD_GPU_FULL) method_label = "GPU_FULL";
 		sysLogPrintf(LOG_NOTE,
 			"TESTSCEN.SWARM: session armed -- method=%s count=%d team=%s vis=%s spawn=%s",
-			(testScenarioActiveMethod() == SWARM_METHOD_GPU)
-				? "GPU" : "CPU",
+			method_label,
 			s_SwarmCount,
 			(s_TeamMode == SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER)
 				? "2teams+player" : "sims_vs_players",
@@ -1410,6 +1427,7 @@ void swarmTestTick(void)
 			snprintf(buf + off, sizeof(buf) - off, "]");
 			sysLogPrintf(LOG_NOTE, "%s", buf);
 		}
+		}  /* close armed_method scope (B-308 c3807 method_label block) */
 	}
 
 	/* Re-apply the full player setup every tick. cheatsReset, playerSpawn,
@@ -1433,6 +1451,18 @@ void swarmTestTick(void)
 		}
 		sysLogPrintf(LOG_NOTE,
 			"TESTSCEN.SWARM: visibility mode -> %s", label);
+	}
+
+	/* B-308 first slice (c3807, 2026-05-15): GPU sub-method toggle.
+	 * KEY_O flips the active GPU swarm scenario between GPU_POS_ONLY
+	 * (position-only seek, the legacy S593d behaviour) and GPU_FULL
+	 * (compute kernel writes AI decisions; CPU readback consumer logs
+	 * them so the round trip is observable). No-op in CPU swarm.
+	 * testScenarioCycleGpuSubmode handles the scenario gating itself
+	 * and logs the new mode. No respawn needed -- both sub-methods
+	 * use the same passive chr layout. */
+	if (actionPressed(0, ACTION_TESTSCEN_GPU_FULL_TOGGLE)) {
+		testScenarioCycleGpuSubmode();
 	}
 
 	/* S593h (2026-05-01): force CPU-mode swarm bots to be aware of the
@@ -1527,16 +1557,26 @@ void swarmTestTick(void)
 	 * online. The GPU path's "real bot behaviour" is a follow-up
 	 * pillar (see context/designs/in-flight/gpu-swarm-bot-pipeline.md). */
 	struct coord player_pos = {0, 0, 0};
+	s32 player_propnum = -1;
 	if (g_Vars.currentplayer && g_Vars.currentplayer->prop) {
-		player_pos = g_Vars.currentplayer->prop->pos;
+		player_pos     = g_Vars.currentplayer->prop->pos;
+		player_propnum = (s32)(g_Vars.currentplayer->prop - g_Vars.props);
 	}
-	if (testScenarioActiveMethod() == SWARM_METHOD_GPU) {
+	/* B-308 first slice (c3807, 2026-05-15): both GPU_POS_ONLY and
+	 * GPU_FULL run the same SSBO-driven seek path. The method argument
+	 * just gates the AI compute step inside the shader (do_ai uniform)
+	 * and the readback consumer's logging. From the CPU's POV the
+	 * data-flow shape is identical. */
+	const swarm_method_t method_now = testScenarioActiveMethod();
+	if (method_now == SWARM_METHOD_GPU_POS_ONLY
+			|| method_now == SWARM_METHOD_GPU_FULL) {
 		if (swarmGpuAvailable()) {
 			struct chrdata *chrs[TESTSCEN_SWARM_MAX_COUNT];
 			for (s32 i = 0; i < TESTSCEN_SWARM_MAX_COUNT; i++) {
 				chrs[i] = s_Swarm[i].chr;
 			}
-			swarmGpuStepAndApply(&player_pos, chrs, s_SwarmCount);
+			swarmGpuStepAndApply(&player_pos, chrs, s_SwarmCount,
+				(s32)method_now, player_propnum);
 		} else {
 			gpu_fallback_seek_tick(&player_pos);
 		}
@@ -1555,7 +1595,7 @@ void swarmTestTick(void)
 		const s32 empty   = s_SwarmCount - in_play - pending;
 		sysLogPrintf(LOG_NOTE,
 			"BENCHMARK.SWARM.%s: target=%d in_play=%d dying=%d empty=%d kills=%d",
-			(testScenarioActiveMethod() == SWARM_METHOD_GPU) ? "GPU" : "CPU",
+			(testScenarioActiveMethod() != SWARM_METHOD_CPU) ? "GPU" : "CPU",
 			s_SwarmCount, in_play, pending, empty, s_SwarmKills);
 
 		/* S594h-Unit-C diag: surface the first swarm bot's targeting

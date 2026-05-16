@@ -288,7 +288,16 @@ typedef enum InputAction {
     ACTION_HOTSWAP_TOGGLE,          /* = 114 F8 / RS-click -- flip hot-swap rendering mode */
     ACTION_TOGGLE_FULLSCREEN,       /* = 115 Alt+Enter -- toggle fullscreen window */
 
-    ACTION_COUNT                /* = 116, sentinel - keep last */
+    /* ---- GPU swarm AI sub-method toggle (B-308 first slice, c3807, 2026-05-15) ----
+     * Only meaningful inside a GPU swarm test scenario. Cycles the active
+     * method between SWARM_METHOD_GPU_POS_ONLY (legacy seek-only) and
+     * SWARM_METHOD_GPU_FULL (compute-side AI decisions). No-op in CPU
+     * swarm or non-swarm contexts. Bound to KEY_O on keyboard (SDL scan 18)
+     * to sit next to KEY_I (vis toggle). Gameplay-only via the default
+     * classifier so it can't leak from menus. */
+    ACTION_TESTSCEN_GPU_FULL_TOGGLE, /* = 116 O key -- toggle GPU swarm sub-method */
+
+    ACTION_COUNT                /* = 117, sentinel - keep last */
 } InputAction;
 
 /* Backward-compat aliases */
