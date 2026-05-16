@@ -301,6 +301,16 @@ Per Mike's Spec v0.5. Automation layer that consumes the data layer (parked.json
 
 ---
 
+## Deferred to next session (from 2026-05-15 GPU parity + wrap-up)
+
+Two follow-ups surfaced by the GPU/CPU Skedar benchmark parity arc that are out of scope for the current sprint but worth keeping at the top of the punch list. Both are tracked elsewhere in detail; this is the pointer-block so the next session doesn't have to re-discover them.
+
+- **A4 -- GPU bot AI parity (B-308)**. Per [designs/in-flight/gpu-swarm-bot-pipeline.md](designs/in-flight/gpu-swarm-bot-pipeline.md), 3-5 sessions of work. GPU bots currently have `chr->aibot = NULL`, `myaction = MA_NONE`, `ailist = GAILIST_IDLE` -- positions are stepped but no target acquisition, no gunscript execution, no LOS / hostility logic. First slice would land the three-mode `swarm_method_t` enum (`SWARM_METHOD_CPU` / `SWARM_METHOD_GPU_POS_ONLY` / `SWARM_METHOD_GPU_FULL`) plus the hybrid GPU-decides / CPU-executes architecture skeleton (compute kernel for target selection + seek/dodge integration, CPU side runs the bot-AI tick on the resulting state). See [bugs.md](bugs.md) B-308 for the current status; pillar = catalog (compute bot pipeline borrows the catalog's authoring tables).
+
+- **G -- Wall-jump physics smoke test**. BLOCKED on c038 engine work. `PC_CAPSULE_ENABLED = 0` in [src/lib/capsule.h](../../src/lib/capsule.h) means the new two-stage capsule sweep pipeline (cdTestVolume pre-cull + bgTestHitInRoom per-triangle validate) is NOT active in the live game. Worker C landed 5 dormant `CAPSULE_LOG` markers at commit `6a6425bb` in `src/lib/capsule.c` ready to fire once the gate flips. Test author needs the markers live before assertions can be written; smoke test design is otherwise straightforward (teleport via `--debug-spawn-at` to a known-wall coordinate, inject `ACTION_JUMP` + `ACTION_AXIS_MOVE_Y` at known timings, assert resulting trajectory + capsule-sweep marker firings). See `tools/kanban/state.json` c038 + c3738 cards.
+
+---
+
 ## Active investigations / unresolved bugs
 
 > Cross-track audit: [audits/incompleteness-sweep-input-context-extraction-jump-2026-05-13.md](audits/incompleteness-sweep-input-context-extraction-jump-2026-05-13.md) covers input pillar / context system / file extraction + external user accessibility / jump collision in one read. Proposes c132-c135 sprint sketches; awaiting Mike's prioritisation pass.
