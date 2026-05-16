@@ -456,6 +456,60 @@ a dimension cap check.
 
 ---
 
+## SP-16: Schema / emitter / parser field-name drift in per-asset envelopes
+
+**Severity**: HIGH — silent zero-init on every record, downstream "loads but doesn't work" symptoms
+**Root cause**: The per-asset envelope pipeline has three independently-edited surfaces -- the schema doc
+([context/designs/catalog/universality-pivot-schemas.md](designs/catalog/universality-pivot-schemas.md)),
+the per-kind emitter (`port/src/romextract_pd<kind>.c`), and the per-kind loader parser
+(`port/src/loader_pool.c::parse<Kind>`). When a field is renamed in the schema (e.g. `filenum` -> `mesh`,
+`handfilenum` -> `hand`) and one surface is updated but not the others, the runtime symptoms are silent:
+
+- Emitter writes the new name -> `.pd<kind>` files have the new key.
+- Parser still reads the old name -> the field's destination in `<kind>_data_t` stays `0` from memset.
+- Catalog manager accessor returns the record with the zero field -> downstream code reads 0 and either
+  silently falls back to a placeholder path or stalls indefinitely (e.g. master loader waiting for a
+  filenum=0 file load that can never complete).
+
+No error is logged unless an explicit "required field missing" guard exists (which `parseHead`/`parseBody`
+do not have; missing keys are skip-and-continue).
+
+**When it happens**:
+- Schema lock-down rename without an accompanying parser update (B-328, 2026-05-15: `mesh`/`hand` renamed
+  in the schema doc + emitter on 2026-05-03 BYOR completion; parser kept reading `filenum`/`handfilenum`
+  for 12 days before the missing-field default-zero surfaced as the "weapon won't render" symptom).
+- Adding a new envelope field without wiring it through both emitter and parser.
+- Renaming an internal struct field and only updating one of the two parse-time codecs.
+
+**Symptom signature** (use this to recognise the class):
+- An asset record loads (the record's outer envelope parses; e.g. `LOADER.UNIVERSAL.OK: kind=body
+  scanned=68 registered=68` is fine; `LOADER.POOL.BODY.OK: active=1 bodies=68` is fine).
+- BUT a specific scalar field in the record's struct is 0 / NULL when read at runtime.
+- AND there are no `RESOLVE_FAIL` warnings for that field on the load path.
+- Downstream consumer (typically a state-machine waiting for a non-zero filenum or pointer) stalls
+  forever without an error log.
+
+**Canonical fix pattern**:
+1. Make the parser accept BOTH names: `if (jstream_str_eq(&key, "mesh") || jstream_str_eq(&key, "filenum"))`.
+2. Leave the emitter writing the canonical (schema) name.
+3. Update the smoke test for that asset kind to assert the `LOADER.POOL.<KIND>.OK: active=1 <kinds>=<N>`
+   and `LOADER.UNIVERSAL.OK: kind=<kind> scanned=<N> registered=<N>` count lines -- this catches the
+   parser regression (returns 0 records when the only-key gates fail) immediately.
+
+**Audit command** (run when renaming an envelope field or adding a new one):
+```
+grep -nE 'fprintf.*"(<field>|<old_field>)":' port/src/romextract_pd*.c
+grep -nE 'jstream_str_eq\(&key, "(<field>|<old_field>)"' port/src/loader_pool.c
+```
+Then cross-check against [universality-pivot-schemas.md](designs/catalog/universality-pivot-schemas.md)
+Section 2.x for the canonical key name.
+
+**Known instances**:
+- B-328 (2026-05-15): `mesh` / `hand` in `.pdhead` and `.pdbody` -- parser reading `filenum` /
+  `handfilenum`. Fixed at `port/src/loader_pool.c::parseHead, parseBody`.
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.

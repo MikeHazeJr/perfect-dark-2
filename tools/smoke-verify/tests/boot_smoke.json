@@ -1,6 +1,6 @@
 {
   "scenario_name": "boot_smoke",
-  "description": "Boot to title screen on a clean install. Catches the B-324 class (NULL weapon pool at gun reset), B-318 class (walker emits zero rows on empty per-asset dirs), and B-326 class (ROM at the wrong install path).",
+  "description": "Boot to title screen on a clean install. Catches the B-324 class (NULL weapon pool at gun reset), B-318 class (walker emits zero rows on empty per-asset dirs), B-326 class (ROM at the wrong install path), and B-328 class (loader_pool head/body parser key-name mismatch -- the .pdhead/.pdbody emitter writes `mesh`/`hand` keys per the universality-pivot schema, so the parser must accept those same keys for the body/head pool to populate non-zero filenums and the master gun loader to reach LOADED).",
   "tags": ["boot", "catalog", "stability"],
   "paths_of_interest": [
     "port/src/main.c",
@@ -26,6 +26,10 @@
       "SMOKE: scenario=boot_smoke",
       "Asset Catalog: \\d+ entries registered",
       "LOADER\\.UNIVERSAL\\.OK: kind=weapon scanned=86 registered=86 envelope_failures=0 register_failures=0",
+      "LOADER\\.UNIVERSAL\\.OK: kind=head scanned=84 registered=84 envelope_failures=0 register_failures=0",
+      "LOADER\\.UNIVERSAL\\.OK: kind=body scanned=68 registered=68 envelope_failures=0 register_failures=0",
+      "LOADER\\.POOL\\.HEAD\\.OK: active=1 heads=84 \\(expected=152\\)",
+      "LOADER\\.POOL\\.BODY\\.OK: active=1 bodies=68 \\(expected=152\\)",
       "LOADER\\.UNIVERSAL\\.SUMMARY:",
       "SMOKE: result=scripted_exit"
     ],

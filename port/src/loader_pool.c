@@ -1638,7 +1638,15 @@ static void parseHead(jstream_t *s)
 		else if (jstream_str_eq(&key, "unk00_01"))  h.unk00_01  = (u8)jread_int(s, 0);
 		else if (jstream_str_eq(&key, "type"))      h.type      = (u8)jread_headbodytype(s);
 		else if (jstream_str_eq(&key, "height"))    h.height    = (u16)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "filenum"))   h.filenum   = (u16)jread_enum_or_int(s, JREF_FILE, 0, "head.filenum");
+		/* Canonical schema key is "mesh" (universality-pivot-schemas.md
+		 * Section 2.2). "filenum" alias accepted for forward-compat with
+		 * any stale .pdhead emitted from a divergent build, but the
+		 * shipping emitter writes "mesh". The mismatch between these two
+		 * names was the root cause of B-328 (weapon visible=0, body
+		 * handfilenum=0; all weapon-load / FP-render gating goes silent
+		 * because the master loader can never reach LOADED state). */
+		else if (jstream_str_eq(&key, "mesh")
+		      || jstream_str_eq(&key, "filenum"))   h.filenum   = (u16)jread_enum_or_int(s, JREF_FILE, 0, "head.mesh");
 		else if (jstream_str_eq(&key, "scale"))     h.scale     = jread_float(s, 1.0f);
 		else if (jstream_str_eq(&key, "animscale")) h.animscale = jread_float(s, 1.0f);
 		else jstream_skip_value(s);
@@ -1688,10 +1696,18 @@ static void parseBody(jstream_t *s)
 		else if (jstream_str_eq(&key, "canvaryheight")) b.canvaryheight = (u8)jread_int(s, 0);
 		else if (jstream_str_eq(&key, "type"))          b.type          = (u8)jread_headbodytype(s);
 		else if (jstream_str_eq(&key, "height"))        b.height        = (u16)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "filenum"))       b.filenum       = (u16)jread_enum_or_int(s, JREF_FILE, 0, "body.filenum");
+		/* Canonical schema keys are "mesh" / "hand" (universality-pivot-
+		 * schemas.md Section 2.3). The "filenum" / "handfilenum" aliases
+		 * are kept for forward-compat with any stale .pdbody emitted by a
+		 * divergent build. See B-328: the rename mismatch caused
+		 * b.filenum and b.handfilenum to stay 0, so the body mesh failed
+		 * to bind and the master gun-loader stalled at HANDS state. */
+		else if (jstream_str_eq(&key, "mesh")
+		      || jstream_str_eq(&key, "filenum"))       b.filenum       = (u16)jread_enum_or_int(s, JREF_FILE, 0, "body.mesh");
 		else if (jstream_str_eq(&key, "scale"))         b.scale         = jread_float(s, 1.0f);
 		else if (jstream_str_eq(&key, "animscale"))     b.animscale     = jread_float(s, 1.0f);
-		else if (jstream_str_eq(&key, "handfilenum"))   b.handfilenum   = (u16)jread_enum_or_int(s, JREF_FILE, 0, "body.handfilenum");
+		else if (jstream_str_eq(&key, "hand")
+		      || jstream_str_eq(&key, "handfilenum"))   b.handfilenum   = (u16)jread_enum_or_int(s, JREF_FILE, 0, "body.hand");
 		else jstream_skip_value(s);
 		if (s->cur.kind == JT_COMMA) jstream_advance(s);
 	}
