@@ -831,13 +831,28 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 	/* Update lobby state and broadcast SVC_LOBBY_LEADER to all lobby clients.
 	 * This tells each client who the current leader is (critical for the joining
 	 * client to know if they are the leader, and for existing clients to know if
-	 * the leader changed).  lobbyUpdate() must run first to elect the leader. */
+	 * the leader changed).  lobbyUpdate() must run first to elect the leader.
+	 *
+	 * B-327 (c029, 2026-05-15): Skip the listen-host's own slot.  On a listen
+	 * server (g_NetDedicated == 0), g_NetLocalClient == &g_NetClients[0] and
+	 * its peer field is NULL (set by netClientResetAll's memset, never written
+	 * because the host slot has no remote endpoint).  Without this guard, the
+	 * loop reached netSend(&g_NetClients[0], ...) -> enet_peer_send(NULL, ...),
+	 * which deref'd a NULL peer at the first CLC_AUTH after a real ENet peer
+	 * attached.  The dereference faulted inside ENet, hitting the SEH dispatcher
+	 * mid-handler -- log output stopped at the prior CHAT line and the process
+	 * stalled until the smoke watchdog reaped it.  The local slot does not need
+	 * the broadcast: the listen host already has authoritative lobby state from
+	 * the lobbyUpdate() call above.  Dedicated servers have g_NetLocalClient ==
+	 * NULL, so the guard is a no-op there. */
 	lobbyUpdate();
 	if (g_Lobby.leaderSlot != 0xFF && g_Lobby.leaderSlot < g_Lobby.numPlayers) {
 		u8 leaderClientId = g_Lobby.players[g_Lobby.leaderSlot].clientId;
 		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 			struct netclient *ncl = &g_NetClients[ci];
+			if (ncl == g_NetLocalClient) continue; /* B-327: listen-host slot has peer=NULL */
 			if (ncl->state >= CLSTATE_LOBBY) {
+				if (!ncl->peer) continue;          /* defence in depth: still skip if peer is NULL */
 				netbufStartWrite(&ncl->out);
 				netmsgSvcLobbyLeaderWrite(&ncl->out, leaderClientId);
 				netSend(ncl, NULL, true, NETCHAN_CONTROL);
