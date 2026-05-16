@@ -752,6 +752,31 @@ static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms,
 		/* GPU mode: chr is passive prop. Position is driven externally
 		 * by swarmGpuStepAndApply. */
 		chr->myaction = MA_NONE;
+
+		/* c3807 (2026-05-16): kick a continuous running anim at spawn so
+		 * bots animate even in GPU_POS_ONLY where do_ai=0 and the GPU
+		 * AI write-out (anim_key) is skipped. Without this, bots inherit
+		 * whatever bind/idle pose the Skedar body shipped with and slide
+		 * across the floor as chrSetPos drives position each frame
+		 * without any locomotion cycle.
+		 *
+		 * GPU_FULL behaviour: swarmTestApplyAiDecision in
+		 * swarm_gpu.cpp's readback consumer is transition-guarded
+		 * (`cur_anim != desired_anim`), so this spawn-time anim is
+		 * either preserved (when GPU picks anim_key=1) or replaced when
+		 * the AI selects stand/attack. No conflict.
+		 *
+		 * Speed/merge values mirror the AI dispatcher's running branch
+		 * (chr.c-style merge_to_running): speed=0.5 keeps the cycle
+		 * readable at the swarm's per-frame translation rate, merge=16
+		 * smooths the transition from the body's bind pose. */
+		if (chr->model) {
+			modelSetAnimation(chr->model, (s16)ANIM_SKEDAR_RUNNING,
+				0,       /* flip */
+				0.0f,    /* startframe */
+				0.5f,    /* speed */
+				16.0f);  /* merge */
+		}
 	}
 
 	return chr;
