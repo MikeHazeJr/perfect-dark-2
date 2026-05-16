@@ -22,9 +22,11 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import atexit
 import datetime as dt
 import json
 import pathlib
+import signal
 import sys
 import traceback
 from typing import Any
@@ -83,6 +85,73 @@ def _detect_missed_days(today: dt.date) -> list[dt.date]:
 
 def _print(prefix: str, payload: Any) -> None:
     print(f"{prefix} {json.dumps(payload, ensure_ascii=False)}", flush=True)
+
+
+# --- c130: stale .git/*.lock hardening ---------------------------------------
+# Three defenses in depth so a crashed orchestrator run never bricks subsequent
+# git operations in the repo:
+#   1. Pre-flight sweep at start of main() before any git command runs.
+#   2. try/finally around the pipeline so any in-run crash still triggers a
+#      cleanup pass before the orchestrator exits.
+#   3. SIGTERM + atexit handlers so a Windows scheduled-task kill (other than
+#      SIGKILL / taskkill /f) still gets a final cleanup attempt.
+# All three call the same helper. The mtime threshold inside gitutil makes the
+# sweep safe to invoke concurrently with a live git process: fresh locks are
+# left untouched.
+
+_CLEANUP_RAN = False
+
+
+def _run_lock_cleanup(reason: str) -> dict[str, object]:
+    """Run gitutil.cleanup_stale_locks() and log the outcome.
+
+    Safe to call multiple times; idempotent. Always returns a status dict
+    (even on error) so callers can attach it to their own logs.
+    """
+    global _CLEANUP_RAN
+    _CLEANUP_RAN = True
+    try:
+        status = gitutil.cleanup_stale_locks()
+    except Exception as exc:  # never let cleanup itself raise out of the orchestrator
+        _print(f"{LOG_PREFIX}.LOCK_CLEANUP.ERROR", {"reason": reason, "error": str(exc)})
+        return {"reason": reason, "error": str(exc)}
+    if status.get("cleared") or status.get("deferred_fresh"):
+        _print(f"{LOG_PREFIX}.LOCK_CLEANUP", {"reason": reason, **status})
+    return {"reason": reason, **status}
+
+
+def _signal_cleanup(signum: int, _frame: Any) -> None:
+    """Signal handler: best-effort cleanup then re-raise default behavior.
+
+    SIGTERM on Windows fires for graceful scheduled-task termination; SIGKILL
+    (`taskkill /f`) cannot be intercepted. Best effort.
+    """
+    _run_lock_cleanup(reason=f"signal_{signum}")
+    # Exit with the conventional 128+signum so callers/parents see the signal.
+    sys.exit(128 + signum)
+
+
+def _install_cleanup_hooks() -> None:
+    """Register atexit + SIGTERM handlers. Idempotent (only first install wires
+    signal handlers; atexit registration is safe to call twice but we guard it
+    with a module-level flag for clarity)."""
+    atexit.register(_run_lock_cleanup, reason="atexit")
+    try:
+        signal.signal(signal.SIGTERM, _signal_cleanup)
+    except (ValueError, OSError):
+        # SIGTERM not available in this thread context (e.g. embedded test).
+        # atexit handler is the primary safety net; signal is a bonus.
+        pass
+    # On Windows SIGBREAK fires for Ctrl-Break and console-close events.
+    sigbreak = getattr(signal, "SIGBREAK", None)
+    if sigbreak is not None:
+        try:
+            signal.signal(sigbreak, _signal_cleanup)
+        except (ValueError, OSError):
+            pass
+
+
+# -----------------------------------------------------------------------------
 
 
 def run_pipeline(
@@ -221,7 +290,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-push", action="store_true", help="Skip the post-merge push.")
     parser.add_argument("--catchup-only", action="store_true", help="Run catch-up for missed days but skip today.")
     parser.add_argument("--for-date", default=None, help="Override today (YYYY-MM-DD). Used in catch-up internals.")
+    parser.add_argument(
+        "--skip-on-fresh-lock",
+        action="store_true",
+        help="If a fresh (non-stale) .git/HEAD.lock or index.lock is present at start, exit 0 without running. Prevents collision with a concurrent git process; the next scheduled fire will retry.",
+    )
     args = parser.parse_args(argv)
+
+    # c130 defense #1: pre-flight stale-lock sweep BEFORE any git operation.
+    # Also defense #3: install atexit + SIGTERM hooks so a later crash still
+    # triggers a final cleanup pass.
+    _install_cleanup_hooks()
+    preflight = _run_lock_cleanup(reason="preflight")
+    if preflight.get("deferred_fresh") and args.skip_on_fresh_lock:
+        _print(f"{LOG_PREFIX}.LOCK_FRESH.SKIP", {"deferred_fresh": preflight.get("deferred_fresh"), "live_git_processes": preflight.get("live_git_processes")})
+        return 0
 
     today = timefmt.today_et() if args.for_date is None else dt.date.fromisoformat(args.for_date)
 
@@ -231,15 +314,20 @@ def main(argv: list[str] | None = None) -> int:
             _print(f"{LOG_PREFIX}.DEDUP", {"date": today.isoformat(), "status": "ok", "completed_at": last.get("completed_at"), "skip_reason": "already_complete_today"})
             return 0
 
-    catchup = run_catchup(today)
-    if catchup:
-        _print(f"{LOG_PREFIX}.CATCHUP.COMPLETE", {"days": [c["date"] for c in catchup]})
+    # c130 defense #2: try/finally around the pipeline so any in-run crash
+    # still triggers cleanup before the orchestrator exits non-zero.
+    try:
+        catchup = run_catchup(today)
+        if catchup:
+            _print(f"{LOG_PREFIX}.CATCHUP.COMPLETE", {"days": [c["date"] for c in catchup]})
 
-    if args.catchup_only:
-        return 0
+        if args.catchup_only:
+            return 0
 
-    result = run_pipeline(today=today, force=args.force, do_merge=not args.no_merge, do_push=not args.no_push)
-    return 1 if result.get("partial") else 0
+        result = run_pipeline(today=today, force=args.force, do_merge=not args.no_merge, do_push=not args.no_push)
+        return 1 if result.get("partial") else 0
+    finally:
+        _run_lock_cleanup(reason="finally")
 
 
 if __name__ == "__main__":
