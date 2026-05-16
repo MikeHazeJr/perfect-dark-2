@@ -1829,7 +1829,18 @@
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-13T16:00:00Z",
-      "updated": "2026-05-13T16:00:00Z"
+      "updated": "2026-05-16T00:00:00Z",
+      "pending_completion": {
+        "marked_at": "2026-05-16T00:00:00Z",
+        "marked_by": "claude-code-dispatch-c130-orchestrator-lock-hardening",
+        "summary": "Fixed 2026-05-16 in commit 5b960a54. Added three defenses in depth to tools/daily_flow/orchestrator.py + tools/daily_flow/lib/gitutil.py: (1) pre-flight stale-lock sweep at orchestrator start (mtime > 300s = stale, deleted; fresh = wait briefly then defer); (2) try/finally around the pipeline + atexit/SIGTERM/SIGBREAK handlers for in-run crashes; (3) --skip-on-fresh-lock flag for graceful collision-avoidance with concurrent git processes. New cleanup_stale_locks() helper in gitutil.py is the single source of truth. Concurrency safe: mtime threshold ensures a live git process holding a fresh lock is never touched. Verified with stale-lock (1h old, cleared) and fresh-lock (mtime=now, preserved) simulations.",
+        "evidence_refs": [
+          "tools/daily_flow/orchestrator.py:84-156 (cleanup helpers + signal handlers)",
+          "tools/daily_flow/orchestrator.py:233-271 (main() preflight + try/finally)",
+          "tools/daily_flow/lib/gitutil.py:18-156 (cleanup_stale_locks helper + tasklist probe)"
+        ],
+        "fix_commit": "5b960a54"
+      }
     },
     {
       "id": "c131",
