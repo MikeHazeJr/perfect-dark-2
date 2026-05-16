@@ -83,6 +83,19 @@
 #include "swarm_test.h"
 #include "system.h"
 #include "testscenarios.h"
+/* Track 2d (c3807, 2026-05-16): listen-host GPU swarm state sync. The
+ * post-dispatch tail of swarmGpuStepAndApply calls netSendGpuSwarmState
+ * to broadcast the state texture to connected peers. g_NetMode +
+ * g_NetDedicated checks gate the call to listen-host only. The helper
+ * itself is also pd-server-aware via #if !defined(PD_SERVER).
+ *
+ * net.h / netmsg.h are C headers with no extern "C" wrappers. Wrap the
+ * includes locally so their function declarations get C linkage and
+ * resolve against the C-side definitions in net.c / netmsg.c. */
+extern "C" {
+#include "net/net.h"
+#include "net/netmsg.h"
+} /* extern "C" -- net.h/netmsg.h */
 
 #include "glad/glad.h"
 #include <SDL2/SDL.h>
@@ -1224,6 +1237,89 @@ int swarmGpuReadbackTextureRows(int row_start, int row_count,
 	return SWARM_GPU_MAX * row_count;
 }
 
+/* ------------------------------------------------------------------
+ * Track 2d (c3807, 2026-05-16): remote-state apply.
+ * ------------------------------------------------------------------
+ *
+ * Receiver-side counterpart to swarmGpuReadbackTextureRows. The caller
+ * (port/src/net/netmsg.c::netmsgSvcGpuSwarmStateRead) decoded a chunk of
+ * the listen-host's broadcast into a row-major RGBA32F float buffer:
+ *   row 0:  pos.xyz, 0      (count texels)
+ *   row 1:  vel.xyz, 0
+ *   row 2:  surface_up.xyz, 0
+ *   row 3:  action_class, fire_request, target_propnum, anim_key
+ *           (packed via intBitsToFloat-style memcpy in the decoder)
+ *   row 4:  range_to_target, 0, 0, 0  (zeroed by the decoder; remote
+ *                                       clients don't need this)
+ *
+ * This function uploads `count` columns starting at `chunk_start` into
+ * the READ-side state texture so the rendering / animation paths can
+ * sample it as if the local compute had produced it. Pong: we DON'T
+ * advance s_StateTexReadIdx -- the local compute, if it ran, would have
+ * already swapped; remote clients skip the compute dispatch entirely
+ * (see swarmTestTick in port/src/swarm_test.c) so the ping-pong index
+ * stays whatever it was at the last invalidate. Uploads always target
+ * whichever texture s_StateTexReadIdx currently points at.
+ *
+ * Failure modes (silent return):
+ *   - swarmGpuAvailable() == 0
+ *   - ensure_resources() failed
+ *   - s_StateTexArmed == 0 (compute symbols / texture-alloc fail)
+ *   - count <= 0 or chunk_start < 0 or chunk_start + count >
+ *     SWARM_GPU_MAX
+ *   - raw_rgba32f_buf == NULL
+ *
+ * Thread safety: same as the rest of the module -- main / GL thread only.
+ *
+ * pd-server: NOT linked into pd-server (swarm_gpu.cpp is not in
+ * SRC_SERVER). The netmsg receiver's call site is `#if !defined(PD_SERVER)`-
+ * guarded so the pd-server link stays clean.
+ */
+void swarmGpuApplyRemoteState(const float *raw_rgba32f_buf, int count,
+                              int chunk_start)
+{
+	if (raw_rgba32f_buf == NULL) return;
+	if (count <= 0)              return;
+	if (chunk_start < 0)         return;
+	if (chunk_start + count > SWARM_GPU_MAX) return;
+	if (!swarmGpuAvailable()) return;
+	if (!ensure_resources())  return;
+	if (!s_StateTexArmed)     return;
+
+	const GLuint tex = (s_StateTexReadIdx == 0) ? s_StateTexA : s_StateTexB;
+	if (tex == 0) return;
+
+	/* Texture is SWARM_GPU_MAX wide, 5 tall. RGBA32F. We upload each row
+	 * as a separate glTexSubImage2D call -- 5 calls per apply, but the
+	 * payload of each is small (count texels * 16 B) so the overhead is
+	 * dominated by the per-call driver chatter, which is fine at the
+	 * 10 Hz broadcast rate (5 * 10 = 50 calls/sec, trivial vs the per-
+	 * frame draw + compute load).
+	 *
+	 * Source buffer layout matches the encode/decode contract:
+	 *   row 0 floats: count * 4
+	 *   row 1 floats: count * 4 (starts at count*4 into the buffer)
+	 *   ...
+	 *
+	 * Target subrect: x = chunk_start, y = row, width = count, height = 1.
+	 */
+	glBindTexture(GL_TEXTURE_2D, tex);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+#ifdef GL_UNPACK_ROW_LENGTH
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+#endif
+
+	for (int row = 0; row < 5; row++) {
+		const float *src = raw_rgba32f_buf + (size_t)row * count * 4;
+		glTexSubImage2D(GL_TEXTURE_2D, /*level=*/0,
+			/*xoffset=*/chunk_start, /*yoffset=*/row,
+			/*width=*/count, /*height=*/1,
+			GL_RGBA, GL_FLOAT, src);
+	}
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+}
+
 /* B-308 first slice (c3807, 2026-05-15) tuning constants. Picked to give
  * Mike something visible the first time he toggles GPU_FULL on the
  * mp_felicity arena (open beach, ~600-2000 game-unit player-to-bot
@@ -1904,6 +2000,26 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 			 * counter never accumulates indefinitely. */
 			(void)fires_applied;
 		}
+	}
+
+	/* Track 2d (c3807, 2026-05-16): listen-host GPU swarm state broadcast.
+	 *
+	 * At this point the compute dispatch has completed and the post-
+	 * dispatch swap has moved the just-written texture into the READ
+	 * slot (line ~1493). The broadcast helper reads it via
+	 * swarmGpuReadbackTextureRows and fans out to all connected peers.
+	 *
+	 * Gate: listen-host (NETMODE_SERVER && !g_NetDedicated). The helper
+	 * also checks NETMODE_SERVER internally; we still do an extra check
+	 * here to skip the call cheaply when offline / client-mode. Internal
+	 * throttle drops 5 of every 6 frames so the wire load is 10 Hz.
+	 *
+	 * pd-server: this function (swarmGpuStepAndApply) is not linked into
+	 * pd-server, so the send is naturally absent from headless builds.
+	 * The g_NetDedicated check is for the listen-host case where a player
+	 * has --dedicated but is somehow still running compute (defensive). */
+	if (g_NetMode == NETMODE_SERVER && !g_NetDedicated) {
+		netSendGpuSwarmState();
 	}
 }
 

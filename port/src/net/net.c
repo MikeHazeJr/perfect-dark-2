@@ -1871,6 +1871,7 @@ static void netClientEvReceive(struct netclient *cl)
 			/* Phase 3 spectator (protocol v42) */
 			case SVC_SPECTATE_ACK:      rc = netmsgSvcSpectateAckRead(&cl->in, cl); break;
 			case SVC_STATE_FRAME:       rc = netmsgSvcStateFrameRead (&cl->in, cl); break;
+			case SVC_GPUSWARM_STATE:    rc = netmsgSvcGpuSwarmStateRead(&cl->in, cl); break;
 			/* R-5: Room settings + playlist sync */
 			case SVC_ROOM_SETTINGS:    rc = netmsgSvcRoomSettingsRead(&cl->in, cl); break;
 			case SVC_ROOM_PLAYLIST:    rc = netmsgSvcRoomPlaylistRead(&cl->in, cl); break;

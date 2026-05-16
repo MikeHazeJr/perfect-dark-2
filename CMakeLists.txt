@@ -637,6 +637,13 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/net/net.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netmsg.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c
+  # Track 2d (c3807, 2026-05-16): GPU swarm state sync quantizer. Pure C,
+  # no GL deps -- safe to link into pd-server. The actual send path in
+  # netmsg.c is #if !defined(PD_SERVER)-guarded so pd-server never invokes
+  # the GPU readback symbol; only the decode path runs (and even that is
+  # apply-guarded). Linking this here keeps SVC_GPUSWARM_STATE dispatch
+  # in sync if a future code path ever routes a packet through pd-server.
+  ${CMAKE_SOURCE_DIR}/port/src/net/swarm_sync_quant.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netlobby.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netupnp.c
   ${CMAKE_SOURCE_DIR}/port/src/net/netstun.c
@@ -923,6 +930,13 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_random_pool.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_spawn_weapon_mode.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_swarm_boid_sim.cpp
+
+  # Track 2d (c3807, 2026-05-16): GPU swarm state network sync.
+  # Round-trip tests for the s16/s8 quantizer used by SVC_GPUSWARM_STATE.
+  # Pure-C encoder/decoder lives at port/src/net/swarm_sync_quant.c so it
+  # links into pd-tests without GL / SDL / ENet.
+  ${CMAKE_SOURCE_DIR}/tests/test_swarm_sync_quant.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/swarm_sync_quant.c
   ${CMAKE_SOURCE_DIR}/tests/test_bondgun_cache.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_checked.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_spawn_predicate.cpp

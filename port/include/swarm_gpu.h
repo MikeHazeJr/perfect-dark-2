@@ -79,6 +79,28 @@ void swarmGpuInvalidateFloorCache(void);
 int swarmGpuReadbackTextureRows(int row_start, int row_count,
                                 float *out_buf, int out_capacity);
 
+/* ------------------------------------------------------------------
+ * Track 2d (c3807, 2026-05-16): remote-state apply.
+ * ------------------------------------------------------------------
+ *
+ * Receiver-side counterpart to swarmGpuReadbackTextureRows. Uploads
+ * `count` consecutive RGBA32F bot columns starting at `chunk_start`
+ * into the READ-side state texture, sourced from a row-major 5-row
+ * buffer (same layout the readback primitive produces).
+ *
+ * Used by the SVC_GPUSWARM_STATE wire handler
+ * (port/src/net/netmsg.c::netmsgSvcGpuSwarmStateRead) on remote
+ * clients of a Track-2d listen-host broadcast. Local compute is
+ * skipped on those clients (visual prediction is a future slice);
+ * the apply call is the entire data flow.
+ *
+ * pd-server: NOT linked. The receiver code path that would call this
+ * is #if !defined(PD_SERVER)-guarded; pd-server's swarm system never
+ * arms because no GL context exists.
+ */
+void swarmGpuApplyRemoteState(const float *raw_rgba32f_buf, int count,
+                              int chunk_start);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

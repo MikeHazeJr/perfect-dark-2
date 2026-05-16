@@ -51,6 +51,11 @@
 #include "game/chraction.h" /* chrBeginDead, chrStopFiring */
 #include "actionmap.h"
 #include "testscenarios.h"
+/* Track 2d (c3807, 2026-05-16): remote clients of a listen-host's GPU
+ * swarm broadcast skip the local compute dispatch -- the receiver's
+ * netmsg handler uploads the host's authoritative state straight into
+ * the local GL texture. g_NetMode + NETMODE_CLIENT come from here. */
+#include "net/net.h"
 #include "swarm_test.h"
 
 /* Forward decls -- these come from src/game (no public header includes them
@@ -1976,7 +1981,22 @@ void swarmTestTick(void)
 	const swarm_method_t method_now = testScenarioActiveMethod();
 	if (method_now == SWARM_METHOD_GPU_POS_ONLY
 			|| method_now == SWARM_METHOD_GPU_FULL) {
-		if (swarmGpuAvailable()) {
+		/* Track 2d (c3807, 2026-05-16): remote clients of a Track-2d
+		 * listen-host broadcast skip the compute dispatch. The state
+		 * texture is populated by netmsgSvcGpuSwarmStateRead which
+		 * uploads directly via swarmGpuApplyRemoteState. We still tick
+		 * downstream (death_poll_and_respawn, cycler_tick) so per-bot
+		 * lifetime / log accounting stays consistent, but the per-bot
+		 * apply (chrSetPos) does NOT run -- the position updates come
+		 * from the host's chr move replication (SVC_CHR_MOVE / NPC_MOVE
+		 * path) for non-swarm chrs, and v1 swarm bots are listen-host-
+		 * owned (the remote view is a state-texture preview only, no
+		 * authoritative chr motion is applied on the client side). */
+		if (g_NetMode == NETMODE_CLIENT) {
+			/* Skip the compute dispatch entirely. The receiver
+			 * uploaded the host's snapshot to the state texture; the
+			 * rendering path samples from there next frame. */
+		} else if (swarmGpuAvailable()) {
 			struct chrdata *chrs[TESTSCEN_SWARM_MAX_COUNT];
 			for (s32 i = 0; i < TESTSCEN_SWARM_MAX_COUNT; i++) {
 				chrs[i] = s_Swarm[i].chr;

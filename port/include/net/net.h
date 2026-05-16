@@ -9,7 +9,24 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 47  /* v47 (2026-05-01): S594h-B Slice 3 surface-normal
+#define NET_PROTOCOL_VER 48  /* v48 (2026-05-16): Track 2d (c3807) GPU swarm
+                              * state network sync. Adds SVC_GPUSWARM_STATE (0x6c)
+                              * carrying the listen-host's RGBA32F state-texture
+                              * readback, quantized to 20 bytes/bot (s16 cm pos,
+                              * s16 cm/frame vel, s8 ratio surface_up, plus 5
+                              * bytes of AI ints) and chunked to stay under ENet's
+                              * per-packet practical ceiling (~64 KB). Wire frame
+                              * header is [u32 frame_idx][u16 total_count]
+                              * [u16 chunk_start][u16 chunk_count] before the
+                              * packed bot bytes; total_count is the whole pool
+                              * count, chunk_count is what's in THIS packet.
+                              * Throttled to 10 Hz (every 6 frames @ 60 Hz) on
+                              * the unreliable channel. Listen-host only (Mode B);
+                              * dedicated servers do not originate. v47/v48 mixed
+                              * play is rejected at the ENet auth handshake --
+                              * v47 readers do not consume the new opcode and
+                              * would mis-parse subsequent traffic.
+                              * v47 (2026-05-01): S594h-B Slice 3 surface-normal
                               * locomotion wire sync. SVC_NPC_MOVE and
                               * SVC_BOT_AUTHORITY each gain a trailing
                               * 12-byte surface_up vec3 (3 x f32) carrying the

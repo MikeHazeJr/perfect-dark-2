@@ -43,7 +43,7 @@ extern const u32 g_TestExpectedMpsetupVersion;
 extern const u32 g_TestLiveMpsetupVersion;
 }
 
-const u32 g_TestExpectedNetProtocolVer  = 47;
+const u32 g_TestExpectedNetProtocolVer  = 48;
 const u32 g_TestExpectedMpsetupVersion  = 2;
 
 TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written against",
@@ -54,11 +54,14 @@ TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written ag
      * verifying the bump is intentional, update g_TestExpectedNetProtocolVer
      * to match and re-run.
      *
-     * As of 2026-05-01 the live value is 47. S594h-B Slice 3 surface-normal
-     * locomotion: SVC_NPC_MOVE / SVC_CHR_MOVE / CLC_BOT_MOVE each gain a
-     * trailing 12-byte surface_up vec3 (3x f32) so chrs synced across the
-     * wire carry their authoritative local-up vector. v46 (SVC_DISTRIB_BEGIN
-     * SHA-256 digest, cutscene mask) and prior bumps remain documented in
+     * As of 2026-05-16 the live value is 48. Track 2d (c3807) GPU swarm
+     * state network sync: SVC_GPUSWARM_STATE (0x6c) carries the listen-host's
+     * RGBA32F state-texture readback, quantized to 20 bytes/bot and chunked
+     * to <= 1024 bots per packet. Throttled to 10 Hz on the unreliable
+     * channel. Listen-host only (mode B); dedicated servers do not originate.
+     * v47 (2026-05-01) added the SVC_NPC_MOVE / SVC_CHR_MOVE / CLC_BOT_MOVE
+     * trailing 12-byte surface_up vec3. v46 (SVC_DISTRIB_BEGIN SHA-256
+     * digest, cutscene mask) and prior bumps remain documented in
      * port/include/net/net.h. MPSETUP_VERSION stays at 2. */
     REQUIRE(g_TestLiveNetProtocolVer == g_TestExpectedNetProtocolVer);
 }

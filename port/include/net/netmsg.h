@@ -83,6 +83,17 @@
 #define SPECTATE_FRAME_PARTICIPANTS_MAX 16
 #define SPECTATE_FRAME_NAME_MAX         32
 
+/* Track 2d GPU swarm state sync (protocol v48, 2026-05-16, c3807).
+ * Authoritative listen-host -> all clients. Carries one chunk of the
+ * GPU compute kernel's per-bot state, quantized to 20 bytes/bot. See
+ * port/include/net/swarm_sync_quant.h for the per-bot layout. The
+ * receiver dequantizes and uploads to its local GL state texture via
+ * swarmGpuApplyRemoteState. Throttled to 10 Hz on the unreliable
+ * channel; chunked so each ENet packet stays under ~32 KB. */
+#define SVC_GPUSWARM_STATE 0x6c
+#define SWARM_SYNC_CHUNK_BOTS_MAX 1024  /* 1024 * 20 = 20480 B payload + small header */
+#define SWARM_SYNC_THROTTLE_FRAMES  6   /* 60 Hz / 6 = 10 Hz */
+
 #define CLC_BAD      0x00 // trash
 #define CLC_NOP      0x01 // does nothing
 #define CLC_AUTH     0x02 // auth request, sent immediately after connecting
@@ -400,6 +411,33 @@ u32 netmsgSvcStateFrameRead (struct netbuf *src, struct netclient *srccl);
  * with CLFLAG_SPECTATOR set. Called on the spectator fan-out tick
  * boundary. No-op if not in NETMODE_SERVER. */
 void netSendSpectateStateFrame(void);
+
+/* Track 2d GPU swarm sync (protocol v48, 2026-05-16, c3807).
+ *
+ * netmsgSvcGpuSwarmStateWrite -- build ONE chunk of the broadcast. The
+ * chunk's bot byte payload must already be packed (see
+ * swarmSyncQuantEncode). The caller is responsible for invoking this
+ * once per chunk and netSend-ing each result on the unreliable channel.
+ *
+ * netmsgSvcGpuSwarmStateRead -- decode one chunk off the wire. On the
+ * client side, this dequantizes the chunk into a row-major RGBA32F
+ * buffer and forwards to the GL state texture via swarmGpuApplyRemote-
+ * State (port/fast3d/swarm_gpu.cpp). On pd-server the decode runs but
+ * the apply call is compiled out via PD_SERVER guards (no GL on
+ * pd-server). Either way the wire bytes are consumed so the dispatcher
+ * stays in sync. */
+u32 netmsgSvcGpuSwarmStateWrite(struct netbuf *dst, u32 frame_idx,
+                                 u16 total_count, u16 chunk_start,
+                                 u16 chunk_count,
+                                 const u8 *packed_chunk_bytes);
+u32 netmsgSvcGpuSwarmStateRead(struct netbuf *src, struct netclient *srccl);
+
+/* Listen-host helper: read the GPU state texture, encode in chunks, and
+ * broadcast each chunk on the unreliable channel. Throttled internally
+ * via a static frame counter (SWARM_SYNC_THROTTLE_FRAMES). No-op when
+ * not in NETMODE_SERVER, when running headless (g_NetDedicated == 1),
+ * or when no peer is connected. */
+void netSendGpuSwarmState(void);
 /* SVC_ADMIN is written by the server helper below; no client-side Write wrapper
  * is exposed because the client never sends it. */
 

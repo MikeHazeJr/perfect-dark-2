@@ -7031,6 +7031,261 @@ void netSendSpectateStateFrame(void)
 	}
 }
 
+/* ---- Track 2d GPU swarm state sync (protocol v48, 2026-05-16, c3807) ---- */
+
+#include "net/swarm_sync_quant.h"
+
+/* Public extraction primitive lives in port/fast3d/swarm_gpu.cpp; declare
+ * here so this TU links without pulling in the swarm_gpu header (which is
+ * client-only by construction -- pd-server does NOT link swarm_gpu.cpp,
+ * but the SEND path below is gated on g_NetDedicated == 0 so a pd-server
+ * build never reaches the symbol). The decode + apply path also lives in
+ * swarm_gpu.cpp (swarmGpuApplyRemoteState); we forward-declare it here.
+ *
+ * pd-server gating: the encode path (swarmGpuReadbackTextureRows) and the
+ * apply path (swarmGpuApplyRemoteState) are #if-guarded out of pd-server
+ * via PD_SERVER (see CMakeLists' server target's SRC_SERVER which excludes
+ * fast3d/). On pd-server netSendGpuSwarmState short-circuits on
+ * g_NetDedicated; netmsgSvcGpuSwarmStateRead reads + discards the bytes
+ * (no apply call) so the wire stays in sync if a future code path ever
+ * routes one of these through pd-server. */
+#if !defined(PD_SERVER)
+extern int  swarmGpuReadbackTextureRows(int row_start, int row_count,
+                                         float *out_buf, int out_capacity);
+extern void swarmGpuApplyRemoteState(const float *raw_rgba32f_buf, int count,
+                                      int chunk_start);
+#endif
+
+/* Single-chunk wire writer. Format (all little-endian):
+ *   u8  msgid       (SVC_GPUSWARM_STATE)
+ *   u32 frame_idx
+ *   u16 total_count
+ *   u16 chunk_start
+ *   u16 chunk_count
+ *   chunk_count * SWARM_SYNC_QUANT_PACKED_BYTES_PER_BOT bytes
+ *
+ * Returns the netbuf's error code (0 on success). The caller is
+ * responsible for netbufStartWrite + netSend around each call -- this
+ * function only writes into the buffer.
+ */
+u32 netmsgSvcGpuSwarmStateWrite(struct netbuf *dst, u32 frame_idx,
+                                 u16 total_count, u16 chunk_start,
+                                 u16 chunk_count,
+                                 const u8 *packed_chunk_bytes)
+{
+	netbufWriteU8(dst, SVC_GPUSWARM_STATE);
+	netbufWriteU32(dst, frame_idx);
+	netbufWriteU16(dst, total_count);
+	netbufWriteU16(dst, chunk_start);
+	netbufWriteU16(dst, chunk_count);
+	if (chunk_count > 0 && packed_chunk_bytes != NULL) {
+		const u32 payload_bytes =
+			(u32)chunk_count * (u32)SWARM_SYNC_QUANT_PACKED_BYTES_PER_BOT;
+		netbufWriteData(dst, packed_chunk_bytes, payload_bytes);
+	}
+	return dst->error;
+}
+
+/* Wire reader. Reads + sanity-checks the chunk header, slurps the packed
+ * bytes into a static scratch, dequantizes into a stack float buffer, and
+ * forwards to swarmGpuApplyRemoteState (client-side only). Server build
+ * compiles out the apply call.
+ *
+ * Bounds: the static scratch is sized for SWARM_SYNC_CHUNK_BOTS_MAX bots;
+ * chunks larger than that are rejected (the writer enforces the same cap
+ * but a hostile / mis-versioned peer cannot blow our stack).
+ */
+u32 netmsgSvcGpuSwarmStateRead(struct netbuf *src, struct netclient *srccl)
+{
+	(void)srccl;
+
+	const u32 frame_idx     = netbufReadU32(src);
+	const u16 total_count   = netbufReadU16(src);
+	const u16 chunk_start   = netbufReadU16(src);
+	const u16 chunk_count   = netbufReadU16(src);
+
+	if (src->error) return src->error;
+
+	if (chunk_count > SWARM_SYNC_CHUNK_BOTS_MAX) {
+		sysLogPrintf(LOG_WARNING,
+			"NETMSG.GPUSWARM.RECV: chunk_count=%u exceeds cap=%u; dropping",
+			(unsigned)chunk_count, (unsigned)SWARM_SYNC_CHUNK_BOTS_MAX);
+		return 1;
+	}
+
+	if (chunk_count == 0) {
+		/* Header-only no-op. Should not happen but be lenient. */
+		sysLogPrintf(LOG_NOTE,
+			"NETMSG.GPUSWARM.RECV: frame=%u total=%u start=%u count=0 (empty)",
+			(unsigned)frame_idx, (unsigned)total_count, (unsigned)chunk_start);
+		return src->error;
+	}
+
+	/* Slurp the packed payload. Static scratch keeps the netmsg.c BSS
+	 * footprint deterministic (20 KB; the live GPU bot scratch in
+	 * swarm_gpu.cpp is far bigger). */
+	static u8 s_PackedScratch[SWARM_SYNC_CHUNK_BOTS_MAX
+		* SWARM_SYNC_QUANT_PACKED_BYTES_PER_BOT];
+	const u32 payload_bytes =
+		(u32)chunk_count * (u32)SWARM_SYNC_QUANT_PACKED_BYTES_PER_BOT;
+	netbufReadData(src, s_PackedScratch, payload_bytes);
+
+	if (src->error) return src->error;
+
+	/* Dequantize into a row-major float buffer the GL upload path
+	 * understands. 20 floats / bot * SWARM_SYNC_CHUNK_BOTS_MAX. */
+	static float s_DequantScratch[SWARM_SYNC_CHUNK_BOTS_MAX * 5 * 4];
+	const int decoded = swarmSyncQuantDecode(s_PackedScratch,
+		(int)chunk_count, s_DequantScratch);
+
+	if (decoded <= 0) {
+		sysLogPrintf(LOG_WARNING,
+			"NETMSG.GPUSWARM.RECV: dequant failed (chunk_count=%u)",
+			(unsigned)chunk_count);
+		return src->error;
+	}
+
+#if !defined(PD_SERVER)
+	swarmGpuApplyRemoteState(s_DequantScratch, decoded, (int)chunk_start);
+#endif
+
+	sysLogPrintf(LOG_NOTE,
+		"NETMSG.GPUSWARM.RECV: frame=%u count=%u dequantized=%d start=%u total=%u",
+		(unsigned)frame_idx, (unsigned)chunk_count, decoded,
+		(unsigned)chunk_start, (unsigned)total_count);
+
+	return src->error;
+}
+
+/* Listen-host broadcast helper. Called from swarmGpuStepAndApply on the
+ * listen host after the per-frame compute dispatch + state-texture
+ * readback. No-op on:
+ *   - not in NETMODE_SERVER (we are a pure client or no networking at all)
+ *   - g_NetDedicated == 1 (no GPU on pd-server)
+ *   - no remote peer connected (the broadcast would just be a self-talk)
+ *   - swarmGpuReadbackTextureRows returns 0 (GPU swarm not armed yet)
+ *
+ * Throttled via a static frame counter; broadcasts at every
+ * SWARM_SYNC_THROTTLE_FRAMES'th call (10 Hz at 60 FPS).
+ *
+ * Linkage caveat: this function references swarmGpuReadbackTextureRows
+ * which is NOT linked into pd-server. To keep pd-server's link clean,
+ * the whole function body is wrapped in `#if !defined(PD_SERVER)`. The
+ * pd-server stub is an empty no-op (the dispatcher never calls it
+ * because g_NetMode on pd-server with no GPU swarm running stays in a
+ * state where the swarm system itself doesn't tick).
+ */
+void netSendGpuSwarmState(void)
+{
+#if !defined(PD_SERVER)
+	if (g_NetMode != NETMODE_SERVER) return;
+	if (g_NetDedicated) return;
+
+	/* Skip if no peer is actually connected. We allow listen-host with
+	 * zero peers (no broadcast cost) but want to still tick the throttle
+	 * counter so the first peer connection doesn't see a sudden burst. */
+	bool any_peer = false;
+	for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
+		struct netclient *cl = &g_NetClients[i];
+		if (cl == g_NetLocalClient) continue;
+		if (cl->state >= CLSTATE_LOBBY && cl->peer) {
+			any_peer = true;
+			break;
+		}
+	}
+
+	static u32 s_ThrottleCtr = 0;
+	static u32 s_FrameSeq    = 0;
+	s_ThrottleCtr++;
+	if (s_ThrottleCtr < SWARM_SYNC_THROTTLE_FRAMES) return;
+	s_ThrottleCtr = 0;
+
+	if (!any_peer) {
+		/* Throttle ticked; no peer to broadcast to. Bump frame_seq so
+		 * the receiver-side sequence (if it ever exists) doesn't see
+		 * collapsed indices when the first peer joins. */
+		s_FrameSeq++;
+		return;
+	}
+
+	/* Read all 5 rows from the GPU state texture. Static scratch sized
+	 * for the maximum compute pool (SWARM_GPU_MAX = 4096 in
+	 * swarm_gpu.cpp). 4096 * 5 * 4 floats = 320 KB BSS. */
+	#define SWARM_SYNC_MAX_BOTS  4096
+	static float s_TexScratch[SWARM_SYNC_MAX_BOTS * 5 * 4];
+	const int texels_read = swarmGpuReadbackTextureRows(0, 5, s_TexScratch,
+		(int)(sizeof(s_TexScratch) / sizeof(float)));
+	if (texels_read <= 0) {
+		/* GPU swarm not armed (no dispatch yet, or driver fallback).
+		 * Silent skip -- this hits every frame until the first
+		 * dispatch lands, which we don't want to log-spam. */
+		return;
+	}
+
+	const int total_count = SWARM_SYNC_MAX_BOTS;
+	/* The state texture is sized for the FULL pool (SWARM_GPU_MAX); only
+	 * the first `count` columns of each row are populated each frame.
+	 * The GPU swarm doesn't expose its `count` to this layer, so we
+	 * broadcast the full pool. Receivers do the same work to dequant +
+	 * upload; quiescent (zeroed) bots cost 20 bytes each on the wire.
+	 *
+	 * A future slice can plumb the live count through swarmGpuStateGet-
+	 * Count() to trim broadcast size at low ladder ranges. For v1 we
+	 * pay the worst-case ~80 KB / 100ms = ~800 KB/s (well under any
+	 * reasonable LAN budget) and keep the wire format simple. */
+
+	/* Encode + chunk + broadcast. Each chunk's packed bytes live in a
+	 * static scratch sized for the chunk cap; we copy out and netSend in
+	 * a tight loop. */
+	static u8 s_PackedScratch[SWARM_SYNC_CHUNK_BOTS_MAX
+		* SWARM_SYNC_QUANT_PACKED_BYTES_PER_BOT];
+
+	int chunks_sent = 0;
+	for (int chunk_start = 0; chunk_start < total_count;
+			chunk_start += SWARM_SYNC_CHUNK_BOTS_MAX) {
+		int chunk_count = total_count - chunk_start;
+		if (chunk_count > SWARM_SYNC_CHUNK_BOTS_MAX) {
+			chunk_count = SWARM_SYNC_CHUNK_BOTS_MAX;
+		}
+
+		/* Build a slice of the row-major texture buffer for THIS chunk.
+		 * swarmSyncQuantEncode expects a 5-row buffer where each row
+		 * is `count` texels * 4 floats. The source texture buffer's
+		 * rows are total_count wide; we need to extract a sub-slice
+		 * per row. Easiest is to build a temp slice buffer. Avoid the
+		 * extra copy by encoding a per-row stride into the quant call
+		 * -- but the API doesn't take strides yet, so for v1 we just
+		 * copy the chunk's slice into a scratch. */
+		static float s_ChunkSlice[SWARM_SYNC_CHUNK_BOTS_MAX * 5 * 4];
+		for (int row = 0; row < 5; row++) {
+			const float *src_row =
+				s_TexScratch + row * total_count * 4 + chunk_start * 4;
+			float *dst_row = s_ChunkSlice + row * chunk_count * 4;
+			memcpy(dst_row, src_row,
+				(size_t)chunk_count * 4 * sizeof(float));
+		}
+
+		const int packed_bytes = swarmSyncQuantEncode(s_ChunkSlice,
+			chunk_count, s_PackedScratch);
+		if (packed_bytes <= 0) continue;
+
+		netbufStartWrite(&g_NetMsg);
+		netmsgSvcGpuSwarmStateWrite(&g_NetMsg, s_FrameSeq,
+			(u16)total_count, (u16)chunk_start, (u16)chunk_count,
+			s_PackedScratch);
+		netSend(NULL, &g_NetMsg, false /* unreliable */, NETCHAN_DEFAULT);
+		chunks_sent++;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"NETMSG.GPUSWARM.SEND: frame=%u count=%d chunks=%d throttle_hz=%d",
+		(unsigned)s_FrameSeq, total_count, chunks_sent,
+		60 / SWARM_SYNC_THROTTLE_FRAMES);
+
+	s_FrameSeq++;
+#endif /* !PD_SERVER */
+}
+
 /**
  * Broadcast SVC_MUSIC_ADVANCE to all clients in a room (or all if room_id == 0xFF).
  * Called by the host on track change AND periodically (every ~2s) for drift
