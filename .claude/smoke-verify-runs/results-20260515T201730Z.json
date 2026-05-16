@@ -1,0 +1,29 @@
+﻿{
+    "Name":  "swarm_gpu_smoke",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  0,
+    "ElapsedSeconds":  151.1738979,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  19,
+    "AssertionsMet":  16,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "TESTSCEN\\.SWARM: cycle NEXT .* target=128"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "BENCHMARK\\.SWARM\\.GPU: SUMMARY count=128"
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "TESTSCEN\\.SWARM: cycle NEXT",
+                         "Count":  5,
+                         "Min":  6,
+                         "Max":  -1
+                     }
+                 ]
+}

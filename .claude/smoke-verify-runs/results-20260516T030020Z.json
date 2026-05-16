@@ -1,0 +1,57 @@
+{
+  "Name": "swarm_cpu_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": 0,
+  "ElapsedSeconds": 96.0763189,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 19,
+  "AssertionsMet": 9,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SMOKE: scenario=swarm_cpu_smoke"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "BOOT: --launch-scenario 'swarm_cpu' armed"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "BOOT: --launch-scenario consuming latch: testScenarioLaunch"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "TESTSCEN\\.LAUNCH: Swarm-CPU"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "LOAD: lv\\.c entering stage load sequence for stagenum=0x43"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "TICK: lvTick enter tick=\\d+ stagenum=0x43"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "TESTSCEN\\.SWARM: cycle NEXT prev_idx=0 -> idx=1 target=8"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "TESTSCEN\\.SWARM: cycle NEXT .* target=128"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "BENCHMARK\\.SWARM\\.CPU: SUMMARY count=128"
+    },
+    {
+      "Kind": "required_count_out_of_range",
+      "Pattern": "TESTSCEN\\.SWARM: cycle NEXT",
+      "Count": 0,
+      "Min": 6,
+      "Max": -1
+    }
+  ]
+}

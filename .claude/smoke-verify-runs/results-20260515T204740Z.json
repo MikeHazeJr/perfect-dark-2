@@ -1,0 +1,15 @@
+﻿{
+    "Name":  "swarm_cpu_smoke",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  true,
+    "ExitCode":  0,
+    "ElapsedSeconds":  96.19733029999999,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  19,
+    "AssertionsMet":  19,
+    "Failures":  [
+
+                 ]
+}

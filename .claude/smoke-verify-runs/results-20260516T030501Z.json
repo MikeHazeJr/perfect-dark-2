@@ -1,0 +1,15 @@
+﻿{
+    "Name":  "wall_jump_capsule_smoke",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  true,
+    "ExitCode":  0,
+    "ElapsedSeconds":  90.549894,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  21,
+    "AssertionsMet":  21,
+    "Failures":  [
+
+                 ]
+}

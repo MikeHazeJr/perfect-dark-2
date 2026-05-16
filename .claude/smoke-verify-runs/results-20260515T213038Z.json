@@ -1,0 +1,21 @@
+﻿{
+    "Name":  "listen_host_peer_smoke",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  1,
+    "ElapsedSeconds":  23.542212499999998,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  27,
+    "AssertionsMet":  26,
+    "Failures":  [
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SMOKE: result=scripted_exit",
+                         "Count":  1,
+                         "Min":  2,
+                         "Max":  2
+                     }
+                 ]
+}
