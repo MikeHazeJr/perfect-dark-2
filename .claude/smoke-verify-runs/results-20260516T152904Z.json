@@ -1,0 +1,37 @@
+﻿{
+    "Name":  "swarm_cpu_smoke",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  -1073740791,
+    "ElapsedSeconds":  111.6396996,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  22,
+    "AssertionsMet":  17,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "TESTSCEN\\.SWARM: cycle NEXT .* target=512"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "TESTSCEN\\.SWARM: respawn_ring target=512"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "BENCHMARK\\.SWARM\\.CPU: SUMMARY count=512"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SMOKE: result=scripted_exit"
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "TESTSCEN\\.SWARM: cycle NEXT",
+                         "Count":  7,
+                         "Min":  8,
+                         "Max":  -1
+                     }
+                 ]
+}
