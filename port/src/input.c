@@ -23,7 +23,11 @@
 #define CONTROLLERDB_FNAME "gamecontrollerdb.txt"
 
 #define TRIG_THRESHOLD (30 * 256)
-#define DEFAULT_DEADZONE 4096
+/* c036 (2026-05-16): bumped DEFAULT_DEADZONE 4096 -> 6144 to cover wireless
+ * Xbox Series X / One Bluetooth stick jitter at rest. ~18.7% of stick range
+ * vs the old ~12.5%; mirrors the active actionmap s_StickDz* default of
+ * 0.18f. Wired controllers are unaffected by the small extra dead band. */
+#define DEFAULT_DEADZONE 6144
 #define DEFAULT_DEADZONE_RY 6144
 
 #define WHEEL_UP_MASK SDL_BUTTON(VK_MOUSE_WHEEL_UP - VK_MOUSE_BEGIN + 1)

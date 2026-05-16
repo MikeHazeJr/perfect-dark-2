@@ -156,8 +156,13 @@ static f32 s_SensAimUi       = ACTIONMAP_SENS_UI_DEFAULT;
 static f32 s_SensAdsUi       = ACTIONMAP_SENS_UI_DEFAULT;
 static f32 s_StickSensMove   = (0.1f + 3.f * (2.9f / 9.f));
 static f32 s_StickSensAim    = (0.1f + 3.f * (2.9f / 9.f));
-static f32 s_StickDzMove     = 0.15f;
-static f32 s_StickDzAim      = 0.15f;
+/* c036 (2026-05-16): bumped 0.15f -> 0.18f to absorb wireless Xbox Series X
+ * Bluetooth stick noise at rest. 0.18 maps to ~6144/32767 raw counts, the
+ * smallest bump that quiets typical BT pads without making wired pads feel
+ * sluggish. Users can still override via pd.ini ActionMap.StickDeadzone* or
+ * the in-game sliders (range 0.00..0.50). */
+static f32 s_StickDzMove     = 0.18f;
+static f32 s_StickDzAim      = 0.18f;
 
 /* Hold/tap threshold for ACTION_USE (interact vs reload on same bind). */
 static s32 s_UseHoldThresholdMs = ACTION_USE_HOLD_THRESHOLD_MS;
