@@ -3,6 +3,7 @@
 #include "constants.h"
 #include "data.h"
 #include "types.h"
+#include "system.h"
 #include "game/surface_loco.h"
 #include "lib/collision.h"
 #include "lib/mtx.h"
@@ -91,6 +92,51 @@ void chrSurfaceLocoTick(struct chrdata *chr)
 
 	if (!chrSurfaceLocoIsEnabled(chr)) {
 		return;
+	}
+
+	/* Slice 5 follow-up (c3738): wall-transition climb trigger.
+	 *
+	 * Before the canonical floor sample, look FORWARD along the bot's
+	 * locomotion heading for an approaching wall. The floor sampler
+	 * raycasts along -surface_up (straight down for a floor-walking bot)
+	 * and never sees walls the bot is walking into. Without this check
+	 * the bot bunches up against the wall and never climbs.
+	 *
+	 * On wall hit: the wall normal becomes the blend TARGET. The
+	 * existing 8-frame blend below rotates surface_up onto the wall, and
+	 * subsequent ticks' floor sampler (which now points perpendicular to
+	 * the wall, i.e. into it) will keep the bot oriented against the
+	 * wall until it walks back off.
+	 *
+	 * On miss: fall through to the canonical floor sampler.
+	 */
+	f32 wall_up[3];
+	if (chrSurfaceLocoSampleWallAhead(chr, NULL, wall_up)) {
+		const f32 dot = chr->surface_up[0] * wall_up[0]
+				+ chr->surface_up[1] * wall_up[1]
+				+ chr->surface_up[2] * wall_up[2];
+
+		if (dot < SURFACE_LOCO_BLEND_KICK_COS) {
+			/* Wall is genuinely different from current up: kick the
+			 * 8-frame blend. Mirror the canonical edge-blend block
+			 * below (save prev, set target, set countdown). */
+			chr->surface_loco_flags &= ~SURFACE_LOCO_FLAG_AIRBORNE;
+			chr->surface_up_prev[0] = chr->surface_up[0];
+			chr->surface_up_prev[1] = chr->surface_up[1];
+			chr->surface_up_prev[2] = chr->surface_up[2];
+			chr->surface_up[0] = wall_up[0];
+			chr->surface_up[1] = wall_up[1];
+			chr->surface_up[2] = wall_up[2];
+			chr->surface_blend_frames = SURFACE_LOCO_BLEND_FRAMES;
+			chr->surface_loco_flags |= SURFACE_LOCO_FLAG_BLENDING;
+			sysLogPrintf(LOG_NOTE,
+				"SURFACE_LOCO.WALL_BLEND: chrnum=%d wall_normal=(%.3f,%.3f,%.3f)",
+				(s32)chr->chrnum, wall_up[0], wall_up[1], wall_up[2]);
+			return;
+		}
+		/* Wall normal effectively matches current up (we're already
+		 * aligned with this wall, or the geometry was a near-floor):
+		 * fall through to the canonical floor sample. */
 	}
 
 	f32 sampled[3];
@@ -460,4 +506,164 @@ void chrSurfaceLocoBuildTiltMtx(const f32 *surface_up, Mtxf *out)
 	out->m[2][0] = t * (kx * kz);
 	out->m[2][1] = -s * kx;
 	out->m[2][2] = 1.0f + t * (-kx * kx);
+}
+
+/* Slice 5 follow-up (c3738): forward-projected wall sampler.
+ *
+ * Casts a ray FORWARD along the bot's locomotion heading, projected
+ * onto the current surface plane (perpendicular to surface_up). If the
+ * ray hits geometry whose normal differs sufficiently from the current
+ * up, the wall normal is returned as the new transition target.
+ *
+ * Velocity source:
+ *   - vel_hint != NULL: use the caller-supplied 3-vector. Intended for
+ *     the GPU swarm path that holds per-bot velocity from the shader
+ *     readback (s_BoidScratch[i].vx/vy/vz). Plumbing optional; if the
+ *     caller doesn't have a hint it can pass NULL.
+ *   - vel_hint == NULL: derive heading from (prop->pos - prevpos). The
+ *     standard CPU pattern; chr->prevpos is updated each tick from the
+ *     model's root position (chr.c::chr0f022214, chraction.c::chraTick).
+ *
+ * The raycast direction is the velocity projected onto the plane
+ * perpendicular to chr->surface_up. This keeps the cast strictly
+ * lateral when the bot is on a floor / wall / ceiling: a floor-walker
+ * casting forward (horizontal) projects onto the floor plane unchanged;
+ * a wall-walker projects gravity-driven downward drift out so the cast
+ * stays aligned with the wall surface.
+ *
+ * Cost: 1 cdExamLos08 with GEOFLAG_WALL | GEOFLAG_BLOCK_SIGHT. Skipped
+ * entirely when |projected vel| < SURFACE_LOCO_WALL_MIN_VEL.
+ */
+bool chrSurfaceLocoSampleWallAhead(struct chrdata *chr, const f32 *vel_hint, f32 *out_up)
+{
+	if (!out_up) {
+		return false;
+	}
+
+	out_up[0] = 0.0f;
+	out_up[1] = 1.0f;
+	out_up[2] = 0.0f;
+
+	if (!chr || !chr->prop) {
+		return false;
+	}
+
+	if (!chrSurfaceLocoIsEnabled(chr)) {
+		return false;
+	}
+
+	/* Resolve velocity. */
+	f32 vx, vy, vz;
+	if (vel_hint) {
+		vx = vel_hint[0];
+		vy = vel_hint[1];
+		vz = vel_hint[2];
+	} else {
+		vx = chr->prop->pos.x - chr->prevpos.x;
+		vy = chr->prop->pos.y - chr->prevpos.y;
+		vz = chr->prop->pos.z - chr->prevpos.z;
+	}
+
+	/* Normalize current surface_up so the projection step doesn't
+	 * scale the velocity component spuriously. */
+	f32 sux = chr->surface_up[0];
+	f32 suy = chr->surface_up[1];
+	f32 suz = chr->surface_up[2];
+	const f32 su_len_sq = sux * sux + suy * suy + suz * suz;
+	if (su_len_sq < 1.0e-6f) {
+		sux = 0.0f;
+		suy = 1.0f;
+		suz = 0.0f;
+	} else if (su_len_sq < 0.999f || su_len_sq > 1.001f) {
+		const f32 inv = 1.0f / sqrtf(su_len_sq);
+		sux *= inv;
+		suy *= inv;
+		suz *= inv;
+	}
+
+	/* Project velocity onto the surface plane: v_planar = v - (v.u)*u */
+	const f32 vdotu = vx * sux + vy * suy + vz * suz;
+	f32 px = vx - vdotu * sux;
+	f32 py = vy - vdotu * suy;
+	f32 pz = vz - vdotu * suz;
+
+	const f32 p_len_sq = px * px + py * py + pz * pz;
+	const f32 min_vel_sq = SURFACE_LOCO_WALL_MIN_VEL * SURFACE_LOCO_WALL_MIN_VEL;
+	if (p_len_sq < min_vel_sq) {
+		/* Bot is stationary (or moving purely along surface_up, e.g.
+		 * falling). No climb intent; skip the raycast. */
+		return false;
+	}
+
+	const f32 inv_p_len = 1.0f / sqrtf(p_len_sq);
+	px *= inv_p_len;
+	py *= inv_p_len;
+	pz *= inv_p_len;
+
+	/* Ray length: radius slack + height slice. For default Skedar
+	 * (radius~30, height~200) this is ~145 units -- about 2 strides
+	 * forward. The radius term ensures we always see anything actually
+	 * inside the capsule; the height term gives a stand-off so we kick
+	 * the blend before the bot mashes into the wall. */
+	f32 ray_len = chr->radius * SURFACE_LOCO_WALL_LOOKAHEAD_MULT_RADIUS
+			+ chr->height * SURFACE_LOCO_WALL_LOOKAHEAD_MULT_HEIGHT;
+	if (ray_len < 100.0f) {
+		ray_len = 100.0f;
+	}
+
+	struct coord from = chr->prop->pos;
+	struct coord to;
+	to.x = from.x + px * ray_len;
+	to.y = from.y + py * ray_len;
+	to.z = from.z + pz * ray_len;
+
+	/* Walls + sight blockers. We deliberately omit FLOOR1/FLOOR2 here:
+	 * the floor sampler already covers walkable surfaces directly under
+	 * the bot, and including floors in a forward cast would fire on
+	 * every adjoining floor tile and spuriously re-orient the bot. */
+	const u16 geoflags = GEOFLAG_WALL | GEOFLAG_BLOCK_SIGHT;
+	const s32 los = cdExamLos08(&from, chr->prop->rooms, &to, CDTYPE_ALL, geoflags);
+
+	if (los != CDRESULT_COLLISION) {
+		return false;
+	}
+
+	struct coord normal = { { 0.0f, 1.0f, 0.0f } };
+	cdGetObstacleNormal(&normal);
+
+	/* Flip the wall normal to face the chr (opposite the ray
+	 * direction). Without this, a hit on the back face would give a
+	 * normal pointing away from the chr and the bot would try to align
+	 * up with the wrong side of the wall. */
+	const f32 ndotp = normal.x * px + normal.y * py + normal.z * pz;
+	if (ndotp > 0.0f) {
+		normal.x = -normal.x;
+		normal.y = -normal.y;
+		normal.z = -normal.z;
+	}
+
+	const f32 n_len_sq = normal.x * normal.x + normal.y * normal.y + normal.z * normal.z;
+	if (n_len_sq < 1.0e-6f) {
+		return false;
+	}
+	const f32 inv_n = 1.0f / sqrtf(n_len_sq);
+	const f32 nx = normal.x * inv_n;
+	const f32 ny = normal.y * inv_n;
+	const f32 nz = normal.z * inv_n;
+
+	/* Transition gate: only treat this wall as a NEW surface if its
+	 * normal is far enough off the current surface_up. dot >= threshold
+	 * means the geometry is too close to the current "up" to be a
+	 * meaningful transition (e.g. a slope blending into the floor we're
+	 * already on); the canonical floor sampler will track it more
+	 * smoothly. */
+	const f32 wall_dot_up = nx * sux + ny * suy + nz * suz;
+	if (wall_dot_up >= SURFACE_LOCO_WALL_NORMAL_THRESHOLD) {
+		return false;
+	}
+
+	out_up[0] = nx;
+	out_up[1] = ny;
+	out_up[2] = nz;
+	return true;
 }

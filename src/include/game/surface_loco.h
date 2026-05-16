@@ -104,4 +104,57 @@ void chrSurfaceLocoGetRenderUp(struct chrdata *chr, f32 *out_up);
  * snappy (raise) or too rubbery (lower). */
 #define SURFACE_LOCO_BLEND_FRAMES 8
 
+/* Slice 5 follow-up (c3738): wall-transition climb trigger.
+ *
+ * The floor sampler (chrSurfaceLocoSampleFloorNormal) raycasts ALONG
+ * -chr->surface_up. For a Skedar walking on a floor, that ray points
+ * straight down and never sees a wall the bot is approaching laterally.
+ * The bot bunches against the wall and never transitions.
+ *
+ * chrSurfaceLocoSampleWallAhead solves that: it casts a short ray FORWARD
+ * along the bot's locomotion heading, projected onto the current surface
+ * plane (perpendicular to surface_up). If the ray hits a wall whose
+ * normal is far enough off the current "up", the wall normal is returned
+ * as the new surface_up TARGET -- the existing 8-frame blend in
+ * chrSurfaceLocoTick smoothly rotates surface_up onto the wall, and the
+ * floor sampler takes over for subsequent ticks once the chr is aligned.
+ *
+ * Velocity hint:
+ *   - If vel_hint is non-NULL it is used directly (GPU swarm path can
+ *     pass per-bot velocity from the shader readback).
+ *   - If vel_hint is NULL the helper falls back to (prop->pos - prevpos)
+ *     as the locomotion heading -- the standard CPU pattern.
+ *
+ * Returns true if a wall was detected and out_up has been populated with
+ * the new (normalized) target up. Returns false on miss / low velocity /
+ * disabled chr; out_up is set to world-up in that case.
+ *
+ * Cost: 1 cdExamLos08 raycast per Skedar per tick when |vel| >= MIN_VEL.
+ * Comparable to the existing floor sampler.
+ */
+bool chrSurfaceLocoSampleWallAhead(struct chrdata *chr, const f32 *vel_hint, f32 *out_up);
+
+/* Wall-ahead raycast tuning.
+ *
+ * Ray length = chr->radius * LOOKAHEAD_MULT_RADIUS + chr->height * LOOKAHEAD_MULT_HEIGHT.
+ * For a default Skedar (radius ~30, height ~200) that's ~145 units forward,
+ * enough to see a wall two strides out but not so far it triggers on a
+ * wall behind the next room.
+ *
+ * NORMAL_THRESHOLD: dot(wall_normal, current surface_up). If the wall
+ * normal is within this cosine of the current up, we treat it as the
+ * same surface (no transition needed). 0.3 ~= 72.5deg, so anything
+ * tilted more than that off vertical relative to the current floor
+ * fires the transition. May need 0.5 (~60deg) if playtest shows missed
+ * walls; 0.3 is the design memo's initial value.
+ *
+ * MIN_VEL: bots with |horizontal vel| below this skip the wall-ahead
+ * raycast (no locomotion = no climb intent, and the raycast direction
+ * would be degenerate). 2.0 units/frame ~= a slow walk.
+ */
+#define SURFACE_LOCO_WALL_LOOKAHEAD_MULT_RADIUS 1.5f
+#define SURFACE_LOCO_WALL_LOOKAHEAD_MULT_HEIGHT 0.5f
+#define SURFACE_LOCO_WALL_NORMAL_THRESHOLD       0.3f
+#define SURFACE_LOCO_WALL_MIN_VEL                2.0f
+
 #endif
