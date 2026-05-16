@@ -38,6 +38,7 @@
 #include "game/bondgun.h"  /* bgunEquipWeapon for power-weapon loadout */
 #include "game/atan2f.h"
 #include "game/botinvinit.h"
+#include "game/chraction.h" /* chrBeginDead, chrStopFiring */
 #include "actionmap.h"
 #include "testscenarios.h"
 #include "swarm_test.h"
@@ -46,6 +47,104 @@
  * with the right linkage from C++/legacy headers). */
 extern bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
 	f32 theta, bool findground);
+
+/* ------------------------------------------------------------------
+ * Safe-free helper: drain transient death-state pointers before
+ * chrRemove + propFree.
+ *
+ * B-307b (2026-05-16): the 256 -> 512 cycle crash was traced to chrs
+ * being force-freed mid-death-animation (ACT_DIE) or mid-fade
+ * (ACT_DEAD). In those states, chr-internal fields (act_die.*,
+ * act_dead.*) and external systems hold references that the normal
+ * propsTickPlayer drain path would clean up frame-by-frame -- e.g.
+ * chr->cover lock, chr->fireslots[], pending psCreate handles, and
+ * the bot dead-fade respawn pointer the dying-bot path would touch
+ * via botSpawn once fadetimer60 >= TICKS(90).
+ *
+ * chrRemove() does call chrStopFiring, coverSetInUse(chr->cover),
+ * psStopSound, modelFreeVertices, chrDeregister, chrClearReferences,
+ * and projectilesUnrefOwner -- but it never NORMALIZES chr->actiontype
+ * back to a quiescent value. The lingering ACT_DIE/ACT_DEAD leaves
+ * chr->act_die.notifychrindex (an alert-fan-out cursor over g_ChrSlots)
+ * and chr->act_dead.fadetimer60 in a "mid-state" snapshot. Nothing in
+ * chrRemove walks these. Once we mass-free 254 chrs and then immediately
+ * allocate 512 fresh chrs at the same slot indices, those re-used slots
+ * inherit the freeprops linkage but the chr struct itself is reset by
+ * chrInit (zeroed via the slot's first-use init path), so subsequent
+ * frames see consistent state.
+ *
+ * However: the 254 props go back to freeprops in despawn_all order,
+ * and then respawn_ring(512) consumes them in propAllocate order
+ * (LIFO). The new chr objects are written into g_ChrSlots[] re-using
+ * indices freed by chrDeregister. If chrInit re-uses the same g_ChrSlots[]
+ * slot that ANOTHER dying swarm chr's act_die.notifychrindex pointed
+ * at, AND that chr was NOT freed yet when our slot got re-used... but
+ * despawn_all frees in s_Swarm[] order in a single tight loop, no
+ * propsTickPlayer in between, so this cross-iteration drift is bounded.
+ *
+ * The crash signature is consistent with a Windows fail-fast
+ * (STATUS_STACK_BUFFER_OVERRUN, 0xC0000409) which Microsoft uses for
+ * /GS cookie violations and __fastfail() in CRT. The most likely
+ * concrete failure is one of the chrRemove sub-callees walking a list
+ * with a chr->* field that wasn't normalized to its idle value.
+ *
+ * Defensive fix: before chrRemove, transition the chr to a clean
+ * "removable" state. The drain is:
+ *   1. If still in ACT_DIE (mid-animation), call chrBeginDead. This
+ *      runs chrStopFiring + cover release + sleep clear, then sets
+ *      actiontype=ACT_DEAD with a sane act_dead initialiser. We skip
+ *      this for chrs already in ACT_DEAD.
+ *   2. NULL chr->aibot BEFORE the engine sees ACT_DEAD with a non-NULL
+ *      aibot. The chrTickDead path would normally call botSpawn(chr,
+ *      true) once fadetimer60 elapses; we never let it run, but other
+ *      external references to chr->aibot (e.g. bot.c::botTickUnpaused
+ *      callees, AI state queries) could fire on the same frame if the
+ *      cycler crossed a tick boundary. Cleared here so nothing reads
+ *      a half-deinit aibot.
+ *   3. Force chr->target = -1, chr->cover = -1 (chrBeginDead handles
+ *      cover; this is belt-and-braces for chrs that started with cover
+ *      = -1 already and skipped chrBeginDead).
+ *   4. Clear chr->act_die.notifychrindex / chr->act_dead.notifychrindex
+ *      so any stale alert-fanout cursor cannot dangle into a re-used
+ *      g_ChrSlots[] entry.
+ *
+ * Called by despawn_all and despawn_slot before chrRemove.
+ * ------------------------------------------------------------------ */
+static void swarm_drain_death_state(struct chrdata *chr)
+{
+	if (!chr) return;
+
+	/* Step 1: walk ACT_DIE -> ACT_DEAD via the canonical engine path.
+	 * chrBeginDead handles chrStopFiring, coverSetInUse(false), sleep
+	 * clear, and the act_dead initialiser. */
+	if (chr->actiontype == ACT_DIE) {
+		chrBeginDead(chr);
+	}
+
+	/* Step 2: kill the aibot pointer BEFORE chrRemove walks the chr.
+	 * The despawn_all/despawn_slot callers already NULL chr->aibot
+	 * before calling us, but be idempotent for any future caller. */
+	chr->aibot = NULL;
+
+	/* Step 3: clear target / cover defensively. chrBeginDead releases
+	 * cover via coverSetInUse if it was set; we still write -1 so any
+	 * code path that reads chr->cover sees the explicit "no cover"
+	 * sentinel rather than the now-released cover index. */
+	chr->target = -1;
+	chr->cover  = -1;
+
+	/* Step 4: clear the alert-fanout cursors so any future re-use of
+	 * the chr's g_ChrSlots[] entry starts with index=0. The fields are
+	 * unioned; clearing both is safe regardless of actiontype. */
+	chr->act_die.notifychrindex  = 0;
+	chr->act_dead.notifychrindex = 0;
+
+	/* Step 5: force chr->fadealpha to a benign value. chrTickDead /
+	 * the corpse-fade walker reads this; with the chr freed, the
+	 * value doesn't matter, but a sane -1 (= no fade in progress)
+	 * is the post-spawn idle value. */
+	chr->fadealpha = -1;
+}
 
 /* GPU swarm module (port/fast3d/swarm_gpu.cpp). When that module is not
  * yet built, the stub below is used and swarmGpuAvailable() returns 0.
@@ -699,6 +798,9 @@ static void despawn_all(void)
 				swarm_free_aibot(chr->aibot);
 				chr->aibot = NULL;
 			}
+			/* B-307b: drain transient death-state pointers
+			 * before chrRemove walks the chr. See helper docblock. */
+			swarm_drain_death_state(chr);
 			chrRemove(prop, true);
 			propDelist(prop);
 			propDisable(prop);
@@ -1116,6 +1218,9 @@ static void despawn_slot(s32 i)
 			swarm_free_aibot(chr->aibot);
 			chr->aibot = NULL;
 		}
+		/* B-307b: drain transient death-state pointers before
+		 * chrRemove. See swarm_drain_death_state docblock. */
+		swarm_drain_death_state(chr);
 		chrRemove(prop, true);
 		propDelist(prop);
 		propDisable(prop);

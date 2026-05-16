@@ -1,17 +1,19 @@
 {
   "scenario_name": "swarm_cpu_smoke",
-  "description": "c115 iter-3: boot directly into Swarm-CPU via --launch-scenario swarm_cpu (skips Settings -> Debug -> Test Scenarios menu nav entirely). With iter-2's deferred-launch-at-lvframenum-4 in place, the bot ladder cycles cleanly via ACTION_TESTSCEN_CYCLE_COUNT (focus-independent). Verifies TESTSCEN.LAUNCH: Swarm-CPU, BENCHMARK.SWARM.CPU log emission, and bot-count ladder progression 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 -> 256. CONFIRMED 2026-05-14: ladder reaches 256 without crash; B-307 (256-bot spawn-frame crash) does NOT trip with deferred matchStart -- the fix may have closed B-307 as a side effect. Ladder respawn at each step works (despawn_all then respawn_ring around player position).",
+  "description": "B-307b verification (2026-05-16, c029): extends the 4..128 ladder to 256 and 512 to exercise the despawn_all + respawn_swarm path past Mike's playtest crash trigger. Mike's playtest log Build/pd-client.1.log captured a silent process exit ~6s after the cycle 256->512 fired (despawn_all freed 254 chrs, then crash before respawn_ring's log line). Fix: swarm_drain_death_state() drains transient ACT_DIE/ACT_DEAD pointers (chr->cover, chr->target, act_die.notifychrindex, fadealpha) before chrRemove + propFree. This regression test cycles through 256 AND 512 with stable dwell time to catch any recurrence. Prior history: c115 iter-3 (2026-05-14) confirmed 4..128 stable; B-307 was first thought to be CHRVTX pool exhaustion (c029 715424c4) but recurs at 256->512 with the new fail-fast 0xC0000409 signature.",
   "tags": ["debug", "swarm", "cpu", "benchmark", "scaling"],
   "paths_of_interest": [
     "port/src/testscenarios.c",
     "port/src/swarm_test.c",
     "src/game/setup.c",
+    "src/game/chr.c",
+    "src/game/chraction.c",
     "port/src/main.c",
     "port/src/actionmap.cpp"
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 240,
+  "timeout_seconds": 360,
   "install_state": "clean",
   "boot_args": [
     "--no-update-check",
@@ -25,13 +27,15 @@
     { "at_ms": 12000, "type": "action", "name": "ACTION_USE",        "action": "tap", "comment": "dismiss endscreen_solo via continue (may restart match)" },
     { "at_ms": 18000, "type": "action", "name": "ACTION_CANCEL_USE", "action": "tap", "comment": "fallback: cancel endscreen to main_menu" },
     { "at_ms": 22000, "type": "action", "name": "ACTION_USE",        "action": "tap", "comment": "advance whatever transient screen remains" },
-    { "at_ms": 40000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 4 -> 8 (will succeed only if endscreen dismissed + gameplay context on top)" },
+    { "at_ms": 40000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 4 -> 8" },
     { "at_ms": 50000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 8 -> 16" },
     { "at_ms": 60000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 16 -> 32" },
     { "at_ms": 70000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 32 -> 48" },
     { "at_ms": 80000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 48 -> 64" },
-    { "at_ms": 90000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 64 -> 128. iter-3 finding: 128 bots respawn cleanly with BENCHMARK.SWARM.CPU SUMMARY count=128. B-307 (256-bot spawn crash) is now a separate near-the-cap issue -- the spawn FRAME itself is clean at 256 but the binary force-exits (code 0xC0000409 fail-fast) within ~1s of the 256-bot match running. Could not pinpoint without source access. Cycling to 256 is left out of this regression test to keep the run deterministic; the 128-bot milestone is the stable deep coverage." },
-    { "at_ms": 95000, "type": "exit", "comment": "iter-3: scripted exit at 95s -- 5s after the 128-bot cycle fires. 128 is the deepest STABLE ladder point in iter-2 infra. Pushing to 256 fires the cycle correctly + spawns 256 bots + emits BENCHMARK.SWARM.CPU SUMMARY count=256 but then the binary crashes ~1s later. This regression test locks in: ladder works 4..128 via action injection, BENCHMARK emission works, B-307 spawn-frame is closed." }
+    { "at_ms": 90000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 64 -> 128 (last stable tier pre-B-307b)" },
+    { "at_ms": 110000, "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 128 -> 256 (B-307 prior trigger; now stable via CHRVTX 4096 bump)" },
+    { "at_ms": 140000, "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 256 -> 512 (B-307b trigger from Mike playtest 2026-05-16). With swarm_drain_death_state fix the process must survive this cycle. Dwell 30s at 256 first so death-state chrs accumulate, mirroring Mike's playtest timing exactly." },
+    { "at_ms": 180000, "type": "exit", "comment": "exit 40s after the 256 -> 512 cycle fires. Mike's playtest crashed within 6s of the cycle; 40s is plenty for the bot AI tick + propsTickPlayer to surface any latent death-state dangling pointer." }
   ],
   "assertions": {
     "required_lines": [
@@ -45,7 +49,10 @@
       "BENCHMARK\\.SWARM\\.CPU",
       "TESTSCEN\\.SWARM: cycle NEXT prev_idx=0 -> idx=1 target=8",
       "TESTSCEN\\.SWARM: cycle NEXT .* target=128",
-      "BENCHMARK\\.SWARM\\.CPU: SUMMARY count=128",
+      "TESTSCEN\\.SWARM: cycle NEXT .* target=256",
+      "TESTSCEN\\.SWARM: cycle NEXT .* target=512",
+      "TESTSCEN\\.SWARM: respawn_ring target=512",
+      "BENCHMARK\\.SWARM\\.CPU: SUMMARY count=512",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
@@ -57,7 +64,7 @@
     ],
     "required_counts": [
       { "pattern": "BENCHMARK\\.SWARM\\.CPU", "min": 1 },
-      { "pattern": "TESTSCEN\\.SWARM: cycle NEXT", "min": 6 }
+      { "pattern": "TESTSCEN\\.SWARM: cycle NEXT", "min": 8 }
     ]
   }
 }

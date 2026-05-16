@@ -3599,12 +3599,43 @@ void func0f065e98(struct coord *pos, RoomNum *rooms, struct coord *pos2, RoomNum
  * to get 256 props in a small space without exhausing the memory of the
  * console, you could potentially achieve arbitrary code execution.
  */
+/*
+ * B-307b (2026-05-16, c029): the `len` parameter was historically IGNORED.
+ * Every caller passes 256 and provides a 256-element stack buffer; if the
+ * iterated rooms hold more than 256 props (e.g. a swarm scenario with
+ * 256+ chrs sharing a room), the original loop walked off the end of the
+ * caller's stack array, tripping the MSVC /GS cookie check at the
+ * caller's function epilogue and raising STATUS_STACK_BUFFER_OVERRUN
+ * (0xC0000409, __fastfail) -- the silent process exit Mike's playtest
+ * captured at the 128 -> 256 and 256 -> 512 swarm cycle transitions.
+ *
+ * Mitigation: write up to `len - 1` entries and reserve the final slot
+ * for the `-1` terminator. Callers with a 256-element buffer can hold
+ * 255 unique propnums plus the terminator. Once the buffer fills, we
+ * stop appending new propnums but continue draining the chunk lists
+ * so dedup state stays consistent (a caller that holds 255 props plus
+ * the terminator still observes a valid prefix; downstream prop
+ * iteration just covers fewer entries this tick). The de-dup check
+ * against writeptr also gates the bounds check so duplicates do not
+ * count against the buffer.
+ *
+ * Defensive against a NULL or zero-length buffer caller: bail if len <= 0.
+ */
+/* Frame-throttled overflow warning: log AT MOST ONCE PER FRAME across
+ * all roomGetProps calls. With 256+ chrs each calling roomGetProps in
+ * chrTick / chraicommands / collision, the per-frame call count is
+ * O(N) and a per-call log would saturate the I/O. */
+static s32 s_RoomGetPropsOverflowLoggedFrame = -1;
+
 void roomGetProps(RoomNum *rooms, s16 *propnums, s32 len)
 {
-	s16 *writeptr = propnums;
+	if (!propnums || len <= 0) return;
+
+	s16 *writeptr   = propnums;
+	s16 *writelimit = propnums + (len - 1); /* leave one slot for -1 sentinel */
 	RoomNum room;
 	s32 i;
-	s32 j;
+	bool overflowed = false;
 
 	room = *rooms;
 
@@ -3633,8 +3664,15 @@ void roomGetProps(RoomNum *rooms, s16 *propnums, s32 len)
 
 					if (ptr == writeptr) {
 						// Prop is not in the list, so insert it
-						writeptr++;
-						writeptr[-1] = propnum;
+						// -- only if buffer has headroom for the
+						//    new entry AND the terminator. Once full,
+						//    record the overflow but continue draining
+						//    the chunk list so dedup state stays valid.
+						if (writeptr < writelimit) {
+							*writeptr++ = propnum;
+						} else {
+							overflowed = true;
+						}
 					}
 				}
 			}
@@ -3647,6 +3685,18 @@ void roomGetProps(RoomNum *rooms, s16 *propnums, s32 len)
 	}
 
 	*writeptr = -1;
+
+	/* Log overflow at most once per game frame. The per-frame counter
+	 * (g_Vars.lvframe60) gives a clean per-frame guard regardless of
+	 * how many roomGetProps callers hit the cap. */
+	if (overflowed && s_RoomGetPropsOverflowLoggedFrame != (s32)g_Vars.lvframe60) {
+		s_RoomGetPropsOverflowLoggedFrame = (s32)g_Vars.lvframe60;
+		sysLogPrintf(LOG_WARNING,
+			"roomGetProps: buffer full (len=%d, holding %d propnums) "
+			"-- truncating prop list; caller stack-array would have "
+			"overflowed (B-307b class). frame=%d",
+			(s32)len, (s32)(writeptr - propnums), g_Vars.lvframe60);
+	}
 }
 
 void propsDefragRoomProps(void)
