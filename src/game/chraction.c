@@ -15618,18 +15618,47 @@ void func0f04b740(void)
 	// empty
 }
 
-bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 theta, bool findground)
+/**
+ * chrSetPosWithCachedGround (c029 / Slice 3 GPU swarm perf, 2026-05-16)
+ *
+ * Extracted from chrSetPos so callers that already know the ground info
+ * (e.g. the GPU swarm path which samples the floor once per bot per
+ * frame and feeds the cached value into both the compute kernel and the
+ * apply loop) can skip the per-call cdFindGroundInfoAtCyl raycast inside
+ * the position update.
+ *
+ * Pre-extraction chrSetPos with findground=true did TWO raycasts per
+ * call: one in chrMoveToPos (line ~15706) and one here (line ~15646).
+ * The swarm apply loop ran this for 512 bots per frame -> 1024 raycasts.
+ * Combined with the pre-pass floor-normal sample (another 512), that's
+ * 1536 BG ground samples per frame at 512 bots; the dominant non-GL
+ * cost in the GPU swarm path.
+ *
+ * Parameters identical to chrSetPos plus the cached ground info that
+ * the legacy path computes internally:
+ *   - ground:    f32, surface y under (pos.x, pos.z) within radius.
+ *   - floorcol:  u16, floor color material id (typically tile->floorcol).
+ *   - floortype: u8,  floor type tag (FLOORTYPE_METAL etc.).
+ *   - floorroom: RoomNum, room owning the resolved floor geo (-1 if none).
+ *
+ * Cache responsibility: the caller obtained these via cdFindGroundInfoAtCyl
+ * at a point where they were also consumed by something else (the
+ * surface-normal sampler in the swarm case). If you do not already have
+ * these values, call the public chrSetPos wrapper -- this entry point
+ * exists to avoid the redundant raycast, not as a cheaper general-purpose
+ * api.
+ *
+ * Note: findground=true in the legacy path also runs chrMoveToPos with
+ * spawn-adjustment + warp-on-screen handling. The swarm path does not
+ * need that (bots are already adjusted at spawn time and remain off-
+ * screen / in-screen consistently per frame), so this entry point
+ * intentionally omits the chrMoveToPos pre-flight. If a future caller
+ * needs the pre-flight, route through chrSetPos.
+ */
+void chrSetPosWithCachedGround(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
+		f32 theta, f32 ground, u16 floorcol, u8 floortype, RoomNum floorroom)
 {
 	const f32 angle = BADDEG2RAD(360.f - theta);
-
-	if (findground) {
-		const u32 oldhidden = chr->hidden;
-		chr->hidden |= CHRHFLAG_WARPONSCREEN;
-		const bool ret = chrMoveToPos(chr, pos, rooms, angle, true);
-		if ((oldhidden & CHRHFLAG_WARPONSCREEN) == 0) {
-			chr->hidden &= ~CHRHFLAG_WARPONSCREEN;
-		}
-	}
 
 	bool newrooms = false;
 	for (s32 i = 0; i < ARRAYCOUNT(chr->prop->rooms) && rooms[i] >= 0; ++i) {
@@ -15643,8 +15672,9 @@ bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 theta
 
 	chr->prop->pos = *pos;
 
-	const f32 ground = cdFindGroundInfoAtCyl(pos, chr->radius, rooms, &chr->floorcol,
-			&chr->floortype, NULL, &chr->floorroom, NULL, NULL);
+	chr->floorcol  = floorcol;
+	chr->floortype = floortype;
+	chr->floorroom = floorroom;
 
 	chr->ground = ground;
 	chr->manground = ground;
@@ -15676,6 +15706,28 @@ bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 theta
 	}
 
 	propSetPerimEnabled(chr->prop, true);
+}
+
+bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 theta, bool findground)
+{
+	const f32 angle = BADDEG2RAD(360.f - theta);
+
+	if (findground) {
+		const u32 oldhidden = chr->hidden;
+		chr->hidden |= CHRHFLAG_WARPONSCREEN;
+		const bool ret = chrMoveToPos(chr, pos, rooms, angle, true);
+		if ((oldhidden & CHRHFLAG_WARPONSCREEN) == 0) {
+			chr->hidden &= ~CHRHFLAG_WARPONSCREEN;
+		}
+	}
+
+	u16 floorcol = 0;
+	u8 floortype = 0;
+	RoomNum floorroom = -1;
+	const f32 ground = cdFindGroundInfoAtCyl(pos, chr->radius, rooms, &floorcol,
+			&floortype, NULL, &floorroom, NULL, NULL);
+
+	chrSetPosWithCachedGround(chr, pos, rooms, theta, ground, floorcol, floortype, floorroom);
 
 	return true;
 }

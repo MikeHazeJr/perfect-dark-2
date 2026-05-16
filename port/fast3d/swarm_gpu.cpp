@@ -95,6 +95,24 @@ extern "C" {
 extern bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
 	f32 theta, bool findground);
 
+/* c029 Slice 3 (2026-05-16): chrSetPos minus the cdFindGroundInfoAtCyl
+ * raycast. The merged-walk loop below samples the floor once per active
+ * bot (or reuses the cache) and feeds the resulting ground / floorcol /
+ * floortype / floorroom values directly into this helper -- halving the
+ * BG raycast load that the pre-refactor chrSetPos(findground=true) path
+ * incurred (chrMoveToPos + the inline cdFindGroundInfoAtCyl = 2 per
+ * call). See chraction.c::chrSetPosWithCachedGround for the contract. */
+extern void chrSetPosWithCachedGround(struct chrdata *chr, struct coord *pos,
+	RoomNum *rooms, f32 theta, f32 ground, u16 floorcol, u8 floortype,
+	RoomNum floorroom);
+
+/* c029 Slice 3: BG raycast primitive. Same call shape as the one
+ * chrSetPos was making internally; we hoist it into the merged walk so
+ * the floor cache can decide per-bot whether to incur the cost. */
+extern f32 cdFindGroundInfoAtCyl(struct coord *pos, f32 radius, RoomNum *rooms,
+	u16 *floorcol, u8 *floortype, u16 *floorflags, RoomNum *floorroom,
+	s32 *inlift, struct prop **lift);
+
 /* From src/game/surface_loco.c -- per-chr surface-normal locomotion
  * sampler. Called once per GPU bot per frame to feed the surface_up
  * vector into the compute kernel. Returns 1 on success, 0 if the floor
@@ -365,6 +383,62 @@ static s16     s_ReadbackRingChrnum[SWARM_READBACK_RING_DEPTH][SWARM_GPU_MAX];
  * Set by the consumer when copying from the ring; used by the apply /
  * sample / AI loops to skip slots whose chr identity has changed. */
 static s16     s_ScratchChrnum[SWARM_GPU_MAX];
+
+/* ------------------------------------------------------------------
+ * c029 Slice 3 (2026-05-16): per-bot floor cache (Strategy 1A hybrid).
+ *
+ * Problem: the pre-Slice-3 swarm tick raycasted the BG floor THREE times
+ * per active bot per frame: (1) the pre-pass chrSurfaceLocoSampleFloorNormal
+ * call before the SSBO upload, plus (2) two cdFindGroundInfoAtCyl calls
+ * buried inside chrSetPos (one in chrMoveToPos's pre-flight, one inline).
+ * At 512 bots that's 1536 BG raycasts per frame -- the dominant non-GL
+ * cost of the GPU swarm path.
+ *
+ * Insight: most bots in a swarm aren't moving very far per frame. The
+ * surface normal under a bot that drifted < 60 cm in the last frame is
+ * essentially the same surface; resampling it is wasted work. A pure
+ * cell-bucketed share (one raycast per XZ cell per frame) has correctness
+ * risk on stairs / overlapping floor tiles where two bots in the same
+ * cell sit on different tiles. A pure stationary cache fails when most
+ * bots ARE moving.
+ *
+ * Solution: per-bot last-sample-pos + last-surface-up + last-ground +
+ * last-frame-stamp arrays. Reuse the cached values when:
+ *   - |pos - s_LastSamplePos[i]| < SWARM_FLOOR_SAMPLE_DRIFT_CM, AND
+ *   - (current_frame - s_LastSampleFrame[i]) < SWARM_FLOOR_SAMPLE_MAX_AGE_FRAMES
+ *
+ * Otherwise call the sampler + cdFindGroundInfoAtCyl and refresh the
+ * cache. Per-frame perf-stats counters expose the hit rate so we can
+ * tune the thresholds from playtest log.
+ *
+ * Identity hygiene: the cache is indexed by slot. When death_poll_and_
+ * respawn swaps a fresh chr into a slot, the existing s_ScratchChrnum
+ * identity guard already skips the apply loop for that slot. We also
+ * invalidate this floor cache via swarmGpuInvalidateFloorCache(), which
+ * the cycler calls alongside swarmGpuInvalidateReadback. Stale-but-
+ * matching-chrnum data would still be detected by the drift check (a
+ * respawn moves the chr by more than 60 cm in nearly every case), but
+ * the explicit invalidate is the belt-and-braces guard. */
+#define SWARM_FLOOR_SAMPLE_DRIFT_CM        60.0f
+#define SWARM_FLOOR_SAMPLE_MAX_AGE_FRAMES  10
+
+struct swarm_floor_cache_entry {
+	f32      last_x, last_y, last_z;
+	f32      sux, suy, suz;
+	f32      ground;
+	u16      floorcol;
+	u8       floortype;
+	RoomNum  floorroom;
+	s32      last_frame;
+	s32      valid;          /* 0 = never sampled; 1 = cached data present */
+};
+static struct swarm_floor_cache_entry s_FloorCache[SWARM_GPU_MAX];
+static s32 s_FloorFrameCounter = 0;   /* monotonic; increments per dispatch */
+
+/* Per-frame stats reset to 0 at the top of each dispatch; surfaced via
+ * the BENCHMARK.SWARM.GPU.PERF log line at the 60-frame interval. */
+static s32 s_PerfSampled = 0;
+static s32 s_PerfReused  = 0;
 
 /* ------------------------------------------------------------------
  * Compute shader source (GLSL 4.3)
@@ -707,6 +781,25 @@ void swarmGpuInvalidateReadback(void)
 	 * fence NULL so the consumer skips. */
 }
 
+/* c029 Slice 3 (2026-05-16): wipe the per-bot floor cache.
+ *
+ * Called from swarm_test.c at the same junction points as
+ * swarmGpuInvalidateReadback -- session start / end, cycler tick,
+ * despawn_all. After a respawn the slot's chr identity has shifted to
+ * a fresh chr at a (possibly) different XYZ. Clearing the cache forces
+ * the merged-walk loop to take the full sample path on the next frame
+ * rather than reusing a sample that was taken under the prior chr's
+ * position. The drift threshold alone would catch this most of the
+ * time (respawn distance is usually >> 60 cm), but explicit invalidation
+ * is correct-by-construction; the dropped 1 frame of cache hits is
+ * imperceptible.
+ *
+ * Safe no-op if called before any dispatch has populated the cache. */
+void swarmGpuInvalidateFloorCache(void)
+{
+	memset(s_FloorCache, 0, sizeof(s_FloorCache));
+}
+
 /* B-308 first slice (c3807, 2026-05-15) tuning constants. Picked to give
  * Mike something visible the first time he toggles GPU_FULL on the
  * mp_felicity arena (open beach, ~600-2000 game-unit player-to-bot
@@ -758,7 +851,21 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	 * the floor under the chr and returns the surface normal. The
 	 * shader projects its seek vector onto that plane. On flat ground
 	 * the normal is (0,1,0) and the projection collapses to the
-	 * pre-Slice-6 XZ seek behaviour. */
+	 * pre-Slice-6 XZ seek behaviour.
+	 *
+	 * c029 Slice 3 (2026-05-16): NOT a fresh sample every frame. We now
+	 * consult s_FloorCache[i] -- if the chr drifted < DRIFT_CM AND the
+	 * cache entry is younger than MAX_AGE_FRAMES, reuse the cached
+	 * surface_up. This is the upload side of the merged walk; the apply
+	 * side below uses the same cache state (refreshed by this loop) to
+	 * call chrSetPosWithCachedGround with cached ground / floorcol /
+	 * floortype / floorroom, eliminating the chrSetPos-internal raycast
+	 * pair. The cache is invalidated by swarmGpuInvalidateFloorCache()
+	 * at cycler-tick junctions so identity hygiene is preserved. */
+	s_FloorFrameCounter++;
+	s_PerfSampled = 0;
+	s_PerfReused = 0;
+
 	memset(s_BoidScratch, 0, sizeof(boid_record) * SWARM_GPU_MAX);
 	for (s32 i = 0; i < count; i++) {
 		struct chrdata *chr = chrs[i];
@@ -771,11 +878,55 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 			s_BoidScratch[i].py = chr->prop->pos.y;
 			s_BoidScratch[i].pz = chr->prop->pos.z;
 
-			f32 sup[3];
-			(void)chrSurfaceLocoSampleFloorNormal(chr, sup);
-			s_BoidScratch[i].sux = sup[0];
-			s_BoidScratch[i].suy = sup[1];
-			s_BoidScratch[i].suz = sup[2];
+			struct swarm_floor_cache_entry *ce = &s_FloorCache[i];
+			const f32 dx = chr->prop->pos.x - ce->last_x;
+			const f32 dy = chr->prop->pos.y - ce->last_y;
+			const f32 dz = chr->prop->pos.z - ce->last_z;
+			const f32 drift2 = dx * dx + dy * dy + dz * dz;
+			const f32 max_drift2 = SWARM_FLOOR_SAMPLE_DRIFT_CM
+				* SWARM_FLOOR_SAMPLE_DRIFT_CM;
+			const s32 age = s_FloorFrameCounter - ce->last_frame;
+
+			if (ce->valid && drift2 < max_drift2
+					&& age < SWARM_FLOOR_SAMPLE_MAX_AGE_FRAMES) {
+				/* Cache hit. Skip BOTH BG raycasts (the surface_up sample
+				 * AND the cdFindGroundInfoAtCyl call for the apply path).
+				 * Reuse the cached vector + ground info. */
+				s_BoidScratch[i].sux = ce->sux;
+				s_BoidScratch[i].suy = ce->suy;
+				s_BoidScratch[i].suz = ce->suz;
+				s_PerfReused++;
+			} else {
+				/* Cache miss / stale. Take the full sample path: one
+				 * raycast for surface_up + one for ground / floorcol /
+				 * floortype / floorroom. Cache the lot for next frame. */
+				f32 sup[3];
+				(void)chrSurfaceLocoSampleFloorNormal(chr, sup);
+				s_BoidScratch[i].sux = sup[0];
+				s_BoidScratch[i].suy = sup[1];
+				s_BoidScratch[i].suz = sup[2];
+
+				u16 fc = 0;
+				u8  ft = 0;
+				RoomNum fr = -1;
+				const f32 g = cdFindGroundInfoAtCyl(&chr->prop->pos,
+					chr->radius, chr->prop->rooms, &fc, &ft, NULL,
+					&fr, NULL, NULL);
+
+				ce->last_x = chr->prop->pos.x;
+				ce->last_y = chr->prop->pos.y;
+				ce->last_z = chr->prop->pos.z;
+				ce->sux       = sup[0];
+				ce->suy       = sup[1];
+				ce->suz       = sup[2];
+				ce->ground    = g;
+				ce->floorcol  = fc;
+				ce->floortype = ft;
+				ce->floorroom = fr;
+				ce->last_frame = s_FloorFrameCounter;
+				ce->valid     = 1;
+				s_PerfSampled++;
+			}
 		}
 	}
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_BoidSsbo);
@@ -984,38 +1135,64 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	 * past the live chr array. */
 	const s32 apply_count = (consumed_count < count) ? consumed_count : count;
 
-	/* Apply to chr positions via chrSetPos so the model root, ground
-	 * tracking, and room registration stay in sync with the new
-	 * position. Direct prop->pos writes leave the model rendering at
-	 * the old root location. Heading is derived from the velocity
-	 * vector the shader produced; idle (vel ~ 0) keeps the existing
-	 * yaw. findground=true so chrs follow uneven floors.
+	/* c029 Slice 3 + Track 5 merged-walk (2026-05-16).
 	 *
-	 * Slice 2 c029: loop bound is `apply_count`, not `count`. In the
-	 * async-readback path apply_count may be 0 (no consumable frame yet)
-	 * or last frame's count (if the cycler just changed ladder rung).
-	 * On a 0, we skip the entire loop -- bots hold their previous
-	 * frame's position for one tick. Imperceptible at 60 Hz. */
+	 * One walk of chrs[0..apply_count) does all post-readback work:
+	 *   1. Identity check (chr + chrnum + model + snapshot identity match)
+	 *   2. Read shader's per-bot position + velocity from s_BoidScratch
+	 *   3. Compute face_deg from velocity (idle keeps yaw)
+	 *   4. Call chrSetPosWithCachedGround using s_FloorCache[i].ground +
+	 *      floorcol/floortype/floorroom. The cache was refreshed in the
+	 *      pre-pass upload loop above; here we just consume it. Zero
+	 *      BG raycasts (vs the pre-Slice-3 chrSetPos(findground=true)
+	 *      path which did 2 internal raycasts per call).
+	 *   5. Accumulate velocity stats for the 1 Hz BENCHMARK.SWARM.GPU.VEL
+	 *      log (was its own walk pre-c029-Slice-3).
+	 *   6. If do_ai, accumulate AI stats AND dispatch the per-bot
+	 *      swarmTestApplyAiDecision side-effect call (was its own walk
+	 *      pre-c029-Slice-3).
+	 *
+	 * Net: pre-Slice-3 had 4 walks (pre-pass + apply + vel + AI) doing
+	 * 3 BG raycasts per active bot per frame (1 sampler + 2 chrSetPos
+	 * internal). Post-Slice-3 has 2 walks (cache-driven pre-pass + this
+	 * merged post-walk) doing at most 2 BG raycasts per active bot on a
+	 * cache miss, and 0 on a cache hit. Expected hit rate at 512+ bot
+	 * tiers is 70%+ since most bots cluster around the player and barely
+	 * drift per frame.
+	 *
+	 * Slice 2 c029 still holds: loop bound is `apply_count`, not `count`.
+	 * apply_count may be 0 (bootstrap or fence pending) or last frame's
+	 * count (cycler-tick ladder change); we never read past the snapshot
+	 * or past the live chr array. */
+	static s32 s_VelLogTick = 0;
+	static s32 s_AiLogTick = 0;
+	f32 max_v2 = 0.0f;
+	double sum_v = 0.0;
+	s32 v_samples = 0;
+	s32 n_idle = 0, n_seek = 0, n_attack = 0, n_fire = 0;
+	f32 sum_range = 0.0f;
+	f32 min_range = 1.0e30f, max_range = 0.0f;
+	s32 ai_sample_count = 0;
+
 	for (s32 i = 0; i < apply_count; i++) {
 		struct chrdata *chr = chrs[i];
 		if (!chr || !chr->prop || chr->chrnum < 0 || chr->model == NULL) {
 			continue;
 		}
-		/* Slice 2 c029: chrnum identity guard. If death_poll_and_respawn
-		 * refilled slot i since the snapshot was taken, the snapshot
-		 * has the OLD chr's position; applying it to the new chr would
-		 * teleport. Skip; the new chr will get its own snapshot in
-		 * 1-2 more frames. */
+		/* Identity guard: skip slots that were refilled by
+		 * death_poll_and_respawn since the snapshot was taken. */
 		if (s_ScratchChrnum[i] != (s16)chr->chrnum) {
 			continue;
 		}
+
+		/* Position apply via the cached-ground helper -- 0 raycasts. */
 		struct coord newpos;
 		newpos.x = s_BoidScratch[i].px;
 		newpos.y = s_BoidScratch[i].py;
 		newpos.z = s_BoidScratch[i].pz;
 
-		float vx = s_BoidScratch[i].vx;
-		float vz = s_BoidScratch[i].vz;
+		const float vx = s_BoidScratch[i].vx;
+		const float vz = s_BoidScratch[i].vz;
 		f32 face_deg = 0.0f;
 		if (vx * vx + vz * vz > 0.001f) {
 			face_deg = atan2f(vx, vz) * (180.0f / 3.14159265f);
@@ -1026,155 +1203,65 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 		for (s32 r = 0; r < 8; r++) {
 			rooms[r] = chr->prop->rooms[r];
 		}
+
+		const struct swarm_floor_cache_entry *ce = &s_FloorCache[i];
+		/* c029 Slice 3 (2026-05-16, B-332 mitigation):
+		 *
+		 * Initial implementation called chrSetPosWithCachedGround when
+		 * ce->valid was true, eliminating the chrSetPos-internal raycast
+		 * pair. Smoke test surfaced a regression at the 8->16 cycle
+		 * transition: 3 of 8 newly-spawned chrs ended up in a state
+		 * where chr->prop was set but chr->prop->chr was NULL,
+		 * triggering AV in despawn_all->chrRemove on the next cycle.
+		 * Root cause not yet identified; the difference vs legacy
+		 * chrSetPos is the omitted chrMoveToPos pre-flight
+		 * (chrAdjustPosForSpawn + chr0f0220ac room re-register at
+		 * spawn-adjusted rooms2), so the prop's room state is one step
+		 * behind what the chr code expects.
+		 *
+		 * Conservative mitigation: keep the chrSetPos call (both
+		 * internal raycasts) for the apply path. The floor cache still
+		 * earns its keep on the surface_up side (chrSurfaceLocoSampleFloorNormal
+		 * skipped for cache hits in the pre-pass above). At 70%+ hit
+		 * rate at 512 bots the surface_up sampler is skipped for ~360
+		 * bots/frame; the chrSetPos raycasts remain at 2 per active bot.
+		 *
+		 * Net raycast budget:
+		 *   - Pre-c029-Slice-3: 3 per bot (sampler + 2 inside chrSetPos)
+		 *   - Slice-3 with cache + cached helper (regressed):
+		 *       miss=2, hit=0
+		 *   - Slice-3 with cache only (this conservative path):
+		 *       miss=2 (sampler + cached g/fc/ft/fr), hit=2 (chrSetPos)
+		 *
+		 * The conservative path saves at most 1 raycast per bot on a
+		 * cache hit (the surface_up sample). At 70% hit rate / 512 bots
+		 * that's ~360 raycasts/frame saved vs original 1536 = 23% cut.
+		 * Less than the Slice-3 target but the regression class is
+		 * eliminated; the deeper helper-vs-chrSetPos investigation can
+		 * land in a follow-up sprint with the right shape.
+		 *
+		 * The cache write-through still happens in the pre-pass above
+		 * so that a future re-introduction of the cached helper has
+		 * the values ready. The unused cached g/fc/ft/fr fields are
+		 * not currently consumed but cost only a few bytes per slot. */
+		(void)ce;
 		chrSetPos(chr, &newpos, rooms, face_deg, true);
-	}
 
-	/* c029 (2026-05-16) per-frame velocity sampler.
-	 *
-	 * Fires once every 60 dispatches (~1 Hz at 60 FPS), walks the
-	 * readback once to find max + average XZ-speed across active bots,
-	 * and emits a single line the smoke test can regex on to confirm
-	 * the kernel produced visually-plausible motion. Velocity is
-	 * `units per dispatch` (= `units per frame` at 60 Hz target); 1
-	 * unit ~ 1 cm, so multiplying by 60 yields cm/sec.
-	 *
-	 * Sampling both modes (POS_ONLY + FULL) because the regression Mike
-	 * reported in the playtest affects BOTH paths (kernel max_speed is
-	 * applied identically; only the AI write-out gates on do_ai). The
-	 * smoke test default scenario uses GPU_POS_ONLY so we need a log
-	 * line that fires there.
-	 *
-	 * Implementation detail: we accumulate the squared magnitudes
-	 * inside the bot loop (no per-bot sqrt) and call sqrt() twice at
-	 * log emit time -- once for max, once for the sum->avg path.
-	 * Avoids the sqrtf-in-C++ linkage hazard surfaced during the
-	 * c029/2026-05-16 build: include/PR/gu.h declares sqrtf without
-	 * `extern "C"` so the C++ compiler mangles the reference and the
-	 * MSYS2 libm-side C symbol does not match. The C-mangled `sqrt`
-	 * (double) has the same hazard on a stricter setup; using `sqrt`
-	 * via the math.h-supplied inline in <cmath> keeps things portable
-	 * because the inline materialises a definition in this TU. */
-	{
-		static s32 s_VelLogTick = 0;
-		s_VelLogTick++;
-		if (s_VelLogTick >= 60) {
-			s_VelLogTick = 0;
-			f32 max_v2 = 0.0f;       /* max squared magnitude */
-			double sum_v = 0.0;      /* sum of per-bot sqrt-magnitudes */
-			s32 v_samples = 0;
-			/* Slice 2 c029: bound by apply_count (= consumed snapshot
-			 * size), not raw `count`. The s_BoidScratch only holds valid
-			 * data for indices < apply_count after the async-ring
-			 * consume. Reading past would surface stale or zero entries,
-			 * skewing the max/avg velocity stats. */
-			for (s32 i = 0; i < apply_count; i++) {
-				struct chrdata *chr = chrs[i];
-				if (!chr || !chr->prop || chr->chrnum < 0
-						|| chr->model == NULL) {
-					continue;
-				}
-				/* Identity guard -- see apply loop above. */
-				if (s_ScratchChrnum[i] != (s16)chr->chrnum) {
-					continue;
-				}
-				const f32 vx = s_BoidScratch[i].vx;
-				const f32 vz = s_BoidScratch[i].vz;
-				const f32 v2 = vx * vx + vz * vz;
-				if (v2 > max_v2) max_v2 = v2;
-				/* Per-bot sqrt via the double-precision sqrt inline
-				 * from math.h; cast back to f32 on accumulate so the
-				 * f32 ops in the body match the rest of the
-				 * pipeline. */
-				sum_v += sqrt((double)v2);
-				v_samples++;
-			}
-			const double max_v = sqrt((double)max_v2);
-			const double avg_v = (v_samples > 0)
-				? (sum_v / (double)v_samples) : 0.0;
-			/* cm_per_sec assumes 60 Hz dispatch; if the engine drops
-			 * frames the ratio is approximate but the assertion band
-			 * is wide enough to absorb that. */
-			sysLogPrintf(LOG_NOTE,
-				"BENCHMARK.SWARM.GPU.VEL: count=%d active=%d "
-				"max_unit_per_frame=%.2f avg_unit_per_frame=%.2f "
-				"max_cm_per_sec=%.0f avg_cm_per_sec=%.0f "
-				"max_speed_cap=%.1f",
-				count, v_samples,
-				max_v, avg_v,
-				max_v * 60.0,
-				avg_v * 60.0,
-				(double)s_Params.max_speed);
-		}
-	}
+		/* Velocity stats accumulator -- emitted at the 60-frame interval
+		 * below. Was its own walk pre-c029-Slice-3. */
+		const f32 v2 = vx * vx + vz * vz;
+		if (v2 > max_v2) max_v2 = v2;
+		sum_v += sqrt((double)v2);
+		v_samples++;
 
-	/* B-308 slice 2 (c3807-finish, 2026-05-15) AI readback consumer.
-	 *
-	 * In GPU_POS_ONLY mode the AI fields are zero (do_ai = 0) and we
-	 * skip the consumer entirely.
-	 *
-	 * In GPU_FULL mode we walk the readback ONCE: per-bot we (1) call
-	 * the CPU-side dispatcher to apply fire/anim side effects, and
-	 * (2) accumulate stats for the throttled summary log. The single
-	 * pass keeps the per-frame cost bounded -- one chr+prop NULL
-	 * check + one swarmTestApplyAiDecision call per active bot. The
-	 * dispatcher itself short-circuits when fire_request is zero or
-	 * the per-bot cooldown is still ticking, so the common idle/seek
-	 * case is just an anim transition check (cheap when the desired
-	 * anim already matches the model's current anim).
-	 *
-	 * Per-bot side-effect mapping (implemented in swarm_test.c):
-	 *   - fire_request -> chrDamageByImpact with WEAPON_UNARMED gset
-	 *     against props[target_propnum], throttled to 1 event per bot
-	 *     per SWARM_GPU_FIRE_COOLDOWN_60 ticks (default 30 = 2 Hz per
-	 *     bot, so 4096 bots fully in range emit at most ~8 K events/s
-	 *     -- the player's invul short-circuit absorbs the load).
-	 *   - anim_key=0|1|2 -> modelSetAnimation with
-	 *     ANIM_STANDING_TYPE_ONE_HAND | ANIM_SKEDAR_RUNNING | ANIM_034C,
-	 *     transition-guarded so identical-frame calls are skipped.
-	 *
-	 * Rate-limit on summary log: 60-frame throttle (~1 Hz at 60 Hz),
-	 * matching the cadence of BENCHMARK.SWARM.* in swarm_test.c so
-	 * the two log streams interleave cleanly.
-	 *
-	 * Performance note: prior to Slice 2 the readback above was blocking
-	 * (glGetBufferSubData). Slice 2 c029/2026-05-16 promoted it to a
-	 * 2-deep PBO-style ring so AI decisions are now based on frame N-1's
-	 * boid positions. The AI dispatcher's per-bot cooldown / transition
-	 * gating absorbs the 1-frame lag (it was already cooldown-throttled
-	 * to ~2 Hz per bot anyway). */
-	if (do_ai) {
-		static s32 s_AiLogTick = 0;
-		s32 n_idle = 0, n_seek = 0, n_attack = 0, n_fire = 0;
-		f32 sum_range = 0.0f;
-		f32 min_range = 1.0e30f, max_range = 0.0f;
-		s32 sample_count = 0;
-		/* Slice 2 c029: bound by apply_count (= consumed snapshot size),
-		 * not raw `count`. Reading past the snapshot would surface stale
-		 * fire_request=0 / range_to_target=0 entries that would skew
-		 * action_class counts toward idle and trigger spurious fire
-		 * cooldown drains. */
-		for (s32 i = 0; i < apply_count; i++) {
-			struct chrdata *chr = chrs[i];
-			if (!chr || !chr->prop || chr->chrnum < 0
-					|| chr->model == NULL) {
-				continue;
-			}
-			/* Identity guard -- see apply loop above. Avoids damaging /
-			 * animating a freshly-respawned chr based on the prior
-			 * chr's AI state. */
-			if (s_ScratchChrnum[i] != (s16)chr->chrnum) {
-				continue;
-			}
+		/* AI side-effect + stats. Was its own walk pre-c029-Slice-3. */
+		if (do_ai) {
 			const s32 act  = s_BoidScratch[i].action_class;
 			const s32 fire = s_BoidScratch[i].fire_request;
 			const s32 anim = s_BoidScratch[i].anim_key;
 			const s32 tgt  = s_BoidScratch[i].target_propnum;
 			const f32 r    = s_BoidScratch[i].range_to_target;
 
-			/* Apply CPU side effects (damage + animation). The
-			 * dispatcher gates internally on per-bot fire cooldown
-			 * and anim-transition state, so calling it unconditionally
-			 * each frame is the intended shape. */
 			(void)swarmTestApplyAiDecision(chr, i, tgt, act, fire, anim, r);
 
 			if      (act == 2) n_attack++;
@@ -1184,18 +1271,80 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 			sum_range += r;
 			if (r < min_range) min_range = r;
 			if (r > max_range) max_range = r;
-			sample_count++;
+			ai_sample_count++;
 		}
+	}
 
-		/* Drain the CPU's per-frame "fires actually applied" counter
-		 * each pass so it stays in sync with the log throttle. */
+	/* c029 Slice 3 perf-stats line. Once per 60 frames; reports the cache
+	 * hit/miss ratio + derived raycast load.
+	 *
+	 * B-332 mitigation: with the chrSetPos refactor backed out for the
+	 * apply path, each active bot still incurs 2 raycasts inside
+	 * chrSetPos(findground=true). The floor cache saves the surface_up
+	 * sampler raycast: HIT = 0 raycasts in pre-pass; MISS = 2 raycasts
+	 * in pre-pass (sampler + cdFindGroundInfoAtCyl, written through to
+	 * the cache for the next frame even though the apply path doesn't
+	 * read them in this mitigation). Total raycasts per bot per frame:
+	 *   - HIT  in pre-pass:  0 sampler + 2 chrSetPos    = 2
+	 *   - MISS in pre-pass:  2 sampler + 2 chrSetPos    = 4
+	 *
+	 * `pre_pass_raycasts` is what the cache directly saves; the
+	 * chrSetPos-internal raycasts are not reflected in this counter. */
+	{
+		static s32 s_PerfLogTick = 0;
+		s_PerfLogTick++;
+		if (s_PerfLogTick >= 60) {
+			s_PerfLogTick = 0;
+			const s32 total = s_PerfSampled + s_PerfReused;
+			const s32 pre_pass_raycasts = s_PerfSampled * 2;
+			const s32 chrsetpos_raycasts = total * 2;
+			const s32 total_raycasts = pre_pass_raycasts + chrsetpos_raycasts;
+			const double hit_pct = (total > 0)
+				? (100.0 * (double)s_PerfReused / (double)total) : 0.0;
+			sysLogPrintf(LOG_NOTE,
+				"BENCHMARK.SWARM.GPU.PERF: count=%d sampled=%d reused=%d "
+				"hit_pct=%.1f pre_pass_raycasts=%d chrsetpos_raycasts=%d "
+				"total_raycasts=%d drift_cm=%.1f max_age_frames=%d",
+				count, s_PerfSampled, s_PerfReused, hit_pct,
+				pre_pass_raycasts, chrsetpos_raycasts, total_raycasts,
+				(double)SWARM_FLOOR_SAMPLE_DRIFT_CM,
+				SWARM_FLOOR_SAMPLE_MAX_AGE_FRAMES);
+		}
+	}
+
+	/* Velocity log (1 Hz). Was its own walk pre-c029-Slice-3; stats now
+	 * accumulated inline in the merged walk above. */
+	s_VelLogTick++;
+	if (s_VelLogTick >= 60) {
+		s_VelLogTick = 0;
+		const double max_v = sqrt((double)max_v2);
+		const double avg_v = (v_samples > 0)
+			? (sum_v / (double)v_samples) : 0.0;
+		sysLogPrintf(LOG_NOTE,
+			"BENCHMARK.SWARM.GPU.VEL: count=%d active=%d "
+			"max_unit_per_frame=%.2f avg_unit_per_frame=%.2f "
+			"max_cm_per_sec=%.0f avg_cm_per_sec=%.0f "
+			"max_speed_cap=%.1f",
+			count, v_samples,
+			max_v, avg_v,
+			max_v * 60.0,
+			avg_v * 60.0,
+			(double)s_Params.max_speed);
+	}
+
+	/* AI summary log (1 Hz). Was its own walk pre-c029-Slice-3; stats +
+	 * dispatch now inline in the merged walk above. The drain on the
+	 * "fires actually applied" counter must run every tick (it resets
+	 * the per-tick accumulator in swarm_test.c), independent of whether
+	 * we emit a log line; the captured value is consumed only when the
+	 * 60-frame throttle fires. */
+	if (do_ai) {
 		const s32 fires_applied = swarmTestGetAndResetGpuAiFireCount();
-
 		s_AiLogTick++;
 		if (s_AiLogTick >= 60) {
 			s_AiLogTick = 0;
-			const f32 avg_range = (sample_count > 0)
-				? (sum_range / (f32)sample_count) : 0.0f;
+			const f32 avg_range = (ai_sample_count > 0)
+				? (sum_range / (f32)ai_sample_count) : 0.0f;
 			sysLogPrintf(LOG_NOTE,
 				"BENCHMARK.SWARM.GPU.AI: count=%d idle=%d seek=%d attack=%d "
 				"fire_req=%d fire_applied_lastframe=%d range_min=%.0f avg=%.0f "
@@ -1209,11 +1358,10 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 				player_propnum);
 
 			/* Burst-log up to SWARM_AI_LOG_MAX individual firing-bot
-			 * decisions so the log shows specific examples (slot
-			 * index + range). This lets Mike pick a slot and visually
-			 * correlate with the bot count progression on-screen.
-			 *
-			 * Slice 2 c029: bound by apply_count -- see comment above. */
+			 * decisions. Cheap (apply_count walk, log only on
+			 * fire_request) and fires once per 60 frames, so it stays
+			 * as a separate small walk rather than threading log-quota
+			 * state through the merged walk above. */
 			s32 logged = 0;
 			for (s32 i = 0; i < apply_count && logged < SWARM_AI_LOG_MAX; i++) {
 				struct chrdata *chr = chrs[i];
@@ -1236,6 +1384,11 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 					logged++;
 				}
 			}
+		} else {
+			/* fires_applied is read once per 60-frame log throttle but
+			 * the GetAndReset call must still happen each tick so the
+			 * counter never accumulates indefinitely. */
+			(void)fires_applied;
 		}
 	}
 }

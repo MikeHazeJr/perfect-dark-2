@@ -203,6 +203,15 @@ bool chrAdjustPosForSpawn(f32 chrradius, struct coord *pos, RoomNum *rooms, f32 
 
 bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 angle, bool findground);
 
+/**
+ * chrSetPosWithCachedGround -- chrSetPos minus the cdFindGroundInfoAtCyl
+ * raycast. Caller supplies the ground info (typically obtained alongside
+ * an existing surface-normal sample). The GPU swarm path uses this to
+ * halve its BG raycast load. See chraction.c for the contract docblock.
+ */
+void chrSetPosWithCachedGround(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
+		f32 angle, f32 ground, u16 floorcol, u8 floortype, RoomNum floorroom);
+
 struct prop *chrSpawnAtCoord(s32 body, s32 head, struct coord *pos, RoomNum *room, f32 angle, u8 *ailist, u32 spawnflags);
 bool chrIsPropPresetBlockingSightToTarget(struct chrdata *chr);
 bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *room, f32 angle, bool ignorebg);

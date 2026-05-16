@@ -181,6 +181,13 @@ extern void swarmGpuStepAndApply(struct coord *player_pos,
  * to blocking readback). */
 extern void swarmGpuInvalidateReadback(void);
 
+/* c029 Slice 3 (2026-05-16): invalidate the per-bot floor cache.
+ * Same call-sites as swarmGpuInvalidateReadback above. The drift
+ * threshold (60 cm) would catch most respawn relocations on its own,
+ * but explicit invalidation is correct-by-construction and costs only
+ * a memset of the cache array on the next dispatch. */
+extern void swarmGpuInvalidateFloorCache(void);
+
 /* ------------------------------------------------------------------
  * Cycle ladder (S594h-Unit-A, 2026-05-01).
  *
@@ -1470,6 +1477,12 @@ static void cycler_tick(void)
 	 * steady state with current-identity data. No-op if the ring isn't
 	 * armed (CPU mode / driver fallback). */
 	swarmGpuInvalidateReadback();
+	/* Slice 3 c029: the per-bot floor cache is also indexed by slot, so
+	 * the same identity-change reasoning applies. The drift threshold
+	 * would catch a respawned chr in most cases (typical respawn moves
+	 * the chr by more than 60 cm), but explicit invalidate is the
+	 * belt-and-braces guard. */
+	swarmGpuInvalidateFloorCache();
 
 	/* Post-respawn diagnostic: target / actual / alive. If target != actual
 	 * the respawn loop dropped some slots (height failure, pool exhausted,
@@ -1782,6 +1795,8 @@ void swarmTestTick(void)
 		/* Slice 2 c029: drop any stale ring contents from a prior session
 		 * before the first dispatch fills it with current-session data. */
 		swarmGpuInvalidateReadback();
+		/* Slice 3 c029: same for the floor cache. */
+		swarmGpuInvalidateFloorCache();
 		s_SwarmInitialized = 1;
 		{
 		const swarm_method_t armed_method = testScenarioActiveMethod();
@@ -2058,6 +2073,8 @@ void swarmTestOnSessionEnd(void)
 	 * a stage transition / system-stage bounce doesn't reuse stale data
 	 * from the prior session. */
 	swarmGpuInvalidateReadback();
+	/* Slice 3 c029: same for the floor cache. */
+	swarmGpuInvalidateFloorCache();
 	/* Defensive: zero the in-use bitmap so a fresh session start (after
 	 * a stage transition that didn't go through despawn_all) cannot
 	 * inherit an old leak of "in use" markers. The aibot structs
