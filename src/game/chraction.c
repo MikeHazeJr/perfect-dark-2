@@ -15648,25 +15648,42 @@ void func0f04b740(void)
  * exists to avoid the redundant raycast, not as a cheaper general-purpose
  * api.
  *
+ * Room-sync discipline (B-332 fix, 2026-05-16):
+ *
+ * The original implementation gated the propDeregisterRooms + roomsCopy +
+ * chr0f0220ac trio behind an `if (newrooms)` check that compared the caller's
+ * rooms array against chr->prop->rooms. For the GPU swarm apply loop -- which
+ * passes chr->prop->rooms back to itself as the rooms argument -- newrooms
+ * was ALWAYS false, so the room re-register was ALWAYS skipped. Meanwhile,
+ * the legacy chrSetPos(findground=true) path runs chrMoveToPos which
+ * UNCONDITIONALLY does the same trio. Bots drifting across room boundaries
+ * (typical at 60 cm/frame seek speeds on multi-room maps) had stale
+ * prop->rooms entries and the propsTickPlayer iteration that walks rooms
+ * for chr lookups would silently lose track of these bots. The downstream
+ * symptom: 3 of 8 newly-spawned bots ending up with chr->prop->chr == NULL
+ * by the next cycler tick, AVing in despawn_all -> chrRemove.
+ *
+ * Fix: do the room sync UNCONDITIONALLY, matching chrMoveToPos's behavior.
+ * The work is room-list manipulation + bbox-based bgFindEnteredRooms (no
+ * raycast), so the perf delta is negligible vs the saved BG raycast pair.
+ * The chr0f0220ac call internally re-resolves prop->rooms based on the
+ * newly-written prop->pos, so it correctly handles the swarm case where
+ * the caller passes prop->rooms unchanged but pos has drifted into a new
+ * room.
+ *
  * Note: findground=true in the legacy path also runs chrMoveToPos with
- * spawn-adjustment + warp-on-screen handling. The swarm path does not
- * need that (bots are already adjusted at spawn time and remain off-
- * screen / in-screen consistently per frame), so this entry point
- * intentionally omits the chrMoveToPos pre-flight. If a future caller
- * needs the pre-flight, route through chrSetPos.
+ * spawn-adjustment + warp-on-screen handling (chrAdjustPosForSpawn). This
+ * helper intentionally omits the adjustment step -- swarm bots are
+ * already placed at spawn time and the GPU-driven step does not need
+ * the per-frame collision push (force=true mode skips BG tests anyway,
+ * and swarm bots have CHRHFLAG_PERIMDISABLED so chr-vs-chr volume checks
+ * skip the swarm pool). If a future caller needs adjustment, route
+ * through chrSetPos.
  */
 void chrSetPosWithCachedGround(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
 		f32 theta, f32 ground, u16 floorcol, u8 floortype, RoomNum floorroom)
 {
 	const f32 angle = BADDEG2RAD(360.f - theta);
-
-	bool newrooms = false;
-	for (s32 i = 0; i < ARRAYCOUNT(chr->prop->rooms) && rooms[i] >= 0; ++i) {
-		if (chr->prop->rooms[i] != rooms[i]) {
-			newrooms = true;
-			break;
-		}
-	}
 
 	propSetPerimEnabled(chr->prop, false);
 
@@ -15680,11 +15697,14 @@ void chrSetPosWithCachedGround(struct chrdata *chr, struct coord *pos, RoomNum *
 	chr->manground = ground;
 	chr->sumground = ground * (PAL ? 8.4175090789795f : 9.999998f);
 
-	if (newrooms) {
-		propDeregisterRooms(chr->prop);
-		roomsCopy(rooms, chr->prop->rooms);
-		chr0f0220ac(chr);
-	}
+	/* B-332 fix (2026-05-16): unconditional room sync, matching
+	 * chrMoveToPos. The chr0f0220ac call inside re-resolves prop->rooms
+	 * via bgFindEnteredRooms on the just-written prop->pos, so callers
+	 * that pass prop->rooms back to themselves (the swarm apply loop)
+	 * still get a correct rooms list when pos drifts into a new room. */
+	propDeregisterRooms(chr->prop);
+	roomsCopy(rooms, chr->prop->rooms);
+	chr0f0220ac(chr);
 
 	modelSetRootPosition(chr->model, pos);
 
@@ -15694,6 +15714,29 @@ void chrSetPosWithCachedGround(struct chrdata *chr, struct coord *pos, RoomNum *
 		union modelrwdata *rwdata = modelGetNodeRwData(chr->model, chr->model->definition->rootnode);
 		rwdata->chrinfo.ground = ground;
 	}
+
+	/* B-332 fix (2026-05-16, second-stage): CHRCFLAG_FORCETOGROUND is the
+	 * other invariant chrMoveToPos sets that chrSetPosWithCachedGround was
+	 * missing. The fall-logic guard in chr.c:920 (chrTickBgWalk-style fall
+	 * path) sees CHRCFLAG_FORCETOGROUND and BYPASSES the fall accumulator,
+	 * snapping the chr to its current ground level. Without this flag, the
+	 * fall logic runs every frame, and a chr whose new ground (sampled at
+	 * the just-applied position) differs from its manground starts falling.
+	 * For chrs without aibot (the GPU swarm population), there is no
+	 * off-map ground fallback (the chr.c:881-902 "stay in place when ground
+	 * is missing" safety only applies to chrs with chr->aibot set), so any
+	 * drift onto a position with ground<-100000 triggers manground<-30000
+	 * within a few frames and the `die` path sets CHRHFLAG_DELETING. The
+	 * next chrTick removes the chr via chrRemove + TICKOP_FREE -> propFree,
+	 * leaving s_Swarm[i].chr pointing at a freed prop. The cycler's
+	 * despawn_all then AVs in chrRemove because prop->chr is NULL.
+	 *
+	 * Setting CHRCFLAG_FORCETOGROUND every call mirrors chrMoveToPos
+	 * (line 15780) and prevents the fall accumulator from running. The
+	 * bondwalk path consumes the flag and clears it on the same tick,
+	 * so the flag does NOT survive to a subsequent frame where it would
+	 * mask a real fall event for non-swarm chrs that share this entry. */
+	chr->chrflags |= CHRCFLAG_FORCETOGROUND;
 
 	chrSetLookAngle(chr, angle);
 

@@ -1205,47 +1205,68 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 		}
 
 		const struct swarm_floor_cache_entry *ce = &s_FloorCache[i];
-		/* c029 Slice 3 (2026-05-16, B-332 mitigation):
+		/* c029 Slice 3 (2026-05-16, B-332 fix):
 		 *
 		 * Initial implementation called chrSetPosWithCachedGround when
 		 * ce->valid was true, eliminating the chrSetPos-internal raycast
 		 * pair. Smoke test surfaced a regression at the 8->16 cycle
 		 * transition: 3 of 8 newly-spawned chrs ended up in a state
-		 * where chr->prop was set but chr->prop->chr was NULL,
-		 * triggering AV in despawn_all->chrRemove on the next cycle.
-		 * Root cause not yet identified; the difference vs legacy
-		 * chrSetPos is the omitted chrMoveToPos pre-flight
-		 * (chrAdjustPosForSpawn + chr0f0220ac room re-register at
-		 * spawn-adjusted rooms2), so the prop's room state is one step
-		 * behind what the chr code expects.
+		 * where chr->prop was set but chr->prop->chr was NULL, triggering
+		 * AV in despawn_all->chrRemove on the next cycle.
 		 *
-		 * Conservative mitigation: keep the chrSetPos call (both
-		 * internal raycasts) for the apply path. The floor cache still
-		 * earns its keep on the surface_up side (chrSurfaceLocoSampleFloorNormal
-		 * skipped for cache hits in the pre-pass above). At 70%+ hit
-		 * rate at 512 bots the surface_up sampler is skipped for ~360
-		 * bots/frame; the chrSetPos raycasts remain at 2 per active bot.
+		 * Root cause (B-332, 2026-05-16): chrSetPosWithCachedGround gated
+		 * its propDeregisterRooms + roomsCopy + chr0f0220ac trio behind
+		 * an `if (newrooms)` check that compared the caller's rooms array
+		 * against chr->prop->rooms. Since this loop passes chr->prop->rooms
+		 * back to itself, newrooms was ALWAYS false, so the room re-register
+		 * was ALWAYS skipped -- in contrast to chrMoveToPos which does the
+		 * trio UNCONDITIONALLY. Bots drifting across room boundaries had
+		 * stale prop->rooms entries, the propsTickPlayer room-walks lost
+		 * track of them, and downstream invariants broke (newly-spawned
+		 * bots ended up with chr->prop->chr NULLed by an engine free path
+		 * that fired because the bot was effectively unreachable through
+		 * room registration).
 		 *
-		 * Net raycast budget:
-		 *   - Pre-c029-Slice-3: 3 per bot (sampler + 2 inside chrSetPos)
-		 *   - Slice-3 with cache + cached helper (regressed):
-		 *       miss=2, hit=0
-		 *   - Slice-3 with cache only (this conservative path):
-		 *       miss=2 (sampler + cached g/fc/ft/fr), hit=2 (chrSetPos)
+		 * Fix: chrSetPosWithCachedGround now runs the room sync trio
+		 * UNCONDITIONALLY (see chraction.c::chrSetPosWithCachedGround for
+		 * the patched body). With that fix in place the cached helper is
+		 * safe to call from this apply loop -- net effect is BOTH chrSetPos-
+		 * internal raycasts skipped on cache hit (vs the prior conservative
+		 * fallback which kept chrSetPos and only saved the surface_up
+		 * sampler).
 		 *
-		 * The conservative path saves at most 1 raycast per bot on a
-		 * cache hit (the surface_up sample). At 70% hit rate / 512 bots
-		 * that's ~360 raycasts/frame saved vs original 1536 = 23% cut.
-		 * Less than the Slice-3 target but the regression class is
-		 * eliminated; the deeper helper-vs-chrSetPos investigation can
-		 * land in a follow-up sprint with the right shape.
+		 * Cache-miss path: the cdFindGroundInfoAtCyl already ran in the
+		 * pre-pass and wrote g/fc/ft/fr into ce. The miss-path entry has
+		 * all the cached fields populated; we can feed them straight into
+		 * chrSetPosWithCachedGround. This means even on a miss we save the
+		 * second cdFindGroundInfoAtCyl that the legacy chrSetPos(findground)
+		 * path would have made internally.
 		 *
-		 * The cache write-through still happens in the pre-pass above
-		 * so that a future re-introduction of the cached helper has
-		 * the values ready. The unused cached g/fc/ft/fr fields are
-		 * not currently consumed but cost only a few bytes per slot. */
-		(void)ce;
-		chrSetPos(chr, &newpos, rooms, face_deg, true);
+		 * Net raycast budget per active bot per frame:
+		 *   - Pre-c029-Slice-3:        3 (sampler + 2 inside chrSetPos)
+		 *   - Slice-3 post-B-332-fix:  miss=2 (sampler + 1 in pre-pass)
+		 *                              hit=0  (both pre-pass raycasts + the
+		 *                                      former 2 chrSetPos-internal
+		 *                                      raycasts skipped)
+		 *
+		 * Bootstrap: if ce->valid is 0 (first frame after invalidate, or
+		 * a slot that never went through the pre-pass), the pre-pass
+		 * MISS path above always populates the cache before the apply
+		 * loop runs. So when we reach this point with apply_count > 0,
+		 * ce->valid is guaranteed true for every i in [0, apply_count).
+		 * We assert that via the conditional below for safety, falling
+		 * back to legacy chrSetPos if a future refactor breaks the
+		 * invariant. */
+		if (ce->valid) {
+			chrSetPosWithCachedGround(chr, &newpos, rooms, face_deg,
+				ce->ground, ce->floorcol, ce->floortype, ce->floorroom);
+		} else {
+			/* Defensive fallback. Should not happen in steady state:
+			 * the pre-pass always populates ce on a MISS, and HIT
+			 * implies ce was already valid. Counted by s_PerfCacheMiss
+			 * external to this site so it shows up in playtest logs. */
+			chrSetPos(chr, &newpos, rooms, face_deg, true);
+		}
 
 		/* Velocity stats accumulator -- emitted at the 60-frame interval
 		 * below. Was its own walk pre-c029-Slice-3. */
@@ -1278,18 +1299,17 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	/* c029 Slice 3 perf-stats line. Once per 60 frames; reports the cache
 	 * hit/miss ratio + derived raycast load.
 	 *
-	 * B-332 mitigation: with the chrSetPos refactor backed out for the
-	 * apply path, each active bot still incurs 2 raycasts inside
-	 * chrSetPos(findground=true). The floor cache saves the surface_up
-	 * sampler raycast: HIT = 0 raycasts in pre-pass; MISS = 2 raycasts
-	 * in pre-pass (sampler + cdFindGroundInfoAtCyl, written through to
-	 * the cache for the next frame even though the apply path doesn't
-	 * read them in this mitigation). Total raycasts per bot per frame:
-	 *   - HIT  in pre-pass:  0 sampler + 2 chrSetPos    = 2
-	 *   - MISS in pre-pass:  2 sampler + 2 chrSetPos    = 4
+	 * B-332 fix (2026-05-16): apply loop now routes through
+	 * chrSetPosWithCachedGround (room-sync-safe per the unconditional
+	 * propDeregisterRooms + chr0f0220ac trio inside the helper). Every
+	 * raycast in the pipeline is now controlled by the pre-pass:
 	 *
-	 * `pre_pass_raycasts` is what the cache directly saves; the
-	 * chrSetPos-internal raycasts are not reflected in this counter. */
+	 *   - HIT  in pre-pass:  0 sampler + 0 ground sample = 0 raycasts
+	 *   - MISS in pre-pass:  1 sampler + 1 ground sample = 2 raycasts
+	 *
+	 * chrsetpos_raycasts is now always 0 (the apply path consumes the
+	 * cached ground info and skips chrSetPos's internal raycast pair).
+	 * Total raycasts per frame = 2 * s_PerfSampled (miss path only). */
 	{
 		static s32 s_PerfLogTick = 0;
 		s_PerfLogTick++;
@@ -1297,7 +1317,7 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 			s_PerfLogTick = 0;
 			const s32 total = s_PerfSampled + s_PerfReused;
 			const s32 pre_pass_raycasts = s_PerfSampled * 2;
-			const s32 chrsetpos_raycasts = total * 2;
+			const s32 chrsetpos_raycasts = 0;
 			const s32 total_raycasts = pre_pass_raycasts + chrsetpos_raycasts;
 			const double hit_pct = (total > 0)
 				? (100.0 * (double)s_PerfReused / (double)total) : 0.0;
