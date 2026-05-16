@@ -2443,7 +2443,12 @@ static void gfx_run_dl(Gfx* cmd) {
     uint64_t ourHash = -1;
 
     for (;;) {
-        uint32_t opcode = cmd->words.w0 >> 24;
+        // GBI opcode is the high byte (bits 24-31) of w0. w0 is uintptr_t (64-bit
+        // on x86_64), so we must mask to 8 bits — otherwise a garbage w0 like
+        // 0xfdbb0000ffff0000 would shift to 0x000000fdbb0000ff and the implicit
+        // truncation to uint32_t produces a misleading opcode for sysFatalError.
+        // The actual GBI opcode field is always a single byte.
+        uint8_t opcode = (uint8_t)(cmd->words.w0 >> 24);
         // gfx_print_cmd(cmd);
         switch (opcode) {
                 // RSP commands:
