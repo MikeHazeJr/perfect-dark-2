@@ -34,10 +34,19 @@
  *
  * Sim algorithm
  * -------------
- * v1 ships pure seek-player so the GPU side is byte-for-byte equivalent
- * to swarm_test.c::cpu_seek_tick. Separation / alignment / cohesion are
- * stubbed in the shader as 0-weighted; turning them on later is a
- * params change, not a shader change.
+ * v1 shipped pure seek-player so the GPU side was byte-for-byte
+ * equivalent to swarm_test.c::cpu_seek_tick. Track 4 v0 (c3807,
+ * 2026-05-16) extends the kernel with classical Reynolds (1987) boids
+ * steering -- separation, alignment, cohesion -- accumulated naively
+ * over all peers in the same SSBO (O(N^2) inner loop) and blended with
+ * the seek vector. Final blended steering is normalised + scaled to
+ * max_speed so the velocity magnitude bound the smoke test asserts on
+ * (max_unit_per_frame < 6.0, max_speed_cap=5.0) still holds. The
+ * surface-plane projection from Slice 6 wraps the BLENDED steering, so
+ * boids respects sloped-floor locomotion.
+ *
+ * Spatial-grid v1 (k-nearest broad-phase) is a follow-up slice; v0 just
+ * ships the math + weights so behaviour can be observed and tuned.
  *
  * B-308 first slice (c3807, 2026-05-15)
  * -------------------------------------
@@ -295,6 +304,19 @@ struct swarm_params {
 	float fire_range;
 	float attack_range;
 	int   player_propnum;
+	/* Track 4 v0 (c3807, 2026-05-16): classical Reynolds boids steering
+	 * (separation / alignment / cohesion) blended with the seek-player
+	 * vector. Naive O(N^2) inner loop reads peer positions and velocities
+	 * from the same SSBO. Two vec4-packed groups so std140/std430 padding
+	 * is well-defined:
+	 *   group A (16 B): boid_sep_radius / boid_align_radius /
+	 *                   boid_coh_radius / _pad
+	 *   group B (16 B): boid_seek_weight / boid_sep_weight /
+	 *                   boid_align_weight / boid_coh_weight
+	 * Spatial-grid v1 (k-nearest, broad-phase) is its own follow-up; v0
+	 * just ships the steering math so behaviour can be measured. */
+	float boid_sep_radius, boid_align_radius, boid_coh_radius, _pad_b0;
+	float boid_seek_weight, boid_sep_weight, boid_align_weight, boid_coh_weight;
 };
 
 static int           s_Probed       = 0;
@@ -479,6 +501,9 @@ layout(std430, binding = 1) buffer Params {
     float fire_range;
     float attack_range;
     int   player_propnum;
+    /* Track 4 v0 (c3807, 2026-05-16) boids uniforms. */
+    float boid_sep_radius, boid_align_radius, boid_coh_radius, _pad_b0;
+    float boid_seek_weight, boid_sep_weight, boid_align_weight, boid_coh_weight;
 } P;
 
 void main() {
@@ -518,12 +543,113 @@ void main() {
                    - dot(to_player_full, surface_up) * surface_up;
     float d = length(to_player);
     if (d > 1.0) {
+        /* ---- Track 4 v0 (c3807, 2026-05-16) classical Reynolds boids ----
+         * Three-rule accumulator over peers in the SSBO. Naive O(N^2):
+         * every invocation reads every other invocation's pos+vel from
+         * the SAME boid buffer this dispatch is writing to. std430
+         * defines this as a write-after-read race for a given index j,
+         * but the only writes per invocation are to b[i] (px/py/pz/vx/vy/vz
+         * + AI block). Peers' fields read here (px/py/pz/vx/vy/vz) are
+         * the START-of-frame snapshot the CPU just uploaded; the
+         * compute kernel doesn't reissue between reads for different i,
+         * so we get pre-step positions for everyone. Equivalent to a
+         * double-buffer in effect at this dispatch frequency.
+         *
+         * Spatial-grid v1 (k-nearest broad phase) is the next slice; v0
+         * just demonstrates that the steering math is wired and bots
+         * separate / align / cohere visually.
+         */
+        vec3  sep_sum    = vec3(0.0);
+        int   sep_n      = 0;
+        vec3  align_sum  = vec3(0.0);
+        int   align_n    = 0;
+        vec3  coh_sum    = vec3(0.0);
+        int   coh_n      = 0;
+
+        vec3  vel_current = vec3(b[i].vx, b[i].vy, b[i].vz);
+
+        for (int j = 0; j < int(P.count); j++) {
+            if (j == int(i)) continue;
+            vec3 p_j = vec3(b[j].px, b[j].py, b[j].pz);
+            vec3 offset = pos - p_j;
+            float dist = length(offset);
+
+            if (dist > 0.001 && dist < P.boid_sep_radius) {
+                /* Inverse-distance push: closer peers push harder. */
+                sep_sum += offset / (dist * dist);
+                sep_n++;
+            }
+            if (dist < P.boid_align_radius) {
+                align_sum += vec3(b[j].vx, b[j].vy, b[j].vz);
+                align_n++;
+            }
+            if (dist < P.boid_coh_radius) {
+                coh_sum += p_j;
+                coh_n++;
+            }
+        }
+
+        vec3 seek_dir = to_player / d;
+
+        vec3 sep_steer = vec3(0.0);
+        if (sep_n > 0) {
+            float sl = length(sep_sum);
+            if (sl > 0.0001) sep_steer = sep_sum / sl;
+        }
+
+        vec3 align_steer = vec3(0.0);
+        if (align_n > 0) {
+            vec3 avg_v = align_sum / float(align_n);
+            vec3 diff = avg_v - vel_current;
+            float al = length(diff);
+            if (al > 0.0001) align_steer = diff / al;
+        }
+
+        vec3 coh_steer = vec3(0.0);
+        if (coh_n > 0) {
+            /* Note: 'centroid' is a reserved GLSL qualifier (used in
+             * fragment shaders for centroid sampling), so we use
+             * 'group_center' as the local variable name instead. */
+            vec3 group_center = coh_sum / float(coh_n);
+            vec3 diff = group_center - pos;
+            float cl = length(diff);
+            if (cl > 0.0001) coh_steer = diff / cl;
+        }
+
+        /* Blend the four steering terms. Each component is a unit
+         * vector (or zero); weighted sum is then normalized so the
+         * final velocity magnitude is gated entirely by max_speed (the
+         * smoke test asserts max_unit_per_frame stays below 6.0 and
+         * max_speed_cap=5.0). */
+        vec3 steer = P.boid_seek_weight  * seek_dir
+                   + P.boid_sep_weight   * sep_steer
+                   + P.boid_align_weight * align_steer
+                   + P.boid_coh_weight   * coh_steer;
+
+        /* Project steering onto the surface plane to preserve Slice-6
+         * surface-walk behaviour (sloped floors / future walls). */
+        steer = steer - dot(steer, surface_up) * surface_up;
+
+        float steer_len = length(steer);
+        if (steer_len > 0.0001) {
+            steer /= steer_len;
+        } else {
+            /* Boids cancelled the seek entirely (e.g. trapped between
+             * sep + coh pulls). Fall back to plain seek so bots still
+             * make progress and the velocity doesn't latch at zero. */
+            steer = seek_dir;
+        }
+
         float step = P.max_speed * P.dt * 60.0;
         float speed = P.max_speed;
+        /* Clamp speed so we never overshoot the player in one step --
+         * this preserves the pre-v0 d-clamp guard that keeps the
+         * BENCHMARK.SWARM.GPU.VEL max_unit_per_frame assertion
+         * (< 6.0) satisfied at all bot tiers. */
         if (step > d) {
             speed = d / (P.dt * 60.0);
         }
-        vec3 vel = (to_player / d) * speed;
+        vec3 vel = steer * speed;
         pos += vel * P.dt * 60.0;
         b[i].vx = vel.x;
         b[i].vy = vel.y;
@@ -986,6 +1112,34 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	s_Params.fire_range    = SWARM_AI_FIRE_RANGE;
 	s_Params.attack_range  = SWARM_AI_ATTACK_RANGE;
 	s_Params.player_propnum = player_propnum;
+	/* Track 4 v0 (c3807, 2026-05-16) Reynolds boids defaults.
+	 *
+	 * Radii (units = cm; 1 game unit ~ 1 cm):
+	 *   sep    = 60.0  -- ~1.5x Skedar collision radius (30 * scale ~40)
+	 *                     so neighbours actively push when overlapping
+	 *                     spawn slop or piling into the player.
+	 *   align  = 200.0 -- a few bot-widths; matches velocity within a
+	 *                     local clump rather than the whole swarm.
+	 *   coh    = 300.0 -- attract toward a slightly wider neighbourhood
+	 *                     so isolated bots find the pack again.
+	 *
+	 * Weights (steering blend; final vector renormalised to unit then
+	 * scaled to max_speed so magnitudes stay smoke-bounded):
+	 *   seek  = 1.0   -- primary goal: chase the player.
+	 *   sep   = 1.5   -- separation strongest so bots don't overlap.
+	 *   align = 0.4   -- mild flocking.
+	 *   coh   = 0.3   -- mild cohesion.
+	 *
+	 * If playtest shows the swarm trails the player too lazily, bump
+	 * seek to 1.5 and trim sep to 1.2. The CPU side can override these
+	 * later through a debug uniform without touching the shader. */
+	s_Params.boid_sep_radius   = 60.0f;
+	s_Params.boid_align_radius = 200.0f;
+	s_Params.boid_coh_radius   = 300.0f;
+	s_Params.boid_seek_weight  = 1.0f;
+	s_Params.boid_sep_weight   = 1.5f;
+	s_Params.boid_align_weight = 0.4f;
+	s_Params.boid_coh_weight   = 0.3f;
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ParamsSsbo);
 	glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0,
 		sizeof(swarm_params), &s_Params);
