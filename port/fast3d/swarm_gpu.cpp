@@ -184,6 +184,27 @@ extern s32 swarmTestGetAndResetGpuAiFireCount(void);
 #ifndef GL_SYNC_FLUSH_COMMANDS_BIT
 #define GL_SYNC_FLUSH_COMMANDS_BIT        0x00000001
 #endif
+/* Track 2a (c3807, 2026-05-16): GL constants for the ping-pong RGBA32F
+ * state textures. GL_RGBA32F is already in glad.h (0x8814) but the
+ * image-binding / barrier constants are NOT, so we forward-declare them
+ * here to avoid bringing in extra GL headers that may not be present on
+ * every MinGW SDK. Values per OpenGL 4.2+ spec; image-binding entry
+ * points are core GL since 4.2 and accept these tokens unchanged. */
+#ifndef GL_SHADER_IMAGE_ACCESS_BARRIER_BIT
+#define GL_SHADER_IMAGE_ACCESS_BARRIER_BIT 0x00000020
+#endif
+#ifndef GL_TEXTURE_2D
+#define GL_TEXTURE_2D                     0x0DE1
+#endif
+#ifndef GL_TEXTURE_MIN_FILTER
+#define GL_TEXTURE_MIN_FILTER             0x2801
+#endif
+#ifndef GL_TEXTURE_MAG_FILTER
+#define GL_TEXTURE_MAG_FILTER             0x2800
+#endif
+#ifndef GL_NEAREST
+#define GL_NEAREST                        0x2600
+#endif
 #ifndef APIENTRY
 #define APIENTRY
 #endif
@@ -200,6 +221,14 @@ typedef void   (APIENTRY *swarm_glCopyBufferSubData_t)(GLenum, GLenum,
 typedef void * (APIENTRY *swarm_glFenceSync_t)(GLenum, GLbitfield);
 typedef GLenum (APIENTRY *swarm_glClientWaitSync_t)(void *, GLbitfield, GLuint64);
 typedef void   (APIENTRY *swarm_glDeleteSync_t)(void *);
+/* Track 2a (c3807, 2026-05-16): glBindImageTexture is core GL 4.2+ but
+ * not exposed by the project's pinned glad gen. We load it dynamically
+ * via SDL_GL_GetProcAddress like the rest of the compute symbol pack;
+ * if the load fails we silently disable the texture mirror and the
+ * dispatch path continues to write only the SSBO (bit-exact pre-2a). */
+typedef void   (APIENTRY *swarm_glBindImageTexture_t)(GLuint, GLuint, GLint,
+                                                       GLboolean, GLint,
+                                                       GLenum, GLenum);
 
 static swarm_glDispatchCompute_t    s_glDispatchCompute    = NULL;
 static swarm_glMemoryBarrier_t      s_glMemoryBarrier      = NULL;
@@ -208,6 +237,7 @@ static swarm_glCopyBufferSubData_t  s_glCopyBufferSubData  = NULL;
 static swarm_glFenceSync_t          s_glFenceSync          = NULL;
 static swarm_glClientWaitSync_t     s_glClientWaitSync     = NULL;
 static swarm_glDeleteSync_t         s_glDeleteSync         = NULL;
+static swarm_glBindImageTexture_t   s_glBindImageTexture   = NULL;
 
 /* ------------------------------------------------------------------
  * State
@@ -317,6 +347,12 @@ struct swarm_params {
 	 * just ships the steering math so behaviour can be measured. */
 	float boid_sep_radius, boid_align_radius, boid_coh_radius, _pad_b0;
 	float boid_seek_weight, boid_sep_weight, boid_align_weight, boid_coh_weight;
+	/* Track 2a (c3807, 2026-05-16): per-frame gate for the imageStore
+	 * mirror to the RGBA32F state texture. 1 = shader writes both SSBO
+	 * and texture; 0 = SSBO only (bit-exact pre-2a). Set from the
+	 * dispatch site based on whether s_StateTexArmed is non-zero. The
+	 * three pads keep the std430 layout vec4-aligned. */
+	int   state_tex_enable, _pad_s0, _pad_s1, _pad_s2;
 };
 
 static int           s_Probed       = 0;
@@ -326,6 +362,49 @@ static GLuint        s_BoidSsbo     = 0;
 static GLuint        s_ParamsSsbo   = 0;
 static boid_record   s_BoidScratch[SWARM_GPU_MAX];
 static struct swarm_params s_Params;
+
+/* ------------------------------------------------------------------
+ * Track 2a (c3807, 2026-05-16): ping-pong RGBA32F texture state.
+ *
+ * Two textures sized (SWARM_GPU_MAX wide, 5 tall) hold a mirror of the
+ * boid record in a layout amenable to vertex-texture-fetch and to
+ * extraction / network sync work in slices 2b-2d. Each bot occupies a
+ * 5-texel column:
+ *   row 0: pos.xyz, _pad
+ *   row 1: vel.xyz, _pad
+ *   row 2: surface_up.xyz, _pad
+ *   row 3: action_class, fire_request, target_propnum, anim_key
+ *          (packed via intBitsToFloat in the shader)
+ *   row 4: range_to_target, _pad, _pad, _pad
+ * Memory budget: 2 * 4096 * 5 * 16 B = 640 KB. Trivial.
+ *
+ * Compute writes BOTH the SSBO (existing CPU readback path) AND the
+ * texture every frame; bit-exact behaviour parity with pre-2a is
+ * preserved because the SSBO is the only thing the CPU side consumes.
+ * The texture mirror exists to feed future slices: 2b (kernel reads
+ * from texture instead of SSBO), 2c (extraction primitive), 2d (ENet
+ * sync). Sub-2a only adds the WRITE path and the ping-pong swap so
+ * 2b can land cleanly.
+ *
+ * Ping-pong: s_StateTexReadIdx names the texture the NEXT slice will
+ * READ from; the kernel writes to the OTHER one. Frame N+1 writes to
+ * the texture frame N read from. For 2a the read side is unused -- we
+ * still wire the swap so behaviour is identical to 2b's first run.
+ *
+ * Gating: the texture path is armed only after ensure_resources()
+ * succeeds AND s_glBindImageTexture loaded. On any failure the shader
+ * runs with state_tex_enable = 0 and the imageStore calls are skipped;
+ * SSBO behaviour is unchanged.
+ *
+ * pd-server: swarm_gpu.cpp is NOT linked into pd-server (CMakeLists.txt
+ * lists port/fast3d sources explicitly for the server target). So no GL
+ * symbols from this file leak into the dedicated-server binary; the
+ * texture state is dead code on the server target by construction.
+ */
+static GLuint        s_StateTexA      = 0;
+static GLuint        s_StateTexB      = 0;
+static int           s_StateTexReadIdx = 0;
+static int           s_StateTexArmed   = 0;
 
 /* ------------------------------------------------------------------
  * Slice 2 c029 (2026-05-16): async readback ring.
@@ -504,7 +583,27 @@ layout(std430, binding = 1) buffer Params {
     /* Track 4 v0 (c3807, 2026-05-16) boids uniforms. */
     float boid_sep_radius, boid_align_radius, boid_coh_radius, _pad_b0;
     float boid_seek_weight, boid_sep_weight, boid_align_weight, boid_coh_weight;
+    /* Track 2a (c3807, 2026-05-16) state-texture mirror gate.
+     * 1 = imageStore writes the per-bot column into StateOut alongside
+     * the SSBO write; 0 = imageStore skipped (SSBO-only, pre-2a parity).
+     */
+    int   state_tex_enable, _pad_s0, _pad_s1, _pad_s2;
 } P;
+
+/* Track 2a (c3807, 2026-05-16): ping-pong state texture (write side).
+ * One bot occupies a 5-texel column at x = bot_index, y in [0, 5):
+ *   y=0 pos.xyz / _pad
+ *   y=1 vel.xyz / _pad
+ *   y=2 surface_up.xyz / _pad
+ *   y=3 action_class / fire_request / target_propnum / anim_key
+ *       (packed via intBitsToFloat so the integer bit pattern survives
+ *        the RGBA32F round trip; readers decode via floatBitsToInt.)
+ *   y=4 range_to_target / _pad / _pad / _pad
+ *
+ * writeonly so the driver can skip read-tracking; image binding 2 is
+ * free (0 and 1 are the boid + params SSBOs already bound above).
+ */
+layout(rgba32f, binding = 2) uniform writeonly image2D StateOut;
 
 void main() {
     uint i = gl_GlobalInvocationID.x;
@@ -699,6 +798,41 @@ void main() {
         b[i].anim_key        = anim;
         b[i].range_to_target = range_full;
     }
+
+    /* ---- Track 2a (c3807, 2026-05-16) state-texture mirror ----
+     * Mirror the SSBO record into a 5-texel column in StateOut. The
+     * texture writes are AFTER all SSBO writes so the texture and SSBO
+     * agree on per-bot state at end-of-dispatch. Reading b[i] back here
+     * is safe because std430 ordering within a single invocation is
+     * sequential (no cross-invocation race on a given index).
+     *
+     * The AI block (row 3) packs four ints into a single RGBA32F texel
+     * via intBitsToFloat. The bit pattern survives the texel round trip
+     * untouched on any GL 4.2+ driver; future readers decode via the
+     * matching floatBitsToInt. Range row (4) keeps the float in .r and
+     * leaves the rest zero so a reader can treat it as a plain scalar.
+     *
+     * Slices 2b (kernel reads from texture), 2c (extraction primitive),
+     * and 2d (ENet sync) build on this layout. 2a's job is to land the
+     * write side with bit-exact SSBO parity (CPU consumer reads SSBO,
+     * texture is silent / observe-only).
+     */
+    if (P.state_tex_enable != 0) {
+        int x = int(i);
+        imageStore(StateOut, ivec2(x, 0),
+            vec4(b[i].px, b[i].py, b[i].pz, 0.0));
+        imageStore(StateOut, ivec2(x, 1),
+            vec4(b[i].vx, b[i].vy, b[i].vz, 0.0));
+        imageStore(StateOut, ivec2(x, 2),
+            vec4(b[i].sux, b[i].suy, b[i].suz, 0.0));
+        imageStore(StateOut, ivec2(x, 3), vec4(
+            intBitsToFloat(b[i].action_class),
+            intBitsToFloat(b[i].fire_request),
+            intBitsToFloat(b[i].target_propnum),
+            intBitsToFloat(b[i].anim_key)));
+        imageStore(StateOut, ivec2(x, 4),
+            vec4(b[i].range_to_target, 0.0, 0.0, 0.0));
+    }
 }
 )GLSL";
 
@@ -810,6 +944,18 @@ static int probe_compute(void)
 			(void *)s_glCopyBufferSubData, (void *)s_glFenceSync,
 			(void *)s_glClientWaitSync, (void *)s_glDeleteSync);
 	}
+	/* Track 2a (c3807, 2026-05-16): glBindImageTexture is core GL 4.2+
+	 * but our pinned glad gen does not expose it. Load dynamically. If
+	 * the load fails (driver quirk or stub loader), we leave the texture
+	 * mirror disarmed and the dispatch falls back to SSBO-only behaviour
+	 * -- bit-exact pre-2a. NOT fatal. */
+	s_glBindImageTexture = (swarm_glBindImageTexture_t)
+		SDL_GL_GetProcAddress("glBindImageTexture");
+	if (!s_glBindImageTexture) {
+		sysLogPrintf(LOG_WARNING,
+			"BENCHMARK.SWARM.GPU: glBindImageTexture symbol missing -- "
+			"state-texture mirror disabled (SSBO-only path)");
+	}
 	sysLogPrintf(LOG_NOTE,
 		"BENCHMARK.SWARM.GPU: compute shaders available (GL %d.%d)",
 		gl_major, gl_minor);
@@ -852,6 +998,59 @@ static int ensure_resources(void)
 				NULL, GL_DYNAMIC_DRAW);
 		}
 		glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+	}
+	/* Track 2a (c3807, 2026-05-16): allocate the ping-pong RGBA32F state
+	 * textures. Texture is (SWARM_GPU_MAX wide, 5 tall); one bot occupies
+	 * a 5-texel column. Two textures so 2b can ping-pong (read from one,
+	 * write to the other). Memory: 2 * 4096 * 5 * 16 B = 640 KB.
+	 *
+	 * Implementation note: we use glTexImage2D rather than glTexStorage2D
+	 * because the project's pinned glad gen loads glTexStorage2D only
+	 * inside load_GL_ES_VERSION_3_0() -- gated on GLAD_GL_ES_VERSION_3_0,
+	 * which is false for our desktop GL 4.3 context. Calling the unloaded
+	 * (NULL) glTexStorage2D would segfault. glTexImage2D is core GL 1.0
+	 * and unconditionally loaded; for our purpose (allocate immutable
+	 * sized storage, no data upload) the two are interchangeable. The
+	 * format/internalformat pair (GL_RGBA32F / GL_RGBA / GL_FLOAT) matches
+	 * the OpenGL 4.3 spec entry for sized internal formats and is what
+	 * the imageStore writes target.
+	 *
+	 * Arming: only proceeds if glBindImageTexture loaded. On any failure
+	 * we leave s_StateTexArmed = 0 and the shader falls back to SSBO-only
+	 * via the state_tex_enable uniform gate. Bit-exact pre-2a parity is
+	 * preserved either way. */
+	if (s_glBindImageTexture && s_StateTexA == 0 && s_StateTexB == 0) {
+		GLuint tex[2] = {0, 0};
+		glGenTextures(2, tex);
+		if (tex[0] && tex[1]) {
+			for (s32 i = 0; i < 2; i++) {
+				glBindTexture(GL_TEXTURE_2D, tex[i]);
+				/* Allocate mip level 0 only; NULL data means
+				 * driver leaves contents undefined (we overwrite
+				 * via imageStore before any reader looks). */
+				glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F,
+					SWARM_GPU_MAX, 5, 0, GL_RGBA, GL_FLOAT, NULL);
+				glTexParameteri(GL_TEXTURE_2D,
+					GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+				glTexParameteri(GL_TEXTURE_2D,
+					GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+			}
+			glBindTexture(GL_TEXTURE_2D, 0);
+			s_StateTexA = tex[0];
+			s_StateTexB = tex[1];
+			s_StateTexReadIdx = 0;
+			s_StateTexArmed = 1;
+			sysLogPrintf(LOG_NOTE,
+				"BENCHMARK.SWARM.GPU: state-texture mirror armed "
+				"(2 x RGBA32F %dx5 = %d KB)",
+				SWARM_GPU_MAX,
+				(2 * SWARM_GPU_MAX * 5 * 16) / 1024);
+		} else {
+			sysLogPrintf(LOG_WARNING,
+				"BENCHMARK.SWARM.GPU: glGenTextures returned 0 "
+				"(tex[0]=%u tex[1]=%u) -- state-texture mirror disabled",
+				tex[0], tex[1]);
+		}
 	}
 	return 1;
 }
@@ -1140,6 +1339,15 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	s_Params.boid_sep_weight   = 1.5f;
 	s_Params.boid_align_weight = 0.4f;
 	s_Params.boid_coh_weight   = 0.3f;
+	/* Track 2a (c3807, 2026-05-16): gate the imageStore mirror to the
+	 * state texture. Armed only when ensure_resources() successfully
+	 * allocated both textures AND glBindImageTexture loaded; otherwise
+	 * the shader sees state_tex_enable = 0 and runs the SSBO-only path
+	 * (bit-exact pre-2a). _pad fields stay zero for std430 hygiene. */
+	s_Params.state_tex_enable = s_StateTexArmed ? 1 : 0;
+	s_Params._pad_s0 = 0;
+	s_Params._pad_s1 = 0;
+	s_Params._pad_s2 = 0;
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ParamsSsbo);
 	glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0,
 		sizeof(swarm_params), &s_Params);
@@ -1148,10 +1356,43 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	glUseProgram(s_Program);
 	s_glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, s_BoidSsbo);
 	s_glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, s_ParamsSsbo);
+	/* Track 2a (c3807, 2026-05-16): bind the WRITE-side state texture as
+	 * image binding 2. The shader's layout(rgba32f, binding=2) gates on
+	 * P.state_tex_enable so a 0-bound image is harmless when armed=0
+	 * (glBindImageTexture with id=0 unbinds), but it's cleaner to skip
+	 * the call entirely in that case. */
+	GLuint state_tex_write = 0;
+	if (s_StateTexArmed && s_glBindImageTexture) {
+		/* Write to the texture OPPOSITE of the one the next slice (2b)
+		 * will read from. Pre-2b nothing reads the texture; we still
+		 * advance the ping-pong index so 2b's first run is identical
+		 * to a steady-state run. Layer 0 + level 0, full RGBA32F access.
+		 * GL_FALSE for layered (this is not a 3D / array / cubemap),
+		 * 0 layer (ignored when layered=GL_FALSE). */
+		state_tex_write = (s_StateTexReadIdx == 0)
+			? s_StateTexB : s_StateTexA;
+		s_glBindImageTexture(2, state_tex_write, 0, GL_FALSE, 0,
+			GL_WRITE_ONLY, GL_RGBA32F);
+	}
 
 	GLuint groups = (GLuint)((count + SWARM_GPU_LOCAL_X - 1) / SWARM_GPU_LOCAL_X);
 	s_glDispatchCompute(groups, 1, 1);
-	s_glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+	/* Track 2a (c3807, 2026-05-16): expand the post-dispatch barrier to
+	 * cover image stores as well as SSBO writes. The barrier ensures
+	 * subsequent CPU readback (glGetBufferSubData) and any image-sampling
+	 * consumer (none today; slated for 2b) see the dispatch's writes.
+	 * Bit cost is negligible vs the SSBO bit alone. */
+	s_glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT
+		| GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+	/* Track 2a (c3807, 2026-05-16): ping-pong swap. Next dispatch writes
+	 * to the texture this dispatch just consumed as read (= started as
+	 * the "current read side"). For 2a there is no read path yet, but
+	 * swapping unconditionally keeps the state machine identical between
+	 * 2a (write-only) and 2b (write + read), so 2b lands cleanly. */
+	if (s_StateTexArmed) {
+		s_StateTexReadIdx ^= 1;
+	}
 
 	/* ------------------------------------------------------------------
 	 * Slice 2 c029 (2026-05-16): async readback ring.
