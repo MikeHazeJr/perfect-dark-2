@@ -2,9 +2,18 @@
 #define _IN_LIB_CAPSULE_H
 
 /* Set to 1 to enable the custom swept-capsule collision system.
- * Currently disabled — the system is not yet integrated into the movement
- * pipeline. Set to 0 to fall back to the original N64 collision behaviour. */
-#define PC_CAPSULE_ENABLED 0
+ * Set to 0 to fall back to the original N64 collision behaviour.
+ *
+ * Status: ENABLED (Track G, c038, 2026-05-15) — Stage 1 of the two-stage
+ * design from context/designs/physics-collision/jump-two-stage-sweep.md.
+ * Activates the three #if PC_CAPSULE_ENABLED-gated call sites in
+ * src/game/bondwalk.c (vv_manground prop-surface probe ~1047, vertical
+ * jump sweep ~1240, post-tryMoveUpwards ceiling clamp ~1358). All three
+ * sites are additive guards on the legacy pipeline — they tighten the
+ * existing clamp logic without replacing it. Stage 2 (per-triangle BG
+ * validation via bgTestHitInRoom for rendered-only geometry) is a
+ * follow-up slice; the design doc tracks it as migration steps 2-4. */
+#define PC_CAPSULE_ENABLED 1
 
 #include <ultra64.h>
 #include "data.h"

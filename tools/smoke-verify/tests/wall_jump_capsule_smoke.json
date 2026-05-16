@@ -1,0 +1,76 @@
+{
+  "scenario_name": "wall_jump_capsule_smoke",
+  "description": "c038 Track G activation gate: proves the two-stage capsule sweep pipeline is LIVE on the player movement path. Boot to STAGE_CITRAINING via --skip-intro, teleport player 0 to the canonical CITRAINING spawn (637.0, 360.0, 923.0, room 16) via --debug-spawn-at. CITRAINING opens with a brief cutscene then drops into agent_select + Main Menu IMC overlays. Same dismiss flow as vehicle_flow: ACTION_USE at 25s to accept agent_select, ACTION_CANCEL_USE at 28s to close Main Menu, by 32s the player is in free-roam (lvIsPaused 1->0, gameplay IMC active). Then fire ACTION_JUMP taps. Each jump produces a positive verticalDelta in bwalkUpdateVertical (bondwalk.c:1239); with PC_CAPSULE_ENABLED=1 (Track G, 2026-05-15) that delta flows through capsuleSweep at bondwalk.c:1255, which emits 'CAPSULE: sweep enter ...' on entry (capsule.c:74, PD_DEV_BUILD-gated) and 'CAPSULE: sweep result=CLEAR|BLOCKED ...' on completion (capsule.c:160 + capsule.c:170). Required-Patterns assert: (1) capsule pipeline activates -- the dormant gate is open; (2) sweep returns a real result. NOT trying to repro the specific wall-jump glitch -- that requires a known glitch ledge + Stage 2 per-tri BG validation (bgTestHitInRoom integration), both follow-up slices per context/designs/physics-collision/jump-two-stage-sweep.md. This test is the activation gate that proves Track G is live; deeper wall-jump-specific assertions land in a future test once Stage 2 ships.",
+  "tags": ["physics", "collision", "smoke", "pillar:physics-collision", "c038"],
+  "paths_of_interest": [
+    "src/include/lib/capsule.h",
+    "src/lib/capsule.c",
+    "src/game/bondwalk.c",
+    "src/game/bondmove.c",
+    "port/src/main.c",
+    "port/src/smoke_harness.c",
+    "port/src/actionmap.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--skip-intro",
+    "--debug-spawn-at",
+    "637.0,360.0,923.0,16"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot path: --skip-intro -> STAGE_CITRAINING (0x26). --debug-spawn-at parses (637.0,360.0,923.0,16) and arms the one-shot latch. setupCreateProps consumes the latch within ~7s of boot." },
+    { "at_ms": 25000, "type": "action", "name": "ACTION_USE", "action": "tap", "comment": "agent_select accept -- focus-independent injection. Pattern lifted from vehicle_flow.json:27. Accepts the default load-agent option." },
+    { "at_ms": 28000, "type": "action", "name": "ACTION_CANCEL_USE", "action": "tap", "comment": "close Main Menu -> CI free-roam (lvIsPaused 1 -> 0). Pattern lifted from vehicle_flow.json:28. By 32s the gameplay IMC is active and allowc1buttons is non-zero, enabling player movement." },
+    { "at_ms": 32000, "type": "wait", "comment": "settle past the menu dismiss; gameplay IMC fully active, bondmove tick reading ACTION_AXIS_MOVE / ACTION_JUMP from player 0." },
+    { "at_ms": 35000, "type": "action", "name": "ACTION_JUMP", "action": "tap", "comment": "jump #1 -- bondmove c1buttonsthisframe |= BUTTON_JUMP -> wantsjump=true -> bwalkUpdateVertical applies FIXED_JUMP_IMPULSE=8.2 to bdeltapos.y -> next tick the airborne branch (vv_manground > vv_ground at bondwalk.c:1205) fires, computes positive verticalDelta, and capsuleSweep emits CAPSULE: sweep enter + result." },
+    { "at_ms": 37500, "type": "action", "name": "ACTION_JUMP", "action": "tap", "comment": "jump #2 -- spacing 2.5s lets the previous jump's full arc resolve (ascent ~0.5s, apex, descent ~0.7s)." },
+    { "at_ms": 40000, "type": "action", "name": "ACTION_JUMP", "action": "tap", "comment": "jump #3" },
+    { "at_ms": 42500, "type": "action", "name": "ACTION_JUMP", "action": "tap", "comment": "jump #4 -- four scripted jumps push the sweep count well above the >=2 floor." },
+    { "at_ms": 45000, "type": "action", "name": "ACTION_JUMP", "action": "tap", "comment": "jump #5 -- final jump; landing settles by ~47s." },
+    { "at_ms": 55000, "type": "wait", "comment": "settle for >=10s of post-jump tick to capture late CAPSULE_CEIL_CLAMP / JUMP_COLLIDED markers from a delayed clamp resolution." },
+    { "at_ms": 90000, "type": "exit", "comment": "scripted exit -- by 90s the capsule + bondwalk pipeline has had ~60s of post-spawn ticks (including cutscene + menu dismiss + 5 scripted jumps). If the pipeline regressed (AV / hang / wrong-branch), it would have surfaced before this point." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=wall_jump_capsule_smoke",
+      "Asset Catalog: \\d+ entries registered",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "BOOT: --debug-spawn-at armed: pos=\\(637\\.\\d+,360\\.\\d+,923\\.\\d+\\) room=16",
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x26",
+      "LOAD: calling setupCreateProps stagenum=0x26",
+      "SETUP: setupLoadStage complete",
+      "TICK: lvTick enter tick=\\d+ stagenum=0x26",
+      "BOOT: --debug-spawn-at consumed: prop=(?:0x)?[0-9a-fA-F]+ stagenum=0x26 result=OK pos=\\(637\\.\\d+,360\\.\\d+,923\\.\\d+\\) room=16",
+      "CAPSULE: sweep enter start=\\([^\\)]+\\) move=\\([^\\)]+\\) radius=",
+      "CAPSULE: sweep result=(?:CLEAR|BLOCKED)",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "BOOT: --debug-spawn-at consumed: .* result=FAILED",
+      "BOOT: --debug-spawn-at expects 4 comma-separated tokens",
+      "CAPSULE: sweep result=FAILED"
+    ],
+    "required_counts": [
+      {
+        "pattern": "CAPSULE: sweep enter",
+        "min": 2,
+        "comment": "Five scripted ACTION_JUMP taps each produce a positive verticalDelta in bwalkUpdateVertical (airborne branch at bondwalk.c:1205). With PC_CAPSULE_ENABLED=1 (Track G, 2026-05-15) the verticalDelta flows through capsuleSweep at bondwalk.c:1255, which emits CAPSULE: sweep enter ... on entry (capsule.c:74). One jump produces multiple enters (one per airborne tick during ascent + descent). >=2 is the conservative floor; healthy runs see 10+ enters. <2 means the sweep is not firing -- either PC_CAPSULE_ENABLED reverted to 0, the cutscene/menu IMC never released, or the jump action did not flow through to bondwalk."
+      },
+      {
+        "pattern": "CAPSULE: sweep result=(?:CLEAR|BLOCKED)",
+        "min": 2,
+        "comment": "Mirror-pairing for the enter assertion: every enter must be matched by a result. CLEAR is the dominant case (open-air ascent on CITRAINING's main floor); BLOCKED appears if any ceiling/wall intersects the sweep volume (radius * sub-step). >=2 results paired with >=2 enters proves the sweep loop ran to completion at least twice -- confirms capsule.c:160 or capsule.c:170 emitted the result line."
+      }
+    ]
+  }
+}
