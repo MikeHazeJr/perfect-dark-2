@@ -1781,6 +1781,8 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_SPECTATE_REQUEST: rc = netmsgClcSpectateRequestRead(&cl->in, cl); break;
 			/* v46 cutscene skip authority */
 			case CLC_CUTSCENE_SKIP:    rc = netmsgClcCutsceneSkipRead(&cl->in, cl); break;
+			/* v49 post-match lobby resync */
+			case CLC_LOBBY_RESYNC:     rc = netmsgClcLobbyResyncRead(&cl->in, cl); break;
 			/* Phase C: Match Startup Pipeline */
 			case CLC_MANIFEST_STATUS:  rc = netmsgClcManifestStatusRead(&cl->in, cl); break;
 			case CLC_LOBBY_CANCEL:     rc = netmsgClcLobbyCancelRead(&cl->in, cl); break;

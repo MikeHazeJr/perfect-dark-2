@@ -59,14 +59,34 @@ s32 propInteractPromptPreferPressStyle(void);
  */
 extern "C" void pdguiInteractPromptRender(s32 winW, s32 winH)
 {
-	if (pdguiIsActive()) return;
+	/* The smoothed ring value persists across calls. On any early-return
+	 * (menus opened mid-hold, CI intro blocks, prop label flips NULL because
+	 * the player moved out of the interact cone), we still need to decay the
+	 * smoothed value so a re-entry starts visually fresh instead of flashing
+	 * from a stale 0.4 or 0.7. The decay rate matches the fall tau used in
+	 * the live render path below (tau=5.0f). */
+	static float s_IpHoldRingSmoothed = 0.0f;
+
+	auto decay_smoothed_to_zero = []() {
+		float dt = ImGui::GetIO().DeltaTime;
+		if (dt <= 0.0f || dt > 0.1f) {
+			dt = 0.016f;
+		}
+		s_IpHoldRingSmoothed -= s_IpHoldRingSmoothed * (dt * 5.0f);
+		if (s_IpHoldRingSmoothed < 0.001f) {
+			s_IpHoldRingSmoothed = 0.0f;
+		}
+	};
+
+	if (pdguiIsActive()) { decay_smoothed_to_zero(); return; }
 
 	if (pdguiCiIntroBlocksInteractPrompt()) {
+		decay_smoothed_to_zero();
 		return;
 	}
 
 	const char *label = propInteractPromptLabel();
-	if (!label) return;
+	if (!label) { decay_smoothed_to_zero(); return; }
 
 	const s32 actionPlayer = pdmainGetInteractPromptActionPlayer();
 
@@ -106,7 +126,6 @@ extern "C" void pdguiInteractPromptRender(s32 winW, s32 winH)
 	if (actionHeld(actionPlayer, ACTION_USE) && actionHoldConsumed(actionPlayer, ACTION_USE)) {
 		target = 1.0f;
 	}
-	static float s_IpHoldRingSmoothed = 0.0f;
 	float dt = ImGui::GetIO().DeltaTime;
 	if (dt <= 0.0f || dt > 0.1f) {
 		dt = 0.016f;

@@ -50,6 +50,21 @@
 
 #define BUTTON_JUMP CONT_4000
 
+/* Tap/hold dual-action threshold in milliseconds. Press releases before this
+ * count as TAP (fires the press action via actionWasTap); presses held past
+ * this count as HOLD (fires the hold action and consumes the gesture so the
+ * tap path stays silent on release). Same primitive as ACTION_USE per
+ * Phase 2 fix #1 + menu-input-interaction-grammar.md Rule 4. */
+#define BOND_TAP_HOLD_THRESH_MS 250
+
+/* Per-player crouch lock state for ACTION_CROUCH tap/hold dual-action.
+ * Tap (release before threshold) toggles the lock. While locked, the
+ * BUTTON_HALF_CROUCH bit is asserted in c1buttons each frame; the player
+ * stays crouched until the next tap unlocks. Hold (held past threshold)
+ * is a separate momentary mode that bypasses the lock and releases on
+ * key-up. */
+s32 g_BondCrouchLock[MAX_PLAYERS] = {0};
+
 /* B-246 round-9: F2 test-fire scheduler. Mike's remote-testing setup
  * (phone -> Windows RDP) does not let him use most game inputs, so F2
  * schedules a single one-frame Z_TRIG pulse for player 0 a configurable
@@ -1061,6 +1076,13 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					fp_held, fp_pressed, use_held, wnxt_held,
 					(s32)allowc1buttons, (s32)g_Vars.lvframenum);
 			}
+			/* Mike's directive 2026-05-17: "if a held option exists for the
+			 * button, it should be based on button press vs released time, so
+			 * I can have pressed inputs and held inputs both." Applied below
+			 * to ACTION_WEAPON_NEXT (tap=cycle, hold=open weapon wheel) and
+			 * ACTION_CROUCH (tap=toggle sustained-crouch lock, hold=momentary
+			 * crouch while held). Threshold BOND_TAP_HOLD_THRESH_MS at file
+			 * scope. */
 			if (actionHeld(pi, ACTION_FIRE_PRIMARY))   c1buttons |= Z_TRIG;
 			/* B-246 round-9: F2 test-fire injection. When a scheduled fire
 			 * reaches its target lvframenum, synthesise a one-frame Z_TRIG
@@ -1074,7 +1096,16 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			if (actionHeld(pi, ACTION_FIRE_SECONDARY)) c1buttons |= R_TRIG;
 			if (actionHeld(pi, ACTION_FIRE_MODE))      c1buttons |= L_TRIG;
 			if (actionHeld(pi, ACTION_CANCEL_USE))     c1buttons |= B_BUTTON;
-			if (actionHeld(pi, ACTION_WEAPON_NEXT))    c1buttons |= Y_BUTTON;
+			/* ACTION_WEAPON_NEXT: tap/hold dual-action. Held -> BUTTON_RADIAL
+			 * (open the weapon wheel, BUTTON_RADIAL = D_JPAD per constants.h).
+			 * Tap -> Y_BUTTON (cycle one slot), wired below on the release
+			 * edge via actionWasTap. The Y_BUTTON held bit is NOT asserted
+			 * here because the cycle is a one-shot on release, not a
+			 * continuous press. */
+			if (actionHeldForMs(pi, ACTION_WEAPON_NEXT, BOND_TAP_HOLD_THRESH_MS)
+					&& !actionHoldConsumed(pi, ACTION_WEAPON_NEXT)) {
+				c1buttons |= BUTTON_RADIAL;
+			}
 			if (actionHeld(pi, ACTION_PAUSE))          c1buttons |= START_BUTTON;
 			if (actionHeld(pi, ACTION_CBUTTON_UP))     c1buttons |= U_CBUTTONS;
 			if (actionHeld(pi, ACTION_CBUTTON_DOWN))   c1buttons |= D_CBUTTONS;
@@ -1084,7 +1115,21 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			if (actionHeld(pi, ACTION_DPAD_DOWN))      c1buttons |= D_JPAD;
 			if (actionHeld(pi, ACTION_DPAD_LEFT))      c1buttons |= L_JPAD;
 			if (actionHeld(pi, ACTION_DPAD_RIGHT))     c1buttons |= R_JPAD;
-			if (actionHeld(pi, ACTION_CROUCH))         c1buttons |= BUTTON_HALF_CROUCH;
+			/* ACTION_CROUCH: tap/hold dual-action. Tap (release before
+			 * threshold) toggles a per-player "crouch lock" state below;
+			 * while locked, BUTTON_HALF_CROUCH is asserted continuously.
+			 * Hold (held past threshold without releasing) acts as the
+			 * classic momentary crouch -- BUTTON_HALF_CROUCH is asserted
+			 * for as long as the button is held, then released on key-up.
+			 * Either mode releases on its own corresponding release event. */
+			{
+				extern s32 g_BondCrouchLock[MAX_PLAYERS];
+				const s32 crouch_held = actionHeld(pi, ACTION_CROUCH);
+				const s32 past_thresh = actionHeldForMs(pi, ACTION_CROUCH, BOND_TAP_HOLD_THRESH_MS);
+				if (g_BondCrouchLock[pi] || (crouch_held && past_thresh)) {
+					c1buttons |= BUTTON_HALF_CROUCH;
+				}
+			}
 			if (actionHeld(pi, ACTION_JUMP))           c1buttons |= BUTTON_JUMP;
 			/* R kbd: dedicated reload */
 			if (actionHeld(pi, ACTION_RELOAD))         c1buttons |= X_BUTTON;
@@ -1093,7 +1138,19 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			if (actionPressed(pi, ACTION_FIRE_SECONDARY)) c1buttonsthisframe |= R_TRIG;
 			if (actionPressed(pi, ACTION_FIRE_MODE))      c1buttonsthisframe |= L_TRIG;
 			if (actionPressed(pi, ACTION_CANCEL_USE))     c1buttonsthisframe |= B_BUTTON;
-			if (actionPressed(pi, ACTION_WEAPON_NEXT))    c1buttonsthisframe |= Y_BUTTON;
+			/* ACTION_WEAPON_NEXT tap/hold rising edges: hold past threshold
+			 * fires the BUTTON_RADIAL one-shot edge (radial wheel open),
+			 * consumes the gesture so the tap path stays silent on release.
+			 * The TAP cycle is handled directly by the actionWasTap call at
+			 * the legacy PC inventory dispatch site below; no Y_BUTTON
+			 * synthesis here, otherwise the inventory would advance twice
+			 * per tap (once from actionWasTap, once from c1buttonsthisframe
+			 * BUTTON_WPNFORWARD edge). */
+			if (actionHeldForMs(pi, ACTION_WEAPON_NEXT, BOND_TAP_HOLD_THRESH_MS)
+					&& !actionHoldConsumed(pi, ACTION_WEAPON_NEXT)) {
+				c1buttonsthisframe |= BUTTON_RADIAL;
+				actionConsumeHold(pi, ACTION_WEAPON_NEXT);
+			}
 			if (actionPressed(pi, ACTION_PAUSE))          c1buttonsthisframe |= START_BUTTON;
 			if (actionPressed(pi, ACTION_CBUTTON_UP))     c1buttonsthisframe |= U_CBUTTONS;
 			if (actionPressed(pi, ACTION_CBUTTON_DOWN))   c1buttonsthisframe |= D_CBUTTONS;
@@ -1103,7 +1160,28 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			if (actionPressed(pi, ACTION_DPAD_DOWN))      c1buttonsthisframe |= D_JPAD;
 			if (actionPressed(pi, ACTION_DPAD_LEFT))      c1buttonsthisframe |= L_JPAD;
 			if (actionPressed(pi, ACTION_DPAD_RIGHT))     c1buttonsthisframe |= R_JPAD;
-			if (actionPressed(pi, ACTION_CROUCH))         c1buttonsthisframe |= BUTTON_HALF_CROUCH;
+			/* ACTION_CROUCH tap/hold edges:
+			 *   Tap-release -> toggle g_BondCrouchLock[pi]. On the toggle
+			 *   frame we synthesise the BUTTON_HALF_CROUCH rising or falling
+			 *   edge so downstream consumers (bondwalk crouch-state machine)
+			 *   see a clean transition.
+			 *   Long-hold past threshold -> momentary crouch. The rising
+			 *   edge fires on the frame the threshold is first crossed; the
+			 *   continuous BUTTON_HALF_CROUCH bit is asserted in the held
+			 *   block above. Releases naturally on key-up. */
+			{
+				extern s32 g_BondCrouchLock[MAX_PLAYERS];
+				const s32 past_thresh = actionHeldForMs(pi, ACTION_CROUCH, BOND_TAP_HOLD_THRESH_MS);
+				const s32 consumed    = actionHoldConsumed(pi, ACTION_CROUCH);
+				if (past_thresh && !consumed) {
+					c1buttonsthisframe |= BUTTON_HALF_CROUCH;
+					actionConsumeHold(pi, ACTION_CROUCH);
+				} else if (actionReleased(pi, ACTION_CROUCH)
+						&& actionWasTap(pi, ACTION_CROUCH, BOND_TAP_HOLD_THRESH_MS)) {
+					g_BondCrouchLock[pi] = !g_BondCrouchLock[pi];
+					c1buttonsthisframe |= BUTTON_HALF_CROUCH;
+				}
+			}
 			if (actionPressed(pi, ACTION_JUMP))           c1buttonsthisframe |= BUTTON_JUMP;
 			if (actionPressed(pi, ACTION_RELOAD))         c1buttonsthisframe |= X_BUTTON;
 
@@ -1451,7 +1529,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 							for (i = 0; i < numsamples; i++) {
 								if (controlmode == CONTROLMODE_PC) {
 									/* M0.2: collapsed sub-frame to per-frame */
-									if ((c1allowedbuttons & BUTTON_WPNFORWARD) && actionPressed((s32)contpad1, ACTION_WEAPON_NEXT)) {
+									if ((c1allowedbuttons & BUTTON_WPNFORWARD) && actionWasTap((s32)contpad1, ACTION_WEAPON_NEXT, BOND_TAP_HOLD_THRESH_MS)) {
 										movedata.weaponforwardoffset++;
 										g_Vars.currentplayer->invdowntime = -1;
 									} else if ((c1allowedbuttons & BUTTON_WPNBACK) && actionPressed((s32)contpad1, ACTION_DPAD_LEFT)) {

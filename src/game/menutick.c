@@ -39,6 +39,7 @@
 
 /* PC port: solo room screen (ImGui overlay — replaces old Match Setup dialog) */
 extern void pdguiSoloRoomOpen(void);
+extern void pdguiSoloRoomReturn(void); /* Mike directive 2026-05-17: preserve CS rematch config. */
 
 /* M-CO5: restore co-op/anti player configs (swap slots 0↔4, 1↔5) */
 static void coopRestorePlayerConfigs(void)
@@ -280,7 +281,14 @@ void menuTick(void)
 							g_MpNumJoined++;
 
 							menuPushRootDialog(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
-							pdguiSoloRoomOpen(); /* PC port: ImGui room screen renders on top */
+							/* Rematch path: preserve match config across the
+							 * post-match -> CITRAINING reload -> CS Room push.
+							 * Cold-path entry into Combat Simulator (Main Menu
+							 * -> "Combat Simulator") runs through a separate
+							 * code path that uses pdguiSoloRoomOpen() to reset.
+							 * Mike's directive 2026-05-17: rematch must preserve
+							 * settings end-to-end. */
+							pdguiSoloRoomReturn(); /* PC port: ImGui room screen renders on top */
 						} else {
 							g_Vars.waitingtojoin[i] = true;
 							if (g_NetMode == NETMODE_CLIENT) {

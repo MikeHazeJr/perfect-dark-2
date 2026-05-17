@@ -132,6 +132,19 @@
 /* v46: cutscene skip authority. */
 #define CLC_CUTSCENE_SKIP         0x17 // client->server: request cutscene skip {playernum}
 
+/* v49 (2026-05-17): post-match lobby resync. Client asks server to
+ * re-broadcast SVC_ROOM_ASSIGN + SVC_ROOM_SETTINGS + SVC_ROOM_PLAYLIST so
+ * the client's room view is authoritative after the SVC_STAGE_END
+ * roundtrip. No payload; the source netclient identifies which client to
+ * resync. Server path: netmsgClcLobbyResyncRead -> emit SVC_ROOM_ASSIGN
+ * with the client's existing room_id (or 0xFF for lounge), then call the
+ * existing settings/playlist broadcast helpers. */
+#define CLC_LOBBY_RESYNC          0x18 // client->server: re-broadcast my room + settings
+
+u32 netmsgClcLobbyResyncWrite(struct netbuf *dst);
+u32 netmsgClcLobbyResyncRead(struct netbuf *src, struct netclient *srccl);
+void netSendLobbyResync(void); /* Client helper: fire CLC_LOBBY_RESYNC. */
+
 /* Phase A: Match Startup Pipeline (protocol v24) */
 #define CLC_MANIFEST_STATUS 0x0E // client→server: manifest check result (READY / NEED_ASSETS / DECLINE)
 #define CLC_LOBBY_CANCEL    0x0F // client→server: cancel countdown before match launch (any player)

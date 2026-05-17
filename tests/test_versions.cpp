@@ -43,7 +43,7 @@ extern const u32 g_TestExpectedMpsetupVersion;
 extern const u32 g_TestLiveMpsetupVersion;
 }
 
-const u32 g_TestExpectedNetProtocolVer  = 48;
+const u32 g_TestExpectedNetProtocolVer  = 49;
 const u32 g_TestExpectedMpsetupVersion  = 2;
 
 TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written against",

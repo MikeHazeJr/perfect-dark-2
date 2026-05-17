@@ -47,6 +47,15 @@ static const InputAction s_VehicleDriverActionSet[] = {
     ACTION_VEHICLE_STEER_LEFT,
     ACTION_VEHICLE_STEER_RIGHT,
     ACTION_VEHICLE_EXIT,
+    /* Mike directive 2026-05-17 vehicle expansion: */
+    ACTION_VEHICLE_LOOK_X,
+    ACTION_VEHICLE_LOOK_Y,
+    ACTION_VEHICLE_HANDBRAKE,
+    ACTION_VEHICLE_USE,
+    /* Reuse the shared aim axis pair so the right stick / mouse drives
+     * yaw + pitch while mounted. */
+    ACTION_AXIS_AIM_X,
+    ACTION_AXIS_AIM_Y,
     ACTION_PAUSE,
 };
 

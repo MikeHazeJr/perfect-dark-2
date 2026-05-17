@@ -942,6 +942,50 @@ void pdguiEndscreenExitToMainMenu(void)
 }
 
 /**
+ * Exit the endscreen back to the connected lobby room (networked MP path).
+ *
+ * Mike's directive 2026-05-17: "MP games should return to connected lobby,
+ * synced etc." The pre-existing pdguiEndscreenExitToMainMenu() path runs
+ * pdguiSoloMissionReset() and the full solo-cleanup chain, which is wrong
+ * for networked exit because (a) we keep the netclient roster alive across
+ * the SVC_STAGE_END roundtrip, (b) g_Lobby state must stay populated for
+ * the re-entry into the room UI, and (c) pdguiSoloMissionReset wipes solo
+ * menu state we may want to keep for a hypothetical mid-session
+ * solo-after-mp flow.
+ *
+ * This variant skips the solo-only steps but still does:
+ *   - lvSetPaused(false) so the next stage doesn't boot paused
+ *   - configSave so settings persist
+ *   - clear client manifest (any per-match assets out)
+ *   - NULL co-op/anti player+config dangling pointers
+ *   - release the menu pool so the room UI can re-push fresh
+ *
+ * The caller is expected to fire CLC_LOBBY_RESYNC after this so the server
+ * re-broadcasts SVC_ROOM_ASSIGN + settings to bring the client's view back
+ * in sync with the server's authoritative room state.
+ */
+void pdguiEndscreenExitToRoom(void)
+{
+    sysLogPrintf(LOG_NOTE,
+        "GAMELOOP.MP: endscreen EXIT_TO_ROOM (manifest=%d netmode=%d)",
+        g_ClientManifest.num_entries, (int)g_NetMode);
+    lvSetPaused(false);
+    configSave("pd.ini");
+    sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST,
+        "endscreen exit to room");
+    if (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI) {
+        for (s32 i = 0; i < g_NetMaxClients; ++i) {
+            g_NetClients[i].player = NULL;
+            g_NetClients[i].config = NULL;
+        }
+    }
+    /* Deliberately NO pdguiSoloMissionReset() here. */
+    sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
+        "endscreen exit to room");
+    func0f0f8120();
+}
+
+/**
  * Returns 1 if there is a next mission to advance to, 0 if at the last stage.
  */
 s32 pdguiEndscreenHasNextMission(void)

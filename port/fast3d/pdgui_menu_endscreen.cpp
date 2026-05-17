@@ -106,6 +106,8 @@ const char *pdguiEndscreenGetCheatComplName(void);
 void pdguiEndscreenStartMission(void);
 void pdguiEndscreenNextMission(void);
 void pdguiEndscreenExitToMainMenu(void);
+void pdguiEndscreenExitToRoom(void); /* Networked MP exit-to-room variant. */
+void netSendLobbyResync(void); /* v49 CLC_LOBBY_RESYNC client helper. */
 s32 pdguiEndscreenHasNextMission(void);
 s32 pdguiEndscreenGetPlacementIndex(void);
 const char *pdguiEndscreenGetTitle(void);
@@ -226,11 +228,23 @@ static s32 endscreenGraphMpContinue(void *userdata)
     (void)userdata;
 
     if (g_NetMode != ES_NETMODE_NONE) {
-        pdguiEndscreenExitToMainMenu();
+        /* Networked MP: keep lobby + roster state alive across the
+         * SVC_STAGE_END roundtrip, then ask the server to re-broadcast
+         * SVC_ROOM_ASSIGN (and SVC_ROOM_LIST) so the client view is back
+         * in sync with the server's authoritative room state.
+         * Mike's directive 2026-05-17: "MP games should return to
+         * connected lobby, synced etc." */
+        pdguiEndscreenExitToRoom();
         pdguiSetInRoom(1);
+        netSendLobbyResync();
     } else {
+        /* Combat Sim local: pdguiSoloRoomReturn() preserves config for
+         * rematch. The CITRAINING reload path in menutick.c also calls
+         * pdguiSoloRoomReturn() (it used to be pdguiSoloRoomOpen() which
+         * reset, fixed 2026-05-17) so this is now idempotent rather than
+         * racing. */
         pdguiEndscreenExitToMainMenu();
-        pdguiSoloRoomReturn(); /* U-12: preserve config for rematch. */
+        pdguiSoloRoomReturn();
     }
 
     return 0;

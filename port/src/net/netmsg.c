@@ -4670,6 +4670,79 @@ u32 netmsgClcCutsceneSkipRead(struct netbuf *src, struct netclient *srccl)
 }
 
 /* ========================================================================
+ * CLC_LOBBY_RESYNC - Client asks server to re-broadcast room state (v49)
+ *
+ * Fired by a client after returning from a match (post-SVC_STAGE_END) so the
+ * client's local room view is brought back in sync with the server's
+ * authoritative state. The server responds with SVC_ROOM_ASSIGN carrying the
+ * client's current room_id (0xFF for lounge); the client's existing
+ * lobbyUpdate path then refreshes the roster + settings UI from server-driven
+ * state on subsequent ticks. No payload either direction; the source
+ * netclient identifies whose room to resync.
+ * ========================================================================
+ */
+
+u32 netmsgClcLobbyResyncWrite(struct netbuf *dst)
+{
+	netbufWriteU8(dst, CLC_LOBBY_RESYNC);
+	return dst->error;
+}
+
+u32 netmsgClcLobbyResyncRead(struct netbuf *src, struct netclient *srccl)
+{
+	if (src->error || !srccl) {
+		return src->error;
+	}
+
+	/* Only meaningful from a fully-authed client. CLSTATE_LOBBY is the
+	 * canonical post-match state; tolerate CLSTATE_GAME too in case the
+	 * resync is fired before the state machine settles. */
+	if (srccl->state < CLSTATE_LOBBY) {
+		sysLogPrintf(LOG_NOTE,
+			"NET: CLC_LOBBY_RESYNC ignored client=%u state=%u",
+			srccl->id, (unsigned)srccl->state);
+		return src->error;
+	}
+
+	const u8 room_id = srccl->room_id;
+	sysLogPrintf(LOG_NOTE,
+		"NET: CLC_LOBBY_RESYNC from client=%u, replaying SVC_ROOM_ASSIGN room=%u",
+		srccl->id, (unsigned)room_id);
+
+	struct netbuf assignBuf;
+	u8 assignData[8];
+	assignBuf.data = assignData;
+	assignBuf.size = sizeof(assignData);
+	netbufStartWrite(&assignBuf);
+	netmsgSvcRoomAssignWrite(&assignBuf, room_id);
+	netSend(srccl, &assignBuf, true, NETCHAN_DEFAULT);
+
+	/* Also re-mark the room list dirty so the lobby UI gets fresh data.
+	 * netRoomListFlush coalesces the broadcast at end-of-frame. */
+	netRoomListMarkDirty();
+
+	return src->error;
+}
+
+/* Convenience client-side helper. Caller is responsible for ensuring the
+ * net channel is up (NETMODE_CLIENT / NETMODE_DEDICATED with an open peer). */
+void netSendLobbyResync(void)
+{
+	if (g_NetMode == NETMODE_NONE || g_NetLocalClient == NULL) {
+		return;
+	}
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgClcLobbyResyncWrite(&g_NetMsgRel);
+	if (g_NetMsgRel.error) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_RESYNC encode failed");
+		netbufStartWrite(&g_NetMsgRel);
+		return;
+	}
+	netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_RESYNC sent to server");
+}
+
+/* ========================================================================
  * CLC_LOBBY_START - Lobby leader requests match start
  *
  * Sent by the lobby leader client to the dedicated server when they've

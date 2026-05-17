@@ -9,7 +9,17 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 48  /* v48 (2026-05-16): Track 2d (c3807) GPU swarm
+#define NET_PROTOCOL_VER 49  /* v49 (2026-05-17): CLC_LOBBY_RESYNC (0x18) so a
+                              * client can ask the server to re-broadcast room
+                              * assignment + lobby settings after a match ends.
+                              * Closes the "MP post-match returns me to an
+                              * unsynced room" bug. Server reply is a server-
+                              * initiated SVC_ROOM_ASSIGN (existing 0x76)
+                              * followed by the standard SVC_ROOM_SETTINGS /
+                              * SVC_ROOM_PLAYLIST broadcasts so receivers do
+                              * not need new SVC handling. Mixed v48/v49 play
+                              * rejected at the ENet auth handshake.
+                              * v48 (2026-05-16): Track 2d (c3807) GPU swarm
                               * state network sync. Adds SVC_GPUSWARM_STATE (0x6c)
                               * carrying the listen-host's RGBA32F state-texture
                               * readback, quantized to 20 bytes/bot (s16 cm pos,

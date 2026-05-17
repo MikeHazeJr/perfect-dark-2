@@ -244,21 +244,56 @@ void bbikeApplyMoveData(struct movedata *data)
 	 * (F / X-button) which fires the dismount cascade via
 	 * bmoveSetMode(MOVEMODE_WALK). */
 	if (contmode == CONTROLMODE_PC) {
+		f32 vLeft   = actionValue(0, ACTION_VEHICLE_STEER_LEFT);
+		f32 vRight  = actionValue(0, ACTION_VEHICLE_STEER_RIGHT);
 		if (actionPressed(0, ACTION_VEHICLE_EXIT)) {
+			/* Mike directive 2026-05-17: directional dismount. The
+			 * left stick at dismount time picks the side the player
+			 * lands on; default LEFT if no input. We run the same
+			 * cdTestVolume probe ladder bbikeHandleActivate uses,
+			 * but with the user-chosen side at the front of the
+			 * priority list so the player lands where they asked
+			 * to land when geometry allows. */
+			struct hoverbikeobj *bike = (struct hoverbikeobj *)g_Vars.currentplayer->hoverbike->obj;
+			struct modelrodata_bbox *bbox = objFindBboxRodata(&bike->base);
+			if (bbox != NULL) {
+				f32 sidedist  = bbox->xmax * bike->base.model->scale;
+				f32 frontdist = bbox->zmax * bike->base.model->scale;
+				f32 diagdist  = sqrtf(sidedist * sidedist + frontdist * frontdist);
+				g_Vars.currentplayer->walkinitmove = false;
+
+				const bool wantRight = (vRight - vLeft) > 0.25f;
+				if (wantRight) {
+					bbikeTryDismountAngle(4.7116389274597f, sidedist);
+					bbikeTryDismountAngle(5.4969120025635f, diagdist);
+					bbikeTryDismountAngle(3.9263656139374f, diagdist);
+					bbikeTryDismountAngle(1.5705462694168f, sidedist);
+				} else {
+					bbikeTryDismountAngle(1.5705462694168f, sidedist);
+					bbikeTryDismountAngle(0.7852731347084f, diagdist);
+					bbikeTryDismountAngle(2.3558194637299f, diagdist);
+					bbikeTryDismountAngle(4.7116389274597f, sidedist);
+				}
+				bbikeTryDismountAngle(0,                  frontdist);
+				bbikeTryDismountAngle(3.1410925388336f,  frontdist);
+			}
 			bmoveSetMode(MOVEMODE_WALK);
 			return;
 		}
 
 		f32 vAccel  = actionValue(0, ACTION_VEHICLE_ACCELERATE);
 		f32 vBrake  = actionValue(0, ACTION_VEHICLE_BRAKE);
-		f32 vLeft   = actionValue(0, ACTION_VEHICLE_STEER_LEFT);
-		f32 vRight  = actionValue(0, ACTION_VEHICLE_STEER_RIGHT);
+		f32 vHandbrake = actionValue(0, ACTION_VEHICLE_HANDBRAKE);
 		bool vehicleInputs = (vAccel > 0.0f || vBrake > 0.0f
 				|| vLeft > 0.0f || vRight > 0.0f);
 		if (vehicleInputs) {
 			/* Map [0..1] to the [-70..70] range bbikeApplyMoveData
-			 * expects (line 271 divides by 70 and clamps to [-1, 1]). */
-			data->analogwalk    = (vAccel - vBrake) * 70.0f;
+			 * expects (line 271 divides by 70 and clamps to [-1, 1]).
+			 * Handbrake (Mike directive 2026-05-17): full brake
+			 * regardless of accelerator; locks the bike in place. */
+			f32 effectiveBrake = vBrake + vHandbrake;
+			if (effectiveBrake > 1.0f) effectiveBrake = 1.0f;
+			data->analogwalk    = (vAccel - effectiveBrake) * 70.0f;
 			data->analogstrafe  = (vRight - vLeft)  * 70.0f;
 			data->canlookahead  = 1;
 			data->unk14         = 1;
@@ -268,6 +303,35 @@ void bbikeApplyMoveData(struct movedata *data)
 			data->digitalstepback    = 0;
 			data->digitalstepleft    = 0;
 			data->digitalstepright   = 0;
+		}
+
+		/* Vehicle camera look (Mike directive 2026-05-17): drive
+		 * speedtheta via actionValue on LOOK_X / LOOK_Y so the right
+		 * stick (or arrow keys) yaws and pitches the bike camera.
+		 * Map [-1..1] to the existing aimturnleftspeed/rightspeed
+		 * channel that bmoveUpdateSpeedThetaControl consumes for
+		 * heading rotation. */
+		f32 lookX = actionValue(0, ACTION_VEHICLE_LOOK_X);
+		if (lookX > 0.05f) {
+			data->aimturnrightspeed = lookX;
+			data->aimturnleftspeed  = 0;
+		} else if (lookX < -0.05f) {
+			data->aimturnleftspeed  = -lookX;
+			data->aimturnrightspeed = 0;
+		} else {
+			data->aimturnleftspeed  = 0;
+			data->aimturnrightspeed = 0;
+		}
+		f32 lookY = actionValue(0, ACTION_VEHICLE_LOOK_Y);
+		if (lookY > 0.05f) {
+			data->speedvertaup   = lookY;
+			data->speedvertadown = 0;
+		} else if (lookY < -0.05f) {
+			data->speedvertadown = -lookY;
+			data->speedvertaup   = 0;
+		} else {
+			data->speedvertaup   = 0;
+			data->speedvertadown = 0;
 		}
 	}
 

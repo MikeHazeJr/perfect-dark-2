@@ -2586,6 +2586,22 @@ static void setupVehicleDefaults(s32 player)
     addBind(imc, ACTION_VEHICLE_STEER_RIGHT, JOY_BTN(0, JOFS_LSTICK_RIGHT));
     addBind(imc, ACTION_VEHICLE_EXIT,        VKL_F);
     addBind(imc, ACTION_VEHICLE_EXIT,        JOY_BTN(0, JBTN_X)); /* align with on-foot USE / exit */
+    /* Vehicle expansion (Mike directive 2026-05-17). LOOK_X/Y mirror the
+     * right-stick + arrow-key shape of ACTION_AIM_* so mounted yaw/pitch
+     * uses the analog stick the user already trained on for on-foot aim.
+     * HANDBRAKE on Space / A-button. USE (on-foot mount trigger) on E /
+     * A-button; this binding lives on g_ImcGameplay below as well so an
+     * on-foot player can press E to board a nearby hoverbike. */
+    addBind(imc, ACTION_VEHICLE_LOOK_X,      JOY_BTN(0, JOFS_RSTICK_RIGHT));
+    addBind(imc, ACTION_VEHICLE_LOOK_X,      JOY_BTN(0, JOFS_RSTICK_LEFT));
+    addBind(imc, ACTION_VEHICLE_LOOK_X,      VKL_RIGHT);
+    addBind(imc, ACTION_VEHICLE_LOOK_X,      VKL_LEFT);
+    addBind(imc, ACTION_VEHICLE_LOOK_Y,      JOY_BTN(0, JOFS_RSTICK_UP));
+    addBind(imc, ACTION_VEHICLE_LOOK_Y,      JOY_BTN(0, JOFS_RSTICK_DOWN));
+    addBind(imc, ACTION_VEHICLE_LOOK_Y,      VKL_UP);
+    addBind(imc, ACTION_VEHICLE_LOOK_Y,      VKL_DOWN);
+    addBind(imc, ACTION_VEHICLE_HANDBRAKE,   VK_SPACE);
+    addBind(imc, ACTION_VEHICLE_HANDBRAKE,   JOY_BTN(0, JBTN_A));
     addBind(imc, ACTION_PAUSE,               VK_ESCAPE);
     addBind(imc, ACTION_PAUSE,               JOY_BTN(0, JBTN_START));
     addBind(imc, ACTION_VOICE_PTT,           VKL_V);
@@ -3189,6 +3205,11 @@ static const SmokeActionEntry s_SmokeActionTable[] = {
     { "ACTION_TOGGLE_FULLSCREEN",    ACTION_TOGGLE_FULLSCREEN },
     /* 116: GPU swarm sub-method toggle (B-308 first slice). */
     { "ACTION_TESTSCEN_GPU_FULL_TOGGLE", ACTION_TESTSCEN_GPU_FULL_TOGGLE },
+    /* 117-120: vehicle expansion (Mike directive 2026-05-17). */
+    { "ACTION_VEHICLE_LOOK_X",       ACTION_VEHICLE_LOOK_X },
+    { "ACTION_VEHICLE_LOOK_Y",       ACTION_VEHICLE_LOOK_Y },
+    { "ACTION_VEHICLE_HANDBRAKE",    ACTION_VEHICLE_HANDBRAKE },
+    { "ACTION_VEHICLE_USE",          ACTION_VEHICLE_USE },
     /* Backward-compat aliases (resolve to canonical targets). */
     { "ACTION_INTERACT",             ACTION_USE },
     { "ACTION_MENU_ACCEPT",          ACTION_USE },
