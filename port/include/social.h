@@ -127,6 +127,15 @@ const char *socialMyConnectCode(void);
 /** Returns the local agent name from identityGetActiveProfile(). */
 const char *socialMyAgentName(void);
 
+/**
+ * Mike directive 2026-05-17: rebind the local handle + connect code to
+ * the currently-active agent profile. The handle becomes a hash of
+ * (pubkey || agent_name) so two agents on the same device get distinct
+ * connect codes. Idempotent; safe to call on every agent switch.
+ * Re-encodes s_MyConnectCode on success.
+ */
+void socialRebindToActiveAgent(void);
+
 /* -------------------------------------------------------------------------
  * Friend list.
  * ------------------------------------------------------------------------- */

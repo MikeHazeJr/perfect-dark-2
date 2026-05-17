@@ -1073,6 +1073,19 @@ void mainChangeToStage(s32 stagenum)
 	 * Agent Select, Bot Setup, and Modding Hub can preview any character.
 	 * Also clears the stale client manifest so the next SP/MP transition
 	 * diffs correctly. */
+	/* Mike directive 2026-05-17: social-hub coexistence. Update the
+	 * presence local state on every stage transition so friends see
+	 * accurate "in-match" / "online" status while we move between
+	 * gameplay, The Grid, and menus. The state flip is cheap and does
+	 * NOT tear down the presence socket -- friends stay reachable. */
+	if (presenceIsAgentLoaded()) {
+		if (STAGE_IS_GAMEPLAY(stagenum)) {
+			presenceSetLocalState(PRESENCE_IN_MATCH);
+		} else {
+			presenceSetLocalState(PRESENCE_ONLINE_IDLE);
+		}
+	}
+
 	if (STAGE_IS_GAMEPLAY(stagenum)) {
 		if (g_ClientManifest.num_entries > 0) {
 			/* S303: log every MP transition with its asset counts so the

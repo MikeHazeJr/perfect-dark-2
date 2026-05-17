@@ -1,0 +1,57 @@
+{
+  "scenario_name": "social_hub_agent_gate_smoke",
+  "description": "Mike directive 2026-05-17: verify the social-hub agent-gate + state-flip chain. (1) on boot, presence sits in BOOTSTRAP and is NOT pinging out -- the connect code on the wire would otherwise be device-scoped rather than agent-scoped. (2) on --launch-load-agent, socialRebindToActiveAgent re-derives the handle + connect code from (pubkey || agent_name), and presenceMarkAgentLoaded flips state to ONLINE_IDLE so outbound pings can start. (3) when the client then transitions into a gameplay stage (--launch-mission 0x30), mainChangeToStage flips presence state to IN_MATCH so friends see accurate status while the player is in-match.",
+  "tags": ["social", "presence", "agent", "stability"],
+  "paths_of_interest": [
+    "port/src/presence.c",
+    "port/src/social_store.c",
+    "port/src/prefs_agent.c",
+    "port/src/main.c",
+    "port/src/pdmain.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-load-agent",
+    "smoke",
+    "--launch-mission",
+    "0x30",
+    "--difficulty",
+    "agent"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/agent_smoke.json", "dst": "agent_smoke.json" }
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot + agent-load + mission transition is fully scripted via CLI fast-paths; no menu input needed." },
+    { "at_ms": 60000, "type": "exit", "comment": "scripted exit after presence states have flipped through bootstrap -> online -> in-match." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=social_hub_agent_gate_smoke",
+      "PRESENCE: initialised state=bootstrap scheduled=\\d+ \\(awaiting agent load\\)",
+      "BOOT: --launch-load-agent consumed: name='smoke' result=OK",
+      "SOCIAL: rebind agent=",
+      "PRESENCE: agent loaded -- state=(online|in-match), social hub activity enabled",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "PRESENCE: local state -> online \\(.*pre-agent",
+      "LOUDFAIL\\.LOAD: .*unrecoverable"
+    ],
+    "required_counts": [
+      { "pattern": "PRESENCE: initialised state=bootstrap", "min": 1, "max": 1 },
+      { "pattern": "PRESENCE: agent loaded", "min": 1, "max": 1 },
+      { "pattern": "SOCIAL: rebind agent=", "min": 1, "max": 1 }
+    ]
+  }
+}

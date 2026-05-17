@@ -79,6 +79,18 @@ void presenceTick(void);
 void presenceSetLocalState(presence_state_t s);
 presence_state_t presenceGetLocalState(void);
 
+/**
+ * Mike directive 2026-05-17: the client must not begin presence pings
+ * (or any social-hub activity) until an agent profile has been loaded.
+ * Connect codes are agent-specific, so the keypair/handle that drives
+ * outbound presence must be tied to a known agent. Call this from the
+ * agent-load completion path (prefs_agent.c::prefsAgentLoad). Idempotent.
+ */
+void presenceMarkAgentLoaded(void);
+
+/** Returns 1 once presenceMarkAgentLoaded() has been called this session. */
+s32 presenceIsAgentLoaded(void);
+
 /** Set the local status blurb. Truncated to 63 chars. */
 void presenceSetLocalBlurb(const char *blurb);
 const char *presenceGetLocalBlurb(void);

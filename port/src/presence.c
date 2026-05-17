@@ -28,6 +28,7 @@
 #include "presence.h"
 #include "social.h"
 #include "identity.h"
+#include "constants.h" /* STAGE_IS_GAMEPLAY for stage-aware initial presence state */
 #include "ed25519.h"
 #include "chat.h"
 #include "pdgui_toast.h"
@@ -310,6 +311,15 @@ static void sendFrame(u32 ipv4, u16 port, u8 kind, u32 target_handle,
  * Lifecycle
  * ------------------------------------------------------------------------- */
 
+/* Mike directive 2026-05-17: presence + social-hub stays cold until an
+ * agent profile is loaded. The keypair-derived handle that drives
+ * outgoing pings is per-agent in spirit (per the connect-code-is-agent-
+ * specific contract), so emitting pings before the agent is selected
+ * would announce a placeholder identity to friends. Cold state =
+ * PRESENCE_BOOTSTRAP; tick early-returns; outbound socket allocated but
+ * idle. Flipped by presenceMarkAgentLoaded() called from prefsAgentLoad. */
+static s32 s_AgentConfirmed = 0;
+
 void presenceInit(void)
 {
 	memset(s_Peers, 0, sizeof(s_Peers));
@@ -322,6 +332,7 @@ void presenceInit(void)
 	s_NumScheduled = 0;
 	s_LocalBlurb[0] = '\0';
 	s_LocalState = PRESENCE_BOOTSTRAP;
+	s_AgentConfirmed = 0;
 	(void)ensureSocket();
 
 	/* Seed schedule from current friend list. */
@@ -334,14 +345,36 @@ void presenceInit(void)
 		s_NumScheduled++;
 	}
 
-	if (socialVisibilityGet() != SOCIAL_VIS_APPEAR_OFFLINE) {
-		s_LocalState = PRESENCE_ONLINE_IDLE;
-	} else {
-		s_LocalState = PRESENCE_APPEAR_OFFLINE;
-	}
-	sysLogPrintf(LOG_NOTE, "PRESENCE: initialised state=%s scheduled=%d",
+	/* Stay in PRESENCE_BOOTSTRAP until the agent-load callback flips the
+	 * gate. Visibility setting still applies on the eventual flip. */
+	sysLogPrintf(LOG_NOTE, "PRESENCE: initialised state=%s scheduled=%d (awaiting agent load)",
 	             presenceStateName(s_LocalState), (int)s_NumScheduled);
 }
+
+/* Forward decls; we don't pull pdmain.h to keep this TU minimal. */
+extern s32 g_StageNum;
+
+void presenceMarkAgentLoaded(void)
+{
+	if (s_AgentConfirmed) return;
+	s_AgentConfirmed = 1;
+	if (socialVisibilityGet() == SOCIAL_VIS_APPEAR_OFFLINE) {
+		s_LocalState = PRESENCE_APPEAR_OFFLINE;
+	} else if (STAGE_IS_GAMEPLAY(g_StageNum)) {
+		/* Agent loaded while the player is already in a gameplay stage
+		 * (e.g. --launch-load-agent + --launch-mission). Reflect the
+		 * actual state immediately so friends don't see a phantom
+		 * "online idle" hop on the same frame the player is mid-match. */
+		s_LocalState = PRESENCE_IN_MATCH;
+	} else {
+		s_LocalState = PRESENCE_ONLINE_IDLE;
+	}
+	sysLogPrintf(LOG_NOTE,
+	             "PRESENCE: agent loaded -- state=%s, social hub activity enabled",
+	             presenceStateName(s_LocalState));
+}
+
+s32 presenceIsAgentLoaded(void) { return s_AgentConfirmed; }
 
 void presenceShutdown(void)
 {
@@ -648,6 +681,16 @@ static void sendPingTo(u32 handle)
 void presenceTick(void)
 {
 	if (!s_SocketReady) return;
+
+	/* Mike directive 2026-05-17: hold all outbound presence activity
+	 * until an agent has been loaded so the published connect-code /
+	 * handle reflects the active agent identity. We still drain the
+	 * inbound socket (peer pings, BYEs) so the receive path doesn't
+	 * back up on a long pre-agent boot delay. */
+	if (!s_AgentConfirmed) {
+		drainReceive();
+		return;
+	}
 
 	if (socialVisibilityGet() == SOCIAL_VIS_APPEAR_OFFLINE) {
 		s_LocalState = PRESENCE_APPEAR_OFFLINE;

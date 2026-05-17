@@ -1155,6 +1155,16 @@ s32 bootLaunchLoadAgentTick(void)
 		"BOOT: --launch-load-agent consumed: name='%s' result=%s",
 		g_BootLoadAgentName, result == 0 ? "OK" : "FAILED");
 
+	/* Mike directive 2026-05-17: this CLI fast-path is the smoke-only
+	 * counterpart to the live UI agent-select path in
+	 * pdgui_menu_agentselect.cpp. Mirror its post-load hooks so the
+	 * social-hub gate flips here too -- smoke tests can then exercise
+	 * post-agent presence behavior the same way the live UI does. */
+	if (result == 0) {
+		socialRebindToActiveAgent();
+		presenceMarkAgentLoaded();
+	}
+
 	g_BootLoadAgentArmed = 0;
 	return 1;
 }

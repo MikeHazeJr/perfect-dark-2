@@ -64,6 +64,8 @@
 #include "pdgui_font_mod.h"
 #include "audio.h"
 #include "updater.h"
+#include "presence.h"
+#include "social.h"
 
 /* Forward declarations for C symbols that live in C++ TUs — mirrors
  * the pattern in savefile.c / main.c. */
@@ -471,6 +473,12 @@ void prefsAgentLoad(const char *agent_name)
                      path);
         /* Still mark active so subsequent saves route here. */
         prefsAgentSetActive(agent_name);
+        /* Mike directive 2026-05-17: even without a sidecar the agent
+         * is logically loaded; rebind connect-code to this agent so
+         * two profiles on the same install get distinct codes, then
+         * flip the presence gate so social-hub pings can begin. */
+        socialRebindToActiveAgent();
+        presenceMarkAgentLoaded();
         return;
     }
 
@@ -502,6 +510,14 @@ void prefsAgentLoad(const char *agent_name)
 
     prefsAgentSetActive(agent_name);
     sysLogPrintf(LOG_NOTE, "PREFS.AGENT: loaded %d key(s) from %s", applied, path);
+
+    /* Mike directive 2026-05-17: agent has loaded. Rebind the connect-
+     * code to this agent so the published join target reflects the
+     * active profile (two agents on the same install -> two distinct
+     * connect codes), then flip the presence gate so outbound pings
+     * announce the right identity. Both calls are idempotent. */
+    socialRebindToActiveAgent();
+    presenceMarkAgentLoaded();
 }
 
 void prefsAgentMigrateLegacySidecar(const char *raw_name, const char *display_name)

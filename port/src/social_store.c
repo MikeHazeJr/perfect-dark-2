@@ -756,6 +756,52 @@ const char *socialMyAgentName(void)
 	return "Agent";
 }
 
+/* Mike directive 2026-05-17: per-agent connect code. Hash (pubkey ||
+ * agent_name) so each agent on the same device produces a distinct
+ * handle + connect code. Two players sharing a build can load their own
+ * agent profiles and broadcast independent join codes. */
+void socialRebindToActiveAgent(void)
+{
+	const u8 *pub = identityGetPubkey();
+	const char *agent = socialMyAgentName();
+	const u32 prev_handle = s_MyHandle;
+	char prev_code[32];
+	strncpy(prev_code, s_MyConnectCode, sizeof(prev_code) - 1);
+	prev_code[sizeof(prev_code) - 1] = '\0';
+
+	if (pub) {
+		/* Compose (pubkey || agent_name) into a single derivation buffer.
+		 * SOCIAL_PUBKEY_LEN is 32; agent names are short, so a fixed
+		 * 128-byte combined buffer covers any reasonable length. */
+		u8 combined[SOCIAL_PUBKEY_LEN + 96];
+		memcpy(combined, pub, SOCIAL_PUBKEY_LEN);
+		const u32 alen = agent ? (u32)strnlen(agent, sizeof(combined) - SOCIAL_PUBKEY_LEN) : 0;
+		if (alen > 0 && agent) {
+			memcpy(combined + SOCIAL_PUBKEY_LEN, agent, alen);
+		}
+		s_MyHandle = deriveHandleFromBytes(combined, SOCIAL_PUBKEY_LEN + alen);
+	} else {
+		/* Pre-keypair fallback: device-uuid hash unchanged. */
+		pd_identity_t *ident = identityGet();
+		if (ident) {
+			s_MyHandle = deriveHandleFromBytes(ident->device_uuid, IDENTITY_UUID_LEN);
+		}
+	}
+
+	if (socialEncodeHandle(s_MyHandle, s_MyConnectCode, sizeof(s_MyConnectCode)) != 0) {
+		strncpy(s_MyConnectCode, "unknown", sizeof(s_MyConnectCode) - 1);
+		s_MyConnectCode[sizeof(s_MyConnectCode) - 1] = '\0';
+	}
+
+	if (s_MyHandle != prev_handle) {
+		sysLogPrintf(LOG_NOTE,
+		             "SOCIAL: rebind agent='%s' handle=0x%08x->0x%08x code=\"%s\"->\"%s\"",
+		             agent ? agent : "(null)",
+		             (unsigned)prev_handle, (unsigned)s_MyHandle,
+		             prev_code, s_MyConnectCode);
+	}
+}
+
 /* -------------------------------------------------------------------------
  * Friend list
  * ------------------------------------------------------------------------- */
