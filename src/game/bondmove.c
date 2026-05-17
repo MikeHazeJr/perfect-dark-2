@@ -57,13 +57,20 @@
  * Phase 2 fix #1 + menu-input-interaction-grammar.md Rule 4. */
 #define BOND_TAP_HOLD_THRESH_MS 250
 
-/* Per-player crouch lock state for ACTION_CROUCH tap/hold dual-action.
- * Tap (release before threshold) toggles the lock. While locked, the
- * BUTTON_HALF_CROUCH bit is asserted in c1buttons each frame; the player
- * stays crouched until the next tap unlocks. Hold (held past threshold)
- * is a separate momentary mode that bypasses the lock and releases on
- * key-up. */
-s32 g_BondCrouchLock[MAX_PLAYERS] = {0};
+/* Per-player ACTION_USE double-tap detection. Records the 60Hz tick at
+ * which the LAST tap-release was registered; on the next tap release, if
+ * the gap is within BOND_DOUBLE_TAP_TICKS the second tap counts as a
+ * double-tap and fires the alternate interact path. Zero means no prior
+ * tap recorded. We use g_Vars.lvframe60 instead of SDL_GetTicks so this
+ * stays platform-neutral with the rest of bondmove.c. */
+static u32 s_BondLastUseTapReleaseFrame[MAX_PLAYERS] = {0};
+#define BOND_DOUBLE_TAP_TICKS 15 /* ~250 ms at 60 Hz */
+
+/* Per-player previous airborne state. Used by the crouch-jump mid-air
+ * window detector in bondwalk: the moment ACTION_CROUCH is pressed while
+ * airborne (going up from a fresh jump), latch a small lift on the
+ * effective foot Y so the player can clear a slightly higher surface. */
+s32 g_BondCrouchJumpActive[MAX_PLAYERS] = {0};
 
 /* B-246 round-9: F2 test-fire scheduler. Mike's remote-testing setup
  * (phone -> Windows RDP) does not let him use most game inputs, so F2
@@ -1115,19 +1122,22 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			if (actionHeld(pi, ACTION_DPAD_DOWN))      c1buttons |= D_JPAD;
 			if (actionHeld(pi, ACTION_DPAD_LEFT))      c1buttons |= L_JPAD;
 			if (actionHeld(pi, ACTION_DPAD_RIGHT))     c1buttons |= R_JPAD;
-			/* ACTION_CROUCH: tap/hold dual-action. Tap (release before
-			 * threshold) toggles a per-player "crouch lock" state below;
-			 * while locked, BUTTON_HALF_CROUCH is asserted continuously.
-			 * Hold (held past threshold without releasing) acts as the
-			 * classic momentary crouch -- BUTTON_HALF_CROUCH is asserted
-			 * for as long as the button is held, then released on key-up.
-			 * Either mode releases on its own corresponding release event. */
+			/* ACTION_CROUCH 3-state model (Mike directive 2026-05-17):
+			 *   STAND <-tap-> DUCK    (toggle between standing and crouched)
+			 *   any   --hold-> SQUAT  (prone via long-hold)
+			 *   SQUAT --tap-> DUCK    (one tap from prone -> crouched)
+			 *   DUCK  --tap-> STAND   (next tap -> standing)
+			 *   any   --jump-> STAND  (jumping resets stance)
+			 * State transitions live in the rising-edge block below; here
+			 * we just translate the current crouchpos to the legacy
+			 * BUTTON_HALF_CROUCH / BUTTON_FULL_CROUCH bits the rest of the
+			 * dispatcher reads (bondwalk capsule height, head tilt, etc.). */
 			{
-				extern s32 g_BondCrouchLock[MAX_PLAYERS];
-				const s32 crouch_held = actionHeld(pi, ACTION_CROUCH);
-				const s32 past_thresh = actionHeldForMs(pi, ACTION_CROUCH, BOND_TAP_HOLD_THRESH_MS);
-				if (g_BondCrouchLock[pi] || (crouch_held && past_thresh)) {
+				const s32 cp = g_Vars.players[pi]->crouchpos;
+				if (cp == CROUCHPOS_DUCK) {
 					c1buttons |= BUTTON_HALF_CROUCH;
+				} else if (cp == CROUCHPOS_SQUAT) {
+					c1buttons |= BUTTON_FULL_CROUCH;
 				}
 			}
 			if (actionHeld(pi, ACTION_JUMP))           c1buttons |= BUTTON_JUMP;
@@ -1160,60 +1170,98 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			if (actionPressed(pi, ACTION_DPAD_DOWN))      c1buttonsthisframe |= D_JPAD;
 			if (actionPressed(pi, ACTION_DPAD_LEFT))      c1buttonsthisframe |= L_JPAD;
 			if (actionPressed(pi, ACTION_DPAD_RIGHT))     c1buttonsthisframe |= R_JPAD;
-			/* ACTION_CROUCH tap/hold edges:
-			 *   Tap-release -> toggle g_BondCrouchLock[pi]. On the toggle
-			 *   frame we synthesise the BUTTON_HALF_CROUCH rising or falling
-			 *   edge so downstream consumers (bondwalk crouch-state machine)
-			 *   see a clean transition.
-			 *   Long-hold past threshold -> momentary crouch. The rising
-			 *   edge fires on the frame the threshold is first crossed; the
-			 *   continuous BUTTON_HALF_CROUCH bit is asserted in the held
-			 *   block above. Releases naturally on key-up. */
+			/* ACTION_CROUCH 3-state state-machine edges (Mike 2026-05-17):
+			 *   STAND tap -> DUCK,  DUCK tap -> STAND  (toggle pair)
+			 *   any hold past threshold -> SQUAT (prone)
+			 *   SQUAT tap -> DUCK
+			 *   ACTION_JUMP press -> STAND (handled at the jump edge below)
+			 * State writes are direct on currentplayer->crouchpos; the held
+			 * block above translates the state back into BUTTON_*_CROUCH
+			 * for downstream consumers. We do NOT fire BUTTON_HALF_CROUCH
+			 * edges from this block because that would re-trigger the
+			 * legacy crouchpos toggle dispatcher at bondmove.c:2150+. */
 			{
-				extern s32 g_BondCrouchLock[MAX_PLAYERS];
 				const s32 past_thresh = actionHeldForMs(pi, ACTION_CROUCH, BOND_TAP_HOLD_THRESH_MS);
 				const s32 consumed    = actionHoldConsumed(pi, ACTION_CROUCH);
 				if (past_thresh && !consumed) {
-					c1buttonsthisframe |= BUTTON_HALF_CROUCH;
+					g_Vars.players[pi]->crouchpos = CROUCHPOS_SQUAT;
 					actionConsumeHold(pi, ACTION_CROUCH);
 				} else if (actionReleased(pi, ACTION_CROUCH)
 						&& actionWasTap(pi, ACTION_CROUCH, BOND_TAP_HOLD_THRESH_MS)) {
-					g_BondCrouchLock[pi] = !g_BondCrouchLock[pi];
-					c1buttonsthisframe |= BUTTON_HALF_CROUCH;
+					const s32 cp = g_Vars.players[pi]->crouchpos;
+					if (cp == CROUCHPOS_STAND) {
+						g_Vars.players[pi]->crouchpos = CROUCHPOS_DUCK;
+					} else if (cp == CROUCHPOS_DUCK) {
+						g_Vars.players[pi]->crouchpos = CROUCHPOS_STAND;
+					} else { /* CROUCHPOS_SQUAT */
+						g_Vars.players[pi]->crouchpos = CROUCHPOS_DUCK;
+					}
 				}
 			}
-			if (actionPressed(pi, ACTION_JUMP))           c1buttonsthisframe |= BUTTON_JUMP;
+			if (actionPressed(pi, ACTION_JUMP)) {
+				c1buttonsthisframe |= BUTTON_JUMP;
+				/* Mike 2026-05-17: jumping resets stance to standing.
+				 * Crouch-jump mid-air lift is set up here too -- latch the
+				 * window so bondwalk's vertical pipeline can give the
+				 * player a small extra reach when they hold crouch in
+				 * the upward phase. */
+				g_Vars.players[pi]->crouchpos = CROUCHPOS_STAND;
+				g_BondCrouchJumpActive[pi] = 1;
+			}
+
+			/* Crouch-jump mid-air lift (Mike directive 2026-05-17).
+			 * When the player taps ACTION_CROUCH while mid-jump (still
+			 * going up, bdeltapos.y > 0) and the crouch-jump window is
+			 * armed (g_BondCrouchJumpActive == 1, set at jump-press
+			 * above), give a small extra upward impulse so the apex is
+			 * a touch higher -- the player can clear a surface slightly
+			 * above what their regular jump would reach. ~18% of the
+			 * 8.2 FIXED_JUMP_IMPULSE so the boost is felt but not
+			 * dramatic. Mark consumed so a held crouch does not stack
+			 * the boost frame-by-frame. */
+			if (g_BondCrouchJumpActive[pi] == 1
+					&& actionPressed(pi, ACTION_CROUCH)
+					&& g_Vars.players[pi]->bdeltapos.y > 0.0f) {
+				g_Vars.players[pi]->bdeltapos.y += 1.5f;
+				g_BondCrouchJumpActive[pi] = 2;
+			}
 			if (actionPressed(pi, ACTION_RELOAD))         c1buttonsthisframe |= X_BUTTON;
 
-			/* ACTION_USE: long hold -> A + consume; short hold -> A so usedowntime
-			 * sees a normal use press (tap-to-mount). No tap->X (reload); use R. */
+			/* ACTION_USE 3-action model (Mike directive 2026-05-17):
+			 *   Tap (release before threshold)  -> X_BUTTON (reload) ALWAYS
+			 *   Hold past threshold             -> A_BUTTON (interact) + consume
+			 *   Double-tap (two taps within 250ms) -> A_BUTTON alt-interact path
+			 * The double-tap fires the same A_BUTTON edge as hold-interact;
+			 * downstream consumers can distinguish by inspecting
+			 * actionWasDoubleTap-equivalent state if a screen-local door-only
+			 * binding is later added. */
 			{
-				s32 useThreshMs = propGetActionUseHoldThresholdMs();
+				const s32 useThreshMs = propGetActionUseHoldThresholdMs();
 				if (actionHeldForMs(pi, ACTION_USE, useThreshMs)
 						&& !actionHoldConsumed(pi, ACTION_USE)) {
 					c1buttons          |= A_BUTTON;
 					c1buttonsthisframe |= A_BUTTON;
 					actionConsumeHold(pi, ACTION_USE);
-				} else if (actionHeld(pi, ACTION_USE) && !actionHoldConsumed(pi, ACTION_USE)) {
-					c1buttons |= A_BUTTON;
-					if (actionPressed(pi, ACTION_USE)) {
+				} else if (actionReleased(pi, ACTION_USE)
+						&& actionWasTap(pi, ACTION_USE, useThreshMs)) {
+					const u32 now_frame   = (u32)g_Vars.lvframe60;
+					const u32 prev_frame  = s_BondLastUseTapReleaseFrame[pi];
+					const u32 gap_frames  = (prev_frame != 0) ? (now_frame - prev_frame) : 0xFFFFFFFFu;
+					if (prev_frame != 0 && gap_frames <= BOND_DOUBLE_TAP_TICKS) {
+						/* Double-tap: alt-interact. Fire A_BUTTON (interact)
+						 * and clear the frame stamp so a triple-tap does not
+						 * cascade into "interact + reload" on the third
+						 * release. */
+						c1buttons          |= A_BUTTON;
 						c1buttonsthisframe |= A_BUTTON;
+						s_BondLastUseTapReleaseFrame[pi] = 0;
+					} else {
+						/* Single tap: reload. Record frame so a quick
+						 * follow-up tap can become a double-tap. */
+						c1buttons          |= X_BUTTON;
+						c1buttonsthisframe |= X_BUTTON;
+						s_BondLastUseTapReleaseFrame[pi] = now_frame;
 					}
-				}
-			}
-			/* Phase 2 fix #1 (Press/Hold canonicalization, 2026-05-01):
-			 * USE release with no interact prompt -> synthesize reload (X_BUTTON)
-			 * iff the gesture was a TAP (released before the hold threshold and
-			 * not consumed by a long-hold handler). Routed through
-			 * actionWasTap so every Tap consumer in the codebase shares one
-			 * primitive. Replaces the prior open-coded gate
-			 * (actionHoldConsumed || actionLastGestureHoldMs >= 80) which
-			 * fired X_BUTTON for long-hold-released too -- semantically wrong
-			 * per Mike's "Press XOR Hold" spec. */
-			if (actionReleased(pi, ACTION_USE) && propInteractPromptLabel() == NULL) {
-				if (actionWasTap(pi, ACTION_USE, propGetActionUseHoldThresholdMs())) {
-					c1buttons |= X_BUTTON;
-					c1buttonsthisframe |= X_BUTTON;
 				}
 			}
 		}
