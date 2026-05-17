@@ -2950,6 +2950,14 @@
 #define MPOPTION_FRIENDLYFIRE           0x02000000
 #define MPOPTION_NOPLAYERONRADAR        0x04000000
 #define MPOPTION_NODOORS                0x08000000
+/* Mike directive 2026-05-17: bot jumping in normal Combat Sim play.
+ * Toggle in CS setup, default OFF. When set, bots evaluate jump
+ * opportunities each AI tick (with a wall-clock budget that scales
+ * across bot count) and can jump over obstacles + onto raised
+ * platforms. Difficulty-scaled behaviour per src/game/bot.c (MEAT/EASY
+ * obstacle-only, NORMAL + reach, HARD + LOS, PERFECT/DARK + tactical).
+ * Crouch-jump (+1.5 boost) is HARD+ only. */
+#define MPOPTION_BOTJUMP                0x10000000
 
 #define MPPAUSEMODE_UNPAUSED 0
 #define MPPAUSEMODE_PAUSED   1

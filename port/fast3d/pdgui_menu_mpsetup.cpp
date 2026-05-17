@@ -1266,6 +1266,7 @@ static s32 renderMpLimits(struct menudialog *dialog, struct menu *, s32, s32)
 #define MPOPTION_FRIENDLYFIRE           0x02000000u
 #define MPOPTION_NOPLAYERONRADAR        0x04000000u
 #define MPOPTION_NODOORS                0x08000000u
+#define MPOPTION_BOTJUMP                0x10000000u /* Mike 2026-05-17: bot jumping */
 
 enum ScenarioOptionVariant {
     SC_OPT_COMBAT = 0,
@@ -1327,6 +1328,10 @@ static void renderSharedScenarioTop(void)
     renderOptionCheckboxRow("Display Team",   menuhandlerMpDisplayTeam,    MPOPTION_DISPLAYTEAM);
     renderOptionCheckboxRow("No Radar",       menuhandlerMpCheckboxOption, MPOPTION_NORADAR);
     renderOptionCheckboxRow("No Auto-Aim",    menuhandlerMpCheckboxOption, MPOPTION_NOAUTOAIM);
+    /* Mike directive 2026-05-17: bot jumping toggle. Defaults OFF;
+     * the bit only gets set when the user explicitly checks the box.
+     * See context/designs/in-flight/bot-jumping-combat-sim.md. */
+    renderOptionCheckboxRow("Bot Jumping",    menuhandlerMpCheckboxOption, MPOPTION_BOTJUMP);
 }
 
 static void renderScenarioOptionsBody(ScenarioOptionVariant variant)
