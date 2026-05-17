@@ -66,6 +66,7 @@
 #include "updater.h"
 #include "presence.h"
 #include "social.h"
+#include "social_hub.h"
 
 /* Forward declarations for C symbols that live in C++ TUs — mirrors
  * the pattern in savefile.c / main.c. */
@@ -478,6 +479,7 @@ void prefsAgentLoad(const char *agent_name)
          * two profiles on the same install get distinct codes, then
          * flip the presence gate so social-hub pings can begin. */
         socialRebindToActiveAgent(agent_name);
+        socialHubBringOnline();
         presenceMarkAgentLoaded();
         return;
     }

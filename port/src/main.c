@@ -45,6 +45,7 @@
 #include "discord.h"
 #include "identity.h"
 #include "social.h"
+#include "social_hub.h"
 #include "presence.h"
 #include "chat.h"
 #include "file_transfer.h"
@@ -1162,6 +1163,7 @@ s32 bootLaunchLoadAgentTick(void)
 	 * post-agent presence behavior the same way the live UI does. */
 	if (result == 0) {
 		socialRebindToActiveAgent(g_BootLoadAgentName);
+		socialHubBringOnline();
 		presenceMarkAgentLoaded();
 	}
 
@@ -1457,28 +1459,19 @@ int main(int argc, const char **argv)
 	 * instead, and does not load social state. */
 	identityInit();
 	socialInit();
-	/* c115 (2026-05-13): --no-net also gates p2pInit() because
-	 * p2pLanStart() binds UDP 27101 for LAN-broadcast discovery -- that
-	 * bind alone is enough to trigger the Windows Defender Firewall
-	 * dialog and steal SDL focus, defeating the smoke harness.
-	 * Skipping p2pInit leaves s_Initialised=false, which makes every
-	 * p2pTick()/p2pLanTick()/p2pStartProbe() entry early-return as a
-	 * cheap no-op. */
-	if (!g_BootNoNet) {
-		p2pInit();
-	} else {
-		sysLogPrintf(LOG_NOTE, "BOOT: --no-net set; p2pInit() skipped");
-	}
-	presenceInit();
-	groupSessionInit();
-	chatInit();
-	fileTransferInit();
-	pdguiToastInit();
-	spectatorInit();
-	theaterInit();
-	listeningRoomInit();
-	shareInit();
-	voiceInit();
+	/* Mike directive 2026-05-17: cold-network-until-agent contract.
+	 *
+	 * All online subsystems that own a socket or publish identity
+	 * (p2p / presence / groupSession / chat / voice / file-transfer /
+	 * spectator / theater / listening-room / share / pdgui-toast) are
+	 * deferred to socialHubBringOnline(), which prefsAgentLoad and
+	 * bootLaunchLoadAgentTick fire AFTER a successful agent load. The
+	 * connect code that drives these subsystems is per-agent, so
+	 * binding a UDP socket and announcing identity before an agent
+	 * is loaded would publish a placeholder identity to friends.
+	 *
+	 * socialInit (local-only -- loads friends.json / blocks.json) is
+	 * fine to run at boot. Everything else waits. */
 
 	/* D13: Start background update check (non-blocking) */
 	if (!sysArgCheck("--no-update-check")) {
