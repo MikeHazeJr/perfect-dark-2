@@ -341,14 +341,17 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                 agentSelectGraphLoad, &payload);
         }
     }
-    /* X / C = copy (with confirmation) */
+    /* X / C / right-click on row = open context menu (Mike directive
+     * 2026-05-17 + menu-input-interaction-grammar Rule 5 X-context).
+     * Items inside the popup: Load, Copy, Delete, Set Default, Cancel.
+     * The C keyboard key + the controller secondary action open the same
+     * popup; right-click on a list row also opens it (handled at the
+     * row Selectable below). The direct C-fires-Copy and Y-fires-Delete
+     * paths are kept as power-user shortcuts on the keyboard. */
     if (!confirmActive && pdguiMenuSecondaryPressed()) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
+            ImGui::OpenPopup("##agent_ctx");
             pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
-            s_ConfirmMode = CONFIRM_COPY;
-            s_ConfirmIdx = s_SelectedIdx;
-            s_ConfirmOpenFrame = (s32)ImGui::GetFrameCount();
-            ImGui::OpenPopup(AGENTSEL_CONFIRM_POPUP_ID);
         }
     }
     /* Y / Delete = delete (with confirmation) */
@@ -454,6 +457,18 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                 }
                 if (ImGui::IsItemHovered()) s_SelectedIdx = i;
 
+                /* Right-click on this row opens the per-row context
+                 * menu (parallel path to controller X / keyboard C).
+                 * Set the row as selected first so the popup acts on
+                 * the right entry. Same popup id (##agent_ctx) backs
+                 * both routes per Rule 5 X-context-menu (one builder
+                 * for both input devices). */
+                if (!confirmActive && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                    s_SelectedIdx = i;
+                    ImGui::OpenPopup("##agent_ctx");
+                    pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
+                }
+
                 /* Draw overlay content */
                 ImVec2 itemMin = ImGui::GetItemRectMin();
                 ImDrawList *dl = ImGui::GetWindowDrawList();
@@ -517,6 +532,59 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     }
     ImGui::EndChild();
 
+    /* Per-row context menu (Mike directive 2026-05-17 + Rule 5 X-context).
+     * Opened by controller secondary (X), keyboard C, or right-click on
+     * a row. The popup body fires the same Load / Copy / Delete /
+     * Set-Default actions as the existing keyboard shortcuts, just
+     * presented as a discoverable menu. */
+    if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles
+            && ImGui::BeginPopup("##agent_ctx")) {
+        struct filelistfile *cfile = &fl->files[s_SelectedIdx];
+        char cname[12] = {0};
+        u8 cstage = 0, cdiff = 0;
+        u32 ctime = 0;
+        gamefileGetOverview(cfile->name, cname, &cstage, &cdiff, &ctime);
+
+        ImGui::TextColored(pdguiVec4TitleGlow(), "Agent: %s", cname[0] ? cname : "(unnamed)");
+        ImGui::Separator();
+
+        if (ImGui::MenuItem("Load")) {
+            ImGui::CloseCurrentPopup();
+            AgentSelectLoadPayload payload = { cfile, NULL };
+            menuGraphFireLocalOp(MENU_TYPE_AGENT_SELECT, "load",
+                agentSelectGraphLoad, &payload);
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
+        if (ImGui::MenuItem("Copy")) {
+            ImGui::CloseCurrentPopup();
+            s_ConfirmMode = CONFIRM_COPY;
+            s_ConfirmIdx = s_SelectedIdx;
+            s_ConfirmOpenFrame = (s32)ImGui::GetFrameCount();
+            ImGui::OpenPopup(AGENTSEL_CONFIRM_POPUP_ID);
+            pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
+        }
+        if (ImGui::MenuItem("Delete")) {
+            ImGui::CloseCurrentPopup();
+            s_ConfirmMode = CONFIRM_DELETE;
+            s_ConfirmIdx = s_SelectedIdx;
+            s_ConfirmOpenFrame = (s32)ImGui::GetFrameCount();
+            ImGui::OpenPopup(AGENTSEL_CONFIRM_POPUP_ID);
+            pdguiPlaySound(PDGUI_SND_ERROR);
+        }
+        const bool isDefault = (cfile->fileid == s_DefaultAgentFileId);
+        if (ImGui::MenuItem(isDefault ? "Clear Default Agent" : "Set as Default Agent")) {
+            ImGui::CloseCurrentPopup();
+            s_DefaultAgentFileId = isDefault ? -1 : cfile->fileid;
+            configSave("pd.ini");
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Cancel")) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
     /* Character preview for selected agent */
     if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
         s32 pnum = g_MpPlayerNum;
@@ -535,7 +603,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
      * ================================================================ */
     ImGui::Separator();
     if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
-        ImGui::TextDisabled("A/Enter: Load  X/C: Copy  Y/Del: Delete  D/RB: Default");
+        ImGui::TextDisabled("A/Enter: Load  X/RClick: Menu  Y/Del: Delete  D/RB: Default");
     } else {
         ImGui::TextDisabled("A/Enter: Select   D-Pad/Arrows: Navigate");
     }

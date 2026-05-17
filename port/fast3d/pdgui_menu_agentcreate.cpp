@@ -155,18 +155,60 @@ static s32       s_BodyListCountKnown  = -1; /* triggers rebuild when stale */
 
 /**
  * Format a catalog entry ID to a human-readable display name.
- * Strips prefix, replaces underscores with spaces, title-cases each word.
- * e.g. "head_dark_combat" with prefix "head_" -> "Dark Combat"
+ * Mike directive 2026-05-17: catalog IDs are "namespace:type_name" form
+ * (e.g. "base:head_carrington", "base:sp_head_67", "base:body_dark_combat").
+ * Pre-fix: this function only stripped the type prefix ("head_" / "body_")
+ * but NOT the namespace, so the display read "Base:head Carrington" instead
+ * of "Carrington". Order of stripping now:
+ *   1. namespace: prefix    -> drops "base:" / "modid:"
+ *   2. "sp_head_" / "sp_body_" -> drops the SP marker AND the type prefix in
+ *                              one step ("base:sp_head_67" -> "67")
+ *   3. type prefix          -> drops "head_" / "body_" for normal entries
+ * Then replaces underscores with spaces and title-cases.
+ * Pure-numeric remainders (sp_head_67 -> "67") get a readable prefix so
+ * the UI doesn't show bare numbers; "head_" prefix becomes "Head 67",
+ * "body_" -> "Body 67".
  */
 static void formatCatalogId(const char *raw_id, const char *prefix,
                              char *out, size_t outsz)
 {
     const char *src = raw_id ? raw_id : "";
-    size_t prefixLen = strlen(prefix);
-    if (strncmp(src, prefix, prefixLen) == 0)
-        src += prefixLen;
-    bool capitalizeNext = true;
+
+    /* Step 1: strip namespace: prefix (everything up to and including the
+     * first colon). assetcatalog ID format guarantees at most one colon. */
+    const char *colon = strchr(src, ':');
+    if (colon) src = colon + 1;
+
+    /* Step 2: handle sp_<type>_ markers as a single unit. The SP single-
+     * player entries have ids like "sp_head_67" -- the prefix matches our
+     * "head_" naively but we want to drop "sp_head_" entirely so the
+     * remainder is just "67" not "67" prefixed with "Sp ". */
+    const size_t typePrefixLen = strlen(prefix); /* "head_" or "body_" */
+    bool spStripped = false;
+    if (strncmp(src, "sp_", 3) == 0 &&
+            strncmp(src + 3, prefix, typePrefixLen) == 0) {
+        src += 3 + typePrefixLen;
+        spStripped = true;
+    } else if (strncmp(src, prefix, typePrefixLen) == 0) {
+        src += typePrefixLen;
+    }
+
+    /* If the remainder is pure-numeric (SP entries are commonly just digits),
+     * prefix with the readable type label so the user sees "Head 67" not
+     * just "67". */
+    bool isNumeric = (*src != '\0');
+    for (const char *p = src; *p; p++) {
+        if (*p < '0' || *p > '9') { isNumeric = false; break; }
+    }
     size_t i = 0;
+    if (isNumeric && spStripped) {
+        const char *label =
+            (strncmp(prefix, "head", 4) == 0) ? "Head " :
+            (strncmp(prefix, "body", 4) == 0) ? "Body " : "";
+        while (*label && i + 1 < outsz) out[i++] = *label++;
+    }
+
+    bool capitalizeNext = true;
     while (*src && i + 1 < outsz) {
         unsigned char c = (unsigned char)*src++;
         if (c == '_') {
