@@ -1161,7 +1161,7 @@ s32 bootLaunchLoadAgentTick(void)
 	 * social-hub gate flips here too -- smoke tests can then exercise
 	 * post-agent presence behavior the same way the live UI does. */
 	if (result == 0) {
-		socialRebindToActiveAgent();
+		socialRebindToActiveAgent(g_BootLoadAgentName);
 		presenceMarkAgentLoaded();
 	}
 

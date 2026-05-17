@@ -1077,9 +1077,21 @@ void mainChangeToStage(s32 stagenum)
 	 * presence local state on every stage transition so friends see
 	 * accurate "in-match" / "online" status while we move between
 	 * gameplay, The Grid, and menus. The state flip is cheap and does
-	 * NOT tear down the presence socket -- friends stay reachable. */
+	 * NOT tear down the presence socket -- friends stay reachable.
+	 *
+	 * Bug fix 2026-05-17 (Mike playtest): STAGE_IS_GAMEPLAY returns
+	 * true for STAGE_CITRAINING which is ALSO the OG Main Menu's
+	 * backdrop stage, so a fresh boot would show "in-match" while
+	 * the user is actually in the menu. The correct predicate
+	 * additionally requires (looksLikeMP || mission_active) -- the
+	 * same signals the existing manifest-classification block at
+	 * line 1083 uses to disambiguate menu vs match. */
 	if (presenceIsAgentLoaded()) {
-		if (STAGE_IS_GAMEPLAY(stagenum)) {
+		const bool looksLikeMP = (g_NetMode != NETMODE_NONE)
+			|| g_MissionConfig.iscoop || g_MissionConfig.isanti
+			|| g_Vars.normmplayerisrunning;
+		const bool inMission = (g_MissionConfig.stageindex >= 0);
+		if (STAGE_IS_GAMEPLAY(stagenum) && (looksLikeMP || inMission)) {
 			presenceSetLocalState(PRESENCE_IN_MATCH);
 		} else {
 			presenceSetLocalState(PRESENCE_ONLINE_IDLE);

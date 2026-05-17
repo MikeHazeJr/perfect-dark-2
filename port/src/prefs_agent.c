@@ -477,7 +477,7 @@ void prefsAgentLoad(const char *agent_name)
          * is logically loaded; rebind connect-code to this agent so
          * two profiles on the same install get distinct codes, then
          * flip the presence gate so social-hub pings can begin. */
-        socialRebindToActiveAgent();
+        socialRebindToActiveAgent(agent_name);
         presenceMarkAgentLoaded();
         return;
     }
@@ -516,7 +516,7 @@ void prefsAgentLoad(const char *agent_name)
      * active profile (two agents on the same install -> two distinct
      * connect codes), then flip the presence gate so outbound pings
      * announce the right identity. Both calls are idempotent. */
-    socialRebindToActiveAgent();
+    socialRebindToActiveAgent(agent_name);
     presenceMarkAgentLoaded();
 }
 

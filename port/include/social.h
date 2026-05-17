@@ -129,12 +129,18 @@ const char *socialMyAgentName(void);
 
 /**
  * Mike directive 2026-05-17: rebind the local handle + connect code to
- * the currently-active agent profile. The handle becomes a hash of
- * (pubkey || agent_name) so two agents on the same device get distinct
- * connect codes. Idempotent; safe to call on every agent switch.
- * Re-encodes s_MyConnectCode on success.
+ * the named agent profile. The handle becomes a hash of (pubkey ||
+ * agent_name) so two agents on the same device get distinct connect
+ * codes. Idempotent; safe to call on every agent switch. Re-encodes
+ * s_MyConnectCode on success.
+ *
+ * agent_name MUST be the save-slot name (e.g. "MikeHazeJr", "allen")
+ * picked from Agent Select, NOT the identity profile name (which today
+ * is always "Agent" because there is a single identity keypair per
+ * device).  Callers: prefs_agent.c::prefsAgentLoad, main.c::
+ * bootLaunchLoadAgentTick.
  */
-void socialRebindToActiveAgent(void);
+void socialRebindToActiveAgent(const char *agent_name);
 
 /* -------------------------------------------------------------------------
  * Friend list.

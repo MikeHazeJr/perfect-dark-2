@@ -28,7 +28,6 @@
 #include "presence.h"
 #include "social.h"
 #include "identity.h"
-#include "constants.h" /* STAGE_IS_GAMEPLAY for stage-aware initial presence state */
 #include "ed25519.h"
 #include "chat.h"
 #include "pdgui_toast.h"
@@ -351,22 +350,18 @@ void presenceInit(void)
 	             presenceStateName(s_LocalState), (int)s_NumScheduled);
 }
 
-/* Forward decls; we don't pull pdmain.h to keep this TU minimal. */
-extern s32 g_StageNum;
-
 void presenceMarkAgentLoaded(void)
 {
 	if (s_AgentConfirmed) return;
 	s_AgentConfirmed = 1;
 	if (socialVisibilityGet() == SOCIAL_VIS_APPEAR_OFFLINE) {
 		s_LocalState = PRESENCE_APPEAR_OFFLINE;
-	} else if (STAGE_IS_GAMEPLAY(g_StageNum)) {
-		/* Agent loaded while the player is already in a gameplay stage
-		 * (e.g. --launch-load-agent + --launch-mission). Reflect the
-		 * actual state immediately so friends don't see a phantom
-		 * "online idle" hop on the same frame the player is mid-match. */
-		s_LocalState = PRESENCE_IN_MATCH;
 	} else {
+		/* Start in online-idle; mainChangeToStage flips to IN_MATCH
+		 * when (gameplay stage AND looksLikeMP OR mission_active).
+		 * Earlier version stage-checked here too but mistook
+		 * STAGE_CITRAINING (the OG main-menu backdrop) for an active
+		 * match. Mike playtest 2026-05-17 confirmed the regression. */
 		s_LocalState = PRESENCE_ONLINE_IDLE;
 	}
 	sysLogPrintf(LOG_NOTE,

@@ -759,11 +759,18 @@ const char *socialMyAgentName(void)
 /* Mike directive 2026-05-17: per-agent connect code. Hash (pubkey ||
  * agent_name) so each agent on the same device produces a distinct
  * handle + connect code. Two players sharing a build can load their own
- * agent profiles and broadcast independent join codes. */
-void socialRebindToActiveAgent(void)
+ * agent profiles and broadcast independent join codes.
+ *
+ * Bug fix 2026-05-17 (Mike playtest): earlier version read agent_name
+ * via socialMyAgentName() which returns identityGetActiveProfile()->name
+ * -- always "Agent" because the identity keypair is per-device, not
+ * per-save-slot. That made every save slot produce the same handle.
+ * The caller now passes the actual save-slot name (from prefsAgentLoad
+ * or the CLI fast-path) so two slots produce two distinct codes. */
+void socialRebindToActiveAgent(const char *agent_name)
 {
 	const u8 *pub = identityGetPubkey();
-	const char *agent = socialMyAgentName();
+	const char *agent = (agent_name && agent_name[0]) ? agent_name : socialMyAgentName();
 	const u32 prev_handle = s_MyHandle;
 	char prev_code[32];
 	strncpy(prev_code, s_MyConnectCode, sizeof(prev_code) - 1);
