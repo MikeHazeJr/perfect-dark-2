@@ -208,7 +208,8 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .df-banner.show{display:flex}
 .df-banner.collapsed{padding:4px 14px}
 .df-banner.collapsed .df-headlines,
-.df-banner.collapsed .df-focus{display:none}
+.df-banner.collapsed .df-focus,
+.df-banner.collapsed .df-morning-results{display:none}
 .df-banner.partial{background:linear-gradient(90deg,#78350f 0%,#9a3412 100%);border-top-color:#f97316}
 .df-banner .df-row{display:flex;align-items:center;gap:10px}
 .df-banner .df-title{font-weight:800;letter-spacing:0.04em;color:#bbf7d0;text-transform:uppercase;font-size:0.7rem}
@@ -218,6 +219,13 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .df-banner .df-focus-pill{background:rgba(255,255,255,0.12);padding:2px 8px;border-radius:10px;font-size:0.72rem;color:#f0fdf4;border:1px solid rgba(255,255,255,0.15)}
 .df-banner .df-focus-pill.kind-bug{background:rgba(239,68,68,0.25);border-color:rgba(239,68,68,0.45)}
 .df-banner .df-focus-pill.kind-parked{background:rgba(168,85,247,0.25);border-color:rgba(168,85,247,0.45)}
+.df-banner .df-morning-results{display:flex;flex-direction:column;gap:4px;border-top:1px solid rgba(255,255,255,0.12);padding-top:6px;margin-top:2px}
+.df-banner .df-mr-summary{font-size:0.78rem;color:#fef3c7;font-weight:600}
+.df-banner .df-mr-detail{display:flex;flex-wrap:wrap;gap:5px}
+.df-banner .df-mr-pill{background:rgba(255,255,255,0.08);padding:2px 7px;border-radius:9px;font-size:0.68rem;color:#fef9c3;border:1px solid rgba(255,255,255,0.1)}
+.df-banner .df-mr-pill.kind-card{background:rgba(34,197,94,0.18);border-color:rgba(34,197,94,0.35)}
+.df-banner .df-mr-pill.kind-bug{background:rgba(239,68,68,0.18);border-color:rgba(239,68,68,0.35)}
+.df-banner .df-mr-pill.kind-decision{background:rgba(99,102,241,0.20);border-color:rgba(99,102,241,0.40)}
 .df-banner .df-actions{margin-left:auto;display:flex;gap:6px}
 .df-banner-min{display:none;position:fixed;right:18px;bottom:18px;width:36px;height:36px;border-radius:50%;background:#15803d;color:white;border:none;cursor:pointer;font-size:1.1rem;box-shadow:0 4px 12px rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center}
 .df-banner-min.show{display:flex}
@@ -510,6 +518,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
   </div>
   <div id="df-briefing-headlines" class="df-headlines"></div>
   <div id="df-briefing-focus" class="df-focus"></div>
+  <div id="df-briefing-morning-results" class="df-morning-results"></div>
 </div>
 
 <button id="df-briefing-min" class="df-banner-min" title="Show today briefing" onclick="restoreBriefingBanner()">B</button>
@@ -1777,6 +1786,36 @@ function renderBriefingBanner() {
     return `<span class="df-focus-pill kind-${kind}" title="${escapeHtml(item.rationale || '')}">[${kind}] ${id} ${title}</span>`;
   });
   document.getElementById('df-briefing-focus').innerHTML = focusBits.join('');
+
+  /* Mike directive 2026-05-17: surface the morning run's RESULTS
+   * (what the orchestrator actually did this morning) in addition to
+   * the state-of-the-board summary above. Added by step7_briefing.py
+   * as `morning_run_results`. */
+  const mr = briefingData.morning_run_results;
+  const mrEl = document.getElementById('df-briefing-morning-results');
+  if (mrEl) {
+    if (mr && (mr.summary_line || (mr.cards_flipped||[]).length || (mr.bugs_verified||[]).length || (mr.cascade_advanced||[]).length || (mr.decisions_allocated||[]).length)) {
+      const sections = [];
+      if (mr.summary_line) {
+        sections.push(`<div class="df-mr-summary">Morning run: ${escapeHtml(mr.summary_line)}</div>`);
+      }
+      const detailPills = [];
+      (mr.cards_flipped || []).forEach(c => detailPills.push(
+        `<span class="df-mr-pill kind-card" title="${escapeHtml('Flipped to ' + (c.to_column || ''))}">flipped: ${escapeHtml(c.id || '')} ${escapeHtml(c.title || '')}</span>`));
+      (mr.bugs_verified || []).forEach(b => detailPills.push(
+        `<span class="df-mr-pill kind-bug" title="${escapeHtml('Status: ' + (b.new_status || ''))}">bug: ${escapeHtml(b.id || '')} ${escapeHtml(b.title || '')}</span>`));
+      (mr.cascade_advanced || []).forEach(c => detailPills.push(
+        `<span class="df-mr-pill kind-card" title="${escapeHtml(c.reason || '')}">cascade: ${escapeHtml(c.id || '')} ${escapeHtml(c.title || '')}</span>`));
+      (mr.cascade_promoted_bugs || []).forEach(b => detailPills.push(
+        `<span class="df-mr-pill kind-bug" title="${escapeHtml(b.reason || '')}">promoted: ${escapeHtml(b.id || '')} ${escapeHtml(b.title || '')}</span>`));
+      (mr.decisions_allocated || []).forEach(d => detailPills.push(
+        `<span class="df-mr-pill kind-decision">decision -> ${escapeHtml(d.to || '')}: ${escapeHtml(d.topic || '')}</span>`));
+      if (detailPills.length) sections.push(`<div class="df-mr-detail">${detailPills.join('')}</div>`);
+      mrEl.innerHTML = sections.join('');
+    } else {
+      mrEl.innerHTML = '';
+    }
+  }
 
   banner.classList.add('show');
   document.getElementById('df-briefing-min').classList.remove('show');

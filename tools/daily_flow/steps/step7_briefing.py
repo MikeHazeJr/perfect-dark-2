@@ -49,12 +49,59 @@ def _blocker_bugs(priority_sort: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _morning_run_results(
+    audit: dict[str, Any],
+    state_sync: dict[str, Any],
+    cascade: dict[str, Any] | None,
+    daily_log_result: dict[str, Any],
+) -> dict[str, Any]:
+    """Mike directive 2026-05-17: surface what the morning task actually DID
+    (vs the current state-of-the-board summary). Renders in the kanban
+    panel's daily-flow banner as a third section after headlines + focus."""
+    cards = state_sync.get("cards_flipped", []) or []
+    bugs = state_sync.get("bugs_flipped", []) or []
+    cascade = cascade or {}
+    cascade_advanced = cascade.get("cards_advanced", []) or []
+    cascade_promoted = cascade.get("bugs_promoted", []) or []
+    decisions = daily_log_result.get("decisions_allocated", []) or []
+    return {
+        "summary_line": (
+            f"{len(cards)} card{'s' if len(cards) != 1 else ''} flipped, "
+            f"{len(bugs)} bug{'s' if len(bugs) != 1 else ''} verified, "
+            f"{len(cascade_advanced)} cascade advance{'s' if len(cascade_advanced) != 1 else ''}, "
+            f"{len(decisions)} decision{'s' if len(decisions) != 1 else ''} allocated"
+        ),
+        "cards_flipped": [
+            {"id": c.get("id"), "title": c.get("title"), "to_column": c.get("to_column")}
+            for c in cards[:8]
+        ],
+        "bugs_verified": [
+            {"id": b.get("id"), "title": b.get("title"), "new_status": b.get("new_status")}
+            for b in bugs[:8]
+        ],
+        "cascade_advanced": [
+            {"id": c.get("id"), "title": c.get("title"), "reason": c.get("reason")}
+            for c in cascade_advanced[:8]
+        ],
+        "cascade_promoted_bugs": [
+            {"id": b.get("id"), "title": b.get("title"), "reason": b.get("reason")}
+            for b in cascade_promoted[:8]
+        ],
+        "decisions_allocated": [
+            {"to": d.get("to"), "topic": d.get("topic")}
+            for d in decisions[:8]
+        ],
+        "daily_log_path": daily_log_result.get("log_path"),
+    }
+
+
 def run_briefing(
     *,
     audit: dict[str, Any],
     state_sync: dict[str, Any],
     priority_sort: dict[str, Any],
     daily_log_result: dict[str, Any],
+    cascade: dict[str, Any] | None = None,
     today: dt.date | None = None,
     partial: bool = False,
     failure_point: str | None = None,
@@ -88,6 +135,7 @@ def run_briefing(
         "focus": priority_sort.get("focus_shortlist", []),
         "daily_log_path": daily_log_result.get("log_path"),
         "decisions_allocated": daily_log_result.get("decisions_allocated", []),
+        "morning_run_results": _morning_run_results(audit, state_sync, cascade, daily_log_result),
         "x_failure_point": failure_point,
         "x_compaction_quality_review": compaction_quality_review,
     }

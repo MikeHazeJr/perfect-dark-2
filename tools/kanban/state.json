@@ -513,12 +513,12 @@
       "column": "active",
       "order": 1000,
       "priority": 2,
-      "notes": "Design ref: designs/input/input-universality-and-transitions.md. Sprint sprc036 7-of-8 ship in main-checkout 2026-05-12. Files touched (continuation slice): port/include/input.h (3 new VK_CHORD_*), port/include/actionmap.h (9 new ACTION_*), port/src/actionmap.cpp (chord detection + display + 10 default bindings + VKL_F* aliases), port/include/pdgui.h, port/fast3d/pdgui_spectator.cpp, port/src/inputlayer.c, port/src/pdsched.c (consumer block + chord-driven debug actions), port/fast3d/gfx_sdl2.cpp (gfxFullscreenToggle wrapper + all raw handlers removed), port/fast3d/gfx_sdl.h, port/fast3d/pdgui_backend.cpp (all 10 raw F-key blocks removed), port/src/input.c (s036-04 narrow), tests/test_right_stick_scroll.cpp, tests/test_vehicle_observer_layer.cpp. Build verify 3-target clean (client 55.6 / server 22.4 / tests 24.7 MB).  LF-1 in 2026-05-13 audit: 7-of-8 subtasks done; s036-08 menu graph is the remaining multi-session lane (35 raw call sites, ~2-4 edges per session). 2026-05-16 same-lane polish: 0805a6b5 -- wireless Xbox Series X Bluetooth jitter fix. s_StickDzMove / s_StickDzAim 0.15f -> 0.18f in actionmap.cpp + DEFAULT_DEADZONE 4096 -> 6144 in input.c (both tracking; 6144/32767 ~ 0.1875). pd.ini overrides and in-game Settings -> Controls sliders continue to win for users who tuned their own values. Sprint report: sprint-2026-05-16T112000-wireless-deadzone.md.",
+      "notes": "Design ref: designs/input/input-universality-and-transitions.md. Sprint sprc036 7-of-8 ship in main-checkout 2026-05-12 (s036-01..07). 2026-05-16 polish: wireless Xbox Series X deadzone bump 0.15 -> 0.18 (0805a6b5).  2026-05-17 ship batch (60db7944 + a3bec4fc): (1) Tap/hold dual-action primitive generalised. ACTION_USE: tap=X_BUTTON reload, hold=A_BUTTON interact+consume, double-tap (two taps within 15 frames at 60Hz)=alt-interact A_BUTTON. ACTION_WEAPON_NEXT: tap=Y_BUTTON cycle, hold=BUTTON_RADIAL wheel-open. BOND_TAP_HOLD_THRESH_MS = 250. (2) ACTION_CROUCH driven by the existing CROUCHPOS_{STAND,DUCK,SQUAT} state machine via direct writes in bondmove.c: STAND <-tap-> DUCK toggle pair, any --hold-> SQUAT (prone), SQUAT --tap-> DUCK, ACTION_JUMP press -> STAND. The held block translates current state back to BUTTON_HALF_CROUCH / BUTTON_FULL_CROUCH for downstream consumers. (3) Crouch-jump mid-air lift: ACTION_JUMP latches g_BondCrouchJumpActive, ACTION_CROUCH press while bdeltapos.y > 0 adds +1.5 (~18% of FIXED_JUMP_IMPULSE 8.2). (4) Hold-ring decay-on-hide: s_IpHoldRingSmoothed decays at fall tau on every pdguiInteractPromptRender early-return so re-entry doesn't flash a stale value. (5) Vehicle expansion: 4 new ACTION_VEHICLE_LOOK_X/Y/HANDBRAKE/USE (count 117 -> 121) bound on g_ImcVehicle. bbikeApplyMoveData reads look axes -> aimturnleft/rightspeed + speedvertaup/down. Handbrake adds to brake input. Directional dismount: ACTION_VEHICLE_EXIT press reorders bbikeTryDismountAngle probe ladder based on left-stick X (default LEFT). s036-08 menu graph completion still backlog (35 raw call sites).",
       "flag": null,
       "flagged_at": null,
       "pending_completion": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-16T23:00:00Z",
+      "updated": "2026-05-17T20:30:00Z",
       "subtasks": [
         {
           "id": "s036-01",
@@ -800,11 +800,11 @@
       "column": "backlog",
       "order": 11500,
       "priority": 3,
-      "notes": "connectivity.md Known Gaps",
+      "notes": "connectivity.md Known Gaps. 2026-05-17 social-hub completion arc shipped alongside this card (broader scope than ICE exchange itself): (1) NET_PROTOCOL_VER 48 -> 49 with CLC_LOBBY_RESYNC 0x18 -- client asks server (listen-host) to re-broadcast SVC_ROOM_ASSIGN after match-end so post-match return-to-lobby is synced (60db7944). (2) Agent-gated presence -- presenceTick early-returns until presenceMarkAgentLoaded fires from prefsAgentLoad / bootLaunchLoadAgentTick (d611cc87). (3) Per-agent connect code -- socialRebindToActiveAgent hashes (pubkey || agent_name) so two save slots produce two distinct handles + 4-word codes (d611cc87 + 2650edf1 follow-up fix passing the correct save-slot name). (4) mainChangeToStage flips presence IN_MATCH / ONLINE_IDLE gated on (gameplay stage AND (looksLikeMP OR mission_active)) so CITRAINING-as-menu doesn't trigger IN_MATCH (2650edf1). (5) pdguiFriendsStatusIndicatorRender presence-gates the top-right pill so the connect code is hidden until an agent is loaded (4535ed5f). (6) Change Agent button now pushes g_FilemgrFileSelectMenuDialog directly instead of the legacy Yes/No warning popup that raced the menupool (4535ed5f). pd-server target deprecated per Mike directive 2026-05-17; the CLC_LOBBY_RESYNC handler in netmsg.c runs server-side but the canonical server-side context in PD2 is the listen-host (P2P shipping target). New smoke test social_hub_agent_gate_smoke.json verifies the chain end-to-end (PASS 14/14).",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-17T20:30:00Z"
     },
     {
       "id": "c055",
@@ -1080,11 +1080,11 @@
       "column": "backlog",
       "order": 21000,
       "priority": 3,
-      "notes": "",
+      "notes": "2026-05-17 ship: bot jumping in normal Combat Sim play (toggleable, OFF by default). MPOPTION_BOTJUMP 0x10000000 + UI toggle in pdgui_menu_room.cpp 'Bot Jumping' alongside Fast Movement (3fe1f005). Design doc at context/designs/in-flight/bot-jumping-combat-sim.md (fe27da37). Bot AI decision in src/game/bot.c::botJumpDecide + botJumpTickEval with wall-clock budget (200 evals/sec across active bots, frame-rate independent via lvframe60 * 17 ms). Difficulty-tiered reach threshold: MEAT/EASY 90u, NORMAL 60u, HARD 40u, PERFECT/DARK 30u. Execution writes chr->fallspeed.y = 8.2f + chr->manground +1.0 nudge (mirrors player bondwalk.c:907-948). Crouch-jump +1.5 boost gated on HARD+ AND dy in the just-barely zone (30-60u). Telemetry: BOT.JUMP: chrnum=N reason=X target_y=Y dy=N diff=N boost=N. Live verification requires CS playtest with a stage that has a height-differentiated layout; smoke harness can't easily script the geometry. Open follow-up: obstacle-jump trigger (move-blocked-but-clear-above) needs a stuck-detection signal that aibot struct doesn't currently expose.  Two-stage capsule sweep design (the wall-jump glitch this card was originally about) still in backlog -- 5 open questions in jump-two-stage-sweep.md:113-118 pending Mike's call.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-14T02:28:26Z"
+      "updated": "2026-05-17T20:30:00Z"
     },
     {
       "id": "c081",
@@ -1750,12 +1750,12 @@
       "order": 1000,
       "priority": 3,
       "description": "Phase 1 design shipped at context/designs/in-flight/gpu-swarm-and-test-scenarios.md. Phase 2 implementation gated on Mike's approval of four design calls: (a) GL compute path choice in Section F.1, (b) chr-pool ceiling in Section F.2, (c) hit-detection model in Section F.3, (d) empty-map source in Section F.4. Benchmark harness scope, not gameplay rework; existing bot handling stays intact.",
-      "notes": "2026-05-16 ship batch on dev (FIXED-PENDING-PLAYTEST across the board): (1) GPU bot AI first slice + finish at 0edf90cb + 6d67888d (B-308 closed: fire request + anim_key on the GPU side; modelSetAnimation routed via the readback consumer). (2) GPU swarm spawn-time anim 43d5a3c8 -- POS_ONLY visual fix: spawn-time modelSetAnimation(ANIM_SKEDAR_RUNNING) so bots animate in POS_ONLY where do_ai=0 short-circuits the AI write-out (swarm_gpu_smoke 23/23 PASS). (3) Boids v0 81c25931 -- naive O(N^2) Reynolds separation/alignment/cohesion with surface-plane projection preserved; smoke max_unit_per_frame<6.0 still holds. (4) Track 2a 2af02855 -- ping-pong RGBA32F state textures (SWARM_GPU_MAX x 5, 640 KB); write-only side-channel; SSBO remains CPU consumer for bit-exact pre-2a parity. (5) Track 2c 67f835fa -- swarmGpuReadbackTextureRows() extraction primitive + --dump-swarm-state CLI fast-path (PDSWARMv1 file format). (6) Track 2d 390ae5c7 -- SVC_GPUSWARM_STATE (0x6c) listen-host-only Mode B net sync; NET_PROTOCOL_VER 47 -> 48; 20-byte packed_bot quantization (pos/vel s16 cm, surface_up s8 ratio, AI ints exact); 10 Hz throttle; 4096 bots split into 4 x 1024-bot chunks (~20.5 KB each on unreliable channel); pure-C quantizer (port/src/net/swarm_sync_quant.c) + Catch2 round-trip tests (6 cases / 143 assertions PASS, plus [versions] pin 4 cases / 9 assertions). Track 2b (kernel reads from texture) INTENTIONALLY SKIPPED: SSBO retained as CPU consumer; texture is write-only side-channel sufficient for Track 2c extraction + Track 2d net sync. Next slices named in track2d sprint report: 2e (client prediction via wire'd velocity extrapolation), 2f (range-relative pos quantization), 2g (dedicated-server Mode A via headless-GL or CPU-side compute). B-333 (LOW, TRACKING) carries v1 Mode B known limitations.",
+      "notes": "2026-05-16 ship batch on dev (FIXED-PENDING-PLAYTEST across the board): GPU bot AI first slice + finish (0edf90cb + 6d67888d, B-308 closed), spawn-time anim POS_ONLY visual fix (43d5a3c8), Boids v0 (81c25931), Track 2a ping-pong RGBA32F state textures (2af02855), Track 2c extraction primitive (67f835fa), Track 2d SVC_GPUSWARM_STATE 0x6c listen-host-only Mode B net sync at NET_PROTOCOL_VER 47 -> 48 (390ae5c7). Track 2b INTENTIONALLY SKIPPED. NET_PROTOCOL_VER 49 was bumped 2026-05-17 for CLC_LOBBY_RESYNC (c054), not for c3807.  2026-05-17 playtest fixes (4535ed5f): Mike reported GPU Skedars merged at player + crashed on O-key. (a) Reynolds boids retuned seek 1.0 -> 1.6 / sep 1.5 -> 1.0 / sep_radius 60 -> 90 so seek wins on approach and the wider personal-space bubble spreads bots around the player. (b) Round-robin throttle on the AI side-effect call: pressing O to enable GPU_FULL fired 4096 simultaneous modelSetAnimation calls overflowing the chr vtxstore, corrupting display-list emission (FATAL: Unknown GBI opcode 0x80 w0 8000000080000000). Each bot's swarmTestApplyAiDecision now fires at most once every 4 frames; the wave spreads to ~67 ms. Per-bot stats still tally every frame so the BENCHMARK.SWARM.GPU.AI summary is accurate.  Open follow-ups in the c3807 lane: Track 2e client prediction, Track 2f range-relative pos quantization, Track 2g Mode A dedicated (gated on porting kSwarmCs to CPU since pd-server has no GL context AND pd-server is now deprecated per Mike directive 2026-05-17). B-333 (LOW, TRACKING) carries v1 Mode B known limitations.",
       "subtasks": [],
       "flag": null,
       "flagged_at": null,
       "created": "2026-04-27",
-      "updated": "2026-05-16T23:00:00Z"
+      "updated": "2026-05-17T20:30:00Z"
     },
     {
       "id": "c3808",

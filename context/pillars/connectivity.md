@@ -88,6 +88,18 @@ Escalation chain:
 
 Ping interval 30s, online window 60s. Friends pinged via social friend list iteration. **No external presence service**; no lobby browser, no HTTPS matchmaking.
 
+### Agent gate (Mike directive 2026-05-17)
+
+`presenceInit` leaves `s_LocalState` at `PRESENCE_BOOTSTRAP` and skips the auto-flip to `ONLINE_IDLE`. `presenceTick` early-returns after `drainReceive()` while `s_AgentConfirmed == 0`, so the client doesn't announce a pre-agent identity to friends. `presenceMarkAgentLoaded()` flips the gate; called from `prefsAgentLoad` (live UI Agent Select path) and `bootLaunchLoadAgentTick` (CLI smoke fast-path).
+
+`mainChangeToStage` flips the local state on every stage transition: `PRESENCE_IN_MATCH` when `STAGE_IS_GAMEPLAY(stagenum) && (looksLikeMP || mission_active)`, otherwise `PRESENCE_ONLINE_IDLE`. The compound predicate excludes CITRAINING-as-main-menu (a gameplay stage by classification but the OG menu backdrop). Both gated on `presenceIsAgentLoaded()`.
+
+### Per-agent connect code
+
+`socialRebindToActiveAgent(const char *agent_name)` hashes `(pubkey || agent_name)` so each save slot on the same install produces a distinct 32-bit handle + 4-word connect code. `agent_name` must be the save-slot name (e.g. "MikeHazeJr", "allen") from `prefsAgentLoad`, NOT the identity profile name from `identityGetActiveProfile()->name` (which is always "Agent" because the ed25519 keypair is per-device). Two players on the same install can load different agent profiles and broadcast independent join targets.
+
+Connect-code UI surfaces (`pdguiFriendsStatusIndicatorRender` top-right pill) early-return on `!presenceIsAgentLoaded()` so the code is hidden through Agent Select.
+
 ---
 
 ## Voice

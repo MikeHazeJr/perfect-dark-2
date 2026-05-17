@@ -113,6 +113,24 @@ Scene-event integration at [port/src/scene.c:128](../../port/src/scene.c:128) ro
 
 Hold and tap timing are part of the action API surface: `actionHeldForMs`, `actionWasTap`, `actionConsumeHold`, `actionHoldProgress` declared at [port/include/actionmap.h:424-440](../../port/include/actionmap.h:424). Implementation at [port/src/actionmap.cpp:1539-1712](../../port/src/actionmap.cpp:1539). Gated through `actionLayerAllows`.
 
+### Tap / hold / double-tap dispatcher pattern (Mike directive 2026-05-17)
+
+Single buttons can carry both a tap action and a hold action. The canonical pattern lives in [src/game/bondmove.c](../../src/game/bondmove.c) for player-side gameplay inputs:
+
+- **Tap**: `actionWasTap(player, action, BOND_TAP_HOLD_THRESH_MS)` fires once on the release frame if the button was released before `BOND_TAP_HOLD_THRESH_MS` (= 250) and the gesture wasn't consumed by a hold handler.
+- **Hold**: `actionHeldForMs(player, action, threshold) && !actionHoldConsumed(player, action)` fires once when the threshold is crossed; pair with `actionConsumeHold(player, action)` so the tap path stays silent on the eventual release.
+- **Double-tap**: stash the frame index of the last tap-release per player; on the next tap-release, check whether the gap is within `BOND_DOUBLE_TAP_TICKS` (= 15, ~250 ms at 60 Hz). Reset the stamp after a double-tap fires so a triple-tap doesn't cascade.
+
+Live bindings using this pattern:
+
+- `ACTION_USE`: tap = X_BUTTON (reload); hold = A_BUTTON (interact) + consume; double-tap = A_BUTTON alt-interact.
+- `ACTION_WEAPON_NEXT`: tap = Y_BUTTON cycle; hold = BUTTON_RADIAL wheel-open.
+- `ACTION_CROUCH`: drives the existing `CROUCHPOS_{STAND, DUCK, SQUAT}` state machine directly (STAND tap → DUCK, DUCK tap → STAND, any hold → SQUAT, SQUAT tap → DUCK, ACTION_JUMP press → STAND).
+
+The hold-ring visual (`pdguiDrawHoldProgressRingAroundBox`) decays the smoothed value toward 0 on every `pdguiInteractPromptRender` early-return (menu open, CI intro, prop label NULL) so a re-entry doesn't flash from a stale value.
+
+Crouch-jump: `ACTION_JUMP` latches `g_BondCrouchJumpActive[pi]`; a fresh `ACTION_CROUCH` press while `bdeltapos.y > 0` (mid-jump) adds +1.5 to vertical velocity, consumes the latch (single-shot per jump). Players clear surfaces slightly above their regular jump apex. Bots get the same boost but only on `BOTDIFF_HARD+` AND when the target Y delta is in the just-barely 30-60 unit zone.
+
 ---
 
 ## Glyph system

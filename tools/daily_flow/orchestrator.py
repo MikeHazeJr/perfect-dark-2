@@ -247,6 +247,7 @@ def run_pipeline(
             state_sync=state_sync,
             priority_sort=sort_result,
             daily_log_result=log_result,
+            cascade=cascade,
             today=today,
             partial=partial,
             failure_point=failure_point,

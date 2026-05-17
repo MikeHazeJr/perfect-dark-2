@@ -1,6 +1,6 @@
 # Server / Hosting
 
-> Listen-host is the current shipping target. Dedicated server (`PerfectDarkServer.exe`) is built but deferred per S486. Hub holds rooms; rooms are demand-driven, not pre-allocated. Participant pool is the sole source of match slot truth. Admin RCON, persistent bans, hashed room passwords are wired.
+> Listen-host is the shipping target. **Dedicated server (`PerfectDarkServer.exe`) is deprecated per Mike directive 2026-05-17** -- not built in routine verify, no ongoing development. P2P networking via listen-host is the canonical model. Hub holds rooms; rooms are demand-driven, not pre-allocated. Participant pool is the sole source of match slot truth. Admin RCON, persistent bans, hashed room passwords are wired.
 
 ---
 
@@ -9,7 +9,7 @@
 The server side of the multiplayer architecture. Two modes share most code:
 
 - **Listen host** (`g_NetDedicated == 0`): server runs inside the game client process. Local player occupies a slot. The shipping target per [constraints.md](../constraints.md) S486 (2026-04-27).
-- **Dedicated** (`g_NetDedicated == 1`, `g_NetLocalClient == NULL`): standalone `PerfectDarkServer.exe`. No local player. ROM/mod check skipped at `CLC_AUTH`. Buildable as tooling/regression coverage; in-client work has priority.
+- **Dedicated** (`g_NetDedicated == 1`, `g_NetLocalClient == NULL`): standalone `PerfectDarkServer.exe`. **Deprecated** per Mike 2026-05-17. The CMake target still exists for any legacy reference but should NOT appear in routine `ninja -C Build ...` verify lists -- use `ninja -C Build pd pd-tests` going forward. Memory file `feedback_no_pd_server_build.md` carries the rule.
 
 Both share the same `port/src/net/net.c` transport, `port/src/net/netmsg.c` protocol handlers, and `port/src/room.c` room logic. The server target compiles a stub layer ([port/src/server_stubs.c](../../port/src/server_stubs.c)) that satisfies symbols the headless build does not need (audio, rendering, input).
 

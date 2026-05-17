@@ -1,5 +1,89 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-17-input-social-vehicles-botjump`) - 2026-05-17 - Tap/hold + 3-state crouch + crouch-jump, vehicles full, CS/MP post-match, social hub agent-gate + per-agent connect, bot jumping (toggle + 4-tier difficulty), 6-bug playtest cleanup
+
+Whole-day arc on `dev` (worktrees disabled). Started with Mike's "implement fully, not in phases" directive across four areas (CS post-match menu, MP post-match lobby return, vehicles, hold input + press/release principle), folded in a social-hub completion arc, planned + shipped bot-jumping as a CS-setup toggle, then a recursive cleanup sweep against the first playtest. Cross-pillar: input (c036), networking (c054), physics-collision (c038), benchmarking (c3807). NET_PROTOCOL_VER 48 -> 49.
+
+### Change
+
+Listing newest-first along `dev`:
+
+- `4535ed5f` Networking - c054: playtest fixes (CS UI + social + GPU swarm). Six concrete regressions from Mike's first playtest: (B1) Bot Jumping toggle was added to renderSharedScenarioTop (in the "More Options..." sub-dialog) but invisible in the live CS Room setup; now also surfaced in `pdgui_menu_room.cpp` near "Fast Movement". (B2) Connect-code pill was shown in Agent Select before any agent was loaded; `pdguiFriendsStatusIndicatorRender` now early-returns on `!presenceIsAgentLoaded()`. (B3) GPU Skedars merged at the player location; Reynolds boids retuned seek 1.0 -> 1.6 / sep 1.5 -> 1.0 / sep_radius 60 -> 90. (B4) Pressing O to toggle GPU_FULL crashed with `Unknown GBI opcode 0x80 w0 8000000080000000` due to 4096 simultaneous `modelSetAnimation` calls overflowing chr vtxstore; round-robin throttle now spreads the side-effect over 4 frames. (B5) Change Character moved from a standalone button to a per-row `##local_ctx` context popup on the local player row. (B6) Change Agent jank fixed -- `pdgui_menu_mainmenu.cpp:5521` now pushes `g_FilemgrFileSelectMenuDialog` directly instead of `g_ChangeAgentMenuDialog` (a legacy Yes/No warning popup that raced the menupool when its "Yes" handler tried to push the picker on top).
+
+- `2650edf1` Networking - c054: per-agent connect code + IN_MATCH false-positive. (1) `socialRebindToActiveAgent(const char *agent_name)` now takes the save-slot name as a parameter instead of reading `identityGetActiveProfile()->name` (always "Agent" because the ed25519 keypair is per-device, not per-save-slot). Two save slots now produce two distinct handles + connect codes. (2) `mainChangeToStage`'s state flip now pairs `STAGE_IS_GAMEPLAY` with `(looksLikeMP || mission_active)` so STAGE_CITRAINING (the OG main-menu backdrop) no longer triggers IN_MATCH. `presenceMarkAgentLoaded` always starts in ONLINE_IDLE.
+
+- `3fe1f005` Physics-collision - c038: bot jumping in Combat Sim (toggleable). Implements Slices A+B+C+D from `context/designs/in-flight/bot-jumping-combat-sim.md`. `MPOPTION_BOTJUMP 0x10000000` (default OFF), wall-clock-budgeted decision (200 evals/sec across active bots), difficulty-tiered reach threshold (MEAT/EASY 90u -> NORMAL 60u -> HARD 40u -> PERFECT/DARK 30u), `chr->fallspeed.y = 8.2f` + `manground +1.0` impulse, HARD+ get a +1.5 crouch-jump boost in the just-barely (30-60 unit) zone. Telemetry: `BOT.JUMP: chrnum=N reason=X target_y=Y dy=N diff=N boost=N` in both dev + release with channel enabled.
+
+- `fe27da37` Physics-collision - c038: bot-jumping CS design (toggleable, off). Design-only doc at `context/designs/in-flight/bot-jumping-combat-sim.md`; 6-slice plan (~3.25 sess) with 5 open questions for Mike, all answered before slice B implementation.
+
+- `d611cc87` Networking - c054: agent-gated presence + per-agent connect code. (1) `presenceInit` now leaves `s_LocalState` at `PRESENCE_BOOTSTRAP` (was auto-flipping to ONLINE_IDLE); `presenceTick` early-returns after `drainReceive()` while `s_AgentConfirmed == 0`. (2) `presenceMarkAgentLoaded()` flips the gate; called from `prefsAgentLoad` (live UI) and `bootLaunchLoadAgentTick` (CLI fast-path). (3) `socialRebindToActiveAgent()` originally hashed (pubkey || agent_name) -- shipped here, parameter wiring fixed in the follow-up commit. (4) `mainChangeToStage` flips IN_MATCH on gameplay-stage transitions (gated on `presenceIsAgentLoaded`). New smoke test `social_hub_agent_gate_smoke.json` 14/14 PASS.
+
+- `a3bec4fc` Input - c036: 3-state crouch + crouch-jump + USE pattern refine. Reworked ACTION_CROUCH to drive the existing CROUCHPOS_{STAND,DUCK,SQUAT} state machine directly (STAND-tap-DUCK toggle pair; hold-past-threshold -> SQUAT; SQUAT-tap-DUCK; JUMP press -> STAND). Crouch-jump mid-air lift (+1.5 to bdeltapos.y) when ACTION_CROUCH press fires while bdeltapos.y > 0. ACTION_USE now: tap=X_BUTTON (reload) always, hold past threshold=A_BUTTON (interact)+consume, double-tap (two taps within 15 frames at 60Hz)=alt-interact A_BUTTON.
+
+- `60db7944` Input - c036: tap/hold + ring fix + CS/MP post-match + vehicles full. The bulk of the four-area "implement fully" arc: Area A swapped `menutick.c:283` `pdguiSoloRoomOpen()` -> `pdguiSoloRoomReturn()` for the CS rematch path; Area B bumped NET_PROTOCOL_VER 48 -> 49 with `CLC_LOBBY_RESYNC 0x18` opcode + `netSendLobbyResync` helper + `pdguiEndscreenExitToRoom()` variant; Area C added `ACTION_VEHICLE_LOOK_X/Y`, `ACTION_VEHICLE_HANDBRAKE`, `ACTION_VEHICLE_USE` (count 117 -> 121) bound on `g_ImcVehicle` + camera-look wired into `bbikeApplyMoveData` + directional dismount based on left-stick X; Area D fixed the ring decay-on-hide in `pdgui_interact_prompt.cpp` and migrated `ACTION_WEAPON_NEXT` to tap=Y_BUTTON cycle / hold=BUTTON_RADIAL wheel-open via `BOND_TAP_HOLD_THRESH_MS = 250`.
+
+### Verification
+
+- **Build verify clean** across pd / pd-tests / Updater at each commit (note: pd-server dropped from routine verify going forward per `feedback_no_pd_server_build.md` -- deprecated, P2P listen-host is shipping target).
+- **Smoke verify**: `boot_smoke` 14/14, `swarm_gpu_smoke` 26/26, `mp_room_flow` 17/17, `listen_host_peer_smoke` 27/27, `vehicle_flow` 10/10, `physics_capsule_basic_smoke` 19/19, `mission_intro_flow` 18/18, `save_load_smoke` 26/26, new `social_hub_agent_gate_smoke` 14/14.
+- **Wire pin**: `tests/test_versions.cpp:46` `g_TestExpectedNetProtocolVer = 49` matches the bump in the same commit per `feedback_wire_bump_pin`.
+
+### Decisions
+
+- **NET_PROTOCOL_VER 48 -> 49** for `CLC_LOBBY_RESYNC` (Mike Q1 2026-05-17 -- preferred a new CLC opcode over re-pushing existing SVCs). The handler runs server-side but the server-side context in PD2 is the listen-host (canonical P2P shipping target), not the deprecated dedicated server.
+- **Difficulty scaling for bot jumping** (Mike Q2 2026-05-17 -- yes). MEAT/EASY only jump for big height gaps (90u); PERFECT/DARK react to 30u. Each tier has its own reach threshold so bot variety reads in playtest.
+- **Tap/hold + double-tap on ACTION_USE** (Mike Q2 2026-05-17 follow-up). Per Mike: tap=reload, hold=interact (canonical), double-tap=alt-interact path. The single-button-with-two-actions principle established here generalizes to any future button that needs the pattern.
+- **Bot jump telemetry on by default** (Mike Q3 2026-05-17 -- yes, dev + release with channel). `BOT.JUMP:` log line emits unconditionally; release builds can mute via the log channel.
+- **Crouch-jump for bots: HARD+ only** (Mike Q5 2026-05-17). Reward for difficulty. MEAT/EASY/NORMAL bots get standard impulse only; HARD+ get the +1.5 boost in the 30-60u just-barely zone.
+- **Decision frequency: wall-clock budget** (Mike Q1 2026-05-17). 200 evals/sec divided across active bots. At 32 bots each is evaluated ~6 Hz, at 4 bots ~50 Hz. Frame-rate independent because the time source is `g_Vars.lvframe60 * 17ms` (engine 60Hz pinned to wall clock).
+- **Connect code is per-agent**, derived from `hash(pubkey || save_slot_name)`. Two players on the same install can load different agent profiles and broadcast independent join codes. Bug surfaced when the first implementation read the identity profile name (always "Agent") instead of the save-slot name; fixed in 2650edf1.
+- **Change Agent skips the legacy Yes/No warning popup**. `pdgui_menu_mainmenu.cpp:5521` now pushes `g_FilemgrFileSelectMenuDialog` directly. The warning popup served no PC-port purpose and racing the menupool caused ~30% of clicks to flash-open-then-close.
+- **pd-server is deprecated** (Mike directive 2026-05-17 explicit). Memory file `feedback_no_pd_server_build.md` captures the build-verify update. P2P listen-host is the shipping target; pd-server has no shipping role today.
+- **Drop-in / drop-out coexistence comes for free** with the agent-gated presence model. Presence runs on UDP 27105 with its own socket; `mainChangeToStage` flips the local state but does NOT tear down the presence socket. Friends stay reachable across CS / Co-op / Grid / menu transitions.
+
+### Outstanding (follow-ups)
+
+1. **Mike's playtest verification** of the four-area arc + social hub + bot jumping. Smoke can't easily test ImGui context menus, modal flicker, or in-stage bot-jump gameplay; live playtest is the natural gate.
+2. **GPU swarm Tracks 2e / 2f / 2g** (c3807) -- client prediction, range-relative pos quantization, dedicated-server Mode A. Named in `.claude/sprint-reports/sprint-2026-05-16T192015-track2d-net-sync.md` -- still open.
+3. **Bot-jump obstacle trigger** -- the move-blocked-but-clear-above path. Needs a stuck-detection signal that the `aibot` struct doesn't currently expose. Filed in `context/designs/in-flight/bot-jumping-combat-sim.md` as a follow-up slice.
+4. **Two-process social hub smoke** (`listen_host_swarm_sync_smoke.json` shape) for Track 2d + the agent-specific connect-code roundtrip. Named in `.claude/sprint-reports/sprint-2026-05-16T192015-track2d-net-sync.md`.
+5. **The Grid hub-aware path** -- right now Grid (STAGE_TEST_DEST 0x1a) drops the player into a stage like any other; future work would let The Grid coexist with hub presence as a "social hub backdrop".
+6. **Plan vs implementation drift cleanup**: `context/designs/in-flight/serialized-sleeping-truffle.md` plan listed work; what shipped today only covers Area 1 + 2 + 4 partially, with Area 3 (asset `.pd*` loading) still entirely deferred.
+
+### Files touched
+
+- `src/include/constants.h` (MPOPTION_BOTJUMP).
+- `src/game/bondmove.c` (tap/hold pattern, 3-state crouch, crouch-jump, ACTION_USE double-tap, BOND_TAP_HOLD_THRESH_MS, g_BondCrouchJumpActive).
+- `src/game/bondbike.c` (vehicle look + handbrake + directional dismount).
+- `src/game/menutick.c` (CS post-match `pdguiSoloRoomReturn` swap).
+- `src/game/bot.c` (bot jump decision + execution + telemetry).
+- `port/include/actionmap.h` (vehicle action enums, count 117 -> 121).
+- `port/include/net/net.h` (NET_PROTOCOL_VER 48 -> 49).
+- `port/include/net/netmsg.h` (CLC_LOBBY_RESYNC 0x18).
+- `port/include/presence.h` (presenceMarkAgentLoaded / presenceIsAgentLoaded).
+- `port/include/social.h` (socialRebindToActiveAgent signature).
+- `port/fast3d/pdgui_bridge.c` (pdguiEndscreenExitToRoom).
+- `port/fast3d/pdgui_friends.cpp` (presence-gate the status pill).
+- `port/fast3d/pdgui_interact_prompt.cpp` (ring decay-on-hide).
+- `port/fast3d/pdgui_menu_endscreen.cpp` (MP networked branch -> exit-to-room + CLC_LOBBY_RESYNC).
+- `port/fast3d/pdgui_menu_mainmenu.cpp` (Change Agent pushes picker directly).
+- `port/fast3d/pdgui_menu_mpsetup.cpp` (Bot Jumping in More Options).
+- `port/fast3d/pdgui_menu_room.cpp` (Bot Jumping toggle on live screen, Change Character context menu).
+- `port/fast3d/swarm_gpu.cpp` (boids retune, AI side-effect throttle).
+- `port/src/actionmap.cpp` (vehicle bindings + name table).
+- `port/src/inputlayer.c` (s_VehicleDriverActionSet expansion).
+- `port/src/main.c` (CLI fast-path -> rebind + presence).
+- `port/src/pdmain.c` (mainChangeToStage presence state flip).
+- `port/src/prefs_agent.c` (agent-load -> rebind + presence).
+- `port/src/presence.c` (agent gate + initial state).
+- `port/src/social_store.c` (per-agent rebind impl).
+- `port/src/net/net.c` (CLC_LOBBY_RESYNC dispatcher case).
+- `port/src/net/netmsg.c` (CLC_LOBBY_RESYNC handler + helper).
+- `tests/test_versions.cpp` (pin v48 -> v49).
+- `tools/smoke-verify/tests/social_hub_agent_gate_smoke.json` (new).
+- `context/designs/in-flight/bot-jumping-combat-sim.md` (new design doc).
+- `context/session-log.md` (this entry).
+
 ## Session (`main-checkout-c3807-c029-c3738-day`) - 2026-05-16 - GPU swarm boids + Tracks 2a/2c/2d net sync, c029 perf + B-330/B-331/B-332 crash class, c3738 wall-transition climb, c027 B-329 weapon-anim, c036 deadzone, c130 lock hardening, c118 daily-flow
 
 Whole-day arc on `dev` (worktrees disabled). Began with the morning daily-flow briefing emit (06:21 ET) and ran ~17 commits before the bookkeeping close-out captured in this entry. Cross-pillar: benchmarking (c3807, c029), engine (c3738), catalog (c027), input (c036), tooling (c130, c118), tests (c115). All shipped state is FIXED-PENDING-PLAYTEST across the bug class.
