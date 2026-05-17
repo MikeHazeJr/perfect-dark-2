@@ -27,7 +27,7 @@ Code:
 
 ## Wire protocol
 
-`NET_PROTOCOL_VER 46` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The header carries an in-source changelog from v27 through v46. The version is pinned by [tests/test_versions_pin.c](../../tests/test_versions_pin.c) which reads the live header.
+`NET_PROTOCOL_VER 48` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The header carries an in-source changelog from v27 through v48. The version is pinned by [tests/test_versions.cpp:46](../../tests/test_versions.cpp:46) (`g_TestExpectedNetProtocolVer`) which reads the live header.
 
 Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1560](../../port/src/net/net.c:1560) `enet_peer_disconnect(peer, DISCONNECT_VERSION)`) and at the presence-channel proto check ([port/src/group_session.c:212](../../port/src/group_session.c:212)).
 
@@ -35,6 +35,8 @@ Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1
 
 | Bump | What changed |
 |------|--------------|
+| **v48 (c3807 Track 2d, 2026-05-16)** | `SVC_GPUSWARM_STATE 0x6c` -- listen-host-only Mode B broadcasts the GPU swarm state texture to all peers at 10 Hz; 20-byte packed_bot quantization (pos/vel s16 cm, surface_up s8 ratio, AI ints exact); 4 chunks of 1024 bots over the unreliable channel at SWARM_GPU_MAX = 4096. Receiver dequantizes via `swarmGpuApplyRemoteState` and skips local compute on `g_NetMode == NETMODE_CLIENT`. v1 limitations tracked in B-333. |
+| v47 (c3738 Slice 3, 2026-05-14) | Skedar surface-normal locomotion MP sync -- `chr->surface_up` over the wire so remote clients tilt bots correctly along wall/ceiling surfaces |
 | **v46 (S507/S511, 2026-04-28)** | Mandatory SHA-256 digest on `SVC_DISTRIB_BEGIN`; cutscene network semantics (`SVC_CUTSCENE active+player_mask`, `CLC_CUTSCENE_SKIP 0x17`) |
 | v45 (S482-S483, 2026-04-27) | Spawn-weapon mode wire fields (`SPAWNWEAPON_MODE_*`, `SPAWNWEAPON_FIESTA_SENTINEL=0xFE`) |
 | v44 (S468, 2026-04-26) | Hygiene bump alongside `MPSETUP_VERSION 1->2` for Goldfinger weapon + AllInOne arena cull |

@@ -399,10 +399,24 @@ static struct swarm_params s_Params;
  * sync). Sub-2a only adds the WRITE path and the ping-pong swap so
  * 2b can land cleanly.
  *
+ * 2026-05-16 update: Track 2b INTENTIONALLY SKIPPED. After 2c and 2d
+ * shipped (390ae5c7), the texture proved sufficient as a write-only
+ * side-channel: CPU consumers (extraction primitive, ENet broadcast)
+ * sample it via glGetTexImage; the kernel keeps reading state from the
+ * SSBO. Folding the read side into the kernel would have eliminated
+ * one SSBO->texture redundancy but added a real texelFetch -> int
+ * round trip per bot per frame with no measurable win for the
+ * benchmark workload. The named follow-ups in the Track 2d sprint
+ * report jump straight to 2e (client prediction), 2f (range-relative
+ * pos quantization), 2g (dedicated-server Mode A). The ping-pong
+ * swap stays wired so a future 2b can land without breaking the
+ * frame-N reads-frame-N-1 invariant.
+ *
  * Ping-pong: s_StateTexReadIdx names the texture the NEXT slice will
  * READ from; the kernel writes to the OTHER one. Frame N+1 writes to
- * the texture frame N read from. For 2a the read side is unused -- we
- * still wire the swap so behaviour is identical to 2b's first run.
+ * the texture frame N read from. With 2b deferred indefinitely, the
+ * read side stays unused -- we still wire the swap so a future 2b's
+ * first run is identical to a steady-state run.
  *
  * Gating: the texture path is armed only after ensure_resources()
  * succeeds AND s_glBindImageTexture loaded. On any failure the shader

@@ -456,11 +456,11 @@
       "column": "done",
       "order": 162000,
       "priority": 2,
-      "notes": "All shipped 2026-05-03 across worktrees affectionate-hawking-f01503 (Step 4), hungry-elgamal-e991de (Step 5), gallant-booth-6f996f (B-318/B-319/B-320/B-321/B-322 triage), focused-poitras-97c1d4 (BYOR completion), gifted-bohr-62309b (walker-after-emitters + B-324/B-325/B-326), competent-saha-a202bb (B-323 challenge AV).",
+      "notes": "All shipped 2026-05-03 across worktrees affectionate-hawking-f01503 (Step 4), hungry-elgamal-e991de (Step 5), gallant-booth-6f996f (B-318/B-319/B-320/B-321/B-322 triage), focused-poitras-97c1d4 (BYOR completion), gifted-bohr-62309b (walker-after-emitters + B-324/B-325/B-326), competent-saha-a202bb (B-323 challenge AV). Follow-on bug fixes shipped on dev 2026-05-15/16 under c027 namespace: 219378c0 (B-328 loader_pool head/body parser key drift) + d0d02cf3 (B-329 weapon-anim startup -- loader_pool stripped 'base:' namespace prefix from .pdanim ids so resolveAnimByName / loaderPoolAnimationNameForCmds match the bare g_AnimData[].name symbols .pdwpn writes). Class: emitter writes key X, parser stores key Y -- same systemic class as SP-16.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-13T17:42:43Z",
+      "updated": "2026-05-16T23:00:00Z",
       "pending_completion": null
     },
     {
@@ -485,11 +485,11 @@
       "column": "active",
       "order": 3000,
       "priority": 2,
-      "notes": "B-307 open in bugs.md  HF-3 in 2026-05-13 audit: still open. Needs debug build with SEH stack capture to isolate.",
+      "notes": "2026-05-16 ship batch on dev (FIXED-PENDING-PLAYTEST): (1) 4246a45e -- GPU swarm bot speed tune 1620 -> 300 cm/sec to match CPU baseline. (2) b6f1c3d0 -- B-330 fix: roomGetProps() ignored its len param and write-overran 256-element s16 stack buffers at the 128->256/256->512 cycle, triggering Windows /GS stack-cookie aborts (0xC0000409) -- same silent-exit class as the historical B-307 reading. Function now honors len, drops surplus propnums, emits a frame-rate-limited LOG_WARNING. swarm_cpu_smoke now ladders cleanly 4 -> ... -> 512 (PASS 22/22). (3) 083a0348 -- B-331 fix: 768-bot AV at chrInit (myspecial+yvisang+teamscandist+convtalk+naturalanim left as MEMPOOL_STAGE garbage); init layer now writes -1 / 0 sentinels mirroring body.c/botmgr.c init paths. swarm_gpu_smoke ladders to 768 (PASS 26/26). (4) 04070afe -- GPU swarm perf: wall-clock dt + async PBO ring (2-deep, fence-gated) replaces synchronous glGetBufferSubData; eliminates pipeline drain at high counts. (5) 937bfc9b -- Slice 3 perf + 4-loop merge: chrSetPosWithCachedGround helper drops per-frame raycasts to 1/N. (6) d689e862 (with WIP b9c65e91) -- B-332 fix: chrSetPosWithCachedGround dropped its newrooms gate (rooms re-resolve via bgFindEnteredRooms unconditionally) and now sets CHRCFLAG_FORCETOGROUND every call, matching chrMoveToPos invariants; raycast budget at 512 bots / 78% hit rate = 85% reduction. Class: derived-helper drift (same family as B-264 / B-307b).  Historical B-307 promotion at 89bc7a50 (older session) + the deeper B-330/B-331/B-332 fixes today land the structural fix; 2026-05-13 audit HF-3 status is now FIXED-PENDING-PLAYTEST.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-13T16:00:00Z"
+      "updated": "2026-05-16T23:00:00Z"
     },
     {
       "id": "c030",
@@ -513,12 +513,12 @@
       "column": "active",
       "order": 1000,
       "priority": 2,
-      "notes": "Design ref: designs/input/input-universality-and-transitions.md. Sprint sprc036 7-of-8 ship in main-checkout 2026-05-12. Files touched (continuation slice): port/include/input.h (3 new VK_CHORD_*), port/include/actionmap.h (9 new ACTION_*), port/src/actionmap.cpp (chord detection + display + 10 default bindings + VKL_F* aliases), port/include/pdgui.h, port/fast3d/pdgui_spectator.cpp, port/src/inputlayer.c, port/src/pdsched.c (consumer block + chord-driven debug actions), port/fast3d/gfx_sdl2.cpp (gfxFullscreenToggle wrapper + all raw handlers removed), port/fast3d/gfx_sdl.h, port/fast3d/pdgui_backend.cpp (all 10 raw F-key blocks removed), port/src/input.c (s036-04 narrow), tests/test_right_stick_scroll.cpp, tests/test_vehicle_observer_layer.cpp. Build verify 3-target clean (client 55.6 / server 22.4 / tests 24.7 MB).  LF-1 in 2026-05-13 audit: 7-of-8 subtasks done; s036-08 menu graph is the remaining multi-session lane (35 raw call sites, ~2-4 edges per session).",
+      "notes": "Design ref: designs/input/input-universality-and-transitions.md. Sprint sprc036 7-of-8 ship in main-checkout 2026-05-12. Files touched (continuation slice): port/include/input.h (3 new VK_CHORD_*), port/include/actionmap.h (9 new ACTION_*), port/src/actionmap.cpp (chord detection + display + 10 default bindings + VKL_F* aliases), port/include/pdgui.h, port/fast3d/pdgui_spectator.cpp, port/src/inputlayer.c, port/src/pdsched.c (consumer block + chord-driven debug actions), port/fast3d/gfx_sdl2.cpp (gfxFullscreenToggle wrapper + all raw handlers removed), port/fast3d/gfx_sdl.h, port/fast3d/pdgui_backend.cpp (all 10 raw F-key blocks removed), port/src/input.c (s036-04 narrow), tests/test_right_stick_scroll.cpp, tests/test_vehicle_observer_layer.cpp. Build verify 3-target clean (client 55.6 / server 22.4 / tests 24.7 MB).  LF-1 in 2026-05-13 audit: 7-of-8 subtasks done; s036-08 menu graph is the remaining multi-session lane (35 raw call sites, ~2-4 edges per session). 2026-05-16 same-lane polish: 0805a6b5 -- wireless Xbox Series X Bluetooth jitter fix. s_StickDzMove / s_StickDzAim 0.15f -> 0.18f in actionmap.cpp + DEFAULT_DEADZONE 4096 -> 6144 in input.c (both tracking; 6144/32767 ~ 0.1875). pd.ini overrides and in-game Settings -> Controls sliders continue to win for users who tuned their own values. Sprint report: sprint-2026-05-16T112000-wireless-deadzone.md.",
       "flag": null,
       "flagged_at": null,
       "pending_completion": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-14T02:03:00Z",
+      "updated": "2026-05-16T23:00:00Z",
       "subtasks": [
         {
           "id": "s036-01",
@@ -1720,12 +1720,12 @@
       "order": 1000,
       "priority": 3,
       "description": "Slices 1+2 (chr-struct plumbing + visual tilt) shipped at dev 0d08b4cc. Slice 3 (MP sync) shipped at dev ae705aa6. Slices 4 (gravity-flip on edge transitions) and 5 (aim projection through world space) deferred pending Mike's playtest gate on the foundation. Slice 6 (GPU parity in compute kernel) remains deferred to gpu-swarm-bot-pipeline scope.",
-      "notes": " MF-3 in 2026-05-13 audit: Slices 1-3 shipped + v47 wire bump; Slices 4-5 + Slice 6 (GPU parity) deferred pending Mike's playtest gate.",
+      "notes": "2026-05-16 ship: wall-transition climb trigger (4d0b70d8) -- begins materialising Slice 4 (gravity-flip on edge transitions) via a climb-trigger detector at the Skedar surface-normal pipeline boundary. Slice 5 sampler raycast along chr->surface_up shipped 2026-05-14 as e5771cda; Slice 6 GPU compute kernel projection shipped same day as 6fe94c09. With today's wall-transition slice the c3738 lane covers Slices 1-3 + 4-prep + 5 + 6. Outstanding: Mike's playtest gate on the full surface-loco visual (a Skedar map / CITRAINING swarm GPU mode) -- the smoke tests verify the pipeline runs without crash but cannot assert visual correctness. Sprint report: sprint-2026-05-16T170755-wall-transition.md.  MF-3 in 2026-05-13 audit was framed as Slices 1-3 done / 4-5 + GPU parity deferred -- post-2026-05-14 + 05-16 the audit ledger needs updating.",
       "subtasks": [],
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-01",
-      "updated": "2026-05-13T16:00:00Z"
+      "updated": "2026-05-16T23:00:00Z"
     },
     {
       "id": "c3746",
@@ -1750,12 +1750,12 @@
       "order": 1000,
       "priority": 3,
       "description": "Phase 1 design shipped at context/designs/in-flight/gpu-swarm-and-test-scenarios.md. Phase 2 implementation gated on Mike's approval of four design calls: (a) GL compute path choice in Section F.1, (b) chr-pool ceiling in Section F.2, (c) hit-detection model in Section F.3, (d) empty-map source in Section F.4. Benchmark harness scope, not gameplay rework; existing bot handling stays intact.",
-      "notes": "",
+      "notes": "2026-05-16 ship batch on dev (FIXED-PENDING-PLAYTEST across the board): (1) GPU bot AI first slice + finish at 0edf90cb + 6d67888d (B-308 closed: fire request + anim_key on the GPU side; modelSetAnimation routed via the readback consumer). (2) GPU swarm spawn-time anim 43d5a3c8 -- POS_ONLY visual fix: spawn-time modelSetAnimation(ANIM_SKEDAR_RUNNING) so bots animate in POS_ONLY where do_ai=0 short-circuits the AI write-out (swarm_gpu_smoke 23/23 PASS). (3) Boids v0 81c25931 -- naive O(N^2) Reynolds separation/alignment/cohesion with surface-plane projection preserved; smoke max_unit_per_frame<6.0 still holds. (4) Track 2a 2af02855 -- ping-pong RGBA32F state textures (SWARM_GPU_MAX x 5, 640 KB); write-only side-channel; SSBO remains CPU consumer for bit-exact pre-2a parity. (5) Track 2c 67f835fa -- swarmGpuReadbackTextureRows() extraction primitive + --dump-swarm-state CLI fast-path (PDSWARMv1 file format). (6) Track 2d 390ae5c7 -- SVC_GPUSWARM_STATE (0x6c) listen-host-only Mode B net sync; NET_PROTOCOL_VER 47 -> 48; 20-byte packed_bot quantization (pos/vel s16 cm, surface_up s8 ratio, AI ints exact); 10 Hz throttle; 4096 bots split into 4 x 1024-bot chunks (~20.5 KB each on unreliable channel); pure-C quantizer (port/src/net/swarm_sync_quant.c) + Catch2 round-trip tests (6 cases / 143 assertions PASS, plus [versions] pin 4 cases / 9 assertions). Track 2b (kernel reads from texture) INTENTIONALLY SKIPPED: SSBO retained as CPU consumer; texture is write-only side-channel sufficient for Track 2c extraction + Track 2d net sync. Next slices named in track2d sprint report: 2e (client prediction via wire'd velocity extrapolation), 2f (range-relative pos quantization), 2g (dedicated-server Mode A via headless-GL or CPU-side compute). B-333 (LOW, TRACKING) carries v1 Mode B known limitations.",
       "subtasks": [],
       "flag": null,
       "flagged_at": null,
       "created": "2026-04-27",
-      "updated": "2026-05-12"
+      "updated": "2026-05-16T23:00:00Z"
     },
     {
       "id": "c3808",

@@ -301,13 +301,19 @@ Per Mike's Spec v0.5. Automation layer that consumes the data layer (parked.json
 
 ---
 
-## Deferred to next session (from 2026-05-15 GPU parity + wrap-up)
+## Deferred to next session (from 2026-05-16 c3807 Tracks 2a/2c/2d + c029 crash class + c3738 wall-transition arc)
 
-Two follow-ups surfaced by the GPU/CPU Skedar benchmark parity arc that are out of scope for the current sprint but worth keeping at the top of the punch list. Both are tracked elsewhere in detail; this is the pointer-block so the next session doesn't have to re-discover them.
+Follow-ups surfaced by the day's ship batch on `dev`. Tracked in detail in [session-log.md](session-log.md) (top-of-file entry) and bugs.md.
 
-- **A4 -- GPU bot AI parity (B-308)**. Per [designs/in-flight/gpu-swarm-bot-pipeline.md](designs/in-flight/gpu-swarm-bot-pipeline.md), 3-5 sessions of work. GPU bots currently have `chr->aibot = NULL`, `myaction = MA_NONE`, `ailist = GAILIST_IDLE` -- positions are stepped but no target acquisition, no gunscript execution, no LOS / hostility logic. First slice would land the three-mode `swarm_method_t` enum (`SWARM_METHOD_CPU` / `SWARM_METHOD_GPU_POS_ONLY` / `SWARM_METHOD_GPU_FULL`) plus the hybrid GPU-decides / CPU-executes architecture skeleton (compute kernel for target selection + seek/dodge integration, CPU side runs the bot-AI tick on the resulting state). See [bugs.md](bugs.md) B-308 for the current status; pillar = catalog (compute bot pipeline borrows the catalog's authoring tables).
+- **A4 (B-308) GPU bot AI parity** -- first slice + finish shipped earlier in the c3807 lane (commits `0edf90cb` + `6d67888d`), so the three-mode `swarm_method_t` enum + hybrid GPU-decides / CPU-executes architecture skeleton is live. Today's Tracks 2a / 2c / 2d expand the state-as-texture side-channel into a live ENet-replicated data plane (NET_PROTOCOL_VER 48). Next slices are 2e (client-side prediction via wire'd velocity extrapolation) and 2f (range-relative pos quantization for tighter wire load) per Track 2d's sprint report.
 
-- **G -- Wall-jump physics smoke test**. BLOCKED on c038 engine work. `PC_CAPSULE_ENABLED = 0` in [src/lib/capsule.h](../../src/lib/capsule.h) means the new two-stage capsule sweep pipeline (cdTestVolume pre-cull + bgTestHitInRoom per-triangle validate) is NOT active in the live game. Worker C landed 5 dormant `CAPSULE_LOG` markers at commit `6a6425bb` in `src/lib/capsule.c` ready to fire once the gate flips. Test author needs the markers live before assertions can be written; smoke test design is otherwise straightforward (teleport via `--debug-spawn-at` to a known-wall coordinate, inject `ACTION_JUMP` + `ACTION_AXIS_MOVE_Y` at known timings, assert resulting trajectory + capsule-sweep marker firings). See `tools/kanban/state.json` c038 + c3738 cards.
+- **A5 (B-308 v1 limits) Track 2g GPU swarm dedicated-server Mode A**. `pd-server` has no GL context today; Mode A requires either CPU swarm compute on the dedicated path (broadcasting the same SVC_GPUSWARM_STATE 0x6c opcode) or a headless-GL path. Tracked as v1-limitation (a) under B-333.
+
+- **G (c038) Wall-jump physics smoke test** -- **UNBLOCKED**. `PC_CAPSULE_ENABLED = 1` shipped at `4e620ae8` (2026-05-15 23:07) activating the Stage-1 capsule sweep on the player movement path. The five dormant `CAPSULE_LOG` markers in [src/lib/capsule.c](../../src/lib/capsule.c) now fire. Smoke test author can write the missing `wall_jump_capsule_smoke.json` asserting on `CAPSULE: sweep entered` / `CAPSULE: cdTestVolume hit` markers after teleport via `--debug-spawn-at` + scripted `ACTION_JUMP` + `ACTION_AXIS_MOVE_Y` at known timings. See `tools/kanban/state.json` c038 + c3738 cards.
+
+- **B-329 / B-330 / B-331 / B-332 playtest verification** -- all four shipped 2026-05-16 as FIXED-PENDING-PLAYTEST. Recursive smoke verification covers the swarm ladder (swarm_gpu_smoke 4 -> 768 PASS 26/26, swarm_cpu_smoke 4 -> 512 PASS 22/22 with 30s dwell at 256). B-329 needs manual verification: launch Falcon-2 Airbase mission or Farsight Combat Sim and watch `bgunRender` for `animmode != 0` / `animnum > 0` on first FIRE state transition.
+
+- **2026-05-13 audit ledger refresh** -- HF-3 (c029 B-307) FIXED-PENDING-PLAYTEST via B-330's root-cause fix; MF-3 (c3738 Slices 4-5) now includes today's Slice-4 wall-transition climb trigger; LF-1 (c036 s036-08 menu graph) is the only remaining open finding from the 2026-05-13 super-audit.
 
 ---
 
