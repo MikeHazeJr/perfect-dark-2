@@ -102,6 +102,7 @@ extern struct menudialogdef g_SelectMissionMenuDialog;
 extern struct menudialogdef g_CombatSimulatorMenuDialog;
 extern struct menudialogdef g_NetMenuDialog;
 extern struct menudialogdef g_ChangeAgentMenuDialog;
+extern struct menudialogdef g_FilemgrFileSelectMenuDialog; /* canonical agent picker */
 extern struct menudialogdef g_CheatsMenuDialog;
 
 /* D5 P3 Batch 4 -- Cinema dialog (cutscene viewer). */
@@ -5516,9 +5517,17 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
         ImGui::Dummy(ImVec2(0, spacing));
 
-        /* Change Agent */
+        /* Change Agent. Mike playtest 2026-05-17: pushing
+         * g_ChangeAgentMenuDialog (a Yes/No confirmation warning popup)
+         * caused jank where the menupool acquired the warning instance
+         * under MENU_TYPE_AGENT_SELECT but released it before the
+         * legacy "Yes" path could push the real picker on top.
+         * Symptom: ~30% of clicks flashed open then closed instead of
+         * showing Agent Select. Fix: push the real picker directly --
+         * the warning popup serves no PC-port purpose, the picker has
+         * its own back/cancel. */
         if (PdButton("Change Agent", ImVec2(buttonW, buttonH * 1.2f))) {
-            menuGraphFirePushDialog(MENU_TYPE_MAIN_MENU, "change_agent", &g_ChangeAgentMenuDialog);
+            menuGraphFirePushDialog(MENU_TYPE_MAIN_MENU, "change_agent", &g_FilemgrFileSelectMenuDialog);
         }
 
         ImGui::Dummy(ImVec2(0, spacing));

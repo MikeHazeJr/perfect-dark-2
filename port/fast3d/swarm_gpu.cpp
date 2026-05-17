@@ -1541,11 +1541,19 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	 * If playtest shows the swarm trails the player too lazily, bump
 	 * seek to 1.5 and trim sep to 1.2. The CPU side can override these
 	 * later through a debug uniform without touching the shader. */
-	s_Params.boid_sep_radius   = 60.0f;
+	/* Mike playtest 2026-05-17: pre-tune bots were floating slowly and
+	 * merging at the player position. Seek vs sep at 1.0/1.5 left the
+	 * bots locally cancelled near the player, dance-stuck in a cluster.
+	 * Bumping seek=1.6 (was 1.0) and trimming sep=1.0 (was 1.5) gives
+	 * the seek vector primary authority on approach; separation still
+	 * acts but no longer dominates near-radius. Bumped sep_radius to
+	 * 90 (was 60) so the personal-space bubble is wider -- bots fan out
+	 * around the player rather than clumping into a single point. */
+	s_Params.boid_sep_radius   = 90.0f;
 	s_Params.boid_align_radius = 200.0f;
 	s_Params.boid_coh_radius   = 300.0f;
-	s_Params.boid_seek_weight  = 1.0f;
-	s_Params.boid_sep_weight   = 1.5f;
+	s_Params.boid_seek_weight  = 1.6f;
+	s_Params.boid_sep_weight   = 1.0f;
 	s_Params.boid_align_weight = 0.4f;
 	s_Params.boid_coh_weight   = 0.3f;
 	/* Track 2a (c3807, 2026-05-16): gate the imageStore mirror to the
@@ -1879,7 +1887,24 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 		sum_v += sqrt((double)v2);
 		v_samples++;
 
-		/* AI side-effect + stats. Was its own walk pre-c029-Slice-3. */
+		/* AI side-effect + stats. Was its own walk pre-c029-Slice-3.
+		 *
+		 * Mike playtest 2026-05-17: pressing O to flip GPU_POS_ONLY ->
+		 * GPU_FULL caused FATAL: Unknown GBI opcode 0x80 at high bot
+		 * counts. Root cause: on the very first GPU_FULL frame ALL
+		 * active bots transition from their spawn-time anim
+		 * (ANIM_SKEDAR_RUNNING) to whatever the GPU picked (typically
+		 * ANIM_034C = punch), simultaneously firing 4096
+		 * modelSetAnimation calls into the chrvtxstore in a single
+		 * frame. Pool pressure corrupted a downstream display-list
+		 * emission.
+		 *
+		 * Mitigation: round-robin throttle. Each bot's AI decision is
+		 * applied at most once every 4 frames; the wave of simultaneous
+		 * anim switches spreads across ~4 frames at 60 Hz (~67 ms,
+		 * imperceptible). Per-bot stats still update every frame so the
+		 * BENCHMARK.SWARM.GPU.AI summary remains accurate; only the
+		 * side-effect (modelSetAnimation + chrDamageByImpact) is gated. */
 		if (do_ai) {
 			const s32 act  = s_BoidScratch[i].action_class;
 			const s32 fire = s_BoidScratch[i].fire_request;
@@ -1887,7 +1912,15 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 			const s32 tgt  = s_BoidScratch[i].target_propnum;
 			const f32 r    = s_BoidScratch[i].range_to_target;
 
-			(void)swarmTestApplyAiDecision(chr, i, tgt, act, fire, anim, r);
+			/* Local frame phase: increments once per readback pass.
+			 * g_Vars isn't visible in this TU so we use a static
+			 * function-local counter; it's only a phase signal for the
+			 * round-robin stride so any monotonic source works. */
+			static u32 s_AiApplyPhase = 0;
+			if (i == 0) s_AiApplyPhase++;
+			if (((u32)i & 3u) == (s_AiApplyPhase & 3u)) {
+				(void)swarmTestApplyAiDecision(chr, i, tgt, act, fire, anim, r);
+			}
 
 			if      (act == 2) n_attack++;
 			else if (act == 1) n_seek++;

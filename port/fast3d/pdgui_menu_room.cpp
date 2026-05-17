@@ -2158,6 +2158,16 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                               ImVec2(rowW, rowH));
             bool rowHovered = ImGui::IsItemHovered();
 
+            /* Mike directive 2026-05-17: per-row context menu on the local
+             * player row only (Rule 5 X-context-menu per
+             * context/designs/input-menu/menu-input-interaction-grammar.md).
+             * Right-click or controller secondary opens "##local_ctx".
+             * Content emitted later in this loop iteration after the row
+             * draws (mirrors the bot_ctx pattern). */
+            if (r.isLocal && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                ImGui::OpenPopup("##local_ctx");
+            }
+
             /* Portrait alpha: network players fade in; solo is instant */
             s32 pidx = (r.lobbyIdx >= 0 && r.lobbyIdx < LOBBY_PORTRAIT_MAX) ? r.lobbyIdx : -1;
             if (rowHovered && pidx >= 0) s_HoverLobbyIdx = pidx;
@@ -2345,6 +2355,41 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             dl->AddRectFilled(rowStart,
                               ImVec2(rowStart.x + 3.0f, rowStart.y + rowH),
                               IM_COL32(255, 255, 255, 220));
+        }
+
+        /* Mike directive 2026-05-17: local-player context menu popup.
+         * Mirrors the bot_ctx pattern below: emitted inline so PushID
+         * scoping is per-row. Currently hosts "Change Character
+         * (Temporary)" which previously lived as a standalone button
+         * by Add Bot. The modal it opens is the same one the standalone
+         * button opened. */
+        if (r.isLocal && !r.isBot) {
+            if (ImGui::BeginPopup("##local_ctx")) {
+                ImGui::TextColored(pdguiVec4TitleGlow(), "%s", r.name);
+                ImGui::Separator();
+
+                const char *charItemLabel = s_RoomCharOverrideActive
+                    ? "Change Character (Active, Temporary)"
+                    : "Change Character (Temporary)";
+                if (ImGui::MenuItem(charItemLabel)) {
+                    const char *curBody = mpPlayerConfigGetBodyId(0);
+                    const char *curHead = mpPlayerConfigGetHeadId(0);
+                    strncpy(s_PendingCharBodyId,
+                            curBody ? curBody : "",
+                            sizeof(s_PendingCharBodyId) - 1);
+                    s_PendingCharBodyId[sizeof(s_PendingCharBodyId) - 1] = '\0';
+                    strncpy(s_PendingCharHeadId,
+                            curHead ? curHead : "",
+                            sizeof(s_PendingCharHeadId) - 1);
+                    s_PendingCharHeadId[sizeof(s_PendingCharHeadId) - 1] = '\0';
+                    s_ShowChangeCharModal = true;
+                    /* OpenPopup must fire on the same id used by the
+                     * modal BeginPopupModal below. */
+                    ImGui::CloseCurrentPopup();
+                    ImGui::OpenPopup("##room_change_char_modal");
+                }
+                ImGui::EndPopup();
+            }
         }
 
         /* --- Bot context menu popup (emitted inline so PushID(r.slotIdx)
@@ -2731,37 +2776,12 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     }
     if (!canAdd) ImGui::EndDisabled();
 
-    /* "Change Character (this match)" for the local player. The override
-     * applies for this room session; the on-disk Agent is unchanged.
-     * See the file-level header block at s_RoomCharOverrideActive for
-     * the rationale and lifecycle. Stable ID (###room_char_btn) for the
-     * same reason as Add Bot. */
-    {
-        char charBtnLabel[80];
-        if (s_RoomCharOverrideActive) {
-            snprintf(charBtnLabel, sizeof(charBtnLabel),
-                     "Change Character (Active, Temporary)###room_char_btn");
-        } else {
-            snprintf(charBtnLabel, sizeof(charBtnLabel),
-                     "Change Character (Temporary)###room_char_btn");
-        }
-        if (ImGui::Button(charBtnLabel, ImVec2(-1.0f, btnH))) {
-            /* Seed the modal's pending IDs from the live in-memory
-             * profile so Cancel round-trips cleanly. */
-            const char *curBody = mpPlayerConfigGetBodyId(0);
-            const char *curHead = mpPlayerConfigGetHeadId(0);
-            strncpy(s_PendingCharBodyId,
-                    curBody ? curBody : "",
-                    sizeof(s_PendingCharBodyId) - 1);
-            s_PendingCharBodyId[sizeof(s_PendingCharBodyId) - 1] = '\0';
-            strncpy(s_PendingCharHeadId,
-                    curHead ? curHead : "",
-                    sizeof(s_PendingCharHeadId) - 1);
-            s_PendingCharHeadId[sizeof(s_PendingCharHeadId) - 1] = '\0';
-            s_ShowChangeCharModal = true;
-            ImGui::OpenPopup("##room_change_char_modal");
-        }
-    }
+    /* Mike directive 2026-05-17: "Change Character (Temporary)" moved
+     * from this standalone button to the per-row context menu on the
+     * local player row only (see "##local_ctx" popup ~line 2350 in
+     * the roster loop). Right-click the local row (or controller
+     * secondary) to access. The modal it opens is unchanged -- only
+     * the access path moved. */
 
     /* Modal: body + head pickers, Apply / Cancel / Reset-to-Saved.
      * BeginPopupModal floats above the parent regardless of where it's
@@ -3171,6 +3191,13 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     optToggle        ("One-Hit Kills",   MPOPTION_ONEHITKILLS,       leader);
     optToggle        ("Friendly Fire",   MPOPTION_FRIENDLYFIRE,      leader);
     optToggle        ("Fast Movement",   MPOPTION_FASTMOVEMENT,      leader);
+    /* Mike directive 2026-05-17: bot jumping toggle (default OFF). Lives
+     * in src/include/constants.h:2952 as 0x10000000; the Room screen
+     * re-declares the option constants locally above (B-194 pattern). */
+#ifndef MPOPTION_BOTJUMP
+#define MPOPTION_BOTJUMP                 0x10000000
+#endif
+    optToggle        ("Bot Jumping",     MPOPTION_BOTJUMP,           leader);
     optToggle        ("Spawn w/ Weapon", MPOPTION_SPAWNWITHWEAPON,   leader);
     /* Weapon selector — only visible when spawn-with-weapon is on.
      *

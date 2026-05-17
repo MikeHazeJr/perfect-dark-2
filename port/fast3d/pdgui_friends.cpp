@@ -293,6 +293,14 @@ extern "C" void pdguiFriendsStatusIndicatorRender(s32 winW, s32 winH)
 		return;
 	}
 
+	/* Mike directive 2026-05-17: connect code is agent-specific. If no
+	 * agent has been loaded yet, the displayed code would be the
+	 * device-pubkey default which has no meaning to friends. Suppress
+	 * the pill entirely until the user picks an agent. */
+	if (!presenceIsAgentLoaded()) {
+		return;
+	}
+
 	const presence_state_t pstate = presenceGetLocalState();
 	const social_visibility_t vis = socialVisibilityGet();
 	const char *agent = socialMyAgentName();
