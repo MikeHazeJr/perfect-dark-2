@@ -1822,52 +1822,30 @@
       "title": "Daily-flow orchestrator: stale .git/HEAD.lock hardening",
       "description": "The daily-flow orchestrator (c118) runs at 06:00 daily. Observed 2026-05-13 to leave .git/HEAD.lock behind after a transient error -- the lock was still present at 09:40, ~3.5 hours stale, blocking subsequent sessions from committing until manually removed. Wrap git operations in try/finally that removes stale locks on its own crash; or surface a watchdog that detects stale locks and cleans them up.",
       "pillar": "tooling",
-      "column": "backlog",
-      "order": 163000,
+      "column": "done",
+      "order": 172000,
       "priority": 3,
       "notes": "Surfaced by 2026-05-13 super-audit (MS-1). Estimate 30 min. Files: tools/daily_flow/orchestrator.py + possibly a pre-run lock-staleness check.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-13T16:00:00Z",
-      "updated": "2026-05-16T00:00:00Z",
-      "pending_completion": {
-        "marked_at": "2026-05-16T00:00:00Z",
-        "marked_by": "claude-code-dispatch-c130-orchestrator-lock-hardening",
-        "summary": "Fixed 2026-05-16 in commit 5b960a54. Added three defenses in depth to tools/daily_flow/orchestrator.py + tools/daily_flow/lib/gitutil.py: (1) pre-flight stale-lock sweep at orchestrator start (mtime > 300s = stale, deleted; fresh = wait briefly then defer); (2) try/finally around the pipeline + atexit/SIGTERM/SIGBREAK handlers for in-run crashes; (3) --skip-on-fresh-lock flag for graceful collision-avoidance with concurrent git processes. New cleanup_stale_locks() helper in gitutil.py is the single source of truth. Concurrency safe: mtime threshold ensures a live git process holding a fresh lock is never touched. Verified with stale-lock (1h old, cleared) and fresh-lock (mtime=now, preserved) simulations.",
-        "evidence_refs": [
-          "tools/daily_flow/orchestrator.py:84-156 (cleanup helpers + signal handlers)",
-          "tools/daily_flow/orchestrator.py:233-271 (main() preflight + try/finally)",
-          "tools/daily_flow/lib/gitutil.py:18-156 (cleanup_stale_locks helper + tasklist probe)"
-        ],
-        "fix_commit": "5b960a54"
-      }
+      "updated": "2026-05-17T18:43:56Z",
+      "pending_completion": null
     },
     {
       "id": "c131",
       "title": "Boot: black-screen + stuck-cutscene deadlock on SkipIntro=1",
       "description": "When pd.ini SkipIntro=1 (or --skip-intro CLI flag) is set, the boot flow jumps directly to STAGE_CITRAINING. The AI script in CITRAINING setup starts the CI fly-in cutscene as expected, but with the title sequence machinery bypassed the cutscene never advances to its end frame. The file-select auto-open in menutick.c:351 is gated on tickmode != TICKMODE_CUTSCENE, which never flips, so the menu never auto-opens. User sees a stuck CI cutscene (which can render as black on many setups because the fly-in camera passes through interior geometry) with no UI. Pressing a key opens the menu manually, but that defeats the boot UX.",
       "pillar": "ui",
-      "column": "active",
-      "order": 164000,
+      "column": "done",
+      "order": 171000,
       "priority": 2,
       "notes": "Reported by Mike 2026-05-13 (black screen on boot, seems to do nothing). Pre-dates today's work.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-13T17:00:00Z",
-      "updated": "2026-05-13T17:00:00Z",
-      "pending_completion": {
-        "marked_at": "2026-05-13T17:00:00Z",
-        "marked_by": "claude-code-main-checkout-sprc036",
-        "summary": "Fixed 2026-05-13 in src/game/menutick.c:348-371. Added a watchdog: if lvframenum > 300 (5 seconds) AND tickmode is still TICKMODE_CUTSCENE AND the file menu hasn't opened, force-open it anyway. Normal title-sequence flow ends the CI cutscene well within 5 seconds so the watchdog only fires on the SkipIntro deadlock path. Build verify clean 3-target.",
-        "evidence_refs": [
-          "src/game/menutick.c:348-371 (watchdog fix)",
-          "port/src/main.c:501-511 (g_StageNum init + g_SkipIntro -> STAGE_CITRAINING jump)",
-          "port/src/pdmain.c:475-487 (mainLoop title-sequence bypass)",
-          "Build/pd.ini line 104 (SkipIntro=1)",
-          "Build/pd-client.log [00:12.48] cutscene IMC entered; tickmode=6 (CUTSCENE) for entire 67-second session",
-          "user playtest 2026-05-13"
-        ]
-      }
+      "updated": "2026-05-17T18:43:22Z",
+      "pending_completion": null
     }
   ]
 }

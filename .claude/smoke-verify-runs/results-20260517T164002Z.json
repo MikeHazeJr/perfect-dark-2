@@ -1,0 +1,44 @@
+﻿{
+    "Name":  "social_hub_agent_gate_smoke",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  0,
+    "ElapsedSeconds":  60.542937699999996,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  15,
+    "AssertionsMet":  9,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "BOOT: --launch-load-agent consumed: name=\u0027smoke\u0027 result=OK"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SOCIAL: rebind agent="
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "PRESENCE: agent loaded -- state=online, social hub activity enabled"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "PRESENCE: local state -\u003e in-match"
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "PRESENCE: agent loaded",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "SOCIAL: rebind agent=",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     }
+                 ]
+}
