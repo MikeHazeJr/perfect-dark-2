@@ -1074,6 +1074,35 @@ void bwalkUpdateVertical(void)
 			ground = capsuleGround;
 		}
 	}
+
+	/* c038 Stage 2 (Mike directive 2026-05-17): rendered-triangle floor
+	 * probe. cdFindGroundInfoAtCyl only sees GEOFLAG_FLOOR tiles, and the
+	 * Stage 1 capsuleFindFloor only sees AABB/cylinder colliders. Tables,
+	 * half walls, and other rendered-only surfaces are invisible to both.
+	 * Probe the rendered display-list triangles via bgTestHitInRoom and
+	 * take the higher of (legacy ground, Stage 1 capsule ground, Stage 2
+	 * rendered floor) so the player lands on the visible surface instead
+	 * of falling through it.
+	 *
+	 * Same gate as Stage 1 (player must be above the legacy ground +
+	 * not in strong ascent) to avoid running on every airborne frame
+	 * while the player is far above any rendered geometry. */
+	if (g_Vars.currentplayer->vv_manground > ground + 2.0f && g_Vars.bondcollisions
+			&& g_Vars.currentplayer->bdeltapos.y <= 4.0f) {
+		struct coord probepos;
+		probepos.x = g_Vars.currentplayer->prop->pos.x;
+		probepos.y = g_Vars.currentplayer->prop->pos.y;
+		probepos.z = g_Vars.currentplayer->prop->pos.z;
+		/* Probe down to ~200u below the player's eye; matches typical
+		 * table / half-wall height gap. The maxdepth cap also bounds
+		 * the per-frame cost (bg AABB cull + per-tri test stops at the
+		 * first hit closer than this). */
+		f32 rendered_y = capsuleStage2FloorProbe(&probepos, g_Vars.currentplayer->prop->rooms, 200.0f);
+		if (rendered_y > ground + 1.0f
+				&& rendered_y <= g_Vars.currentplayer->vv_manground + 5.0f) {
+			ground = rendered_y;
+		}
+	}
 #endif /* PC_CAPSULE_ENABLED */
 
 #if PIRACYCHECKS

@@ -69,8 +69,20 @@ static u32 s_BondLastUseTapReleaseFrame[MAX_PLAYERS] = {0};
 /* Per-player previous airborne state. Used by the crouch-jump mid-air
  * window detector in bondwalk: the moment ACTION_CROUCH is pressed while
  * airborne (going up from a fresh jump), latch a small lift on the
- * effective foot Y so the player can clear a slightly higher surface. */
+ * effective foot Y so the player can clear a slightly higher surface.
+ * States:
+ *   0 = inactive (no jump in progress)
+ *   1 = jump pressed, still grounded (boost not yet fired)
+ *   2 = airborne (jump in flight, boost may or may not have fired)
+ * Reset to 0 on landing (Mike directive 2026-05-17: crouch posture set
+ * during a crouch-jump is restored to STAND on landing unless the player
+ * is still holding ACTION_CROUCH at the landing frame). */
 s32 g_BondCrouchJumpActive[MAX_PLAYERS] = {0};
+
+/* Tracks bondonground from the previous tick so we can detect the
+ * airborne -> grounded transition (landing). Used by the crouch-jump
+ * landing-stance restore in bmoveProcessInput. */
+static s32 s_BondPrevOnGround[MAX_PLAYERS] = {1, 1, 1, 1, 1, 1, 1, 1};
 
 /* B-246 round-9: F2 test-fire scheduler. Mike's remote-testing setup
  * (phone -> Windows RDP) does not let him use most game inputs, so F2
@@ -1224,6 +1236,30 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					&& g_Vars.players[pi]->bdeltapos.y > 0.0f) {
 				g_Vars.players[pi]->bdeltapos.y += 1.5f;
 				g_BondCrouchJumpActive[pi] = 2;
+			}
+
+			/* Crouch-jump landing-stance restore (Mike directive 2026-05-17).
+			 * During a crouch-jump the player typically taps/holds CROUCH
+			 * mid-air, which moves crouchpos -> DUCK (tap) or SQUAT (hold)
+			 * via the stance state machine above. When they land, the
+			 * crouched stance persists, leaving the player ducked even
+			 * though they only crouched to grab the boost. Restore to
+			 * STAND on landing unless ACTION_CROUCH is currently held.
+			 *
+			 * Trigger: g_BondCrouchJumpActive >= 1 (a jump is in progress)
+			 * AND we just transitioned bondonground 0 -> non-zero (landed).
+			 * The s_BondPrevOnGround tracker is updated at the bottom of
+			 * the per-player block so the next tick's diff is correct. */
+			{
+				const s32 nowGround = g_Vars.players[pi]->bondonground != 0;
+				const s32 wasAirborne = (s_BondPrevOnGround[pi] == 0);
+				if (g_BondCrouchJumpActive[pi] >= 1 && nowGround && wasAirborne) {
+					if (!actionHeld(pi, ACTION_CROUCH)) {
+						g_Vars.players[pi]->crouchpos = CROUCHPOS_STAND;
+					}
+					g_BondCrouchJumpActive[pi] = 0;
+				}
+				s_BondPrevOnGround[pi] = nowGround;
 			}
 			if (actionPressed(pi, ACTION_RELOAD))         c1buttonsthisframe |= X_BUTTON;
 

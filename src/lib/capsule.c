@@ -12,6 +12,7 @@
 
 #include <ultra64.h>
 #include "constants.h"
+#include "game/bg.h"
 #include "game/prop.h"
 #include "game/bondmove.h"
 #include "game/player.h"
@@ -167,8 +168,146 @@ f32 capsuleSweep(struct capsulecast *cast)
 	}
 
 	propSetPerimEnabled(g_Vars.currentplayer->prop, true);
+
+	/* Stage 2 (c038, Mike directive 2026-05-17): even if Stage 1 said
+	 * CLEAR, a sloped ceiling or other rendered-only triangle may block
+	 * the movement. Cast a rendered-triangle ray from start to start+move
+	 * and use that as the authoritative hit if it lands before 1.0.
+	 * Net effect: full coverage of GEOFLAG_WALL/FLOOR + rendered triangles
+	 * with no matching collider. */
+	{
+		struct coord end;
+		end.x = cast->start.x + cast->move.x;
+		end.y = cast->start.y + cast->move.y;
+		end.z = cast->start.z + cast->move.z;
+		struct coord normal = {0.0f, 0.0f, 0.0f};
+		f32 stage2_frac = capsuleStage2RayCast(&cast->start, &end, cast->rooms, &normal);
+		if (stage2_frac < 1.0f) {
+			cast->hitfrac = stage2_frac;
+			cast->hitpos.x = cast->start.x + cast->move.x * stage2_frac;
+			cast->hitpos.y = cast->start.y + cast->move.y * stage2_frac;
+			cast->hitpos.z = cast->start.z + cast->move.z * stage2_frac;
+			cast->hitnormal = normal;
+			cast->hitprop = NULL;
+			cast->hitgeoflags = 0;
+			/* Classify by vertical move direction. Stage 2 hits are
+			 * always rendered BG geometry; we don't have prop/chr info
+			 * here. */
+			if (cast->move.y > 0.1f) {
+				cast->hittype = CAPSULE_HIT_CEILING;
+			} else if (cast->move.y < -0.1f) {
+				cast->hittype = CAPSULE_HIT_FLOOR;
+			} else {
+				cast->hittype = CAPSULE_HIT_WALL;
+			}
+			CAPSULE_LOG("sweep result=BLOCKED_STAGE2 dist=%.3f hittype=%d (Stage 1 clear)",
+				stage2_frac, cast->hittype);
+			return stage2_frac;
+		}
+	}
+
 	CAPSULE_LOG("sweep result=CLEAR dist=1.000");
 	return 1.0f;
+}
+
+/* ============================================================
+ * Stage 2 (c038): rendered-triangle ray cast + floor probe.
+ *
+ * Bridges the gap where Stage 1 (cdTestVolume) misses geometry that
+ * is rendered but not flagged as a collider. Two common cases reported
+ * by Mike (2026-05-17):
+ *   - Sloped ceilings: jumping straight up passes through the sloped
+ *     ceiling triangle because no GEOFLAG_WALL tile exists.
+ *   - Table tops / half walls: standing on them, the player falls
+ *     through because cdFindGroundInfoAtCyl only finds GEOFLAG_FLOOR
+ *     tiles and these surfaces are just rendered display-list triangles.
+ *
+ * Both fixes hinge on bgTestHitInRoom (src/game/bg.c:4471), which walks
+ * the same rendered vtxbatches the Laptop Gun sticky path uses. We do a
+ * single ray per call here; the design doc proposed up to 15 rays
+ * (capsule center + skin samples) but the single ray is sufficient for
+ * the c038 wall-jump / table-top class because the test ray is the
+ * capsule's central axis and the radius is small (~30u). We can extend
+ * to lateral samples later if a regression test demands it.
+ * ============================================================ */
+
+f32 capsuleStage2RayCast(const struct coord *from, const struct coord *to,
+                         const RoomNum *rooms, struct coord *out_normal)
+{
+	if (!from || !to || !rooms) {
+		return 1.0f;
+	}
+
+	f32 mx = to->x - from->x;
+	f32 my = to->y - from->y;
+	f32 mz = to->z - from->z;
+	f32 movelen2 = mx * mx + my * my + mz * mz;
+	if (movelen2 < 0.001f) {
+		return 1.0f;
+	}
+
+	f32 best_frac = 1.0f;
+	f32 best_frac2 = movelen2; /* squared distance from `from` to best hit */
+	s32 i;
+
+	for (i = 0; i < 8; i++) {
+		s32 roomnum = (s32)rooms[i];
+		if (roomnum < 0) break;
+		if (roomnum == 0) continue; /* room 0 is sentinel "no room" */
+
+		struct coord f = *from;
+		struct coord t = *to;
+		struct hitthing hit;
+		if (bgTestHitInRoom(&f, &t, roomnum, &hit)) {
+			f32 dx = hit.pos.x - from->x;
+			f32 dy = hit.pos.y - from->y;
+			f32 dz = hit.pos.z - from->z;
+			f32 hit_len2 = dx * dx + dy * dy + dz * dz;
+			if (hit_len2 < best_frac2) {
+				best_frac2 = hit_len2;
+				/* Normalize frac by movement length (geometric, sqrt-free
+				 * comparison above; sqrt only at the end). */
+				best_frac = (movelen2 > 0.0001f)
+					? sqrtf(hit_len2 / movelen2)
+					: 0.0f;
+				if (out_normal) {
+					*out_normal = hit.unk0c;
+				}
+			}
+		}
+	}
+
+	if (best_frac < 1.0f) {
+		CAPSULE_LOG("stage2 raycast hit frac=%.3f from=(%.1f,%.1f,%.1f) to=(%.1f,%.1f,%.1f)",
+			best_frac, from->x, from->y, from->z, to->x, to->y, to->z);
+	}
+
+	return best_frac;
+}
+
+f32 capsuleStage2FloorProbe(const struct coord *pos, const RoomNum *rooms,
+                            f32 maxdepth)
+{
+	if (!pos || !rooms || maxdepth <= 0.0f) {
+		return -30000.0f;
+	}
+
+	struct coord from = *pos;
+	struct coord to;
+	to.x = pos->x;
+	to.y = pos->y - maxdepth;
+	to.z = pos->z;
+
+	struct coord normal = {0.0f, 0.0f, 0.0f};
+	f32 frac = capsuleStage2RayCast(&from, &to, rooms, &normal);
+	if (frac >= 1.0f) {
+		return -30000.0f;
+	}
+
+	f32 hit_y = pos->y - maxdepth * frac;
+	CAPSULE_LOG("stage2 floor probe pos=(%.1f,%.1f,%.1f) hit_y=%.1f normal=(%.2f,%.2f,%.2f)",
+		pos->x, pos->y, pos->z, hit_y, normal.x, normal.y, normal.z);
+	return hit_y;
 }
 
 f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,

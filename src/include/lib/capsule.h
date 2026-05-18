@@ -100,6 +100,44 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
                      struct prop **out_prop, u16 *out_flags);
 
 /**
+ * Stage 2 rendered-triangle ray cast (c038, two-stage capsule sweep).
+ *
+ * Fires a single ray from `from` to `to` through the room list, walking
+ * `g_Rooms[].vtxbatches[]` per room via bgTestHitInRoom. Returns the
+ * normalized fraction along the ray to the closest hit, or 1.0 for clear.
+ *
+ * Catches rendered geometry that lacks the GEOFLAG_WALL/FLOOR colliders
+ * (sloped ceilings, table tops, half walls). Pairs with the Stage 1
+ * cdTestVolume path: callers run Stage 1 first (cheap pre-cull) and then
+ * use this as the authoritative validator. Mike directive 2026-05-17:
+ * "should be able to jump on top without falling through the geometry".
+ *
+ * @param from        Ray start in world space
+ * @param to          Ray end in world space
+ * @param rooms       Room list (8-slot array, terminator <0)
+ * @param out_normal  Optional; receives per-triangle face normal on hit
+ * @return            Fraction [0..1] of the ray to the closest hit; 1.0 if no hit
+ */
+f32 capsuleStage2RayCast(const struct coord *from, const struct coord *to,
+                         const RoomNum *rooms, struct coord *out_normal);
+
+/**
+ * Stage 2 floor probe: rendered-triangle downward probe to catch table
+ * tops / half walls / other rendered-only floors not seen by
+ * cdFindGroundInfoAtCyl (which only reads GEOFLAG_FLOOR-flagged tiles).
+ *
+ * Casts straight down from `pos` by `maxdepth` units and returns the Y
+ * of the closest rendered-triangle hit, or -30000.0f if no hit.
+ *
+ * @param pos       Probe origin (world space; typically the player's foot pos)
+ * @param rooms     Room list (8-slot array, terminator <0)
+ * @param maxdepth  Maximum probe distance below pos.y
+ * @return          World-space Y of the closest hit, or -30000.0f if no hit
+ */
+f32 capsuleStage2FloorProbe(const struct coord *pos, const RoomNum *rooms,
+                            f32 maxdepth);
+
+/**
  * Find the ceiling height above the capsule's current position using an
  * upward capsule cast.
  *
