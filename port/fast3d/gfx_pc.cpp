@@ -1441,7 +1441,19 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     uint64_t cc_options = 0;
     bool use_alpha =
         (rdp.other_mode_l & (3 << 20)) == (G_BL_CLR_MEM << 20) && (rdp.other_mode_l & (3 << 16)) == (G_BL_1MA << 16);
-    const bool use_fog = ((rdp.other_mode_l >> 30) == G_BL_CLR_FOG) || ((rdp.other_mode_l >> 26) == G_BL_A_FOG);
+    /* Fix 2026-05-17 (Mike directive: missing fog / lighting / textures
+     * during first-mission cutscene). The G_BL_A_FOG check shifted bits
+     * 26-31 down to 0-5 and compared the 6-bit result against the 2-bit
+     * G_BL_A_FOG (=1) value, so the comparison only matched when P1 and
+     * P2 were both G_BL_CLR_IN (=0) and A1 was G_BL_A_FOG. In practice
+     * that combination is rare; the typical fog blend uses P1=G_BL_CLR_FOG
+     * (=3) which leaves bits 30-31 set after the shift, so the A_FOG
+     * check returned false. Add an explicit & 3 mask so the A_FOG path
+     * actually fires when A1 == G_BL_A_FOG regardless of the P slots.
+     * The G_BL_CLR_FOG check at >> 30 is unchanged: shifting a 32-bit
+     * value right by 30 leaves only 2 bits, no mask needed. */
+    const bool use_fog = ((rdp.other_mode_l >> 30) == G_BL_CLR_FOG)
+                      || (((rdp.other_mode_l >> 26) & 3) == G_BL_A_FOG);
     const bool texture_edge = (rdp.other_mode_l & CVG_X_ALPHA) == CVG_X_ALPHA;
     const bool use_noise = (rdp.other_mode_l & (3U << G_MDSFT_ALPHACOMPARE)) == G_AC_DITHER;
     const bool use_2cyc = (rdp.other_mode_h & (3U << G_MDSFT_CYCLETYPE)) == G_CYC_2CYCLE;
