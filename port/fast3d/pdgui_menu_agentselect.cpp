@@ -87,6 +87,7 @@ void gamefileLoadDefaults(struct gamefile *file);
 extern "C" void prefsAgentLoad(const char *agent_name);
 extern "C" void prefsAgentResetVisuals(void);
 extern "C" void prefsAgentMigrateLegacySidecar(const char *raw_name, const char *display_name);
+extern "C" s32  presenceIsAgentLoaded(void);
 
 static void prefsLoadForFile(struct filelistfile *file)
 {
@@ -281,8 +282,18 @@ static s32 renderAgentSelect(struct menudialog *dialog,
          * later when the user explicitly selects an agent. */
         prefsAgentResetVisuals();
 
-        /* Auto-load default agent on first appearance */
-        if (!s_AutoLoadTriggered && s_DefaultAgentFileId >= 0) {
+        /* Auto-load default agent on first appearance -- only when no
+         * agent is loaded yet. If presenceIsAgentLoaded() is true the
+         * user reached Agent Select from main_menu via Change Agent
+         * (an explicit "I want to pick a different agent" gesture);
+         * triggering filemgrSaveOrLoad(FILEOP_LOAD_GAME) here cascades
+         * through filemgrHandleSuccess -> func0f0f820c(MENUROOT_MAINMENU)
+         * which queues a menuPushRootDialog. menupoolReleaseAll() in
+         * that path nukes the agent_select pool slot, slamming the user
+         * back to a fresh main_menu after 14 frames -- the "Change
+         * Agent flashes open then closes" jank Mike reported. */
+        if (!s_AutoLoadTriggered && s_DefaultAgentFileId >= 0 &&
+                presenceIsAgentLoaded() == 0) {
             s_AutoLoadTriggered = true;
             for (s32 i = 0; i < fl->numfiles; i++) {
                 if (fl->files[i].fileid == s_DefaultAgentFileId) {
@@ -292,6 +303,20 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                     prefsLoadForFile(&fl->files[i]);
                     s_SelectedIdx = i;
                     break;
+                }
+            }
+        } else if (!s_AutoLoadTriggered) {
+            /* Mark triggered anyway so the gate flips for the rest of the
+             * session -- a later sign-out + re-enter Agent Select should
+             * present the picker, not auto-load the prior agent. */
+            s_AutoLoadTriggered = true;
+            /* Preselect the default if any; the user can A-confirm it. */
+            if (s_DefaultAgentFileId >= 0) {
+                for (s32 i = 0; i < fl->numfiles; i++) {
+                    if (fl->files[i].fileid == s_DefaultAgentFileId) {
+                        s_SelectedIdx = i;
+                        break;
+                    }
                 }
             }
         }
