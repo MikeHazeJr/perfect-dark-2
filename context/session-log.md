@@ -1,5 +1,21 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-18-release-hook-autocommits`) - 2026-05-18 - release auto-commit hook compatibility
+
+Mike's v0.0.199 release failed after the build completed because `release.ps1` tried to auto-commit pending release prep with `chore: pre-release commit v0.0.199`, and the c120 commit-msg hook correctly rejected the generic subject.
+
+### Change
+
+- Fixed `devtools/release.ps1::Invoke-ReleaseCommit` to create full hook-compliant automated commits with subject, body, and `Refs: c120`.
+- Migrated all three release auto-commit sites: skip-build pre-release, normal pre-build, and Step 4 pre-rebase.
+- Propagation check found the same stale `chore:` subjects in Dev Window v2 git sync paths. `devtools/dev-window-v2/dev-window-v2.ps1` now uses c120 subjects for build sync, release sync, and manual push sync, and includes the same body/trailer shape in the actual `git commit`.
+- Added B-336 and updated the build/dev-tooling pillar with the invariant that release/Dev Window auto-sync commits must satisfy the commit-msg hook instead of relying on bypasses.
+
+### Verification
+
+- Pending: PowerShell parser checks for `devtools/release.ps1` and `devtools/dev-window-v2/dev-window-v2.ps1`.
+- Pending: rerun release from Dev Window; expected result is that the automated pre-release commit passes the hook without `--no-verify`.
+
 ## Session (`main-checkout-2026-05-18-kanban-sort-flags-priority`) - 2026-05-18 - Kanban flag/priority sort instead of filters
 
 Mike asked to remove the Starred / flagged / priority-level dropdown filters and sort by those signals instead.
