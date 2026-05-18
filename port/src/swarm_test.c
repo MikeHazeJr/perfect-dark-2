@@ -1995,6 +1995,33 @@ void swarmTestTick(void)
 			chr->hidden |= 0x00040000;
 			chr->hidden |= CHRHFLAG_PERIMDISABLED;
 		}
+
+		/* Mike directive 2026-05-18 "they seem to roam randomly": surface
+		 * the AI's per-bot myaction (the AI step they're currently
+		 * executing) so we can see whether the AI honors our
+		 * attackpropnum/AIBOTCMD_ATTACK pointers or falls through to
+		 * something else. Sample first 4 slots every 60 frames. */
+		if ((g_Vars.lvframe60 % 60) == 0) {
+			for (s32 i = 0; i < s_SwarmCount && i < 4; i++) {
+				struct chrdata *chr = s_Swarm[i].chr;
+				if (!chr || !chr->aibot) continue;
+				const f32 px = g_Vars.currentplayer->prop->pos.x;
+				const f32 pz = g_Vars.currentplayer->prop->pos.z;
+				const f32 dx = px - chr->prop->pos.x;
+				const f32 dz = pz - chr->prop->pos.z;
+				const f32 d2 = sqrtf(dx * dx + dz * dz);
+				sysLogPrintf(LOG_NOTE,
+					"SWARM.AI.DIAG: slot=%d chrnum=%d myaction=%d cmd=%d "
+					"attackpropnum=%d dist=%.0f tinsight=%d t_seen60=%d",
+					i, (s32)chr->chrnum,
+					(s32)chr->myaction,
+					(s32)chr->aibot->command,
+					(s32)chr->aibot->attackpropnum,
+					d2,
+					(s32)chr->aibot->targetinsight,
+					(s32)chr->aibot->targetlastseen60);
+			}
+		}
 	} else if (testScenarioActiveMethod() == SWARM_METHOD_CPU
 			&& s_VisMode == SWARM_VIS_INVISIBLE) {
 		/* INVISIBLE mode: drop the player target so swarm bots stop
@@ -2041,6 +2068,14 @@ void swarmTestTick(void)
 	if (testScenarioActiveMethod() == SWARM_METHOD_CPU
 			&& g_Vars.currentplayer && g_Vars.currentplayer->prop
 			&& s_VisMode != SWARM_VIS_INVISIBLE) {
+		/* Mike directive 2026-05-18: "don't move them manually, just
+		 * ensure they are targeting the player and know where the
+		 * player is". The targeting state is already re-asserted every
+		 * frame in the CPU re-assertion block above
+		 * (chr->target / aibot->command / attackpropnum /
+		 * targetinsight / chrsinsight[0] / lastseen60 fields). The
+		 * AI's own nav layer is responsible for pursuit. */
+
 		static s32 s_LastSkJump60[TESTSCEN_SWARM_MAX_COUNT];
 		const s32 lvframe = g_Vars.lvframe60;
 		const s32 cooldown_60 = 60; /* one wallrun attempt per bot per second */

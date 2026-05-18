@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "system.h" /* sysLogPrintf for SURFACE_LOCO.RENDER_TILT diagnostic */
 #include "game/game_096700.h"
 #include "game/acosfasinf.h"
 #include "game/quaternion.h"
@@ -841,6 +842,30 @@ void modelUpdateChrNodeMtx(struct modelrenderdata *arg0, struct model *model, st
 		Mtxf yaw_only;
 		Mtxf yaw_then_tilt;
 		chrSurfaceLocoGetRenderUp(g_SurfaceLocoActiveChr, render_up);
+		/* Mike directive 2026-05-18 "i see no wall walking behavior period":
+		 * surface up + body tilt happen here. Log when render_up is
+		 * non-vertical so we can confirm the tilt matrix actually feeds
+		 * the chr render pipeline (vs. computing surface_up but never
+		 * applying it). Rate-limited via a static frame stamp: only the
+		 * first such render per ~60 frames logs to keep volume sane. */
+#if defined(PD_DEV_BUILD)
+		{
+			const f32 horiz_render = (render_up[0] < 0 ? -render_up[0] : render_up[0])
+				+ (render_up[2] < 0 ? -render_up[2] : render_up[2]);
+			if (horiz_render > 0.3f) {
+				static u32 s_LastRenderTiltLogFrame = 0;
+				const u32 now = (u32)g_Vars.lvframenum;
+				if (now - s_LastRenderTiltLogFrame >= 60) {
+					s_LastRenderTiltLogFrame = now;
+					sysLogPrintf(LOG_NOTE,
+						"SURFACE_LOCO.RENDER_TILT: chrnum=%d render_up=(%.2f,%.2f,%.2f) "
+						"horiz=%.2f -- tilt matrix applied",
+						(s32)g_SurfaceLocoActiveChr->chrnum,
+						render_up[0], render_up[1], render_up[2], horiz_render);
+				}
+			}
+		}
+#endif
 		chrSurfaceLocoBuildTiltMtx(render_up, &tilt);
 		mtx4LoadYRotation(sp250, &yaw_only);
 		mtx00015be4(&tilt, &yaw_only, &yaw_then_tilt);

@@ -233,6 +233,12 @@ static s32         g_BootLaunchMpBotCount = 0;
 static bool        g_BootDebugAutoStartMatch = false;
 static u32         g_BootDebugMpOptions   = 0;
 static bool        g_BootDebugMpOptionsSet = false;
+/* Mike directive 2026-05-18 follow-up: override the swarm bench's
+ * default arena. Default is base:mp_felicity (a cramped alley/rooftop
+ * map where wallrun mechanics aren't visually obvious). Smokes /
+ * playtest can pass --debug-swarm-map base:mp_skedar (open courtyards
+ * + tall pillars) for better wallrun visibility. */
+static const char *g_BootDebugSwarmMap = NULL;
 static bool        g_BootMountBike        = false;
 /* Latched one-shot for the bike-mount hook; tickled by pdmain.c's
  * mainTick once activeprops is populated and player 0 is alive. */
@@ -1031,10 +1037,13 @@ s32 bootLaunchScenarioTick(void)
 		return 0;
 	}
 	test_scenario_t scen = (test_scenario_t)g_BootLaunchScenarioId;
+	const char *map_override = (g_BootDebugSwarmMap && g_BootDebugSwarmMap[0])
+		? g_BootDebugSwarmMap : NULL;
 	sysLogPrintf(LOG_NOTE,
-		"BOOT: --launch-scenario consuming latch: testScenarioLaunch(%d) at lvframenum=%d",
-		(s32)scen, (s32)g_Vars.lvframenum);
-	if (!testScenarioLaunch(scen, NULL)) {
+		"BOOT: --launch-scenario consuming latch: testScenarioLaunch(%d) at lvframenum=%d map_override=%s",
+		(s32)scen, (s32)g_Vars.lvframenum,
+		map_override ? map_override : "(default)");
+	if (!testScenarioLaunch(scen, map_override)) {
 		sysLogPrintf(LOG_WARNING,
 			"BOOT: --launch-scenario deferred dispatch failed; falling back to default boot stage");
 	}
@@ -1442,6 +1451,7 @@ int main(int argc, const char **argv)
 
 	/* Mike directive 2026-05-18: end-to-end CS smoke infra. */
 	g_BootDebugAutoStartMatch = sysArgCheck("--debug-auto-start-match") ? true : false;
+	g_BootDebugSwarmMap       = sysArgGetString("--debug-swarm-map");
 	{
 		const char *mpopts = sysArgGetString("--debug-mp-options");
 		if (mpopts && mpopts[0]) {
