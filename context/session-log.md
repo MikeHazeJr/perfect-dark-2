@@ -1,5 +1,30 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-18-updater-signature-key-repair`) - 2026-05-18 - v0.0.199 updater signature repair
+
+Mike reported that the updater rejected v0.0.199 as not signed with a valid key.
+
+### Root Cause
+
+- `release.ps1` signed `PerfectDark-v0.0.199-win64.zip` with the main checkout's stale `dev-keys/ed25519-private.pem` public key `0de1ffef...9925cf4b`.
+- `Build/Updater.exe`, the v0.0.199 zip's `Updater.exe`, and the v0.0.199 zip's `PerfectDark.exe` all embedded the public key from `port/include/updater_pubkey.h`: `3e26c3d0...7d83eef1`.
+- The original GitHub `.sig` was cryptographically valid for the stale key, but every shipped updater with the embedded `3e26...eef1` key rejected it.
+- The matching private key still existed in `.claude/worktrees/hungry-elgamal-e991de/dev-keys/ed25519-private.pem`.
+
+### Repair
+
+- Re-signed the already-published v0.0.199 ZIP with the matching private key.
+- Re-uploaded `PerfectDark-v0.0.199-win64.zip.sig` to GitHub with `gh release upload --clobber`. The `.sha256` was also re-uploaded unchanged; the ZIP bytes did not change.
+- Replaced main checkout `dev-keys/ed25519-{private,public}.pem` with the matching key and backed up the mismatched key as `dev-keys/ed25519-*.mismatch-20260518-151828.pem` (gitignored).
+- Added `devtools/sign-release.ps1` preflight: derive the public key from the chosen private key, parse `port/include/updater_pubkey.h`, and refuse to sign when the keys differ.
+
+### Verification
+
+- GitHub v0.0.199 asset check after upload: `.sig` digest is `sha256:b167610405284eaad40640efe8d1f52ce00cc986bb1233191b3e562ec7c9aa71`; `.sha256` digest remains `sha256:79a9786656db7c49888b8c2f3476c5f08490994c584640f939b01d5e963b49f4`.
+- `sign-release.ps1` parser PASS.
+- Signing with current `dev-keys/ed25519-private.pem` PASS and logs `Signing key matches embedded updater public key.`
+- Signing with the backed-up mismatched key fails before writing a signature, with both public-key fingerprints printed.
+
 ## Session (`main-checkout-2026-05-18-release-hook-autocommits`) - 2026-05-18 - release auto-commit hook compatibility
 
 Mike's v0.0.199 release failed after the build completed because `release.ps1` tried to auto-commit pending release prep with `chore: pre-release commit v0.0.199`, and the c120 commit-msg hook correctly rejected the generic subject.

@@ -101,6 +101,8 @@ Release zip contents:
 
 **Ed25519 signature verification** via `ed25519.h` and embedded `updater_pubkey.h`. Release zips require `.sha256` and `.sig`; updater verifies Ed25519 over `sha256(zip)||tag` with the embedded public key and runs a self-test at init.
 
+B-337 guardrail (2026-05-18): `sign-release.ps1` refuses to sign when the selected private key's derived public key differs from `port/include/updater_pubkey.h`. The GitHub release can have valid-looking sidecars and still fail every updater if this key pair diverges, so signing-key/header mismatch is a hard release blocker.
+
 Two channels: stable and dev (`Updates.ShowDevReleases` config).
 
 `UPDATER_DEFAULT_PROTECTED = "mods,data,extracted,saves"` - directories preserved across self-update.

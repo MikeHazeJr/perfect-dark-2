@@ -50,6 +50,76 @@ $zipFullPath = (Resolve-Path $ZipPath).Path
 $zipName     = Split-Path $zipFullPath -Leaf
 $zipDir      = Split-Path $zipFullPath -Parent
 
+function Get-RawEd25519PublicKeyFromPrivate {
+    param([Parameter(Mandatory = $true)] [string]$PrivateKeyPath)
+
+    $tmpDer = [System.IO.Path]::GetTempFileName()
+    try {
+        & $openssl pkey -in $PrivateKeyPath -pubout -outform DER -out $tmpDer | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "openssl public-key export failed"
+        }
+
+        $derBytes = [System.IO.File]::ReadAllBytes($tmpDer)
+        if ($derBytes.Length -lt 32) {
+            throw "public-key DER was only $($derBytes.Length) bytes"
+        }
+
+        $rawKey = [byte[]]::new(32)
+        [System.Array]::Copy($derBytes, $derBytes.Length - 32, $rawKey, 0, 32)
+        return $rawKey
+    } finally {
+        Remove-Item $tmpDer -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-EmbeddedUpdaterPublicKey {
+    $headerPath = Join-Path $ProjectRoot "port\include\updater_pubkey.h"
+    if (-not (Test-Path -LiteralPath $headerPath)) {
+        throw "embedded updater public-key header missing: $headerPath"
+    }
+
+    $header = Get-Content -LiteralPath $headerPath -Raw
+    $blockMatch = [regex]::Match(
+        $header,
+        '(?s)/\* BEGIN UPDATER_PUBKEY.*?/\* END UPDATER_PUBKEY \*/')
+    if (-not $blockMatch.Success) {
+        throw "UPDATER_PUBKEY block missing from $headerPath"
+    }
+
+    $hexMatches = [regex]::Matches($blockMatch.Value, '0x[0-9a-fA-F]{2}')
+    if ($hexMatches.Count -ne 32) {
+        throw "UPDATER_PUBKEY block has $($hexMatches.Count) bytes, expected 32"
+    }
+
+    $rawKey = [byte[]]::new(32)
+    for ($i = 0; $i -lt 32; $i++) {
+        $rawKey[$i] = [Convert]::ToByte($hexMatches[$i].Value.Substring(2), 16)
+    }
+    return $rawKey
+}
+
+function Format-KeyHex {
+    param([Parameter(Mandatory = $true)] [byte[]]$Bytes)
+    return (($Bytes | ForEach-Object { "{0:x2}" -f $_ }) -join "")
+}
+
+# Guardrail: the updater verifies release signatures against the public key
+# compiled into PerfectDark.exe / Updater.exe. Signing with any other private
+# key produces a formally valid .sig that every shipped updater rejects.
+$signingPubKey = Get-RawEd25519PublicKeyFromPrivate -PrivateKeyPath $KeyPath
+$embeddedPubKey = Get-EmbeddedUpdaterPublicKey
+$signingHex = Format-KeyHex $signingPubKey
+$embeddedHex = Format-KeyHex $embeddedPubKey
+if ($signingHex -ne $embeddedHex) {
+    Write-Host "ERROR: signing key does not match embedded updater public key." -ForegroundColor Red
+    Write-Host "  Signing key public:  $signingHex" -ForegroundColor Yellow
+    Write-Host "  Embedded updater key: $embeddedHex" -ForegroundColor Yellow
+    Write-Host "Refusing to create a release signature that shipped clients will reject." -ForegroundColor Red
+    exit 1
+}
+Write-Host "Signing key matches embedded updater public key." -ForegroundColor Green
+
 # --------------------------------------------------------------------------
 # 1. SHA-256 sidecar (SEC-5)
 #    Format: "<64 hex lowercase>  <zip filename>\n"  (GNU sha256sum compatible)
