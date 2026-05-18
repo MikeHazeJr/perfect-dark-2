@@ -44,7 +44,8 @@ static s32 s_ShowDevReleasesCfg = 0;
 /* Comma-separated list of folder/file names that the updater never deletes.
  * Persisted in pd.ini under [Update]. Read directly from pd.ini at apply
  * time (before config is formally initialized). pd.ini itself is always
- * protected regardless of this setting. */
+ * protected regardless of this setting. Root-level ROM files are also
+ * protected by cleanup code, independent of this folder list. */
 #define UPDATER_DEFAULT_PROTECTED "mods,data,extracted,saves"
 static char s_ProtectedFoldersCfg[512] = UPDATER_DEFAULT_PROTECTED;
 
@@ -52,8 +53,8 @@ PD_CONSTRUCTOR static void updaterConfigInit(void)
 {
 	/* S313 batch: Update.ProtectedFolders no longer persists to pd.ini.
 	 * UPDATER_DEFAULT_PROTECTED ("mods,data,extracted,saves") is the
-	 * canonical list; pd.ini itself is always protected regardless of
-	 * this value, so the default has been fit-for-purpose from day one.
+	 * canonical folder list; pd.ini and root-level ROM files are always
+	 * protected regardless of this value.
 	 * Updates.ShowDevReleases stays configurable (opting in to dev/test
 	 * builds is a real user decision). */
 	configRegisterInt("Updates.ShowDevReleases", &s_ShowDevReleasesCfg, 0, 1);
@@ -1463,6 +1464,24 @@ static void buildProtectedList(const char *csv)
 	s_ProtectedList[s_ProtectedCount++] = "pd.ini";
 }
 
+static s32 isProtectedRootRomRelPath(const char *norm)
+{
+	const char *dot;
+
+	if (strchr(norm, '/') != NULL) {
+		return 0;
+	}
+
+	dot = strrchr(norm, '.');
+	if (dot == NULL) {
+		return 0;
+	}
+
+	return strcmp(dot, ".z64") == 0
+		|| strcmp(dot, ".v64") == 0
+		|| strcmp(dot, ".n64") == 0;
+}
+
 /* Return 1 if relPath is under a protected directory/file. */
 static s32 isProtectedRelPath(const char *relPath)
 {
@@ -1472,6 +1491,11 @@ static s32 isProtectedRelPath(const char *relPath)
 		norm[i] = (relPath[i] == '\\') ? '/' : (char)tolower((unsigned char)relPath[i]);
 	}
 	norm[i] = '\0';
+
+	if (isProtectedRootRomRelPath(norm)) {
+		return 1;
+	}
+
 	for (s32 j = 0; j < s_ProtectedCount; j++) {
 		const char *prot = s_ProtectedList[j];
 		size_t plen = strlen(prot);

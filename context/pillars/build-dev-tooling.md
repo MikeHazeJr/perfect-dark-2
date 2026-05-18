@@ -103,6 +103,8 @@ Release zip contents:
 
 B-337 guardrail (2026-05-18): `sign-release.ps1` refuses to sign when the selected private key's derived public key differs from `port/include/updater_pubkey.h`. The GitHub release can have valid-looking sidecars and still fail every updater if this key pair diverges, so signing-key/header mismatch is a hard release blocker.
 
+B-338 guardrail (2026-05-18): updater stale-file cleanup must preserve root-level BYOR ROM files (`*.z64`, `*.v64`, `*.n64`) in both the in-game updater and standalone `Updater.exe`. This protection is structural, not configurable: it applies even when `pd.ini` is absent or `Update.ProtectedFolders` is stale. Release zips exclude ROMs, so without this rule a root ROM absent from staging is misclassified as stale and can be deleted. Already-published releases with the old cleanup remain unsafe until yanked or superseded.
+
 Two channels: stable and dev (`Updates.ShowDevReleases` config).
 
 `UPDATER_DEFAULT_PROTECTED = "mods,data,extracted,saves"` - directories preserved across self-update.

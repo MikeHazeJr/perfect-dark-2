@@ -1,5 +1,32 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-18-updater-rom-preservation`) - 2026-05-18 - updater root ROM preservation
+
+Mike reported that the updater may have erased the BYOR ROM from another machine's install folder.
+
+### Root Cause
+
+- Post B-321/B-326 installs place `pd.<romid>.z64` at install root.
+- Release ZIPs intentionally exclude ROM files.
+- Both updater cleanup paths preserve `mods/`, `data/`, `extracted/`, `saves/`, and config files, but did not structurally protect root-level ROM files.
+- During stale-file cleanup, any install-root ROM absent from staging could be classified as stale and removed with `DeleteFileA`.
+
+### Change
+
+- Added root-level ROM protection to both `port/src/updater.c` and `port/src/updater_standalone/updater_gui.c`.
+- Protected extensions are `.z64`, `.v64`, and `.n64`, case-insensitive through the existing normalized path.
+- Protection only applies at install root; subdirectories continue to be governed by the existing protected folder list.
+- Updated the standalone updater confirmation text and public updater flow comment to state that root ROM files are preserved.
+- Added `[updater][rom][static][b338]` static tests covering both cleanup implementations and the standalone prompt.
+- Filed B-338. The already-published v0.0.199 updater remains unsafe and should be yanked or superseded before more machines apply it.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session updrom -Target all` PASS for client/updater.
+- `.\devtools\build-session.ps1 -Session updrom -Target tests -BuildTimeoutSeconds 180` PASS for `pd-tests.exe`.
+- Direct focused run with `C:\msys64\mingw64\bin` on PATH: `pd-tests.exe "[updater][rom][static][b338]"` PASS (19 assertions / 2 cases).
+- Note: running `pd-tests.exe` directly without the MSYS2 runtime path can produce a Windows `clock_gettime64` entry-point popup from an incompatible runtime DLL; this was an environment issue, not a test failure.
+
 ## Session (`main-checkout-2026-05-18-updater-signature-key-repair`) - 2026-05-18 - v0.0.199 updater signature repair
 
 Mike reported that the updater rejected v0.0.199 as not signed with a valid key.

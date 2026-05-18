@@ -199,7 +199,8 @@ const pdversion_t *updaterGetStagedVersion(void);
  *   2. Extract ZIP to staging dir (pd_update_staging/) via PowerShell
  *   3. Rename current exe → .old (frees the exe name for overwrite)
  *   4. Copy staging/* → install dir (overwrite mode)
- *   5. Cleanup stale files in install dir (skip protected: mods/, data/, pd.ini, saves/)
+ *   5. Cleanup stale files in install dir (skip protected: mods/, data/,
+ *      pd.ini, saves/, and root-level ROM files)
  *   6. Delete staging dir and update ZIP
  *   7. Re-launch new binary and exit
  *

@@ -53,6 +53,7 @@
 #define GITHUB_REPO          "perfect-dark-2"
 #define ASSET_ZIP_SUFFIX     ".zip"
 #define TAG_PREFIX           "v"
+/* Root-level .z64/.v64/.n64 ROM files are protected by cleanup code. */
 #define DEFAULT_PROTECTED    "mods,data,extracted,saves"
 
 #define MAX_RELEASES         64
@@ -1036,6 +1037,24 @@ static void buildProtectedList(const char *csv)
 	strcpy(s_ProtectedList[s_ProtectedCount++], "pd-updater.ini");
 }
 
+static int isProtectedRootRomRelPath(const char *norm)
+{
+	const char *dot;
+
+	if (strchr(norm, '/') != NULL) {
+		return 0;
+	}
+
+	dot = strrchr(norm, '.');
+	if (dot == NULL) {
+		return 0;
+	}
+
+	return strcmp(dot, ".z64") == 0
+		|| strcmp(dot, ".v64") == 0
+		|| strcmp(dot, ".n64") == 0;
+}
+
 static int isProtectedRelPath(const char *relPath)
 {
 	char norm[MAX_PATH];
@@ -1044,6 +1063,11 @@ static int isProtectedRelPath(const char *relPath)
 		norm[i] = (relPath[i] == '\\') ? '/' : (char)tolower((unsigned char)relPath[i]);
 	}
 	norm[i] = '\0';
+
+	if (isProtectedRootRomRelPath(norm)) {
+		return 1;
+	}
+
 	for (int j = 0; j < s_ProtectedCount; j++) {
 		size_t plen = strlen(s_ProtectedList[j]);
 		char lprot[64];
@@ -1641,7 +1665,8 @@ static void onUpdate(void)
 	char prompt[512];
 	snprintf(prompt, sizeof(prompt),
 		"Download and install v%s (%s) now?\n\n"
-		"Files in mods/, data/, extracted/, saves/ and pd.ini are preserved.\n"
+		"Files in mods/, data/, extracted/, saves/, pd.ini, and root ROM files "
+		"(*.z64/*.v64/*.n64) are preserved.\n"
 		"All other files in this folder are replaced.",
 		verStr, r->isPrerelease ? "Dev" : "Stable");
 

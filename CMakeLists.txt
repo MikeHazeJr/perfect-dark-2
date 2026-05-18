@@ -1079,6 +1079,11 @@ set(SRC_TESTS
   # the toast-emit cap, and the boot wiring order.  Audit at
   # context/audits/catalog-phase3-passd-self-heal-2026-05-02.md.
   ${CMAKE_SOURCE_DIR}/tests/test_romextract_passd.cpp
+
+  # B-338: updater stale-file cleanup must never delete root-level BYOR
+  # ROM files. Static grep pin covers both in-game and standalone updater
+  # cleanup implementations.
+  ${CMAKE_SOURCE_DIR}/tests/test_updater_rom_cleanup_static.cpp
 )
 
 add_executable(pd-tests ${SRC_TESTS})
