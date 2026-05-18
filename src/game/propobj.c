@@ -15220,6 +15220,15 @@ void objCheckDestroyed(struct defaultobj *obj, struct coord *pos, s32 playernum)
 	}
 }
 
+static bool objModelMatrixIndexIsValid(struct model *model, s32 mtxindex)
+{
+	return model
+		&& model->definition
+		&& model->matrices
+		&& mtxindex >= 0
+		&& mtxindex < model->definition->nummatrices;
+}
+
 bool func0f084594(struct model *model, struct modelnode *node, struct coord *arg2, struct coord *arg3, struct hitthing *hitthing, s32 *mtxindexptr, struct modelnode **nodeptr)
 {
 	s32 i;
@@ -15237,9 +15246,17 @@ bool func0f084594(struct model *model, struct modelnode *node, struct coord *arg
 	struct coord sp7c;
 	Mtxf mtx;
 
+	if (!model || !node || !arg2 || !arg3 || !hitthing || !mtxindexptr || !nodeptr || !node->rodata) {
+		return false;
+	}
+
 	rodata = &node->rodata->bbox;
 
 	mtxindex = modelFindNodeMtxIndex(node, 0);
+	if (!objModelMatrixIndexIsValid(model, mtxindex)) {
+		return false;
+	}
+
 	mtx000172f0(model->matrices[mtxindex].m, mtx.m);
 
 	spb8.x = arg2->x;
@@ -15370,6 +15387,11 @@ bool func0f0849dc(struct model *model, struct modelnode *nodearg, struct coord *
 	struct modelnode *node = nodearg;
 	Vtx *vertices = NULL;
 
+	if (!model || !nodearg || !arg2 || !arg3 || !hitthing || !dstmtxindex || !dstnode
+			|| !model->definition || !model->matrices || model->definition->nummatrices <= 0) {
+		return false;
+	}
+
 	while (node && !done) {
 		u32 type = node->type & 0xff;
 		Gfx *s3 = NULL;
@@ -15378,8 +15400,16 @@ bool func0f0849dc(struct model *model, struct modelnode *nodearg, struct coord *
 		switch (type) {
 		case MODELNODETYPE_DL:
 			{
+				if (!node->rodata) {
+					break;
+				}
+
 				struct modelrodata_dl *rodata = &node->rodata->dl;
 				struct modelrwdata_dl *rwdata = modelGetNodeRwData(model, node);
+
+				if (!rwdata) {
+					break;
+				}
 
 				if (rwdata->gdl != NULL) {
 					if (rwdata->gdl == rodata->opagdl) {
@@ -15398,6 +15428,10 @@ bool func0f0849dc(struct model *model, struct modelnode *nodearg, struct coord *
 			break;
 		case MODELNODETYPE_GUNDL:
 			{
+				if (!node->rodata) {
+					break;
+				}
+
 				struct modelrodata_gundl *rodata = &node->rodata->gundl;
 
 				if (rodata->opagdl != NULL) {
@@ -15427,7 +15461,7 @@ bool func0f0849dc(struct model *model, struct modelnode *nodearg, struct coord *
 			Mtxf *mtx = NULL;
 			Mtxf sp64;
 
-			if (mtxindex >= 0) {
+			if (objModelMatrixIndexIsValid(model, mtxindex)) {
 				mtx = &model->matrices[mtxindex];
 			}
 
@@ -15453,7 +15487,7 @@ bool func0f0849dc(struct model *model, struct modelnode *nodearg, struct coord *
 				spe0.z = spd4.z * 32767.0f + spec.z;
 			}
 
-			if (bgTestHitOnObj(&spec, &spe0, &spd4, s3, s5, vertices, hitthing)) {
+			if (mtx && bgTestHitOnObj(&spec, &spe0, &spd4, s3, s5, vertices, hitthing)) {
 				*dstmtxindex = mtxindex;
 				*dstnode = node;
 				done = true;

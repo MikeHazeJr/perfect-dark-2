@@ -156,11 +156,13 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
     const std::string capsule = readTextFile("src/lib/capsule.c");
     const std::string bondwalk = readTextFile("src/game/bondwalk.c");
     const std::string chr = readTextFile("src/game/chr.c");
+    const std::string propobj = readTextFile("src/game/propobj.c");
 
     REQUIRE_FALSE(header.empty());
     REQUIRE_FALSE(capsule.empty());
     REQUIRE_FALSE(bondwalk.empty());
     REQUIRE_FALSE(chr.empty());
+    REQUIRE_FALSE(propobj.empty());
 
     requireContains(header, "struct prop *selfprop");
     requireContains(header, "capsuleFindFloorForProp");
@@ -183,6 +185,9 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
     requireContains(bondwalk, "capsuleFindCeilingForProp(g_Vars.currentplayer->prop");
     requireContains(chr, "sweep.selfprop = chr->prop");
     requireContains(chr, "capsuleFindRenderedFloor(prop");
+    requireContains(propobj, "objModelMatrixIndexIsValid");
+    requireContains(propobj, "mtxindex < model->definition->nummatrices");
+    requireContains(propobj, "continue;");
 
     requireNotContains(capsule, "single ray is sufficient");
     requireNotContains(capsule, "g_Vars.currentplayer->prop, false");

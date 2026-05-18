@@ -10,7 +10,7 @@
 
 The queue has three lanes after the context rebuild lands. Lane order is sequential; do not start the next until the previous is at a stable stopping point.
 
-**Tooling note (2026-05-18)**: Kanban board status-tab refactor shipped. Active Kanban now displays one status at a time (`Backlogged`, `Active`, `Blocked`, `Done`) with a scoped dropdown for `All` and status-scoped pillars only. Cards flow in a responsive grid, sorted with starred cards first, then numbered priorities from highest to lowest, then the rest by board order. Daily Flow is now a top-level tab beside Bug Tracker and starts collapsed by default. Pending-completion Review panel title-focus polish remains shipped. B-336 release auto-commit hook compatibility is patched in `release.ps1` and Dev Window v2. B-337 v0.0.199 signature sidecar was re-signed/re-uploaded with the key embedded in the shipped updater; future sign attempts now fail if key/header mismatch. B-338 updater cleanup now protects root-level BYOR ROM files (`*.z64`, `*.v64`, `*.n64`) in both apply paths; already-published v0.0.199 remains unsafe and should be yanked or superseded before more machines apply it.
+**Tooling note (2026-05-18)**: Kanban board status-tab refactor shipped. Active Kanban now displays one status at a time (`Backlogged`, `Active`, `Blocked`, `Done`) with a scoped dropdown for `All` and status-scoped pillars only. Cards flow in a responsive grid, sorted with starred cards first, then numbered priorities from highest to lowest, then the rest by board order. Daily Flow is now a top-level tab beside Bug Tracker and starts collapsed by default. Pending-completion Review panel title-focus polish remains shipped. B-336 release auto-commit hook compatibility is patched in `release.ps1` and Dev Window v2. B-337 v0.0.199 signature sidecar was re-signed/re-uploaded with the key embedded in the shipped updater; future sign attempts now fail if key/header mismatch. B-338 updater cleanup now protects root-level BYOR ROM files (`*.z64`, `*.v64`, `*.n64`) in both apply paths; already-published v0.0.199 and v0.0.200 predate the fix and should be superseded by a newer prerelease, then retired by the rolling prerelease prune.
 
 ### 1. Catalog - Weapons F11-F13 data move - LANE CLOSED 2026-04-30
 
@@ -323,6 +323,10 @@ Follow-ups surfaced by the day's ship batch on `dev`. Tracked in detail in [sess
 ## Active investigations / unresolved bugs
 
 > Cross-track audit: [audits/incompleteness-sweep-input-context-extraction-jump-2026-05-13.md](audits/incompleteness-sweep-input-context-extraction-jump-2026-05-13.md) covers input pillar / context system / file extraction + external user accessibility / jump collision in one read. Proposes c132-c135 sprint sketches; awaiting Mike's prioritisation pass.
+
+Latest crash fix awaiting Mike playtest:
+
+- **B-339 Defection Perfect mission-start crash** -- FIXED-PENDING-PLAYTEST 2026-05-18. Root cause was an unsafe `model->matrices[mtxindex]` deref in `propobj.c::func0f0849dc()` reached through the rendered-prop capsule floor probe during early NPC ground acquisition. Guarded invalid matrix indices and null model-node data; verified client/updater, tests, focused `[physics][jump]`, and server in isolated session `defcrash`.
 
 Open per [bugs.md](bugs.md). Latest entries (B-280 through B-290) are all FIXED-PENDING-BUILD as of S575 (2026-04-28); promote to FIXED with commit SHA when the build verification clears.
 

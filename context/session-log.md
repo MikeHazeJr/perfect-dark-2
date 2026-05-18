@@ -1,5 +1,32 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-18-defection-perfect-crash`) - 2026-05-18 - Defection Perfect mission-start crash
+
+Mike reported a fatal access violation when starting the first mission on Perfect difficulty. The active log was `Build\pd-client.log`.
+
+### Root Cause
+
+- The log showed menu start for `stage_id='base:defection'`, `stage=0x30`, `diff=2`, then a crash on frame 3 while ticking `CHR.TICK slot=36 chrnum=38 action=0`.
+- Symbolication of PC `+0x3d8c83` resolved the stack to `mtx000172f0 <- func0f0849dc <- capsuleRenderedPropRayCast <- capsuleFindRenderedFloor <- chr0f01f378 <- chrTick`.
+- The rendered-prop floor probe introduced by the jump/capsule work reused `func0f0849dc()`. That helper trusted `modelFindNodeMtxIndex()` and dereferenced `model->matrices[mtxindex]` before proving `mtxindex < model->definition->nummatrices`.
+- Defection has at least one nearby prop/model node that can surface an invalid matrix index during NPC ground acquisition.
+
+### Change
+
+- Added `objModelMatrixIndexIsValid()` in `src/game/propobj.c`.
+- Guarded both `func0f084594()` and `func0f0849dc()` against null inputs and invalid model matrix indices before any matrix dereference.
+- Added DL/GUNDL rodata and DL rwdata null guards in `func0f0849dc()` so object hit tests fail closed.
+- Extended `[physics][jump]` static coverage to pin the matrix-index guard because rendered-prop object collision is part of the capsule floor path.
+- Filed B-339.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session defcrash -Target all` PASS for client/updater.
+- `.\devtools\build-session.ps1 -Session defcrash -Target tests` PASS for `pd-tests.exe`.
+- Direct focused run with `C:\msys64\mingw64\bin` on PATH: `pd-tests.exe "[physics][jump]"` PASS (46 assertions / 4 cases).
+- `.\devtools\build-session.ps1 -Session defcrash -Target server` PASS.
+- Manual playtest still needed: launch Defection on Perfect and confirm the initial NPC tick/floor acquisition no longer crashes.
+
 ## Session (`main-checkout-2026-05-18-updater-rom-preservation`) - 2026-05-18 - updater root ROM preservation
 
 Mike reported that the updater may have erased the BYOR ROM from another machine's install folder.
@@ -18,7 +45,8 @@ Mike reported that the updater may have erased the BYOR ROM from another machine
 - Protection only applies at install root; subdirectories continue to be governed by the existing protected folder list.
 - Updated the standalone updater confirmation text and public updater flow comment to state that root ROM files are preserved.
 - Added `[updater][rom][static][b338]` static tests covering both cleanup implementations and the standalone prompt.
-- Filed B-338. The already-published v0.0.199 updater remains unsafe and should be yanked or superseded before more machines apply it.
+- Filed B-338. The already-published v0.0.199 updater remains unsafe until superseded by a fixed newer prerelease and retired by the rolling prerelease prune.
+- Post-fix GitHub check found v0.0.200 was also already published as a prerelease and points to the pre-fix tag `450a6788`; v0.0.200 is unsafe too.
 
 ### Verification
 
