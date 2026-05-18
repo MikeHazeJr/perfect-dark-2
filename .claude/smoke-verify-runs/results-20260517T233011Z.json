@@ -1,0 +1,25 @@
+﻿{
+    "Name":  "social_hub_agent_gate_smoke",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  0,
+    "ElapsedSeconds":  60.508937599999996,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  14,
+    "AssertionsMet":  12,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "PRESENCE: initialised state=bootstrap scheduled=\\d+ \\(awaiting agent load\\)"
+                     },
+                     {
+                         "Kind":  "required_count_out_of_range",
+                         "Pattern":  "PRESENCE: initialised state=bootstrap",
+                         "Count":  0,
+                         "Min":  1,
+                         "Max":  1
+                     }
+                 ]
+}
