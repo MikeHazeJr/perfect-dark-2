@@ -73,6 +73,7 @@
 #define POOL_WEAPONFUNCS      256
 #define POOL_VIBRATIONS       256
 #define POOL_ANIMATIONS       256
+#define POOL_ANIM_FIXUPS      512  /* GUNCMD_INCLUDE / GUNCMD_RANDOM forward refs */
 
 typedef union {
 	struct weaponfunc                  base;
@@ -91,6 +92,17 @@ typedef struct {
 	s32   cmd_count;
 } pool_anim_entry_t;
 
+/* Forward-reference fixup record: a GUNCMD_INCLUDE / GUNCMD_RANDOM
+ * encountered during decodeOpcode whose target animation has not yet
+ * been parsed into s_Animations. unk04 is parked at 0 (NULL) until
+ * loaderPoolFinalize walks this table and re-resolves every entry
+ * after all animations are loaded. Pre-finalize, bgunStartAnimation's
+ * defensive NULL guard prevents the crash class. */
+typedef struct {
+	struct guncmd *slot;
+	char           anim_name[64];
+} pool_anim_fixup_t;
+
 static struct weapon                  s_Weapons[CATALOG_MGR_WEAPON_COUNT];
 static struct aibotweaponpreference   s_BotPrefs[CATALOG_MGR_WEAPON_COUNT];
 /* Per-weapon catalog ID captured from the per-asset envelope `id` field.
@@ -106,6 +118,8 @@ static struct recoilsettings          s_RecoilSettings[POOL_RECOILSETTINGS];
 static weaponfunc_any_t               s_WeaponFuncs[POOL_WEAPONFUNCS];
 static f32                            s_Vibrations[POOL_VIBRATIONS];
 static pool_anim_entry_t              s_Animations[POOL_ANIMATIONS];
+static pool_anim_fixup_t              s_AnimFixups[POOL_ANIM_FIXUPS];
+static s32                            s_AnimFixupsUsed;
 static struct invaimsettings          s_DefaultAim;
 static struct noisesettings       s_DefaultNoise;
 
@@ -263,6 +277,34 @@ static struct guncmd *resolveAnimByName(const char *name)
 		}
 	}
 	return NULL;
+}
+
+/* Register a forward-reference fixup so loaderPoolFinalize can resolve
+ * an animation name once all .pdanim files have been parsed. Used by
+ * decodeOpcode for GUNCMD_INCLUDE / GUNCMD_RANDOM whose target animation
+ * hasn't been parsed yet (load-order forward references). */
+static void registerAnimFixup(struct guncmd *slot, const char *anim_name)
+{
+	if (slot == NULL || anim_name == NULL || anim_name[0] == '\0') {
+		return;
+	}
+	if (s_AnimFixupsUsed >= POOL_ANIM_FIXUPS) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.POOL.WEAPON.FIXUP_FULL: cannot defer resolve of '%s' "
+			"(pool full at %d)",
+			anim_name, POOL_ANIM_FIXUPS);
+		return;
+	}
+	pool_anim_fixup_t *fx = &s_AnimFixups[s_AnimFixupsUsed++];
+	fx->slot = slot;
+	/* Strip optional namespace prefix to match resolveAnimByName policy. */
+	const char *bare = anim_name;
+	const char *colon = strchr(anim_name, ':');
+	if (colon != NULL) bare = colon + 1;
+	size_t n = strlen(bare);
+	if (n >= sizeof(fx->anim_name)) n = sizeof(fx->anim_name) - 1;
+	memcpy(fx->anim_name, bare, n);
+	fx->anim_name[n] = '\0';
 }
 
 /* ------------------------------------------------------------------ */
@@ -642,11 +684,14 @@ static s32 decodeOpcode(jstream_t *s, struct guncmd *out)
 		if (s->cur.kind == JT_COMMA) jstream_advance(s);
 		out->unk01 = (u8)jread_int(s, 0);
 		if (s->cur.kind == JT_COMMA) jstream_advance(s);
-		/* address is an animation name; resolved in second pass */
+		/* Forward references resolve in loaderPoolFinalize via registerAnimFixup. */
 		char anim_name[64];
 		jread_string_buf(s, anim_name, sizeof(anim_name));
 		struct guncmd *resolved = resolveAnimByName(anim_name);
 		out->unk04 = (intptr_t)resolved;
+		if (resolved == NULL) {
+			registerAnimFixup(out, anim_name);
+		}
 	} else if (strcmp(mnem, "random") == 0) {
 		out->type = GUNCMD_RANDOM;
 		if (s->cur.kind == JT_COMMA) jstream_advance(s);
@@ -656,6 +701,9 @@ static s32 decodeOpcode(jstream_t *s, struct guncmd *out)
 		jread_string_buf(s, anim_name, sizeof(anim_name));
 		struct guncmd *resolved = resolveAnimByName(anim_name);
 		out->unk04 = (intptr_t)resolved;
+		if (resolved == NULL) {
+			registerAnimFixup(out, anim_name);
+		}
 	} else if (strcmp(mnem, "repeatuntilfull") == 0) {
 		out->type = GUNCMD_REPEATUNTILFULL;
 		if (s->cur.kind == JT_COMMA) jstream_advance(s);
@@ -1865,6 +1913,7 @@ void loaderPoolReset(void)
 	memset(s_WeaponFuncs, 0, sizeof(s_WeaponFuncs));
 	memset(s_Vibrations, 0, sizeof(s_Vibrations));
 	memset(s_Animations, 0, sizeof(s_Animations));
+	memset(s_AnimFixups, 0, sizeof(s_AnimFixups));
 	memset(s_HeadsPool, 0, sizeof(s_HeadsPool));
 	memset(s_BodiesPool, 0, sizeof(s_BodiesPool));
 	memset(s_ArenasPool, 0, sizeof(s_ArenasPool));
@@ -1878,6 +1927,7 @@ void loaderPoolReset(void)
 	s_WeaponFuncsUsed = 0;
 	s_VibrationsUsed = 0;
 	s_AnimationsUsed = 0;
+	s_AnimFixupsUsed = 0;
 	s_LoaderActive = 0;
 	s_WeaponsRegistered = 0;
 	s_HeadsLoaderActive = 0;
@@ -1966,6 +2016,36 @@ void loaderPoolFinalize(void)
 	if (s_HeadsRegistered > 0)    s_HeadsLoaderActive  = 1;
 	if (s_BodiesRegistered > 0)   s_BodiesLoaderActive = 1;
 	if (s_ArenasRegistered > 0)   s_ArenasLoaderActive = 1;
+
+	/* Deferred fixup pass for GUNCMD_INCLUDE / GUNCMD_RANDOM forward
+	 * references: every fixup recorded during decodeOpcode gets its
+	 * unk04 pointer patched here, after every .pdanim has been parsed
+	 * into s_Animations. Any still-unresolved name is loud (LOG_WARNING
+	 * with the failing reference) so the underlying missing animation
+	 * surfaces in the log instead of silently leaving a NULL pointer
+	 * that crashes during gameplay. */
+	s32 fixupOk = 0, fixupFail = 0;
+	for (s32 fi = 0; fi < s_AnimFixupsUsed; fi++) {
+		pool_anim_fixup_t *fx = &s_AnimFixups[fi];
+		if (fx->slot == NULL) continue;
+		struct guncmd *resolved = resolveAnimByName(fx->anim_name);
+		if (resolved != NULL) {
+			fx->slot->unk04 = (intptr_t)resolved;
+			fixupOk++;
+		} else {
+			sysLogPrintf(LOG_WARNING,
+				"LOADER.POOL.WEAPON.FIXUP_MISS: unresolved animation '%s' "
+				"referenced by GUNCMD_INCLUDE/RANDOM -- unk04 left NULL, "
+				"bgunStartAnimation will skip-guard at runtime",
+				fx->anim_name);
+			fixupFail++;
+		}
+	}
+	if (s_AnimFixupsUsed > 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOADER.POOL.WEAPON.FIXUP: deferred=%d resolved=%d unresolved=%d",
+			s_AnimFixupsUsed, fixupOk, fixupFail);
+	}
 
 	sysLogPrintf(LOG_NOTE,
 		"LOADER.POOL.WEAPON.OK: active=%d weapons=%d animations=%d funcs=%d "

@@ -898,6 +898,23 @@ bool bgun0f098884(struct guncmd *cmd, struct gset *gset)
 
 void bgunStartAnimation(struct guncmd *cmd, s32 handnum, struct hand *hand)
 {
+	/* Defensive guard: cmd may be NULL when the equip/unequip/etc.
+	 * animation pointer on the weapondef is unresolved, OR when a
+	 * recursive GUNCMD_INCLUDE / GUNCMD_RANDOM has unk04=NULL because
+	 * the referenced animation hadn't been parsed into the loader pool
+	 * at the time decodeOpcode resolved the name. (The loader's
+	 * resolveAnimByName silently returns NULL for forward references;
+	 * loaderPoolFinalize now patches such references in a fixup pass,
+	 * but this guard keeps the crash class from coming back if any
+	 * future emitter or mod ships an unresolved animation name.) */
+	if (cmd == NULL) {
+		sysLogPrintf(LOG_WARNING,
+			"BGUN.ANIM.NULL: bgunStartAnimation called with NULL cmd "
+			"(handnum=%d) -- skipping; likely an unresolved INCLUDE/RANDOM "
+			"animation reference in the active weapon",
+			(s32)handnum);
+		return;
+	}
 	if (cmd->type != GUNCMD_PLAYANIMATION) {
 		struct guncmd *loopcmd = cmd;
 		s32 done = false;
