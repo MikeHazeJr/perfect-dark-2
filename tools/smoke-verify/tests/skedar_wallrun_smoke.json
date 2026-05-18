@@ -1,0 +1,49 @@
+{
+  "scenario_name": "skedar_wallrun_smoke",
+  "description": "Mike directive 2026-05-17: prove Skedar AI wallrun fires in the CPU benchmark. Uses --launch-scenario swarm_cpu to fast-path past Agent Select / main menu; the Skedar swarm bots are race=RACE_SKEDAR (bodyGetRace) and after the wallrun trigger added to swarm_test::swarmTestTick we expect SKJUMP.SWARM telemetry within the first 120 seconds.",
+  "tags": ["debug", "swarm", "cpu", "skedar", "wallrun", "ai"],
+  "paths_of_interest": [
+    "port/src/swarm_test.c",
+    "src/game/chraction.c",
+    "src/game/chr.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--launch-scenario",
+    "swarm_cpu"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait", "comment": "boot path: --launch-scenario seeds testScenarioLaunch(SWARM_CPU) post-catalog-init. Player spawns at the Skedar arena spawn point." },
+    { "at_ms": 12000, "type": "action", "name": "ACTION_USE",        "action": "tap", "comment": "dismiss endscreen_solo continue -- restart match (matches swarm_cpu_smoke first-launch pattern)" },
+    { "at_ms": 18000, "type": "action", "name": "ACTION_CANCEL_USE", "action": "tap", "comment": "fallback: cancel endscreen to main_menu" },
+    { "at_ms": 22000, "type": "action", "name": "ACTION_USE",        "action": "tap", "comment": "advance any transient screen" },
+    { "at_ms": 40000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 4 -> 8 bots (denser swarm -> more wallrun opportunities)" },
+    { "at_ms": 60000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 8 -> 16" },
+    { "at_ms": 80000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 16 -> 32 (32 Skedar in pursuit; the wallrun trigger should fire on bots that enter 200-550u range with LOS clear)" },
+    { "at_ms": 150000, "type": "exit",  "comment": "scripted exit after the wallrun should have had ample time to fire" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=skedar_wallrun_smoke",
+      "BOOT: --launch-scenario 'swarm_cpu' armed",
+      "TESTSCEN\\.LAUNCH: Swarm-CPU",
+      "SKJUMP\\.SWARM: chrnum=\\d+ slot=\\d+ dist=",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable"
+    ],
+    "required_counts": [
+      { "pattern": "SKJUMP\\.SWARM:", "min": 1, "max": 4096 }
+    ]
+  }
+}

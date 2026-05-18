@@ -270,6 +270,10 @@ static s32 s_LadderIdx = 0; /* 0 = lowest ladder count (4) */
  * pre-session value when leaving so the user's normal MP setup is
  * unchanged. 0xff = sentinel "not snapshotted yet". */
 static u8 s_PriorTeamsEnabledSnapshot = 0xff;
+/* Mike directive 2026-05-17: same snapshot pattern for MPOPTION_BOTJUMP
+ * so the swarm benchmark forces bot jumping on for the duration of the
+ * session without leaking the override into the user's normal MP setup. */
+static u8 s_PriorBotJumpSnapshot = 0xff;
 
 /* Frame-time accumulators for the BENCHMARK.SWARM.* summary line.
  *
@@ -1794,6 +1798,15 @@ void swarmTestTick(void)
 			g_MpSetup.options &= ~MPOPTION_TEAMSENABLED;
 		}
 
+		/* Mike directive 2026-05-17: enable bot jumping during the
+		 * swarm benchmark so the BOT.JUMP telemetry surfaces during
+		 * the Skedar bench. The flag is restored in
+		 * swarmTestOnSessionEnd alongside MPOPTION_TEAMSENABLED so a
+		 * post-session match config does not inherit the override. */
+		s_PriorBotJumpSnapshot =
+			(g_MpSetup.options & MPOPTION_BOTJUMP) ? 1 : 0;
+		g_MpSetup.options |= MPOPTION_BOTJUMP;
+
 		/* Reset ladder position to the initial-count entry (idx 0 = 4). */
 		s_LadderIdx = 0;
 		respawn_swarm(TESTSCEN_SWARM_INITIAL_COUNT);
@@ -1955,6 +1968,58 @@ void swarmTestTick(void)
 		}
 	}
 
+	/* Skedar wallrun trigger (c3738, Mike directive 2026-05-17).
+	 *
+	 * The CPU/GPU swarm bench bots are configured race=RACE_SKEDAR
+	 * (via bodyGetRace at spawn), but the standard MP bot AI script
+	 * never calls chrTrySkJump -- only the Skedar-specific AI script
+	 * does, and swarm bots use BOTTYPE_SPEED instead. Result: the
+	 * "skedar benchmark" never demonstrates the Skedar's signature
+	 * wallrun behaviour.
+	 *
+	 * Fix: per-tick, walk the active swarm and call chrTrySkJump on
+	 * every Skedar bot whose range to the player is in the SKJUMP
+	 * gate (200-550). chrTrySkJump itself short-circuits if the bot
+	 * is already in ACT_SKJUMP or the LOS / range check fails, so
+	 * this is cheap to fire on every bot every frame.
+	 *
+	 * Per-tick budget: rate-limit to one wallrun activation per bot
+	 * per second so the swarm doesn't all jump together (the LOG
+	 * spam would obscure the actual benchmark signal). Use the same
+	 * lvframe-cooldown pattern as the bot-jump path.
+	 *
+	 * Telemetry: log SKJUMP.SWARM lines so smoke harnesses can grep
+	 * a stable marker. */
+	extern bool chrTrySkJump(struct chrdata *chr, u8 arg1, u8 arg2, s32 arg3, u8 arg4);
+	if (testScenarioActiveMethod() == SWARM_METHOD_CPU
+			&& g_Vars.currentplayer && g_Vars.currentplayer->prop
+			&& s_VisMode != SWARM_VIS_INVISIBLE) {
+		static s32 s_LastSkJump60[TESTSCEN_SWARM_MAX_COUNT];
+		const s32 lvframe = g_Vars.lvframe60;
+		const s32 cooldown_60 = 60; /* one wallrun attempt per bot per second */
+		const struct coord pp = g_Vars.currentplayer->prop->pos;
+		for (s32 i = 0; i < s_SwarmCount; i++) {
+			struct chrdata *chr = s_Swarm[i].chr;
+			if (!chr || !chr->prop || chr->chrnum < 0) continue;
+			if (chr->race != RACE_SKEDAR) continue;
+			const s32 elapsed = lvframe - s_LastSkJump60[i];
+			if (s_LastSkJump60[i] != 0 && elapsed < cooldown_60) continue;
+			/* Range pre-check matches chrStartSkJump's own gate;
+			 * avoids walking into chrTrySkJump's full cdTestCylMove01
+			 * when we already know we're outside the window. */
+			f32 dx = pp.x - chr->prop->pos.x;
+			f32 dz = pp.z - chr->prop->pos.z;
+			f32 dist2 = dx * dx + dz * dz;
+			if (dist2 < 200.0f * 200.0f || dist2 > 550.0f * 550.0f) continue;
+			if (chrTrySkJump(chr, 0, 0, 0, 0)) {
+				s_LastSkJump60[i] = lvframe;
+				sysLogPrintf(LOG_NOTE,
+					"SKJUMP.SWARM: chrnum=%d slot=%d dist=%.0f frame=%d",
+					(s32)chr->chrnum, i, sqrtf(dist2), lvframe);
+			}
+		}
+	}
+
 	/* Drive per-method simulation.
 	 *
 	 * CPU mode -- bots run their own AI through chraTick (driven by
@@ -2111,6 +2176,16 @@ void swarmTestOnSessionEnd(void)
 			g_MpSetup.options &= ~MPOPTION_TEAMSENABLED;
 		}
 		s_PriorTeamsEnabledSnapshot = 0xff;
+	}
+
+	/* Mike directive 2026-05-17: same restore for MPOPTION_BOTJUMP. */
+	if (s_PriorBotJumpSnapshot != 0xff) {
+		if (s_PriorBotJumpSnapshot) {
+			g_MpSetup.options |= MPOPTION_BOTJUMP;
+		} else {
+			g_MpSetup.options &= ~MPOPTION_BOTJUMP;
+		}
+		s_PriorBotJumpSnapshot = 0xff;
 	}
 
 	s_SwarmKills             = 0;
