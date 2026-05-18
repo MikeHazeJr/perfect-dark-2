@@ -144,11 +144,17 @@ $vPat = if ($vParts.Count -ge 3 -and $vParts[2] -match '^\d+$') { $vParts[2] } e
 
 function Invoke-ReleaseCommit {
     param(
-        [string]$Message,
+        [string]$Subject,
+        [string]$Body,
+        [string]$Refs = "Refs: c120",
         [switch]$AllowNoVerifyFallback
     )
 
-    $commitOut = @(git commit -m $Message 2>&1)
+    $args = @("commit", "-m", $Subject)
+    if ($Body) { $args += @("-m", $Body) }
+    if ($Refs) { $args += @("-m", $Refs) }
+
+    $commitOut = @(git @args 2>&1)
     $commitCode = $LASTEXITCODE
     foreach ($line in $commitOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
 
@@ -161,10 +167,22 @@ function Invoke-ReleaseCommit {
     }
 
     Write-Host "  Commit failed; retrying with --no-verify (--force commit mode)." -ForegroundColor Yellow
-    $commitOut2 = @(git commit --no-verify -m $Message 2>&1)
+    $args2 = @("commit", "--no-verify", "-m", $Subject)
+    if ($Body) { $args2 += @("-m", $Body) }
+    if ($Refs) { $args2 += @("-m", $Refs) }
+    $commitOut2 = @(git @args2 2>&1)
     $commitCode2 = $LASTEXITCODE
     foreach ($line in $commitOut2) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
     return ($commitCode2 -eq 0)
+}
+
+function Get-ReleaseCommitBody {
+    param(
+        [string]$Version,
+        [string]$Stage
+    )
+
+    return "The release pipeline found staged or pending changes during $Stage for v$Version and needs a clean commit before tagging, rebasing, or pushing. This automated commit keeps the release flow compatible with the c120 commit-message hook instead of bypassing validation."
 }
 
 # Same layout as build-headless.ps1 / dev-window Copy-AddinFiles (B-326):
@@ -229,7 +247,10 @@ if ($SkipBuild) {
     $statusOut = git -C $ProjectRoot status --porcelain 2>&1
     if ($statusOut) {
         git -C $ProjectRoot add -A 2>&1 | Out-Null
-        if (Invoke-ReleaseCommit -Message "chore: pre-release commit v$Version" -AllowNoVerifyFallback:$ForceCommitNoVerify) {
+        if (Invoke-ReleaseCommit `
+                -Subject "Tooling - c120: Commit pre-release changes for v$Version" `
+                -Body (Get-ReleaseCommitBody -Version $Version -Stage "pre-release") `
+                -AllowNoVerifyFallback:$ForceCommitNoVerify) {
             Write-Host "  [pre-release] Committed pending changes." -ForegroundColor Green
         } else {
             Write-Host "  [pre-release] Commit failed." -ForegroundColor Red
@@ -274,7 +295,10 @@ if ($SkipBuild) {
     $statusOut = git -C $ProjectRoot status --porcelain 2>&1
     if ($statusOut) {
         git -C $ProjectRoot add -A 2>&1 | Out-Null
-        if (Invoke-ReleaseCommit -Message "chore: pre-release commit v$Version" -AllowNoVerifyFallback:$ForceCommitNoVerify) {
+        if (Invoke-ReleaseCommit `
+                -Subject "Tooling - c120: Commit pre-build changes for v$Version" `
+                -Body (Get-ReleaseCommitBody -Version $Version -Stage "pre-build") `
+                -AllowNoVerifyFallback:$ForceCommitNoVerify) {
             Write-Host "  [pre-build] Committed pending changes." -ForegroundColor Green
         } else {
             Write-Host "  [pre-build] Commit failed." -ForegroundColor Red
@@ -730,7 +754,10 @@ if ($SkipPush -or $DryRun) {
     git diff --cached --quiet 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  Committing staged changes before pull --rebase..." -ForegroundColor Gray
-        $okCommit = Invoke-ReleaseCommit -Message "chore: auto-commit before release v$Version" -AllowNoVerifyFallback:$ForceCommitNoVerify
+        $okCommit = Invoke-ReleaseCommit `
+            -Subject "Tooling - c120: Commit release rebase changes for v$Version" `
+            -Body (Get-ReleaseCommitBody -Version $Version -Stage "release rebase") `
+            -AllowNoVerifyFallback:$ForceCommitNoVerify
         if (-not $okCommit) {
             Write-Host "  ERROR: git commit failed before pull --rebase. Fix hooks or repo state, or use -ForceCommitNoVerify." -ForegroundColor Red
             exit 1

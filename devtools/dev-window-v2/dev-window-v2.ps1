@@ -1661,7 +1661,7 @@ function Get-GitCurrentBranch {
 # because the function returns immediately.
 function Start-GitSyncBeforeBuild {
     param(
-        [string]$CommitMessage = "chore: auto-commit before build (dev window)",
+        [string]$CommitMessage = "Tooling - c120: Commit pre-build Dev Window sync",
         [string]$ActionLabel = "sync before build",
         [bool]$RequirePush = $false,
         [Parameter(Mandatory=$true)][scriptblock]$OnComplete
@@ -1700,9 +1700,11 @@ function Start-GitSyncBeforeBuild {
 
     Start-AsyncPoolAction `
         -Script {
-            param($root, $gitExe, $commitMessage, $winLock, $rmExe, $cygpathExe, $wslExe, $requirePush)
+            param($root, $gitExe, $commitMessage, $actionLabel, $winLock, $rmExe, $cygpathExe, $wslExe, $requirePush)
 
             $logs = New-Object System.Collections.ArrayList
+            $commitBody = "Dev Window staged pending changes during $actionLabel so the requested action can continue from a clean tree. This automated sync uses the c120 commit-message format instead of bypassing the hook."
+            $commitRefs = "Refs: c120"
 
             $branch = "HEAD"
             try {
@@ -1788,16 +1790,16 @@ function Start-GitSyncBeforeBuild {
             $needCommit = ($LASTEXITCODE -ne 0)
             if ($needCommit) {
                 & $cleanup
-                $co = @(& $gitExe -C $root commit -m $commitMessage 2>&1)
+                $co = @(& $gitExe -C $root commit -m $commitMessage -m $commitBody -m $commitRefs 2>&1)
                 $commitCode = $LASTEXITCODE
                 if ($commitCode -ne 0 -and (($co | ForEach-Object { "$_" }) -join "`n") -match 'index\.lock|Unable to create') {
                     & $cleanup
-                    $co = @(& $gitExe -C $root commit -m $commitMessage 2>&1)
+                    $co = @(& $gitExe -C $root commit -m $commitMessage -m $commitBody -m $commitRefs 2>&1)
                     $commitCode = $LASTEXITCODE
                 }
                 if ($commitCode -ne 0) {
                     [void]$logs.Add(@{ Text = "git commit failed; retrying with --no-verify (forced by outage-safe sync policy)."; Color = "#A07810" })
-                    $co = @(& $gitExe -C $root commit --no-verify -m $commitMessage 2>&1)
+                    $co = @(& $gitExe -C $root commit --no-verify -m $commitMessage -m $commitBody -m $commitRefs 2>&1)
                     $commitCode = $LASTEXITCODE
                 }
                 foreach ($line in $co) {
@@ -1852,7 +1854,7 @@ function Start-GitSyncBeforeBuild {
 
             return [PSCustomObject]@{ Ok = $true; Logs = $logs; ErrMsg = $null }
         } `
-        -Arguments @($root, $gitExe, $CommitMessage, $winLock, $rmExe, $cygpathExe, $wslExe, $RequirePush) `
+        -Arguments @($root, $gitExe, $CommitMessage, $ActionLabel, $winLock, $rmExe, $cygpathExe, $wslExe, $RequirePush) `
         -OnComplete {
             # Plain scriptblock (NO GetNewClosure). It retains the main module's
             # $script: scope, so writes to $script:GitSyncBusy here actually clear the
@@ -2012,7 +2014,7 @@ function Invoke-GitPush {
     $br = Get-GitCurrentBranch -GitExe $gitExe
     Add-LogLine ">>> git commit + push (branch: $br)" "#0078A8"
 
-    Start-GitSyncBeforeBuild -CommitMessage "chore: dev window push" -ActionLabel "commit + push" -RequirePush $true -OnComplete {
+    Start-GitSyncBeforeBuild -CommitMessage "Tooling - c120: Commit Dev Window push sync" -ActionLabel "commit + push" -RequirePush $true -OnComplete {
             param($ok)
             $script:GitActionBusy = $false
             $script:GitActionLabel = ""
@@ -2922,7 +2924,7 @@ function Start-Build {
     $script:CurrentBuildClean = $script:ForceCleanBuild
     $script:ForceCleanBuild = $false
 
-    Start-GitSyncBeforeBuild -CommitMessage "chore: auto-commit before build (dev window)" -OnComplete {
+    Start-GitSyncBeforeBuild -CommitMessage "Tooling - c120: Commit pre-build Dev Window sync" -OnComplete {
         # Plain scriptblock (NO GetNewClosure) so $script: refs go to the main module.
         param($ok)
         # If the user hit Stop or closed the window during git sync, bail.
@@ -3611,7 +3613,7 @@ function Start-PushRelease {
     $script:PendingReleaseIsStable = $isStable
     $script:PendingReleaseScript   = $releaseScript
 
-    Start-GitSyncBeforeBuild -CommitMessage "chore: auto-commit before release (dev window)" -OnComplete {
+    Start-GitSyncBeforeBuild -CommitMessage "Tooling - c120: Commit pre-release Dev Window sync" -OnComplete {
         # Plain scriptblock (NO GetNewClosure) so $script: refs go to the main module.
         param($ok)
         # If the user hit Stop or closed the window during git sync, bail.

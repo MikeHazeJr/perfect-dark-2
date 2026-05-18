@@ -869,12 +869,15 @@ function now() { return new Date().toISOString(); }
 function getCard(id) { return state.cards.find(c => c.id === id) || null; }
 
 function sortedCards(cards) {
-  const auto = state.settings && state.settings.autoSortPriority;
   return [...cards].sort((a, b) => {
-    if (auto) {
-      const pa = a.priority || 3, pb = b.priority || 3;
-      if (pa !== pb) return pa - pb;
-    }
+    const fa = a.flag === 'star' ? 0 : 1;
+    const fb = b.flag === 'star' ? 0 : 1;
+    if (fa !== fb) return fa - fb;
+
+    const pa = a.priority || 999;
+    const pb = b.priority || 999;
+    if (pa !== pb) return pa - pb;
+
     return a.order - b.order;
   });
 }
@@ -943,6 +946,7 @@ function ensureActiveKanbanColumn() {
 
 function ensureBoardFilter() {
   if (!boardFilter) boardFilter = 'all';
+  if (boardFilter.startsWith('flag:') || boardFilter.startsWith('priority:')) boardFilter = 'all';
   if (boardFilter.startsWith('pillar:')) {
     const pillarId = boardFilter.slice('pillar:'.length);
     if (!state.pillars.some(p => p.id === pillarId)) boardFilter = 'all';
@@ -957,13 +961,6 @@ function countCardsForFilter(cards, filterValue) {
 function cardMatchesBoardFilter(card, filterValue = boardFilter) {
   if (!filterValue || filterValue === 'all') return true;
   if (filterValue.startsWith('pillar:')) return card.pillar === filterValue.slice('pillar:'.length);
-  if (filterValue === 'flag:any') return !!card.flag;
-  if (filterValue.startsWith('flag:')) return card.flag === filterValue.slice('flag:'.length);
-  if (filterValue === 'priority:1') return card.priority === 1;
-  if (filterValue === 'priority:2plus') return card.priority != null && card.priority <= 2;
-  if (filterValue === 'priority:3plus') return card.priority != null && card.priority <= 3;
-  if (filterValue === 'priority:4plus') return card.priority != null && card.priority <= 4;
-  if (filterValue === 'priority:5') return card.priority === 5;
   return true;
 }
 
@@ -1016,23 +1013,6 @@ function renderFilters() {
     appendFilterOption(pillarGroup, 'pillar:' + p.id, p.name, countCardsForFilter(statusCards, 'pillar:' + p.id));
   }
   sel.appendChild(pillarGroup);
-
-  const flagGroup = document.createElement('optgroup');
-  flagGroup.label = 'Flagged';
-  appendFilterOption(flagGroup, 'flag:any', 'Any flagged', countCardsForFilter(statusCards, 'flag:any'));
-  appendFilterOption(flagGroup, 'flag:star', 'Starred', countCardsForFilter(statusCards, 'flag:star'));
-  appendFilterOption(flagGroup, 'flag:alert', 'Alert', countCardsForFilter(statusCards, 'flag:alert'));
-  appendFilterOption(flagGroup, 'flag:watch', 'Watch', countCardsForFilter(statusCards, 'flag:watch'));
-  sel.appendChild(flagGroup);
-
-  const priorityGroup = document.createElement('optgroup');
-  priorityGroup.label = 'Priority';
-  appendFilterOption(priorityGroup, 'priority:1', 'Priority: Critical', countCardsForFilter(statusCards, 'priority:1'));
-  appendFilterOption(priorityGroup, 'priority:2plus', 'Priority: High+', countCardsForFilter(statusCards, 'priority:2plus'));
-  appendFilterOption(priorityGroup, 'priority:3plus', 'Priority: Medium+', countCardsForFilter(statusCards, 'priority:3plus'));
-  appendFilterOption(priorityGroup, 'priority:4plus', 'Priority: Low+', countCardsForFilter(statusCards, 'priority:4plus'));
-  appendFilterOption(priorityGroup, 'priority:5', 'Priority: Someday', countCardsForFilter(statusCards, 'priority:5'));
-  sel.appendChild(priorityGroup);
 
   sel.value = boardFilter;
   if (sel.value !== boardFilter) {

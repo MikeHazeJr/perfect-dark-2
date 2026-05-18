@@ -78,6 +78,8 @@ S570 made the Push button stage-commit-push-refresh in one click; warm BUILD/RUN
 
 Pre-commit uses `git diff --cached --quiet` check before `git commit` (no longer relies on `git status --porcelain` alone, and does not swallow commit failures, S257).
 
+S2026-05-18 B-336: release and Dev Window auto-sync commits must satisfy the c120 commit-message hook. Automated release/pre-build/pre-rebase commits use `Tooling - c120: ...` subjects, explanatory bodies, and `Refs: c120`; Dev Window build/release/push sync commits use the same full message shape. No release path should emit `chore:` auto-commit subjects.
+
 Push step uses `git pull --rebase`. A non-clean index makes that step fail with "cannot pull with rebase: Your index contains uncommitted changes"; Dev Window v2 calls `Invoke-GitSyncBeforeBuild` first to avoid that.
 
 Release zip contents:

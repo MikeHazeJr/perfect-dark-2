@@ -1,5 +1,31 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-18-kanban-sort-flags-priority`) - 2026-05-18 - Kanban flag/priority sort instead of filters
+
+Mike asked to remove the Starred / flagged / priority-level dropdown filters and sort by those signals instead.
+
+### Change
+
+- Updated `tools/kanban/index.html` so the Kanban dropdown now only exposes `All` plus status-scoped pillar choices.
+- Removed flag and priority-level dropdown options from the filter UI and matching logic.
+- Added fixed card display ordering within the selected status: `flag: "star"` cards first, then numbered priorities from highest to lowest (`1` before `2`, etc.), then unprioritized cards by existing board order.
+- Stale saved `flag:*` or `priority:*` dropdown selections are normalized back to `All` in localStorage.
+- Kept `state.json` unchanged; no card schema or saved-state migration.
+
+### Verification
+
+- Inline Kanban JavaScript syntax check passed.
+- Static DOM guard found 103 unique IDs, 0 duplicate IDs, and 0 missing static `getElementById(...)` targets.
+- Static check found 0 remaining flag/priority dropdown option values in the script.
+- Sort sanity on current Active cards showed starred cards first, followed by priority 2 before priority 3.
+- `tools/kanban/state.json` parsed with 4 columns, 14 pillars, 112 cards, and 0 cards pointing at unknown columns.
+- `python -m py_compile tools\kanban\server.py` passed.
+- Local Kanban server responded HTTP 200 for `/api/state` and `/api/briefing`.
+
+### Next
+
+- Manual visual smoke in a normal browser remains useful because local screenshot tooling is unavailable in this environment.
+
 ## Session (`main-checkout-2026-05-18-jumpfix`) - 2026-05-18 - c038 jump surface collision implementation
 
 Mike approved implementation of the c038 Jump Surface Collision Fix Plan after the kanban work landed.

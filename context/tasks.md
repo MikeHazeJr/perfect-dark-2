@@ -10,7 +10,7 @@
 
 The queue has three lanes after the context rebuild lands. Lane order is sequential; do not start the next until the previous is at a stable stopping point.
 
-**Tooling note (2026-05-18)**: Kanban board status-tab refactor shipped. Active Kanban now displays one status at a time (`Backlogged`, `Active`, `Blocked`, `Done`) with a scoped dropdown for pillars, flags, and priority thresholds; cards flow in a responsive grid instead of height-limited columns. Daily Flow is now a top-level tab beside Bug Tracker and starts collapsed by default. Pending-completion Review panel title-focus polish remains shipped. No open follow-up.
+**Tooling note (2026-05-18)**: Kanban board status-tab refactor shipped. Active Kanban now displays one status at a time (`Backlogged`, `Active`, `Blocked`, `Done`) with a scoped dropdown for `All` and status-scoped pillars only. Cards flow in a responsive grid, sorted with starred cards first, then numbered priorities from highest to lowest, then the rest by board order. Daily Flow is now a top-level tab beside Bug Tracker and starts collapsed by default. Pending-completion Review panel title-focus polish remains shipped. B-336 release auto-commit hook compatibility is patched in `release.ps1` and Dev Window v2; rerun release after parser verification.
 
 ### 1. Catalog - Weapons F11-F13 data move - LANE CLOSED 2026-04-30
 
