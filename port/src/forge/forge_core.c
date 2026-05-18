@@ -497,6 +497,7 @@ static void forgeObjectInitDefaults(forge_object_t *o, const forge_catalog_entry
 		/* Fill in sensible defaults per category. */
 		switch (e->category) {
 		case FORGE_CAT_WEAPON_PAD:
+			o->collision_mode = FORGE_COLLISION_PASSTHROUGH;
 			o->props.weapon.ammo = -1;
 			o->props.weapon.respawn_sec = 10.0f;
 			o->props.weapon.respawn_effect = 1;
@@ -561,6 +562,7 @@ static void forgeObjectInitDefaults(forge_object_t *o, const forge_catalog_entry
 			}
 			break;
 		case FORGE_CAT_PICKUP:
+			o->collision_mode = FORGE_COLLISION_PASSTHROUGH;
 			forgeCopyStr(o->props.pickup.item_id, e->id, FORGE_ID_LEN);
 			o->props.pickup.quantity = 1;
 			o->props.pickup.respawn_sec = 30.0f;

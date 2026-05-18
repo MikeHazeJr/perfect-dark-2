@@ -22,6 +22,7 @@
 #include "bss.h"
 #include "lib/collision.h"
 #include "lib/capsule.h"
+#include "lib/meshcollision.h"
 #include "lib/mtx.h"
 #include "data.h"
 #include "types.h"
@@ -136,93 +137,7 @@ static s32 capsuleClassifyStage1Hit(const struct capsulecast *cast,
 	return CAPSULE_HIT_WALL;
 }
 
-static bool capsuleRenderedPropRayCast(const struct coord *from,
-		const struct coord *to, const RoomNum *rooms, struct prop *selfprop,
-		f32 *io_best_frac, struct coord *out_normal, struct prop **out_prop)
-{
-	if (!from || !to || !rooms || !io_best_frac) {
-		return false;
-	}
-
-	struct coord dir;
-	dir.x = to->x - from->x;
-	dir.y = to->y - from->y;
-	dir.z = to->z - from->z;
-	f32 raylen2 = dir.x * dir.x + dir.y * dir.y + dir.z * dir.z;
-	if (raylen2 < 0.001f) {
-		return false;
-	}
-
-	f32 raylen = sqrtf(raylen2);
-	dir.x /= raylen;
-	dir.y /= raylen;
-	dir.z /= raylen;
-
-	s16 propnums[256];
-	roomGetProps((RoomNum *)rooms, propnums, ARRAYCOUNT(propnums));
-
-	bool hit_any = false;
-	for (s32 i = 0; i < (s32)ARRAYCOUNT(propnums) && propnums[i] >= 0; i++) {
-		struct prop *prop = &g_Vars.props[propnums[i]];
-		if (prop == selfprop) {
-			continue;
-		}
-		if (prop->type != PROPTYPE_OBJ || !prop->obj || !prop->obj->model
-				|| !prop->obj->model->matrices
-				|| !prop->obj->model->definition
-				|| !prop->obj->model->definition->rootnode) {
-			continue;
-		}
-
-		struct hitthing hit;
-		struct modelnode *hitnode = NULL;
-		s32 mtxindex = -1;
-		if (!func0f0849dc(prop->obj->model, prop->obj->model->definition->rootnode,
-				(struct coord *)from, &dir, &hit, &mtxindex, &hitnode)
-				|| mtxindex < 0) {
-			continue;
-		}
-		(void)hitnode;
-
-		if (mtxindex >= prop->obj->model->definition->nummatrices) {
-			continue;
-		}
-
-		struct coord worldhit;
-		struct coord worldnormal;
-		mtx4TransformVec(&prop->obj->model->matrices[mtxindex], &hit.pos, &worldhit);
-		mtx4RotateVec(&prop->obj->model->matrices[mtxindex], &hit.unk0c, &worldnormal);
-		if (worldnormal.x != 0.0f || worldnormal.y != 0.0f || worldnormal.z != 0.0f) {
-			guNormalize(&worldnormal.x, &worldnormal.y, &worldnormal.z);
-		} else {
-			worldnormal.y = 1.0f;
-		}
-
-		f32 dist = (worldhit.x - from->x) * dir.x
-			+ (worldhit.y - from->y) * dir.y
-			+ (worldhit.z - from->z) * dir.z;
-		if (dist < 0.0f || dist > raylen) {
-			continue;
-		}
-
-		f32 frac = dist / raylen;
-		if (frac < *io_best_frac) {
-			*io_best_frac = frac;
-			if (out_normal) {
-				*out_normal = worldnormal;
-				capsuleOrientNormalAgainstMove(out_normal, &dir);
-			}
-			if (out_prop) {
-				*out_prop = prop;
-			}
-			hit_any = true;
-		}
-	}
-
-	return hit_any;
-}
-
-static f32 capsuleRenderedRayCast(const struct coord *from, const struct coord *to,
+static f32 capsuleMeshRayCast(const struct coord *from, const struct coord *to,
 		const RoomNum *rooms, struct prop *selfprop, struct coord *out_normal,
 		struct prop **out_prop)
 {
@@ -234,7 +149,7 @@ static f32 capsuleRenderedRayCast(const struct coord *from, const struct coord *
 		*out_normal = normal;
 	}
 
-	if (capsuleRenderedPropRayCast(from, to, rooms, selfprop,
+	if (meshRayCastDynamicProps(from, to, rooms, selfprop,
 				&best_frac, &normal, &prop)) {
 		if (out_normal) {
 			*out_normal = normal;
@@ -257,7 +172,7 @@ static f32 capsuleRenderedRayCast(const struct coord *from, const struct coord *
 	return best_frac;
 }
 
-static f32 capsuleRenderedSweepSamples(struct capsulecast *cast, u32 hitmask,
+static f32 capsuleMeshSweepSamples(struct capsulecast *cast, u32 hitmask,
 		struct coord *out_normal, s32 *out_type, struct prop **out_prop)
 {
 	const f32 mid = (cast->ymin_offset + cast->ymax_offset) * 0.5f;
@@ -298,7 +213,7 @@ static f32 capsuleRenderedSweepSamples(struct capsulecast *cast, u32 hitmask,
 			capsuleFindRoomsForPos(cast->selfprop, &cast->start,
 				cast->rooms, &to, rayrooms);
 
-			f32 frac = capsuleRenderedRayCast(&from, &to, rayrooms,
+			f32 frac = capsuleMeshRayCast(&from, &to, rayrooms,
 				cast->selfprop, &raynormal, &rayprop);
 			if (frac >= best_frac) {
 				continue;
@@ -326,7 +241,7 @@ static f32 capsuleRenderedSweepSamples(struct capsulecast *cast, u32 hitmask,
 	return best_frac;
 }
 
-static void capsuleApplyRenderedHit(struct capsulecast *cast, f32 frac,
+static void capsuleApplyMeshHit(struct capsulecast *cast, f32 frac,
 		const struct coord *normal, s32 hittype, struct prop *hitprop)
 {
 	cast->hitfrac = frac;
@@ -392,7 +307,7 @@ f32 capsuleSweep(struct capsulecast *cast)
 			struct coord stage2normal = {0.0f, 0.0f, 0.0f};
 			struct prop *stage2prop = NULL;
 			s32 stage2type = CAPSULE_HIT_NONE;
-			f32 stage2frac = capsuleRenderedSweepSamples(cast,
+			f32 stage2frac = capsuleMeshSweepSamples(cast,
 				CAPSULE_RENDERED_HITMASK_ALL, &stage2normal,
 				&stage2type, &stage2prop);
 
@@ -411,7 +326,7 @@ f32 capsuleSweep(struct capsulecast *cast)
 			capsuleNormalFromMove(&cast->move, &cast->hitnormal);
 
 			if (stage2frac < safefrac) {
-				capsuleApplyRenderedHit(cast, stage2frac, &stage2normal,
+				capsuleApplyMeshHit(cast, stage2frac, &stage2normal,
 					stage2type, stage2prop);
 				safefrac = stage2frac;
 			}
@@ -444,11 +359,11 @@ f32 capsuleSweep(struct capsulecast *cast)
 		struct coord normal = {0.0f, 0.0f, 0.0f};
 		struct prop *renderedprop = NULL;
 		s32 renderedtype = CAPSULE_HIT_NONE;
-		f32 stage2_frac = capsuleRenderedSweepSamples(cast,
+		f32 stage2_frac = capsuleMeshSweepSamples(cast,
 			CAPSULE_RENDERED_HITMASK_ALL, &normal, &renderedtype,
 			&renderedprop);
 		if (stage2_frac < 1.0f) {
-			capsuleApplyRenderedHit(cast, stage2_frac, &normal,
+			capsuleApplyMeshHit(cast, stage2_frac, &normal,
 				renderedtype, renderedprop);
 			CAPSULE_LOG("sweep result=BLOCKED_STAGE2 dist=%.3f hittype=%d prop=%d (Stage 1 clear)",
 				stage2_frac, cast->hittype, renderedprop != NULL);
@@ -461,10 +376,10 @@ f32 capsuleSweep(struct capsulecast *cast)
 }
 
 /* ============================================================
- * Stage 2 (c038): rendered-triangle ray cast + floor probe.
+ * Stage 2 (c038/B-339): collision-owned mesh ray cast + floor probe.
  *
  * Bridges the gap where Stage 1 (cdTestVolume) misses geometry that
- * is rendered but not flagged as a collider. Two common cases reported
+ * is modeled/rendered but not present in legacy geoblocks. Two common cases reported
  * by Mike (2026-05-17):
  *   - Sloped ceilings: jumping straight up passes through the sloped
  *     ceiling triangle because no GEOFLAG_WALL tile exists.
@@ -472,12 +387,11 @@ f32 capsuleSweep(struct capsulecast *cast)
  *     through because cdFindGroundInfoAtCyl only finds GEOFLAG_FLOOR
  *     tiles and these surfaces are just rendered display-list triangles.
  *
- * Both fixes hinge on bgTestHitInRoom (src/game/bg.c:4471), which walks
- * the same rendered vtxbatches the Laptop Gun sticky path uses. Movement
- * callers use capsuleRenderedSweepSamples above: top / middle / bottom
+ * Movement callers use capsuleMeshSweepSamples above: top / middle / bottom
  * heights crossed with center and lateral skin rays. The public single-ray
- * function remains for diagnostics and targeted systems that already have
- * a precise ray.
+ * function remains for diagnostics and targeted systems that already have a
+ * precise ray. Mesh data is owned by meshcollision.c and dynamic props are
+ * transformed from prop/defaultobj state, not render frame matrices.
  * ============================================================ */
 
 f32 capsuleStage2RayCast(const struct coord *from, const struct coord *to,
@@ -495,36 +409,7 @@ f32 capsuleStage2RayCast(const struct coord *from, const struct coord *to,
 		return 1.0f;
 	}
 
-	f32 best_frac = 1.0f;
-	f32 best_frac2 = movelen2; /* squared distance from `from` to best hit */
-	s32 i;
-
-	for (i = 0; i < 8; i++) {
-		s32 roomnum = (s32)rooms[i];
-		if (roomnum < 0) break;
-		if (roomnum == 0) continue; /* room 0 is sentinel "no room" */
-
-		struct coord f = *from;
-		struct coord t = *to;
-		struct hitthing hit;
-		if (bgTestHitInRoom(&f, &t, roomnum, &hit)) {
-			f32 dx = hit.pos.x - from->x;
-			f32 dy = hit.pos.y - from->y;
-			f32 dz = hit.pos.z - from->z;
-			f32 hit_len2 = dx * dx + dy * dy + dz * dz;
-			if (hit_len2 < best_frac2) {
-				best_frac2 = hit_len2;
-				/* Normalize frac by movement length (geometric, sqrt-free
-				 * comparison above; sqrt only at the end). */
-				best_frac = (movelen2 > 0.0001f)
-					? sqrtf(hit_len2 / movelen2)
-					: 0.0f;
-				if (out_normal) {
-					*out_normal = hit.unk0c;
-				}
-			}
-		}
-	}
+	f32 best_frac = meshRayCastWorld(from, to, rooms, out_normal);
 
 	if (best_frac < 1.0f) {
 		CAPSULE_LOG("stage2 raycast hit frac=%.3f from=(%.1f,%.1f,%.1f) to=(%.1f,%.1f,%.1f)",
@@ -534,7 +419,7 @@ f32 capsuleStage2RayCast(const struct coord *from, const struct coord *to,
 	return best_frac;
 }
 
-static f32 capsuleFindRenderedVertical(struct prop *selfprop, const struct coord *pos,
+static f32 capsuleFindMeshVertical(struct prop *selfprop, const struct coord *pos,
 		f32 radius, f32 yoff, const RoomNum *rooms, f32 distance,
 		f32 direction, u32 hitmask, struct coord *out_normal)
 {
@@ -566,7 +451,7 @@ static f32 capsuleFindRenderedVertical(struct prop *selfprop, const struct coord
 		to.y = from.y + direction * distance;
 		to.z = from.z;
 
-		f32 frac = capsuleRenderedRayCast(&from, &to, rooms, selfprop,
+		f32 frac = capsuleMeshRayCast(&from, &to, rooms, selfprop,
 			&normal, NULL);
 		if (frac >= best_frac) {
 			continue;
@@ -602,7 +487,7 @@ f32 capsuleFindRenderedFloor(struct prop *selfprop, const struct coord *pos,
                      f32 radius, f32 ymin_off, const RoomNum *rooms,
                      f32 maxdepth, struct coord *out_normal)
 {
-	return capsuleFindRenderedVertical(selfprop, pos, radius, ymin_off, rooms,
+	return capsuleFindMeshVertical(selfprop, pos, radius, ymin_off, rooms,
 		maxdepth, -1.0f, CAPSULE_RENDERED_HITMASK_FLOOR, out_normal);
 }
 
@@ -610,7 +495,7 @@ f32 capsuleFindRenderedCeiling(struct prop *selfprop, const struct coord *pos,
                      f32 radius, f32 ymax_off, const RoomNum *rooms,
                      f32 maxheight, struct coord *out_normal)
 {
-	return capsuleFindRenderedVertical(selfprop, pos, radius, ymax_off, rooms,
+	return capsuleFindMeshVertical(selfprop, pos, radius, ymax_off, rooms,
 		maxheight, 1.0f, CAPSULE_RENDERED_HITMASK_BLOCKING, out_normal);
 }
 
@@ -629,7 +514,7 @@ f32 capsuleStage2FloorProbe(const struct coord *pos, const RoomNum *rooms,
 
 	struct coord normal = {0.0f, 0.0f, 0.0f};
 	struct prop *prop = NULL;
-	f32 frac = capsuleRenderedRayCast(&from, &to, rooms, NULL, &normal, &prop);
+	f32 frac = capsuleMeshRayCast(&from, &to, rooms, NULL, &normal, &prop);
 	if (frac >= 1.0f) {
 		return -30000.0f;
 	}

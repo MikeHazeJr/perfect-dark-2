@@ -157,12 +157,18 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
     const std::string bondwalk = readTextFile("src/game/bondwalk.c");
     const std::string chr = readTextFile("src/game/chr.c");
     const std::string propobj = readTextFile("src/game/propobj.c");
+    const std::string meshcollision = readTextFile("src/lib/meshcollision.c");
+    const std::string forgecore = readTextFile("port/src/forge/forge_core.c");
+    const std::string forgeruntime = readTextFile("port/src/forge/forge_runtime.c");
 
     REQUIRE_FALSE(header.empty());
     REQUIRE_FALSE(capsule.empty());
     REQUIRE_FALSE(bondwalk.empty());
     REQUIRE_FALSE(chr.empty());
     REQUIRE_FALSE(propobj.empty());
+    REQUIRE_FALSE(meshcollision.empty());
+    REQUIRE_FALSE(forgecore.empty());
+    REQUIRE_FALSE(forgeruntime.empty());
 
     requireContains(header, "struct prop *selfprop");
     requireContains(header, "capsuleFindFloorForProp");
@@ -170,15 +176,18 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
     requireContains(header, "capsuleFindRenderedFloor");
     requireContains(header, "capsuleClassifyNormal");
 
-    requireContains(capsule, "capsuleRenderedSweepSamples");
+    requireContains(capsule, "capsuleMeshSweepSamples");
     requireContains(capsule, "CAPSULE_RENDERED_SAMPLE_YS");
     requireContains(capsule, "CAPSULE_RENDERED_SAMPLE_SKINS");
-    requireContains(capsule, "capsuleRenderedPropRayCast");
-    requireContains(capsule, "func0f0849dc");
+    requireContains(capsule, "meshRayCastWorld");
+    requireContains(capsule, "meshRayCastDynamicProps");
     requireContains(capsule, "capsuleFindRoomsForPos");
     requireContains(capsule, "stage2 vertical probe");
     requireContains(capsule, "stage2frac < safefrac");
     requireContains(capsule, "struct prop *selfprop = cast->selfprop");
+    requireNotContains(capsule, "capsuleRenderedPropRayCast");
+    requireNotContains(capsule, "func0f0849dc");
+    requireNotContains(capsule, "model->matrices");
 
     requireContains(bondwalk, "sweep.selfprop = g_Vars.currentplayer->prop");
     requireContains(bondwalk, "capsuleFindFloorForProp(g_Vars.currentplayer->prop");
@@ -188,6 +197,18 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
     requireContains(propobj, "objModelMatrixIndexIsValid");
     requireContains(propobj, "mtxindex < model->definition->nummatrices");
     requireContains(propobj, "continue;");
+    requireContains(propobj, "meshAttachModelToProp(prop, obj->model)");
+    requireContains(meshcollision, "meshWorldAddRenderedRoom");
+    requireContains(meshcollision, "meshPropIsMovementSolid");
+    requireContains(meshcollision, "meshBuildPropTransform");
+    requireContains(meshcollision, "prop->pos");
+    requireContains(meshcollision, "realrot");
+    requireContains(meshcollision, "OBJFLAG3_WALKTHROUGH");
+    requireContains(forgecore, "FORGE_CAT_PICKUP");
+    requireContains(forgecore, "FORGE_COLLISION_PASSTHROUGH");
+    requireContains(forgeruntime, "o->collision_mode != FORGE_COLLISION_SOLID");
+    requireContains(forgeruntime, "OBJFLAG3_WALKTHROUGH");
+    requireContains(forgeruntime, "meshAttachModelToProp");
 
     requireNotContains(capsule, "single ray is sufficient");
     requireNotContains(capsule, "g_Vars.currentplayer->prop, false");

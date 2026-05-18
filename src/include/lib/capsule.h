@@ -132,17 +132,16 @@ f32 capsuleFindFloorForProp(struct prop *selfprop, struct coord *pos,
                      struct prop **out_prop, u16 *out_flags);
 
 /**
- * Stage 2 rendered-triangle ray cast (c038, two-stage capsule sweep).
+ * Stage 2 collision-owned mesh ray cast (c038/B-339).
  *
- * Fires a single ray from `from` to `to` through the room list, walking
- * `g_Rooms[].vtxbatches[]` per room via bgTestHitInRoom. Returns the
- * normalized fraction along the ray to the closest hit, or 1.0 for clear.
+ * Fires a single ray from `from` to `to` through meshcollision's static world
+ * mesh. Returns the normalized fraction along the ray to the closest hit, or
+ * 1.0 for clear.
  *
- * Catches rendered geometry that lacks the GEOFLAG_WALL/FLOOR colliders
- * (sloped ceilings, table tops, half walls). Pairs with the Stage 1
- * cdTestVolume path: callers run Stage 1 first (cheap pre-cull) and then
- * use this as the authoritative validator. Mike directive 2026-05-17:
- * "should be able to jump on top without falling through the geometry".
+ * Catches modeled/rendered geometry that is not present in legacy geoblocks
+ * (sloped ceilings, table tops, half walls). Dynamic props are handled by the
+ * private capsule mesh path with prop->colmesh and stable prop/defaultobj
+ * transforms, not render frame matrices.
  *
  * @param from        Ray start in world space
  * @param to          Ray end in world space
@@ -154,12 +153,12 @@ f32 capsuleStage2RayCast(const struct coord *from, const struct coord *to,
                          const RoomNum *rooms, struct coord *out_normal);
 
 /**
- * Stage 2 floor probe: rendered-triangle downward probe to catch table
- * tops / half walls / other rendered-only floors not seen by
- * cdFindGroundInfoAtCyl (which only reads GEOFLAG_FLOOR-flagged tiles).
+ * Stage 2 floor probe: collision-owned mesh downward probe to catch table
+ * tops / half walls / other modeled floors not seen by cdFindGroundInfoAtCyl
+ * (which only reads GEOFLAG_FLOOR-flagged tiles).
  *
  * Casts straight down from `pos` by `maxdepth` units and returns the Y
- * of the closest rendered-triangle hit, or -30000.0f if no hit.
+ * of the closest mesh hit, or -30000.0f if no hit.
  *
  * @param pos       Probe origin (world space; typically the player's foot pos)
  * @param rooms     Room list (8-slot array, terminator <0)

@@ -303,6 +303,8 @@ void lvUpdateMiscSfx(void)
 
 void lvReset(s32 stagenum)
 {
+	s32 i;
+
 	/* Invalid stagenum (e.g. 0x00) must never reach bg/setup/catalog paths. */
 	stagenum = stageSanitizeLoadStagenum(stagenum);
 
@@ -451,18 +453,29 @@ void lvReset(s32 stagenum)
 		}
 		sysLogPrintf(LOG_NOTE, "LOAD: lv.c entering stage load sequence for stagenum=0x%02x", g_Vars.stagenum);
 
-		/* Mesh collision disabled (S48) -- needs proper design before re-enable.
-		 * See context/collision.md for the plan. Files remain in the build
-		 * (meshcollision.c, meshcollision.h) ready for Phase 2.
-		 * meshWorldShutdown();
-		 * meshWorldInit(); meshWorldAddRoomGeo(); meshWorldFinalize();
-		 */
 		tilesReset();
 		bgReset(g_Vars.stagenum);
 		sysLogPrintf(LOG_NOTE, "LOAD: bgReset done");
 		bgBuildTables(g_Vars.stagenum);
 		sysLogPrintf(LOG_NOTE, "LOAD: bgBuildTables done");
-		sysLogPrintf(LOG_NOTE, "MESHCOL: DISABLED -- using original collision system");
+		meshWorldShutdown();
+		meshWorldInit();
+		{
+			s32 meshrooms = 0;
+			s32 meshtris_before = 0;
+			for (i = 1; i < g_Vars.roomcount; i++) {
+				meshtris_before = g_WorldMesh.numtris;
+				if (meshWorldAddRenderedRoom(i) == 0) {
+					meshWorldAddRoomGeo(i);
+				}
+				if (g_WorldMesh.numtris > meshtris_before) {
+					meshrooms++;
+				}
+			}
+			meshWorldFinalize();
+			sysLogPrintf(LOG_NOTE, "MESHCOL: ENABLED -- rooms=%d tris=%d",
+				meshrooms, g_WorldMesh.numtris);
+		}
 
 		skyReset(g_Vars.stagenum);
 		sysLogPrintf(LOG_NOTE, "LOAD: skyReset done");
@@ -552,6 +565,11 @@ void lvReset(s32 stagenum)
 
 	sysLogPrintf(LOG_NOTE, "LOAD: calling scenarioReset");
 	scenarioReset();
+	if (g_Vars.props) {
+		for (i = 0; i < g_Vars.maxprops; i++) {
+			meshDetachFromProp(&g_Vars.props[i]);
+		}
+	}
 	sysLogPrintf(LOG_NOTE, "LOAD: calling varsReset");
 	varsReset();
 	sysLogPrintf(LOG_NOTE, "LOAD: calling propsReset");

@@ -17,6 +17,7 @@
 #include "types.h"
 #include "data.h"
 #include "lib/meshcollision.h"
+#include "game/bg.h"
 #include "game/prop.h"
 #include "system.h"
 #include "bss.h"
@@ -114,6 +115,14 @@ static void vec3Cross(struct coord *a, struct coord *b, struct coord *out)
 	out->z = a->x * b->y - a->y * b->x;
 }
 
+static void meshTransformPoint(const Mtxf *mtx, const struct coord *src,
+		struct coord *dst)
+{
+	dst->x = src->x * mtx->m[0][0] + src->y * mtx->m[1][0] + src->z * mtx->m[2][0] + mtx->m[3][0];
+	dst->y = src->x * mtx->m[0][1] + src->y * mtx->m[1][1] + src->z * mtx->m[2][1] + mtx->m[3][1];
+	dst->z = src->x * mtx->m[0][2] + src->y * mtx->m[1][2] + src->z * mtx->m[2][2] + mtx->m[3][2];
+}
+
 static void addTriToMesh(struct colmesh *mesh,
                          f32 x0, f32 y0, f32 z0,
                          f32 x1, f32 y1, f32 z1,
@@ -161,6 +170,54 @@ static u16 classifyTriFlags(struct coord *normal)
 	return GEOFLAG_WALL;
 }
 
+static bool meshRayVsTriangle(const struct coord *from, const struct coord *to,
+		const struct meshtri *tri, f32 *out_frac, struct coord *out_normal)
+{
+	struct coord dir;
+	struct coord edge1;
+	struct coord edge2;
+	struct coord pvec;
+	struct coord tvec;
+	struct coord qvec;
+
+	vec3Sub((struct coord *)to, (struct coord *)from, &dir);
+	vec3Sub((struct coord *)&tri->v1, (struct coord *)&tri->v0, &edge1);
+	vec3Sub((struct coord *)&tri->v2, (struct coord *)&tri->v0, &edge2);
+	vec3Cross(&dir, &edge2, &pvec);
+
+	f32 det = vec3Dot(&edge1, &pvec);
+	if (fabsf(det) < 0.0001f) {
+		return false;
+	}
+
+	f32 invdet = 1.0f / det;
+	vec3Sub((struct coord *)from, (struct coord *)&tri->v0, &tvec);
+
+	f32 u = vec3Dot(&tvec, &pvec) * invdet;
+	if (u < -0.001f || u > 1.001f) {
+		return false;
+	}
+
+	vec3Cross(&tvec, &edge1, &qvec);
+	f32 v = vec3Dot(&dir, &qvec) * invdet;
+	if (v < -0.001f || u + v > 1.001f) {
+		return false;
+	}
+
+	f32 t = vec3Dot(&edge2, &qvec) * invdet;
+	if (t < 0.0f || t > 1.0f) {
+		return false;
+	}
+
+	if (out_frac) {
+		*out_frac = t;
+	}
+	if (out_normal) {
+		*out_normal = tri->normal;
+	}
+	return true;
+}
+
 /* ======================================================================== */
 /* Model triangle extraction                                                 */
 /* ======================================================================== */
@@ -172,22 +229,17 @@ static u16 classifyTriFlags(struct coord *normal)
  * We parse the display list to find triangle commands and look up vertex
  * positions from the Vtx array.
  */
-static void extractDLNodeTris(struct modelrodata_dl *dl, struct colmesh *mesh, f32 scale)
+static void extractGfxTris(Gfx *gdl, Vtx *vbuf, s32 numverts,
+		struct colmesh *mesh, f32 scale)
 {
-	if (!dl || !dl->vertices || !dl->opagdl) {
+	if (!gdl || !vbuf || numverts <= 0) {
 		return;
 	}
-
-	Vtx *vbuf = dl->vertices;
-	s32 numverts = dl->numvertices;
 
 	/* Temporary vertex buffer for GBI state tracking.
 	 * gSPVertex loads vertices into slots; gSP1Triangle references slots. */
 	struct coord slots[64];
 	s32 numslots = 0;
-
-	Gfx *gdl = dl->opagdl;
-	if (!gdl) return;
 
 	for (s32 cmdidx = 0; cmdidx < 4096; cmdidx++) {
 		u32 w0 = gdl[cmdidx].words.w0;
@@ -202,15 +254,22 @@ static void extractDLNodeTris(struct modelrodata_dl *dl, struct colmesh *mesh, f
 			/* gSPVertex: load N vertices starting at slot v0 */
 			s32 n = ((w0 >> 4) & 0xf) + 1;
 			s32 v0 = (w0 & 0xf);
-			/* w1 is the address of the vertex data (points into vbuf) */
 			Vtx *src = (Vtx *)(uintptr_t)w1;
+			s32 srcidx = -1;
 
-			/* Calculate offset into the vertex array */
 			if (src >= vbuf && src < vbuf + numverts) {
-				s32 srcidx = (s32)(src - vbuf);
+				srcidx = (s32)(src - vbuf);
+			} else {
+				u32 offset = UNSEGADDR(w1) & 0xffffff;
+				if ((offset % sizeof(Vtx)) == 0) {
+					srcidx = (s32)(offset / sizeof(Vtx));
+				}
+			}
+
+			if (srcidx >= 0) {
 				for (s32 i = 0; i < n && (v0 + i) < 64; i++) {
 					s32 vi = srcidx + i;
-					if (vi < numverts) {
+					if (vi >= 0 && vi < numverts) {
 						slots[v0 + i].x = (f32)vbuf[vi].x * scale;
 						slots[v0 + i].y = (f32)vbuf[vi].y * scale;
 						slots[v0 + i].z = (f32)vbuf[vi].z * scale;
@@ -238,20 +297,17 @@ static void extractDLNodeTris(struct modelrodata_dl *dl, struct colmesh *mesh, f
 		}
 
 		if (cmd == (u8)G_TRI4) {
-			/* gSP4Triangles: up to 4 triangles packed into one command.
-			 * Each 5-bit index pair in w0 and w1 specifies a triangle. */
-			s32 idx[12];
-			idx[0]  = (w0 >> 20) & 0x1f; idx[1]  = (w0 >> 15) & 0x1f; idx[2]  = (w0 >> 10) & 0x1f;
-			idx[3]  = (w0 >> 5)  & 0x1f; idx[4]  = (w0 >> 0)  & 0x1f; idx[5]  = (w1 >> 27) & 0x1f;
-			idx[6]  = (w1 >> 22) & 0x1f; idx[7]  = (w1 >> 17) & 0x1f; idx[8]  = (w1 >> 12) & 0x1f;
-			idx[9]  = (w1 >> 7)  & 0x1f; idx[10] = (w1 >> 2)  & 0x1f; idx[11] = (w1 << 3)  & 0x1f;
+			s32 idx[4][3] = {
+				{ gdl[cmdidx].tri4.x1, gdl[cmdidx].tri4.y1, gdl[cmdidx].tri4.z1 },
+				{ gdl[cmdidx].tri4.x2, gdl[cmdidx].tri4.y2, gdl[cmdidx].tri4.z2 },
+				{ gdl[cmdidx].tri4.x3, gdl[cmdidx].tri4.y3, gdl[cmdidx].tri4.z3 },
+				{ gdl[cmdidx].tri4.x4, gdl[cmdidx].tri4.y4, gdl[cmdidx].tri4.z4 },
+			};
 
-			/* Up to 4 triangles, each uses 3 consecutive indices */
 			for (s32 ti = 0; ti < 4; ti++) {
-				s32 i0 = idx[ti * 3 + 0];
-				s32 i1 = idx[ti * 3 + 1];
-				s32 i2 = idx[ti * 3 + 2];
-				/* Skip degenerate (all same index = padding) */
+				s32 i0 = idx[ti][0];
+				s32 i1 = idx[ti][1];
+				s32 i2 = idx[ti][2];
 				if (i0 == i1 && i1 == i2) continue;
 				if (i0 < numslots && i1 < numslots && i2 < numslots) {
 					struct coord normal;
@@ -267,6 +323,24 @@ static void extractDLNodeTris(struct modelrodata_dl *dl, struct colmesh *mesh, f
 	}
 }
 
+static void extractDLNodeTris(struct modelrodata_dl *dl, struct colmesh *mesh, f32 scale)
+{
+	if (!dl) {
+		return;
+	}
+
+	extractGfxTris(dl->opagdl, dl->vertices, dl->numvertices, mesh, scale);
+}
+
+static void extractGunDLNodeTris(struct modelrodata_gundl *gundl, struct colmesh *mesh, f32 scale)
+{
+	if (!gundl) {
+		return;
+	}
+
+	extractGfxTris(gundl->opagdl, gundl->vertices, gundl->numvertices, mesh, scale);
+}
+
 static void extractNodeTreeTris(struct modelnode *node, struct colmesh *mesh, f32 scale)
 {
 	if (!node) return;
@@ -274,6 +348,8 @@ static void extractNodeTreeTris(struct modelnode *node, struct colmesh *mesh, f3
 	if (node->type == 0x18 && node->rodata) {
 		/* DL node -- has vertices and display list */
 		extractDLNodeTris(&node->rodata->dl, mesh, scale);
+	} else if (node->type == MODELNODETYPE_GUNDL && node->rodata) {
+		extractGunDLNodeTris(&node->rodata->gundl, mesh, scale);
 	}
 
 	/* Recurse into children */
@@ -294,13 +370,10 @@ void meshExtractFromModel(struct model *model, struct colmesh *out)
 		return;
 	}
 
-	f32 scale = model->scale;
-	if (scale <= 0.0f) scale = 1.0f;
+	extractNodeTreeTris(model->definition->rootnode, out, 1.0f);
 
-	extractNodeTreeTris(model->definition->rootnode, out, scale);
-
-	sysLogPrintf(LOG_NOTE, "MESHCOL: extracted %d triangles from model (scale %.2f)",
-		out->numtris, scale);
+	sysLogPrintf(LOG_NOTE, "MESHCOL: extracted %d local-space triangles from model",
+		out->numtris);
 }
 
 void meshFree(struct colmesh *mesh)
@@ -459,6 +532,105 @@ void meshWorldAddRoomGeo(s32 roomnum)
 		meshWorldAddMesh(&rmesh, NULL);
 	}
 	meshFree(&rmesh);
+}
+
+s32 meshWorldAddRenderedRoom(s32 roomnum)
+{
+	if (roomnum <= 0 || roomnum >= g_Vars.roomcount || !g_Rooms || !g_BgRooms) {
+		return 0;
+	}
+
+	bgFindRoomVtxBatches(roomnum);
+
+	struct room *room = &g_Rooms[roomnum];
+	if (!room->vtxbatches || room->numvtxbatches <= 0) {
+		return 0;
+	}
+
+	struct colmesh rmesh;
+	memset(&rmesh, 0, sizeof(rmesh));
+
+	for (s32 bi = 0; bi < room->numvtxbatches; bi++) {
+		struct vtxbatch *batch = &room->vtxbatches[bi];
+		Gfx *gdl = batch->gdl;
+
+		if (!gdl || batch->type == 2) {
+			continue;
+		}
+
+		Vtx *basevtx = bgFindVerticesForGdl(roomnum, gdl);
+		if (!basevtx) {
+			continue;
+		}
+
+		Gfx *iter = &gdl[batch->gbicmdindex];
+		u8 cmd = iter->bytes[GFX_W0_BYTE(0)];
+		if (cmd != G_VTX) {
+			continue;
+		}
+
+		Vtx *vtx = (Vtx *)((UNSEGADDR(iter->words.w1) & 0xffffff) + (uintptr_t)basevtx);
+		s32 numvertices = (((u32)iter->bytes[GFX_W0_BYTE(1)] >> 4) & 0xf) + 1;
+		struct coord slots[64];
+
+		if (numvertices > 64) {
+			numvertices = 64;
+		}
+
+		for (s32 vi = 0; vi < numvertices; vi++) {
+			slots[vi].x = g_BgRooms[roomnum].pos.x + vtx[vi].x;
+			slots[vi].y = g_BgRooms[roomnum].pos.y + vtx[vi].y;
+			slots[vi].z = g_BgRooms[roomnum].pos.z + vtx[vi].z;
+		}
+
+		iter++;
+		while (iter->dma.cmd != G_VTX && iter->dma.cmd != G_ENDDL) {
+			s32 points[4][3];
+			s32 numtris = 0;
+
+			if (iter->dma.cmd == G_TRI1) {
+				points[0][0] = iter->tri.tri.v[GFX_TRI_VTX(0)] / 10;
+				points[0][1] = iter->tri.tri.v[GFX_TRI_VTX(1)] / 10;
+				points[0][2] = iter->tri.tri.v[GFX_TRI_VTX(2)] / 10;
+				numtris = 1;
+			} else if (iter->dma.cmd == G_TRI4) {
+				points[0][0] = iter->tri4.x1; points[0][1] = iter->tri4.y1; points[0][2] = iter->tri4.z1;
+				points[1][0] = iter->tri4.x2; points[1][1] = iter->tri4.y2; points[1][2] = iter->tri4.z2;
+				points[2][0] = iter->tri4.x3; points[2][1] = iter->tri4.y3; points[2][2] = iter->tri4.z3;
+				points[3][0] = iter->tri4.x4; points[3][1] = iter->tri4.y4; points[3][2] = iter->tri4.z4;
+				numtris = 4;
+			}
+
+			for (s32 ti = 0; ti < numtris; ti++) {
+				s32 p0 = points[ti][0];
+				s32 p1 = points[ti][1];
+				s32 p2 = points[ti][2];
+				if ((p0 == 0 && p1 == 0 && p2 == 0)
+						|| p0 < 0 || p1 < 0 || p2 < 0
+						|| p0 >= numvertices || p1 >= numvertices || p2 >= numvertices) {
+					continue;
+				}
+
+				struct coord normal;
+				meshComputeNormal(&slots[p0], &slots[p1], &slots[p2], &normal);
+				addTriToMesh(&rmesh,
+					slots[p0].x, slots[p0].y, slots[p0].z,
+					slots[p1].x, slots[p1].y, slots[p1].z,
+					slots[p2].x, slots[p2].y, slots[p2].z,
+					classifyTriFlags(&normal));
+			}
+
+			iter++;
+		}
+	}
+
+	s32 added = rmesh.numtris;
+	if (added > 0) {
+		meshWorldAddMesh(&rmesh, NULL);
+	}
+	meshFree(&rmesh);
+
+	return added;
 }
 
 void meshWorldFinalize(void)
@@ -794,6 +966,185 @@ struct colmesh *meshGetFromProp(struct prop *prop)
 		return prop->colmesh;
 	}
 	return NULL;
+}
+
+void meshDetachFromProp(struct prop *prop)
+{
+	if (prop && prop->colmesh) {
+		meshFree(prop->colmesh);
+		free(prop->colmesh);
+		prop->colmesh = NULL;
+	}
+}
+
+bool meshPropIsMovementSolid(struct prop *prop)
+{
+	if (!prop) {
+		return false;
+	}
+
+	if (prop->type != PROPTYPE_OBJ && prop->type != PROPTYPE_DOOR) {
+		return false;
+	}
+
+	struct defaultobj *obj = prop->obj;
+	if (!obj || !obj->model) {
+		return false;
+	}
+
+	if (obj->hidden & (OBJHFLAG_DELETING | OBJHFLAG_GONE)) {
+		return false;
+	}
+
+	if (obj->flags3 & OBJFLAG3_WALKTHROUGH) {
+		return false;
+	}
+
+	if (obj->type == OBJTYPE_WEAPON
+			|| obj->type == OBJTYPE_AMMOCRATE
+			|| obj->type == OBJTYPE_MULTIAMMOCRATE
+			|| obj->type == OBJTYPE_KEY
+			|| obj->type == OBJTYPE_HAT) {
+		return false;
+	}
+
+	return true;
+}
+
+bool meshBuildPropTransform(struct prop *prop, Mtxf *out)
+{
+	if (!prop || !prop->obj || !out) {
+		return false;
+	}
+
+	struct defaultobj *obj = prop->obj;
+	memset(out, 0, sizeof(*out));
+	out->m[0][0] = obj->realrot[0][0];
+	out->m[0][1] = obj->realrot[0][1];
+	out->m[0][2] = obj->realrot[0][2];
+	out->m[1][0] = obj->realrot[1][0];
+	out->m[1][1] = obj->realrot[1][1];
+	out->m[1][2] = obj->realrot[1][2];
+	out->m[2][0] = obj->realrot[2][0];
+	out->m[2][1] = obj->realrot[2][1];
+	out->m[2][2] = obj->realrot[2][2];
+	out->m[3][0] = prop->pos.x;
+	out->m[3][1] = prop->pos.y;
+	out->m[3][2] = prop->pos.z;
+	out->m[3][3] = 1.0f;
+
+	return true;
+}
+
+void meshAttachModelToProp(struct prop *prop, struct model *model)
+{
+	meshDetachFromProp(prop);
+
+	if (!prop || !model || !meshPropIsMovementSolid(prop)) {
+		return;
+	}
+
+	struct colmesh *mesh = malloc(sizeof(*mesh));
+	if (!mesh) {
+		sysLogPrintf(LOG_WARNING, "MESHCOL: prop colmesh alloc failed");
+		return;
+	}
+
+	meshExtractFromModel(model, mesh);
+	if (mesh->numtris <= 0) {
+		meshFree(mesh);
+		free(mesh);
+		return;
+	}
+
+	prop->colmesh = mesh;
+}
+
+static bool meshRayCastMesh(const struct coord *from, const struct coord *to,
+		const struct colmesh *mesh, const Mtxf *transform,
+		f32 *io_best_frac, struct coord *out_normal)
+{
+	if (!from || !to || !mesh || mesh->numtris <= 0 || !io_best_frac) {
+		return false;
+	}
+
+	bool hit = false;
+	for (s32 i = 0; i < mesh->numtris; i++) {
+		struct meshtri tri = mesh->tris[i];
+		if (transform) {
+			meshTransformPoint(transform, &mesh->tris[i].v0, &tri.v0);
+			meshTransformPoint(transform, &mesh->tris[i].v1, &tri.v1);
+			meshTransformPoint(transform, &mesh->tris[i].v2, &tri.v2);
+			meshComputeNormal(&tri.v0, &tri.v1, &tri.v2, &tri.normal);
+		}
+
+		f32 frac;
+		struct coord normal;
+		if (meshRayVsTriangle(from, to, &tri, &frac, &normal)
+				&& frac < *io_best_frac) {
+			*io_best_frac = frac;
+			if (out_normal) {
+				*out_normal = normal;
+			}
+			hit = true;
+		}
+	}
+
+	return hit;
+}
+
+f32 meshRayCastWorld(const struct coord *from, const struct coord *to,
+		const RoomNum *rooms, struct coord *out_normal)
+{
+	(void)rooms;
+
+	if (!from || !to || !g_WorldMesh.ready || g_WorldMesh.numtris <= 0) {
+		return 1.0f;
+	}
+
+	struct colmesh worldmesh;
+	memset(&worldmesh, 0, sizeof(worldmesh));
+	worldmesh.tris = g_WorldMesh.tris;
+	worldmesh.numtris = g_WorldMesh.numtris;
+
+	f32 best_frac = 1.0f;
+	meshRayCastMesh(from, to, &worldmesh, NULL, &best_frac, out_normal);
+	return best_frac;
+}
+
+bool meshRayCastDynamicProps(const struct coord *from, const struct coord *to,
+		const RoomNum *rooms, struct prop *selfprop, f32 *io_best_frac,
+		struct coord *out_normal, struct prop **out_prop)
+{
+	if (!from || !to || !rooms || !io_best_frac) {
+		return false;
+	}
+
+	s16 propnums[256];
+	roomGetProps((RoomNum *)rooms, propnums, ARRAYCOUNT(propnums));
+
+	bool hit = false;
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(propnums) && propnums[i] >= 0; i++) {
+		struct prop *prop = &g_Vars.props[propnums[i]];
+		if (prop == selfprop || !meshPropIsMovementSolid(prop) || !prop->colmesh) {
+			continue;
+		}
+
+		Mtxf transform;
+		if (!meshBuildPropTransform(prop, &transform)) {
+			continue;
+		}
+
+		if (meshRayCastMesh(from, to, prop->colmesh, &transform,
+				io_best_frac, out_normal)) {
+			if (out_prop) {
+				*out_prop = prop;
+			}
+			hit = true;
+		}
+	}
+
+	return hit;
 }
 
 /* ======================================================================== */

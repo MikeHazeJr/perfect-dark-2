@@ -1,5 +1,61 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-18-mesh-collision-ownership`) - 2026-05-18 - Collision-owned mesh architecture for capsule Stage 2
+
+Mike asked for the architectural fix rather than another local guard: movement collision must not depend on transient render matrices or `propobj.c::func0f0849dc()`, and the solution must hold for base maps, props, moving objects, and future Grid/mod maps.
+
+### Root Cause
+
+- The immediate Defection Perfect crash was already guarded locally in B-339, but the real class was broader: capsule Stage 2 movement collision was using a rendered-prop object-hit helper and render-owned `model->matrices`.
+- That made NPC/player ground and ceiling acquisition depend on frame/render state rather than gameplay-owned collision data.
+- It also made the Grid/mod default-solid model fragile, because placed objects needed movement collision rules independent of whatever the renderer happened to allocate that frame.
+
+### Change
+
+- Re-enabled `meshcollision` as the movement-owned rendered geometry source.
+- Stage load now builds `g_WorldMesh` from rendered room triangles via `meshWorldAddRenderedRoom`, falling back to legacy room geo where rendered batches are absent.
+- Eligible solid props attach local-space `prop->colmesh` meshes at object init; prop free/stage reset detach those malloc-owned meshes.
+- Capsule Stage 2 now queries `meshRayCastWorld()` and `meshRayCastDynamicProps()`; dynamic prop transforms come from `prop->pos` and `defaultobj.realrot`, not render matrices.
+- Kept the B-339 matrix-index guard in `propobj.c` as defense-in-depth for weapon/object hit paths.
+- Forge pickup/weapon-pad defaults now use pass-through movement collision; Forge pass-through/projectile-only objects set `OBJFLAG3_WALKTHROUGH`; solid Forge props/doors attach meshes.
+- Updated `[physics][jump]` static coverage to prove `src/lib/capsule.c` no longer contains `func0f0849dc`, `capsuleRenderedPropRayCast`, or direct `model->matrices` use.
+- Reclassified B-339 as an architectural collision ownership bug and added systemic pattern SP-11.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session meshcol -Target all` PASS for client/updater after one scoped compile fix.
+- `.\devtools\build-session.ps1 -Session meshcol -Target tests` PASS for `pd-tests.exe`.
+- Direct focused run with `C:\msys64\mingw64\bin` on PATH: `.claude\session-builds\meshcol\pd-tests.exe "[physics][jump]"` PASS (64 assertions / 4 cases).
+- `.\devtools\build-session.ps1 -Session meshcol -Target server` PASS.
+- Manual playtest still needed: Defection on Perfect should reach mission start without frame-3 crash; rendered-only tops/sloped ceilings should collide; pickups should be collectible but not standable; solid Grid structures should block by default; pass-through Grid objects should not block; moving doors/lifts/boxes should collide from current stable state.
+
+## Session (`main-checkout-2026-05-18-use-hold-only-interact`) - 2026-05-18 - ACTION_USE hold-only interact regression
+
+Mike reported that Hold input now works, but tapping the same input still interacts, and the held-input radial should max out then be consumed as though released once it reaches threshold.
+
+### Root Cause
+
+- `bondmove.c` had the correct hold-threshold branch for ACTION_USE, but still kept a later PC-only release branch that called `propobjPcHoverbikeTapMountOnUseRelease`, set `pcinteractusekind = 1`, marked `JO_ACTION_ACTIVATE`, and called `bmoveHandleActivate()` on `actionWasTap(ACTION_USE, threshold)`.
+- That release branch meant doors/terminals/pickups could still activate on tap even though interaction was supposed to be hold-only.
+- The hold ring also stayed full while the physical button remained down after consumption because `pdgui_interact_prompt.cpp` forced consumed-held target progress to 1, and `actionHoldProgress` resumed raw held progress after its short pin expired.
+
+### Change
+
+- ACTION_USE tap is now reload-only in `bondmove.c`; interaction dispatch is owned by the hold-threshold branch.
+- Double-tap consumes the tap pair without synthesizing A_BUTTON.
+- Removed the hoverbike tap-mount release helper and declaration; PC hoverbike interaction now follows the same hold-only path.
+- `actionHoldProgress` now returns 0 after `actionConsumeHold`'s short full-ring pin, even if the button is still physically held.
+- Removed the prompt-side override that forced consumed held progress back to 1.
+- Filed B-340 and added static `[press-hold][b340]` guards.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session hold340 -Target all` PASS for client/updater.
+- `.\devtools\build-session.ps1 -Session hold340 -Target tests -BuildTimeoutSeconds 180` PASS for `pd-tests.exe`.
+- `.\devtools\build-session.ps1 -Session hold340 -Target server -BuildTimeoutSeconds 180` PASS for `PerfectDarkServer.exe`.
+- Direct focused run with `C:\msys64\mingw64\bin` on PATH: `pd-tests.exe "[press-hold]"` PASS (47 assertions / 13 cases).
+- Manual playtest still needed: tap USE at an interact target should not interact; hold USE should interact at threshold; the radial should hit full briefly and then clear/decay without waiting for release.
+
 ## Session (`main-checkout-2026-05-18-defection-perfect-crash`) - 2026-05-18 - Defection Perfect mission-start crash
 
 Mike reported a fatal access violation when starting the first mission on Perfect difficulty. The active log was `Build\pd-client.log`.

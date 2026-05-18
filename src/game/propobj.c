@@ -67,6 +67,7 @@
 #include "lib/snd.h"
 #include "lib/str.h"
 #include "lib/memp.h"
+#include "lib/meshcollision.h"
 #include "lib/model.h"
 #include "lib/path.h"
 #include "lib/rng.h"
@@ -2381,6 +2382,7 @@ struct prop *objInit(struct defaultobj *obj, struct modeldef *modeldef, struct p
 		prop->pos.x = 0;
 		prop->pos.y = 0;
 		prop->pos.z = 0;
+		meshAttachModelToProp(prop, obj->model);
 
 		objInitToggleNodes(obj);
 
@@ -16534,47 +16536,6 @@ bool currentPlayerTryMountHoverbike(struct prop *prop)
 	return false;
 }
 
-/**
- * B-221.3: PC tap-mount for hoverbike is evaluated on USE release so a press
- * that becomes a long-hold (pickup) never mounts on the first frame.
- */
-void propobjPcHoverbikeTapMountOnUseRelease(s32 pi)
-{
-	struct prop *prop;
-	struct defaultobj *obj;
-
-	if (!g_Vars.currentplayer || !g_Vars.currentplayerstats) {
-		return;
-	}
-	if (optionsGetControlMode(g_Vars.currentplayerstats->mpindex) != CONTROLMODE_PC) {
-		return;
-	}
-	if (actionHoldConsumed(pi, ACTION_USE)) {
-		return;
-	}
-	prop = g_InteractProp;
-	if (!prop || prop->type != PROPTYPE_OBJ) {
-		return;
-	}
-	obj = prop->obj;
-	if (!obj || obj->type != OBJTYPE_HOVERBIKE) {
-		return;
-	}
-	if (g_Vars.currentplayer->pcinteractusekind == 2) {
-		return;
-	}
-	if (currentPlayerTryMountHoverbike(prop)) {
-		return;
-	}
-	if ((obj->flags3 & OBJFLAG3_GRABBABLE)
-			&& g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK
-			&& bmoveGetCrouchPos() == CROUCHPOS_STAND
-			&& g_Vars.currentplayer->crouchoffset == 0
-			&& g_Vars.currentplayer->onladder == false) {
-		bmoveGrabProp(prop);
-	}
-}
-
 bool propobjInteract(struct prop *prop)
 {
 	struct defaultobj *obj = prop->obj;
@@ -16677,7 +16638,7 @@ bool propobjInteract(struct prop *prop)
 		}
 	} else if (obj->type == OBJTYPE_HOVERBIKE
 			&& optionsGetControlMode(g_Vars.currentplayerstats->mpindex) == CONTROLMODE_PC) {
-		/* PC: tap USE = mount only; long-hold USE = pickup only (see bondmove ACTION_USE synthesis). */
+		/* PC: USE interaction is hold-only (see bondmove ACTION_USE synthesis). */
 		if (g_Vars.currentplayer->pcinteractusekind == 2) {
 			if ((obj->flags3 & OBJFLAG3_GRABBABLE)
 					&& g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK
@@ -16687,7 +16648,7 @@ bool propobjInteract(struct prop *prop)
 				bmoveGrabProp(prop);
 			}
 		} else if (g_Vars.currentplayer->pcinteractusekind == 1) {
-			/* B-221.3: tap mount runs from bondmove on USE release, not here. */
+			/* Tap is reload-only; do not mount or grab. */
 		} else {
 			/* Pending / unknown: do not mount or grab on press (avoids hold races). */
 		}

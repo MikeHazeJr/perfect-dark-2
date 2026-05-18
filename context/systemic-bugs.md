@@ -185,6 +185,26 @@ See `context/null-guard-audit-players.md` for full findings.
 
 **Search command**: `git diff HEAD --numstat | awk '$2 > $1*3 && $2-$1 > 20 {print "SUSPECT:", $3, "(net", $1-$2, ")"}'`
 
+---
+
+## SP-11: Movement Collision Reading Render-Owned Buffers
+
+**Severity**: CRITICAL — ACCESS_VIOLATION crash, nondeterministic movement collision, mod/Grid incompatibility
+**Root cause**: Gameplay movement/capsule code reads transient render-owned buffers (`model->matrices`, display-list hit helpers, frame-local graphics state) as if they were authoritative collision data. Render matrices are only valid after render/update setup for the current frame and can be missing, stale, or indexed differently than collision needs. The B-339 Defection Perfect crash was the visible failure: Stage 2 movement collision called `propobj.c::func0f0849dc()`, which dereferenced `model->matrices[mtxindex]` during early NPC ground acquisition.
+
+**Correct approach**:
+- Terrain/rendered room geometry belongs in `meshcollision`'s static world mesh at stage load.
+- Movement-solid props own local-space `prop->colmesh` data.
+- Dynamic prop queries build transforms from stable object state (`prop->pos`, `defaultobj.realrot`, and explicit door/lift state helpers as needed), not render frame matrices.
+- Pickups, zones, water/fog/holograms, Forge pass-through, and Forge projectile-only objects must not contribute movement collision.
+- Weapon/projectile/object-hit paths may keep using legacy model hit helpers, with guards, because they are not movement ownership.
+
+**Guardrail landed 2026-05-18 (B-339)**:
+- `src/lib/capsule.c` static guard requires no `func0f0849dc`, no `capsuleRenderedPropRayCast`, and no direct `model->matrices` use.
+- `meshcollision.c` owns `meshWorldAddRenderedRoom`, `meshRayCastWorld`, `meshRayCastDynamicProps`, `meshAttachModelToProp`, and `meshBuildPropTransform`.
+
+**Search command**: `rg -n "func0f0849dc|model->matrices|gfxAllocate|g_Gfx|modelFindNodeMtx" src/lib src/game port/src port/fast3d`
+
 ### SP-9 Deep Investigation — 2026-04-10
 
 **Conducted**: dreamy-goldberg worktree, investigation-only pass (no source changes).

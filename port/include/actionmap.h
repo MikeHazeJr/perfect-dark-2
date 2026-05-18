@@ -486,7 +486,8 @@ void actionAxis(s32 player, InputAction action, f32 *out_x, f32 *out_y);
  *       fireReload();
  *   }
  *
- * actionHoldProgress returns 0..1 fill while held; reaches 1 at threshold_ms.
+ * actionHoldProgress returns 0..1 fill while held; reaches 1 at threshold_ms,
+ * then falls back to 0 after actionConsumeHold's short full-ring pin.
  * Returns 0 when not held.
  * ============================================================ */
 
@@ -506,7 +507,7 @@ void actionConsumeHold(s32 player, InputAction action);
 /** Returns 1 if the current hold has already been consumed. */
 s32 actionHoldConsumed(s32 player, InputAction action);
 
-/** Hold fill in [0..1] toward `threshold_ms`.  0 when not held. */
+/** Hold fill in [0..1] toward `threshold_ms`.  0 when not held or already consumed. */
 f32 actionHoldProgress(s32 player, InputAction action, s32 threshold_ms);
 
 /** SDL_GetTicks() at the start of the current hold, or 0 if not held. */

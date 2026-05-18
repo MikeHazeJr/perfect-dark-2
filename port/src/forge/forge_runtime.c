@@ -41,6 +41,7 @@
 #include "game/setuputils.h"
 #include "game/spawnpool.h"
 #include "game/bg.h"
+#include "lib/meshcollision.h"
 #include "lib/model.h"
 #include "lib/memp.h"
 
@@ -371,6 +372,9 @@ static void s_spawn_door(const forge_object_t *o)
     door->base.maxdamage  = 1000;
     door->base.extrascale = 256;
     door->base.floorcol   = 0x0fff;
+    if (o->collision_mode != FORGE_COLLISION_SOLID) {
+        door->base.flags3 |= OBJFLAG3_WALKTHROUGH;
+    }
 
     /* Standard physics (matches a typical CI Training sliding door) */
     door->maxfrac       = 0.9f;
@@ -470,6 +474,11 @@ static void s_spawn_door(const forge_object_t *o)
 
     if (door->base.model) {
         modelSetScale(door->base.model, 1.0f);
+    }
+    if (o->collision_mode == FORGE_COLLISION_SOLID) {
+        meshAttachModelToProp(prop, door->base.model);
+    } else {
+        meshDetachFromProp(prop);
     }
 
     propActivate(prop);
@@ -611,6 +620,9 @@ static void s_spawn_prop(const forge_object_t *o)
     obj->maxdamage  = 1000;
     obj->floorcol   = 0x0fff;
     obj->extrascale = 256;
+    if (o->collision_mode != FORGE_COLLISION_SOLID) {
+        obj->flags3 |= OBJFLAG3_WALKTHROUGH;
+    }
 
     struct prop *prop = objInit(obj, modeldef, NULL, NULL);
     if (!prop) {
@@ -625,6 +637,11 @@ static void s_spawn_prop(const forge_object_t *o)
      * dynamically-loaded models where modelnum==0 may be unset. */
     if (obj->model) {
         modelSetScale(obj->model, 1.0f);
+    }
+    if (o->collision_mode == FORGE_COLLISION_SOLID) {
+        meshAttachModelToProp(prop, obj->model);
+    } else {
+        meshDetachFromProp(prop);
     }
 
     prop->pos.x = o->pos[0];

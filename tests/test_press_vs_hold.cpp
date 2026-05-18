@@ -23,13 +23,16 @@
  *   - Multi-player isolation: a tap on player 0 does not leak to player 1.
  *
  * @SYNC port/src/actionmap.cpp:1619 (actionWasTap)
- * @SYNC src/game/bondmove.c:1130 (X_BUTTON tap synthesis, fix #1)
- * @SYNC src/game/bondmove.c:2347 (hoverbike tap-mount, fix #1)
+ * @SYNC src/game/bondmove.c (X_BUTTON tap synthesis, hold-only interact)
  *
  * Logging channel reserved for runtime diagnostics: INPUT.ACTION.TAP
  */
 
 #include "catch.hpp"
+
+#include <fstream>
+#include <sstream>
+#include <string>
 
 extern "C" {
 #include "actionmap_pure.h"
@@ -40,6 +43,22 @@ namespace {
 void resetWorld()
 {
     ampReset();
+}
+
+std::string readTextFile(const char *path)
+{
+    std::ifstream f(path, std::ios::in | std::ios::binary);
+    if (!f) {
+        return {};
+    }
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    std::string text = ss.str();
+    std::string::size_type pos = 0;
+    while ((pos = text.find('\r', pos)) != std::string::npos) {
+        text.erase(pos, 1);
+    }
+    return text;
 }
 
 } /* namespace */
@@ -170,27 +189,61 @@ TEST_CASE("press-hold: bondmove site 1 (X_BUTTON tap-only) regression", "[press-
     }
 }
 
-TEST_CASE("press-hold: bondmove site 2 (hoverbike tap-mount) regression", "[press-hold][tap][hoverbike]")
+TEST_CASE("press-hold: bondmove site 2 (tap never activates interact) regression", "[press-hold][tap][interact]")
 {
-    /* Mirrors the bondmove.c:2347 site after fix #1. Previously
-     * open-coded as actionReleased && !actionHoldConsumed &&
-     * actionLastGestureHoldMs < useThresh. After fix, exactly
-     * actionWasTap. The migration is semantically equivalent for
-     * this site (no behavior change), but routes through the
-     * canonical primitive so the contract is consistent. */
+    /* ACTION_USE tap remains a valid Tap gesture, but bondmove must route it
+     * only to X_BUTTON/reload. Interact is hold-only. */
     resetWorld();
 
-    SECTION("crisp tap mounts hoverbike") {
+    SECTION("crisp tap is a Tap gesture") {
         ampSetGesture(0, AMP_ACTION_USE, 1, 100);
         REQUIRE(ampWasTap(0, AMP_ACTION_USE, 250) == 1);
     }
-    SECTION("long hold does not mount hoverbike") {
+    SECTION("long hold is not a Tap gesture") {
         ampSetGesture(0, AMP_ACTION_USE, 1, 500);
         REQUIRE(ampWasTap(0, AMP_ACTION_USE, 250) == 0);
     }
-    SECTION("consumed gesture does not mount hoverbike") {
+    SECTION("consumed gesture is not a Tap gesture") {
         ampSetGesture(0, AMP_ACTION_USE, 1, 100);
         ampConsumeHold(0, AMP_ACTION_USE);
         REQUIRE(ampWasTap(0, AMP_ACTION_USE, 250) == 0);
     }
+}
+
+TEST_CASE("press-hold: bondmove no longer dispatches interact from USE tap", "[press-hold][tap][static][b340]")
+{
+    const std::string bondmove = readTextFile("src/game/bondmove.c");
+    const std::string propobjHeader = readTextFile("src/include/game/propobj.h");
+
+    REQUIRE_FALSE(bondmove.empty());
+    REQUIRE_FALSE(propobjHeader.empty());
+
+    REQUIRE(bondmove.find("propobjPcHoverbikeTapMountOnUseRelease") == std::string::npos);
+    REQUIRE(propobjHeader.find("propobjPcHoverbikeTapMountOnUseRelease") == std::string::npos);
+    const size_t tapOnlyComment = bondmove.find("PC ACTION_USE tap is reload-only");
+    REQUIRE(tapOnlyComment != std::string::npos);
+    const size_t nextPitchBlock = bondmove.find("if (!movedata.invertpitch)", tapOnlyComment);
+    REQUIRE(nextPitchBlock != std::string::npos);
+    const std::string tapOnlyBlock = bondmove.substr(tapOnlyComment, nextPitchBlock - tapOnlyComment);
+    REQUIRE(tapOnlyBlock.find("JO_ACTION_ACTIVATE") == std::string::npos);
+    REQUIRE(tapOnlyBlock.find("bmoveHandleActivate") == std::string::npos);
+}
+
+TEST_CASE("press-hold: consumed hold progress behaves like release after full-ring pin", "[press-hold][hold][static][b340]")
+{
+    const std::string actionmap = readTextFile("port/src/actionmap.cpp");
+    const std::string prompt = readTextFile("port/fast3d/pdgui_interact_prompt.cpp");
+
+    REQUIRE_FALSE(actionmap.empty());
+    REQUIRE_FALSE(prompt.empty());
+
+    const size_t progress = actionmap.find("f32 actionHoldProgress");
+    REQUIRE(progress != std::string::npos);
+    const size_t consumed = actionmap.find("if (st->hold_consumed)", progress);
+    const size_t held = actionmap.find("if (!st->held || st->down_time_ms == 0)", progress);
+    REQUIRE(consumed != std::string::npos);
+    REQUIRE(held != std::string::npos);
+    REQUIRE(consumed < held);
+
+    REQUIRE(prompt.find("actionHeld(actionPlayer, ACTION_USE) && actionHoldConsumed") == std::string::npos);
 }

@@ -59,10 +59,10 @@
 
 /* Per-player ACTION_USE double-tap detection. Records the 60Hz tick at
  * which the LAST tap-release was registered; on the next tap release, if
- * the gap is within BOND_DOUBLE_TAP_TICKS the second tap counts as a
- * double-tap and fires the alternate interact path. Zero means no prior
- * tap recorded. We use g_Vars.lvframe60 instead of SDL_GetTicks so this
- * stays platform-neutral with the rest of bondmove.c. */
+ * the gap is within BOND_DOUBLE_TAP_TICKS the second tap consumes the pair
+ * instead of firing another reload. Zero means no prior tap recorded. We use
+ * g_Vars.lvframe60 instead of SDL_GetTicks so this stays platform-neutral
+ * with the rest of bondmove.c. */
 static u32 s_BondLastUseTapReleaseFrame[MAX_PLAYERS] = {0};
 #define BOND_DOUBLE_TAP_TICKS 15 /* ~250 ms at 60 Hz */
 
@@ -1065,11 +1065,10 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 	/* M0.2: synthesize button bitmask from action queries for downstream mask logic.
 	 *
-	 * PC ACTION_USE (X face / Use key) — twin-stick:
-	 *   - Short press / tap -> A_BUTTON (activate: mount vehicle, doors, …)
-	 *   - Hold > use-hold-ms -> A_BUTTON + consume (pickup grabbables e.g. hoverbike)
-	 * Reload uses ACTION_RELOAD (R) or USE release with no prompt (below) — including
-	 * release before the long-hold threshold when nothing is interactable.
+	 * PC ACTION_USE (X face / Use key) - twin-stick:
+	 *   - Short press / tap -> X_BUTTON (reload)
+	 *   - Hold > use-hold-ms -> A_BUTTON + consume (interact)
+	 * Reload uses ACTION_RELOAD (R) or USE tap. Interact is hold-only.
 	 *
 	 * ACTION_RELOAD (R kbd) is treated as a dedicated immediate-reload key. */
 	{
@@ -1263,14 +1262,11 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			}
 			if (actionPressed(pi, ACTION_RELOAD))         c1buttonsthisframe |= X_BUTTON;
 
-			/* ACTION_USE 3-action model (Mike directive 2026-05-17):
+			/* ACTION_USE split:
 			 *   Tap (release before threshold)  -> X_BUTTON (reload) ALWAYS
 			 *   Hold past threshold             -> A_BUTTON (interact) + consume
-			 *   Double-tap (two taps within 250ms) -> A_BUTTON alt-interact path
-			 * The double-tap fires the same A_BUTTON edge as hold-interact;
-			 * downstream consumers can distinguish by inspecting
-			 * actionWasDoubleTap-equivalent state if a screen-local door-only
-			 * binding is later added. */
+			 * A tap or double-tap must not synthesize A_BUTTON. Interact is
+			 * hold-only so doors/terminals/pickups cannot fire on a quick tap. */
 			{
 				const s32 useThreshMs = propGetActionUseHoldThresholdMs();
 				if (actionHeldForMs(pi, ACTION_USE, useThreshMs)
@@ -1284,16 +1280,13 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					const u32 prev_frame  = s_BondLastUseTapReleaseFrame[pi];
 					const u32 gap_frames  = (prev_frame != 0) ? (now_frame - prev_frame) : 0xFFFFFFFFu;
 					if (prev_frame != 0 && gap_frames <= BOND_DOUBLE_TAP_TICKS) {
-						/* Double-tap: alt-interact. Fire A_BUTTON (interact)
-						 * and clear the frame stamp so a triple-tap does not
-						 * cascade into "interact + reload" on the third
-						 * release. */
-						c1buttons          |= A_BUTTON;
-						c1buttonsthisframe |= A_BUTTON;
+						/* Double-tap is intentionally consumed as a tap pair,
+						 * not promoted to interact. Clear the frame stamp so
+						 * a triple-tap does not cascade into another reload. */
 						s_BondLastUseTapReleaseFrame[pi] = 0;
 					} else {
 						/* Single tap: reload. Record frame so a quick
-						 * follow-up tap can become a double-tap. */
+						 * follow-up tap can be consumed as a double-tap pair. */
 						c1buttons          |= X_BUTTON;
 						c1buttonsthisframe |= X_BUTTON;
 						s_BondLastUseTapReleaseFrame[pi] = now_frame;
@@ -2505,21 +2498,8 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 		}
 	}
 
-	if (controlmode == CONTROLMODE_PC && g_Vars.currentplayer) {
-		s32 pi = actionPlayer;
-		/* B-221.3: short USE -- dispatch activate after release so doors/taps and
-		 * hoverbike (propobjPcHoverbikeTapMountOnUseRelease) align with gesture.
-		 * Phase 2 fix #1 (2026-05-01): route through actionWasTap (canonical
-		 * Press primitive). Equivalent to the prior open-coded
-		 * actionReleased && !actionHoldConsumed && actionLastGestureHoldMs < useThresh,
-		 * with one primitive shared across every Tap-vs-Hold consumer. */
-		if (actionWasTap(pi, ACTION_USE, propGetActionUseHoldThresholdMs())) {
-			propobjPcHoverbikeTapMountOnUseRelease(pi);
-			g_Vars.currentplayer->pcinteractusekind = 1;
-			g_Vars.currentplayer->bondactivateorreload |= JO_ACTION_ACTIVATE;
-			bmoveHandleActivate();
-		}
-	}
+	/* PC ACTION_USE tap is reload-only. Interaction dispatch is owned by the
+	 * hold-threshold branch above so a quick tap cannot activate props. */
 
 	if (!movedata.invertpitch) {
 		savedverta = movedata.speedvertadown;

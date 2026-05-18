@@ -123,9 +123,6 @@ extern "C" void pdguiInteractPromptRender(s32 winW, s32 winH)
 			}
 		}
 	}
-	if (actionHeld(actionPlayer, ACTION_USE) && actionHoldConsumed(actionPlayer, ACTION_USE)) {
-		target = 1.0f;
-	}
 	float dt = ImGui::GetIO().DeltaTime;
 	if (dt <= 0.0f || dt > 0.1f) {
 		dt = 0.016f;

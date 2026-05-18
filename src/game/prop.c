@@ -34,6 +34,7 @@
 #include "game/mpstats.h"
 #include "bss.h"
 #include "lib/collision.h"
+#include "lib/meshcollision.h"
 #include "lib/lib_17ce0.h"
 #include "lib/model.h"
 #include "lib/snd.h"
@@ -174,6 +175,7 @@ struct prop *propAllocate(void)
 		prop->propupdate60err = 2;
 		prop->opawallhits = NULL;
 		prop->xluwallhits = NULL;
+		prop->colmesh = NULL;
 		// NOTE: this will be automatically overwritten at the start of the stage for the setup props
 		prop->syncid = (g_NetMode == NETMODE_SERVER) ? g_NetNextSyncId++ : 0;
 		if (prop->syncid) {
@@ -201,6 +203,8 @@ struct prop *propAllocate(void)
  */
 void propFree(struct prop *prop)
 {
+	meshDetachFromProp(prop);
+
 	if (prop->type == PROPTYPE_CHR) {
 		g_Vars.propstates[prop->propstateindex].chrpropcount--;
 	} else {

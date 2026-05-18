@@ -12,7 +12,7 @@
  *                 matrix at query time.
  *
  * The capsule sweep system (capsule.c) uses this for movement collision.
- * Damage/weapon collision stays on the legacy cdTestVolume path.
+ * Damage/weapon collision stays on the legacy prop/model hit-test path.
  */
 
 #ifndef MESHCOLLISION_H
@@ -91,6 +91,10 @@ void meshWorldAddMesh(struct colmesh *mesh, Mtxf *transform);
 /* Add stage BG geometry (geotilei, geotilef) from room data */
 void meshWorldAddRoomGeo(s32 roomnum);
 
+/* Add rendered BG triangles for a room to the static world mesh.
+ * Returns the number of triangles added. */
+s32 meshWorldAddRenderedRoom(s32 roomnum);
+
 /* Finalize the grid after all geometry is added (builds cell lists) */
 void meshWorldFinalize(void);
 
@@ -121,6 +125,18 @@ f32 meshFindFloor(struct coord *pos, f32 radius, f32 *out_normalY);
  * Returns Y of lowest ceiling surface above pos, or 99999 if none. */
 f32 meshFindCeiling(struct coord *pos, f32 radius);
 
+/* Ray cast against the static world mesh. Returns the hit fraction [0..1],
+ * or 1.0 if clear. */
+f32 meshRayCastWorld(const struct coord *from, const struct coord *to,
+                     const RoomNum *rooms, struct coord *out_normal);
+
+/* Ray cast against dynamic movement-solid props in the given rooms. Uses
+ * prop->pos/defaultobj.realrot and prop->colmesh, never render matrices. */
+bool meshRayCastDynamicProps(const struct coord *from, const struct coord *to,
+                             const RoomNum *rooms, struct prop *selfprop,
+                             f32 *io_best_frac, struct coord *out_normal,
+                             struct prop **out_prop);
+
 /* ---- API: per-prop dynamic mesh ---- */
 
 /* Attach a collision mesh to a prop (for dynamic objects).
@@ -129,6 +145,19 @@ void meshAttachToProp(struct prop *prop, struct colmesh *mesh);
 
 /* Get the collision mesh attached to a prop (NULL if none) */
 struct colmesh *meshGetFromProp(struct prop *prop);
+
+/* Free and detach any dynamic collision mesh owned by the prop. */
+void meshDetachFromProp(struct prop *prop);
+
+/* Build and attach a local-space collision mesh from a prop's model if the
+ * prop is movement-solid. */
+void meshAttachModelToProp(struct prop *prop, struct model *model);
+
+/* Movement-solid object policy shared by capsule, Forge and prop setup. */
+bool meshPropIsMovementSolid(struct prop *prop);
+
+/* Build a stable object transform from prop/defaultobj state. */
+bool meshBuildPropTransform(struct prop *prop, Mtxf *out);
 
 /* ---- Math utilities ---- */
 

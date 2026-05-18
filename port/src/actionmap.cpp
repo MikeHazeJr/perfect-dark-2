@@ -1725,6 +1725,9 @@ f32 actionHoldProgress(s32 player, InputAction action, s32 threshold_ms)
     if (st->hold_pin_full_until_ms && now >= st->hold_pin_full_until_ms) {
         st->hold_pin_full_until_ms = 0;
     }
+    if (st->hold_consumed) {
+        return 0.0f;
+    }
     if (!st->held || st->down_time_ms == 0) {
         if (st->hold_vis_grace_until_ms && now < st->hold_vis_grace_until_ms) {
             return st->hold_vis_last_down_progress;

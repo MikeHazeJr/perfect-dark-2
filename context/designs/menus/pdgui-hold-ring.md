@@ -25,6 +25,8 @@
 - **`pdguiDrawHoldProgressRingAroundBox(ImDrawList *dl, boxMinX, boxMinY, boxW, boxH, progress)`**  
   Dim full track + clockwise accent arc around a rectangle (typically the key glyph pill). `progress` is **0..1** (e.g. from `actionHoldProgress(player, ACTION_USE, holdMs)`).
 
+**Consumption semantics (B-340, 2026-05-18):** when the held threshold is reached, the hold handler calls `actionConsumeHold`. The ring is allowed to pin at full briefly, then `actionHoldProgress` returns 0 even if the physical button is still down. Visually this behaves like a release after threshold consumption; it must not remain full until the user releases the button.
+
 **Current call sites**
 
 - `pdguiDrawActionPromptCenteredWithHold()` in `pdgui_glyphs.cpp` (in-world interact prompt).
