@@ -41,6 +41,7 @@
 #include "actionmap.h"
 #include "scene.h"
 #include "smoke_harness.h"
+#include "autocampaign.h"
 #include "game/lv.h"
 #include "game/options.h"
 #include "game/timing.h"
@@ -694,6 +695,13 @@ void mainTick(void)
 	 * Runs at the top of mainTick so any pushed events land before the
 	 * input dispatch downstream picks them up this frame. */
 	smokeHarnessTick();
+
+	/* Campaign auto-runner tick (c126, 2026-05-18): force-completes
+	 * objectives, dwells through endscreen + briefing dialogs, chains
+	 * into next solo mission. Cheap no-op when --auto-campaign is
+	 * absent. Runs after smokeHarnessTick so the harness retains
+	 * priority on any overlapping CLI-driven scenarios. */
+	autocampaignTick();
 
 	/* c115 (2026-05-14): --launch-scenario one-shot. Dispatches the
 	 * latched testScenarioLaunch on the first frame where the player

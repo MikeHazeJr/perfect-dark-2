@@ -381,8 +381,18 @@ bool g_DebugManPos = false;
 
 bool g_DebugTurboMode = false;
 
-#ifdef DEBUG
+/* PC port (c126, 2026-05-18): g_DebugObjectives + g_DebugSetComplete moved out
+ * of the #ifdef DEBUG block so the campaign auto-runner can toggle them in
+ * non-DEBUG (release) builds. They were always benign globals; the DEBUG
+ * guard was an N64-era code-size optimization that no longer applies. The
+ * accessor functions debugForceAllObjectivesComplete + debugIsSetCompleteEnabled
+ * now read these flags directly. */
 bool g_DebugObjectives = false;
+#if VERSION >= VERSION_NTSC_1_0
+bool g_DebugSetComplete = false;
+#endif
+
+#ifdef DEBUG
 bool g_DebugZBufferDisabled = false;
 s32 var80078740nb = 0;
 s32 var80078744nb = 0;
@@ -408,9 +418,6 @@ s32 var80078790nb = 0;
 bool g_DebugFootsteps = true;
 bool g_DebugAllChallenges = false;
 bool g_DebugAllBuddies = false;
-#if VERSION >= VERSION_NTSC_1_0
-bool g_DebugSetComplete = false;
-#endif
 bool g_DebugAllTraining = false;
 s32 g_DebugCutDebug = 0;
 s32 var800787a8nb = 0;
@@ -827,7 +834,10 @@ void debugSetTurboMode(bool enabled)
 
 bool debugForceAllObjectivesComplete(void)
 {
-	return DEBUG_VALUE(g_DebugObjectives, false);
+	/* PC port (c126): read the flag directly. Auto-runner sets this when
+	 * armed; release builds default to false so the gameplay path is
+	 * unchanged when the flag is not explicitly toggled. */
+	return g_DebugObjectives;
 }
 
 bool debugIsZBufferDisabled(void)
@@ -1092,6 +1102,12 @@ bool debugIsAllBuddiesEnabled(void)
 #if VERSION >= VERSION_NTSC_1_0
 bool debugIsSetCompleteEnabled(void)
 {
+	/* PC port (c126): direct flag read; auto-runner sets this when armed.
+	 * Note: the consumers in endscreen.c that gate on this function are
+	 * still wrapped in `#if defined(DEBUG)`, so the bypass only fires in
+	 * DEBUG builds. The auto-runner does not rely on this -- it clears
+	 * isdead / aborted and forces objectiveIsAllComplete() via
+	 * g_DebugObjectives, which is enough for the non-DEBUG success path. */
 	return g_DebugSetComplete;
 }
 #endif

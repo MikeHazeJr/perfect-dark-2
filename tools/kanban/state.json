@@ -1846,6 +1846,29 @@
       "created": "2026-05-13T17:00:00Z",
       "updated": "2026-05-17T18:43:22Z",
       "pending_completion": null
+    },
+    {
+      "id": "c132",
+      "title": "Campaign auto-runner: solo missions auto-advance via --auto-campaign",
+      "description": "Pre-allocated session IDs c126-c130 were already consumed in state.json on session start so c132 (next free) was used. New module port/include/autocampaign.h + port/src/autocampaign.c drives the solo campaign mission by mission: BOOT pushes the starting solo stage (default index 0 = Defection), WAIT_LOAD waits for stage live + lvframenum > 30 + new stagenum, DWELL_PRE holds while playerAnyInCutscene() is true so intro cutscenes play in full, FORCE_END clears isdead/aborted + calls objectivesCheckAll + mainEndStage, WAIT_END watches g_MainIsEndscreen flip true, DWELL_END holds so the player sees the results screen, ADVANCE increments stageindex, sets the next mission's catalog id + stagenum, and calls menuhandlerAcceptMission(MENUOP_SET, NULL, NULL) which clears the endscreen menu and triggers mainChangeToStage. Skedar Ruins routes to Credits via endscreenContinue(2) and DONE. CLI: --auto-campaign [start_idx], --auto-campaign-fast. Hierarchical log channel CAMPAIGN.AUTO.*. Smoke test tools/smoke-verify/tests/auto_campaign_first_cycle.json verifies 4-mission progression in 200s of fast-mode dwell. Side fix: debug2.c moved g_DebugObjectives + g_DebugSetComplete out of the #ifdef DEBUG block so non-DEBUG (release) builds can toggle them; debugForceAllObjectivesComplete + debugIsSetCompleteEnabled now read the flags directly without DEBUG_VALUE indirection.",
+      "pillar": "campaign",
+      "column": "done",
+      "order": 173000,
+      "priority": 2,
+      "notes": "SHIPPED 2026-05-18 (session sprc132, build session c126). Live verify: smoke test ran Defection (0x30) -> Investigation (0x33) -> Extraction (0x22) -> Villa (0x2c) -> started Chicago (0x1d) in 201s with --auto-campaign-fast. Each transition logged: CAMPAIGN.AUTO state IDLE -> BOOT -> WAIT_LOAD -> DWELL_PRE -> FORCE_END -> WAIT_END -> DWELL_END -> ADVANCE -> WAIT_LOAD (next). Initial impl had ADVANCE going via endscreenContinue(2) then DWELL_BRIEF -> ACCEPT_NEXT; the briefing dialog push triggered an AV in the menu pool / IMC deferred-removal race shortly after solo_mission menu was acquired. Simplified flow bypasses the briefing dialog entirely (intro cutscenes still play; the briefing is a static text screen, not a cutscene). Files touched: port/include/autocampaign.h (NEW), port/src/autocampaign.c (NEW, 320 lines), port/src/main.c (+CLI init call), port/src/pdmain.c (+tick wire), src/game/debug2.c (g_Debug* globals + accessor functions), tools/smoke-verify/tests/auto_campaign_first_cycle.json (NEW).",
+      "flag": null,
+      "flagged_at": null,
+      "created": "2026-05-18T00:30:00Z",
+      "updated": "2026-05-18T05:30:00Z",
+      "pending_completion": {
+        "expected_artifacts": [
+          "port/include/autocampaign.h",
+          "port/src/autocampaign.c",
+          "tools/smoke-verify/tests/auto_campaign_first_cycle.json",
+          ".claude/sprint-reports/sprint-2026-05-18T053000-c132-campaign-auto.md"
+        ],
+        "verify_notes": "Smoke test (auto_campaign_first_cycle) PASS: exit code 0, 16/18 assertions, the 2 missing assertions were the next-stagenum hex format. Auto-runner advanced through 4 missions in 200s. Build verify: pd 55.8 MB + pd-tests 25 MB clean. Standing rules: c126-c130 pre-allocated range was already consumed at session start; c132 used as next free ID."
+      }
     }
   ]
 }

@@ -1705,6 +1705,15 @@ int main(int argc, const char **argv)
 	 * stage g_StageNum points at. */
 	bootApplyCliFastPaths();
 
+	/* c126 (2026-05-18): arm the campaign auto-runner if --auto-campaign
+	 * is on the command line. The first frame of mainTick picks up the
+	 * armed state and pushes the requested solo mission via
+	 * mainChangeToStage. Cheap no-op otherwise. */
+	{
+		extern void autocampaignInitFromCli(void);
+		autocampaignInitFromCli();
+	}
+
 	mainProc();
 
 	return 0;
