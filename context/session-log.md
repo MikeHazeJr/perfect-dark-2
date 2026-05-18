@@ -1,5 +1,55 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-18-kanban-review-title-focus`) - 2026-05-18 - Kanban pending-completion Review panel title focus
+
+Mike's feedback: the Kanban board's completion Review panel was emphasizing verbose completion minutiae instead of the higher-level card title that describes what the work actually was.
+
+### Change
+
+- Updated `tools/kanban/index.html` so pending-completion rows are title-first: card id / pillar / column metadata, then the card title as the primary visible line.
+- Moved completion summary, verification notes, evidence refs, expected artifacts, and marker metadata behind a collapsed `Review details` expander.
+- Adjusted the READY badge tooltip to point at the card title instead of repeating completion details.
+- Extended `/api/pending-completions` and `kanban_evaluator.py list-pending-completions` to pass through optional `verify_notes` and `expected_artifacts` fields for the expander.
+- Refreshed `context/designs/pending-completion-mechanism.md` with the new title-first review behavior.
+
+### Verification
+
+- `python -m py_compile tools\kanban\server.py tools\kanban_evaluator.py` passed.
+- `python tools\kanban_evaluator.py list-pending-completions` returned the current pending card with `card_title`, `verify_notes`, and `expected_artifacts`.
+- Inline JS syntax check via Node passed (`inline scripts ok: 1`).
+- Temporary local Kanban server `/api/pending-completions` returned `ok=true`, `pending_count=1`.
+- Browser automation not run because the local Node environment lacks the `playwright` module; no new dependency was installed for this UI-only polish.
+
+### Next
+
+- No open follow-up unless Mike wants the collapsed details affordance styled differently.
+
+## Session (`main-checkout-2026-05-18-skedar-swarm-behavior`) - 2026-05-18 - Skedar swarm CPU/GPU behavior parity, jump/surface requests, wall-contact correction
+
+Mike asked to implement the Skedar Swarm Benchmark Behavior Plan: make GPU benchmark bots act like CPU benchmark bots by default, and make wall walking / jumping function in both CPU and GPU benchmark modes without widening normal Combat Sim bot AI.
+
+### Change
+
+- GPU swarm launch now defaults to `SWARM_METHOD_GPU_FULL`; `SWARM_METHOD_GPU_POS_ONLY` remains available as the explicit diagnostic toggle.
+- GPU boid readback record now carries compact `jump_request` / `surface_request` movement-intent bits alongside the existing fire/animation AI fields. The GPU summary log includes `jump_req` and `surface_req`.
+- Added shared `swarmTestApplyMovementIntent(...)` for CPU and GPU swarm paths. It owns Skedar jump requests, wall-ahead surface transitions, surface contact correction, and behavior telemetry (`SWARM.BEHAVIOR.JUMP`, `SWARM.BEHAVIOR.SURFACE`, `SURFACE_LOCO.PIN`, `SURFACE_LOCO.TRACE`).
+- Surface locomotion gained `chrSurfaceLocoRequestWallAhead(...)` and `chrSurfaceLocoApplyContactPos(...)`; wall/ceiling contact correction no longer routes through the world-ground `chrSetPos` path that recomputed floor ground and fought wall walking.
+- `chrStartSkJump` now rejects missing targets before measuring target distance.
+- Added static coverage that pins GPU_FULL as the default, pins CPU/GPU shared movement-intent wiring, and checks surface-contact helper use. Added CPU and GPU Skedar behavior smokes targeting `base:mp_skedar`; refreshed the legacy Skedar wallrun smoke to use the same map override.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session skswarm -Target all -BuildTimeoutSeconds 300` passed for the client/updater path after the default 60s watchdog interrupted the first long compile.
+- `.\devtools\build-session.ps1 -Session skswarm -Target tests -BuildTimeoutSeconds 300` passed and produced `.claude/session-builds/skswarm/pd-tests.exe`.
+- Focused static guard passed: `pd-tests.exe "skedar swarm behavior intents stay wired for CPU and GPU benchmarks"` = 20 assertions in 1 test case.
+- `skedar_swarm_cpu_behavior_smoke` passed 18/18 assertions on `base:mp_skedar` (`results-20260518T173023Z.json`).
+- `skedar_swarm_gpu_behavior_smoke` passed 20/20 assertions on `base:mp_skedar` after extending the script to keep a second density cycle and wait for real surface-contact pin telemetry (`results-20260518T173518Z.json`).
+- Smoke setup still prints the known firewall-rule access warning in this sandbox, but the harness continues and the assertions pass.
+
+### Next
+
+- Manual visual playtest is still useful for feel, but the benchmark behavior contract requested here is build- and smoke-verified. Future work should stay in the broader GPU-native bot-AI pipeline rather than changing normal Combat Sim bot jumping.
+
 ## Session (`main-checkout-2026-05-17-input-social-vehicles-botjump`) - 2026-05-17 - Tap/hold + 3-state crouch + crouch-jump, vehicles full, CS/MP post-match, social hub agent-gate + per-agent connect, bot jumping (toggle + 4-tier difficulty), 6-bug playtest cleanup
 
 Whole-day arc on `dev` (worktrees disabled). Started with Mike's "implement fully, not in phases" directive across four areas (CS post-match menu, MP post-match lobby return, vehicles, hold input + press/release principle), folded in a social-hub completion arc, planned + shipped bot-jumping as a CS-setup toggle, then a recursive cleanup sweep against the first playtest. Cross-pillar: input (c036), networking (c054), physics-collision (c038), benchmarking (c3807). NET_PROTOCOL_VER 48 -> 49.
@@ -8574,4 +8624,3 @@ Mike's release failure: `error: cannot rebase: You have unstaged changes. error:
 Verified: PowerShell parser passes on all five edited scripts (release.ps1, dev-window-v2.ps1, _dev-window.ps1, version-util.ps1, keygen.ps1). The pre-existing parser warnings on release.ps1 lines 623/647 cleared themselves -- my added pre-rebase block shifted the line numbers past whatever the parser was confused about (likely the `$()` inline interpolation in the SkipPush print).
 
 Files: `devtools/release.ps1`, `devtools/keygen.ps1`, `devtools/_dev-window.ps1`.
-

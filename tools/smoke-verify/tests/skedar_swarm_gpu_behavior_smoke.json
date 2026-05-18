@@ -1,0 +1,61 @@
+{
+  "scenario_name": "skedar_swarm_gpu_behavior_smoke",
+  "description": "Behavior smoke for GPU Skedar swarm on base:mp_skedar. Proves the default GPU benchmark launches in GPU_FULL mode, emits jump/surface movement intents from readback, and applies the shared benchmark Skedar movement helper instead of running position-only liveness.",
+  "tags": ["debug", "swarm", "gpu", "skedar", "behavior", "wallrun", "jump", "compute"],
+  "paths_of_interest": [
+    "port/fast3d/swarm_gpu.cpp",
+    "port/src/swarm_test.c",
+    "src/game/surface_loco.c",
+    "port/src/testscenarios.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--debug-swarm-map",
+    "base:mp_skedar",
+    "--launch-scenario",
+    "swarm_gpu"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait", "comment": "boot path arms GPU swarm with explicit base:mp_skedar override for wall/ceiling geometry coverage" },
+    { "at_ms": 12000, "type": "action", "name": "ACTION_USE",        "action": "tap", "comment": "dismiss first-launch endscreen if the early player-position latch hit the known restart path" },
+    { "at_ms": 18000, "type": "action", "name": "ACTION_CANCEL_USE", "action": "tap", "comment": "fallback: cancel transient menu" },
+    { "at_ms": 22000, "type": "action", "name": "ACTION_USE",        "action": "tap", "comment": "advance any transient screen" },
+    { "at_ms": 40000, "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 4 -> 8 for denser Skedar contacts" },
+    { "at_ms": 65000, "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle again to keep fresh GPU-readback contacts moving through wall geometry" },
+    { "at_ms": 85000, "type": "exit", "comment": "scripted exit after GPU_FULL AI and surface-contact telemetry should have appeared" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=skedar_swarm_gpu_behavior_smoke",
+      "BOOT: --launch-scenario 'swarm_gpu' armed",
+      "BOOT: --launch-scenario consuming latch: testScenarioLaunch\\(3\\) .* map_override=base:mp_skedar",
+      "TESTSCEN\\.LAUNCH: Swarm-GPU map='base:mp_skedar'",
+      "TESTSCEN\\.SWARM: session armed -- method=GPU_FULL",
+      "BENCHMARK\\.SWARM\\.GPU\\.AI: .* jump_req=\\d+ surface_req=\\d+",
+      "SWARM\\.BEHAVIOR\\.JUMP: chrnum=\\d+ slot=\\d+ source=GPU",
+      "SWARM\\.BEHAVIOR\\.SURFACE: chrnum=\\d+ slot=\\d+ source=GPU",
+      "SURFACE_LOCO\\.WALL_BLEND: chrnum=\\d+ wall_normal=",
+      "SURFACE_LOCO\\.PIN: chrnum=\\d+ slot=\\d+",
+      "SURFACE_LOCO\\.TRACE: chrnum=\\d+ slot=\\d+",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable"
+    ],
+    "required_counts": [
+      { "pattern": "BENCHMARK\\.SWARM\\.GPU\\.AI:", "min": 1 },
+      { "pattern": "SWARM\\.BEHAVIOR\\.JUMP:", "min": 1 },
+      { "pattern": "SWARM\\.BEHAVIOR\\.SURFACE:", "min": 1 },
+      { "pattern": "SURFACE_LOCO\\.TRACE:", "min": 1 }
+    ]
+  }
+}

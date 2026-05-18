@@ -10,6 +10,8 @@
 
 The queue has three lanes after the context rebuild lands. Lane order is sequential; do not start the next until the previous is at a stable stopping point.
 
+**Tooling note (2026-05-18)**: Kanban pending-completion Review panel title-focus polish shipped. Rows now lead with the high-level card title; verbose completion summary / verification / evidence / artifact details are collapsed under `Review details`. No open follow-up.
+
 ### 1. Catalog - Weapons F11-F13 data move - LANE CLOSED 2026-04-30
 
 **Status**: F1-F10 (S484), F11+F12+F13 (S591) all shipped 2026-04-30. **Lane closed.** Mike's playtest verified F12's `LOADER.PDBASE.WEAPON.OK: parity check PASS (86 weapons)`; F13 retired Layer A on the back of that confirmation.
@@ -305,6 +307,7 @@ Per Mike's Spec v0.5. Automation layer that consumes the data layer (parked.json
 
 Follow-ups surfaced by the day's ship batch on `dev`. Tracked in detail in [session-log.md](session-log.md) (top-of-file entry) and bugs.md.
 
+- **Skedar swarm behavior parity (2026-05-18)** -- VERIFIED in session `skswarm`. GPU swarm now defaults to GPU_FULL, GPU readback emits jump/surface requests, CPU/GPU paths share a benchmark-local movement-intent helper, and CPU/GPU behavior smokes on `base:mp_skedar` prove jump, surface transition, wall contact pin, and trace telemetry.
 - **A4 (B-308) GPU bot AI parity** -- first slice + finish shipped earlier in the c3807 lane (commits `0edf90cb` + `6d67888d`), so the three-mode `swarm_method_t` enum + hybrid GPU-decides / CPU-executes architecture skeleton is live. Today's Tracks 2a / 2c / 2d expand the state-as-texture side-channel into a live ENet-replicated data plane (NET_PROTOCOL_VER 48). Next slices are 2e (client-side prediction via wire'd velocity extrapolation) and 2f (range-relative pos quantization for tighter wire load) per Track 2d's sprint report.
 
 - **A5 (B-308 v1 limits) Track 2g GPU swarm dedicated-server Mode A**. `pd-server` has no GL context today; Mode A requires either CPU swarm compute on the dedicated path (broadcasting the same SVC_GPUSWARM_STATE 0x6c opcode) or a headless-GL path. Tracked as v1-limitation (a) under B-333.

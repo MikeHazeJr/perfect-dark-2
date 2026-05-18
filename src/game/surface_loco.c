@@ -5,7 +5,11 @@
 #include "types.h"
 #include "system.h"
 #include "game/surface_loco.h"
+#include "game/chr.h"
+#include "game/chraction.h"
+#include "game/prop.h"
 #include "lib/collision.h"
+#include "lib/model.h"
 #include "lib/mtx.h"
 
 /* Surface-normal locomotion (S594h-B Slice 1+2).
@@ -110,33 +114,8 @@ void chrSurfaceLocoTick(struct chrdata *chr)
 	 *
 	 * On miss: fall through to the canonical floor sampler.
 	 */
-	f32 wall_up[3];
-	if (chrSurfaceLocoSampleWallAhead(chr, NULL, wall_up)) {
-		const f32 dot = chr->surface_up[0] * wall_up[0]
-				+ chr->surface_up[1] * wall_up[1]
-				+ chr->surface_up[2] * wall_up[2];
-
-		if (dot < SURFACE_LOCO_BLEND_KICK_COS) {
-			/* Wall is genuinely different from current up: kick the
-			 * 8-frame blend. Mirror the canonical edge-blend block
-			 * below (save prev, set target, set countdown). */
-			chr->surface_loco_flags &= ~SURFACE_LOCO_FLAG_AIRBORNE;
-			chr->surface_up_prev[0] = chr->surface_up[0];
-			chr->surface_up_prev[1] = chr->surface_up[1];
-			chr->surface_up_prev[2] = chr->surface_up[2];
-			chr->surface_up[0] = wall_up[0];
-			chr->surface_up[1] = wall_up[1];
-			chr->surface_up[2] = wall_up[2];
-			chr->surface_blend_frames = SURFACE_LOCO_BLEND_FRAMES;
-			chr->surface_loco_flags |= SURFACE_LOCO_FLAG_BLENDING;
-			sysLogPrintf(LOG_NOTE,
-				"SURFACE_LOCO.WALL_BLEND: chrnum=%d wall_normal=(%.3f,%.3f,%.3f)",
-				(s32)chr->chrnum, wall_up[0], wall_up[1], wall_up[2]);
-			return;
-		}
-		/* Wall normal effectively matches current up (we're already
-		 * aligned with this wall, or the geometry was a near-floor):
-		 * fall through to the canonical floor sample. */
+	if (chrSurfaceLocoRequestWallAhead(chr, NULL)) {
+		return;
 	}
 
 	f32 sampled[3];
@@ -665,5 +644,73 @@ bool chrSurfaceLocoSampleWallAhead(struct chrdata *chr, const f32 *vel_hint, f32
 	out_up[0] = nx;
 	out_up[1] = ny;
 	out_up[2] = nz;
+	return true;
+}
+
+bool chrSurfaceLocoRequestWallAhead(struct chrdata *chr, const f32 *vel_hint)
+{
+	f32 wall_up[3];
+
+	if (!chrSurfaceLocoSampleWallAhead(chr, vel_hint, wall_up)) {
+		return false;
+	}
+
+	const f32 dot = chr->surface_up[0] * wall_up[0]
+			+ chr->surface_up[1] * wall_up[1]
+			+ chr->surface_up[2] * wall_up[2];
+
+	if (dot >= SURFACE_LOCO_BLEND_KICK_COS) {
+		return false;
+	}
+
+	chr->surface_loco_flags &= ~SURFACE_LOCO_FLAG_AIRBORNE;
+	chr->surface_up_prev[0] = chr->surface_up[0];
+	chr->surface_up_prev[1] = chr->surface_up[1];
+	chr->surface_up_prev[2] = chr->surface_up[2];
+	chr->surface_up[0] = wall_up[0];
+	chr->surface_up[1] = wall_up[1];
+	chr->surface_up[2] = wall_up[2];
+	chr->surface_blend_frames = SURFACE_LOCO_BLEND_FRAMES;
+	chr->surface_loco_flags |= SURFACE_LOCO_FLAG_BLENDING;
+	sysLogPrintf(LOG_NOTE,
+		"SURFACE_LOCO.WALL_BLEND: chrnum=%d wall_normal=(%.3f,%.3f,%.3f)",
+		(s32)chr->chrnum, wall_up[0], wall_up[1], wall_up[2]);
+	return true;
+}
+
+bool chrSurfaceLocoApplyContactPos(struct chrdata *chr, struct coord *pos,
+	RoomNum *rooms, f32 theta)
+{
+	if (!chr || !chr->prop || !chr->model || !pos || !rooms) {
+		return false;
+	}
+
+	const f32 angle = BADDEG2RAD(360.0f - theta);
+	const f32 surface_ground = pos->y;
+
+	propSetPerimEnabled(chr->prop, false);
+	chr->prop->pos = *pos;
+
+	chr->ground = surface_ground;
+	chr->manground = surface_ground;
+	chr->sumground = surface_ground * (PAL ? 8.4175090789795f : 9.999998f);
+	chr->floorroom = rooms[0];
+	chr->fallspeed.y = 0.0f;
+
+	propDeregisterRooms(chr->prop);
+	roomsCopy(rooms, chr->prop->rooms);
+	chr0f0220ac(chr);
+	modelSetRootPosition(chr->model, pos);
+
+	if (chr->model->definition && chr->model->definition->rootnode
+			&& ((chr->model->definition->rootnode->type & 0xff) == MODELNODETYPE_CHRINFO)) {
+		union modelrwdata *rwdata =
+			modelGetNodeRwData(chr->model, chr->model->definition->rootnode);
+		rwdata->chrinfo.ground = surface_ground;
+	}
+
+	chr->chrflags |= CHRCFLAG_FORCETOGROUND;
+	chrSetLookAngle(chr, angle);
+	propSetPerimEnabled(chr->prop, true);
 	return true;
 }

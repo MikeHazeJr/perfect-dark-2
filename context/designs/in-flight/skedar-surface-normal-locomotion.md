@@ -7,6 +7,14 @@
 > (visual tilt + MP sync) before the gravity-flip and aim-projection
 > heavy lifts. GPU parity (Slice 6) remains deferred to the
 > gpu-swarm-bot-pipeline scope.
+> Update 2026-05-18: benchmark-local Skedar swarm parity slice landed
+> the shared wall-ahead request helper, GPU velocity-hint sampling,
+> surface-contact position apply that bypasses the world-ground
+> `chrSetPos` path, and CPU/GPU smoke telemetry (`SWARM.BEHAVIOR.*`,
+> `SURFACE_LOCO.WALL_BLEND`, `SURFACE_LOCO.PIN`, `SURFACE_LOCO.TRACE`).
+> Focused CPU/GPU `base:mp_skedar` behavior smokes now verify that telemetry.
+> This fixes the benchmark wall-walk/jump path without broadening into
+> full general Combat Sim AI locomotion.
 >
 > Mike's 5 Q&A refinements applied (see session-log entry for verbatim).
 

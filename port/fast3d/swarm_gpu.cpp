@@ -15,10 +15,11 @@
  *  - Compute shader is compiled lazily on first dispatch and cached for
  *    the program lifetime.
  *  - A single SSBO holds the boid state. After B-308 first slice
- *    (c3807, 2026-05-15) the per-boid record is 80 bytes -- pos + vel +
- *    surface_up (the legacy 48-byte block) plus 32 bytes of GPU-AI
+ *    (c3807, 2026-05-15) the per-boid record is 96 bytes -- pos + vel +
+ *    surface_up (the legacy 48-byte block) plus 48 bytes of GPU-AI
  *    fields (action class, anim key, fire request, target propnum,
- *    range to target). The legacy block is filled and consumed in both
+ *    range to target, jump request, and surface request). The legacy
+ *    block is filled and consumed in both
  *    SWARM_METHOD_GPU_POS_ONLY and SWARM_METHOD_GPU_FULL; the AI block
  *    is only populated by the shader when do_ai != 0 and consumed by
  *    the CPU readback path only in GPU_FULL mode. Capacity =
@@ -161,6 +162,13 @@ extern s32 swarmTestApplyAiDecision(struct chrdata *chr,
                                     s32 fire_request,
                                     s32 anim_key,
                                     f32 range_to_target);
+extern s32 swarmTestApplyMovementIntent(struct chrdata *chr,
+                                        s32 slot_index,
+                                        s32 target_propnum,
+                                        s32 jump_request,
+                                        s32 surface_request,
+                                        f32 range_to_target,
+                                        const f32 *vel_hint);
 extern s32 swarmTestGetAndResetGpuAiFireCount(void);
 
 /* ------------------------------------------------------------------
@@ -265,11 +273,11 @@ static swarm_glBindImageTexture_t   s_glBindImageTexture   = NULL;
  * upstream pool removed, the SSBO can grow to the full ladder ceiling.
  *
  * Capacity math (c029, 2026-05-15):
- *  - SSBO    = 4096 * sizeof(boid_record=48) = 196,608 B (~192 KB) once
+ *  - SSBO    = 4096 * sizeof(boid_record=96) = 393,216 B (~384 KB) once
  *    at first dispatch via glBufferData. OpenGL 4.3 spec requires
  *    GL_MAX_SHADER_STORAGE_BLOCK_SIZE >= 128 MB; nVidia/AMD typically
  *    advertise GB-class limits. Trivial.
- *  - s_BoidScratch BSS = 4096 * 48 = ~192 KB. Static, no allocation.
+ *  - s_BoidScratch BSS = 4096 * 96 = ~384 KB. Static, no allocation.
  *  - Per-frame upload = sizeof(boid_record) * count (NOT * SWARM_GPU_MAX);
  *    scales with active bots, not the cap.
  *  - Dispatch groups = ceil(count / 64). At 4096 that's 64 groups, far
@@ -322,12 +330,18 @@ struct boid_record {
 	 *   only logs it.
 	 * - range_to_target: 3D distance in game units. Used both by the
 	 *   shader (action_class threshold) and for the CPU log line.
+	 * - jump_request / surface_request: compact movement-intent bits
+	 *   consumed by the shared benchmark movement helper after readback.
 	 */
 	int   action_class;
 	int   fire_request;
 	int   target_propnum;
 	int   anim_key;
 	float range_to_target, _pad_r0, _pad_r1, _pad_r2;
+	int   jump_request;
+	int   surface_request;
+	int   jump_kind;
+	int   _pad_m0;
 };
 
 struct swarm_params {
@@ -389,6 +403,10 @@ static struct swarm_params s_Params;
  *   row 3: action_class, fire_request, target_propnum, anim_key
  *          (packed via intBitsToFloat in the shader)
  *   row 4: range_to_target, _pad, _pad, _pad
+ *
+ * Movement-intent fields are SSBO/readback-only for now; the texture
+ * protocol remains 5 rows so existing extraction and sync readers keep
+ * their shape.
  * Memory budget: 2 * 4096 * 5 * 16 B = 640 KB. Trivial.
  *
  * Compute writes BOTH the SSBO (existing CPU readback path) AND the
@@ -439,7 +457,7 @@ static int           s_StateTexArmed   = 0;
  * Problem: pre-Slice-2 we called glGetBufferSubData(BoidSsbo) immediately
  * after the compute dispatch every frame. That call is a SYNCHRONOUS
  * pipeline drain -- it blocks the CPU until ALL queued GL commands
- * complete, then copies the data. At 4096 bots * 80 bytes = 320 KB the
+ * complete, then copies the data. At 4096 bots * 96 bytes = 384 KB the
  * memcpy itself is trivial (~50us); the kill was the GPU sync at the
  * tail of a render pipeline that already includes the deferred game
  * frame, ImGui, swap, and the next frame's setup. The fence drain cost
@@ -477,7 +495,7 @@ static int           s_StateTexArmed   = 0;
  *   - 3 deep would add 1 more frame of position lag with no perf gain
  *     in typical cases. 3 is what triple-buffered swapchains use to
  *     hide V-sync wait; we don't have a V-sync issue here.
- *   - Memory cost: 2 * 320 KB = 640 KB. Trivial.
+ *   - Memory cost: 2 * 384 KB = 768 KB. Trivial.
  *
  * Fence handle: GLsync. We use void* (see typedef above) to avoid GL
  * header coupling. NULL = "no fence inserted yet" / "previous fence
@@ -502,7 +520,7 @@ static s32     s_ReadbackWriteIdx = 0;
  * any slot where snap_chrnum != chrs[i]->chrnum skips the apply.
  *
  * Two slots in parallel with the GL ring so we can keep the GPU-side
- * boid record at exactly 80 bytes (the std430 mirror). Stored as
+ * boid record at exactly 96 bytes (the std430 mirror). Stored as
  * int16 since chrnum is s16; -1 sentinel means "no chr was dispatched
  * for this slot at write time" (i.e. consumer must skip even if chrs[i]
  * is non-NULL at read time, because we'd be applying garbage). */
@@ -579,7 +597,7 @@ layout(local_size_x = 64) in;
 /* Boid record -- MUST stay in sync with C++ struct boid_record in
  * port/fast3d/swarm_gpu.cpp. std430 packs ints and floats as 4 B each
  * and vec4-aligns at every 16 B boundary, so the layout below maps
- * 1:1 to the C struct.  80 B per boid. */
+ * 1:1 to the C struct.  96 B per boid. */
 struct Boid {
     float px, py, pz, _pp;            /* offset  0: pos */
     float vx, vy, vz, _pv;            /* offset 16: vel */
@@ -590,6 +608,10 @@ struct Boid {
     int   anim_key;
     float range_to_target;            /* offset 64 */
     float _pad_r0, _pad_r1, _pad_r2;
+    int   jump_request;               /* offset 80: movement intent */
+    int   surface_request;
+    int   jump_kind;
+    int   _pad_m0;
 };
 
 layout(std430, binding = 0) buffer Boids {
@@ -626,6 +648,8 @@ layout(std430, binding = 1) buffer Params {
  *       (packed via intBitsToFloat so the integer bit pattern survives
  *        the RGBA32F round trip; readers decode via floatBitsToInt.)
  *   y=4 range_to_target / _pad / _pad / _pad
+ * Movement-intent fields remain SSBO/readback-only to keep the texture
+ * protocol at 5 rows.
  *
  * writeonly so the driver can skip read-tracking; image binding 2 is
  * free (0 and 1 are the boid + params SSBOs already bound above).
@@ -800,6 +824,8 @@ void main() {
      *   range < fire_range            -> action_class = ATTACK (2),
      *                                    fire_request = 1,
      *                                    anim_key     = ATTACK (2).
+     *                                    jump_request = range-gated Skedar leap intent,
+     *                                    surface_request = wall-ahead transition intent.
      *   fire_range <= range < attack  -> action_class = SEEK   (1),
      *                                    fire_request = 0,
      *                                    anim_key     = WALK   (1).
@@ -814,16 +840,24 @@ void main() {
         int   act = 1;            /* seek by default */
         int   fire = 0;
         int   anim = 1;           /* walk */
+        int   jump = 0;
+        int   surface = 1;
         if (range_full < P.fire_range) {
             act  = 2;             /* attack */
             fire = 1;
             anim = 2;             /* attack-melee */
+        }
+        if (range_full >= 200.0 && range_full <= 550.0) {
+            jump = 1;
         }
         b[i].action_class    = act;
         b[i].fire_request    = fire;
         b[i].target_propnum  = P.player_propnum;
         b[i].anim_key        = anim;
         b[i].range_to_target = range_full;
+        b[i].jump_request    = jump;
+        b[i].surface_request = surface;
+        b[i].jump_kind       = 1;
     }
 
     /* ---- Track 2a (c3807, 2026-05-16) state-texture mirror ----
@@ -1782,6 +1816,7 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	double sum_v = 0.0;
 	s32 v_samples = 0;
 	s32 n_idle = 0, n_seek = 0, n_attack = 0, n_fire = 0;
+	s32 n_jump_req = 0, n_surface_req = 0;
 	f32 sum_range = 0.0f;
 	f32 min_range = 1.0e30f, max_range = 0.0f;
 	s32 ai_sample_count = 0;
@@ -1804,6 +1839,7 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 		newpos.z = s_BoidScratch[i].pz;
 
 		const float vx = s_BoidScratch[i].vx;
+		const float vy = s_BoidScratch[i].vy;
 		const float vz = s_BoidScratch[i].vz;
 		f32 face_deg = 0.0f;
 		if (vx * vx + vz * vz > 0.001f) {
@@ -1869,20 +1905,22 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 		 * We assert that via the conditional below for safety, falling
 		 * back to legacy chrSetPos if a future refactor breaks the
 		 * invariant. */
-		if (ce->valid) {
-			chrSetPosWithCachedGround(chr, &newpos, rooms, face_deg,
-				ce->ground, ce->floorcol, ce->floortype, ce->floorroom);
-		} else {
-			/* Defensive fallback. Should not happen in steady state:
-			 * the pre-pass always populates ce on a MISS, and HIT
-			 * implies ce was already valid. Counted by s_PerfCacheMiss
-			 * external to this site so it shows up in playtest logs. */
-			chrSetPos(chr, &newpos, rooms, face_deg, true);
+		if (chr->actiontype != ACT_SKJUMP) {
+			if (ce->valid) {
+				chrSetPosWithCachedGround(chr, &newpos, rooms, face_deg,
+					ce->ground, ce->floorcol, ce->floortype, ce->floorroom);
+			} else {
+				/* Defensive fallback. Should not happen in steady state:
+				 * the pre-pass always populates ce on a MISS, and HIT
+				 * implies ce was already valid. Counted by s_PerfCacheMiss
+				 * external to this site so it shows up in playtest logs. */
+				chrSetPos(chr, &newpos, rooms, face_deg, true);
+			}
 		}
 
 		/* Velocity stats accumulator -- emitted at the 60-frame interval
 		 * below. Was its own walk pre-c029-Slice-3. */
-		const f32 v2 = vx * vx + vz * vz;
+		const f32 v2 = vx * vx + vy * vy + vz * vz;
 		if (v2 > max_v2) max_v2 = v2;
 		sum_v += sqrt((double)v2);
 		v_samples++;
@@ -1911,6 +1949,8 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 			const s32 anim = s_BoidScratch[i].anim_key;
 			const s32 tgt  = s_BoidScratch[i].target_propnum;
 			const f32 r    = s_BoidScratch[i].range_to_target;
+			const s32 jump = s_BoidScratch[i].jump_request;
+			const s32 surface = s_BoidScratch[i].surface_request;
 
 			/* Local frame phase: increments once per readback pass.
 			 * g_Vars isn't visible in this TU so we use a static
@@ -1919,6 +1959,9 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 			static u32 s_AiApplyPhase = 0;
 			if (i == 0) s_AiApplyPhase++;
 			if (((u32)i & 3u) == (s_AiApplyPhase & 3u)) {
+				const f32 vel_hint[3] = { vx, vy, vz };
+				(void)swarmTestApplyMovementIntent(chr, i, tgt, jump,
+					surface, r, vel_hint);
 				(void)swarmTestApplyAiDecision(chr, i, tgt, act, fire, anim, r);
 			}
 
@@ -1926,6 +1969,8 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 			else if (act == 1) n_seek++;
 			else               n_idle++;
 			if (fire) n_fire++;
+			if (jump) n_jump_req++;
+			if (surface) n_surface_req++;
 			sum_range += r;
 			if (r < min_range) min_range = r;
 			if (r > max_range) max_range = r;
@@ -2004,10 +2049,11 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 				? (sum_range / (f32)ai_sample_count) : 0.0f;
 			sysLogPrintf(LOG_NOTE,
 				"BENCHMARK.SWARM.GPU.AI: count=%d idle=%d seek=%d attack=%d "
-				"fire_req=%d fire_applied_lastframe=%d range_min=%.0f avg=%.0f "
+				"fire_req=%d jump_req=%d surface_req=%d "
+				"fire_applied_lastframe=%d range_min=%.0f avg=%.0f "
 				"max=%.0f fire_range=%.0f target_propnum=%d",
 				count, n_idle, n_seek, n_attack, n_fire,
-				fires_applied,
+				n_jump_req, n_surface_req, fires_applied,
 				(double)((min_range > 1.0e29f) ? 0.0f : min_range),
 				(double)avg_range,
 				(double)max_range,

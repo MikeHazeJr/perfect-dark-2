@@ -42,20 +42,18 @@ typedef enum {
  *   - SWARM_METHOD_CPU         -- real bot AI on CPU via GAILIST_AIBOT_INIT.
  *   - SWARM_METHOD_GPU_POS_ONLY -- GPU compute drives positions only; chrs
  *     are passive props with no aibot. This is the historical "Swarm-GPU"
- *     behaviour (S593d) -- unchanged.
+ *     behaviour (S593d), now kept as an explicit diagnostic submode.
  *   - SWARM_METHOD_GPU_FULL    -- GPU compute also makes AI decisions
- *     (per-bot action class, anim key, fire request, target index). CPU
- *     reads the decisions back and applies side effects. First-slice scope
- *     (c3807): GPU writes a trivial "in-range fire request"; CPU logs the
- *     decisions to verify the round trip. Projectile / animation side
- *     effects are deferred to the next slice (see gpu-swarm-bot-pipeline.md
- *     Tier 3).
+ *     (per-bot action class, anim key, fire request, target index, and
+ *     benchmark jump/surface requests). CPU reads the decisions back and
+ *     applies benchmark-local side effects so this path matches the CPU
+ *     swarm behavior contract.
  *
  * SWARM_METHOD_GPU is kept as a backward-compat alias for GPU_POS_ONLY so
  * existing call sites (HUD label, log lines) compile unchanged. The launch
- * dispatch in testscenarios.c maps TESTSCEN_SWARM_GPU to GPU_POS_ONLY; the
- * runtime cycler key (ACTION_TESTSCEN_GPU_FULL_TOGGLE) flips between
- * GPU_POS_ONLY and GPU_FULL without a full scenario relaunch. */
+ * dispatch in testscenarios.c maps TESTSCEN_SWARM_GPU to GPU_FULL by
+ * default; ACTION_TESTSCEN_GPU_FULL_TOGGLE flips to GPU_POS_ONLY when an
+ * explicit position-only diagnostic run is needed. */
 typedef enum {
     SWARM_METHOD_CPU          = 0,
     SWARM_METHOD_GPU_POS_ONLY = 1,

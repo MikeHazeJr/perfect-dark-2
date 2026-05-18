@@ -1,12 +1,21 @@
 # GPU Swarm: bot behaviour on GPU compute (follow-up to S593)
 
-> Status: SCOPED, not started. Filed 2026-05-01 as a follow-up after the
-> S593 pass that brought CPU-mode swarm bots up to real-bot behaviour.
+> Status: PARTIAL, benchmark-local parity slice verified 2026-05-18.
+> Filed 2026-05-01 as a follow-up after the S593 pass that brought
+> CPU-mode swarm bots up to real-bot behaviour.
 > Update 2026-05-01 (S593d): the bug-fix pass landed CPU bots with
 > hostile team / AIBOTCMD_ATTACK / 1.5x speed / half scale / half
 > health, plus a Debug Menu UX redesign with arena selector. GPU
 > mode kept the position-only behaviour and remains the work-item
 > this doc scopes.
+> Update 2026-05-18: Skedar GPU benchmark now defaults to GPU_FULL,
+> with GPU_POS_ONLY retained as an explicit diagnostic toggle. The
+> shader emits compact jump/surface movement-intent bits; readback
+> applies them through the same benchmark-local Skedar movement helper
+> as CPU swarm. Focused static coverage plus CPU/GPU `base:mp_skedar`
+> behavior smokes now verify the benchmark contract. This is not a full
+> general bot-AI rewrite yet: CPU still executes side effects and the wider
+> LOS/target-selection/weapon-table GPU state machine below remains future work.
 
 ## Premise (from Mike, 2026-05-01)
 
@@ -15,12 +24,15 @@
 > bot count or CPU load should we switch modes, or whether we should
 > actually set bots to ALWAYS operate on the GPU."
 
-The "Swarm - GPU Boids" test scenario today only drives **positions** on
-the GPU. Bot behaviour (target selection, attack decisions, dodge,
-animation choice, weapon firing) all stays on the CPU and is BYPASSED in
-GPU mode. The result: GPU-mode chrs are visually "moving props", not
-real bots. The CPU vs GPU benchmark crossover is therefore meaningless
-because the workloads are not equivalent.
+Historical S593d gap: the "Swarm - GPU Boids" test scenario only drove
+**positions** on the GPU. Bot behaviour (target selection, attack
+decisions, dodge, animation choice, weapon firing) stayed on the CPU and
+was bypassed in GPU mode. The result: GPU-mode chrs were visually
+"moving props", not real bots. The 2026-05-18 benchmark-local slice
+closes the most visible Skedar parity gap (default GPU_FULL, animation /
+fire side effects, jump request, surface request, wall-contact
+correction), but the broader GPU-native bot AI state machine remains the
+work scoped here.
 
 This doc scopes the work to make GPU mode run real bot behaviour on the
 GPU side, so the benchmark crossover is meaningful and the long-term

@@ -1,6 +1,8 @@
 # Bot Jumping in Combat Sim (toggleable, OFF by default)
 
-> Status: DESIGN -- pending Mike's approval.
+> Status: SHIPPED 2026-05-17 as D2c v1. 2026-05-18 Skedar swarm
+> benchmark work uses a separate benchmark-local helper and leaves the
+> normal Combat Sim bot-jumping toggle unchanged.
 > Date: 2026-05-17.
 > Pillars: physics-collision (D2c), input, networking (MPOPTION bit).
 > Trigger: Mike directive 2026-05-17 -- "Finish implementing bot jumping in normal Combat Sim play, and it should be a toggleable option in the Combat Sim that is off by default."

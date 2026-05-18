@@ -1,6 +1,6 @@
 {
   "scenario_name": "skedar_wallrun_smoke",
-  "description": "Mike directive 2026-05-17: prove Skedar AI wallrun fires in the CPU benchmark. Uses --launch-scenario swarm_cpu to fast-path past Agent Select / main menu; the Skedar swarm bots are race=RACE_SKEDAR (bodyGetRace) and after the wallrun trigger added to swarm_test::swarmTestTick we expect SKJUMP.SWARM telemetry within the first 120 seconds.",
+  "description": "Mike directive 2026-05-17: prove Skedar AI wallrun fires in the CPU benchmark on base:mp_skedar. Uses --launch-scenario swarm_cpu plus --debug-swarm-map base:mp_skedar to fast-path past Agent Select / main menu; the Skedar swarm bots are race=RACE_SKEDAR (bodyGetRace), and we expect SKJUMP.SWARM telemetry within the first 120 seconds.",
   "tags": ["debug", "swarm", "cpu", "skedar", "wallrun", "ai"],
   "paths_of_interest": [
     "port/src/swarm_test.c",
@@ -15,6 +15,8 @@
     "--no-update-check",
     "--no-sound",
     "--no-net",
+    "--debug-swarm-map",
+    "base:mp_skedar",
     "--launch-scenario",
     "swarm_cpu"
   ],

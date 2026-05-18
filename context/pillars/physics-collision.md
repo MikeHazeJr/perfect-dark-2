@@ -90,6 +90,7 @@ Per [constraints.md](../constraints.md):
 ## What is in flight
 
 - **D2c Bot Jump AI -- v1 SHIPPED 2026-05-17 (c038).** CPU-bot jumping in normal Combat Sim play with the existing `aibot` infrastructure. Toggle `MPOPTION_BOTJUMP` (default OFF) in CS Room setup. Decision = (target on higher platform) with difficulty-tiered reach threshold; execution writes `chr->fallspeed.y = 8.2f`. HARD+ bots get a +1.5 crouch-jump boost in the just-barely 30-60u zone. Wall-clock-budgeted scheduler (200 evals/sec across active bots, frame-rate independent). Telemetry: `BOT.JUMP: chrnum=N reason=X target_y=Y dy=N diff=N boost=N`. v1 trigger is reach-only; obstacle-jump (move-blocked-but-clear-above) deferred to a follow-up slice because the `aibot` struct doesn't currently expose a clean stuck-detection signal. Two-stage capsule sweep (the wall-jump-glitch lane this card originally tracked) still backlog.
+- **Skedar swarm jump/surface parity -- VERIFIED 2026-05-18.** Benchmark-local helper now drives Skedar leap requests and wall/ceiling surface-transition requests for both CPU and GPU swarm paths. Verified with the focused static guard plus CPU/GPU `base:mp_skedar` behavior smokes. Normal Combat Sim bot jumping remains the D2c toggle above; this slice does not widen the general bot AI.
 - **Slope-AABB adaptation.** Per the audit, slope handling on the AABB collision side was deferred. Players slide on steep inclines instead of being blocked.
 - **Ceiling-jump-through.** Specific edge case where the upward sweep should pass through certain "passable" ceilings but currently does not. Deferred per Mike's directive.
 - **Crouch-jump (player) SHIPPED 2026-05-17 (c036).** ACTION_JUMP press latches `g_BondCrouchJumpActive[pi]`; a fresh ACTION_CROUCH press while `bdeltapos.y > 0` (mid-jump) adds +1.5 to vertical velocity and consumes the latch. Clears surfaces slightly above the regular jump apex. Lives in [src/game/bondmove.c](../../src/game/bondmove.c) and pairs with the 3-state crouch model (STAND/DUCK/SQUAT) via the existing `crouchpos` field.
@@ -100,7 +101,7 @@ Per [constraints.md](../constraints.md):
 
 - **Slope handling on AABBs is incomplete** (deferred work, per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructure-pillars-status-2026-04-27.md)).
 - **Ceiling-jump-through edge case** unhandled (same source).
-- **No bot jump AI** (D2c blocked on D2b polish).
+- **Obstacle-driven bot jump AI** remains deferred; D2c v1 only jumps for target-height reach.
 - **`bondwalk.c` is 2380 lines** and mixes vertical pipeline with horizontal pipeline with state machine bookkeeping. Inherited monolith; not new bloat. Splitting would clarify the capsule sweep call sites but is not scoped.
 
 ---

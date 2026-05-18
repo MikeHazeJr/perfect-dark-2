@@ -141,6 +141,22 @@ s32 swarmTestApplyAiDecision(struct chrdata *chr,
                              s32 anim_key,
                              f32 range_to_target);
 
+/* Shared CPU/GPU benchmark movement-intent dispatcher.
+ *
+ * CPU swarm calls this with vel_hint=NULL after asserting bot target
+ * state. GPU_FULL calls it with shader velocity and compact jump /
+ * surface request bits from the readback record. The helper owns
+ * Skedar jump requests, wall-ahead surface blending, surface contact
+ * correction, and the behavior telemetry used by smokes.
+ */
+s32 swarmTestApplyMovementIntent(struct chrdata *chr,
+                                 s32 slot_index,
+                                 s32 target_propnum,
+                                 s32 jump_request,
+                                 s32 surface_request,
+                                 f32 range_to_target,
+                                 const f32 *vel_hint);
+
 /* Read-and-reset the per-frame counter of "fire requests that became
  * CPU side effects". Used by swarm_gpu.cpp's summary log. */
 s32 swarmTestGetAndResetGpuAiFireCount(void);

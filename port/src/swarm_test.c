@@ -43,6 +43,7 @@
 #include "game/chraction.h"
 #include "game/body.h"
 #include "game/prop.h"
+#include "game/surface_loco.h"
 #include "game/inv.h"
 #include "game/cheats.h"
 #include "game/bondgun.h"  /* bgunEquipWeapon for power-weapon loadout */
@@ -1632,12 +1633,206 @@ static void cycler_tick(void)
  * check uses (g_Vars.lvframe60 - last_fire) so wraparound at u32::MAX
  * is handled by 2's-complement subtraction. */
 static s32 s_SwarmLastFire60[TESTSCEN_SWARM_MAX_COUNT];
+static s32 s_SwarmLastSkJump60[TESTSCEN_SWARM_MAX_COUNT];
+static s32 s_SwarmLastWallPin60[TESTSCEN_SWARM_MAX_COUNT];
+static struct coord s_SwarmLastTracePos[TESTSCEN_SWARM_MAX_COUNT];
+static s32 s_SwarmLastTraceFrame[TESTSCEN_SWARM_MAX_COUNT];
 
 /* Tracking counter so we can report from the GPU consumer's summary log
  * how many fire requests actually became CPU side-effects this frame.
  * Reset by swarmTestGetAndResetGpuAiFireCount() at the end of each
  * readback cycle. */
 static s32 s_SwarmGpuAiFiresApplied;
+
+#define SWARM_SKJUMP_MIN_RANGE        200.0f
+#define SWARM_SKJUMP_MAX_RANGE        550.0f
+#define SWARM_SKJUMP_COOLDOWN_60       60
+#define SWARM_SURFACE_WALL_HORIZ_MIN    0.3f
+
+static f32 swarm_absf(f32 v)
+{
+	return (v < 0.0f) ? -v : v;
+}
+
+static f32 swarm_surface_horiz_up(struct chrdata *chr)
+{
+	return swarm_absf(chr->surface_up[0]) + swarm_absf(chr->surface_up[2]);
+}
+
+static s32 swarm_apply_surface_contact(struct chrdata *chr, s32 slot_index)
+{
+	const f32 sux = chr->surface_up[0];
+	const f32 suy = chr->surface_up[1];
+	const f32 suz = chr->surface_up[2];
+	const f32 horiz = swarm_surface_horiz_up(chr);
+
+	if (horiz < SWARM_SURFACE_WALL_HORIZ_MIN) {
+		return 0;
+	}
+
+	struct coord from = chr->prop->pos;
+	/* Match the wall-ahead transition reach closely enough that a
+	 * successful surface request can immediately correct contact. The
+	 * previous short probe often saw GPU bots start a wall blend from
+	 * the look-ahead sample but miss the contact ray, leaving the next
+	 * GPU position readback to drift along the wall without a pin. */
+	f32 probe_len = chr->radius * 3.5f + chr->height * 0.35f + 20.0f;
+	if (probe_len < 120.0f) {
+		probe_len = 120.0f;
+	}
+	struct coord to;
+	to.x = from.x - sux * probe_len;
+	to.y = from.y - suy * probe_len;
+	to.z = from.z - suz * probe_len;
+
+	struct coord hit_normal = {0.0f, 0.0f, 0.0f};
+	const f32 frac = capsuleStage2RayCast(&from, &to, chr->prop->rooms, &hit_normal);
+	if (frac >= 1.0f) {
+		return 0;
+	}
+
+	const f32 offset = chr->radius * 1.05f;
+	struct coord newpos;
+	newpos.x = from.x + (to.x - from.x) * frac + sux * offset;
+	newpos.y = from.y + (to.y - from.y) * frac + suy * offset;
+	newpos.z = from.z + (to.z - from.z) * frac + suz * offset;
+
+	struct coord probe_to;
+	probe_to.x = newpos.x - sux * chr->radius;
+	probe_to.y = newpos.y - suy * chr->radius;
+	probe_to.z = newpos.z - suz * chr->radius;
+	struct coord intersect_normal = {0.0f, 0.0f, 0.0f};
+	const f32 intersect_frac = capsuleStage2RayCast(&newpos, &probe_to,
+		chr->prop->rooms, &intersect_normal);
+	if (intersect_frac < 0.15f) {
+		sysLogPrintf(LOG_WARNING,
+			"SURFACE_LOCO.PIN_INTERSECT: chrnum=%d slot=%d "
+			"intersect_frac=%.2f newpos=(%.0f,%.0f,%.0f) "
+			"sup=(%.2f,%.2f,%.2f) -- skipped (would clip)",
+			(s32)chr->chrnum, slot_index, intersect_frac,
+			newpos.x, newpos.y, newpos.z, sux, suy, suz);
+		return 0;
+	}
+
+	RoomNum newrooms[2];
+	newrooms[0] = chr->prop->rooms[0];
+	newrooms[1] = -1;
+	const f32 theta = ((f32)chr->yvisang) * (360.0f / 256.0f);
+	if (!chrSurfaceLocoApplyContactPos(chr, &newpos, newrooms, theta)) {
+		return 0;
+	}
+
+	const s32 lvframe = g_Vars.lvframe60;
+	if ((lvframe - s_SwarmLastWallPin60[slot_index]) >= 60
+			|| s_SwarmLastWallPin60[slot_index] == 0) {
+		s_SwarmLastWallPin60[slot_index] = lvframe;
+		sysLogPrintf(LOG_NOTE,
+			"SURFACE_LOCO.PIN: chrnum=%d slot=%d horiz_up=%.2f "
+			"pos=(%.0f,%.0f,%.0f) sup=(%.2f,%.2f,%.2f) frame=%d",
+			(s32)chr->chrnum, slot_index, horiz,
+			newpos.x, newpos.y, newpos.z,
+			sux, suy, suz, lvframe);
+	}
+
+	return 1;
+}
+
+static void swarm_trace_surface_contact(struct chrdata *chr, s32 slot_index)
+{
+	const f32 sux = chr->surface_up[0];
+	const f32 suy = chr->surface_up[1];
+	const f32 suz = chr->surface_up[2];
+	const f32 horiz = swarm_surface_horiz_up(chr);
+	const s32 lvframe = g_Vars.lvframe60;
+
+	if (horiz < SWARM_SURFACE_WALL_HORIZ_MIN) {
+		return;
+	}
+	if (s_SwarmLastTraceFrame[slot_index] != 0
+			&& (lvframe - s_SwarmLastTraceFrame[slot_index]) < 30) {
+		return;
+	}
+
+	const struct coord cur = chr->prop->pos;
+	if (s_SwarmLastTraceFrame[slot_index] != 0) {
+		const f32 dx = cur.x - s_SwarmLastTracePos[slot_index].x;
+		const f32 dy = cur.y - s_SwarmLastTracePos[slot_index].y;
+		const f32 dz = cur.z - s_SwarmLastTracePos[slot_index].z;
+		const f32 d  = sqrtf(dx * dx + dy * dy + dz * dz);
+		const f32 normal_drift = dx * sux + dy * suy + dz * suz;
+		sysLogPrintf(LOG_NOTE,
+			"SURFACE_LOCO.TRACE: chrnum=%d slot=%d "
+			"pos=(%.0f,%.0f,%.0f) delta=(%.1f,%.1f,%.1f) "
+			"|d|=%.1f normal_drift=%.2f sup=(%.2f,%.2f,%.2f)",
+			(s32)chr->chrnum, slot_index,
+			cur.x, cur.y, cur.z, dx, dy, dz, d, normal_drift,
+			sux, suy, suz);
+	}
+	s_SwarmLastTracePos[slot_index] = cur;
+	s_SwarmLastTraceFrame[slot_index] = lvframe;
+}
+
+s32 swarmTestApplyMovementIntent(struct chrdata *chr,
+                                 s32 slot_index,
+                                 s32 target_propnum,
+                                 s32 jump_request,
+                                 s32 surface_request,
+                                 f32 range_to_target,
+                                 const f32 *vel_hint)
+{
+	if (!chr || !chr->prop || !chr->model || chr->chrnum < 0) {
+		return 0;
+	}
+	if (slot_index < 0 || slot_index >= TESTSCEN_SWARM_MAX_COUNT) {
+		return 0;
+	}
+
+	s32 events = 0;
+	if (target_propnum >= 0 && target_propnum < g_Vars.maxprops) {
+		chr->target = target_propnum;
+	}
+
+	if (surface_request && chr->race == RACE_SKEDAR) {
+		const s32 started_surface = chrSurfaceLocoRequestWallAhead(chr, vel_hint) ? 1 : 0;
+		const s32 pinned_surface = swarm_apply_surface_contact(chr, slot_index);
+
+		if (started_surface || pinned_surface) {
+			sysLogPrintf(LOG_NOTE,
+				"SWARM.BEHAVIOR.SURFACE: chrnum=%d slot=%d source=%s "
+				"blend=%d pin=%d vel=(%.2f,%.2f,%.2f)",
+				(s32)chr->chrnum, slot_index,
+				vel_hint ? "GPU" : "CPU",
+				started_surface, pinned_surface,
+				vel_hint ? vel_hint[0] : 0.0f,
+				vel_hint ? vel_hint[1] : 0.0f,
+				vel_hint ? vel_hint[2] : 0.0f);
+		}
+		events += started_surface + pinned_surface;
+		swarm_trace_surface_contact(chr, slot_index);
+	}
+
+	if (jump_request && chr->race == RACE_SKEDAR
+			&& range_to_target >= SWARM_SKJUMP_MIN_RANGE
+			&& range_to_target <= SWARM_SKJUMP_MAX_RANGE) {
+		const s32 lvframe = g_Vars.lvframe60;
+		const s32 elapsed = lvframe - s_SwarmLastSkJump60[slot_index];
+		if ((s_SwarmLastSkJump60[slot_index] == 0
+					|| elapsed >= SWARM_SKJUMP_COOLDOWN_60)
+				&& chrTrySkJump(chr, 0, 0, 0, 0)) {
+			s_SwarmLastSkJump60[slot_index] = lvframe;
+			sysLogPrintf(LOG_NOTE,
+				"SKJUMP.SWARM: chrnum=%d slot=%d dist=%.0f frame=%d",
+				(s32)chr->chrnum, slot_index, range_to_target, lvframe);
+			sysLogPrintf(LOG_NOTE,
+				"SWARM.BEHAVIOR.JUMP: chrnum=%d slot=%d source=%s dist=%.0f frame=%d",
+				(s32)chr->chrnum, slot_index,
+				vel_hint ? "GPU" : "CPU", range_to_target, lvframe);
+			events++;
+		}
+	}
+
+	return events;
+}
 
 s32 swarmTestApplyAiDecision(struct chrdata *chr,
                              s32 slot_index,
@@ -1718,6 +1913,12 @@ s32 swarmTestApplyAiDecision(struct chrdata *chr,
 	 * Transition guard: skip modelSetAnimation when the current anim
 	 * already matches the desired anim. This drops 4096 redundant
 	 * "still walking" calls per frame to zero. */
+	if (chr->actiontype == ACT_SKJUMP) {
+		(void)action_class;
+		(void)range_to_target;
+		return fired;
+	}
+
 	s16 desired_anim;
 	switch (anim_key) {
 	case 2:  desired_anim = (s16)ANIM_034C;                   break;
@@ -2042,236 +2243,21 @@ void swarmTestTick(void)
 		}
 	}
 
-	/* Skedar wallrun trigger (c3738, Mike directive 2026-05-17).
-	 *
-	 * The CPU/GPU swarm bench bots are configured race=RACE_SKEDAR
-	 * (via bodyGetRace at spawn), but the standard MP bot AI script
-	 * never calls chrTrySkJump -- only the Skedar-specific AI script
-	 * does, and swarm bots use BOTTYPE_SPEED instead. Result: the
-	 * "skedar benchmark" never demonstrates the Skedar's signature
-	 * wallrun behaviour.
-	 *
-	 * Fix: per-tick, walk the active swarm and call chrTrySkJump on
-	 * every Skedar bot whose range to the player is in the SKJUMP
-	 * gate (200-550). chrTrySkJump itself short-circuits if the bot
-	 * is already in ACT_SKJUMP or the LOS / range check fails, so
-	 * this is cheap to fire on every bot every frame.
-	 *
-	 * Per-tick budget: rate-limit to one wallrun activation per bot
-	 * per second so the swarm doesn't all jump together (the LOG
-	 * spam would obscure the actual benchmark signal). Use the same
-	 * lvframe-cooldown pattern as the bot-jump path.
-	 *
-	 * Telemetry: log SKJUMP.SWARM lines so smoke harnesses can grep
-	 * a stable marker. */
-	extern bool chrTrySkJump(struct chrdata *chr, u8 arg1, u8 arg2, s32 arg3, u8 arg4);
 	if (testScenarioActiveMethod() == SWARM_METHOD_CPU
 			&& g_Vars.currentplayer && g_Vars.currentplayer->prop
 			&& s_VisMode != SWARM_VIS_INVISIBLE) {
-		/* Mike directive 2026-05-18: "don't move them manually, just
-		 * ensure they are targeting the player and know where the
-		 * player is". The targeting state is already re-asserted every
-		 * frame in the CPU re-assertion block above
-		 * (chr->target / aibot->command / attackpropnum /
-		 * targetinsight / chrsinsight[0] / lastseen60 fields). The
-		 * AI's own nav layer is responsible for pursuit. */
-
-		static s32 s_LastSkJump60[TESTSCEN_SWARM_MAX_COUNT];
-		const s32 lvframe = g_Vars.lvframe60;
-		const s32 cooldown_60 = 60; /* one wallrun attempt per bot per second */
+		const s32 player_propnum =
+			(s32)(g_Vars.currentplayer->prop - g_Vars.props);
 		const struct coord pp = g_Vars.currentplayer->prop->pos;
 		for (s32 i = 0; i < s_SwarmCount; i++) {
 			struct chrdata *chr = s_Swarm[i].chr;
 			if (!chr || !chr->prop || chr->chrnum < 0) continue;
-			if (chr->race != RACE_SKEDAR) continue;
-			const s32 elapsed = lvframe - s_LastSkJump60[i];
-			if (s_LastSkJump60[i] != 0 && elapsed < cooldown_60) continue;
-			/* Range pre-check matches chrStartSkJump's own gate;
-			 * avoids walking into chrTrySkJump's full cdTestCylMove01
-			 * when we already know we're outside the window. */
-			f32 dx = pp.x - chr->prop->pos.x;
-			f32 dz = pp.z - chr->prop->pos.z;
-			f32 dist2 = dx * dx + dz * dz;
-			if (dist2 < 200.0f * 200.0f || dist2 > 550.0f * 550.0f) continue;
-			if (chrTrySkJump(chr, 0, 0, 0, 0)) {
-				s_LastSkJump60[i] = lvframe;
-				sysLogPrintf(LOG_NOTE,
-					"SKJUMP.SWARM: chrnum=%d slot=%d dist=%.0f frame=%d",
-					(s32)chr->chrnum, i, sqrtf(dist2), lvframe);
-			}
-		}
-
-		/* Wall-pin for Skedar swarm bots (c3738 Slice 5 follow-up).
-		 * Mike directive 2026-05-17: "I see no bots on walls, period."
-		 *
-		 * SURFACE_LOCO.WALL_BLEND tilts chr->surface_up to a nearby
-		 * wall normal but the locomotion layer still drives the bot
-		 * along the floor plane, so visually nothing pins the bot to
-		 * the wall surface. Here, for every Skedar swarm bot whose
-		 * surface_up has tilted off vertical (|sux| + |suz| > 0.3),
-		 * raycast from the bot in -surface_up direction (toward the
-		 * wall) via Stage 2 (rendered-triangle) and snap the bot's
-		 * prop pos to (hit + surface_up * radius * 0.6). This puts
-		 * the bot ON the wall surface at chr_radius * 0.6 stand-off,
-		 * and the visual chr render uses surface_up to tilt the body
-		 * so the bot looks like it's standing on the wall.
-		 *
-		 * Cooldown: snap once per second per bot so the simulation
-		 * doesn't fight the nav layer. Telemetry: SURFACE_LOCO.PIN. */
-		/* Mike directive 2026-05-17 (follow-up): "you need to verify the
-		 * skedar benchmark bots actually run on the walls". Earlier pin
-		 * cooldown of 30 frames let gravity slide the bot ~6 units/sec
-		 * along the wall (the X/Z stayed locked but Y drifted). Switch
-		 * to every-frame pinning so the bot is glued to the wall surface
-		 * for the duration of the wall-tilt; the WALL_BLEND keeps the
-		 * tilt active until the bot moves off the wall, at which point
-		 * the canonical floor sampler reasserts world-up and this pin
-		 * stops firing.
-		 *
-		 * Mike directive 2026-05-18 (follow-up): "are you certain the
-		 * bots were walking on the walls and not just stuck in them
-		 * from a bad spawn". The per-frame pin alone can't distinguish
-		 * "wall-walking" from "stuck": both produce constant positions.
-		 * Add SURFACE_LOCO.TRACE telemetry that samples the bot's pos +
-		 * surface_up every 30 frames and reports the DELTA from the
-		 * previous sample so the smoke log shows whether bots are
-		 * translating along the wall plane (real walking) or stationary
-		 * (stuck or AI not commanding movement). */
-		static s32 s_LastWallPin60[TESTSCEN_SWARM_MAX_COUNT];
-		static struct coord s_LastTracePos[TESTSCEN_SWARM_MAX_COUNT];
-		static s32 s_LastTraceFrame[TESTSCEN_SWARM_MAX_COUNT];
-		for (s32 i = 0; i < s_SwarmCount; i++) {
-			struct chrdata *chr = s_Swarm[i].chr;
-			if (!chr || !chr->prop || chr->chrnum < 0) continue;
-			if (chr->race != RACE_SKEDAR) continue;
-			const f32 sux = chr->surface_up[0];
-			const f32 suy = chr->surface_up[1];
-			const f32 suz = chr->surface_up[2];
-			const f32 horiz = (sux < 0 ? -sux : sux) + (suz < 0 ? -suz : suz);
-			if (horiz < 0.3f) continue; /* surface_up too vertical; not on a wall */
-
-			struct coord from = chr->prop->pos;
-			/* Cast ~radius * 2 along -surface_up toward the wall surface. */
-			const f32 probe_len = chr->radius * 2.5f + 20.0f;
-			struct coord to;
-			to.x = from.x - sux * probe_len;
-			to.y = from.y - suy * probe_len;
-			to.z = from.z - suz * probe_len;
-			struct coord hit_normal = {0.0f, 0.0f, 0.0f};
-			const f32 frac = capsuleStage2RayCast(&from, &to, chr->prop->rooms, &hit_normal);
-			if (frac >= 1.0f) continue;
-
-			/* Hit pos at fraction frac along the ray. Snap chr pos to
-			 * (hit + surface_up * (radius * 1.05)) so the bot's
-			 * collision capsule (radius=r) sits fully outside the wall
-			 * surface with ~5% clearance. Earlier offset of radius * 0.6
-			 * placed the capsule centre BEHIND the wall plane by 0.4r,
-			 * which clipped the bot into the geometry. (Mike 2026-05-18:
-			 * "are you certain the bots were walking on the walls and
-			 * not just stuck in them from a bad spawn".) */
-			const f32 offset = chr->radius * 1.05f;
-			struct coord newpos;
-			newpos.x = from.x + (to.x - from.x) * frac + sux * offset;
-			newpos.y = from.y + (to.y - from.y) * frac + suy * offset;
-			newpos.z = from.z + (to.z - from.z) * frac + suz * offset;
-
-			/* Sanity probe: after the proposed snap, raycast in -surface_up
-			 * from newpos by `radius` units. The ray should hit the wall
-			 * surface near `radius` units away (frac ~= 1.0 means clear,
-			 * frac near 0 means newpos is INSIDE wall geometry already).
-			 * A small frac == intersection -- log and skip the pin so we
-			 * don't shove the bot deeper inside the wall. */
-			struct coord probe_from = newpos;
-			struct coord probe_to;
-			probe_to.x = newpos.x - sux * chr->radius;
-			probe_to.y = newpos.y - suy * chr->radius;
-			probe_to.z = newpos.z - suz * chr->radius;
-			struct coord intersect_normal = {0.0f, 0.0f, 0.0f};
-			const f32 intersect_frac = capsuleStage2RayCast(&probe_from, &probe_to,
-				chr->prop->rooms, &intersect_normal);
-			if (intersect_frac < 0.15f) {
-				/* The snap landed inside (or very close to inside) wall
-				 * geometry. Skip this pin -- the bot's nav layer will
-				 * probably push them clear next tick. */
-				sysLogPrintf(LOG_WARNING,
-					"SURFACE_LOCO.PIN_INTERSECT: chrnum=%d slot=%d "
-					"intersect_frac=%.2f newpos=(%.0f,%.0f,%.0f) "
-					"sup=(%.2f,%.2f,%.2f) -- skipped (would clip)",
-					(s32)chr->chrnum, i, intersect_frac,
-					newpos.x, newpos.y, newpos.z, sux, suy, suz);
-				continue;
-			}
-			RoomNum newrooms[2];
-			newrooms[0] = chr->prop->rooms[0];
-			newrooms[1] = -1;
-			/* Preserve the chr's current facing (yvisang is a u8 0..255
-			 * = 0..360deg; convert to radians for chrSetPos). */
-			const f32 theta = ((f32)chr->yvisang) * (M_PI / 128.0f);
-			if (chrSetPos(chr, &newpos, newrooms, theta, false)) {
-				/* Kill gravity drift while wall-pinned. Without this
-				 * the per-tick fall integrator (chrTickFall / similar)
-				 * adds ~0.5u/tick downward in world-Y even though the
-				 * bot is on a vertical wall surface. The earlier 30-frame
-				 * cooldown showed ~6u/sec Y drift between pins; zero
-				 * fallspeed.y so the bot is glued. */
-				chr->fallspeed.y = 0.0f;
-				/* Sample every 60 frames (~1s) instead of every tick so
-				 * the log stays readable; the per-tick pin still runs. */
-				if ((lvframe - s_LastWallPin60[i]) >= 60 || s_LastWallPin60[i] == 0) {
-					s_LastWallPin60[i] = lvframe;
-					sysLogPrintf(LOG_NOTE,
-						"SURFACE_LOCO.PIN: chrnum=%d slot=%d horiz_up=%.2f "
-						"pos=(%.0f,%.0f,%.0f) sup=(%.2f,%.2f,%.2f) frame=%d",
-						(s32)chr->chrnum, i, horiz,
-						newpos.x, newpos.y, newpos.z,
-						sux, suy, suz, lvframe);
-				}
-			}
-		}
-
-		/* Trajectory sampler: for the first 16 slots that are currently
-		 * wall-tilted (horiz_up > 0.3), every 30 frames sample the
-		 * position and surface_up and emit a SURFACE_LOCO.TRACE line
-		 * containing the DELTA from the previous sample. This tells us
-		 * whether the bot is translating along the wall plane (dx/dz
-		 * non-zero, dy small relative to the magnitudes -- ie moving
-		 * along the wall) or stationary (all deltas ~0 -- AI not
-		 * commanding movement, or stuck).
-		 *
-		 * 30-frame sample window is short enough that the bot can't
-		 * traverse the whole wall in one sample, but long enough that
-		 * sub-unit jitter doesn't dominate. */
-		for (s32 i = 0, traced = 0; i < s_SwarmCount && traced < 16; i++) {
-			struct chrdata *chr = s_Swarm[i].chr;
-			if (!chr || !chr->prop || chr->chrnum < 0) continue;
-			if (chr->race != RACE_SKEDAR) continue;
-			const f32 sux = chr->surface_up[0];
-			const f32 suy = chr->surface_up[1];
-			const f32 suz = chr->surface_up[2];
-			const f32 horiz = (sux < 0 ? -sux : sux) + (suz < 0 ? -suz : suz);
-			if (horiz < 0.3f) continue;
-			if (s_LastTraceFrame[i] != 0 && (lvframe - s_LastTraceFrame[i]) < 30) continue;
-			const struct coord cur = chr->prop->pos;
-			if (s_LastTraceFrame[i] != 0) {
-				const f32 dx = cur.x - s_LastTracePos[i].x;
-				const f32 dy = cur.y - s_LastTracePos[i].y;
-				const f32 dz = cur.z - s_LastTracePos[i].z;
-				const f32 d  = sqrtf(dx * dx + dy * dy + dz * dz);
-				/* Component of delta along surface_up: if delta is purely
-				 * on the wall plane, this should be ~0; if the bot is
-				 * drifting INTO or OUT of the wall, this is non-zero. */
-				const f32 normal_drift = dx * sux + dy * suy + dz * suz;
-				sysLogPrintf(LOG_NOTE,
-					"SURFACE_LOCO.TRACE: chrnum=%d slot=%d "
-					"pos=(%.0f,%.0f,%.0f) delta=(%.1f,%.1f,%.1f) "
-					"|d|=%.1f normal_drift=%.2f sup=(%.2f,%.2f,%.2f)",
-					(s32)chr->chrnum, i,
-					cur.x, cur.y, cur.z, dx, dy, dz, d, normal_drift,
-					sux, suy, suz);
-			}
-			s_LastTracePos[i] = cur;
-			s_LastTraceFrame[i] = lvframe;
-			traced++;
+			const f32 dx = pp.x - chr->prop->pos.x;
+			const f32 dy = pp.y - chr->prop->pos.y;
+			const f32 dz = pp.z - chr->prop->pos.z;
+			const f32 dist = sqrtf(dx * dx + dy * dy + dz * dz);
+			(void)swarmTestApplyMovementIntent(chr, i, player_propnum,
+				1, 1, dist, NULL);
 		}
 	}
 

@@ -1,0 +1,58 @@
+{
+  "scenario_name": "skedar_swarm_cpu_behavior_smoke",
+  "description": "Behavior smoke for CPU Skedar swarm on base:mp_skedar. Proves the benchmark-local CPU behavior path emits jump and surface requests, starts wall-ahead surface locomotion, applies surface contact correction, and traces non-world-up movement instead of only proving process liveness.",
+  "tags": ["debug", "swarm", "cpu", "skedar", "behavior", "wallrun", "jump"],
+  "paths_of_interest": [
+    "port/src/swarm_test.c",
+    "src/game/surface_loco.c",
+    "src/game/chraction.c",
+    "port/src/testscenarios.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--debug-swarm-map",
+    "base:mp_skedar",
+    "--launch-scenario",
+    "swarm_cpu"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait", "comment": "boot path arms CPU swarm with explicit base:mp_skedar override for wall/ceiling geometry coverage" },
+    { "at_ms": 12000, "type": "action", "name": "ACTION_USE",        "action": "tap", "comment": "dismiss first-launch endscreen if the early player-position latch hit the known restart path" },
+    { "at_ms": 18000, "type": "action", "name": "ACTION_CANCEL_USE", "action": "tap", "comment": "fallback: cancel transient menu" },
+    { "at_ms": 22000, "type": "action", "name": "ACTION_USE",        "action": "tap", "comment": "advance any transient screen" },
+    { "at_ms": 40000, "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 4 -> 8 for denser Skedar contacts" },
+    { "at_ms": 55000, "type": "exit", "comment": "scripted exit after jump and surface telemetry should have appeared" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=skedar_swarm_cpu_behavior_smoke",
+      "BOOT: --launch-scenario 'swarm_cpu' armed",
+      "BOOT: --launch-scenario consuming latch: testScenarioLaunch\\(2\\) .* map_override=base:mp_skedar",
+      "TESTSCEN\\.LAUNCH: Swarm-CPU map='base:mp_skedar'",
+      "TESTSCEN\\.SWARM: session armed -- method=CPU",
+      "SWARM\\.BEHAVIOR\\.JUMP: chrnum=\\d+ slot=\\d+ source=CPU",
+      "SWARM\\.BEHAVIOR\\.SURFACE: chrnum=\\d+ slot=\\d+ source=CPU",
+      "SURFACE_LOCO\\.WALL_BLEND: chrnum=\\d+ wall_normal=",
+      "SURFACE_LOCO\\.PIN: chrnum=\\d+ slot=\\d+",
+      "SURFACE_LOCO\\.TRACE: chrnum=\\d+ slot=\\d+",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable"
+    ],
+    "required_counts": [
+      { "pattern": "SWARM\\.BEHAVIOR\\.JUMP:", "min": 1 },
+      { "pattern": "SWARM\\.BEHAVIOR\\.SURFACE:", "min": 1 },
+      { "pattern": "SURFACE_LOCO\\.TRACE:", "min": 1 }
+    ]
+  }
+}

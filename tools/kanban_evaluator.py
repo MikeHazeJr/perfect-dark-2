@@ -147,7 +147,9 @@ def list_pending_completions(kanban: dict[str, Any]) -> list[dict[str, Any]]:
             "marked_at": pc.get("marked_at"),
             "marked_by": pc.get("marked_by"),
             "summary": pc.get("summary", ""),
+            "verify_notes": pc.get("verify_notes", ""),
             "evidence_refs": pc.get("evidence_refs", []),
+            "expected_artifacts": pc.get("expected_artifacts", []),
         })
     pending.sort(key=lambda e: e.get("marked_at") or "")
     return pending

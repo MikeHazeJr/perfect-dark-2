@@ -195,9 +195,11 @@ In `tools/kanban/index.html`:
   strip, dismissable to a floating green `R` icon at bottom-right that
   restores when clicked.
 - **Side panel** `#pc-sidebar` (380 px right-anchored): one row per pending
-  card, listing summary, marked-by + marked-at, evidence refs as clickable
-  links, plus a Confirm button, Reject button, and a small textarea for the
-  optional rejection note.
+  card. The default row is title-first: card id / pillar / column metadata,
+  then the card title as the primary readable line. Completion summary,
+  verification notes, evidence refs, expected artifacts, and marker metadata
+  live behind a collapsed **Review details** expander. Confirm, Reject, and the
+  optional rejection note stay visible without expanding details.
 
 ### 5.1 Banner docking and collapse (companion change)
 
@@ -323,8 +325,9 @@ forgotten entry cannot silently rot.
   (`_card_max_order`, `_append_note`).
 - `tools/kanban/index.html` -- card-level READY badge + green box shadow;
   `Ready` header toggle button + badge; `#pc-banner` (bottom-docked,
-  collapsible); `#pc-sidebar` (right side panel); JS module for pending
-  completions. Also: page-scroll fix + banner docking for c121 + briefing.
+  collapsible); `#pc-sidebar` (right side panel, title-first rows with collapsed
+  Review details); JS module for pending completions. Also: page-scroll fix +
+  banner docking for c121 + briefing.
 - `tools/kanban_evaluator.py` -- `list_pending_completions` library API plus
   `list-pending-completions` CLI subcommand.
 - `tools/daily_flow/lib/templates.py` -- `DAILY_SECTIONS_ORDER` gains

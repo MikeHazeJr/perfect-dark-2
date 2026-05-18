@@ -392,12 +392,21 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .pc-row{background:#1e293b;border-radius:6px;padding:11px 13px;margin-bottom:10px;border-left:3px solid #22c55e}
 .pc-row .pc-row-card{font-size:0.66rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px}
 .pc-row .pc-row-card .pc-cid{color:#bbf7d0;font-family:ui-monospace,Consolas,monospace;font-weight:700;margin-right:5px}
-.pc-row .pc-row-summary{font-size:0.84rem;color:#f1f5f9;line-height:1.45;margin-bottom:8px;white-space:pre-wrap}
+.pc-row .pc-row-title{font-size:0.92rem;color:#f8fafc;line-height:1.35;font-weight:800;margin-bottom:8px}
+.pc-row .pc-row-details{margin:5px 0 8px;border:1px solid #334155;border-radius:6px;background:#0f172a}
+.pc-row .pc-row-details summary{cursor:pointer;padding:6px 8px;font-size:0.68rem;font-weight:800;color:#bbf7d0;text-transform:uppercase;letter-spacing:0.05em;user-select:none}
+.pc-row .pc-row-details summary:hover{color:#dcfce7}
+.pc-row .pc-row-details[open] summary{border-bottom:1px solid #334155}
+.pc-row .pc-row-detail-body{padding:8px 9px}
+.pc-row .pc-row-detail-block{margin-bottom:8px}
+.pc-row .pc-row-detail-label{display:block;font-size:0.6rem;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px}
+.pc-row .pc-row-detail-text{font-size:0.78rem;color:#f1f5f9;line-height:1.45;white-space:pre-wrap}
 .pc-row .pc-row-meta{font-size:0.66rem;color:#94a3b8;margin-bottom:8px;font-style:italic}
 .pc-row .pc-row-evidence{font-size:0.7rem;color:#cbd5e1;margin-bottom:8px;line-height:1.5}
 .pc-row .pc-row-evidence .pc-ev-label{font-size:0.6rem;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;display:block}
 .pc-row .pc-row-evidence a{color:#38bdf8;text-decoration:none;display:block;font-family:ui-monospace,Consolas,monospace;font-size:0.7rem;padding:1px 0}
 .pc-row .pc-row-evidence a:hover{text-decoration:underline}
+.pc-row .pc-row-artifact{font-family:ui-monospace,Consolas,monospace;font-size:0.7rem;color:#cbd5e1;line-height:1.45;word-break:break-word}
 .pc-row .pc-actions{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
 .pc-row .pc-reject-note{flex:1;min-width:160px;padding:5px 8px;background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:5px;font-family:inherit;font-size:0.72rem;resize:vertical}
 .pc-row .pc-reject-note:focus{outline:none;border-color:#ef4444}
@@ -1106,8 +1115,7 @@ function buildCard(card) {
     const pcBadge = document.createElement('button');
     pcBadge.className = 'pc-badge';
     pcBadge.textContent = 'READY';
-    const summary = card.pending_completion.summary || '';
-    pcBadge.title = `Marked ready for completion by ${card.pending_completion.marked_by || 'unknown'}\n\n${summary || '(no summary)'}\n\nClick to review.`;
+    pcBadge.title = `${card.title}\n\nMarked ready for completion. Click to review.`;
     pcBadge.onclick = e => { e.stopPropagation(); openPendingCompletionsSidebar(); };
     el.appendChild(pcBadge);
   }
@@ -2849,6 +2857,22 @@ function renderPendingCompletionsSidebar() {
   for (const entry of pending) list.appendChild(buildPendingCompletionRow(entry));
 }
 
+function appendPendingDetailBlock(parent, label, text) {
+  if (!text) return false;
+  const block = document.createElement('div');
+  block.className = 'pc-row-detail-block';
+  const lbl = document.createElement('span');
+  lbl.className = 'pc-row-detail-label';
+  lbl.textContent = label;
+  const body = document.createElement('div');
+  body.className = 'pc-row-detail-text';
+  body.textContent = text;
+  block.appendChild(lbl);
+  block.appendChild(body);
+  parent.appendChild(block);
+  return true;
+}
+
 function buildPendingCompletionRow(entry) {
   const row = document.createElement('div');
   row.className = 'pc-row';
@@ -2856,20 +2880,33 @@ function buildPendingCompletionRow(entry) {
   const cardLine = document.createElement('div');
   cardLine.className = 'pc-row-card';
   const pillar = pillarById(entry.card_pillar);
-  cardLine.innerHTML = `<span class="pc-cid">${escapeHtml(entry.card_id)}</span>${escapeHtml(entry.card_title)}` +
+  cardLine.innerHTML = `<span class="pc-cid">${escapeHtml(entry.card_id)}</span>` +
     (pillar ? ' &middot; ' + escapeHtml(pillar.name) : '') +
     ` &middot; <span style="color:#94a3b8">${escapeHtml(entry.card_column || '?')}</span>`;
   row.appendChild(cardLine);
 
-  const summary = document.createElement('div');
-  summary.className = 'pc-row-summary';
-  summary.textContent = entry.summary || '(no summary provided)';
-  row.appendChild(summary);
+  const title = document.createElement('div');
+  title.className = 'pc-row-title';
+  title.textContent = entry.card_title || entry.card_id || 'Untitled card';
+  row.appendChild(title);
+
+  const details = document.createElement('details');
+  details.className = 'pc-row-details';
+  const detailsToggle = document.createElement('summary');
+  detailsToggle.textContent = 'Review details';
+  details.appendChild(detailsToggle);
+
+  const detailBody = document.createElement('div');
+  detailBody.className = 'pc-row-detail-body';
+  let hasDetails = false;
+  hasDetails = appendPendingDetailBlock(detailBody, 'Completion summary', entry.summary || '') || hasDetails;
+  hasDetails = appendPendingDetailBlock(detailBody, 'Verify notes', entry.verify_notes || '') || hasDetails;
 
   const meta = document.createElement('div');
   meta.className = 'pc-row-meta';
   meta.textContent = `marked by ${entry.marked_by || 'unknown'} on ${(entry.marked_at || '').slice(0, 10)}`;
-  row.appendChild(meta);
+  detailBody.appendChild(meta);
+  hasDetails = true;
 
   const evidence = (entry.evidence_refs || []).filter(Boolean);
   if (evidence.length > 0) {
@@ -2891,8 +2928,31 @@ function buildPendingCompletionRow(entry) {
       }
       ev.appendChild(a);
     }
-    row.appendChild(ev);
+    detailBody.appendChild(ev);
+    hasDetails = true;
   }
+
+  const artifacts = (entry.expected_artifacts || []).filter(Boolean);
+  if (artifacts.length > 0) {
+    const block = document.createElement('div');
+    block.className = 'pc-row-detail-block';
+    const label = document.createElement('span');
+    label.className = 'pc-row-detail-label';
+    label.textContent = `Expected artifacts (${artifacts.length})`;
+    block.appendChild(label);
+    for (const artifact of artifacts) {
+      const item = document.createElement('div');
+      item.className = 'pc-row-artifact';
+      item.textContent = artifact;
+      block.appendChild(item);
+    }
+    detailBody.appendChild(block);
+    hasDetails = true;
+  }
+
+  if (!hasDetails) appendPendingDetailBlock(detailBody, 'Completion summary', 'No review details were provided.');
+  details.appendChild(detailBody);
+  row.appendChild(details);
 
   const actions = document.createElement('div');
   actions.className = 'pc-actions';

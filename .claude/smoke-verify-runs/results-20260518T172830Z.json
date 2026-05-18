@@ -1,0 +1,25 @@
+{
+  "Name": "skedar_swarm_cpu_behavior_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": 0,
+  "ElapsedSeconds": 55.5958598,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 18,
+  "AssertionsMet": 16,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SWARM\\.BEHAVIOR\\.SURFACE: chrnum=\\d+ slot=\\d+ source=CPU"
+    },
+    {
+      "Kind": "required_count_out_of_range",
+      "Pattern": "SWARM\\.BEHAVIOR\\.SURFACE:",
+      "Count": 0,
+      "Min": 1,
+      "Max": -1
+    }
+  ]
+}

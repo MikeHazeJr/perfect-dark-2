@@ -586,6 +586,34 @@ TEST_CASE("swarm debug scenarios enter through match setup", "[testscenarios][st
 	REQUIRE(header.find("Swarm scenarios enter through matchStart()") != std::string::npos);
 }
 
+TEST_CASE("skedar swarm behavior intents stay wired for CPU and GPU benchmarks", "[testscenarios][static]")
+{
+	const std::string testscenarios = readTextFile("port/src/testscenarios.c");
+	const std::string swarm = readTextFile("port/src/swarm_test.c");
+	const std::string gpu = readTextFile("port/fast3d/swarm_gpu.cpp");
+	const std::string surface = readTextFile("src/game/surface_loco.c");
+
+	REQUIRE(testscenarios.find("? SWARM_METHOD_GPU_FULL : SWARM_METHOD_CPU") != std::string::npos);
+	REQUIRE(testscenarios.find("? SWARM_METHOD_GPU_POS_ONLY : SWARM_METHOD_CPU") == std::string::npos);
+	REQUIRE(testscenarios.find("explicit diagnostic switch back to GPU_POS_ONLY") != std::string::npos);
+
+	REQUIRE(swarm.find("swarmTestApplyMovementIntent") != std::string::npos);
+	REQUIRE(gpu.find("swarmTestApplyMovementIntent") != std::string::npos);
+	REQUIRE(gpu.find("jump_request") != std::string::npos);
+	REQUIRE(gpu.find("surface_request") != std::string::npos);
+	REQUIRE(gpu.find("chr->actiontype != ACT_SKJUMP") != std::string::npos);
+
+	REQUIRE(swarm.find("chrSurfaceLocoRequestWallAhead(chr, vel_hint)") != std::string::npos);
+	REQUIRE(swarm.find("chrSurfaceLocoApplyContactPos") != std::string::npos);
+	REQUIRE(surface.find("chrSurfaceLocoRequestWallAhead") != std::string::npos);
+	REQUIRE(surface.find("chrSurfaceLocoApplyContactPos") != std::string::npos);
+
+	REQUIRE(swarm.find("SWARM.BEHAVIOR.JUMP") != std::string::npos);
+	REQUIRE(swarm.find("SWARM.BEHAVIOR.SURFACE") != std::string::npos);
+	REQUIRE(swarm.find("SURFACE_LOCO.PIN") != std::string::npos);
+	REQUIRE(swarm.find("SURFACE_LOCO.TRACE") != std::string::npos);
+}
+
 TEST_CASE("typed catalog metadata lifecycle uses runtime activation", "[catalog][provider][static]")
 {
 	const std::string catalogLoad = readTextFile("port/src/assetcatalog_load.c");

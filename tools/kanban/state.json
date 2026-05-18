@@ -579,20 +579,6 @@
       ]
     },
     {
-      "id": "c034",
-      "title": "Benchmarking: Mike playtest validation",
-      "description": "Mike full playtest validation pass after benchmarking pipeline work completes.",
-      "pillar": "benchmarking",
-      "column": "backlog",
-      "order": 2000,
-      "priority": 2,
-      "notes": "",
-      "flag": null,
-      "flagged_at": null,
-      "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
-    },
-    {
       "id": "c031",
       "title": "Benchmarking: GPU bot behavior pipeline",
       "description": "GPU-side bot behavior pipeline design + implementation. Gated on Mike playtest after catalog lands. B-308: GPU bot AI not migrated.",
@@ -1855,20 +1841,64 @@
       "column": "done",
       "order": 173000,
       "priority": 2,
-      "notes": "SHIPPED 2026-05-18 (session sprc132, build session c126). Live verify: smoke test ran Defection (0x30) -> Investigation (0x33) -> Extraction (0x22) -> Villa (0x2c) -> started Chicago (0x1d) in 201s with --auto-campaign-fast. Each transition logged: CAMPAIGN.AUTO state IDLE -> BOOT -> WAIT_LOAD -> DWELL_PRE -> FORCE_END -> WAIT_END -> DWELL_END -> ADVANCE -> WAIT_LOAD (next). Initial impl had ADVANCE going via endscreenContinue(2) then DWELL_BRIEF -> ACCEPT_NEXT; the briefing dialog push triggered an AV in the menu pool / IMC deferred-removal race shortly after solo_mission menu was acquired. Simplified flow bypasses the briefing dialog entirely (intro cutscenes still play; the briefing is a static text screen, not a cutscene). Files touched: port/include/autocampaign.h (NEW), port/src/autocampaign.c (NEW, 320 lines), port/src/main.c (+CLI init call), port/src/pdmain.c (+tick wire), src/game/debug2.c (g_Debug* globals + accessor functions), tools/smoke-verify/tests/auto_campaign_first_cycle.json (NEW).",
+      "notes": "SHIPPED 2026-05-18 (session sprc132, build session c126). Live verify: smoke test ran Defection (0x30) -> Investigation (0x33) -> Extraction (0x22) -> Villa (0x2c) -> started Chicago (0x1d) in 201s with --auto-campaign-fast. Each transition logged: CAMPAIGN.AUTO state IDLE -> BOOT -> WAIT_LOAD -> DWELL_PRE -> FORCE_END -> WAIT_END -> DWELL_END -> ADVANCE -> WAIT_LOAD (next). Initial impl had ADVANCE going via endscreenContinue(2) then DWELL_BRIEF -> ACCEPT_NEXT; the briefing dialog push triggered an AV in the menu pool / IMC deferred-removal race shortly after solo_mission menu was acquired. Simplified flow bypasses the briefing dialog entirely (intro cutscenes still play; the briefing is a static text screen, not a cutscene). Files touched: port/include/autocampaign.h (NEW), port/src/autocampaign.c (NEW, 320 lines), port/src/main.c (+CLI init call), port/src/pdmain.c (+tick wire), src/game/debug2.c (g_Debug* globals + accessor functions), tools/smoke-verify/tests/auto_campaign_first_cycle.json (NEW).\n[2026-05-18T17:26:36Z] completion-rejected (was marked by ?): We need to get to 18/18, or figure out why we failed 2. Also the Auto-runner should go through the full campaign. At each point we can also check to see if appropriate unlocks are actually unlocking for the current Agent profile, and that the social elements update properly between missions and would handle MP transitions properly as well.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-18T00:30:00Z",
-      "updated": "2026-05-18T05:30:00Z",
-      "pending_completion": {
-        "expected_artifacts": [
-          "port/include/autocampaign.h",
-          "port/src/autocampaign.c",
-          "tools/smoke-verify/tests/auto_campaign_first_cycle.json",
-          ".claude/sprint-reports/sprint-2026-05-18T053000-c132-campaign-auto.md"
-        ],
-        "verify_notes": "Smoke test (auto_campaign_first_cycle) PASS: exit code 0, 16/18 assertions, the 2 missing assertions were the next-stagenum hex format. Auto-runner advanced through 4 missions in 200s. Build verify: pd 55.8 MB + pd-tests 25 MB clean. Standing rules: c126-c130 pre-allocated range was already consumed at session start; c132 used as next free ID."
-      }
+      "updated": "2026-05-18T17:26:36Z",
+      "pending_completion": null
+    },
+    {
+      "id": "cmpbhaqofaqj1",
+      "title": "Fix failed tests (Only passed 16/18)",
+      "description": "We need to get to 18/18, or figure out why we failed 2.",
+      "pillar": "tests",
+      "column": "active",
+      "order": 155000,
+      "priority": 3,
+      "notes": "",
+      "subtasks": [],
+      "flag": "star",
+      "flagged_at": "2026-05-18T17:33:02.727Z",
+      "created": "2026-05-18T17:29:11.054Z",
+      "updated": "2026-05-18T17:33:02.727Z"
+    },
+    {
+      "id": "cmpbhfdir2lxo",
+      "title": "Full Campaign Auto-Runner with Unlocks and Social Syncing",
+      "description": "The Auto-runner should go through the full campaign. At each point we can also check to see if appropriate unlocks are actually unlocking for the current Agent profile, and that the social elements update properly between missions and would handle MP transitions properly as well.",
+      "pillar": "tests",
+      "column": "active",
+      "order": 156000,
+      "priority": 1,
+      "notes": "Auto-Runner should be Invokable by me when playtesting as well. F6 should run it for the specific Campaign mission I am in, only, and only function when I am in Campaign.",
+      "subtasks": [
+        {
+          "id": "cmpbhfdiqsfxa",
+          "title": "Ensure the Auto-Runner can complete the full campaign",
+          "status": "backlog",
+          "order": 1000,
+          "notes": ""
+        },
+        {
+          "id": "cmpbhfdiq34o1",
+          "title": "Ensure that beating campaign missions (and based on difficulty) properly unlocks what should be unlocked. This includes the next mission, unlockable skins and weapons, cheats, etc.",
+          "status": "backlog",
+          "order": 2000,
+          "notes": ""
+        },
+        {
+          "id": "cmpbhfdiqq0ii",
+          "title": "Ensure that the Social networking system properly broadcasts and transitions states and players between missions, game modes, etc, for all connected players.",
+          "status": "backlog",
+          "order": 3000,
+          "notes": ""
+        }
+      ],
+      "flag": "star",
+      "flagged_at": "2026-05-18T17:32:57.996Z",
+      "created": "2026-05-18T17:32:47.283Z",
+      "updated": "2026-05-18T17:32:57.996Z"
     }
   ]
 }

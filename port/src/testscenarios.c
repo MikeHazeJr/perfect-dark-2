@@ -221,15 +221,12 @@ s32 testScenarioLaunch(test_scenario_t scen, const char *map_id)
 		}
 
 		s_State.scen          = scen;
-		/* B-308 first slice (c3807, 2026-05-15): TESTSCEN_SWARM_GPU
-		 * defaults to GPU_POS_ONLY (the historical S593d behaviour
-		 * before the GPU AI pipeline existed). The runtime
-		 * ACTION_TESTSCEN_GPU_FULL_TOGGLE key promotes to GPU_FULL
-		 * without re-launching. Keeping the launch path on POS_ONLY
-		 * preserves a stable baseline for the smoke tests and lets
-		 * the AI path be opted-into deliberately. */
+		/* 2026-05-18: TESTSCEN_SWARM_GPU defaults to GPU_FULL so the
+		 * benchmark exercises the same bot behavior contract as CPU
+		 * swarm. ACTION_TESTSCEN_GPU_FULL_TOGGLE remains available as
+		 * an explicit diagnostic switch back to GPU_POS_ONLY. */
 		s_State.method        = (scen == TESTSCEN_SWARM_GPU)
-			? SWARM_METHOD_GPU_POS_ONLY : SWARM_METHOD_CPU;
+			? SWARM_METHOD_GPU_FULL : SWARM_METHOD_CPU;
 		s_State.stagenum      = stagenum;
 		s_State.current_count = TESTSCEN_SWARM_INITIAL_COUNT;
 		strncpy(s_State.map_id, resolved_id, sizeof(s_State.map_id) - 1);

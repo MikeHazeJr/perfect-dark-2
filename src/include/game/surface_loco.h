@@ -134,6 +134,26 @@ void chrSurfaceLocoGetRenderUp(struct chrdata *chr, f32 *out_up);
  */
 bool chrSurfaceLocoSampleWallAhead(struct chrdata *chr, const f32 *vel_hint, f32 *out_up);
 
+/* Request a wall-ahead transition using the same logic as
+ * chrSurfaceLocoTick, but with an optional velocity hint. GPU swarm
+ * callers pass shader velocity here so wall detection follows the
+ * actual GPU-driven movement instead of stale prevpos deltas.
+ *
+ * Returns true when a new wall surface blend was started. */
+bool chrSurfaceLocoRequestWallAhead(struct chrdata *chr, const f32 *vel_hint);
+
+/* Apply a surface-contact position without recomputing world-down ground.
+ *
+ * Standard chrSetPos/chrSetPosWithCachedGround are floor-oriented: they
+ * resolve ground as a world-Y value and feed that into manground/ground.
+ * Wall and ceiling contact correction must instead keep the chr anchored
+ * to the supplied surface contact. This helper performs the normal room,
+ * model-root, look-angle, and chrinfo sync while treating pos->y as the
+ * contact reference for legacy fall guards.
+ */
+bool chrSurfaceLocoApplyContactPos(struct chrdata *chr, struct coord *pos,
+	RoomNum *rooms, f32 theta);
+
 /* Wall-ahead raycast tuning.
  *
  * Ray length = chr->radius * LOOKAHEAD_MULT_RADIUS + chr->height * LOOKAHEAD_MULT_HEIGHT.
