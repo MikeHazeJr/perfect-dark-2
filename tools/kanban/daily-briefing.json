@@ -2,12 +2,12 @@
   "schema_version": 1,
   "semantic_version": "0.1.0",
   "x_extensibility_rule": "Additive-only. Unknown fields tolerated. Reserved namespace: x_*. Bump schema_version only on a breaking change.",
-  "generated_at": "2026-05-17T06:08:13.235664-04:00",
-  "generated_display": "[05-17-2026 - 06:08]",
-  "for_date": "2026-05-17",
+  "generated_at": "2026-05-18T06:07:01.846874-04:00",
+  "generated_display": "[05-18-2026 - 06:07]",
+  "for_date": "2026-05-18",
   "partial": false,
   "headlines": [
-    "26 commits and 1 sessions in the last 24 h"
+    "23 commits and 1 sessions in the last 24 h"
   ],
   "ready_to_resume": {
     "count": 0,
@@ -60,8 +60,17 @@
       "rationale": "networking card, column backlog"
     }
   ],
-  "daily_log_path": "context/daily-logs/2026-05-17.md",
+  "daily_log_path": "context/daily-logs/2026-05-18.md",
   "decisions_allocated": [],
+  "morning_run_results": {
+    "summary_line": "0 cards flipped, 0 bugs verified, 0 cascade advances, 0 decisions allocated",
+    "cards_flipped": [],
+    "bugs_verified": [],
+    "cascade_advanced": [],
+    "cascade_promoted_bugs": [],
+    "decisions_allocated": [],
+    "daily_log_path": "context/daily-logs/2026-05-18.md"
+  },
   "x_failure_point": null,
   "x_compaction_quality_review": false
 }
