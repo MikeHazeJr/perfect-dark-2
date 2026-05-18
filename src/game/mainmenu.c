@@ -4971,7 +4971,27 @@ MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct m
 		g_Vars.mpquickteam = MPQUICKTEAM_NONE;
 		g_NotLoadMod = false;
 		romdataFileFreeForSolo();
-		func0f0f820c(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
+		/* PC port: do not schedule a deferred push of
+		 * g_CombatSimulatorMenuDialog. The legacy CS menu (rendered now
+		 * by pdgui_menu_warning.cpp's MENUDIALOGTYPE_DEFAULT fallback)
+		 * was appearing as a modal popup on top of the modern Room
+		 * overlay because func0f0f820c sets g_MenuData.prevmenudialog
+		 * which menutick.c:720 re-pushes one tick later. The Room is
+		 * the complete CS setup surface; no legacy dialog needs to
+		 * back it. Inline the dialog-cleanup half of func0f0f820c
+		 * (close any open legacy dialog) without setting prevmenuroot
+		 * or prevmenudialog so the next tick does not push anything. */
+		{
+			s32 prevplayernum = g_MpPlayerNum;
+			s32 _i;
+			for (_i = 0; _i < ARRAYCOUNT(g_Menus); _i++) {
+				if (g_Menus[_i].curdialog) {
+					g_MpPlayerNum = _i;
+					func0f0f8120();
+				}
+			}
+			g_MpPlayerNum = prevplayernum;
+		}
 		pdguiSoloRoomOpen(); /* PC port: ImGui room screen renders on top */
 		func0f0f8300();
 	}

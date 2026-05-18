@@ -644,8 +644,11 @@ static s32 renderTypedDialog(struct menudialog *dialog,
         }
     }
 
-    /* B / Escape = dismiss */
-    if (pdguiMenuCancelPressed()) {
+    /* Title-bar X / B / Escape = dismiss. The X button is drawn by
+     * pdguiDrawPdDialog(..., 1) above; pdguiConsumeTitleClose() pops
+     * the click here so the modal closes on mouse X-click parity with
+     * controller B (Mike directive 2026-05-17). */
+    if (pdguiConsumeTitleClose() || pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_KbdInitialised = false;
         s_KbdDialogDef = nullptr;
@@ -1066,8 +1069,11 @@ static s32 renderFilemgrPcPlaceholder(struct menudialog *dialog,
     }
     pdguiEndActionBar();
 
-    /* B / Escape = dismiss */
-    if (pdguiMenuCancelPressed()) {
+    /* Title-bar X / B / Escape = dismiss. The X button is drawn by
+     * pdguiDrawPdDialog(..., 1) above; pdguiConsumeTitleClose() pops
+     * the click here so the shim closes on mouse X-click parity with
+     * controller B. */
+    if (pdguiConsumeTitleClose() || pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "cancel");
     }
