@@ -199,6 +199,8 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
     requireContains(propobj, "continue;");
     requireContains(propobj, "meshAttachModelToProp(prop, obj->model)");
     requireContains(meshcollision, "meshWorldAddRenderedRoom");
+    requireContains(meshcollision, "bgLoadRoom(roomnum)");
+    requireContains(meshcollision, "if (!room->gfxdata)");
     requireContains(meshcollision, "meshPropIsMovementSolid");
     requireContains(meshcollision, "meshBuildPropTransform");
     requireContains(meshcollision, "prop->pos");

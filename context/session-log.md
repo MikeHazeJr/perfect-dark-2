@@ -1,5 +1,30 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-18-loadscreen-mesh-room-load`) - 2026-05-18 - load-screen crash before intro
+
+Mike reported an exception during the load screen before the intro and pointed at the build-folder log.
+
+### Root Cause
+
+- `Build\pd-client.log` showed `FATAL: ACCESS_VIOLATION PC=...+0xb1f7` immediately after `LOAD: bgBuildTables done` for `STAGE_CITRAINING (0x26)`.
+- Symbolication resolved the stack to `bgGetNextGdlInLayer -> bgFindRoomVtxBatches -> meshWorldAddRenderedRoom -> lvReset`.
+- The B-339 world-mesh stage-load path walked every room before room display-list data was demand-loaded. `bgFindRoomVtxBatches()` assumes `g_Rooms[room].gfxdata` exists, but the CI/title load path had not loaded that room gfxdata yet.
+
+### Change
+
+- `meshWorldAddRenderedRoom()` now loads the room via `bgLoadRoom(roomnum)` when `loaded240` is false before asking `bgFindRoomVtxBatches()` to inspect display-list layers.
+- If room gfxdata is still unavailable after that load attempt, it returns 0 so the existing `meshWorldAddRoomGeo()` fallback can populate collision from legacy room geo instead of crashing.
+- Extended `[physics][jump]` static coverage to pin the load-before-batch guard.
+- Filed B-341.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session loadcr -Target all -BuildTimeoutSeconds 180` PASS for client/updater.
+- `.\devtools\build-session.ps1 -Session loadcr -Target tests -BuildTimeoutSeconds 180` PASS for `pd-tests.exe`.
+- Direct focused run with `C:\msys64\mingw64\bin` on PATH: `.claude\session-builds\loadcr\pd-tests.exe "[physics][jump]"` PASS (66 assertions / 4 cases).
+- `.\devtools\build-session.ps1 -Session loadcr -Target server -BuildTimeoutSeconds 180` PASS.
+- Manual playtest still needed: launch normally and confirm the CI/title load reaches intro/main menu without the `ACCESS_VIOLATION` after `bgBuildTables done`.
+
 ## Session (`main-checkout-2026-05-18-mesh-collision-ownership`) - 2026-05-18 - Collision-owned mesh architecture for capsule Stage 2
 
 Mike asked for the architectural fix rather than another local guard: movement collision must not depend on transient render matrices or `propobj.c::func0f0849dc()`, and the solution must hold for base maps, props, moving objects, and future Grid/mod maps.

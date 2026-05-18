@@ -540,9 +540,18 @@ s32 meshWorldAddRenderedRoom(s32 roomnum)
 		return 0;
 	}
 
+	struct room *room = &g_Rooms[roomnum];
+
+	if (!room->loaded240) {
+		bgLoadRoom(roomnum);
+	}
+
+	if (!room->gfxdata) {
+		return 0;
+	}
+
 	bgFindRoomVtxBatches(roomnum);
 
-	struct room *room = &g_Rooms[roomnum];
 	if (!room->vtxbatches || room->numvtxbatches <= 0) {
 		return 0;
 	}
