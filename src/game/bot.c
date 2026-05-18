@@ -3147,13 +3147,18 @@ static bool botJumpIsGrounded(struct chrdata *chr)
 	return groundgap < 3.0f;
 }
 
-/* Index a bot in the global mpchr table. The chrnum minus the player
- * count gives the bot index; clamp to [0, MAX_MPCHRS) for safety. */
+/* Index a bot in the global mpchr table. For normal MP/mission bots
+ * the chrnum maps directly to a slot in [0, MAX_MPCHRS); swarm bench
+ * bots have chrnums >= 5000 (testscenarios.c) which fell out of the
+ * range and made botJumpDecide silently bail. Fold large chrnums via
+ * modulo so swarm bots share cooldown slots harmlessly (cooldown
+ * collisions just mean some bots wait a frame longer than ideal). */
 static s32 botJumpChrIndex(struct chrdata *chr)
 {
 	if (!chr) return -1;
 	const s32 idx = chr->chrnum;
-	if (idx < 0 || idx >= MAX_MPCHRS) return -1;
+	if (idx < 0) return -1;
+	if (idx >= MAX_MPCHRS) return idx % MAX_MPCHRS;
 	return idx;
 }
 
@@ -3197,7 +3202,14 @@ static bool botJumpDecide(struct chrdata *chr, s32 *out_reason, f32 *out_dy)
 		struct prop *tprop = &g_Vars.props[chr->aibot->attackpropnum];
 		if (tprop && tprop->chr) {
 			const f32 dy = tprop->chr->manground - chr->manground;
-			if (dy >= reach_threshold) {
+			/* Sanity gate (Mike 2026-05-17): swarm bench bots have
+			 * chr->manground set to a -1e30 sentinel until the chr
+			 * tick reads ground; dy = target_y - sentinel yields ~1e30
+			 * and triggers a permanent jump-spam. Reject dy beyond a
+			 * sane upper bound (BOT_JUMP_CROUCH_UPPER * 2 ~ a generous
+			 * vertical reach in any real arena). */
+			const f32 dy_upper_sane = BOT_JUMP_CROUCH_UPPER_UNITS * 2.0f;
+			if (dy >= reach_threshold && dy <= dy_upper_sane) {
 				*out_reason = 2;
 				*out_dy = dy;
 				return true;

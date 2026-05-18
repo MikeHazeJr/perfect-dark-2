@@ -2083,8 +2083,16 @@ void swarmTestTick(void)
 		 *
 		 * Cooldown: snap once per second per bot so the simulation
 		 * doesn't fight the nav layer. Telemetry: SURFACE_LOCO.PIN. */
+		/* Mike directive 2026-05-17 (follow-up): "you need to verify the
+		 * skedar benchmark bots actually run on the walls". Earlier pin
+		 * cooldown of 30 frames let gravity slide the bot ~6 units/sec
+		 * along the wall (the X/Z stayed locked but Y drifted). Switch
+		 * to every-frame pinning so the bot is glued to the wall surface
+		 * for the duration of the wall-tilt; the WALL_BLEND keeps the
+		 * tilt active until the bot moves off the wall, at which point
+		 * the canonical floor sampler reasserts world-up and this pin
+		 * stops firing. */
 		static s32 s_LastWallPin60[TESTSCEN_SWARM_MAX_COUNT];
-		const s32 pin_cooldown_60 = 30; /* twice per second */
 		for (s32 i = 0; i < s_SwarmCount; i++) {
 			struct chrdata *chr = s_Swarm[i].chr;
 			if (!chr || !chr->prop || chr->chrnum < 0) continue;
@@ -2094,8 +2102,6 @@ void swarmTestTick(void)
 			const f32 suz = chr->surface_up[2];
 			const f32 horiz = (sux < 0 ? -sux : sux) + (suz < 0 ? -suz : suz);
 			if (horiz < 0.3f) continue; /* surface_up too vertical; not on a wall */
-			const s32 elapsed = lvframe - s_LastWallPin60[i];
-			if (s_LastWallPin60[i] != 0 && elapsed < pin_cooldown_60) continue;
 
 			struct coord from = chr->prop->pos;
 			/* Cast ~radius * 2 along -surface_up toward the wall surface. */
@@ -2124,21 +2130,24 @@ void swarmTestTick(void)
 			 * = 0..360deg; convert to radians for chrSetPos). */
 			const f32 theta = ((f32)chr->yvisang) * (M_PI / 128.0f);
 			if (chrSetPos(chr, &newpos, newrooms, theta, false)) {
-				s_LastWallPin60[i] = lvframe;
-				/* Note: hit_normal here is hitthing.unk0c from
-				 * bgTestHitInRoom -- bg.c documents this as the
-				 * face normal but in practice the values look like
-				 * a face-tangent vector or unnormalized world-space
-				 * coordinates. We surface it for diagnostic context
-				 * but the authoritative orientation is chr->surface_up
-				 * (already blended toward the wall by the
-				 * SURFACE_LOCO.WALL_BLEND pass in surface_loco.c). */
-				sysLogPrintf(LOG_NOTE,
-					"SURFACE_LOCO.PIN: chrnum=%d slot=%d horiz_up=%.2f "
-					"new_pos=(%.0f,%.0f,%.0f) hit_unk0c=(%.0f,%.0f,%.0f)",
-					(s32)chr->chrnum, i, horiz,
-					newpos.x, newpos.y, newpos.z,
-					hit_normal.x, hit_normal.y, hit_normal.z);
+				/* Kill gravity drift while wall-pinned. Without this
+				 * the per-tick fall integrator (chrTickFall / similar)
+				 * adds ~0.5u/tick downward in world-Y even though the
+				 * bot is on a vertical wall surface. The earlier 30-frame
+				 * cooldown showed ~6u/sec Y drift between pins; zero
+				 * fallspeed.y so the bot is glued. */
+				chr->fallspeed.y = 0.0f;
+				/* Sample every 60 frames (~1s) instead of every tick so
+				 * the log stays readable; the per-tick pin still runs. */
+				if ((lvframe - s_LastWallPin60[i]) >= 60 || s_LastWallPin60[i] == 0) {
+					s_LastWallPin60[i] = lvframe;
+					sysLogPrintf(LOG_NOTE,
+						"SURFACE_LOCO.PIN: chrnum=%d slot=%d horiz_up=%.2f "
+						"pos=(%.0f,%.0f,%.0f) sup=(%.2f,%.2f,%.2f) frame=%d",
+						(s32)chr->chrnum, i, horiz,
+						newpos.x, newpos.y, newpos.z,
+						sux, suy, suz, lvframe);
+				}
 			}
 		}
 	}
