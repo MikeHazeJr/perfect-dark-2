@@ -222,6 +222,17 @@ static const char *g_BootLaunchDifficulty = NULL;
 static const char *g_BootLaunchMpArena    = NULL;
 static const char *g_BootLaunchMpScenario = NULL;
 static s32         g_BootLaunchMpBotCount = 0;
+/* Mike directive 2026-05-18: CLI infrastructure for end-to-end smoke
+ * tests of CS matches. --debug-auto-start-match arms a one-shot that
+ * fires Start Match after the Room dialog opens, skipping the human
+ * keyboard nav. --debug-mp-options seeds g_MpSetup.options with a
+ * caller-supplied hex bitmask so smokes can preset MPOPTION_BOTJUMP /
+ * MPOPTION_AUTORANDOMWEAPON_START / etc. without driving the lobby
+ * UI checkboxes. Both consumed on first frame where the relevant
+ * surface exists. */
+static bool        g_BootDebugAutoStartMatch = false;
+static u32         g_BootDebugMpOptions   = 0;
+static bool        g_BootDebugMpOptionsSet = false;
 static bool        g_BootMountBike        = false;
 /* Latched one-shot for the bike-mount hook; tickled by pdmain.c's
  * mainTick once activeprops is populated and player 0 is alive. */
@@ -781,6 +792,31 @@ static void bootApplyLaunchMpRoom(void)
 		g_BootLaunchMpBotCount);
 }
 
+/* Mike directive 2026-05-18: --debug-mp-options seed. Applied after
+ * matchConfigInit so the bitmask wins over any default the Room would
+ * otherwise set on entry. Idempotent (re-applies on each call). */
+static void bootApplyDebugMpOptions(void)
+{
+	if (!g_BootDebugMpOptionsSet) return;
+	extern struct mpsetup g_MpSetup;
+	g_MpSetup.options = g_BootDebugMpOptions;
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-mp-options applied -- g_MpSetup.options=0x%08x",
+		g_BootDebugMpOptions);
+}
+
+/* Accessor for the Room dialog's first-frame auto-start hook (consumed
+ * in port/fast3d/pdgui_menu_room.cpp). Returns 1 once when set so a
+ * single Start Match press fires; subsequent calls return 0. */
+s32 bootConsumeDebugAutoStartMatch(void)
+{
+	if (!g_BootDebugAutoStartMatch) return 0;
+	g_BootDebugAutoStartMatch = false;
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-auto-start-match consumed");
+	return 1;
+}
+
 /* Arm the --debug-mount-bike one-shot.  The actual mount runs inside
  * mainTick once activeprops is populated; see
  * bootDebugMountBikeTick() below. */
@@ -962,6 +998,7 @@ static void bootApplyCliFastPaths(void)
 	bootApplyLaunchScenario();
 	bootApplyLaunchMission();
 	bootApplyLaunchMpRoom();
+	bootApplyDebugMpOptions();
 	bootApplyDebugMountBike();
 	bootApplyDebugSpawnAt(sysArgGetString("--debug-spawn-at"));
 	bootApplyLaunchLoadAgent(sysArgGetString("--launch-load-agent"));
@@ -1402,6 +1439,16 @@ int main(int argc, const char **argv)
 	g_BootLaunchDifficulty = sysArgGetString("--difficulty");
 	g_BootLaunchMpArena    = sysArgGetString("--launch-mp-room");
 	g_BootMountBike        = sysArgCheck("--debug-mount-bike") ? true : false;
+
+	/* Mike directive 2026-05-18: end-to-end CS smoke infra. */
+	g_BootDebugAutoStartMatch = sysArgCheck("--debug-auto-start-match") ? true : false;
+	{
+		const char *mpopts = sysArgGetString("--debug-mp-options");
+		if (mpopts && mpopts[0]) {
+			g_BootDebugMpOptions = (u32)strtoul(mpopts, NULL, 0);
+			g_BootDebugMpOptionsSet = true;
+		}
+	}
 	/* --launch-mp-room takes three positional args: <arena> <scenario>
 	 * <bot_count>.  sysArgGetString returns the slot immediately after
 	 * the flag; we scan argv linearly for the next two.  Unset on

@@ -2091,8 +2091,20 @@ void swarmTestTick(void)
 		 * for the duration of the wall-tilt; the WALL_BLEND keeps the
 		 * tilt active until the bot moves off the wall, at which point
 		 * the canonical floor sampler reasserts world-up and this pin
-		 * stops firing. */
+		 * stops firing.
+		 *
+		 * Mike directive 2026-05-18 (follow-up): "are you certain the
+		 * bots were walking on the walls and not just stuck in them
+		 * from a bad spawn". The per-frame pin alone can't distinguish
+		 * "wall-walking" from "stuck": both produce constant positions.
+		 * Add SURFACE_LOCO.TRACE telemetry that samples the bot's pos +
+		 * surface_up every 30 frames and reports the DELTA from the
+		 * previous sample so the smoke log shows whether bots are
+		 * translating along the wall plane (real walking) or stationary
+		 * (stuck or AI not commanding movement). */
 		static s32 s_LastWallPin60[TESTSCEN_SWARM_MAX_COUNT];
+		static struct coord s_LastTracePos[TESTSCEN_SWARM_MAX_COUNT];
+		static s32 s_LastTraceFrame[TESTSCEN_SWARM_MAX_COUNT];
 		for (s32 i = 0; i < s_SwarmCount; i++) {
 			struct chrdata *chr = s_Swarm[i].chr;
 			if (!chr || !chr->prop || chr->chrnum < 0) continue;
@@ -2115,14 +2127,45 @@ void swarmTestTick(void)
 			if (frac >= 1.0f) continue;
 
 			/* Hit pos at fraction frac along the ray. Snap chr pos to
-			 * (hit + surface_up * (radius * 0.6)) so the bot's centre
-			 * is one half-radius off the wall surface along its local
-			 * "up". */
-			const f32 offset = chr->radius * 0.6f;
+			 * (hit + surface_up * (radius * 1.05)) so the bot's
+			 * collision capsule (radius=r) sits fully outside the wall
+			 * surface with ~5% clearance. Earlier offset of radius * 0.6
+			 * placed the capsule centre BEHIND the wall plane by 0.4r,
+			 * which clipped the bot into the geometry. (Mike 2026-05-18:
+			 * "are you certain the bots were walking on the walls and
+			 * not just stuck in them from a bad spawn".) */
+			const f32 offset = chr->radius * 1.05f;
 			struct coord newpos;
 			newpos.x = from.x + (to.x - from.x) * frac + sux * offset;
 			newpos.y = from.y + (to.y - from.y) * frac + suy * offset;
 			newpos.z = from.z + (to.z - from.z) * frac + suz * offset;
+
+			/* Sanity probe: after the proposed snap, raycast in -surface_up
+			 * from newpos by `radius` units. The ray should hit the wall
+			 * surface near `radius` units away (frac ~= 1.0 means clear,
+			 * frac near 0 means newpos is INSIDE wall geometry already).
+			 * A small frac == intersection -- log and skip the pin so we
+			 * don't shove the bot deeper inside the wall. */
+			struct coord probe_from = newpos;
+			struct coord probe_to;
+			probe_to.x = newpos.x - sux * chr->radius;
+			probe_to.y = newpos.y - suy * chr->radius;
+			probe_to.z = newpos.z - suz * chr->radius;
+			struct coord intersect_normal = {0.0f, 0.0f, 0.0f};
+			const f32 intersect_frac = capsuleStage2RayCast(&probe_from, &probe_to,
+				chr->prop->rooms, &intersect_normal);
+			if (intersect_frac < 0.15f) {
+				/* The snap landed inside (or very close to inside) wall
+				 * geometry. Skip this pin -- the bot's nav layer will
+				 * probably push them clear next tick. */
+				sysLogPrintf(LOG_WARNING,
+					"SURFACE_LOCO.PIN_INTERSECT: chrnum=%d slot=%d "
+					"intersect_frac=%.2f newpos=(%.0f,%.0f,%.0f) "
+					"sup=(%.2f,%.2f,%.2f) -- skipped (would clip)",
+					(s32)chr->chrnum, i, intersect_frac,
+					newpos.x, newpos.y, newpos.z, sux, suy, suz);
+				continue;
+			}
 			RoomNum newrooms[2];
 			newrooms[0] = chr->prop->rooms[0];
 			newrooms[1] = -1;
@@ -2149,6 +2192,51 @@ void swarmTestTick(void)
 						sux, suy, suz, lvframe);
 				}
 			}
+		}
+
+		/* Trajectory sampler: for the first 16 slots that are currently
+		 * wall-tilted (horiz_up > 0.3), every 30 frames sample the
+		 * position and surface_up and emit a SURFACE_LOCO.TRACE line
+		 * containing the DELTA from the previous sample. This tells us
+		 * whether the bot is translating along the wall plane (dx/dz
+		 * non-zero, dy small relative to the magnitudes -- ie moving
+		 * along the wall) or stationary (all deltas ~0 -- AI not
+		 * commanding movement, or stuck).
+		 *
+		 * 30-frame sample window is short enough that the bot can't
+		 * traverse the whole wall in one sample, but long enough that
+		 * sub-unit jitter doesn't dominate. */
+		for (s32 i = 0, traced = 0; i < s_SwarmCount && traced < 16; i++) {
+			struct chrdata *chr = s_Swarm[i].chr;
+			if (!chr || !chr->prop || chr->chrnum < 0) continue;
+			if (chr->race != RACE_SKEDAR) continue;
+			const f32 sux = chr->surface_up[0];
+			const f32 suy = chr->surface_up[1];
+			const f32 suz = chr->surface_up[2];
+			const f32 horiz = (sux < 0 ? -sux : sux) + (suz < 0 ? -suz : suz);
+			if (horiz < 0.3f) continue;
+			if (s_LastTraceFrame[i] != 0 && (lvframe - s_LastTraceFrame[i]) < 30) continue;
+			const struct coord cur = chr->prop->pos;
+			if (s_LastTraceFrame[i] != 0) {
+				const f32 dx = cur.x - s_LastTracePos[i].x;
+				const f32 dy = cur.y - s_LastTracePos[i].y;
+				const f32 dz = cur.z - s_LastTracePos[i].z;
+				const f32 d  = sqrtf(dx * dx + dy * dy + dz * dz);
+				/* Component of delta along surface_up: if delta is purely
+				 * on the wall plane, this should be ~0; if the bot is
+				 * drifting INTO or OUT of the wall, this is non-zero. */
+				const f32 normal_drift = dx * sux + dy * suy + dz * suz;
+				sysLogPrintf(LOG_NOTE,
+					"SURFACE_LOCO.TRACE: chrnum=%d slot=%d "
+					"pos=(%.0f,%.0f,%.0f) delta=(%.1f,%.1f,%.1f) "
+					"|d|=%.1f normal_drift=%.2f sup=(%.2f,%.2f,%.2f)",
+					(s32)chr->chrnum, i,
+					cur.x, cur.y, cur.z, dx, dy, dz, d, normal_drift,
+					sux, suy, suz);
+			}
+			s_LastTracePos[i] = cur;
+			s_LastTraceFrame[i] = lvframe;
+			traced++;
 		}
 	}
 

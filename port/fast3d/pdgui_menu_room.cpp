@@ -3949,7 +3949,18 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             ImGui::SetKeyboardFocusHere(0);
             s_StartMatchFocusPending = false;
         }
-        if (ImGui::Button("Start Match", ImVec2(startW, btnH))) {
+        /* Mike directive 2026-05-18: --debug-auto-start-match consumer.
+         * Fires Start Match once on the first Room frame where the
+         * leader-only Start Match block runs, so smokes can drive an
+         * end-to-end CS match without keyboard nav. The CLI flag is
+         * one-shot (see port/src/main.c::bootConsumeDebugAutoStartMatch). */
+        extern s32 bootConsumeDebugAutoStartMatch(void);
+        const bool autoStart = (bootConsumeDebugAutoStartMatch() != 0);
+        if (autoStart) {
+            sysLogPrintf(LOG_NOTE,
+                "ROOM: --debug-auto-start-match -- firing Start Match");
+        }
+        if (autoStart || ImGui::Button("Start Match", ImVec2(startW, btnH))) {
             pdguiPlaySound(PDGUI_SND_SELECT);
             menuGraphFireSceneOp(MENU_TYPE_ROOM, "start_match",
                                  roomGraphStartMatch, NULL);

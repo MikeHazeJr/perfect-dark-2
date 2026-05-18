@@ -441,6 +441,17 @@ f32 spawnPoolValidateCandidate(const struct coord *pos, RoomNum room,
 #define SPAWN_WIGGLE_OFFSETS      4
 #define SPAWN_WIGGLE_DISTANCE     20.0f
 
+/* Swirl (Mike directive 2026-05-18): when push+wiggle still fails,
+ * sample a polar ring around the candidate. Angles per ring x radius
+ * steps = SPAWN_SWIRL_ANGLES * SPAWN_SWIRL_RADII tests. With 8 angles
+ * and 3 radii (40, 80, 120u) this is 24 extra position tests; each is
+ * a positionIsClear which fans out to a small ray bundle. Budget
+ * acceptable for spawn-time (not per-tick). */
+#define SPAWN_SWIRL_ANGLES        8
+#define SPAWN_SWIRL_RADII         3
+#define SPAWN_SWIRL_RADIUS_STEP   40.0f
+#define SPAWN_SWIRL_RADIUS_BASE   40.0f
+
 /* Headroom safety margin above chr_height. A chr 180 tall in a 200-tall
  * vent is acceptable; in a 185-tall vent it's a height failure. */
 #define SPAWN_HEIGHT_SAFETY       16.0f
@@ -642,7 +653,60 @@ s32 spawnPoolCorrectPosition(struct coord *pos, RoomNum *room,
 		}
 	}
 
-	/* Step 5: unfixable. Caller should pick a different candidate. */
+	/* Step 5: polar swirl (Mike directive 2026-05-18). The linear wiggle
+	 * walks one tangent line; if the geometry is awkward (corner, narrow
+	 * channel, tight pillar arrangement), neither end of the line is
+	 * clear. Test a ring of positions at SPAWN_SWIRL_ANGLES around the
+	 * original candidate, repeated at increasing radii. First clear hit
+	 * wins. This unblocks spawn failures where a slight rotation around
+	 * the candidate would have found a clear spot the push-out-of-wall
+	 * line missed.
+	 *
+	 * Cost: SPAWN_SWIRL_ANGLES * SPAWN_SWIRL_RADII positionIsClear calls
+	 * = 24 tests max. Each is a fan of ~12 rays; ~290 raycasts worst case
+	 * at spawn time. Acceptable for spawn-time placement; never runs
+	 * per-tick. */
+	const struct coord origin = *pos;
+	for (s32 ring = 0; ring < SPAWN_SWIRL_RADII; ring++) {
+		const f32 r = SPAWN_SWIRL_RADIUS_BASE + (f32)ring * SPAWN_SWIRL_RADIUS_STEP;
+		for (s32 a = 0; a < SPAWN_SWIRL_ANGLES; a++) {
+			const f32 theta = (2.0f * 3.14159265f) * ((f32)a / (f32)SPAWN_SWIRL_ANGLES)
+				+ ((f32)ring * 0.3927f);  /* rotate each ring slightly so
+				                            * the angle samples don't all
+				                            * line up radially -- gives
+				                            * better coverage of awkward
+				                            * geometry */
+			struct coord swirl_pos;
+			swirl_pos.x = origin.x + r * cosf(theta);
+			swirl_pos.y = origin.y;
+			swirl_pos.z = origin.z + r * sinf(theta);
+
+			RoomNum swirl_room = *room;
+			if (!bgTestPosInRoom(&swirl_pos, swirl_room)) {
+				RoomNum inrooms[21];
+				RoomNum aboverooms[21];
+				RoomNum bestroom = -1;
+				bgFindRoomsByPos(&swirl_pos, inrooms, aboverooms, 20, &bestroom);
+				if (inrooms[0] >= 0) swirl_room = inrooms[0];
+				else if (bestroom >= 0) swirl_room = bestroom;
+				else continue;
+			}
+
+			if (s_positionIsClear(&swirl_pos, swirl_room, chr_radius, chr_height)) {
+				*pos  = swirl_pos;
+				*room = swirl_room;
+				return 1;
+			}
+		}
+	}
+
+	/* Step 6: candidate could not be corrected. After push-out-of-wall,
+	 * linear tangent wiggle, and 24-position polar swirl, no clear
+	 * capsule fits within ~120u of the original point. This particular
+	 * candidate is dead; the caller should pick a different candidate
+	 * point entirely (a different ring slot, a different volume sample,
+	 * or a jittered retry on a future tick once geometry / chr layout
+	 * may have shifted). Not a code bug -- a geometric one. */
 	return 0;
 }
 
