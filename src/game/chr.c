@@ -47,6 +47,7 @@
 #include "lib/mtx.h"
 #include "lib/anim.h"
 #include "lib/collision.h"
+#include "lib/capsule.h"
 #include "data.h"
 #include "gbiex.h"
 #include "types.h"
@@ -549,6 +550,22 @@ bool chr0f01f264(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 arg
 	func0f065e74(pos, rooms, &newpos, newrooms);
 	chr0f021fa8(chr, &newpos, newrooms);
 	chrSetPerimEnabled(chr, false);
+#if PC_CAPSULE_ENABLED
+	if (arg3 != 0.0f) {
+		struct capsulecast sweep;
+		sweep.start = *pos;
+		sweep.radius = radius;
+		sweep.ymax_offset = ymax - chr->prop->pos.y;
+		sweep.ymin_offset = ymin - chr->prop->pos.y;
+		sweep.move.x = 0.0f;
+		sweep.move.y = arg3;
+		sweep.move.z = 0.0f;
+		roomsCopy(rooms, sweep.rooms);
+		sweep.cdtypes = CDTYPE_ALL;
+		sweep.selfprop = chr->prop;
+		result = capsuleSweep(&sweep) < 1.0f ? CDRESULT_COLLISION : CDRESULT_NOCOLLISION;
+	} else
+#endif
 	result = cdTestVolume(&newpos, radius, newrooms, CDTYPE_ALL, CHECKVERTICAL_YES,
 			ymax - chr->prop->pos.y,
 			ymin - chr->prop->pos.y);
@@ -606,6 +623,23 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 		}
 
 		ground = cdFindGroundInfoAtCyl(arg2, chr->radius, spfc, &chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
+
+#if PC_CAPSULE_ENABLED
+		{
+			f32 bboxradius;
+			f32 bboxymax;
+			f32 bboxymin;
+			struct coord rendered_normal = {0.0f, 0.0f, 0.0f};
+			chrGetBbox(prop, &bboxradius, &bboxymax, &bboxymin);
+			f32 rendered_ground = capsuleFindRenderedFloor(prop, arg2,
+				bboxradius, bboxymin - prop->pos.y, spfc, 240.0f,
+				&rendered_normal);
+			if (rendered_ground > ground + 1.0f
+					&& rendered_ground <= bboxymin + 20.0f) {
+				ground = rendered_ground;
+			}
+		}
+#endif
 
 		if (ground < -1000000) {
 			ground = 0.0f;
@@ -877,6 +911,23 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 					ground = cdFindGroundInfoAtCyl(sp98, chr->radius, sp94,
 							&chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
 
+#if PC_CAPSULE_ENABLED
+					{
+						f32 bboxradius;
+						f32 bboxymax;
+						f32 bboxymin;
+						struct coord rendered_normal = {0.0f, 0.0f, 0.0f};
+						chrGetBbox(prop, &bboxradius, &bboxymax, &bboxymin);
+						f32 rendered_ground = capsuleFindRenderedFloor(prop,
+							sp98, bboxradius, bboxymin - prop->pos.y, sp94,
+							240.0f, &rendered_normal);
+						if (rendered_ground > ground + 1.0f
+								&& rendered_ground <= bboxymin + 20.0f) {
+							ground = rendered_ground;
+						}
+					}
+#endif
+
 #if VERSION >= VERSION_NTSC_1_0
 					if (chr->aibot
 							&& chr->aibot->forceslowupdates == 0
@@ -899,6 +950,22 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 
 						ground = cdFindGroundInfoAtCyl(arg2, chr->radius, spfc,
 								&chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
+#if PC_CAPSULE_ENABLED
+						{
+							f32 bboxradius;
+							f32 bboxymax;
+							f32 bboxymin;
+							struct coord rendered_normal = {0.0f, 0.0f, 0.0f};
+							chrGetBbox(prop, &bboxradius, &bboxymax, &bboxymin);
+							f32 rendered_ground = capsuleFindRenderedFloor(prop,
+								arg2, bboxradius, bboxymin - prop->pos.y,
+								spfc, 240.0f, &rendered_normal);
+							if (rendered_ground > ground + 1.0f
+									&& rendered_ground <= bboxymin + 20.0f) {
+								ground = rendered_ground;
+							}
+						}
+#endif
 					}
 #endif
 

@@ -36,6 +36,7 @@
 #include "game/splat.h"
 #include "bss.h"
 #include "lib/collision.h"
+#include "lib/capsule.h"
 #include "lib/model.h"
 #include "lib/rng.h"
 #include "lib/mtx.h"
@@ -3162,6 +3163,68 @@ static s32 botJumpChrIndex(struct chrdata *chr)
 	return idx;
 }
 
+static bool botJumpProbeObstacle(struct chrdata *chr, f32 *out_dy)
+{
+	if (!chr || !chr->prop) return false;
+
+	f32 radius;
+	f32 ymax;
+	f32 ymin;
+	chrGetBbox(chr->prop, &radius, &ymax, &ymin);
+
+	const f32 angle = chrGetInverseTheta(chr);
+	const f32 fx = sinf(angle);
+	const f32 fz = cosf(angle);
+
+	struct capsulecast low;
+	low.start = chr->prop->pos;
+	low.radius = radius;
+	low.ymin_offset = ymin - chr->prop->pos.y;
+	low.ymax_offset = ymax - chr->prop->pos.y;
+	low.move.x = fx * BOT_JUMP_FORWARD_PROBE_UNITS;
+	low.move.y = 0.0f;
+	low.move.z = fz * BOT_JUMP_FORWARD_PROBE_UNITS;
+	roomsCopy(chr->prop->rooms, low.rooms);
+	low.cdtypes = CDTYPE_ALL;
+	low.selfprop = chr->prop;
+
+	if (capsuleSweep(&low) >= 1.0f) {
+		return false;
+	}
+
+	struct capsulecast raised = low;
+	raised.start.y += BOT_JUMP_STEP_UP_UNITS;
+	if (capsuleSweep(&raised) < 1.0f) {
+		return false;
+	}
+
+	struct coord landing = raised.start;
+	landing.x += raised.move.x;
+	landing.z += raised.move.z;
+	RoomNum landingrooms[8];
+	func0f065e74(&chr->prop->pos, chr->prop->rooms, &landing, landingrooms);
+	chr0f021fa8(chr, &landing, landingrooms);
+
+	struct prop *floorprop = NULL;
+	u16 floorflags = 0;
+	f32 floor = capsuleFindFloorForProp(chr->prop, &landing, radius,
+		ymin - chr->prop->pos.y, ymax - chr->prop->pos.y,
+		landingrooms, CDTYPE_ALL, &floorprop, &floorflags);
+
+	if (floor < -100000.0f) {
+		return false;
+	}
+	if (floor < chr->manground - 8.0f) {
+		return false;
+	}
+	if (floor > chr->manground + BOT_JUMP_CROUCH_UPPER_UNITS) {
+		return false;
+	}
+
+	*out_dy = floor - chr->manground;
+	return true;
+}
+
 /* Evaluate jump conditions for one bot, return decision in *out_reason
  * (0 = no jump, 1 = obstacle, 2 = target-Y reach, 3 = tactical reserved)
  * and out_dy (delta Y the jump aims to clear).
@@ -3170,9 +3233,9 @@ static s32 botJumpChrIndex(struct chrdata *chr)
  * attack target is on a higher platform. Difficulty differs by reach
  * threshold -- easier bots need a larger Y delta before they decide to
  * jump (i.e. they don't try fancy small-step navigation), HARD+ bots
- * react to smaller deltas. Obstacle-jump (move-blocked-but-clear-above)
- * is a follow-up slice -- requires a stuck-detection signal that the
- * current aibot struct does not directly expose. */
+ * react to smaller deltas. Obstacle-jump uses the same capsule solver as
+ * player vertical motion: low forward sweep blocked, raised sweep clear,
+ * and a landing floor exists. */
 static bool botJumpDecide(struct chrdata *chr, s32 *out_reason, f32 *out_dy)
 {
 	if (!chr || !chr->aibot || !chr->prop) return false;
@@ -3194,6 +3257,11 @@ static bool botJumpDecide(struct chrdata *chr, s32 *out_reason, f32 *out_dy)
 	case BOTDIFF_PERFECT:
 	case BOTDIFF_DARK:    reach_threshold = BOT_JUMP_REACH_UP_UNITS - 10.0f; break;
 	default:              reach_threshold = 60.0f;  break;
+	}
+
+	if (botJumpProbeObstacle(chr, out_dy)) {
+		*out_reason = 1;
+		return true;
 	}
 
 	if (chr->aibot->attackpropnum >= 0) {

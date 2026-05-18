@@ -10,7 +10,7 @@
 
 The queue has three lanes after the context rebuild lands. Lane order is sequential; do not start the next until the previous is at a stable stopping point.
 
-**Tooling note (2026-05-18)**: Kanban pending-completion Review panel title-focus polish shipped. Rows now lead with the high-level card title; verbose completion summary / verification / evidence / artifact details are collapsed under `Review details`. No open follow-up.
+**Tooling note (2026-05-18)**: Kanban board status-tab refactor shipped. Active Kanban now displays one status at a time (`Backlogged`, `Active`, `Blocked`, `Done`) with a scoped dropdown for pillars, flags, and priority thresholds; cards flow in a responsive grid instead of height-limited columns. Daily Flow is now a top-level tab beside Bug Tracker and starts collapsed by default. Pending-completion Review panel title-focus polish remains shipped. No open follow-up.
 
 ### 1. Catalog - Weapons F11-F13 data move - LANE CLOSED 2026-04-30
 
@@ -312,7 +312,7 @@ Follow-ups surfaced by the day's ship batch on `dev`. Tracked in detail in [sess
 
 - **A5 (B-308 v1 limits) Track 2g GPU swarm dedicated-server Mode A**. `pd-server` has no GL context today; Mode A requires either CPU swarm compute on the dedicated path (broadcasting the same SVC_GPUSWARM_STATE 0x6c opcode) or a headless-GL path. Tracked as v1-limitation (a) under B-333.
 
-- **G (c038) Wall-jump physics smoke test** -- **UNBLOCKED**. `PC_CAPSULE_ENABLED = 1` shipped at `4e620ae8` (2026-05-15 23:07) activating the Stage-1 capsule sweep on the player movement path. The five dormant `CAPSULE_LOG` markers in [src/lib/capsule.c](../../src/lib/capsule.c) now fire. Smoke test author can write the missing `wall_jump_capsule_smoke.json` asserting on `CAPSULE: sweep entered` / `CAPSULE: cdTestVolume hit` markers after teleport via `--debug-spawn-at` + scripted `ACTION_JUMP` + `ACTION_AXIS_MOVE_Y` at known timings. See `tools/kanban/state.json` c038 + c3738 cards.
+- **G (c038) Jump surface collision fix** -- **IMPLEMENTED + BUILD/TEST VERIFIED 2026-05-18; pending playtest.** Stage-1 activation was not enough: the live Stage 2 path was a single center ray and still missed capsule skin/top/bottom contacts, rendered-only floors, angled ceilings, prop-model tops, and bot vertical movement. Current slice implemented the generic `selfprop`-aware multi-sample rendered capsule sweep in [src/lib/capsule.c](../../src/lib/capsule.c), wired player `bondwalk` and bot `chr` vertical paths to it, added bot obstacle-jump decision probes under the existing `MPOPTION_BOTJUMP` gate, replaced the stale design-only test with `[physics][jump]` static/fixture/normal/bot coverage, and kept `wall_jump_capsule_smoke.json` as activation coverage until Mike captures repro-grade bad-surface coordinates. Bug ledger: B-335. Verification: queued isolated `jumpfix` client/updater PASS, `jumpfix` tests target PASS, direct `[physics][jump]` pd-tests PASS (42 assertions / 4 cases). See `tools/kanban/state.json` c038.
 
 - **B-329 / B-330 / B-331 / B-332 playtest verification** -- all four shipped 2026-05-16 as FIXED-PENDING-PLAYTEST. Recursive smoke verification covers the swarm ladder (swarm_gpu_smoke 4 -> 768 PASS 26/26, swarm_cpu_smoke 4 -> 512 PASS 22/22 with 30s dwell at 256). B-329 needs manual verification: launch Falcon-2 Airbase mission or Farsight Combat Sim and watch `bgunRender` for `animmode != 0` / `animnum > 0` on first FIRE state transition.
 

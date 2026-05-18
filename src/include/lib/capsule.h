@@ -4,15 +4,10 @@
 /* Set to 1 to enable the custom swept-capsule collision system.
  * Set to 0 to fall back to the original N64 collision behaviour.
  *
- * Status: ENABLED (Track G, c038, 2026-05-15) — Stage 1 of the two-stage
- * design from context/designs/physics-collision/jump-two-stage-sweep.md.
- * Activates the three #if PC_CAPSULE_ENABLED-gated call sites in
- * src/game/bondwalk.c (vv_manground prop-surface probe ~1047, vertical
- * jump sweep ~1240, post-tryMoveUpwards ceiling clamp ~1358). All three
- * sites are additive guards on the legacy pipeline — they tighten the
- * existing clamp logic without replacing it. Stage 2 (per-triangle BG
- * validation via bgTestHitInRoom for rendered-only geometry) is a
- * follow-up slice; the design doc tracks it as migration steps 2-4. */
+ * Status: ENABLED (Track G, c038, 2026-05-18). Stage 1 keeps the legacy
+ * cdTestVolume broadphase authoritative. Stage 2 samples the rendered BG
+ * and prop model triangles around the full capsule skin so unflagged
+ * sloped ceilings, table tops, and half walls can still block movement. */
 #define PC_CAPSULE_ENABLED 1
 
 #include <ultra64.h>
@@ -46,6 +41,36 @@
 #define CAPSULE_HIT_WALL    3
 #define CAPSULE_HIT_PROP    4
 
+#define CAPSULE_NORMAL_FLOOR_MIN_Y    0.35f
+#define CAPSULE_NORMAL_CEILING_MAX_Y -0.35f
+
+static inline void capsuleOrientNormalAgainstMove(struct coord *normal,
+		const struct coord *move)
+{
+	if (normal && move) {
+		f32 dot = normal->x * move->x + normal->y * move->y + normal->z * move->z;
+		if (dot > 0.0f) {
+			normal->x = -normal->x;
+			normal->y = -normal->y;
+			normal->z = -normal->z;
+		}
+	}
+}
+
+static inline s32 capsuleClassifyNormal(const struct coord *normal)
+{
+	if (!normal) {
+		return CAPSULE_HIT_WALL;
+	}
+	if (normal->y >= CAPSULE_NORMAL_FLOOR_MIN_Y) {
+		return CAPSULE_HIT_FLOOR;
+	}
+	if (normal->y <= CAPSULE_NORMAL_CEILING_MAX_Y) {
+		return CAPSULE_HIT_CEILING;
+	}
+	return CAPSULE_HIT_WALL;
+}
+
 struct capsulecast {
 	/* Input: capsule definition */
 	struct coord start;       /* starting position (player eye/prop pos) */
@@ -59,6 +84,7 @@ struct capsulecast {
 	/* Input: world context */
 	RoomNum rooms[8];         /* rooms the player is in (copied) */
 	u32 cdtypes;              /* collision types to test (CDTYPE_*) */
+	struct prop *selfprop;    /* moving prop; pass explicitly for movement */
 
 	/* Output: result */
 	s32 hittype;              /* CAPSULE_HIT_* */
@@ -67,6 +93,7 @@ struct capsulecast {
 	struct coord hitnormal;   /* surface normal at contact (approximate) */
 	struct prop *hitprop;     /* prop that was hit, or NULL for BG */
 	u16 hitgeoflags;          /* geo flags of the surface hit */
+	u8 hitfromrendered;       /* 1 if Stage 2 rendered triangles supplied the hit */
 };
 
 /**
@@ -96,6 +123,11 @@ f32 capsuleSweep(struct capsulecast *cast);
  * @return          The Y coordinate of the floor, or -30000 if none found
  */
 f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
+                     RoomNum *rooms, u32 cdtypes,
+                     struct prop **out_prop, u16 *out_flags);
+
+f32 capsuleFindFloorForProp(struct prop *selfprop, struct coord *pos,
+                     f32 radius, f32 ymin_off, f32 ymax_off,
                      RoomNum *rooms, u32 cdtypes,
                      struct prop **out_prop, u16 *out_flags);
 
@@ -137,6 +169,14 @@ f32 capsuleStage2RayCast(const struct coord *from, const struct coord *to,
 f32 capsuleStage2FloorProbe(const struct coord *pos, const RoomNum *rooms,
                             f32 maxdepth);
 
+f32 capsuleFindRenderedFloor(struct prop *selfprop, const struct coord *pos,
+                     f32 radius, f32 ymin_off, const RoomNum *rooms,
+                     f32 maxdepth, struct coord *out_normal);
+
+f32 capsuleFindRenderedCeiling(struct prop *selfprop, const struct coord *pos,
+                     f32 radius, f32 ymax_off, const RoomNum *rooms,
+                     f32 maxheight, struct coord *out_normal);
+
 /**
  * Find the ceiling height above the capsule's current position using an
  * upward capsule cast.
@@ -151,6 +191,11 @@ f32 capsuleStage2FloorProbe(const struct coord *pos, const RoomNum *rooms,
  * @return          The Y coordinate of the ceiling, or 99999 if none found
  */
 f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
+                       RoomNum *rooms, u32 cdtypes,
+                       struct prop **out_prop);
+
+f32 capsuleFindCeilingForProp(struct prop *selfprop, struct coord *pos,
+                       f32 radius, f32 ymin_off, f32 ymax_off,
                        RoomNum *rooms, u32 cdtypes,
                        struct prop **out_prop);
 

@@ -291,6 +291,28 @@ s32 bwalkTryMoveUpwards(f32 amount)
 
 	propSetPerimEnabled(g_Vars.currentplayer->prop, true);
 
+#if PC_CAPSULE_ENABLED
+	if (result == CDRESULT_NOCOLLISION && amount > 0.1f) {
+		struct capsulecast sweep;
+		sweep.start.x = g_Vars.currentplayer->prop->pos.x;
+		sweep.start.y = g_Vars.currentplayer->prop->pos.y;
+		sweep.start.z = g_Vars.currentplayer->prop->pos.z;
+		sweep.radius = radius;
+		sweep.ymin_offset = ymin - g_Vars.currentplayer->prop->pos.y;
+		sweep.ymax_offset = ymax - g_Vars.currentplayer->prop->pos.y;
+		sweep.move.x = 0.0f;
+		sweep.move.y = amount;
+		sweep.move.z = 0.0f;
+		roomsCopy(g_Vars.currentplayer->prop->rooms, sweep.rooms);
+		sweep.cdtypes = types;
+		sweep.selfprop = g_Vars.currentplayer->prop;
+
+		if (capsuleSweep(&sweep) < 1.0f) {
+			result = CDRESULT_COLLISION;
+		}
+	}
+#endif
+
 	if (result == CDRESULT_NOCOLLISION) {
 		g_Vars.currentplayer->prop->pos.y = newpos.y;
 		propDeregisterRooms(g_Vars.currentplayer->prop);
@@ -1045,62 +1067,31 @@ void bwalkUpdateVertical(void)
 	}
 
 #if PC_CAPSULE_ENABLED
-	/* PC: Capsule-based prop surface detection — secondary fallback after
+	/* PC: Capsule-based prop and rendered surface detection. Secondary fallback after
 	 * cdFindGroundInfoAtCyl. Most prop surfaces are now found by the primary
 	 * ground detection (auto-generated floor tiles from model bounding boxes).
-	 * This probe catches edge cases where the capsule system detects surfaces
-	 * that the tile system misses.
+	 * This probe catches edge cases where the capsule system or rendered
+	 * triangle skin detects surfaces that the tile system misses.
 	 *
 	 * Only skip during strong upward movement (jump ascent) — during descent
 	 * and when grounded, the probe should always run. */
 	if (g_Vars.currentplayer->vv_manground > ground + 2.0f && g_Vars.bondcollisions
 			&& g_Vars.currentplayer->bdeltapos.y <= 4.0f) {
 		struct coord floorpos;
-		struct prop *floorprop = NULL;
-		u16 capsulefloorflags = 0;
 
 		floorpos.x = g_Vars.currentplayer->prop->pos.x;
 		floorpos.y = g_Vars.currentplayer->prop->pos.y;
 		floorpos.z = g_Vars.currentplayer->prop->pos.z;
 
-		f32 capsuleGround = capsuleFindFloor(&floorpos, radius,
+		f32 capsuleGround = capsuleFindFloorForProp(g_Vars.currentplayer->prop, &floorpos, radius,
 				ymin - g_Vars.currentplayer->prop->pos.y,
 				ymax - g_Vars.currentplayer->prop->pos.y,
 				g_Vars.currentplayer->prop->rooms,
-				CDTYPE_ALL, &floorprop, &capsulefloorflags);
+				CDTYPE_ALL, NULL, NULL);
 
 		if (capsuleGround > ground + 1.0f
-				&& capsuleGround <= g_Vars.currentplayer->vv_manground + 5.0f) {
+				&& capsuleGround <= g_Vars.currentplayer->vv_manground + 20.0f) {
 			ground = capsuleGround;
-		}
-	}
-
-	/* c038 Stage 2 (Mike directive 2026-05-17): rendered-triangle floor
-	 * probe. cdFindGroundInfoAtCyl only sees GEOFLAG_FLOOR tiles, and the
-	 * Stage 1 capsuleFindFloor only sees AABB/cylinder colliders. Tables,
-	 * half walls, and other rendered-only surfaces are invisible to both.
-	 * Probe the rendered display-list triangles via bgTestHitInRoom and
-	 * take the higher of (legacy ground, Stage 1 capsule ground, Stage 2
-	 * rendered floor) so the player lands on the visible surface instead
-	 * of falling through it.
-	 *
-	 * Same gate as Stage 1 (player must be above the legacy ground +
-	 * not in strong ascent) to avoid running on every airborne frame
-	 * while the player is far above any rendered geometry. */
-	if (g_Vars.currentplayer->vv_manground > ground + 2.0f && g_Vars.bondcollisions
-			&& g_Vars.currentplayer->bdeltapos.y <= 4.0f) {
-		struct coord probepos;
-		probepos.x = g_Vars.currentplayer->prop->pos.x;
-		probepos.y = g_Vars.currentplayer->prop->pos.y;
-		probepos.z = g_Vars.currentplayer->prop->pos.z;
-		/* Probe down to ~200u below the player's eye; matches typical
-		 * table / half-wall height gap. The maxdepth cap also bounds
-		 * the per-frame cost (bg AABB cull + per-tri test stops at the
-		 * first hit closer than this). */
-		f32 rendered_y = capsuleStage2FloorProbe(&probepos, g_Vars.currentplayer->prop->rooms, 200.0f);
-		if (rendered_y > ground + 1.0f
-				&& rendered_y <= g_Vars.currentplayer->vv_manground + 5.0f) {
-			ground = rendered_y;
 		}
 	}
 #endif /* PC_CAPSULE_ENABLED */
@@ -1280,6 +1271,7 @@ void bwalkUpdateVertical(void)
 			sweep.move.z = 0.0f;
 			roomsCopy(g_Vars.currentplayer->prop->rooms, sweep.rooms);
 			sweep.cdtypes = g_Vars.bondcollisions ? CDTYPE_ALL : CDTYPE_BG;
+			sweep.selfprop = g_Vars.currentplayer->prop;
 
 			f32 safefrac = capsuleSweep(&sweep);
 
@@ -1303,6 +1295,12 @@ void bwalkUpdateVertical(void)
 						&& (sweep.hittype == CAPSULE_HIT_CEILING
 						|| sweep.hittype == CAPSULE_HIT_WALL)) {
 					fallspeed = 0.0f;
+				} else if (verticalDelta < 0.0f
+						&& (sweep.hittype == CAPSULE_HIT_FLOOR
+						|| (sweep.hittype == CAPSULE_HIT_PROP
+							&& sweep.hitnormal.y >= CAPSULE_NORMAL_FLOOR_MIN_Y))) {
+					ground = newmanground;
+					g_Vars.currentplayer->vv_ground = ground;
 				}
 			}
 		}
@@ -1397,7 +1395,7 @@ void bwalkUpdateVertical(void)
 				ceilpos.y = g_Vars.currentplayer->prop->pos.y;
 				ceilpos.z = g_Vars.currentplayer->prop->pos.z;
 
-				f32 ceilY = capsuleFindCeiling(&ceilpos, radius,
+				f32 ceilY = capsuleFindCeilingForProp(g_Vars.currentplayer->prop, &ceilpos, radius,
 						ymin - g_Vars.currentplayer->prop->pos.y,
 						ymax - g_Vars.currentplayer->prop->pos.y,
 						g_Vars.currentplayer->prop->rooms,

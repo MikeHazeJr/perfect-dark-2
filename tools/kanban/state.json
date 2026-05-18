@@ -1060,17 +1060,17 @@
     },
     {
       "id": "c038",
-      "title": "Physics-collision: wall-jump glitch (two-stage capsule sweep design landed)",
-      "description": "Jump sweep uses cdTestVolume substrate (flagged tiles + AABB props + chr cylinders); rendered display-list triangles without WALL-flagged tiles pass through. Two-stage upgrade designed at context/designs/physics-collision/jump-two-stage-sweep.md (2026-05-13). Implementation deferred pending Mike's approval of the design.",
+      "title": "Physics-collision: jump surface collision multi-sample capsule sweep",
+      "description": "Jump/vertical movement now needs the full c038 surface-miss fix: Stage 1 keeps cdTestVolume authoritative, Stage 2 samples rendered BG/model triangles around the full capsule skin, floor/ceiling probes filter by oriented normals, and player + bot vertical paths share the generic moving-prop solver.",
       "pillar": "physics-collision",
-      "column": "backlog",
+      "column": "active",
       "order": 21000,
       "priority": 3,
-      "notes": "2026-05-17 ship: bot jumping in normal Combat Sim play (toggleable, OFF by default). MPOPTION_BOTJUMP 0x10000000 + UI toggle in pdgui_menu_room.cpp 'Bot Jumping' alongside Fast Movement (3fe1f005). Design doc at context/designs/in-flight/bot-jumping-combat-sim.md (fe27da37). Bot AI decision in src/game/bot.c::botJumpDecide + botJumpTickEval with wall-clock budget (200 evals/sec across active bots, frame-rate independent via lvframe60 * 17 ms). Difficulty-tiered reach threshold: MEAT/EASY 90u, NORMAL 60u, HARD 40u, PERFECT/DARK 30u. Execution writes chr->fallspeed.y = 8.2f + chr->manground +1.0 nudge (mirrors player bondwalk.c:907-948). Crouch-jump +1.5 boost gated on HARD+ AND dy in the just-barely zone (30-60u). Telemetry: BOT.JUMP: chrnum=N reason=X target_y=Y dy=N diff=N boost=N. Live verification requires CS playtest with a stage that has a height-differentiated layout; smoke harness can't easily script the geometry. Open follow-up: obstacle-jump trigger (move-blocked-but-clear-above) needs a stuck-detection signal that aibot struct doesn't currently expose.  Two-stage capsule sweep design (the wall-jump glitch this card was originally about) still in backlog -- 5 open questions in jump-two-stage-sweep.md:113-118 pending Mike's call.",
+      "notes": "2026-05-17 ship: bot jumping in normal Combat Sim play (toggleable, OFF by default). MPOPTION_BOTJUMP 0x10000000 + UI toggle in pdgui_menu_room.cpp 'Bot Jumping' alongside Fast Movement (3fe1f005). 2026-05-18 implementation: src/lib/capsule.c adds generic selfprop-aware multi-sample rendered sweep over top/mid/bottom + lateral capsule skin, keeps Stage 1 authoritative when Stage 2 misses, and adds rendered floor/ceiling probes with oriented normal filters plus side-effect-free rendered prop-model rays. Player bondwalk vertical path now calls the generic floor/ceiling helpers and reconciles rendered floor sweep hits into current ground. Bot chr vertical path and botJumpDecide use the same solver, including obstacle-jump (low sweep blocked, raised sweep clear, landing floor exists). Verification: queued isolated jumpfix client/updater PASS, tests target PASS, direct [physics][jump] pd-tests PASS (42 assertions / 4 cases). Pending Mike playtest and repro-coordinate smoke.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-17T20:30:00Z"
+      "updated": "2026-05-18T00:00:00Z"
     },
     {
       "id": "c081",

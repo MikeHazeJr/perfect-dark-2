@@ -13,13 +13,16 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/bg.h"
+#include "game/chr.h"
 #include "game/prop.h"
+#include "game/propobj.h"
 #include "game/bondmove.h"
 #include "game/player.h"
 #include "game/playermgr.h"
 #include "bss.h"
 #include "lib/collision.h"
 #include "lib/capsule.h"
+#include "lib/mtx.h"
 #include "data.h"
 #include "types.h"
 #include "system.h"
@@ -52,17 +55,304 @@
 /* Sub-step size for floor/ceiling binary search */
 #define CAPSULE_BSEARCH_ITERS 12
 
+#define CAPSULE_RENDERED_SAMPLE_YS     3
+#define CAPSULE_RENDERED_SAMPLE_SKINS  5
+#define CAPSULE_RENDERED_HITMASK_ALL \
+	((1u << CAPSULE_HIT_FLOOR) | (1u << CAPSULE_HIT_CEILING) | (1u << CAPSULE_HIT_WALL))
+#define CAPSULE_RENDERED_HITMASK_FLOOR   (1u << CAPSULE_HIT_FLOOR)
+#define CAPSULE_RENDERED_HITMASK_CEILING (1u << CAPSULE_HIT_CEILING)
+#define CAPSULE_RENDERED_HITMASK_BLOCKING \
+	((1u << CAPSULE_HIT_CEILING) | (1u << CAPSULE_HIT_WALL))
+
+static struct prop *capsuleCurrentPlayerProp(void)
+{
+	if (g_Vars.currentplayer) {
+		return g_Vars.currentplayer->prop;
+	}
+	return NULL;
+}
+
+static void capsuleSetSelfPerim(struct prop *selfprop, bool enable)
+{
+	if (selfprop) {
+		propSetPerimEnabled(selfprop, enable);
+	}
+}
+
+static void capsuleFindRoomsForPos(struct prop *selfprop, const struct coord *start,
+		const RoomNum *startrooms, const struct coord *pos, RoomNum *outrooms)
+{
+	roomsCopy((RoomNum *)startrooms, outrooms);
+	func0f065e74((struct coord *)start, (RoomNum *)startrooms,
+		(struct coord *)pos, outrooms);
+
+	if (!selfprop) {
+		return;
+	}
+
+	if (selfprop->type == PROPTYPE_PLAYER && g_Vars.currentplayer
+			&& selfprop == g_Vars.currentplayer->prop) {
+		bmoveFindEnteredRoomsByPos(g_Vars.currentplayer, (struct coord *)pos, outrooms);
+	} else if (selfprop->type == PROPTYPE_CHR && selfprop->chr) {
+		chr0f021fa8(selfprop->chr, (struct coord *)pos, outrooms);
+	}
+}
+
+static void capsuleNormalFromMove(const struct coord *move, struct coord *normal)
+{
+	f32 movelen2 = move->x * move->x + move->y * move->y + move->z * move->z;
+	f32 invlen = 1.0f;
+
+	if (movelen2 > 0.001f) {
+		invlen = 1.0f / sqrtf(movelen2);
+	}
+
+	normal->x = -move->x * invlen;
+	normal->y = -move->y * invlen;
+	normal->z = -move->z * invlen;
+}
+
+static s32 capsuleClassifyStage1Hit(const struct capsulecast *cast,
+		struct prop *obstacle, u16 geoflags)
+{
+	if (cast->move.y > 0.1f && (geoflags & (GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2))) {
+		return CAPSULE_HIT_CEILING;
+	}
+	if (cast->move.y < -0.1f && (geoflags & (GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2))) {
+		return CAPSULE_HIT_FLOOR;
+	}
+	if (geoflags & GEOFLAG_WALL) {
+		return CAPSULE_HIT_WALL;
+	}
+	if (obstacle) {
+		return CAPSULE_HIT_PROP;
+	}
+	if (cast->move.y > 0.1f) {
+		return CAPSULE_HIT_CEILING;
+	}
+	if (cast->move.y < -0.1f) {
+		return CAPSULE_HIT_FLOOR;
+	}
+	return CAPSULE_HIT_WALL;
+}
+
+static bool capsuleRenderedPropRayCast(const struct coord *from,
+		const struct coord *to, const RoomNum *rooms, struct prop *selfprop,
+		f32 *io_best_frac, struct coord *out_normal, struct prop **out_prop)
+{
+	if (!from || !to || !rooms || !io_best_frac) {
+		return false;
+	}
+
+	struct coord dir;
+	dir.x = to->x - from->x;
+	dir.y = to->y - from->y;
+	dir.z = to->z - from->z;
+	f32 raylen2 = dir.x * dir.x + dir.y * dir.y + dir.z * dir.z;
+	if (raylen2 < 0.001f) {
+		return false;
+	}
+
+	f32 raylen = sqrtf(raylen2);
+	dir.x /= raylen;
+	dir.y /= raylen;
+	dir.z /= raylen;
+
+	s16 propnums[256];
+	roomGetProps((RoomNum *)rooms, propnums, ARRAYCOUNT(propnums));
+
+	bool hit_any = false;
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(propnums) && propnums[i] >= 0; i++) {
+		struct prop *prop = &g_Vars.props[propnums[i]];
+		if (prop == selfprop) {
+			continue;
+		}
+		if (prop->type != PROPTYPE_OBJ || !prop->obj || !prop->obj->model
+				|| !prop->obj->model->matrices
+				|| !prop->obj->model->definition
+				|| !prop->obj->model->definition->rootnode) {
+			continue;
+		}
+
+		struct hitthing hit;
+		struct modelnode *hitnode = NULL;
+		s32 mtxindex = -1;
+		if (!func0f0849dc(prop->obj->model, prop->obj->model->definition->rootnode,
+				(struct coord *)from, &dir, &hit, &mtxindex, &hitnode)
+				|| mtxindex < 0) {
+			continue;
+		}
+		(void)hitnode;
+
+		if (mtxindex >= prop->obj->model->definition->nummatrices) {
+			continue;
+		}
+
+		struct coord worldhit;
+		struct coord worldnormal;
+		mtx4TransformVec(&prop->obj->model->matrices[mtxindex], &hit.pos, &worldhit);
+		mtx4RotateVec(&prop->obj->model->matrices[mtxindex], &hit.unk0c, &worldnormal);
+		if (worldnormal.x != 0.0f || worldnormal.y != 0.0f || worldnormal.z != 0.0f) {
+			guNormalize(&worldnormal.x, &worldnormal.y, &worldnormal.z);
+		} else {
+			worldnormal.y = 1.0f;
+		}
+
+		f32 dist = (worldhit.x - from->x) * dir.x
+			+ (worldhit.y - from->y) * dir.y
+			+ (worldhit.z - from->z) * dir.z;
+		if (dist < 0.0f || dist > raylen) {
+			continue;
+		}
+
+		f32 frac = dist / raylen;
+		if (frac < *io_best_frac) {
+			*io_best_frac = frac;
+			if (out_normal) {
+				*out_normal = worldnormal;
+				capsuleOrientNormalAgainstMove(out_normal, &dir);
+			}
+			if (out_prop) {
+				*out_prop = prop;
+			}
+			hit_any = true;
+		}
+	}
+
+	return hit_any;
+}
+
+static f32 capsuleRenderedRayCast(const struct coord *from, const struct coord *to,
+		const RoomNum *rooms, struct prop *selfprop, struct coord *out_normal,
+		struct prop **out_prop)
+{
+	struct coord normal = {0.0f, 0.0f, 0.0f};
+	struct prop *prop = NULL;
+	f32 best_frac = capsuleStage2RayCast(from, to, rooms, &normal);
+
+	if (best_frac < 1.0f && out_normal) {
+		*out_normal = normal;
+	}
+
+	if (capsuleRenderedPropRayCast(from, to, rooms, selfprop,
+				&best_frac, &normal, &prop)) {
+		if (out_normal) {
+			*out_normal = normal;
+		}
+		if (out_prop) {
+			*out_prop = prop;
+		}
+	} else if (out_prop) {
+		*out_prop = NULL;
+	}
+
+	if (best_frac < 1.0f && out_normal) {
+		struct coord move;
+		move.x = to->x - from->x;
+		move.y = to->y - from->y;
+		move.z = to->z - from->z;
+		capsuleOrientNormalAgainstMove(out_normal, &move);
+	}
+
+	return best_frac;
+}
+
+static f32 capsuleRenderedSweepSamples(struct capsulecast *cast, u32 hitmask,
+		struct coord *out_normal, s32 *out_type, struct prop **out_prop)
+{
+	const f32 mid = (cast->ymin_offset + cast->ymax_offset) * 0.5f;
+	const f32 ys[CAPSULE_RENDERED_SAMPLE_YS] = {
+		cast->ymax_offset,
+		mid,
+		cast->ymin_offset,
+	};
+	const f32 skin = cast->radius > 1.0f ? cast->radius * 0.85f : cast->radius;
+	const f32 skins[CAPSULE_RENDERED_SAMPLE_SKINS][2] = {
+		{ 0.0f, 0.0f },
+		{ skin,  0.0f },
+		{-skin,  0.0f },
+		{ 0.0f,  skin },
+		{ 0.0f, -skin },
+	};
+
+	f32 best_frac = 1.0f;
+	struct coord best_normal = {0.0f, 0.0f, 0.0f};
+	struct prop *best_prop = NULL;
+	s32 best_type = CAPSULE_HIT_NONE;
+
+	for (s32 yi = 0; yi < CAPSULE_RENDERED_SAMPLE_YS; yi++) {
+		for (s32 si = 0; si < CAPSULE_RENDERED_SAMPLE_SKINS; si++) {
+			struct coord from;
+			struct coord to;
+			RoomNum rayrooms[8];
+			struct coord raynormal = {0.0f, 0.0f, 0.0f};
+			struct prop *rayprop = NULL;
+
+			from.x = cast->start.x + skins[si][0];
+			from.y = cast->start.y + ys[yi];
+			from.z = cast->start.z + skins[si][1];
+			to.x = from.x + cast->move.x;
+			to.y = from.y + cast->move.y;
+			to.z = from.z + cast->move.z;
+
+			capsuleFindRoomsForPos(cast->selfprop, &cast->start,
+				cast->rooms, &to, rayrooms);
+
+			f32 frac = capsuleRenderedRayCast(&from, &to, rayrooms,
+				cast->selfprop, &raynormal, &rayprop);
+			if (frac >= best_frac) {
+				continue;
+			}
+
+			capsuleOrientNormalAgainstMove(&raynormal, &cast->move);
+			s32 hittype = capsuleClassifyNormal(&raynormal);
+			if ((hitmask & (1u << hittype)) == 0) {
+				continue;
+			}
+
+			best_frac = frac;
+			best_normal = raynormal;
+			best_type = rayprop ? CAPSULE_HIT_PROP : hittype;
+			best_prop = rayprop;
+		}
+	}
+
+	if (best_frac < 1.0f) {
+		if (out_normal) *out_normal = best_normal;
+		if (out_type) *out_type = best_type;
+		if (out_prop) *out_prop = best_prop;
+	}
+
+	return best_frac;
+}
+
+static void capsuleApplyRenderedHit(struct capsulecast *cast, f32 frac,
+		const struct coord *normal, s32 hittype, struct prop *hitprop)
+{
+	cast->hitfrac = frac;
+	cast->hitpos.x = cast->start.x + cast->move.x * frac;
+	cast->hitpos.y = cast->start.y + cast->move.y * frac;
+	cast->hitpos.z = cast->start.z + cast->move.z * frac;
+	cast->hitnormal = *normal;
+	cast->hitprop = hitprop;
+	cast->hitgeoflags = 0;
+	cast->hittype = hitprop ? CAPSULE_HIT_PROP : hittype;
+	cast->hitfromrendered = 1;
+}
+
 f32 capsuleSweep(struct capsulecast *cast)
 {
 	f32 stepfrac = 1.0f / (f32)CAPSULE_SWEEP_STEPS;
 	struct coord testpos;
 	RoomNum testrooms[8];
 	s32 i;
+	struct prop *selfprop = cast->selfprop;
 
 	cast->hittype = CAPSULE_HIT_NONE;
 	cast->hitfrac = 1.0f;
 	cast->hitprop = NULL;
 	cast->hitgeoflags = 0;
+	cast->hitfromrendered = 0;
 
 	/* Trivial case: no movement */
 	f32 movelen2 = cast->move.x * cast->move.x
@@ -78,7 +368,7 @@ f32 capsuleSweep(struct capsulecast *cast)
 			cast->radius, cast->ymin_offset, cast->ymax_offset);
 
 	/* Disable own perim so we don't collide with ourselves */
-	propSetPerimEnabled(g_Vars.currentplayer->prop, false);
+	capsuleSetSelfPerim(selfprop, false);
 
 	for (i = 1; i <= CAPSULE_SWEEP_STEPS; i++) {
 		f32 frac = stepfrac * (f32)i;
@@ -88,9 +378,7 @@ f32 capsuleSweep(struct capsulecast *cast)
 		testpos.z = cast->start.z + cast->move.z * frac;
 
 		/* Determine rooms at test position */
-		roomsCopy(cast->rooms, testrooms);
-		func0f065e74(&cast->start, cast->rooms, &testpos, testrooms);
-		bmoveFindEnteredRoomsByPos(g_Vars.currentplayer, &testpos, testrooms);
+		capsuleFindRoomsForPos(selfprop, &cast->start, cast->rooms, &testpos, testrooms);
 
 		/* Test the capsule volume at this position */
 		s32 result = cdTestVolume(&testpos, cast->radius, testrooms,
@@ -98,12 +386,19 @@ f32 capsuleSweep(struct capsulecast *cast)
 				cast->ymax_offset, cast->ymin_offset);
 
 		if (result == CDRESULT_COLLISION) {
-			/* Found a collision — the safe fraction is the previous step */
+			/* Stage 1 found a collision. Keep this as authoritative unless
+			 * rendered geometry reports an even earlier hit. */
 			f32 safefrac = stepfrac * (f32)(i - 1);
+			struct coord stage2normal = {0.0f, 0.0f, 0.0f};
+			struct prop *stage2prop = NULL;
+			s32 stage2type = CAPSULE_HIT_NONE;
+			f32 stage2frac = capsuleRenderedSweepSamples(cast,
+				CAPSULE_RENDERED_HITMASK_ALL, &stage2normal,
+				&stage2type, &stage2prop);
 
 			cast->hitfrac = safefrac;
 
-			/* Compute approximate hit position */
+			/* Compute approximate Stage 1 hit position */
 			cast->hitpos.x = cast->start.x + cast->move.x * frac;
 			cast->hitpos.y = cast->start.y + cast->move.y * frac;
 			cast->hitpos.z = cast->start.z + cast->move.z * frac;
@@ -112,41 +407,16 @@ f32 capsuleSweep(struct capsulecast *cast)
 			struct prop *obstacle = cdGetObstacleProp();
 			cast->hitprop = obstacle;
 			cast->hitgeoflags = cdGetGeoFlags();
+			cast->hittype = capsuleClassifyStage1Hit(cast, obstacle, cast->hitgeoflags);
+			capsuleNormalFromMove(&cast->move, &cast->hitnormal);
 
-			/* Classify the hit based on movement direction and geo flags */
-			if (cast->move.y > 0.1f && (cast->hitgeoflags & (GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2))) {
-				cast->hittype = CAPSULE_HIT_CEILING;
-			} else if (cast->move.y < -0.1f && (cast->hitgeoflags & (GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2))) {
-				cast->hittype = CAPSULE_HIT_FLOOR;
-			} else if (cast->hitgeoflags & GEOFLAG_WALL) {
-				cast->hittype = CAPSULE_HIT_WALL;
-			} else if (obstacle) {
-				cast->hittype = CAPSULE_HIT_PROP;
-			} else {
-				/* Fallback classification by movement direction */
-				if (cast->move.y > 0.1f) {
-					cast->hittype = CAPSULE_HIT_CEILING;
-				} else if (cast->move.y < -0.1f) {
-					cast->hittype = CAPSULE_HIT_FLOOR;
-				} else {
-					cast->hittype = CAPSULE_HIT_WALL;
-				}
+			if (stage2frac < safefrac) {
+				capsuleApplyRenderedHit(cast, stage2frac, &stage2normal,
+					stage2type, stage2prop);
+				safefrac = stage2frac;
 			}
 
-			/* Approximate surface normal from movement direction */
-			f32 invlen = 1.0f;
-			if (movelen2 > 0.001f) {
-				/* We don't need a precise normal — just the negated, normalized
-				 * movement direction as an approximation. The existing system
-				 * doesn't give us surface normals from cdTestVolume anyway. */
-				f32 len = sqrtf(movelen2);
-				invlen = 1.0f / len;
-			}
-			cast->hitnormal.x = -cast->move.x * invlen;
-			cast->hitnormal.y = -cast->move.y * invlen;
-			cast->hitnormal.z = -cast->move.z * invlen;
-
-			propSetPerimEnabled(g_Vars.currentplayer->prop, true);
+			capsuleSetSelfPerim(selfprop, true);
 
 #if defined(PD_DEV_BUILD)
 			{
@@ -158,8 +428,9 @@ f32 capsuleSweep(struct capsulecast *cast)
 				case CAPSULE_HIT_PROP:    hitclass = "PROP";    break;
 				default:                  hitclass = "NONE";    break;
 				}
-				CAPSULE_LOG("sweep result=BLOCKED type=%s dist=%.3f geoflags=0x%04x step=%d/%d",
-						hitclass, safefrac, cast->hitgeoflags, i, CAPSULE_SWEEP_STEPS);
+				CAPSULE_LOG("sweep result=BLOCKED type=%s dist=%.3f geoflags=0x%04x rendered=%d step=%d/%d",
+						hitclass, safefrac, cast->hitgeoflags,
+						cast->hitfromrendered, i, CAPSULE_SWEEP_STEPS);
 			}
 #endif
 
@@ -167,41 +438,20 @@ f32 capsuleSweep(struct capsulecast *cast)
 		}
 	}
 
-	propSetPerimEnabled(g_Vars.currentplayer->prop, true);
+	capsuleSetSelfPerim(selfprop, true);
 
-	/* Stage 2 (c038, Mike directive 2026-05-17): even if Stage 1 said
-	 * CLEAR, a sloped ceiling or other rendered-only triangle may block
-	 * the movement. Cast a rendered-triangle ray from start to start+move
-	 * and use that as the authoritative hit if it lands before 1.0.
-	 * Net effect: full coverage of GEOFLAG_WALL/FLOOR + rendered triangles
-	 * with no matching collider. */
 	{
-		struct coord end;
-		end.x = cast->start.x + cast->move.x;
-		end.y = cast->start.y + cast->move.y;
-		end.z = cast->start.z + cast->move.z;
 		struct coord normal = {0.0f, 0.0f, 0.0f};
-		f32 stage2_frac = capsuleStage2RayCast(&cast->start, &end, cast->rooms, &normal);
+		struct prop *renderedprop = NULL;
+		s32 renderedtype = CAPSULE_HIT_NONE;
+		f32 stage2_frac = capsuleRenderedSweepSamples(cast,
+			CAPSULE_RENDERED_HITMASK_ALL, &normal, &renderedtype,
+			&renderedprop);
 		if (stage2_frac < 1.0f) {
-			cast->hitfrac = stage2_frac;
-			cast->hitpos.x = cast->start.x + cast->move.x * stage2_frac;
-			cast->hitpos.y = cast->start.y + cast->move.y * stage2_frac;
-			cast->hitpos.z = cast->start.z + cast->move.z * stage2_frac;
-			cast->hitnormal = normal;
-			cast->hitprop = NULL;
-			cast->hitgeoflags = 0;
-			/* Classify by vertical move direction. Stage 2 hits are
-			 * always rendered BG geometry; we don't have prop/chr info
-			 * here. */
-			if (cast->move.y > 0.1f) {
-				cast->hittype = CAPSULE_HIT_CEILING;
-			} else if (cast->move.y < -0.1f) {
-				cast->hittype = CAPSULE_HIT_FLOOR;
-			} else {
-				cast->hittype = CAPSULE_HIT_WALL;
-			}
-			CAPSULE_LOG("sweep result=BLOCKED_STAGE2 dist=%.3f hittype=%d (Stage 1 clear)",
-				stage2_frac, cast->hittype);
+			capsuleApplyRenderedHit(cast, stage2_frac, &normal,
+				renderedtype, renderedprop);
+			CAPSULE_LOG("sweep result=BLOCKED_STAGE2 dist=%.3f hittype=%d prop=%d (Stage 1 clear)",
+				stage2_frac, cast->hittype, renderedprop != NULL);
 			return stage2_frac;
 		}
 	}
@@ -223,12 +473,11 @@ f32 capsuleSweep(struct capsulecast *cast)
  *     tiles and these surfaces are just rendered display-list triangles.
  *
  * Both fixes hinge on bgTestHitInRoom (src/game/bg.c:4471), which walks
- * the same rendered vtxbatches the Laptop Gun sticky path uses. We do a
- * single ray per call here; the design doc proposed up to 15 rays
- * (capsule center + skin samples) but the single ray is sufficient for
- * the c038 wall-jump / table-top class because the test ray is the
- * capsule's central axis and the radius is small (~30u). We can extend
- * to lateral samples later if a regression test demands it.
+ * the same rendered vtxbatches the Laptop Gun sticky path uses. Movement
+ * callers use capsuleRenderedSweepSamples above: top / middle / bottom
+ * heights crossed with center and lateral skin rays. The public single-ray
+ * function remains for diagnostics and targeted systems that already have
+ * a precise ray.
  * ============================================================ */
 
 f32 capsuleStage2RayCast(const struct coord *from, const struct coord *to,
@@ -285,6 +534,86 @@ f32 capsuleStage2RayCast(const struct coord *from, const struct coord *to,
 	return best_frac;
 }
 
+static f32 capsuleFindRenderedVertical(struct prop *selfprop, const struct coord *pos,
+		f32 radius, f32 yoff, const RoomNum *rooms, f32 distance,
+		f32 direction, u32 hitmask, struct coord *out_normal)
+{
+	if (!pos || !rooms || distance <= 0.0f) {
+		return -30000.0f;
+	}
+
+	const f32 skin = radius > 1.0f ? radius * 0.85f : radius;
+	const f32 skins[CAPSULE_RENDERED_SAMPLE_SKINS][2] = {
+		{ 0.0f, 0.0f },
+		{ skin,  0.0f },
+		{-skin,  0.0f },
+		{ 0.0f,  skin },
+		{ 0.0f, -skin },
+	};
+	f32 best_frac = 1.0f;
+	struct coord best_normal = {0.0f, 0.0f, 0.0f};
+	struct coord move = {0.0f, direction * distance, 0.0f};
+
+	for (s32 i = 0; i < CAPSULE_RENDERED_SAMPLE_SKINS; i++) {
+		struct coord from;
+		struct coord to;
+		struct coord normal = {0.0f, 0.0f, 0.0f};
+
+		from.x = pos->x + skins[i][0];
+		from.y = pos->y + yoff + (direction < 0.0f ? 2.0f : -2.0f);
+		from.z = pos->z + skins[i][1];
+		to.x = from.x;
+		to.y = from.y + direction * distance;
+		to.z = from.z;
+
+		f32 frac = capsuleRenderedRayCast(&from, &to, rooms, selfprop,
+			&normal, NULL);
+		if (frac >= best_frac) {
+			continue;
+		}
+
+		capsuleOrientNormalAgainstMove(&normal, &move);
+		s32 type = capsuleClassifyNormal(&normal);
+		if ((hitmask & (1u << type)) == 0) {
+			continue;
+		}
+
+		best_frac = frac;
+		best_normal = normal;
+	}
+
+	if (best_frac >= 1.0f) {
+		return -30000.0f;
+	}
+
+	if (out_normal) {
+		*out_normal = best_normal;
+	}
+
+	f32 hit_y = pos->y + yoff + (direction < 0.0f ? 2.0f : -2.0f)
+		+ direction * distance * best_frac;
+	CAPSULE_LOG("stage2 vertical probe pos=(%.1f,%.1f,%.1f) yoff=%.1f hit_y=%.1f normal=(%.2f,%.2f,%.2f)",
+		pos->x, pos->y, pos->z, yoff, hit_y,
+		best_normal.x, best_normal.y, best_normal.z);
+	return hit_y;
+}
+
+f32 capsuleFindRenderedFloor(struct prop *selfprop, const struct coord *pos,
+                     f32 radius, f32 ymin_off, const RoomNum *rooms,
+                     f32 maxdepth, struct coord *out_normal)
+{
+	return capsuleFindRenderedVertical(selfprop, pos, radius, ymin_off, rooms,
+		maxdepth, -1.0f, CAPSULE_RENDERED_HITMASK_FLOOR, out_normal);
+}
+
+f32 capsuleFindRenderedCeiling(struct prop *selfprop, const struct coord *pos,
+                     f32 radius, f32 ymax_off, const RoomNum *rooms,
+                     f32 maxheight, struct coord *out_normal)
+{
+	return capsuleFindRenderedVertical(selfprop, pos, radius, ymax_off, rooms,
+		maxheight, 1.0f, CAPSULE_RENDERED_HITMASK_BLOCKING, out_normal);
+}
+
 f32 capsuleStage2FloorProbe(const struct coord *pos, const RoomNum *rooms,
                             f32 maxdepth)
 {
@@ -299,18 +628,26 @@ f32 capsuleStage2FloorProbe(const struct coord *pos, const RoomNum *rooms,
 	to.z = pos->z;
 
 	struct coord normal = {0.0f, 0.0f, 0.0f};
-	f32 frac = capsuleStage2RayCast(&from, &to, rooms, &normal);
+	struct prop *prop = NULL;
+	f32 frac = capsuleRenderedRayCast(&from, &to, rooms, NULL, &normal, &prop);
 	if (frac >= 1.0f) {
 		return -30000.0f;
 	}
 
+	struct coord move = {0.0f, -maxdepth, 0.0f};
+	capsuleOrientNormalAgainstMove(&normal, &move);
+	if (capsuleClassifyNormal(&normal) != CAPSULE_HIT_FLOOR) {
+		return -30000.0f;
+	}
+
 	f32 hit_y = pos->y - maxdepth * frac;
-	CAPSULE_LOG("stage2 floor probe pos=(%.1f,%.1f,%.1f) hit_y=%.1f normal=(%.2f,%.2f,%.2f)",
-		pos->x, pos->y, pos->z, hit_y, normal.x, normal.y, normal.z);
+	CAPSULE_LOG("stage2 floor probe pos=(%.1f,%.1f,%.1f) hit_y=%.1f normal=(%.2f,%.2f,%.2f) prop=%d",
+		pos->x, pos->y, pos->z, hit_y, normal.x, normal.y, normal.z, prop != NULL);
 	return hit_y;
 }
 
-f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
+f32 capsuleFindFloorForProp(struct prop *selfprop, struct coord *pos,
+                     f32 radius, f32 ymin_off, f32 ymax_off,
                      RoomNum *rooms, u32 cdtypes,
                      struct prop **out_prop, u16 *out_flags)
 {
@@ -343,14 +680,13 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
 		f32 top = feetY;
 		f32 bot = bgGround;
 
-		propSetPerimEnabled(g_Vars.currentplayer->prop, false);
+		capsuleSetSelfPerim(selfprop, false);
 
 		f32 mid = (top + bot) * 0.5f;
 		testpos.x = pos->x;
 		testpos.y = mid - ymin_off;
 		testpos.z = pos->z;
-		roomsCopy(rooms, testrooms);
-		bmoveFindEnteredRoomsByPos(g_Vars.currentplayer, &testpos, testrooms);
+		capsuleFindRoomsForPos(selfprop, pos, rooms, &testpos, testrooms);
 
 		s32 midResult = cdTestVolume(&testpos, radius, testrooms,
 				cdtypes, CHECKVERTICAL_YES, ymax_off, ymin_off);
@@ -359,8 +695,7 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
 			for (s32 iter = 0; iter < CAPSULE_BSEARCH_ITERS; iter++) {
 				f32 test = (top + bot) * 0.5f;
 				testpos.y = test - ymin_off;
-				roomsCopy(rooms, testrooms);
-				bmoveFindEnteredRoomsByPos(g_Vars.currentplayer, &testpos, testrooms);
+				capsuleFindRoomsForPos(selfprop, pos, rooms, &testpos, testrooms);
 
 				s32 r = cdTestVolume(&testpos, radius, testrooms,
 						cdtypes, CHECKVERTICAL_YES, ymax_off, ymin_off);
@@ -379,7 +714,20 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
 			}
 		}
 
-		propSetPerimEnabled(g_Vars.currentplayer->prop, true);
+		capsuleSetSelfPerim(selfprop, true);
+	}
+
+	{
+		struct coord rendered_normal = {0.0f, 0.0f, 0.0f};
+		f32 rendered_floor = capsuleFindRenderedFloor(selfprop, pos, radius,
+			ymin_off, rooms, CAPSULE_FLOOR_PROBE, &rendered_normal);
+		if (rendered_floor > propFloor + 1.0f && rendered_floor > bgGround + 1.0f
+				&& rendered_floor <= feetY + 20.0f) {
+			CAPSULE_LOG("findFloor result=RENDERED y=%.2f bgGround=%.2f propFloor=%.2f normal=(%.2f,%.2f,%.2f)",
+				rendered_floor, bgGround, propFloor,
+				rendered_normal.x, rendered_normal.y, rendered_normal.z);
+			return rendered_floor;
+		}
 	}
 
 	if (propFloor > bgGround + 1.0f) {
@@ -392,7 +740,16 @@ f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
 	return bgGround;
 }
 
-f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
+f32 capsuleFindFloor(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
+                     RoomNum *rooms, u32 cdtypes,
+                     struct prop **out_prop, u16 *out_flags)
+{
+	return capsuleFindFloorForProp(capsuleCurrentPlayerProp(), pos, radius,
+		ymin_off, ymax_off, rooms, cdtypes, out_prop, out_flags);
+}
+
+f32 capsuleFindCeilingForProp(struct prop *selfprop, struct coord *pos,
+                       f32 radius, f32 ymin_off, f32 ymax_off,
                        RoomNum *rooms, u32 cdtypes,
                        struct prop **out_prop)
 {
@@ -416,14 +773,13 @@ f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off
 		f32 top = (bgCeiling < maxProbe) ? bgCeiling : maxProbe;
 
 		if (top > bot + 5.0f) {
-			propSetPerimEnabled(g_Vars.currentplayer->prop, false);
+			capsuleSetSelfPerim(selfprop, false);
 
 			f32 probeY = bot + 10.0f;
 			testpos.x = pos->x;
 			testpos.y = probeY - ymax_off;
 			testpos.z = pos->z;
-			roomsCopy(rooms, testrooms);
-			bmoveFindEnteredRoomsByPos(g_Vars.currentplayer, &testpos, testrooms);
+			capsuleFindRoomsForPos(selfprop, pos, rooms, &testpos, testrooms);
 
 			s32 probeResult = cdTestVolume(&testpos, radius, testrooms,
 					cdtypes, CHECKVERTICAL_YES, ymax_off, ymin_off);
@@ -435,8 +791,7 @@ f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off
 				for (s32 iter = 0; iter < CAPSULE_BSEARCH_ITERS; iter++) {
 					f32 test = (bot + top) * 0.5f;
 					testpos.y = test - ymax_off;
-					roomsCopy(rooms, testrooms);
-					bmoveFindEnteredRoomsByPos(g_Vars.currentplayer, &testpos, testrooms);
+					capsuleFindRoomsForPos(selfprop, pos, rooms, &testpos, testrooms);
 
 					s32 r = cdTestVolume(&testpos, radius, testrooms,
 							cdtypes, CHECKVERTICAL_YES, ymax_off, ymin_off);
@@ -454,15 +809,34 @@ f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off
 				}
 			}
 
-			propSetPerimEnabled(g_Vars.currentplayer->prop, true);
+			capsuleSetSelfPerim(selfprop, true);
 		}
 	}
 
 	{
 		f32 result = (propCeiling < bgCeiling) ? propCeiling : bgCeiling;
+		struct coord rendered_normal = {0.0f, 0.0f, 0.0f};
+		f32 rendered = capsuleFindRenderedCeiling(selfprop, pos, radius,
+			ymax_off, rooms, CAPSULE_CEILING_PROBE, &rendered_normal);
+		if (rendered > -29999.0f && rendered < result - 1.0f) {
+			result = rendered;
+			CAPSULE_LOG("findCeiling result=RENDERED y=%.2f normal=(%.2f,%.2f,%.2f)",
+				rendered, rendered_normal.x, rendered_normal.y,
+				rendered_normal.z);
+			return result;
+		}
+
 		CAPSULE_LOG("findCeiling result=%s y=%.2f bgCeiling=%.2f propCeiling=%.2f",
 				(propCeiling < bgCeiling) ? "PROP" : "BG",
 				result, bgCeiling, propCeiling);
 		return result;
 	}
+}
+
+f32 capsuleFindCeiling(struct coord *pos, f32 radius, f32 ymin_off, f32 ymax_off,
+                       RoomNum *rooms, u32 cdtypes,
+                       struct prop **out_prop)
+{
+	return capsuleFindCeilingForProp(capsuleCurrentPlayerProp(), pos, radius,
+		ymin_off, ymax_off, rooms, cdtypes, out_prop);
 }

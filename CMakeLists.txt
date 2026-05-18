@@ -989,10 +989,9 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_vehicle_observer_layer.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_provider_static.cpp
 
-  # Sprint 2 design pin (physics-collision pillar, 2026-05-13): scaffold for
-  # the jump two-stage capsule sweep upgrade. Source-greps the design doc at
-  # context/designs/physics-collision/jump-two-stage-sweep.md so the doc
-  # cannot be silently deleted before Mike approves the implementation.
+  # c038 jump capsule guards (physics-collision pillar, 2026-05-18):
+  # source-level pins for the live multi-sample rendered-surface sweep and
+  # pure checks for normal classification.
   ${CMAKE_SOURCE_DIR}/tests/test_jump_two_stage_design.cpp
 
   # Linker stubs for symbols the cherry-picked sources reference but the

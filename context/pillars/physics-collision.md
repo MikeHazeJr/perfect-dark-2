@@ -9,7 +9,7 @@
 Two layers cooperate:
 
 1. **Legacy collision primitives** ([src/lib/cd.c](../../src/lib/cd.c)) - N64-era functions like `cdTestVolume`, `cdFindGroundInfoAtCyl`, `cdFindCeilingRoomYColourFlagsAtPos`. Still present, still used as the underlying geometry-test substrate. Returns colliding geometry IDs, ground info, ceiling info, room IDs.
-2. **Capsule sweep** ([src/lib/capsule.c](../../src/lib/capsule.c), 281 lines) - samples the legacy primitives at multiple points along a swept capsule volume to produce a real geometric collision result for jumping / stair-step / ceiling-jump-through. `capsuleSweep(cast)` at line 37 is the entry point.
+2. **Capsule sweep** ([src/lib/capsule.c](../../src/lib/capsule.c)) - samples the legacy primitives at multiple points along a swept capsule volume, then runs a rendered-triangle Stage 2 over top/mid/bottom + lateral capsule skin samples. Stage 1 remains authoritative when Stage 2 misses; Stage 2 can only add an earlier rendered hit. `capsuleSweep(cast)` is the entry point.
 
 Movement is in [src/game/bondwalk.c](../../src/game/bondwalk.c) (2380 lines) and `bondmove.c`. The vertical pipeline (`bwalkUpdateVertical`) orchestrates jump initiation, gravity, ground re-acquisition, ceiling clamp, and ledge step-up using both layers.
 
@@ -19,14 +19,14 @@ Movement is in [src/game/bondwalk.c](../../src/game/bondwalk.c) (2380 lines) and
 
 The capsule sweep is a swept volume test. The legacy `cdTestVolume` only tests a single static point; that misses cases where a fast-moving player passes through thin geometry. The sweep samples N intermediate positions along the path and runs the legacy test at each, producing a continuous collision result.
 
-Per [src/lib/capsule.c:7-9](../../src/lib/capsule.c:7) the capsule sweep "uses the existing geometry collection and testing infrastructure (cdTestVolume, cdFindGroundInfoAtCyl, cdFindCeilingRoomYColourFlagsAtPos) but samples at" multiple capsule positions. This was the right shape for the integration: keep the N64 geometry pipeline, fix the algorithm.
+Per [src/lib/capsule.c](../../src/lib/capsule.c), the capsule sweep keeps `cdTestVolume` as the conservative broadphase and supplements it with rendered BG / prop-model triangle probes through the same `bgTestHitInRoom` / model-DL hit substrate used by existing projectile/object hit paths. Surface normals are oriented against movement and classified as floor, ceiling, or wall before consumers act on them.
 
 Notable use sites in [capsule.c](../../src/lib/capsule.c):
 
-- Line 73 - axis-aligned mid-sweep test.
-- Line 156 - ground re-acquisition via `cdFindGroundInfoAtCyl`.
-- Line 177 - mid-step volume test.
-- Line 247 - probe-step volume test for stair-step climb.
+- `capsuleSweep` - generic `selfprop`-aware movement sweep for player and bot props.
+- `capsuleRenderedSweepSamples` - rendered Stage 2 top/mid/bottom + lateral skin sample bundle.
+- `capsuleFindFloorForProp` / `capsuleFindCeilingForProp` - floor/ceiling probes that keep the moving prop explicit.
+- `capsuleFindRenderedFloor` / `capsuleFindRenderedCeiling` - rendered-only top/ceiling probes with normal filtering.
 
 ---
 
@@ -89,7 +89,8 @@ Per [constraints.md](../constraints.md):
 
 ## What is in flight
 
-- **D2c Bot Jump AI -- v1 SHIPPED 2026-05-17 (c038).** CPU-bot jumping in normal Combat Sim play with the existing `aibot` infrastructure. Toggle `MPOPTION_BOTJUMP` (default OFF) in CS Room setup. Decision = (target on higher platform) with difficulty-tiered reach threshold; execution writes `chr->fallspeed.y = 8.2f`. HARD+ bots get a +1.5 crouch-jump boost in the just-barely 30-60u zone. Wall-clock-budgeted scheduler (200 evals/sec across active bots, frame-rate independent). Telemetry: `BOT.JUMP: chrnum=N reason=X target_y=Y dy=N diff=N boost=N`. v1 trigger is reach-only; obstacle-jump (move-blocked-but-clear-above) deferred to a follow-up slice because the `aibot` struct doesn't currently expose a clean stuck-detection signal. Two-stage capsule sweep (the wall-jump-glitch lane this card originally tracked) still backlog.
+- **c038 Jump surface collision fix -- IMPLEMENTED + BUILD/TEST VERIFIED 2026-05-18; pending playtest.** Replaced the incomplete single-center-ray Stage 2 with the generic multi-sample rendered capsule sweep. Player `bondwalk` vertical movement now uses generic floor/ceiling helpers and sweep-ground reconciliation for rendered floor hits. Bot `chr` vertical movement and bot obstacle-jump decisions are wired to the same solver. Bug ledger: B-335. Verification: queued isolated `jumpfix` client/updater PASS, `jumpfix` tests target PASS, direct `[physics][jump]` pd-tests PASS (42 assertions / 4 cases).
+- **D2c Bot Jump AI -- v1 SHIPPED 2026-05-17 (c038), expanding in current c038 slice.** CPU-bot jumping in normal Combat Sim play with the existing `aibot` infrastructure. Toggle `MPOPTION_BOTJUMP` (default OFF) in CS Room setup. Reach trigger remains live; current c038 work adds the deferred obstacle trigger using solver probes: low forward sweep blocked, raised sweep clear, landing floor exists. Telemetry remains `BOT.JUMP: chrnum=N reason=X target_y=Y dy=N diff=N boost=N`.
 - **Skedar swarm jump/surface parity -- VERIFIED 2026-05-18.** Benchmark-local helper now drives Skedar leap requests and wall/ceiling surface-transition requests for both CPU and GPU swarm paths. Verified with the focused static guard plus CPU/GPU `base:mp_skedar` behavior smokes. Normal Combat Sim bot jumping remains the D2c toggle above; this slice does not widen the general bot AI.
 - **Slope-AABB adaptation.** Per the audit, slope handling on the AABB collision side was deferred. Players slide on steep inclines instead of being blocked.
 - **Ceiling-jump-through.** Specific edge case where the upward sweep should pass through certain "passable" ceilings but currently does not. Deferred per Mike's directive.
@@ -101,14 +102,14 @@ Per [constraints.md](../constraints.md):
 
 - **Slope handling on AABBs is incomplete** (deferred work, per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructure-pillars-status-2026-04-27.md)).
 - **Ceiling-jump-through edge case** unhandled (same source).
-- **Obstacle-driven bot jump AI** remains deferred; D2c v1 only jumps for target-height reach.
+- **Coordinate-specific wall-jump smoke** remains pending; the activation smoke is live, but repro-grade coverage needs Mike-captured bad-surface coordinates.
 - **`bondwalk.c` is 2380 lines** and mixes vertical pipeline with horizontal pipeline with state machine bookkeeping. Inherited monolith; not new bloat. Splitting would clarify the capsule sweep call sites but is not scoped.
 
 ---
 
 ## Active design references
 
-None today. Capsule + movement are in maintenance mode pending Bot Jump AI.
+- [designs/physics-collision/jump-two-stage-sweep.md](../designs/physics-collision/jump-two-stage-sweep.md) - original c038 design and risk analysis. The live implementation has advanced beyond the design-only state.
 
 ---
 

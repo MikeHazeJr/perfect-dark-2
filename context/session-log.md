@@ -1,5 +1,84 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-18-jumpfix`) - 2026-05-18 - c038 jump surface collision implementation
+
+Mike approved implementation of the c038 Jump Surface Collision Fix Plan after the kanban work landed.
+
+### Change
+
+- Replaced the incomplete single-center-ray Stage 2 in `src/lib/capsule.c` with a generic `selfprop`-aware multi-sample rendered capsule sweep over top/mid/bottom and lateral skin rays.
+- Kept `cdTestVolume` authoritative as Stage 1; rendered Stage 2 can add an earlier hit, but cannot clear a Stage 1 block.
+- Added oriented-normal floor/ceiling/wall classification and rendered prop-model ray support for object tops without calling projectile embed helpers.
+- Wired player vertical/floor/ceiling movement in `src/game/bondwalk.c` and bot vertical/floor movement in `src/game/chr.c` onto the same helpers.
+- Added downward sweep-ground reconciliation so rendered floor hits can become the current ground in the same frame instead of waiting for the next ground probe.
+- Added the deferred bot obstacle-jump decision in `src/game/bot.c` under the existing `MPOPTION_BOTJUMP` gate.
+- Replaced the stale design-only jump test with `[physics][jump]` static/fixture/normal/bot guards and updated the wall-jump smoke description to remain activation coverage until repro coordinates are captured.
+- Filed B-335 for the rendered-surface miss class. B-334 was already used in the compact historical ledger.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session jumpfix -Target all` PASS for client/updater (PerfectDark.exe and Updater.exe built in `.claude/session-builds/jumpfix`).
+- `.\devtools\build-session.ps1 -Session jumpfix -Target tests -BuildTimeoutSeconds 180` PASS for `pd-tests.exe`.
+- Direct targeted run `.claude\session-builds\jumpfix\pd-tests.exe "[physics][jump]"` PASS: 42 assertions / 4 cases.
+- `.\devtools\run-pd-tests.ps1 -Session jumpfix -Selector "[physics][jump]"` still hits the known StrictMode `$listModes.Count` wrapper bug before running; direct binary run was used after the tests target built.
+
+### Next
+
+- Mike playtest on the known angled-ceiling / rendered-top repro spots.
+- Capture exact bad-surface coordinates, then add the repro-grade smoke on top of the current activation smoke.
+
+## Session (`main-checkout-2026-05-18-daily-flow-tab`) - 2026-05-18 - Daily Flow top-level tab
+
+Mike asked to move Daily Flow up beside Bug Tracker, make it a whole tab instead of a bottom panel/banner, and keep it collapsed by default.
+
+### Change
+
+- Updated `tools/kanban/index.html` so the top tab strip now has `Daily Flow` beside `Bug Tracker`.
+- Removed the old bottom-docked Daily Flow banner and floating restore button.
+- Added a `panel-daily-flow` tab body with the existing briefing, focus, headline, and morning-run result content.
+- Daily Flow now starts collapsed by default via a dedicated `pd2kb-daily-flow-expanded` localStorage key, with an `Expand` / `Collapse` control inside the tab.
+- Kept the existing `/api/briefing` data contract; no state or briefing schema changes.
+
+### Verification
+
+- Inline Kanban JavaScript syntax check passed.
+- Static DOM guard found 103 unique IDs, 0 duplicate IDs, and 0 missing static `getElementById(...)` targets.
+- `tools/kanban/state.json` parsed with 4 columns, 14 pillars, 112 cards, and 0 cards pointing at unknown columns.
+- `python -m py_compile tools\kanban\server.py` passed.
+- `git diff --check` passed for the touched files.
+- Local Kanban server responded HTTP 200 for `/api/state` and `/api/briefing`.
+- Browser screenshot smoke was not available in this environment because Playwright is not installed; earlier in-app browser localhost smoke was blocked by `ERR_BLOCKED_BY_CLIENT`.
+
+### Next
+
+- Manual visual smoke in a normal browser remains useful for the Daily Flow tab placement and collapsed-state presentation.
+
+## Session (`main-checkout-2026-05-18-kanban-status-tabs`) - 2026-05-18 - Kanban status tabs + scoped filter dropdown
+
+Mike asked to refactor the Kanban board so work status is the primary navigation and pillars/flags/priority live inside a scoped dropdown.
+
+### Change
+
+- Updated `tools/kanban/index.html` Active Kanban view from four simultaneous columns to a single selected status view.
+- Added status tabs backed by existing `state.columns`; `backlog` displays as `Backlogged` without renaming the stored state.
+- Replaced the pillar chip row with one status-scoped dropdown: `All`, pillar counts, `Any flagged` / `Starred` / `Alert` / `Watch`, and priority filters (`Critical`, `High+`, `Medium+`, `Low+`, `Someday`).
+- Cards now render in a responsive CSS grid that flows across rows and scrolls the full board vertically instead of confining each status to its own column height.
+- New cards default to the currently selected status tab; selected tab and dropdown filter persist in `localStorage`.
+- Preserved the existing `state.json` shape and card fields (`column`, `pillar`, `priority`, `flag`); no schema migration.
+
+### Verification
+
+- Inline Kanban JavaScript syntax check with Node passed.
+- `tools/kanban/state.json` parsed with 4 columns, 14 pillars, 112 cards, and 0 cards pointing at unknown columns.
+- Static DOM guard found 101 unique IDs, 0 duplicate IDs, and 0 missing static `getElementById(...)` targets.
+- Local Kanban server `/api/state` responded HTTP 200 with the current state payload.
+- Filter-count sanity check on the current state: Active=11, Input active=1, Starred active=2, Any flagged active=2, High+=5, Medium+=11.
+- Browser smoke via the Codex in-app browser was attempted but blocked by the browser client with `ERR_BLOCKED_BY_CLIENT` for `http://127.0.0.1:7531/`; no visual screenshot was captured.
+
+### Next
+
+- Manual visual smoke in a normal browser remains useful because the in-app browser blocked localhost in this session.
+
 ## Session (`main-checkout-2026-05-18-kanban-review-title-focus`) - 2026-05-18 - Kanban pending-completion Review panel title focus
 
 Mike's feedback: the Kanban board's completion Review panel was emphasizing verbose completion minutiae instead of the higher-level card title that describes what the work actually was.
