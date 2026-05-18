@@ -49,6 +49,7 @@
 #include "game/atan2f.h"
 #include "game/botinvinit.h"
 #include "game/chraction.h" /* chrBeginDead, chrStopFiring */
+#include "lib/capsule.h"   /* capsuleStage2RayCast for wall-pin (c3738) */
 #include "actionmap.h"
 #include "testscenarios.h"
 /* Track 2d (c3807, 2026-05-16): remote clients of a listen-host's GPU
@@ -1349,8 +1350,54 @@ static s32 respawn_slot(s32 i)
 		 * Conservative chr_radius/height -- spawn_one_skedar picks the
 		 * actual scale, so this gates with a slight over-estimate. */
 		if (!spawnPoolCorrectPosition(&pos, &corrected_room, 30.0f, 180.0f)) {
-			s_PlacementFailed++;
-			return 0;
+			/* Mike directive 2026-05-17: "they sometimes spawn in walls
+			 * or not at all". If the slot's stored ring position is
+			 * permanently blocked, retrying the same spot every frame
+			 * never lets the slot fill. Jitter the angle + radius by a
+			 * pseudo-random amount keyed on the slot index + lvframe,
+			 * then re-correct. Up to 3 jitter attempts per call; if all
+			 * three fail the slot stays empty for this tick and the
+			 * streaming-fill path retries on the next tick with a fresh
+			 * RNG seed. Mike's "ok to skip one bot spawn for a brief
+			 * time" directive still applies as the floor. */
+			if (!g_Vars.currentplayer || !g_Vars.currentplayer->prop) {
+				s_PlacementFailed++;
+				return 0;
+			}
+			const struct coord ppos = g_Vars.currentplayer->prop->pos;
+			s32 jitter_ok = 0;
+			for (s32 j = 0; j < 3; j++) {
+				/* RNG-ish jitter (no need for rngRandom — keep this
+				 * deterministic across the slot/frame pair so logs are
+				 * repeatable). */
+				const u32 seed = (u32)i * 2654435761u
+					+ (u32)g_Vars.lvframe60 * 374761393u
+					+ (u32)j * 668265263u;
+				const f32 ang_jitter = (f32)(seed & 0x3ff) * (6.2831853f / 1024.0f);
+				const f32 rad_jitter = 30.0f + (f32)((seed >> 10) & 0x7f);
+				struct coord jpos = {
+					ppos.x + rad_jitter * cosf(ang_jitter),
+					ppos.y,
+					ppos.z + rad_jitter * sinf(ang_jitter),
+				};
+				RoomNum jroom = g_Vars.currentplayer->prop->rooms[0];
+				if (spawnPoolCorrectPosition(&jpos, &jroom, 30.0f, 180.0f)) {
+					pos = jpos;
+					corrected_room = jroom;
+					jitter_ok = 1;
+					sysLogPrintf(LOG_NOTE,
+						"TESTSCEN.SWARM.RESPAWN_JITTER: slot=%d "
+						"orig=(%.0f,%.0f,%.0f) -> jpos=(%.0f,%.0f,%.0f) attempt=%d",
+						i,
+						s_Swarm[i].spawn_pos.x, s_Swarm[i].spawn_pos.y, s_Swarm[i].spawn_pos.z,
+						jpos.x, jpos.y, jpos.z, j);
+					break;
+				}
+			}
+			if (!jitter_ok) {
+				s_PlacementFailed++;
+				return 0;
+			}
 		}
 		s_PlacementOk++;
 	}
@@ -2016,6 +2063,82 @@ void swarmTestTick(void)
 				sysLogPrintf(LOG_NOTE,
 					"SKJUMP.SWARM: chrnum=%d slot=%d dist=%.0f frame=%d",
 					(s32)chr->chrnum, i, sqrtf(dist2), lvframe);
+			}
+		}
+
+		/* Wall-pin for Skedar swarm bots (c3738 Slice 5 follow-up).
+		 * Mike directive 2026-05-17: "I see no bots on walls, period."
+		 *
+		 * SURFACE_LOCO.WALL_BLEND tilts chr->surface_up to a nearby
+		 * wall normal but the locomotion layer still drives the bot
+		 * along the floor plane, so visually nothing pins the bot to
+		 * the wall surface. Here, for every Skedar swarm bot whose
+		 * surface_up has tilted off vertical (|sux| + |suz| > 0.3),
+		 * raycast from the bot in -surface_up direction (toward the
+		 * wall) via Stage 2 (rendered-triangle) and snap the bot's
+		 * prop pos to (hit + surface_up * radius * 0.6). This puts
+		 * the bot ON the wall surface at chr_radius * 0.6 stand-off,
+		 * and the visual chr render uses surface_up to tilt the body
+		 * so the bot looks like it's standing on the wall.
+		 *
+		 * Cooldown: snap once per second per bot so the simulation
+		 * doesn't fight the nav layer. Telemetry: SURFACE_LOCO.PIN. */
+		static s32 s_LastWallPin60[TESTSCEN_SWARM_MAX_COUNT];
+		const s32 pin_cooldown_60 = 30; /* twice per second */
+		for (s32 i = 0; i < s_SwarmCount; i++) {
+			struct chrdata *chr = s_Swarm[i].chr;
+			if (!chr || !chr->prop || chr->chrnum < 0) continue;
+			if (chr->race != RACE_SKEDAR) continue;
+			const f32 sux = chr->surface_up[0];
+			const f32 suy = chr->surface_up[1];
+			const f32 suz = chr->surface_up[2];
+			const f32 horiz = (sux < 0 ? -sux : sux) + (suz < 0 ? -suz : suz);
+			if (horiz < 0.3f) continue; /* surface_up too vertical; not on a wall */
+			const s32 elapsed = lvframe - s_LastWallPin60[i];
+			if (s_LastWallPin60[i] != 0 && elapsed < pin_cooldown_60) continue;
+
+			struct coord from = chr->prop->pos;
+			/* Cast ~radius * 2 along -surface_up toward the wall surface. */
+			const f32 probe_len = chr->radius * 2.5f + 20.0f;
+			struct coord to;
+			to.x = from.x - sux * probe_len;
+			to.y = from.y - suy * probe_len;
+			to.z = from.z - suz * probe_len;
+			struct coord hit_normal = {0.0f, 0.0f, 0.0f};
+			const f32 frac = capsuleStage2RayCast(&from, &to, chr->prop->rooms, &hit_normal);
+			if (frac >= 1.0f) continue;
+
+			/* Hit pos at fraction frac along the ray. Snap chr pos to
+			 * (hit + surface_up * (radius * 0.6)) so the bot's centre
+			 * is one half-radius off the wall surface along its local
+			 * "up". */
+			const f32 offset = chr->radius * 0.6f;
+			struct coord newpos;
+			newpos.x = from.x + (to.x - from.x) * frac + sux * offset;
+			newpos.y = from.y + (to.y - from.y) * frac + suy * offset;
+			newpos.z = from.z + (to.z - from.z) * frac + suz * offset;
+			RoomNum newrooms[2];
+			newrooms[0] = chr->prop->rooms[0];
+			newrooms[1] = -1;
+			/* Preserve the chr's current facing (yvisang is a u8 0..255
+			 * = 0..360deg; convert to radians for chrSetPos). */
+			const f32 theta = ((f32)chr->yvisang) * (M_PI / 128.0f);
+			if (chrSetPos(chr, &newpos, newrooms, theta, false)) {
+				s_LastWallPin60[i] = lvframe;
+				/* Note: hit_normal here is hitthing.unk0c from
+				 * bgTestHitInRoom -- bg.c documents this as the
+				 * face normal but in practice the values look like
+				 * a face-tangent vector or unnormalized world-space
+				 * coordinates. We surface it for diagnostic context
+				 * but the authoritative orientation is chr->surface_up
+				 * (already blended toward the wall by the
+				 * SURFACE_LOCO.WALL_BLEND pass in surface_loco.c). */
+				sysLogPrintf(LOG_NOTE,
+					"SURFACE_LOCO.PIN: chrnum=%d slot=%d horiz_up=%.2f "
+					"new_pos=(%.0f,%.0f,%.0f) hit_unk0c=(%.0f,%.0f,%.0f)",
+					(s32)chr->chrnum, i, horiz,
+					newpos.x, newpos.y, newpos.z,
+					hit_normal.x, hit_normal.y, hit_normal.z);
 			}
 		}
 	}
