@@ -40,6 +40,7 @@ u32 var8009d0cc;
 
 s32 g_ObjectiveLastIndex = -1;
 bool g_ObjectiveChecksDisabled = false;
+bool g_DebugForceCompleteCurrentMissionObjectives = false;
 
 #if PIRACYCHECKS
 u32 xorBaffbeff(u32 value)
@@ -205,6 +206,10 @@ s32 objectiveCheck(s32 index)
 	u32 stack[5];
 	s32 objstatus = OBJECTIVE_COMPLETE;
 
+	if (g_DebugForceCompleteCurrentMissionObjectives) {
+		return OBJECTIVE_COMPLETE;
+	}
+
 	if (index < ARRAYCOUNT(g_Objectives)) {
 		if (g_Objectives[index] == NULL) {
 			objstatus = g_ObjectiveStatuses[index];
@@ -343,6 +348,24 @@ s32 objectiveCheck(s32 index)
 	}
 
 	return objstatus;
+}
+
+s32 objectivesDebugCompleteCurrentMission(void)
+{
+	s32 i;
+	s32 completed = 0;
+
+	g_DebugForceCompleteCurrentMissionObjectives = true;
+
+	for (i = 0; i < objectiveGetCount(); i++) {
+		if (objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty())) {
+			completed++;
+		}
+	}
+
+	objectivesCheckAll();
+
+	return completed;
 }
 
 bool objectiveIsAllComplete(void)

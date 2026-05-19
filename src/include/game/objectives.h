@@ -23,6 +23,10 @@ s32 objectiveGetCount(void);
 u32 objectiveGetDifficultyBits(s32 index);
 s32 objectiveCheck(s32 index);
 bool objectiveIsAllComplete(void);
+/** Dev-only helper: mark all objectives complete until the current mission's
+ *  objective state is reset. Returns the number of difficulty-active
+ *  objectives in the loaded mission. */
+s32 objectivesDebugCompleteCurrentMission(void);
 void objectivesDisableChecking(void);
 void objectivesShowHudmsg(char *buffer, s32 hudmsgtype);
 void objectivesCheckAll(void);

@@ -4097,7 +4097,7 @@ static void renderSettingsDebug(float scale)
     /* ------ Keyboard Shortcuts Reminder ------ */
     ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), "Shortcuts");
     ImGui::Separator();
-    ImGui::TextDisabled("F6   Freeze MP bot AI");
+    ImGui::TextDisabled("F6   Complete campaign objectives / Freeze Combat Sim bots");
     ImGui::TextDisabled("F7   Player invincibility");
     ImGui::TextDisabled("F12  Debug Overlay");
 

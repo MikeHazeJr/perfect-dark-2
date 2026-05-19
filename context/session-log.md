@@ -1,5 +1,33 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-18-f6-campaign-objectives`) - 2026-05-18 - F6 campaign objective completion hotkey
+
+Mike reported that pressing a function key, probably F6, did not complete the current campaign mission objectives as expected.
+
+### Root Cause
+
+- F6 was bound by the s036-02 actionmap migration as `ACTION_DEBUG_BOT_FREEZE`.
+- The scheduler consumed that action only by calling `botToggleUpdatesDisabled()`.
+- The objective force path already existed for the legacy debug menu / auto-campaign runner, but there was no live F-key route into it during normal campaign play.
+
+### Change
+
+- Added `objectivesDebugCompleteCurrentMission()`, which marks all difficulty-active objectives complete for the currently loaded mission and calls `objectivesCheckAll()` so HUD/status updates run through the normal objective path.
+- Added a current-mission force flag that resets in `objectivesReset()`, preventing the hotkey from leaking into the next stage.
+- Made F6 context-sensitive in dev builds: solo campaign with loaded objectives completes objectives first; bot-freeze fallback is restricted to Combat Simulator (`g_Vars.normmplayerisrunning`) and cannot fire in other contexts.
+- Updated debug shortcut/help text and added static `[debug][campaign][f6]` coverage.
+- Filed B-344.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session f6obj -Target tests -BuildTimeoutSeconds 180` PASS.
+- Direct focused run with `C:\msys64\mingw64\bin` on PATH: `.claude\session-builds\f6obj\pd-tests.exe "[debug][campaign][f6]"` PASS (14 assertions / 1 case).
+- `.\devtools\build-session.ps1 -Session f6obj -Target all -BuildTimeoutSeconds 180` PASS.
+- `.\devtools\build-session.ps1 -Remove -Session f6obj` completed.
+- Mike tightened the requirement after this pass: bot freeze should be Combat Simulator-only and dev-build-only. The code/docs/tests now reflect that.
+- Re-verification after gate tightening: scoped `git diff --check` PASS; `.\devtools\build-session.ps1 -Session f6obj -Target tests -BuildTimeoutSeconds 180` PASS; direct focused `.claude\session-builds\f6obj\pd-tests.exe "[debug][campaign][f6]"` PASS (21 assertions / 1 case); `.\devtools\build-session.ps1 -Session f6obj -Target all -BuildTimeoutSeconds 180` PASS; cleanup completed.
+- Manual playtest still needed: start a solo campaign mission, press F6, confirm objectives complete; in Combat Simulator, F6 should freeze/resume bot AI; outside campaign and Combat Simulator, F6 should do neither.
+
 ## Session (`main-checkout-2026-05-18-prop-mesh-detach-boundary`) - 2026-05-18 - mission-start crash at dynamic prop mesh teardown
 
 Mike still could not start a mission after the scenario-stage boundary fix, so the latest `Build\pd-client.log` was rechecked.

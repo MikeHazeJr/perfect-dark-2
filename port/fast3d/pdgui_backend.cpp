@@ -134,7 +134,7 @@ extern "C" s32 inputMouseIsLocked(void);
 /* Logging */
 #include "system.h"
 
-/* F6: freeze MP bot AI (game/bot.c) — banner + NewFrame gating */
+/* F6: complete solo campaign objectives, or freeze Combat Sim bot AI. */
 extern "C" s32 botGetUpdatesDisabled(void);
 extern "C" void botToggleUpdatesDisabled(void);
 
@@ -1333,7 +1333,7 @@ static void registerDebugShortcuts(void)
         "Schedule one-shot test-fire pulse for player 0 (+1s delay)",
         DBG_SHORTCUT_CAT_DIAGNOSTICS, 0);
     pdguiDebugShortcutRegister("F6",
-        "Freeze MP bot AI / movement (spawn-layout inspection)",
+        "Complete campaign objectives; Combat Sim bot freeze",
         DBG_SHORTCUT_CAT_DIAGNOSTICS, 1);
     pdguiDebugShortcutRegister("F9",
         "Toggle menu / input-context diagnostics overlay (read-only)",

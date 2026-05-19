@@ -920,6 +920,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_netbuf.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_net_lifecycle_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_stage_load_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_debug_campaign_complete_hotkey.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
   ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp

@@ -3,6 +3,7 @@
 #include "lib/boot.h"
 #include "lib/sched.h"
 #include "constants.h"
+#include "game/objectives.h"
 #include "game/menugfx.h"
 #include "bss.h"
 #include "lib/args.h"
@@ -46,6 +47,24 @@ extern void bmoveScheduleTestFire(s32 delay_ticks_60hz);
 extern void botToggleUpdatesDisabled(void);
 extern void playerToggleDevInvincibility(void);
 extern void gfxFullscreenToggle(void);
+
+static s32 schedDebugCompleteCampaignObjectivesIfActive(void)
+{
+	if (g_NetMode == NETMODE_NONE
+			&& !g_Vars.normmplayerisrunning
+			&& STAGE_IS_GAMEPLAY(g_Vars.stagenum)
+			&& objectiveGetCount() > 0) {
+		objectivesDebugCompleteCurrentMission();
+		return 1;
+	}
+
+	return 0;
+}
+
+static s32 schedDebugCanFreezeCombatSimBots(void)
+{
+	return g_Vars.normmplayerisrunning;
+}
 
 /*
  * private typedefs and defines
@@ -359,7 +378,11 @@ void schedEndFrame(OSSched *sc)
 	 * the action / binding exist in release builds (harmless no-op). */
 #if defined(PD_DEV_BUILD)
 	if (actionPressed(0, ACTION_DEBUG_BOT_FREEZE)) {
-		botToggleUpdatesDisabled();
+		if (!schedDebugCompleteCampaignObjectivesIfActive()) {
+			if (schedDebugCanFreezeCombatSimBots()) {
+				botToggleUpdatesDisabled();
+			}
+		}
 	}
 	if (actionPressed(0, ACTION_DEBUG_INVINCIBILITY)) {
 		playerToggleDevInvincibility();

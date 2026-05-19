@@ -6,6 +6,8 @@
 #include "data.h"
 #include "types.h"
 
+extern bool g_DebugForceCompleteCurrentMissionObjectives;
+
 void objectivesReset(void)
 {
 	s32 i;
@@ -19,6 +21,7 @@ void objectivesReset(void)
 	}
 
 	g_ObjectiveChecksDisabled = false;
+	g_DebugForceCompleteCurrentMissionObjectives = false;
 
 	for (i = 0; i < ARRAYCOUNT(g_Objectives); i++) {
 		g_Objectives[i] = NULL;

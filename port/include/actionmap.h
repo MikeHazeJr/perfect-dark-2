@@ -278,7 +278,7 @@ typedef enum InputAction {
      * them, and a single dispatch site (pdsched.c) drives the
      * handlers. PD_DEV_BUILD gating lives at the consumer site; the
      * action and binding exist unconditionally. */
-    ACTION_DEBUG_BOT_FREEZE,        /* = 107 F6 -- toggle MP bot AI/movement freeze (DEV) */
+    ACTION_DEBUG_BOT_FREEZE,        /* = 107 F6 -- complete campaign objectives, else freeze Combat Sim bots (DEV) */
     ACTION_DEBUG_INVINCIBILITY,     /* = 108 F7 -- toggle player invincibility (DEV) */
     ACTION_DEBUG_OVERLAY_TOGGLE,    /* = 109 F12 -- push/pop g_CtxDebugOverlay (DEV) */
     ACTION_DEBUG_MESH_TOGGLE,       /* = 110 F10 -- toggle mesh collision overlay */
