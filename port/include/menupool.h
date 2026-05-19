@@ -257,6 +257,14 @@ const char *menupoolTypeName(menu_type_t type);
 /* Returns the number of currently active slots. O(N) in MENU_TYPE_COUNT. */
 s32 menupoolCountActive(void);
 
+/* Watchdog helpers for the legacy menu stack. Standalone pure-ImGui overlays
+ * such as the room screen may be valid while the legacy stack is empty; these
+ * helpers count, dump, and release only slots that require a live legacy
+ * dialog. Force-close paths should still use menupoolReleaseAll(). */
+s32 menupoolCountLegacyStackLeaks(void);
+void menupoolDumpLegacyStackLeaks(void);
+s32 menupoolReleaseLegacyStackLeaks(void);
+
 /* Read-only snapshot of active pool slots for diagnostics (no mutations). */
 typedef struct MenupoolDebugEntry {
     menu_type_t type;

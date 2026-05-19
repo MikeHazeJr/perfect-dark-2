@@ -108,6 +108,7 @@ Per [constraints.md](../constraints.md):
 - **Menu pool is the structural dedup layer.** Every dialog push consults the pool after the F-3.1 pointer-scan; denial is structural. Several dialogdefs may map to the same type (PC + Pause main menu variants -> `MENU_TYPE_MAIN_MENU`; arena/scenario/weapons/limits -> `MENU_TYPE_MP_SETUP`).
 - **Mouse capture driven by input context stack.** No menu may call `SDL_SetRelativeMouseMode` or `SDL_ShowCursor` directly.
 - **Room-settings mutations broadcast via end-of-frame dirty flag.** Leader-side mutations to shared room state set a file-static dirty flag; flush via `netSendRoomSettingsUpdate` / `netSendRoomPlaylistUpdate` at end-of-frame, gated on `g_NetMode == MPSETTINGS_NETMODE_CLIENT && lobbyIsLocalLeader()`. Do not broadcast inline (packet storm).
+- **Legacy-stack watchdog is leak-only.** B-351 split `menuPoolConsistencyCheck()` away from `menupoolReleaseAll()`: the watchdog now releases only pool slots that require a live legacy dialog, while preserving standalone pure-ImGui overlays such as Combat Simulator Room, Social Lobby, Social Shell, and the MP Pause menu. Stage transitions and explicit root closes still use `menupoolReleaseAll()`.
 
 ---
 

@@ -12,6 +12,7 @@
 #include "crashbreadcrumb.h"
 
 #define CRASH_LOG_FNAME "pd.crash.log"
+#define CRASH_LOG_DIR "logs/game client"
 #define CRASH_MAX_MSG 8192
 #define CRASH_MAX_SYM 256
 #define CRASH_MAX_FRAMES 32
@@ -239,7 +240,11 @@ static long __stdcall crashHandler(PEXCEPTION_POINTERS exinfo)
 
 	// open log file for the crash dump if one hasn't been opened yet
 	if (!sysLogIsOpen()) {
-		FILE *f = fopen(CRASH_LOG_FNAME, "wb");
+		CreateDirectoryA("logs", NULL);
+		CreateDirectoryA(CRASH_LOG_DIR, NULL);
+		char crashpath[512];
+		snprintf(crashpath, sizeof(crashpath), "%s/%s", CRASH_LOG_DIR, CRASH_LOG_FNAME);
+		FILE *f = fopen(crashpath, "wb");
 		if (f) {
 			fprintf(f, "Crash!\n\n%s", msg);
 			/* S301: append breadcrumbs to the standalone crash log */

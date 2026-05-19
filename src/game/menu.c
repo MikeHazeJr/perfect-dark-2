@@ -1842,10 +1842,10 @@ void menuPopDialog(void)
 /* S304: Per-frame consistency watchdog between the legacy g_Menus[] stack
  * and the menu pool.
  *
- * The invariant is: pool slots are active iff the legacy stack has at least
- * one dialog. Whenever the legacy stack is wiped (menuPushRootDialog zeroes
- * depth/numdialogs, menuClose zeroes them, stage transitions reset state)
- * the pool MUST already be empty or a leak will survive.
+ * The invariant is: slots that require legacy-stack ownership are active iff
+ * the legacy stack has at least one dialog. Standalone pure-ImGui overlays can
+ * be active without a legacy dialog, but menuPushRootDialog/menuClose/stage
+ * transitions still must not leave legacy-backed pool slots behind.
  *
  * Historical context: the 2026-04-16 playtest (pre-S304) showed a sequence
  * where menuPopDialog underflowed after the stack had already been zeroed
@@ -1870,13 +1870,13 @@ void menuPoolConsistencyCheck(void)
 	}
 
 	if (!legacyHasDialog) {
-		s32 poolActive = menupoolCountActive();
-		if (poolActive > 0) {
+		s32 leaked = menupoolCountLegacyStackLeaks();
+		if (leaked > 0) {
 			sysLogPrintf(LOG_WARNING,
-				"MENU: watchdog — legacy stack empty but %d pool slot(s) active; releasing leaked slot(s)",
-				poolActive);
-			menupoolDumpActive();
-			menupoolReleaseAll();
+				"MENU: watchdog -- legacy stack empty but %d legacy-stack pool slot(s) active; releasing leaked slot(s)",
+				leaked);
+			menupoolDumpLegacyStackLeaks();
+			menupoolReleaseLegacyStackLeaks();
 		}
 	}
 }

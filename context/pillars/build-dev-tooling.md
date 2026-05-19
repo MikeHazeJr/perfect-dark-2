@@ -107,9 +107,11 @@ B-337 guardrail (2026-05-18): `sign-release.ps1` refuses to sign when the select
 
 B-338 guardrail (2026-05-18): updater stale-file cleanup must preserve root-level BYOR ROM files (`*.z64`, `*.v64`, `*.n64`) in both the in-game updater and standalone `Updater.exe`. This protection is structural, not configurable: it applies even when `pd.ini` is absent or `Update.ProtectedFolders` is stale. Release zips exclude ROMs, so without this rule a root ROM absent from staging is misclassified as stale and can be deleted. Already-published releases with the old cleanup remain unsafe until superseded by a fixed newer prerelease; confirmed exposed prereleases are v0.0.199 and v0.0.200, and the rolling prerelease prune should retire them as newer dev builds ship.
 
+B-349 guardrail (2026-05-19): all client/updater logs live under root `logs/` and updater cleanup protects that folder as user/runtime state. Client logs route to `logs/game client/`; standalone updater logs to `logs/updater/pd-updater.log`. Updater cleanup paths log protected skips and stale deletions so future ROM-preservation reports have direct evidence.
+
 Two channels: stable and dev (`Updates.ShowDevReleases` config).
 
-`UPDATER_DEFAULT_PROTECTED = "mods,data,extracted,saves"` - directories preserved across self-update.
+`UPDATER_DEFAULT_PROTECTED = "mods,data,extracted,saves,logs"` - directories preserved across self-update.
 
 **Standalone `Updater.exe`** at [port/src/updater_standalone/updater_gui.c](../../port/src/updater_standalone/updater_gui.c). Recovery path if in-process self-update breaks. Packaged into release zips per `release.ps1`.
 

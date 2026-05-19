@@ -20,6 +20,7 @@
 #include <process.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <string.h>
 #include <ctype.h>
 
@@ -54,7 +55,7 @@
 #define ASSET_ZIP_SUFFIX     ".zip"
 #define TAG_PREFIX           "v"
 /* Root-level .z64/.v64/.n64 ROM files are protected by cleanup code. */
-#define DEFAULT_PROTECTED    "mods,data,extracted,saves"
+#define DEFAULT_PROTECTED    "mods,data,extracted,saves,logs"
 
 #define MAX_RELEASES         64
 #define WINDOW_CLIENT_W      720  /* default + minimum client-area width */
@@ -162,6 +163,7 @@ typedef struct {
 	char updateZipPath[MAX_PATH];
 	char stagingDir[MAX_PATH];
 	char selfOldPath[MAX_PATH];
+	char logPath[MAX_PATH];
 
 	/* Releases (owned by UI thread; worker writes into scratch, then
 	 * hands off via the completion message) */
@@ -192,6 +194,28 @@ typedef struct {
 } app_state_t;
 
 static app_state_t g_App;
+
+static void updaterLog(const char *fmt, ...)
+{
+	if (!g_App.logPath[0]) return;
+
+	FILE *fp = fopen(g_App.logPath, "ab");
+	if (!fp) return;
+
+	SYSTEMTIME st;
+	GetLocalTime(&st);
+	fprintf(fp, "[%04u-%02u-%02u %02u:%02u:%02u.%03u] ",
+		(unsigned)st.wYear, (unsigned)st.wMonth, (unsigned)st.wDay,
+		(unsigned)st.wHour, (unsigned)st.wMinute, (unsigned)st.wSecond,
+		(unsigned)st.wMilliseconds);
+
+	va_list ap;
+	va_start(ap, fmt);
+	vfprintf(fp, fmt, ap);
+	va_end(ap);
+	fputc('\n', fp);
+	fclose(fp);
+}
 
 /* ========================================================================
  * Version helpers (mirror of port/src/updater.c)
@@ -744,6 +768,17 @@ static void pathsDetect(void)
 	snprintf(g_App.updateZipPath, sizeof(g_App.updateZipPath), "%s\\pd.update.zip",    g_App.installDir);
 	snprintf(g_App.stagingDir,    sizeof(g_App.stagingDir),    "%s\\pd_update_staging",g_App.installDir);
 	snprintf(g_App.selfOldPath,   sizeof(g_App.selfOldPath),   "%s.old",               g_App.exePath);
+
+	char logsRoot[MAX_PATH];
+	char updaterLogDir[MAX_PATH];
+	snprintf(logsRoot, sizeof(logsRoot), "%s\\logs", g_App.installDir);
+	snprintf(updaterLogDir, sizeof(updaterLogDir), "%s\\updater", logsRoot);
+	CreateDirectoryA(logsRoot, NULL);
+	CreateDirectoryA(updaterLogDir, NULL);
+	snprintf(g_App.logPath, sizeof(g_App.logPath), "%s\\pd-updater.log", updaterLogDir);
+	FILE *lf = fopen(g_App.logPath, "ab");
+	if (lf) fclose(lf);
+	updaterLog("Updater start exe='%s' install='%s'", g_App.exePath, g_App.installDir);
 }
 
 /* ========================================================================
@@ -752,6 +787,7 @@ static void pathsDetect(void)
 
 static void setError(const char *msg)
 {
+	updaterLog("ERROR: %s", msg ? msg : "(null)");
 	EnterCriticalSection(&g_App.cs);
 	strncpy(g_App.errorMsg, msg, sizeof(g_App.errorMsg) - 1);
 	g_App.errorMsg[sizeof(g_App.errorMsg) - 1] = '\0';
@@ -1084,6 +1120,7 @@ static int isProtectedRelPath(const char *relPath)
 
 static void postApplyStatus(const char *text)
 {
+	updaterLog("%s", text);
 	/* Copy the status line into errorMsg (reused as the latest status buffer)
 	 * then post a tick message. UI thread reads the buffer. */
 	EnterCriticalSection(&g_App.cs);
@@ -1201,7 +1238,10 @@ static void cleanupStaleFiles(const char *installDir, const char *stagingDir, co
 		if (relBase[0]) snprintf(relPath, sizeof(relPath), "%s\\%s", relBase, fd.cFileName);
 		else            snprintf(relPath, sizeof(relPath), "%s", fd.cFileName);
 
-		if (isProtectedRelPath(relPath)) continue;
+		if (isProtectedRelPath(relPath)) {
+			updaterLog("Preserved protected path: %s", relPath);
+			continue;
+		}
 
 		char stagingPath[MAX_PATH];
 		snprintf(stagingPath, sizeof(stagingPath), "%s\\%s", stagingDir, relPath);
@@ -1214,12 +1254,14 @@ static void cleanupStaleFiles(const char *installDir, const char *stagingDir, co
 				char full[MAX_PATH];
 				snprintf(full, sizeof(full), "%s\\%s", installDir, relPath);
 				removeDirRecursive(full);
+				updaterLog("Removed stale dir: %s", relPath);
 			}
 		} else {
 			if (!inStaging) {
 				char full[MAX_PATH];
 				snprintf(full, sizeof(full), "%s\\%s", installDir, relPath);
 				DeleteFileA(full);
+				updaterLog("Removed stale file: %s", relPath);
 			}
 		}
 	} while (FindNextFileA(h, &fd));

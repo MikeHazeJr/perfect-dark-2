@@ -415,6 +415,45 @@ TEST_CASE("menu graph: main-menu Solo view uses graph push ops", "[input][menu_g
     REQUIRE(render.find("pdguiSoloRoomOpen();") == std::string::npos);
 }
 
+TEST_CASE("menu pool: watchdog preserves standalone Combat Simulator room", "[input][menupool][static][b351]")
+{
+    const std::string header = readTextFile("port/include/menupool.h");
+    const std::string pool = readTextFile("port/src/menupool.c");
+    const std::string menu = readTextFile("src/game/menu.c");
+    const std::string room = readTextFile("port/fast3d/pdgui_menu_room.cpp");
+
+    REQUIRE_FALSE(header.empty());
+    REQUIRE_FALSE(pool.empty());
+    REQUIRE_FALSE(menu.empty());
+    REQUIRE_FALSE(room.empty());
+
+    REQUIRE(header.find("menupoolCountLegacyStackLeaks") != std::string::npos);
+    REQUIRE(header.find("menupoolDumpLegacyStackLeaks") != std::string::npos);
+    REQUIRE(header.find("menupoolReleaseLegacyStackLeaks") != std::string::npos);
+
+    const std::string optional = functionBlock(pool, "menupoolLegacyStackOptional");
+    const std::string watchdog = functionBlock(menu, "menuPoolConsistencyCheck");
+    const size_t roomRenderStart = room.find("extern \"C\" void pdguiRoomScreenRender");
+    REQUIRE_FALSE(optional.empty());
+    REQUIRE_FALSE(watchdog.empty());
+    REQUIRE(roomRenderStart != std::string::npos);
+
+    const std::string roomRender = functionBlock(room.substr(roomRenderStart), "pdguiRoomScreenRender");
+    REQUIRE_FALSE(roomRender.empty());
+
+    REQUIRE(optional.find("case MENU_TYPE_ROOM:") != std::string::npos);
+    REQUIRE(optional.find("case MENU_TYPE_PAUSE_MENU:") != std::string::npos);
+    REQUIRE(optional.find("case MENU_TYPE_SOCIAL_LOBBY:") != std::string::npos);
+    REQUIRE(optional.find("case MENU_TYPE_SOCIAL_SHELL:") != std::string::npos);
+    REQUIRE(roomRender.find("menupoolAcquire(MENU_TYPE_ROOM, NULL, &g_CtxImGuiMenu)") != std::string::npos);
+
+    REQUIRE(watchdog.find("menupoolCountLegacyStackLeaks()") != std::string::npos);
+    REQUIRE(watchdog.find("menupoolDumpLegacyStackLeaks()") != std::string::npos);
+    REQUIRE(watchdog.find("menupoolReleaseLegacyStackLeaks()") != std::string::npos);
+    REQUIRE(watchdog.find("menupoolCountActive()") == std::string::npos);
+    REQUIRE(watchdog.find("menupoolReleaseAll()") == std::string::npos);
+}
+
 TEST_CASE("menu graph: main-menu Modding hub uses graph push op", "[input][menu_graph][mainmenu][static]")
 {
     const std::string mainmenu = readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp");

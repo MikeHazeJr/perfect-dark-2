@@ -221,6 +221,11 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
     requireContains(lv, "scenarioResetForStageLoad(stagenum);");
     requireNotContains(lv, "meshDetachFromProp(&g_Vars.props[i])");
     requireContains(bondwalk, "sweep.selfprop = g_Vars.currentplayer->prop");
+    requireContains(bondwalk, "bwalkClampAirborneSideEntry");
+    requireContains(bondwalk, "player->bondprevpos");
+    requireContains(bondwalk, "sweep.move.x = lateralMove.x");
+    requireContains(bondwalk, "sweep.move.y = *verticalDelta");
+    requireContains(bondwalk, "JUMP_SIDE_SWEEP");
     requireContains(bondwalk, "capsuleFindFloorForProp(g_Vars.currentplayer->prop");
     requireContains(bondwalk, "capsuleFindCeilingForProp(g_Vars.currentplayer->prop");
     requireContains(chr, "sweep.selfprop = chr->prop");
@@ -266,7 +271,7 @@ TEST_CASE("jump capsule normal classification is orientation-aware",
     REQUIRE(capsuleClassifyNormal(&wrong_way_ceiling) == CAPSULE_HIT_CEILING);
 }
 
-TEST_CASE("jump capsule rendered-triangle fixture catches unflagged floor and ceiling",
+TEST_CASE("jump capsule rendered-triangle fixture catches unflagged floor, ceiling, and side walls",
           "[physics][jump][capsule][fixture]")
 {
     const struct coord start = {0.0f, 70.0f, 0.0f};
@@ -291,6 +296,15 @@ TEST_CASE("jump capsule rendered-triangle fixture catches unflagged floor and ce
     const struct coord moveUp = {0.0f, 40.0f, 0.0f};
     REQUIRE(renderedTriangleWouldBlockCapsuleSampleBundle(start, moveUp,
         radius, ymin, ymax, ceilingTri, CAPSULE_HIT_CEILING));
+
+    const struct coord sideWallTri[3] = {
+        {25.0f, 0.0f, -60.0f},
+        {25.0f, 150.0f, 0.0f},
+        {25.0f, 0.0f, 60.0f},
+    };
+    const struct coord moveSideUp = {40.0f, 40.0f, 0.0f};
+    REQUIRE(renderedTriangleWouldBlockCapsuleSampleBundle(start, moveSideUp,
+        radius, ymin, ymax, sideWallTri, CAPSULE_HIT_WALL));
 }
 
 TEST_CASE("bot jump obstacle trigger is solver-gated and option-gated",

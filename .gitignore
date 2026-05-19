@@ -55,6 +55,7 @@ tools/mkrom/mkrom
 # Build logs
 build_errors.log
 build/game_output.log
+logs/
 
 # Claude Code worktrees (prevent git add -A from scanning them)
 .claude/worktrees/

@@ -1,5 +1,103 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-19-jump-side-entry-b350`) - 2026-05-19 - airborne side-entry through overhead blockers
+
+Mike provided `C:/Users/mikeh/Downloads/Perfect Dark 2.0/pd-client.log` from another machine and reported that collision was mostly improved, but the player could still jump sideways through the sides of overhead solid blockers and sometimes get stuck above a doorway / inside a new blocker. Dynamic object collision looked good: couch top collision worked after moving the couch.
+
+### Root Cause
+
+- The log shows CI Training / stage `0x26`, `MESHCOL: world mesh finalized`, and `MESHCOL: ENABLED`, so the collision-owned static mesh path is active.
+- No `CAPSULE:` probes were present because `Debug.JumpLogging=0`, which is expected after B-347.
+- Code review found the remaining gap in `bondwalk.c`: horizontal movement applies before `bwalkUpdateVertical()`, then the airborne jump sweep uses `move=(0, verticalDelta, 0)`.
+- That catches top/bottom hits, but it cannot catch entering an overhead blocker through its side while moving laterally during the same jump frame.
+
+### Change
+
+- B-350 filed in `context/bugs.md`.
+- Added `bwalkClampAirborneSideEntry()` in `src/game/bondwalk.c`.
+- Before the vertical-only jump sweep, the player now runs an upward diagonal `capsuleSweep()` from `bondprevpos` to the already-applied X/Z plus `verticalDelta`.
+- On hit, the helper rolls X/Z back to a safe fraction and recomputes player rooms before vertical resolution continues.
+- For ceiling-class hits, the helper also clamps vertical movement and kills upward velocity so the player does not keep rising into the blocker.
+- Extended `tests/test_jump_two_stage_design.cpp` so `[physics][jump]` covers side-wall rendered-triangle hits in addition to floor/ceiling hits.
+
+### Verification
+
+- Scoped `git diff --check` PASS.
+- `.\devtools\build-session.ps1 -Session b350side -Target tests -BuildTimeoutSeconds 180` PASS.
+- Direct focused `.claude\session-builds\b350side\pd-tests.exe "[physics][jump]"` PASS (99 assertions / 4 cases).
+- `.\devtools\build-session.ps1 -Session b350side -Target all -BuildTimeoutSeconds 180` PASS.
+
+### Context Sync
+
+- Updated `context/bugs.md`, `context/tasks.md`, `context/session-log.md`, and `context/pillars/physics-collision.md`.
+- Parent `..\context` copy is absent in this checkout, so no parent sync is required.
+- Manual retest remains: CI Training overhead blockers/doorway should block side-entry without wall trapping; moved couch dynamic collision should still allow landing/jumping from its new position.
+
+## Session (`main-checkout-2026-05-19-combat-sim-room-input-watchdog`) - 2026-05-19 - Combat Simulator room input ownership loop
+
+Mike provided a large `pd-client.log` from another machine. After collision testing, opening Solo Play -> Combat Simulator made menu navigation feel like input was being pulled back toward center.
+
+### Root Cause
+
+- Log review found the failure begins immediately after `MENU.GRAPH.FIRE source=main_solo_view edge=combat_simulator ... target=room`.
+- The main menu releases cleanly, then `pdguiRoomScreenRender()` acquires `MENU_TYPE_ROOM` with `def=NULL` and `g_CtxImGuiMenu`.
+- `menuPoolConsistencyCheck()` sees an empty legacy stack, assumes all active pool slots are leaks, logs `MENU: watchdog -- legacy stack empty`, and calls the bulk release path.
+- The watchdog releases both the stale `main_solo_view` slot and the legitimate standalone `room` slot. The room renderer reacquires on the next frame, so the loop repeats hundreds of times.
+- Each release/acquire cycle flips mouse/input ownership between gameplay relative mode and ImGui absolute mode, matching the playtest symptom.
+
+### Change
+
+- Keep `menupoolReleaseAll()` as the force-close path for stage transitions and explicit root closes.
+- Added leak-only watchdog helpers in `menupool.c`: count, dump, and release only active slots that require a live legacy dialog.
+- Marked standalone pure-ImGui overlays as legacy-stack-optional for watchdog purposes: `MENU_TYPE_ROOM`, `MENU_TYPE_PAUSE_MENU`, `MENU_TYPE_SOCIAL_LOBBY`, and `MENU_TYPE_SOCIAL_SHELL`.
+- Routed `menuPoolConsistencyCheck()` through the leak-only helpers. It now releases the stale `main_solo_view` class of leak without releasing the legitimate room overlay.
+- Added static regression coverage pinning that the watchdog uses the leak-only helper and that room remains a legacy-stack-optional menu-pool type.
+
+### Verification
+
+- Scoped `git diff --check` PASS.
+- `.\devtools\build-session.ps1 -Session b351menu -Target tests -BuildTimeoutSeconds 180` PASS.
+- Direct focused `.claude\session-builds\b351menu\pd-tests.exe "[input][menupool][static][b351]"` PASS (21 assertions / 1 case).
+- `.\devtools\build-session.ps1 -Session b351menu -Target all -BuildTimeoutSeconds 180` PASS.
+
+### Context Sync
+
+- Updated `context/bugs.md`, `context/tasks.md`, `context/session-log.md`, and `context/pillars/menus.md`.
+- Parent `..\context` copy is absent in this checkout, so no parent sync is required.
+
+## Session (`main-checkout-2026-05-19-updater-logs-rom-readme`) - 2026-05-19 - updater ROM preservation evidence and log layout
+
+Mike reported that on another machine the root ROM appeared to be deleted again when using the standalone updater, asked whether the in-client updater might also be affected, asked to remove the redundant release `Readme.txt`, and asked for all client/updater logs to live under root `logs/` subfolders.
+
+### Root Cause
+
+- B-338 already protects root-level `.z64` / `.v64` / `.n64` files in both cleanup implementations, but the standalone updater produced no persistent log, so a cross-machine report could not prove whether a ROM path was preserved, removed, or affected by a different path shape.
+- The new root `logs/` directory would be absent from release staging and therefore stale unless updater cleanup protects it.
+- Client logs were written at install root, mixed with user/release files.
+- `release.ps1` already generates `put_your_rom_here.txt` and excludes root `README.txt`; static coverage did not pin that single-instruction-file layout.
+
+### Change
+
+- Game/client log routing now creates `logs/game client/` and writes `pd-client.log`, `pd-host.log`, `pd-server.log`, and crash fallback logs there. Early updater-apply logs before `sysInit()` also initialize the client log path.
+- Standalone `Updater.exe` now creates `logs/updater/pd-updater.log`, records startup/install paths, status transitions, errors, protected skips, and stale deletions.
+- Both in-client and standalone updater cleanup defaults protect `logs` in addition to `mods,data,extracted,saves`.
+- In-client cleanup now mirrors standalone evidence by logging protected skips and stale removals through `sysLogPrintf`.
+- `.gitignore` ignores root `logs/`.
+- Static coverage pins root-ROM protection, logs protection, standalone updater log path, release `put_your_rom_here.txt` / `README.txt` exclusion, and game-client log folder routing.
+
+### Verification
+
+- Scoped `git diff --check` PASS.
+- `devtools/release.ps1` PowerShell parser PASS.
+- `.\devtools\build-session.ps1 -Session logupd -Target tests -BuildTimeoutSeconds 180` PASS.
+- Direct focused `.claude\session-builds\logupd\pd-tests.exe "[updater][rom][static][b338],[updater][logs][static][b349],[release][layout][static][b349],[logging][layout][static][b349]"` PASS (36 assertions / 5 cases).
+- `.\devtools\build-session.ps1 -Session logupd -Target all -BuildTimeoutSeconds 180` PASS.
+
+### Context Sync
+
+- Updated `context/bugs.md`, `context/tasks.md`, `context/session-log.md`, and `context/pillars/build-dev-tooling.md`.
+- Parent `..\context` copy is absent in this checkout, so no parent sync is required.
+
 ## Session (`main-checkout-2026-05-19-dev-window-release-rolling-log`) - 2026-05-19 - Dev Window v2 release hang diagnosability
 
 Mike clarified that the hang was in Dev Window v2's Release flow at the GitHub release step, not an in-game release/runtime hang. The earlier capsule-log fix remains valid but is unrelated to this report.

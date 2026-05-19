@@ -46,13 +46,13 @@ static s32 s_ShowDevReleasesCfg = 0;
  * time (before config is formally initialized). pd.ini itself is always
  * protected regardless of this setting. Root-level ROM files are also
  * protected by cleanup code, independent of this folder list. */
-#define UPDATER_DEFAULT_PROTECTED "mods,data,extracted,saves"
+#define UPDATER_DEFAULT_PROTECTED "mods,data,extracted,saves,logs"
 static char s_ProtectedFoldersCfg[512] = UPDATER_DEFAULT_PROTECTED;
 
 PD_CONSTRUCTOR static void updaterConfigInit(void)
 {
 	/* S313 batch: Update.ProtectedFolders no longer persists to pd.ini.
-	 * UPDATER_DEFAULT_PROTECTED ("mods,data,extracted,saves") is the
+	 * UPDATER_DEFAULT_PROTECTED ("mods,data,extracted,saves,logs") is the
 	 * canonical folder list; pd.ini and root-level ROM files are always
 	 * protected regardless of this value.
 	 * Updates.ShowDevReleases stays configurable (opting in to dev/test
@@ -1640,7 +1640,10 @@ static void cleanupStaleFiles(const char *installDir, const char *stagingDir, co
 			snprintf(relPath, sizeof(relPath), "%s", fd.cFileName);
 		}
 
-		if (isProtectedRelPath(relPath)) continue;
+		if (isProtectedRelPath(relPath)) {
+			sysLogPrintf(LOG_NOTE, "UPDATER: Preserved protected path: %s", relPath);
+			continue;
+		}
 
 		char stagingPath[MAX_PATH];
 		snprintf(stagingPath, sizeof(stagingPath), "%s\\%s", stagingDir, relPath);
@@ -1653,6 +1656,7 @@ static void cleanupStaleFiles(const char *installDir, const char *stagingDir, co
 				char fullPath[MAX_PATH];
 				snprintf(fullPath, sizeof(fullPath), "%s\\%s", installDir, relPath);
 				removeDirRecursive(fullPath);
+				sysLogPrintf(LOG_NOTE, "UPDATER: Removed stale dir: %s", relPath);
 				fprintf(stderr, "UPDATER: Removed stale dir: %s\n", relPath);
 			}
 		} else {
@@ -1660,6 +1664,7 @@ static void cleanupStaleFiles(const char *installDir, const char *stagingDir, co
 				char fullPath[MAX_PATH];
 				snprintf(fullPath, sizeof(fullPath), "%s\\%s", installDir, relPath);
 				DeleteFileA(fullPath);
+				sysLogPrintf(LOG_NOTE, "UPDATER: Removed stale file: %s", relPath);
 				fprintf(stderr, "UPDATER: Removed stale file: %s\n", relPath);
 			}
 		}

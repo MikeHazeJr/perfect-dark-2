@@ -55,6 +55,8 @@ __attribute__((dllexport)) u32 AmdPowerXpressRequestHighPerformance = 1;
 
 #define LOG_FNAME "pd.log"
 #define CRASHLOG_FNAME "pd.crash.log"
+#define LOG_ROOT_DIR "logs"
+#define LOG_CLIENT_DIR "logs/game client"
 #define USEC_IN_SEC 1000000ULL
 
 static u64 startTick = 0;
@@ -239,18 +241,40 @@ static void sysLogRotate(const char *dir, const char *fname)
 	rename(oldpath, newpath);
 }
 
-static inline void sysLogSetPath(const char *fname)
+static void sysLogEnsureDir(const char *dir)
 {
-	snprintf(logPath, sizeof(logPath), "./%s", fname);
-	sysLogRotate(".", fname);
+#ifdef PLATFORM_WIN32
+	CreateDirectoryA(dir, NULL);
+#else
+	(void)dir;
+#endif
+}
+
+static inline void sysLogSetPath(const char *dir, const char *fname)
+{
+	sysLogEnsureDir(LOG_ROOT_DIR);
+	sysLogEnsureDir(dir);
+
+	snprintf(logPath, sizeof(logPath), "./%s/%s", dir, fname);
+	sysLogRotate(dir, fname);
 	FILE *f = fopen(logPath, "wb");
 	if (!f) {
 		char homeDir[2048];
+		char homeLogRoot[2048];
+		char homeLogDir[2048];
 		sysGetHomePath(homeDir, sizeof(homeDir) - 1);
+		snprintf(homeLogRoot, sizeof(homeLogRoot), "%s/%s", homeDir, LOG_ROOT_DIR);
+		snprintf(homeLogDir, sizeof(homeLogDir), "%s/%s", homeDir, dir);
+#ifdef PLATFORM_WIN32
+		CreateDirectoryA(homeLogRoot, NULL);
+		CreateDirectoryA(homeLogDir, NULL);
+#endif
 		sysGetHomePath(logPath, sizeof(logPath) - 1);
-		strncat(logPath, "/", sizeof(logPath) - 1);
-		strncat(logPath, fname, sizeof(logPath) - 1);
-		sysLogRotate(homeDir, fname);
+		strncat(logPath, "/", sizeof(logPath) - strlen(logPath) - 1);
+		strncat(logPath, dir, sizeof(logPath) - strlen(logPath) - 1);
+		strncat(logPath, "/", sizeof(logPath) - strlen(logPath) - 1);
+		strncat(logPath, fname, sizeof(logPath) - strlen(logPath) - 1);
+		sysLogRotate(homeLogDir, fname);
 		f = fopen(logPath, "wb");
 	}
 	if (f) {
@@ -279,12 +303,14 @@ void sysInit(void)
 	{
 		extern s32 g_NetDedicated;
 		extern s32 g_NetHostLatch;
-		if (g_NetDedicated || sysArgCheck("--dedicated")) {
-			sysLogSetPath("pd-server.log");
-		} else if (g_NetHostLatch || sysArgCheck("--host")) {
-			sysLogSetPath("pd-host.log");
-		} else {
-			sysLogSetPath("pd-client.log");
+		if (!sysLogIsOpen()) {
+			if (g_NetDedicated || sysArgCheck("--dedicated")) {
+				sysLogSetPath(LOG_CLIENT_DIR, "pd-server.log");
+			} else if (g_NetHostLatch || sysArgCheck("--host")) {
+				sysLogSetPath(LOG_CLIENT_DIR, "pd-host.log");
+			} else {
+				sysLogSetPath(LOG_CLIENT_DIR, "pd-client.log");
+			}
 		}
 	}
 
@@ -447,6 +473,10 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 	va_start(ap, fmt);
 	vsnprintf(logmsg, sizeof(logmsg), fmt, ap);
 	va_end(ap);
+
+	if (logPath[0] == '\0') {
+		sysLogSetPath(LOG_CLIENT_DIR, "pd-client.log");
+	}
 
 	const char *pfx = (lvl < (s32)(sizeof(prefix) / sizeof(prefix[0]))) ? prefix[lvl] : "";
 

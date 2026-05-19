@@ -395,6 +395,91 @@ bool bwalkCanMoveUpwards(f32 amount)
 	return (result == CDRESULT_NOCOLLISION);
 }
 
+#if PC_CAPSULE_ENABLED
+static void bwalkClampAirborneSideEntry(f32 *verticalDelta, f32 *newmanground,
+		f32 *fallspeed)
+{
+	struct player *player = g_Vars.currentplayer;
+	struct prop *prop;
+	struct coord lateralMove;
+	f32 lateralLen2;
+	f32 radius;
+	f32 ymax;
+	f32 ymin;
+	struct capsulecast sweep;
+	f32 safefrac;
+
+	if (!player || !player->prop || !verticalDelta || !newmanground || !fallspeed) {
+		return;
+	}
+
+	if (*verticalDelta <= 0.1f) {
+		return;
+	}
+
+	prop = player->prop;
+	lateralMove.x = prop->pos.x - player->bondprevpos.x;
+	lateralMove.y = 0.0f;
+	lateralMove.z = prop->pos.z - player->bondprevpos.z;
+	lateralLen2 = lateralMove.x * lateralMove.x + lateralMove.z * lateralMove.z;
+
+	if (lateralLen2 < 0.01f) {
+		return;
+	}
+
+	playerGetBbox(prop, &radius, &ymax, &ymin);
+
+	sweep.start.x = player->bondprevpos.x;
+	sweep.start.y = prop->pos.y;
+	sweep.start.z = player->bondprevpos.z;
+	sweep.radius = radius;
+	sweep.ymin_offset = ymin - prop->pos.y;
+	sweep.ymax_offset = ymax - prop->pos.y;
+	sweep.move.x = lateralMove.x;
+	sweep.move.y = *verticalDelta;
+	sweep.move.z = lateralMove.z;
+	roomsCopy(player->bondprevrooms, sweep.rooms);
+	sweep.cdtypes = g_Vars.bondcollisions ? CDTYPE_ALL : CDTYPE_BG;
+	sweep.selfprop = prop;
+
+	safefrac = capsuleSweep(&sweep);
+
+	if (safefrac < 1.0f) {
+		f32 clampfrac = safefrac > 0.02f ? safefrac - 0.02f : 0.0f;
+		struct coord clampedpos = prop->pos;
+		RoomNum rooms[8];
+		s32 geomtype = sweep.hittype == CAPSULE_HIT_PROP
+			? capsuleClassifyNormal(&sweep.hitnormal)
+			: sweep.hittype;
+
+		clampedpos.x = sweep.start.x + lateralMove.x * clampfrac;
+		clampedpos.z = sweep.start.z + lateralMove.z * clampfrac;
+
+		func0f065e74(&sweep.start, sweep.rooms, &clampedpos, rooms);
+		bmoveFindEnteredRoomsByPos(player, &clampedpos, rooms);
+
+		propDeregisterRooms(prop);
+		prop->pos.x = clampedpos.x;
+		prop->pos.z = clampedpos.z;
+		roomsCopy(rooms, prop->rooms);
+
+		if (geomtype == CAPSULE_HIT_CEILING) {
+			*verticalDelta *= clampfrac;
+			*newmanground = player->vv_manground + *verticalDelta;
+			*fallspeed = 0.0f;
+		}
+
+		if (g_JumpLoggingEnabled) {
+			sysLogPrintf(LOG_NOTE,
+				"JUMP_SIDE_SWEEP: hit frac=%.3f clamp=%.3f type=%d rendered=%d "
+				"lateral=(%.2f,%.2f) vertical=%.2f",
+				safefrac, clampfrac, geomtype, sweep.hitfromrendered,
+				lateralMove.x, lateralMove.z, *verticalDelta);
+		}
+	}
+}
+#endif
+
 bool bwalkCalculateNewPosition(struct coord *vel, f32 rotateamount, bool apply, f32 extrawidth, s32 checktypes)
 {
 	s32 result = CDRESULT_NOCOLLISION;
@@ -1258,6 +1343,8 @@ void bwalkUpdateVertical(void)
 		 * bwalkTryMoveUpwards might miss when the step is large. */
 		f32 verticalDelta = newmanground - g_Vars.currentplayer->vv_manground;
 #if PC_CAPSULE_ENABLED
+		bwalkClampAirborneSideEntry(&verticalDelta, &newmanground, &fallspeed);
+
 		{
 			struct capsulecast sweep;
 			sweep.start.x = g_Vars.currentplayer->prop->pos.x;

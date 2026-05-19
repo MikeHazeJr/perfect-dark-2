@@ -168,6 +168,19 @@ static s32 typeInRange(menu_type_t t)
     return (t > MENU_TYPE_NONE && t < MENU_TYPE_COUNT);
 }
 
+static s32 menupoolLegacyStackOptional(menu_type_t type)
+{
+    switch (type) {
+    case MENU_TYPE_PAUSE_MENU:
+    case MENU_TYPE_ROOM:
+    case MENU_TYPE_SOCIAL_LOBBY:
+    case MENU_TYPE_SOCIAL_SHELL:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 /* Linear scan of registry. Returns MENU_TYPE_NONE if not found. */
 static menu_type_t lookupType(const struct menudialogdef *def)
 {
@@ -451,6 +464,35 @@ s32 menupoolCountActive(void)
     return n;
 }
 
+s32 menupoolCountLegacyStackLeaks(void)
+{
+    s32 n = 0;
+    for (s32 i = MENU_TYPE_NONE + 1; i < MENU_TYPE_COUNT; i++) {
+        if (s_Pool[i].active && !menupoolLegacyStackOptional((menu_type_t)i)) {
+            n++;
+        }
+    }
+    return n;
+}
+
+s32 menupoolReleaseLegacyStackLeaks(void)
+{
+    s32 released = 0;
+    for (s32 i = MENU_TYPE_NONE + 1; i < MENU_TYPE_COUNT; i++) {
+        if (s_Pool[i].active && !menupoolLegacyStackOptional((menu_type_t)i)) {
+            if (menupoolRelease((menu_type_t)i) == 1) {
+                released++;
+            }
+        }
+    }
+    if (released > 0) {
+        sysLogPrintf(LOG_NOTE,
+            "MENUPOOL: released %d legacy-stack leak slot(s)",
+            released);
+    }
+    return released;
+}
+
 s32 menupoolDebugCopyActive(MenupoolDebugEntry *out, s32 maxEntries)
 {
     if (!out || maxEntries <= 0) {
@@ -532,6 +574,28 @@ void menupoolDumpActive(void)
     }
     if (n == 0) {
         sysLogPrintf(LOG_NOTE, "MENUPOOL dump: (no active slots)");
+    }
+}
+
+void menupoolDumpLegacyStackLeaks(void)
+{
+    s32 n = 0;
+    for (s32 i = MENU_TYPE_NONE + 1; i < MENU_TYPE_COUNT; i++) {
+        const menupool_slot_t *slot = &s_Pool[i];
+        if (slot->active && !menupoolLegacyStackOptional((menu_type_t)i)) {
+            sysLogPrintf(LOG_NOTE,
+                "MENUPOOL legacy-stack leak: [%s] gen=%u def=%p ctx=%s",
+                menupoolTypeName((menu_type_t)i),
+                (unsigned)slot->generation,
+                (const void *)slot->def,
+                slot->owned_ctx
+                    ? (slot->owned_ctx->name ? slot->owned_ctx->name : "?")
+                    : "shared/none");
+            n++;
+        }
+    }
+    if (n == 0) {
+        sysLogPrintf(LOG_NOTE, "MENUPOOL legacy-stack leak: (none)");
     }
 }
 
