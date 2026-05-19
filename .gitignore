@@ -47,6 +47,7 @@ src/generated
 ._dev-window-settings.json
 devtools/dev-window-v2/settings.json
 devtools/dev-window-v2/dev-window-v2-debug.log
+devtools/dev-window-v2/dev-window-v2-console.log*
 
 # Tools
 tools/mkrom/mkrom

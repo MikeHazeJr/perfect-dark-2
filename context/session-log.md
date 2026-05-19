@@ -14,13 +14,16 @@ Mike clarified that the hang was in Dev Window v2's Release flow at the GitHub r
 - Added a Dev Window-owned rolling console log at `devtools/dev-window-v2/dev-window-v2-console.log`.
 - On each Dev Window launch, the previous console log rotates to `.1`, `.1` rotates to `.2`, and only three total logs are kept.
 - Every line written through the Log tab path is saved to disk before UI filtering, so active filters and a frozen visual surface do not hide the raw evidence.
-- Updated the GitHub publish helper in `release.ps1` so `gh release create` streams stdout/stderr into Dev Window and emits wait heartbeats while silent.
+- The failed v0.0.201 retry proved the log must not be source-controlled: the tracked `dev-window-v2-console.log` dirtied the repo and blocked `git pull --rebase`. `.gitignore` now ignores `dev-window-v2-console.log*`, and the tracked generated log is removed from the index while left on disk.
+- Updated the GitHub publish helper in `release.ps1` so `gh release create` inherits stdout/stderr into Dev Window and emits wait heartbeats while silent. This replaces the unsafe `BeginOutputReadLine`/PowerShell event callback that crashed with `There is no Runspace available`.
+- `release.ps1` now exits on rebase failure before push/GitHub publish instead of aborting the rebase and continuing.
 
 ### Verification
 
 - PowerShell parser check PASS for `devtools/dev-window-v2/dev-window-v2.ps1`.
 - PowerShell parser check PASS for `devtools/release.ps1`.
 - Scoped `git diff --check` PASS for both scripts.
+- Follow-up parser/diff checks PASS after removing the unsafe async callback and ignoring the generated console log.
 - Manual smoke still useful: launch Dev Window v2, run a small action, confirm `dev-window-v2-console.log` records it, restart twice, and confirm `.1`/`.2` rotation.
 
 ### Context Sync

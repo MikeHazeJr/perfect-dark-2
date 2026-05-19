@@ -464,38 +464,27 @@ function Invoke-GhStreaming([string[]]$Arguments, [string]$Label) {
     $psi.Arguments = (($Arguments | ForEach-Object { Quote-NativeArg $_ }) -join " ")
     $psi.WorkingDirectory = $ProjectRoot
     $psi.UseShellExecute = $false
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
+    # Do not use BeginOutputReadLine/DataReceivedEventHandler here. Those
+    # callbacks can run on a .NET thread without a PowerShell runspace, and a
+    # Write-Host from that callback can crash the release process. Let gh
+    # inherit this script's redirected stdout/stderr instead; Dev Window v2
+    # already captures this process output and persists it to the rolling log.
+    $psi.RedirectStandardOutput = $false
+    $psi.RedirectStandardError = $false
     $psi.CreateNoWindow = $true
     $psi.EnvironmentVariables["GH_PROMPT_DISABLED"] = "1"
     $psi.EnvironmentVariables["GIT_TERMINAL_PROMPT"] = "0"
 
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
-    $lastOutput = [DateTime]::Now
     $lastHeartbeat = [DateTime]::Now
 
-    $handler = [System.Diagnostics.DataReceivedEventHandler]{
-        param($sender, $eventArgs)
-        if ($eventArgs.Data) {
-            $script:ReleaseGhLastOutput = [DateTime]::Now
-            Write-Host ("    " + $eventArgs.Data) -ForegroundColor Gray
-        }
-    }
-
-    $script:ReleaseGhLastOutput = [DateTime]::Now
-    [void]$proc.add_OutputDataReceived($handler)
-    [void]$proc.add_ErrorDataReceived($handler)
-
     [void]$proc.Start()
-    $proc.BeginOutputReadLine()
-    $proc.BeginErrorReadLine()
 
     while (-not $proc.WaitForExit(1000)) {
-        $lastOutput = $script:ReleaseGhLastOutput
-        $silentSeconds = [int](([DateTime]::Now - $lastOutput).TotalSeconds)
         if (([DateTime]::Now - $lastHeartbeat).TotalSeconds -ge 15) {
-            Write-Host ("    {0}: still waiting for gh {1} ({2}s since output)" -f (Get-Date -Format "HH:mm:ss"), $Label, $silentSeconds) -ForegroundColor Gray
+            $elapsedSeconds = [int](([DateTime]::Now - $proc.StartTime).TotalSeconds)
+            Write-Host ("    {0}: still waiting for gh {1} ({2}s elapsed)" -f (Get-Date -Format "HH:mm:ss"), $Label, $elapsedSeconds) -ForegroundColor Gray
             $lastHeartbeat = [DateTime]::Now
         }
     }
@@ -881,8 +870,10 @@ if ($SkipPush -or $DryRun) {
 
     foreach ($line in $rebaseOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
     if ($rebaseExit -ne 0) {
-        Write-Host "  WARNING: Rebase failed -- aborting rebase and continuing with push." -ForegroundColor Yellow
+        Write-Host "  ERROR: Rebase failed -- aborting release before push/GitHub publish." -ForegroundColor Red
+        Write-Host "  Commit or discard the reported working-tree changes, then run Release again." -ForegroundColor Red
         git rebase --abort 2>$null
+        exit 1
     }
 
     # Temporarily allow errors so git's stderr progress lines don't kill us.
