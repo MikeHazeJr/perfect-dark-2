@@ -1,5 +1,39 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-19-fast3d-alpha-regression-followup`) - 2026-05-19 - B-346 second pass after failed credits/fog playtest
+
+Mike tested the first `gfxalpha` B-346 build and reported that characters/weapons became translucent while credits particles and text still rendered as solid colored, apparently untextured squares. The latest `Build\pd-client.log` reached `GRID_STAGE_CREDITS` (`stage=0x5c`) without an explicit texture-load fatal, so the first fix was treated as a renderer-state regression rather than a catalog/load failure.
+
+### Root Cause
+
+- The first B-346 patch incorrectly treated first-slot `G_BL_A_FOG` as material/output alpha and enabled GL alpha for that path. That made ordinary fogged geometry, including characters and weapons, blend against the scene.
+- Fast3d should still recognize `G_BL_A_FOG` as fog participation for the RGB fog mix, but it must not overwrite fragment alpha with `vFog.a`.
+- `G_RM_ADD` is the narrow exception: its blender tuple is `IN * FOG_ALPHA + MEM * 1`, so it needs additive GL blending and fog alpha only for that exact tuple, not for every fogged material.
+- Credits text setup relied on inherited texture state. Text glyph drawing uses CI4 font masks and texture rectangles, but `text0f153628()` did not explicitly reset texture enable/scale after prior display lists could leave texture scale/off state stale.
+
+### Change
+
+- Removed the `gfx_blender_uses_fog_alpha()` path from `port/fast3d/gfx_pc.cpp`.
+- Restored `use_alpha` to normal translucent `MEM,1MA` blends plus existing texture-edge alpha only; fog alpha now contributes to `use_fog` for color fog, not material alpha.
+- Removed `SHADER_OPT_BLEND_ALPHA_FOG`, the `opt_blend_alpha_fog` feature flag, and the shader line that assigned `texel.a = vFog.a`.
+- Added strict `G_RM_ADD`/additive-fog detection that sets `SHADER_OPT_ALPHA_FROM_FOG` only for the exact `IN,FOG_ALPHA,MEM,1` blender tuple and routes it to `glBlendFunc(GL_SRC_ALPHA, GL_ONE)`.
+- Added an explicit `gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON)` in `text0f153628()` so credits/text drawing resets texture enable and scale before glyph rectangles.
+- Updated `tests/test_fast3d_blender_static.cpp` to pin fog-alpha as color-fog-only with the narrow additive-fog exception, and added `tests/test_credits_texture_static.cpp` to pin the text texture-state reset and IA8 particle-mask assumptions.
+
+### Verification
+
+- Scoped `git diff --check` PASS for the changed files.
+- `.\devtools\build-session.ps1 -Session gfxalpha -Target tests -BuildTimeoutSeconds 180` PASS.
+- Direct focused `.claude\session-builds\gfxalpha\pd-tests.exe "[rendering][fast3d][fog][static][b346]"` PASS (41 assertions / 3 cases).
+- Direct focused `.claude\session-builds\gfxalpha\pd-tests.exe "[rendering][credits][texture][static][b346]"` PASS (16 assertions / 2 cases).
+- `.\devtools\build-session.ps1 -Session gfxalpha -Target all -BuildTimeoutSeconds 180` PASS for client/updater.
+- Build output remains available for Mike's retest at `.claude/session-builds/gfxalpha/PerfectDark.exe`.
+
+### Context Sync
+
+- Updated `context/bugs.md`, `context/tasks.md`, `context/session-log.md`, `context/pillars/rendering.md`, and `tools/kanban/state.json`.
+- Kanban card `c134` now records the failed first playtest, removes the stale pending-completion marker, and keeps the manual retest subtask active.
+
 ## Session (`main-checkout-2026-05-19-debug-credits-shortcut`) - 2026-05-19 - Settings Debug shortcut to Credits
 
 Mike asked for an option in Settings > Debug to go to Credits, primarily to shorten the credits rendering playtest path.
@@ -13,12 +47,16 @@ Mike asked for an option in Settings > Debug to go to Credits, primarily to shor
 
 ### Verification
 
-- Pending in this session: source checks and isolated build/test verification.
+- Scoped `git diff --check` PASS for the changed files.
+- `.\devtools\build-session.ps1 -Session dbgcred -Target tests -BuildTimeoutSeconds 180` PASS for `pd-tests.exe`.
+- Direct focused `.claude\session-builds\dbgcred\pd-tests.exe "[debug][credits][menu][static]"` PASS (11 assertions / 1 case).
+- `.\devtools\build-session.ps1 -Session dbgcred -Target all -BuildTimeoutSeconds 180` PASS for client/updater/tests/server.
 - Manual playtest remains: Settings > Debug > Go to Credits should transition directly to the credits stage; the button should be disabled during netplay.
 
 ### Context Sync
 
 - Updated `context/tasks.md` and `context/session-log.md`.
+- Synced parent `..\session-log.md` copy after updating the canonical context file.
 
 ## Session (`main-checkout-2026-05-19-fast3d-fog-alpha-squares`) - 2026-05-19 - credits particles/text and fog planes rendered as solid squares
 

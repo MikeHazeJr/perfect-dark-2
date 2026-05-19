@@ -1906,58 +1906,53 @@
     {
       "id": "c134",
       "title": "B-346: credits particles/text and fog planes render as solid squares",
-      "description": "Credits particles and text after the last mission could render as visible solid squares with no mask/texture transparency, matching the broader fog/additive-plane artifact Mike described as weird blue planes in stages. The earlier c3746 note was false closure: it only masked one A_FOG field. The shared fast3d blender decode still skipped alpha/shader alpha for fog-alpha and additive modes.",
+      "description": "Credits particles and text after the last mission could render as visible solid squares with no mask/texture transparency, matching the broader fog/additive-plane artifact Mike described as weird blue planes in stages. The first B-346 gfxalpha build failed Mike's playtest: characters/weapons became translucent, and credits particles/text were still solid colored squares.",
       "pillar": "engine",
       "column": "active",
       "order": 158000,
       "priority": 2,
-      "notes": "Implemented 2026-05-19 in fast3d: gfx_pc.cpp decodes c1/c2 fog and translucent memory blender fields, gfx_cc/gfx_opengl add SHADER_OPT_BLEND_ALPHA_FOG, and tests/test_fast3d_blender_static.cpp pins the field decode. Verification: queued isolated gfxalpha client/updater PASS, tests PASS; direct pd-tests \"[rendering][fast3d][fog][static][b346]\" PASS (22 assertions / 2 cases). Manual playtest is now the closure gate.",
+      "notes": "Second pass implemented 2026-05-19: removed the bad broad fog-alpha output-alpha path, kept G_BL_A_FOG as color-fog state only, restored material alpha to normal MEM/1MA/texture-edge cases, added a strict G_RM_ADD additive-fog exception for the exact IN/FOG_ALPHA/MEM/1 tuple, and added an explicit text texture enable/scale reset in text0f153628(). Verification: scoped diff check PASS, gfxalpha tests build PASS, focused fog static PASS, focused credits texture static PASS, and gfxalpha all-target client/updater PASS. Manual retest is the closure gate.",
       "subtasks": [
         {
           "id": "c134-s1",
           "title": "Confirm prior c3746 fix was only partial",
           "status": "done",
           "order": 1000,
-          "notes": "Reviewed the earlier gfx_pc.cpp change: it only masked one cycle-1 A_FOG field and did not make fog/additive modes enable alpha or route fog alpha into fragment alpha."
+          "notes": "Reviewed the earlier gfx_pc.cpp change and Mike's first gfxalpha playtest. The c3746 note was false closure, and the first B-346 pass was also wrong because routing fog alpha into fragment alpha made characters/weapons translucent."
         },
         {
           "id": "c134-s2",
-          "title": "Fix fast3d blender alpha/fog decode",
+          "title": "Fix fast3d fog alpha without material translucency",
           "status": "done",
           "order": 2000,
-          "notes": "Added slot-based blender helpers, normal translucent MEM/1MA alpha detection, c1/c2 fog detection, first-alpha fog detection, and SHADER_OPT_BLEND_ALPHA_FOG shader output-alpha handling."
+          "notes": "Kept slot-based c1/c2 fog detection, but removed the broad dedicated fog-alpha output-alpha path. G_BL_A_FOG now drives color fog only; material alpha comes from normal translucent MEM/1MA blends and texture-edge state. The exact G_RM_ADD IN/FOG_ALPHA/MEM/1 tuple uses a narrow additive-fog path with GL_SRC_ALPHA/GL_ONE."
         },
         {
           "id": "c134-s3",
           "title": "Build and focused regression verify",
           "status": "done",
           "order": 3000,
-          "notes": "gfxalpha client/updater build passed, tests build passed, and focused [rendering][fast3d][fog][static][b346] passed."
+          "notes": "gfxalpha tests build passed, focused [rendering][fast3d][fog][static][b346] passed (41 assertions / 3 cases), focused [rendering][credits][texture][static][b346] passed (16 assertions / 2 cases), and gfxalpha all-target client/updater build passed."
+        },
+        {
+          "id": "c134-s5",
+          "title": "Reset credits text texture state",
+          "status": "done",
+          "order": 3500,
+          "notes": "text0f153628() now emits gSPTexture(... G_ON) with full texture scale before CI4 glyph drawing, preventing stale display-list texture state from turning text masks into solid rectangles."
         },
         {
           "id": "c134-s4",
           "title": "Manual credits and fog/additive playtest",
           "status": "active",
           "order": 4000,
-          "notes": "Test .claude/session-builds/gfxalpha/PerfectDark.exe. Finish the last mission and verify credits particles/text use masks instead of solid squares; check fog/additive stage effects for opaque blue planes."
+          "notes": "Retest .claude/session-builds/gfxalpha/PerfectDark.exe. Finish the last mission or use Settings > Debug > Go to Credits. Verify credits particles/text use masks instead of solid squares, characters/weapons are not translucent, and fog/additive stage effects do not show opaque blue planes."
         }
       ],
       "flag": "watch",
       "flagged_at": "2026-05-19T04:25:00Z",
       "created": "2026-05-19T04:25:00Z",
-      "updated": "2026-05-19T04:25:00Z",
-      "pending_completion": {
-        "marked_at": "2026-05-19T04:25:00Z",
-        "marked_by": "session-main-checkout-2026-05-19-fast3d-fog-alpha-squares",
-        "summary": "B-346 is code-fixed and build/test verified; the remaining closure gate is Mike's manual credits plus fog/additive-plane playtest from the gfxalpha build.",
-        "evidence_refs": [
-          "context/bugs.md#B-346",
-          "port/fast3d/gfx_pc.cpp",
-          "port/fast3d/gfx_opengl.cpp",
-          "tests/test_fast3d_blender_static.cpp",
-          "context/session-log.md#main-checkout-2026-05-19-fast3d-fog-alpha-squares"
-        ]
-      }
+      "updated": "2026-05-19T05:10:00Z"
     },
     {
       "id": "cmpbhaqofaqj1",

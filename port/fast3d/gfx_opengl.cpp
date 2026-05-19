@@ -503,12 +503,12 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     if (cc_features.opt_fog) {
         if (cc_features.opt_alpha) {
             append_line(fs_buf, &fs_len, "    texel = vec4(mix(texel.rgb, vFog.rgb, vFog.a), texel.a);");
-            if (cc_features.opt_blend_alpha_fog) {
-                append_line(fs_buf, &fs_len, "    texel.a = vFog.a;");
-            }
         } else {
             append_line(fs_buf, &fs_len, "    texel = mix(texel, vFog.rgb, vFog.a);");
         }
+    }
+    if (cc_features.opt_alpha_from_fog) {
+        append_line(fs_buf, &fs_len, "    texel.a = vFog.a;");
     }
 
     if (cc_features.opt_texture_edge && cc_features.opt_alpha) {
@@ -779,13 +779,15 @@ static void gfx_opengl_set_scissor(int x, int y, int width, int height) {
     glScissor(x, y, width, height);
 }
 
-static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate) {
+static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate, bool additive) {
     if (use_alpha) {
         glEnable(GL_BLEND);
     } else {
         glDisable(GL_BLEND);
     }
-    if (modulate) {
+    if (additive) {
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    } else if (modulate) {
         glBlendFunc(GL_DST_COLOR, GL_ZERO);
     } else {
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

@@ -520,6 +520,7 @@ Gfx *text0f153628(Gfx *gdl)
 	gDPSetTextureLOD(gdl++, G_TL_TILE);
 	gDPSetTextureConvert(gdl++, G_TC_FILT);
 	gDPSetTextureLUT(gdl++, G_TT_NONE);
+	gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
 
 	if (var8007fad8) {
 		gDPSetTextureFilter(gdl++, G_TF_AVERAGE);

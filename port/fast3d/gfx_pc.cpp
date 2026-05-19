@@ -210,6 +210,7 @@ static struct RenderingState {
     uint8_t depth_mode;
     bool alpha_blend;
     bool modulate;
+    bool additive_blend;
     struct XYWidthHeight viewport, scissor;
     struct ShaderProgram* shader_program;
     TextureCacheNode* textures[SHADER_MAX_TEXTURES];
@@ -1371,14 +1372,20 @@ static bool gfx_blender_uses_fog(uint32_t mode) {
         || gfx_blender_field(mode, 24) == G_BL_A_FOG;
 }
 
-static bool gfx_blender_uses_fog_alpha(uint32_t mode) {
-    return gfx_blender_field(mode, 26) == G_BL_A_FOG
-        || gfx_blender_field(mode, 24) == G_BL_A_FOG;
-}
-
 static bool gfx_blender_uses_translucent_mem(uint32_t mode) {
     return (gfx_blender_field(mode, 22) == G_BL_CLR_MEM && gfx_blender_field(mode, 18) == G_BL_1MA)
         || (gfx_blender_field(mode, 20) == G_BL_CLR_MEM && gfx_blender_field(mode, 16) == G_BL_1MA);
+}
+
+static bool gfx_blender_uses_additive_fog(uint32_t mode) {
+    return (gfx_blender_field(mode, 30) == G_BL_CLR_IN
+            && gfx_blender_field(mode, 26) == G_BL_A_FOG
+            && gfx_blender_field(mode, 22) == G_BL_CLR_MEM
+            && gfx_blender_field(mode, 18) == G_BL_1)
+        || (gfx_blender_field(mode, 28) == G_BL_CLR_IN
+            && gfx_blender_field(mode, 24) == G_BL_A_FOG
+            && gfx_blender_field(mode, 20) == G_BL_CLR_MEM
+            && gfx_blender_field(mode, 16) == G_BL_1);
 }
 
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bool is_rect) {
@@ -1462,8 +1469,8 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     }
 
     uint64_t cc_options = 0;
-    const bool use_fog_alpha = gfx_blender_uses_fog_alpha(rdp.other_mode_l);
-    bool use_alpha = gfx_blender_uses_translucent_mem(rdp.other_mode_l) || use_fog_alpha;
+    const bool use_additive_fog = gfx_blender_uses_additive_fog(rdp.other_mode_l);
+    bool use_alpha = gfx_blender_uses_translucent_mem(rdp.other_mode_l) || use_additive_fog;
     const bool use_fog = gfx_blender_uses_fog(rdp.other_mode_l);
     const bool texture_edge = (rdp.other_mode_l & CVG_X_ALPHA) == CVG_X_ALPHA;
     const bool use_noise = (rdp.other_mode_l & (3U << G_MDSFT_ALPHACOMPARE)) == G_AC_DITHER;
@@ -1471,7 +1478,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     const bool alpha_threshold = (rdp.other_mode_l & (3U << G_MDSFT_ALPHACOMPARE)) == G_AC_THRESHOLD;
     const bool invisible = (rdp.other_mode_l & (3 << 24)) == (G_BL_0 << 24) && (rdp.other_mode_l & (3 << 20)) == (G_BL_CLR_MEM << 20);
     const bool use_grayscale = rdp.grayscale;
-    const bool use_modulate = use_alpha && (rsp.extra_geometry_mode & G_MODULATE_EXT) != 0;
+    const bool use_modulate = use_alpha && !use_additive_fog && (rsp.extra_geometry_mode & G_MODULATE_EXT) != 0;
     const bool use_blur = (rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) == G_TF_BLUR_EXT;
 
     if (texture_edge) {
@@ -1483,9 +1490,6 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     }
     if (use_fog) {
         cc_options |= (uint64_t)SHADER_OPT_FOG;
-    }
-    if (use_fog_alpha) {
-        cc_options |= (uint64_t)SHADER_OPT_BLEND_ALPHA_FOG;
     }
     if (texture_edge) {
         cc_options |= (uint64_t)SHADER_OPT_TEXTURE_EDGE;
@@ -1507,6 +1511,9 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     }
     if (use_blur) {
         cc_options |= (uint64_t)SHADER_OPT_BLUR;
+    }
+    if (use_additive_fog) {
+        cc_options |= (uint64_t)SHADER_OPT_ALPHA_FROM_FOG;
     }
 
     // If we are not using alpha, clear the alpha components of the combiner as they have no effect
@@ -1600,11 +1607,13 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
         gfx_rapi->load_shader(prg);
         rendering_state.shader_program = prg;
     }
-    if (use_alpha != rendering_state.alpha_blend || use_modulate != rendering_state.modulate) {
+    if (use_alpha != rendering_state.alpha_blend || use_modulate != rendering_state.modulate
+        || use_additive_fog != rendering_state.additive_blend) {
         gfx_flush();
-        gfx_rapi->set_use_alpha(use_alpha, use_modulate);
+        gfx_rapi->set_use_alpha(use_alpha, use_modulate, use_additive_fog);
         rendering_state.alpha_blend = use_alpha;
         rendering_state.modulate = use_modulate;
+        rendering_state.additive_blend = use_additive_fog;
     }
     uint8_t num_inputs;
     bool used_textures[2];

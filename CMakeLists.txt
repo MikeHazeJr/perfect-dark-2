@@ -992,6 +992,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_vehicle_observer_layer.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_provider_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_fast3d_blender_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_credits_texture_static.cpp
 
   # c038 jump capsule guards (physics-collision pillar, 2026-05-18):
   # source-level pins for the live multi-sample rendered-surface sweep and
