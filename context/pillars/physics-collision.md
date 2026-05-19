@@ -22,6 +22,8 @@ The capsule sweep is a swept volume test. The legacy `cdTestVolume` only tests a
 
 Per [src/lib/capsule.c](../../src/lib/capsule.c), the capsule sweep keeps `cdTestVolume` as the conservative broadphase and supplements it with collision-owned static world and dynamic prop mesh ray probes. Surface normals are oriented against movement and classified as floor, ceiling, or wall before consumers act on them. Movement/capsule code must not call `propobj.c::func0f0849dc()` and must not read `model->matrices`; those remain weapon/object-hit concerns only.
 
+Capsule Stage 2 diagnostics are development-only and must stay quiet by default at runtime. `CAPSULE_LOG` honors `Debug.JumpLogging` / `g_JumpLoggingEnabled`, and `CAPSULE:` messages route through the normal game log channel instead of bypassing channel filtering.
+
 Notable use sites in [capsule.c](../../src/lib/capsule.c):
 
 - `capsuleSweep` - generic `selfprop`-aware movement sweep for player and bot props.

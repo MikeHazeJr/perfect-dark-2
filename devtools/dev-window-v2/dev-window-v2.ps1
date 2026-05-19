@@ -211,6 +211,8 @@ $script:GhAuthRS            = $null
 $script:GhAuthHandle        = $null
 $script:GhAuthHadGhOnHost   = $false  # set before each probe; used if probe times out
 $script:DevWindowDebugLogPath = Join-Path $script:ScriptDir "dev-window-v2-debug.log"
+$script:DevWindowConsoleLogPath = Join-Path $script:ScriptDir "dev-window-v2-console.log"
+$script:DevWindowConsoleLogKeep = 3
 
 # Perf: persistent background runspace pool. Used by Update-StatusBar (every
 # 2s tick), Populate-DocList, and on-demand git/bash actions. Without this,
@@ -307,6 +309,41 @@ function Write-DevWindowDebugLog {
 }
 
 Write-DevWindowDebugLog ("Session start pid=$PID PSVersion=$($PSVersionTable.PSVersion) ProjectRoot=$($script:ProjectRoot) LogFile=$($script:DevWindowDebugLogPath)") "INFO"
+
+function Initialize-DevWindowConsoleLog {
+    try {
+        $base = $script:DevWindowConsoleLogPath
+        $keep = [Math]::Max(1, [int]$script:DevWindowConsoleLogKeep)
+        for ($i = $keep - 1; $i -ge 1; $i--) {
+            $src = if ($i -eq 1) { $base } else { "$base." + ($i - 1) }
+            $dst = "$base.$i"
+            if (Test-Path -LiteralPath $dst) {
+                Remove-Item -LiteralPath $dst -Force -ErrorAction SilentlyContinue
+            }
+            if (Test-Path -LiteralPath $src) {
+                Move-Item -LiteralPath $src -Destination $dst -Force -ErrorAction SilentlyContinue
+            }
+        }
+        $header = "[{0}] Dev Window v2 console log start pid={1} root={2}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"), $PID, $script:ProjectRoot
+        Set-Content -LiteralPath $base -Value $header -Encoding UTF8 -ErrorAction Stop
+    } catch {
+        Write-DevWindowDebugLog ("Console log init failed: " + $_.Exception.Message) "WARN"
+    }
+}
+
+function Write-DevWindowConsoleLog {
+    param([AllowNull()][string]$Text)
+    try {
+        if ($null -eq $Text) { $Text = "" }
+        $safe = $Text -replace "`r`n", "`n" -replace "`r", "`n"
+        foreach ($line in ($safe -split "`n", -1)) {
+            $entry = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"), $line
+            Add-Content -LiteralPath $script:DevWindowConsoleLogPath -Value $entry -Encoding UTF8 -ErrorAction Stop
+        }
+    } catch {}
+}
+
+Initialize-DevWindowConsoleLog
 
 function Classify-Line($line) {
     if ($line -match '(?i)\berror\b|^FAILED|undefined reference|multiple definition|fatal error|Write-Error|ErrorRecord|Exception:|ERROR\s*:|^\s*At .+:\d+ char:\d+') { return "error" }
@@ -1423,6 +1460,7 @@ function Add-LogSessionLine($text, $color) {
 }
 
 function Add-LogLine($text, $color) {
+    Write-DevWindowConsoleLog $text
     if ($null -eq $ui["LogOutput"]) { return }
     if (-not (Test-LogLineMatchesFilter $text)) { return }
     $doc = $ui["LogOutput"].Document

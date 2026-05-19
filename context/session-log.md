@@ -1,5 +1,62 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-19-dev-window-release-rolling-log`) - 2026-05-19 - Dev Window v2 release hang diagnosability
+
+Mike clarified that the hang was in Dev Window v2's Release flow at the GitHub release step, not an in-game release/runtime hang. The earlier capsule-log fix remains valid but is unrelated to this report.
+
+### Root Cause
+
+- Dev Window v2 did not persist the visible Log tab stream. If the window froze or crashed during release, the last subprocess lines were only in memory.
+- `release.ps1` buffered `gh release create` output into a variable, so Dev Window could show only generic heartbeats while GitHub upload/release creation was still running.
+
+### Change
+
+- Added a Dev Window-owned rolling console log at `devtools/dev-window-v2/dev-window-v2-console.log`.
+- On each Dev Window launch, the previous console log rotates to `.1`, `.1` rotates to `.2`, and only three total logs are kept.
+- Every line written through the Log tab path is saved to disk before UI filtering, so active filters and a frozen visual surface do not hide the raw evidence.
+- Updated the GitHub publish helper in `release.ps1` so `gh release create` streams stdout/stderr into Dev Window and emits wait heartbeats while silent.
+
+### Verification
+
+- PowerShell parser check PASS for `devtools/dev-window-v2/dev-window-v2.ps1`.
+- PowerShell parser check PASS for `devtools/release.ps1`.
+- Scoped `git diff --check` PASS for both scripts.
+- Manual smoke still useful: launch Dev Window v2, run a small action, confirm `dev-window-v2-console.log` records it, restart twice, and confirm `.1`/`.2` rotation.
+
+### Context Sync
+
+- Updated `context/bugs.md`, `context/tasks.md`, `context/session-log.md`, and `context/pillars/build-dev-tooling.md`.
+- Parent `..\context` copy is absent in this checkout, so no parent sync is required.
+
+## Session (`main-checkout-2026-05-19-capsule-log-flood`) - 2026-05-19 - release-looking hang from capsule diagnostic flood
+
+Mike reported a hang on release. Initial triage found no new package in `dist/`; the active binary was `Build\PerfectDark.exe`, and `Build\pd-client.log` identified the build as `version: dev cfffe75c` with `PD_STABLE_RELEASE=OFF`. The log was fresh and continuously filled with `CAPSULE: stage2 ...` probe diagnostics, even though `Build\pd.ini` had `Debug.JumpLogging=0`.
+
+### Root Cause
+
+- `src/lib/capsule.c` compiled `CAPSULE_LOG` whenever `PD_DEV_BUILD` was enabled, but did not check the runtime `g_JumpLoggingEnabled` setting.
+- `port/src/system.c::sysLogClassifyMessage` routed `JUMP:` and related gameplay prefixes to `LOG_CH_GAME`, but did not classify `CAPSULE:`, so the capsule spam bypassed the intended channel filtering.
+- The symptom can present as a hang or severe hitching during release-prep/dev builds because every Stage 2 capsule probe writes to `pd-client.log`.
+
+### Change
+
+- `CAPSULE_LOG` now checks `g_JumpLoggingEnabled` before emitting, while stable builds still compile the diagnostics out.
+- `CAPSULE:` now classifies as `LOG_CH_GAME`; the public channel comment was updated to match.
+- Static `[physics][jump]` coverage now pins that capsule diagnostics are runtime-gated.
+
+### Verification
+
+- Scoped `git diff --check` PASS.
+- `.\devtools\build-session.ps1 -Session caplog -Target tests -BuildTimeoutSeconds 180` PASS.
+- Direct focused `.claude\session-builds\caplog\pd-tests.exe "[physics][jump]"` PASS (93 assertions / 4 cases).
+- `.\devtools\build-session.ps1 -Session caplog -Target all -BuildTimeoutSeconds 180` PASS.
+- Manual confirmation remains: restart with a rebuilt binary, launch with `Debug.JumpLogging=0`, and confirm `pd-client.log` no longer floods `CAPSULE:` lines.
+
+### Context Sync
+
+- Updated `context/bugs.md`, `context/tasks.md`, `context/session-log.md`, and `context/pillars/physics-collision.md`.
+- Parent `..\context` copy is absent in this checkout, so no parent sync is required.
+
 ## Session (`main-checkout-2026-05-19-fast3d-alpha-regression-followup`) - 2026-05-19 - B-346 second pass after failed credits/fog playtest
 
 Mike tested the first `gfxalpha` B-346 build and reported that characters/weapons became translucent while credits particles and text still rendered as solid colored, apparently untextured squares. The latest `Build\pd-client.log` reached `GRID_STAGE_CREDITS` (`stage=0x5c`) without an explicit texture-load fatal, so the first fix was treated as a renderer-state regression rather than a catalog/load failure.

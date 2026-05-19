@@ -137,6 +137,7 @@ static u32 sysLogClassifyMessage(const char *msg)
 	if (strncmp(msg, "SIMULANT:",9) == 0) return LOG_CH_GAME;
 	if (strncmp(msg, "SETUP:",   6) == 0) return LOG_CH_GAME;
 	if (strncmp(msg, "JUMP:",    5) == 0) return LOG_CH_GAME;
+	if (strncmp(msg, "CAPSULE:", 8) == 0) return LOG_CH_GAME;
 
 	/* Match */
 	if (strncmp(msg, "MATCH:",    6) == 0) return LOG_CH_MATCH;

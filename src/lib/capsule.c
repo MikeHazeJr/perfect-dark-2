@@ -32,15 +32,19 @@
  *
  * Canonical instrumentation for the physics-collision pillar.  Each marker
  * uses the "CAPSULE:" prefix so smoke-verify assertions can grep a single
- * stable token and so the log channel filter routes them with the rest of
- * the engine logs (no dedicated channel -- prefix is unfiltered, falls
- * through the default LOG_CH_GAME pass).
+ * stable token. Runtime emission honors Debug.JumpLogging so normal dev /
+ * prerelease builds do not flood the client log.
  *
  * Gated on PD_DEV_BUILD: dev / prerelease / local builds get the lines,
  * stable release builds compile them out entirely (no printf cost).
  * capsule.c links into pd only (never pd-server), so the gate is sound. */
 #if defined(PD_DEV_BUILD)
-#define CAPSULE_LOG(...) sysLogPrintf(LOG_NOTE, "CAPSULE: " __VA_ARGS__)
+extern s32 g_JumpLoggingEnabled;
+#define CAPSULE_LOG(...) do { \
+	if (g_JumpLoggingEnabled) { \
+		sysLogPrintf(LOG_NOTE, "CAPSULE: " __VA_ARGS__); \
+	} \
+} while (0)
 #else
 #define CAPSULE_LOG(...) ((void)0)
 #endif

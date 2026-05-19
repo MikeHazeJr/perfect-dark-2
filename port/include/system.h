@@ -31,7 +31,7 @@ enum LogLevel {
  * ----------------------------------------------------------------------- */
 
 #define LOG_CH_NETWORK   0x0001  /* NET, UPNP, SERVER, LOBBY, MATCHSETUP  */
-#define LOG_CH_GAME      0x0002  /* STAGE, INTRO, LOAD, PLAYER, SIMULANT, SETUP, JUMP */
+#define LOG_CH_GAME      0x0002  /* STAGE, INTRO, LOAD, PLAYER, SIMULANT, SETUP, JUMP, CAPSULE */
 #define LOG_CH_COMBAT    0x0004  /* DAMAGE, WEAPON, AMMO, HEALTH, PICKUP  */
 #define LOG_CH_AUDIO     0x0008  /* SND, AUDIO, MUSIC, SFX               */
 #define LOG_CH_MENU      0x0010  /* MENU, HOTSWAP, DIALOG, FONT          */

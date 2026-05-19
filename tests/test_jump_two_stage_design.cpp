@@ -191,6 +191,7 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
     requireContains(capsule, "meshRayCastDynamicProps");
     requireContains(capsule, "capsuleFindRoomsForPos");
     requireContains(capsule, "stage2 vertical probe");
+    requireContains(capsule, "g_JumpLoggingEnabled");
     requireContains(capsule, "stage2frac < safefrac");
     requireContains(capsule, "struct prop *selfprop = cast->selfprop");
     requireNotContains(capsule, "capsuleRenderedPropRayCast");

@@ -425,6 +425,7 @@ if (-not $ghCmd) {
     }
 }
 $hasGh = [bool]$ghCmd
+$script:GhExe = $null
 $hasClient  = $ClientExe  -ne ""
 $hasUpdater = $UpdaterExe -ne ""
 $hasData    = $DataSource -ne ""
@@ -432,6 +433,7 @@ $hasNotes   = Test-Path $ReleaseNotes
 
 if ($hasGh) {
     $ghPath = $(if ($ghCmd -is [string]) { $ghCmd } else { $ghCmd.Source })
+    $script:GhExe = $ghPath
     Write-Host "  gh CLI:      FOUND ($ghPath)" -ForegroundColor Green
     # Configure git to use gh's auth token for HTTPS push (prevents hang on credential prompt)
     Write-Host "  Setting up gh credential helper for git..." -ForegroundColor Gray
@@ -447,6 +449,60 @@ if ($hasGh) {
 
 # Prevent git from hanging on credential prompts in subprocess mode
 $env:GIT_TERMINAL_PROMPT = "0"
+
+function Quote-NativeArg([string]$arg) {
+    if ($null -eq $arg) { return '""' }
+    if ($arg -notmatch '[\s"]') { return $arg }
+    return '"' + ($arg -replace '\\(?=\\*")', '$0$0' -replace '"', '\"') + '"'
+}
+
+function Invoke-GhStreaming([string[]]$Arguments, [string]$Label) {
+    if (-not $script:GhExe) { return 1 }
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $script:GhExe
+    $psi.Arguments = (($Arguments | ForEach-Object { Quote-NativeArg $_ }) -join " ")
+    $psi.WorkingDirectory = $ProjectRoot
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+    $psi.EnvironmentVariables["GH_PROMPT_DISABLED"] = "1"
+    $psi.EnvironmentVariables["GIT_TERMINAL_PROMPT"] = "0"
+
+    $proc = New-Object System.Diagnostics.Process
+    $proc.StartInfo = $psi
+    $lastOutput = [DateTime]::Now
+    $lastHeartbeat = [DateTime]::Now
+
+    $handler = [System.Diagnostics.DataReceivedEventHandler]{
+        param($sender, $eventArgs)
+        if ($eventArgs.Data) {
+            $script:ReleaseGhLastOutput = [DateTime]::Now
+            Write-Host ("    " + $eventArgs.Data) -ForegroundColor Gray
+        }
+    }
+
+    $script:ReleaseGhLastOutput = [DateTime]::Now
+    [void]$proc.add_OutputDataReceived($handler)
+    [void]$proc.add_ErrorDataReceived($handler)
+
+    [void]$proc.Start()
+    $proc.BeginOutputReadLine()
+    $proc.BeginErrorReadLine()
+
+    while (-not $proc.WaitForExit(1000)) {
+        $lastOutput = $script:ReleaseGhLastOutput
+        $silentSeconds = [int](([DateTime]::Now - $lastOutput).TotalSeconds)
+        if (([DateTime]::Now - $lastHeartbeat).TotalSeconds -ge 15) {
+            Write-Host ("    {0}: still waiting for gh {1} ({2}s since output)" -f (Get-Date -Format "HH:mm:ss"), $Label, $silentSeconds) -ForegroundColor Gray
+            $lastHeartbeat = [DateTime]::Now
+        }
+    }
+
+    $proc.WaitForExit()
+    return $proc.ExitCode
+}
 
 if ($hasClient) { Write-Host "  Client:      FOUND ($ClientExe)" -ForegroundColor Green }
 else            { Write-Host "  Client:      MISSING" -ForegroundColor Yellow }
@@ -932,10 +988,8 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
         Write-Host "  Running: gh $($ghArgs -join ' ')" -ForegroundColor Gray
 
         $ErrorActionPreference = "Continue"
-        $ghOut = gh @ghArgs 2>&1
-        $ghExit = $LASTEXITCODE
+        $ghExit = Invoke-GhStreaming $ghArgs "release create"
         $ErrorActionPreference = $savedEAP
-        foreach ($line in $ghOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
 
         return $ghExit
     }
