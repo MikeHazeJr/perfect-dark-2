@@ -264,6 +264,23 @@ struct mpscenariooverview g_MpScenarioOverviews[] = {
 	{ L_MPMENU_251, L_MPMENU_258, MPFEATURE_SCENARIO_CTC, true  }, // "Capture the Case", "Capture"
 };
 
+static bool scenarioIndexIsValid(s32 scenario)
+{
+	return scenario >= 0 && scenario < (s32)ARRAYCOUNT(g_MpScenarios);
+}
+
+static s32 scenarioGetSafeIndex(const char *caller)
+{
+	if (!scenarioIndexIsValid(g_MpSetup.scenario)) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.MISS: %s invalid scenario=%d; using Combat",
+			caller ? caller : "(unknown)", g_MpSetup.scenario);
+		return MPSCENARIO_COMBAT;
+	}
+
+	return g_MpSetup.scenario;
+}
+
 /**
  * While the options dialog is open, check if another player has changed the
  * scenario to a different one. If so, replace this dialog with the new one.
@@ -271,7 +288,8 @@ struct mpscenariooverview g_MpScenarioOverviews[] = {
 MenuDialogHandlerResult mpOptionsMenuDialog(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
 {
 	if (operation == MENUOP_TICK) {
-		if (g_Menus[g_MpPlayerNum].curdialog->definition != g_MpScenarios[g_MpSetup.scenario].optionsdialog) {
+		s32 scenario = scenarioGetSafeIndex("mpOptionsMenuDialog");
+		if (g_Menus[g_MpPlayerNum].curdialog->definition != g_MpScenarios[scenario].optionsdialog) {
 			s32 i;
 			s32 end = ARRAYCOUNT(g_MpScenarios);
 
@@ -283,7 +301,7 @@ MenuDialogHandlerResult mpOptionsMenuDialog(s32 operation, struct menudialogdef 
 
 			if (i < end) {
 				menuPopDialog();
-				menuPushDialog(g_MpScenarios[g_MpSetup.scenario].optionsdialog);
+				menuPushDialog(g_MpScenarios[scenario].optionsdialog);
 			}
 		}
 	}
@@ -293,13 +311,15 @@ MenuDialogHandlerResult mpOptionsMenuDialog(s32 operation, struct menudialogdef 
 
 char *mpMenuTextScenarioShortName(struct menuitem *item)
 {
-	snprintf(g_StringPointer, 300, "%s\n", langGet(g_MpScenarioOverviews[g_MpSetup.scenario].shortname));
+	s32 scenario = scenarioGetSafeIndex("mpMenuTextScenarioShortName");
+	snprintf(g_StringPointer, 300, "%s\n", langGet(g_MpScenarioOverviews[scenario].shortname));
 	return g_StringPointer;
 }
 
 char *mpMenuTextScenarioName(struct menuitem *item)
 {
-	snprintf(g_StringPointer, 300, "%s\n", langGet(g_MpScenarioOverviews[g_MpSetup.scenario].name));
+	s32 scenario = scenarioGetSafeIndex("mpMenuTextScenarioName");
+	snprintf(g_StringPointer, 300, "%s\n", langGet(g_MpScenarioOverviews[scenario].name));
 	return g_StringPointer;
 }
 
@@ -331,6 +351,10 @@ struct scenario_pick_ctx {
 
 static bool scenarioCtxAccepts(const asset_entry_t *e, const struct scenario_pick_ctx *ctx)
 {
+	if (!scenarioIndexIsValid(e->ext.gamemode.mode_id)) {
+		return false;
+	}
+
 	if (!ctx->teamgame && e->ext.gamemode.team_based) {
 		return false;
 	}
@@ -452,7 +476,8 @@ MenuItemHandlerResult scenarioScenarioMenuHandler(s32 operation, struct menuitem
 MenuItemHandlerResult menuhandlerMpOpenOptions(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
-		menuPushDialog(g_MpScenarios[g_MpSetup.scenario].optionsdialog);
+		s32 scenario = scenarioGetSafeIndex("menuhandlerMpOpenOptions");
+		menuPushDialog(g_MpScenarios[scenario].optionsdialog);
 	}
 
 	return 0;
@@ -468,8 +493,9 @@ MenuItemHandlerResult menuhandlerMpOpenOptions(s32 operation, struct menuitem *i
  */
 void scenarioReadSave(struct savebuffer *buffer, u8 version)
 {
-	if (g_MpScenarios[g_MpSetup.scenario].readsavefunc) {
-		g_MpScenarios[g_MpSetup.scenario].readsavefunc(buffer, version);
+	s32 scenario = scenarioGetSafeIndex("scenarioReadSave");
+	if (g_MpScenarios[scenario].readsavefunc) {
+		g_MpScenarios[scenario].readsavefunc(buffer, version);
 	} else {
 		u8 sz = version > 0 ? 32 : 8;
 		savebufferReadBits(buffer, sz);
@@ -486,8 +512,9 @@ void scenarioReadSave(struct savebuffer *buffer, u8 version)
  */
 void scenarioWriteSave(struct savebuffer *buffer)
 {
-	if (g_MpScenarios[g_MpSetup.scenario].writesavefunc) {
-		g_MpScenarios[g_MpSetup.scenario].writesavefunc(buffer);
+	s32 scenario = scenarioGetSafeIndex("scenarioWriteSave");
+	if (g_MpScenarios[scenario].writesavefunc) {
+		g_MpScenarios[scenario].writesavefunc(buffer);
 	} else {
 		savebufferOr(buffer, 0, 32);
 	}
@@ -500,8 +527,9 @@ void scenarioWriteSave(struct savebuffer *buffer)
  */
 void scenarioInit(void)
 {
-	if (g_MpScenarios[g_MpSetup.scenario].initfunc) {
-		g_MpScenarios[g_MpSetup.scenario].initfunc();
+	s32 scenario = scenarioGetSafeIndex("scenarioInit");
+	if (g_MpScenarios[scenario].initfunc) {
+		g_MpScenarios[scenario].initfunc();
 	}
 }
 
@@ -512,9 +540,10 @@ void scenarioInit(void)
 s32 scenarioNumProps(void)
 {
 	s32 result = 0;
+	s32 scenario = scenarioGetSafeIndex("scenarioNumProps");
 
-	if (g_MpScenarios[g_MpSetup.scenario].numpropsfunc) {
-		result = g_MpScenarios[g_MpSetup.scenario].numpropsfunc();
+	if (g_MpScenarios[scenario].numpropsfunc) {
+		result = g_MpScenarios[scenario].numpropsfunc();
 	}
 
 	return result;
@@ -525,8 +554,9 @@ s32 scenarioNumProps(void)
  */
 void scenarioInitProps(void)
 {
-	if (g_MpScenarios[g_MpSetup.scenario].initpropsfunc) {
-		g_MpScenarios[g_MpSetup.scenario].initpropsfunc();
+	s32 scenario = scenarioGetSafeIndex("scenarioInitProps");
+	if (g_MpScenarios[scenario].initpropsfunc) {
+		g_MpScenarios[scenario].initpropsfunc();
 	}
 }
 
@@ -549,7 +579,8 @@ void scenarioCreateMatchStartHudmsgs(void)
 #endif
 	}
 
-	snprintf(scenarioname, sizeof(scenarioname), "%s\n", langGet(g_MpScenarioOverviews[g_MpSetup.scenario].name));
+	snprintf(scenarioname, sizeof(scenarioname), "%s\n",
+		langGet(g_MpScenarioOverviews[scenarioGetSafeIndex("scenarioCreateMatchStartHudmsgs")].name));
 
 	for (i = 0; i < g_MpNumChrs; i++) {
 		if (g_MpAllChrPtrs[i] != NULL && g_MpAllChrPtrs[i]->aibot == NULL
@@ -581,10 +612,11 @@ void scenarioCreateMatchStartHudmsgs(void)
 void scenarioTick(void)
 {
 	static s32 s_ScenarioTickFirstRun = 1;
+	s32 scenario = scenarioGetSafeIndex("scenarioTick");
 	if (s_ScenarioTickFirstRun) {
 		sysLogPrintf(LOG_NOTE, "TICK: scenarioTick first call lvframe60=%d scenario=%d normmplayerisrunning=%d tickfunc=%p",
 			g_Vars.lvframe60, g_MpSetup.scenario, g_Vars.normmplayerisrunning,
-			(void *)g_MpScenarios[g_MpSetup.scenario].tickfunc);
+			(void *)g_MpScenarios[scenario].tickfunc);
 		s_ScenarioTickFirstRun = 0;
 	}
 
@@ -593,8 +625,8 @@ void scenarioTick(void)
 			scenarioCreateMatchStartHudmsgs();
 		}
 
-		if (g_MpScenarios[g_MpSetup.scenario].tickfunc) {
-			g_MpScenarios[g_MpSetup.scenario].tickfunc();
+		if (g_MpScenarios[scenario].tickfunc) {
+			g_MpScenarios[scenario].tickfunc();
 		}
 	}
 }
@@ -607,8 +639,9 @@ void scenarioTick(void)
  */
 void scenarioTickChr(struct chrdata *chr)
 {
-	if (g_Vars.normmplayerisrunning && g_MpScenarios[g_MpSetup.scenario].tickchrfunc) {
-		g_MpScenarios[g_MpSetup.scenario].tickchrfunc(chr);
+	s32 scenario = scenarioGetSafeIndex("scenarioTickChr");
+	if (g_Vars.normmplayerisrunning && g_MpScenarios[scenario].tickchrfunc) {
+		g_MpScenarios[scenario].tickchrfunc(chr);
 	}
 }
 
@@ -627,7 +660,8 @@ Gfx *scenarioRenderHud(Gfx *gdl)
 	u32 colour;
 
 	if (g_Vars.normmplayerisrunning) {
-		if (g_MpScenarios[g_MpSetup.scenario].hudfunc) {
+		s32 scenario = scenarioGetSafeIndex("scenarioRenderHud");
+		if (g_MpScenarios[scenario].hudfunc) {
 #if VERSION >= VERSION_NTSC_1_0
 			if (g_MpSetup.paused != MPPAUSEMODE_GAMEOVER && g_NumReasonsToEndMpMatch == 0) {
 				gDPSetTextureFilter(gdl++, G_TF_POINT);
@@ -639,10 +673,10 @@ Gfx *scenarioRenderHud(Gfx *gdl)
 				gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
 				gDPPipelineMode(gdl++, G_PM_1PRIMITIVE);
 
-				gdl = g_MpScenarios[g_MpSetup.scenario].hudfunc(gdl);
+				gdl = g_MpScenarios[scenario].hudfunc(gdl);
 			}
 #else
-			gdl = g_MpScenarios[g_MpSetup.scenario].hudfunc(gdl);
+			gdl = g_MpScenarios[scenario].hudfunc(gdl);
 #endif
 		}
 
@@ -707,9 +741,10 @@ void scenarioCalculatePlayerScore(struct mpchrconfig *mpchr, s32 chrnum, s32 *sc
 {
 	struct mpchrconfig *othermpchr;
 	s32 i;
+	s32 scenario = scenarioGetSafeIndex("scenarioCalculatePlayerScore");
 
-	if (g_MpScenarios[g_MpSetup.scenario].calcscorefunc) {
-		g_MpScenarios[g_MpSetup.scenario].calcscorefunc(mpchr, chrnum, score, deaths);
+	if (g_MpScenarios[scenario].calcscorefunc) {
+		g_MpScenarios[scenario].calcscorefunc(mpchr, chrnum, score, deaths);
 	} else {
 		*score = 0;
 
@@ -738,8 +773,9 @@ void scenarioCalculatePlayerScore(struct mpchrconfig *mpchr, s32 chrnum, s32 *sc
  */
 Gfx *scenarioRadarExtra(Gfx *gdl)
 {
-	if (g_Vars.normmplayerisrunning && g_MpScenarios[g_MpSetup.scenario].radarextrafunc) {
-		return g_MpScenarios[g_MpSetup.scenario].radarextrafunc(gdl);
+	s32 scenario = scenarioGetSafeIndex("scenarioRadarExtra");
+	if (g_Vars.normmplayerisrunning && g_MpScenarios[scenario].radarextrafunc) {
+		return g_MpScenarios[scenario].radarextrafunc(gdl);
 	}
 
 	return gdl;
@@ -752,8 +788,9 @@ Gfx *scenarioRadarExtra(Gfx *gdl)
  */
 bool scenarioRadarChr(Gfx **gdl, struct prop *prop)
 {
-	if (g_Vars.normmplayerisrunning && g_MpScenarios[g_MpSetup.scenario].radarchrfunc) {
-		return g_MpScenarios[g_MpSetup.scenario].radarchrfunc(gdl, prop);
+	s32 scenario = scenarioGetSafeIndex("scenarioRadarChr");
+	if (g_Vars.normmplayerisrunning && g_MpScenarios[scenario].radarchrfunc) {
+		return g_MpScenarios[scenario].radarchrfunc(gdl, prop);
 	}
 
 	return false;
@@ -766,8 +803,9 @@ bool scenarioRadarChr(Gfx **gdl, struct prop *prop)
  */
 bool scenarioHighlightProp(struct prop *prop, s32 *colour)
 {
-	if (g_MpScenarios[g_MpSetup.scenario].highlightpropfunc) {
-		if (g_MpScenarios[g_MpSetup.scenario].highlightpropfunc(prop, colour)) {
+	s32 scenario = scenarioGetSafeIndex("scenarioHighlightProp");
+	if (g_MpScenarios[scenario].highlightpropfunc) {
+		if (g_MpScenarios[scenario].highlightpropfunc(prop, colour)) {
 			return true;
 		}
 	}
@@ -850,14 +888,15 @@ bool scenarioHighlightProp(struct prop *prop, s32 *colour)
 f32 scenarioChooseSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *rooms, struct prop *prop)
 {
 	f32 result;
+	s32 scenario = scenarioGetSafeIndex("scenarioChooseSpawnLocation");
 
 	sysLogPrintf(LOG_NOTE, "SPAWN: scenarioChooseSpawnLocation scenario=%d normmplay=%d spawnfunc=%d numpads=%d",
 		g_MpSetup.scenario, g_Vars.normmplayerisrunning,
-		(g_Vars.normmplayerisrunning && g_MpScenarios[g_MpSetup.scenario].spawnfunc) ? 1 : 0,
+		(g_Vars.normmplayerisrunning && g_MpScenarios[scenario].spawnfunc) ? 1 : 0,
 		g_NumSpawnPoints);
 
-	if (g_Vars.normmplayerisrunning && g_MpScenarios[g_MpSetup.scenario].spawnfunc &&
-			g_MpScenarios[g_MpSetup.scenario].spawnfunc(chrradius, pos, rooms, prop, &result)) {
+	if (g_Vars.normmplayerisrunning && g_MpScenarios[scenario].spawnfunc &&
+			g_MpScenarios[scenario].spawnfunc(chrradius, pos, rooms, prop, &result)) {
 		return result;
 	}
 
@@ -876,8 +915,9 @@ void scenarioReset(void)
 	s32 i;
 	s32 j;
 	s32 *cmd = g_StageSetup.intro;
+	s32 scenario = scenarioGetSafeIndex("scenarioReset");
 
-	switch (g_MpSetup.scenario) {
+	switch (scenario) {
 	case MPSCENARIO_KINGOFTHEHILL:
 		g_ScenarioData.koh.hillcount = 0;
 		break;
@@ -915,17 +955,17 @@ void scenarioReset(void)
 				break;
 			case INTROCMD_CASE:
 			case INTROCMD_CASERESPAWN:
-				if (g_MpSetup.scenario == MPSCENARIO_CAPTURETHECASE) {
+				if (scenario == MPSCENARIO_CAPTURETHECASE) {
 					ctcAddPad(cmd);
-				} else if (g_MpSetup.scenario == MPSCENARIO_HACKERCENTRAL) {
+				} else if (scenario == MPSCENARIO_HACKERCENTRAL) {
 					htmAddPad(cmd[2]);
-				} else if (g_MpSetup.scenario == MPSCENARIO_HOLDTHEBRIEFCASE) {
+				} else if (scenario == MPSCENARIO_HOLDTHEBRIEFCASE) {
 					htbAddPad(cmd[2]);
 				}
 				cmd += 3;
 				break;
 			case INTROCMD_HILL:
-				if (g_MpSetup.scenario == MPSCENARIO_KINGOFTHEHILL) {
+				if (scenario == MPSCENARIO_KINGOFTHEHILL) {
 					kohAddHill(cmd);
 				}
 				cmd += 2;
@@ -960,6 +1000,27 @@ void scenarioReset(void)
 			}
 		}
 	}
+}
+
+static bool scenarioStageLoadOwnsMpSetup(s32 stagenum)
+{
+	if (!scenarioIndexIsValid(g_MpSetup.scenario)) {
+		return false;
+	}
+
+	return (s32)g_MpSetup.stagenum == stagenum;
+}
+
+void scenarioResetForStageLoad(s32 stagenum)
+{
+	if (!scenarioStageLoadOwnsMpSetup(stagenum)) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO: skip MP scenario reset for stage load stage=0x%02x mp_stage=0x%02x scenario=%d",
+			stagenum, g_MpSetup.stagenum, g_MpSetup.scenario);
+		return;
+	}
+
+	scenarioReset();
 }
 
 /**

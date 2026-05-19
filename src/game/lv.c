@@ -563,8 +563,8 @@ void lvReset(s32 stagenum)
 	 * and prop models from the setup spawn list.  Fixes B-118. */
 	manifestSPRescanSetup(stagenum);
 
-	sysLogPrintf(LOG_NOTE, "LOAD: calling scenarioReset");
-	scenarioReset();
+	sysLogPrintf(LOG_NOTE, "LOAD: calling scenarioResetForStageLoad");
+	scenarioResetForStageLoad(stagenum);
 	if (g_Vars.props) {
 		for (i = 0; i < g_Vars.maxprops; i++) {
 			meshDetachFromProp(&g_Vars.props[i]);

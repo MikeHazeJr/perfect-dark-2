@@ -112,6 +112,7 @@ Gfx *scenarioRenderHud(Gfx *gdl);
 void scenarioCalculatePlayerScore(struct mpchrconfig *mpchr, s32 chrnum, s32 *arg2, s32 *arg3);
 bool scenarioHighlightProp(struct prop *prop, s32 *colour);
 void scenarioReset(void);
+void scenarioResetForStageLoad(s32 stagenum);
 struct prop *scenarioCreateObj(s32 modelnum, s16 padnum, f32 arg2, u32 flags, u32 flags2, u32 flags3);
 void scenarioCreateHudmsg(s32 playernum, char *message);
 bool scenarioChrsAreSameTeam(s32 playernum1, s32 playernum2);

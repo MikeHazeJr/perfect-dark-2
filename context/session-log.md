@@ -1,5 +1,34 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-18-scenario-stage-boundary`) - 2026-05-18 - mission-start crash at MP scenario reset
+
+Mike reported another exception when starting a mission and clarified that Combat Simulator drop-in/drop-out multiplayer must not be broken.
+
+### Root Cause
+
+- `Build\pd-client.log` reached Defection mission start: `stage=0x30`, `setupLoadFiles(... normmplay=0)`, `manifestSPRescanSetup`, then `LOAD: calling scenarioReset`.
+- The next line was `FATAL: ACCESS_VIOLATION`; the stack symbolication was noisy, but the last reliable game breadcrumb was the raw `scenarioReset()` call.
+- `lvReset()` was invoking the MP scenario intro parser unconditionally after every setup load, so a solo mission intro stream could be parsed as Combat Simulator scenario data.
+- A simple `!normmplayerisrunning` guard was rejected because drop-in/drop-out and stage-start transitions can have valid match setup ownership before all legacy runtime flags are stable.
+
+### Change
+
+- Added `scenarioResetForStageLoad(stagenum)` as the only `lvReset()` stage-load entry point.
+- The wrapper runs MP scenario reset only when `g_MpSetup.stagenum` equals the stage being loaded and the scenario index is valid.
+- `lvReset()` now calls the wrapper after `manifestSPRescanSetup(stagenum)` instead of raw `scenarioReset()`.
+- Added safe scenario-index helpers for scenario table access in menus, save I/O, HUD, spawn, score, and reset paths.
+- Added static `[scenario][stage-load]` coverage pinning the wrapper, the match-stage ownership check, and the absence of a `!normmplayerisrunning` lifecycle gate.
+- Filed B-342 and added the active constraint that MP scenario stage-load reset is match-stage owned.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session scenld -Target all -BuildTimeoutSeconds 180` PASS for client/updater.
+- `.\devtools\build-session.ps1 -Session scenld -Target tests -BuildTimeoutSeconds 180` PASS for `pd-tests.exe` after correcting the new test's Catch2 include path.
+- Direct focused run with `C:\msys64\mingw64\bin` on PATH: `.claude\session-builds\scenld\pd-tests.exe "[scenario][stage-load]"` PASS (20 assertions / 2 cases).
+- `.\devtools\build-session.ps1 -Session scenld -Target server -BuildTimeoutSeconds 180` PASS.
+- Manual playtest still needed: start Defection or any solo mission after MP menu/match activity; host/start a Combat Simulator match and exercise drop-in/drop-out.
+- Parent context sync: no `..\context` directory exists in this checkout, so there was no parent copy to update.
+
 ## Session (`main-checkout-2026-05-18-mesh-extraction-guard`) - 2026-05-18 - load-screen prop mesh extraction hardening
 
 Mike reported a second exception after the initial load-screen crash fix. The crash moved forward from world mesh build into prop creation before the intro.
