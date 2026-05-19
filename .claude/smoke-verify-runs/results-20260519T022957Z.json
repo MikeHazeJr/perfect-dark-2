@@ -1,0 +1,13 @@
+{
+  "Name": "auto_campaign_first_cycle",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 200.6570945,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 20,
+  "AssertionsMet": 20,
+  "Failures": []
+}

@@ -565,11 +565,6 @@ void lvReset(s32 stagenum)
 
 	sysLogPrintf(LOG_NOTE, "LOAD: calling scenarioResetForStageLoad");
 	scenarioResetForStageLoad(stagenum);
-	if (g_Vars.props) {
-		for (i = 0; i < g_Vars.maxprops; i++) {
-			meshDetachFromProp(&g_Vars.props[i]);
-		}
-	}
 	sysLogPrintf(LOG_NOTE, "LOAD: calling varsReset");
 	varsReset();
 	sysLogPrintf(LOG_NOTE, "LOAD: calling propsReset");

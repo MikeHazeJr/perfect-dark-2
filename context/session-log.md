@@ -1,5 +1,38 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-18-prop-mesh-detach-boundary`) - 2026-05-18 - mission-start crash at dynamic prop mesh teardown
+
+Mike still could not start a mission after the scenario-stage boundary fix, so the latest `Build\pd-client.log` was rechecked.
+
+### Root Cause
+
+- The Defection mission start reached `setupLoadFiles(0x30)`, `LOAD: setupLoadFiles done`, and `LOAD: calling scenarioResetForStageLoad`.
+- The scenario wrapper correctly skipped MP scenario reset for the solo stage: `SCENARIO: skip MP scenario reset for stage load stage=0x30 mp_stage=0x32 scenario=0`.
+- The next exception symbolicated to `meshFree -> meshDetachFromProp -> lvReset -> mainLoop`.
+- B-339's dynamic `prop->colmesh` data is heap-owned, but `lvReset()` was detaching it after `mempResetPool(MEMPOOL_STAGE)` had already recycled the prop array. `g_Vars.props` could therefore point at stale stage-pool memory during cleanup.
+
+### Change
+
+- Added `meshDetachAllStageProps()` in `meshcollision.c` and exposed it via `meshcollision.h`.
+- Both reset loops now call `meshDetachAllStageProps()` before `mempResetPool(MEMPOOL_STAGE)`, while `g_Vars.props` is still valid.
+- Removed the late `lvReset()` loop that called `meshDetachFromProp(&g_Vars.props[i])` after setup load.
+- Recursive campaign smoke found the same ownership bug one transition later: the first `meshDetachAllStageProps()` implementation scanned every `g_Vars.props` slot, including unallocated free-tail slots with stale `colmesh` bytes from recycled stage-pool memory. The fix now walks only `g_Vars.activeprops` with a `maxprops` visit cap.
+- `varsReset()` now initializes each prop slot's `colmesh` to NULL and explicitly terminates the free-list tail.
+- Extended `[physics][jump]` static coverage to pin the detach-before-stage-reset ordering in both reset loops and to forbid the stale `lvReset()` detach loop.
+- Tightened `auto_campaign_first_cycle` so campaign completion is accepted as the stronger terminal marker; the scripted exit remains a fallback.
+- Filed B-343, added the active lifecycle constraint, and updated the physics/collision pillar.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session meshdn -Target all -BuildTimeoutSeconds 180` PASS for client/updater.
+- `.\devtools\build-session.ps1 -Session meshdn -Target tests -BuildTimeoutSeconds 180` PASS for `pd-tests.exe`.
+- Direct focused run with `C:\msys64\mingw64\bin` on PATH: `.claude\session-builds\meshdn\pd-tests.exe "[physics][jump]"` PASS (85 assertions / 4 cases).
+- `.\devtools\build-session.ps1 -Session meshdn -Target server -BuildTimeoutSeconds 180` PASS.
+- Recursive client automation in `smkmis`: `mission_intro_flow` PASS (18/18), then `auto_campaign_first_cycle` initially reproduced the Defection -> Investigation AV at `meshFree -> meshDetachFromProp -> meshDetachAllStageProps`; after the live-list/free-tail fix, `auto_campaign_first_cycle` PASS (20/20) and completed the solo campaign chain through Skedar Ruins without crash/exception.
+- Follow-up verification in `smkmis`: tests target PASS, direct focused `[physics][jump]` PASS (92 assertions / 4 cases), client target PASS, server target PASS.
+- Manual MP playtest still useful: host/start a Combat Simulator match and exercise drop-in/drop-out; match-owned stage load should still run scenario reset and initialize objectives while solo mission loads skip it.
+- Parent context sync: no `..\context` directory exists in this checkout, so there was no parent copy to update.
+
 ## Session (`main-checkout-2026-05-18-scenario-stage-boundary`) - 2026-05-18 - mission-start crash at MP scenario reset
 
 Mike reported another exception when starting a mission and clarified that Combat Simulator drop-in/drop-out multiplayer must not be broken.

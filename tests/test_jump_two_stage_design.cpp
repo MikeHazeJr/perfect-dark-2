@@ -158,6 +158,10 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
     const std::string chr = readTextFile("src/game/chr.c");
     const std::string propobj = readTextFile("src/game/propobj.c");
     const std::string meshcollision = readTextFile("src/lib/meshcollision.c");
+    const std::string lv = readTextFile("src/game/lv.c");
+    const std::string varsreset = readTextFile("src/game/varsreset.c");
+    const std::string libmain = readTextFile("src/lib/main.c");
+    const std::string pdmain = readTextFile("port/src/pdmain.c");
     const std::string forgecore = readTextFile("port/src/forge/forge_core.c");
     const std::string forgeruntime = readTextFile("port/src/forge/forge_runtime.c");
 
@@ -167,6 +171,10 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
     REQUIRE_FALSE(chr.empty());
     REQUIRE_FALSE(propobj.empty());
     REQUIRE_FALSE(meshcollision.empty());
+    REQUIRE_FALSE(lv.empty());
+    REQUIRE_FALSE(varsreset.empty());
+    REQUIRE_FALSE(libmain.empty());
+    REQUIRE_FALSE(pdmain.empty());
     REQUIRE_FALSE(forgecore.empty());
     REQUIRE_FALSE(forgeruntime.empty());
 
@@ -196,6 +204,21 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
     requireContains(meshcollision, "modelRodataIsReadable(vbuf, vbytes)");
     requireContains(meshcollision, "meshFree(mesh);");
     requireContains(meshcollision, "free(mesh);");
+    requireContains(meshcollision, "void meshDetachAllStageProps(void)");
+    requireContains(meshcollision, "prop = g_Vars.activeprops");
+    requireContains(meshcollision, "visited < g_Vars.maxprops");
+    requireNotContains(meshcollision, "g_Vars.props[i].colmesh");
+    requireContains(varsreset, "g_Vars.props[i].colmesh = NULL;");
+    requireContains(varsreset, "g_Vars.props[g_Vars.maxprops - 1].next = NULL;");
+    requireContains(varsreset, "g_Vars.props[g_Vars.maxprops - 1].colmesh = NULL;");
+    requireContains(libmain, "meshDetachAllStageProps();");
+    requireContains(libmain, "mempResetPool(MEMPOOL_STAGE);");
+    REQUIRE(libmain.find("meshDetachAllStageProps();") < libmain.find("mempResetPool(MEMPOOL_STAGE);"));
+    requireContains(pdmain, "meshDetachAllStageProps();");
+    requireContains(pdmain, "mempResetPool(MEMPOOL_STAGE);");
+    REQUIRE(pdmain.find("meshDetachAllStageProps();") < pdmain.find("mempResetPool(MEMPOOL_STAGE);"));
+    requireContains(lv, "scenarioResetForStageLoad(stagenum);");
+    requireNotContains(lv, "meshDetachFromProp(&g_Vars.props[i])");
     requireContains(bondwalk, "sweep.selfprop = g_Vars.currentplayer->prop");
     requireContains(bondwalk, "capsuleFindFloorForProp(g_Vars.currentplayer->prop");
     requireContains(bondwalk, "capsuleFindCeilingForProp(g_Vars.currentplayer->prop");

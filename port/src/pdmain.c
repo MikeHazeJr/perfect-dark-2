@@ -67,6 +67,7 @@
 #include "lib/dma.h"
 #include "lib/joy.h"
 #include "lib/main.h"
+#include "lib/meshcollision.h"
 #include "lib/snd.h"
 #include "lib/memp.h"
 #include "lib/mema.h"
@@ -540,6 +541,7 @@ void mainLoop(void)
 
 		var8005d9c4 = 0;
 
+		meshDetachAllStageProps();
 		mempResetPool(MEMPOOL_7);
 		mempResetPool(MEMPOOL_STAGE);
 		filesStop(4);

@@ -27,7 +27,7 @@
   ],
   "input_sequence": [
     { "at_ms": 0, "type": "wait", "comment": "boot path: --skip-intro lands in CI Training, --auto-campaign 0 arms the auto-runner at solo index 0 (Defection). BOOT state on first mainTick fires startStageAt(0)." },
-    { "at_ms": 200000, "type": "exit", "comment": "scripted exit. Two full cycles of the state machine (Defection -> Investigation -> Extraction) typically complete inside 180s on fast dwells with intro cutscenes intact." }
+    { "at_ms": 200000, "type": "exit", "comment": "fallback scripted exit. The auto-runner now treats full campaign completion as the stronger terminal condition; this exit only catches regressions that leave the client alive after the first-cycle assertions have already been met." }
   ],
   "assertions": {
     "required_lines": [
@@ -44,7 +44,7 @@
       "GAMELOOP\\.CAMPAIGN: menuhandlerAcceptMission entry stage_id='base:investigation'",
       "CAMPAIGN\\.AUTO: state WAIT_LOAD -> DWELL_PRE lvframenum=31 stagenum=0x33 idx=1",
       "CAMPAIGN\\.AUTO: advance after stagenum=0x33 \\(completed=2\\)",
-      "SMOKE: result=scripted_exit"
+      "CAMPAIGN\\.AUTO: campaign complete: [0-9]+ missions ran"
     ],
     "forbidden_patterns": [
       "EXCEPTION_ACCESS_VIOLATION",

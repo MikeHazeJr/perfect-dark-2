@@ -1050,6 +1050,30 @@ void meshDetachFromProp(struct prop *prop)
 	}
 }
 
+void meshDetachAllStageProps(void)
+{
+	struct prop *prop;
+	s32 detached = 0;
+	s32 visited = 0;
+
+	if (!g_Vars.props || g_Vars.maxprops <= 0) {
+		return;
+	}
+
+	for (prop = g_Vars.activeprops; prop && visited < g_Vars.maxprops; prop = prop->next) {
+		visited++;
+
+		if (prop->colmesh) {
+			meshDetachFromProp(prop);
+			detached++;
+		}
+	}
+
+	if (detached > 0) {
+		sysLogPrintf(LOG_NOTE, "MESHCOL: detached %d stage prop mesh(es)", detached);
+	}
+}
+
 bool meshPropIsMovementSolid(struct prop *prop)
 {
 	if (!prop) {

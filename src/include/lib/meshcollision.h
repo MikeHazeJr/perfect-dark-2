@@ -149,6 +149,10 @@ struct colmesh *meshGetFromProp(struct prop *prop);
 /* Free and detach any dynamic collision mesh owned by the prop. */
 void meshDetachFromProp(struct prop *prop);
 
+/* Free and detach dynamic collision meshes owned by the current stage prop pool.
+ * Must run before MEMPOOL_STAGE is reset, while g_Vars.props is still valid. */
+void meshDetachAllStageProps(void);
+
 /* Build and attach a local-space collision mesh from a prop's model if the
  * prop is movement-solid. */
 void meshAttachModelToProp(struct prop *prop, struct model *model);

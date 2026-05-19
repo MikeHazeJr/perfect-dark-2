@@ -33,6 +33,11 @@ void varsReset(void)
 	// but there is no known way to exhaust the free props list.
 	for (i = 0; i < g_Vars.maxprops - 1; i++) {
 		g_Vars.props[i].next = &g_Vars.props[i + 1];
+		g_Vars.props[i].colmesh = NULL;
+	}
+	if (g_Vars.maxprops > 0) {
+		g_Vars.props[g_Vars.maxprops - 1].next = NULL;
+		g_Vars.props[g_Vars.maxprops - 1].colmesh = NULL;
 	}
 
 	varsResetRoomProps();
