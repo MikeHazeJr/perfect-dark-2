@@ -189,6 +189,13 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
     requireNotContains(capsule, "func0f0849dc");
     requireNotContains(capsule, "model->matrices");
 
+    requireContains(meshcollision, "#include \"model_rodata_guard.h\"");
+    requireContains(meshcollision, "modelRodataIsReadable(node->rodata, sizeof(struct modelrodata_dl))");
+    requireContains(meshcollision, "modelRodataIsReadable(node->rodata, sizeof(struct modelrodata_gundl))");
+    requireContains(meshcollision, "modelRodataIsReadable(&gdl[cmdidx], sizeof(Gfx))");
+    requireContains(meshcollision, "modelRodataIsReadable(vbuf, vbytes)");
+    requireContains(meshcollision, "meshFree(mesh);");
+    requireContains(meshcollision, "free(mesh);");
     requireContains(bondwalk, "sweep.selfprop = g_Vars.currentplayer->prop");
     requireContains(bondwalk, "capsuleFindFloorForProp(g_Vars.currentplayer->prop");
     requireContains(bondwalk, "capsuleFindCeilingForProp(g_Vars.currentplayer->prop");

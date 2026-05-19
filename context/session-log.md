@@ -1,5 +1,33 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-18-mesh-extraction-guard`) - 2026-05-18 - load-screen prop mesh extraction hardening
+
+Mike reported a second exception after the initial load-screen crash fix. The crash moved forward from world mesh build into prop creation before the intro.
+
+### Root Cause
+
+- `Build\pd-client.log` reached `MESHCOL: world mesh finalized`, `LOAD: setupLoadFiles done`, and `LOAD: calling setupCreateProps...` before the new `ACCESS_VIOLATION`.
+- Symbolication resolved the stack to `setupCreateProps -> setupCreateDoor -> doorInit -> objInit -> meshAttachModelToProp -> meshExtractFromModel -> extractNodeTreeTris -> extractDLNodeTris -> extractGfxTris`.
+- The faulting line was the `Gfx` command read in `extractGfxTris`.
+- The B-339 movement-owned mesh path was architecturally right, but its prop extraction edge still trusted model DL/GUNDL rodata, display-list pointers, vertex buffers, and per-command GDL memory during setup.
+
+### Change
+
+- `meshcollision.c` now includes `model_rodata_guard.h`.
+- DL and GUNDL node extraction require `modelRodataIsReadable()` for the relevant rodata structure before reading `node->rodata`.
+- GDL and Vtx extraction inputs are treated as untrusted: unreadable display lists, vertex buffers, or command slots log and skip rather than dereference.
+- Unsafe extraction skips use `modelRodataLogMiss()` site tags such as `MeshExtract.DL`, `MeshExtract.GUNDL`, `MeshExtract.Gfx`, `MeshExtract.Vtx`, and `MeshExtract.GfxCmd`, plus a bounded `MESHCOL:` warning summary.
+- If model extraction yields no safe triangles, `meshAttachModelToProp()` continues to fail closed and attaches no `colmesh`.
+- Extended `[physics][jump]` static coverage to pin the model-rodata include, DL/GUNDL readability checks, GDL/Vtx probes, and zero-triangle fail-closed behavior.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session meshro -Target all -BuildTimeoutSeconds 180` PASS for client/updater.
+- `.\devtools\build-session.ps1 -Session meshro -Target tests -BuildTimeoutSeconds 180` PASS for `pd-tests.exe`.
+- Direct focused run with `C:\msys64\mingw64\bin` on PATH: `.claude\session-builds\meshro\pd-tests.exe "[physics][jump]"` PASS (73 assertions / 4 cases).
+- `.\devtools\build-session.ps1 -Session meshro -Target server -BuildTimeoutSeconds 180` PASS.
+- Manual playtest still needed: normal launch should reach intro/main menu without `ACCESS_VIOLATION`; bounded `MODEL.RODATA.MISS:` / `MESHCOL:` warnings are acceptable if the load continues.
+
 ## Session (`main-checkout-2026-05-18-loadscreen-mesh-room-load`) - 2026-05-18 - load-screen crash before intro
 
 Mike reported an exception during the load screen before the intro and pointed at the build-folder log.

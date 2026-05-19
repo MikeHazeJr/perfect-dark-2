@@ -19,6 +19,7 @@
 #include "lib/meshcollision.h"
 #include "game/bg.h"
 #include "game/prop.h"
+#include "model_rodata_guard.h"
 #include "system.h"
 #include "bss.h"
 
@@ -229,10 +230,36 @@ static bool meshRayVsTriangle(const struct coord *from, const struct coord *to,
  * We parse the display list to find triangle commands and look up vertex
  * positions from the Vtx array.
  */
+static void meshExtractLogMiss(const char *site, const struct model *model,
+		const struct modelnode *node, const void *ptr, size_t bytes,
+		const char *reason, s32 *skipcount)
+{
+	if (skipcount) {
+		(*skipcount)++;
+	}
+	modelRodataLogMiss(site, model, node, ptr, bytes, reason);
+}
+
 static void extractGfxTris(Gfx *gdl, Vtx *vbuf, s32 numverts,
-		struct colmesh *mesh, f32 scale)
+		struct colmesh *mesh, f32 scale, const struct model *model,
+		const struct modelnode *node, s32 *skipcount)
 {
 	if (!gdl || !vbuf || numverts <= 0) {
+		return;
+	}
+
+	if (!modelRodataIsReadable(gdl, sizeof(Gfx))) {
+		meshExtractLogMiss("MeshExtract.Gfx", model, node, gdl, sizeof(Gfx),
+				"page-unmapped", skipcount);
+		return;
+	}
+
+	size_t vbytes = (size_t)numverts * sizeof(Vtx);
+	if (numverts < 0 || vbytes / sizeof(Vtx) != (size_t)numverts
+			|| (uintptr_t)vbuf + vbytes < (uintptr_t)vbuf
+			|| !modelRodataIsReadable(vbuf, vbytes)) {
+		meshExtractLogMiss("MeshExtract.Vtx", model, node, vbuf, vbytes,
+				"page-unmapped", skipcount);
 		return;
 	}
 
@@ -242,6 +269,12 @@ static void extractGfxTris(Gfx *gdl, Vtx *vbuf, s32 numverts,
 	s32 numslots = 0;
 
 	for (s32 cmdidx = 0; cmdidx < 4096; cmdidx++) {
+		if (!modelRodataIsReadable(&gdl[cmdidx], sizeof(Gfx))) {
+			meshExtractLogMiss("MeshExtract.GfxCmd", model, node, &gdl[cmdidx],
+					sizeof(Gfx), "page-unmapped", skipcount);
+			break;
+		}
+
 		u32 w0 = gdl[cmdidx].words.w0;
 		u32 w1 = gdl[cmdidx].words.w1;
 		u8 cmd = (w0 >> 24) & 0xff;
@@ -254,11 +287,13 @@ static void extractGfxTris(Gfx *gdl, Vtx *vbuf, s32 numverts,
 			/* gSPVertex: load N vertices starting at slot v0 */
 			s32 n = ((w0 >> 4) & 0xf) + 1;
 			s32 v0 = (w0 & 0xf);
-			Vtx *src = (Vtx *)(uintptr_t)w1;
+			uintptr_t src = (uintptr_t)w1;
+			uintptr_t vstart = (uintptr_t)vbuf;
+			uintptr_t vend = vstart + vbytes;
 			s32 srcidx = -1;
 
-			if (src >= vbuf && src < vbuf + numverts) {
-				srcidx = (s32)(src - vbuf);
+			if (src >= vstart && src < vend) {
+				srcidx = (s32)((src - vstart) / sizeof(Vtx));
 			} else {
 				u32 offset = UNSEGADDR(w1) & 0xffffff;
 				if ((offset % sizeof(Vtx)) == 0) {
@@ -323,43 +358,65 @@ static void extractGfxTris(Gfx *gdl, Vtx *vbuf, s32 numverts,
 	}
 }
 
-static void extractDLNodeTris(struct modelrodata_dl *dl, struct colmesh *mesh, f32 scale)
+static void extractDLNodeTris(struct modelrodata_dl *dl, struct colmesh *mesh,
+		f32 scale, const struct model *model, const struct modelnode *node,
+		s32 *skipcount)
 {
 	if (!dl) {
 		return;
 	}
 
-	extractGfxTris(dl->opagdl, dl->vertices, dl->numvertices, mesh, scale);
+	extractGfxTris(dl->opagdl, dl->vertices, dl->numvertices, mesh, scale,
+			model, node, skipcount);
 }
 
-static void extractGunDLNodeTris(struct modelrodata_gundl *gundl, struct colmesh *mesh, f32 scale)
+static void extractGunDLNodeTris(struct modelrodata_gundl *gundl,
+		struct colmesh *mesh, f32 scale, const struct model *model,
+		const struct modelnode *node, s32 *skipcount)
 {
 	if (!gundl) {
 		return;
 	}
 
-	extractGfxTris(gundl->opagdl, gundl->vertices, gundl->numvertices, mesh, scale);
+	extractGfxTris(gundl->opagdl, gundl->vertices, gundl->numvertices, mesh,
+			scale, model, node, skipcount);
 }
 
-static void extractNodeTreeTris(struct modelnode *node, struct colmesh *mesh, f32 scale)
+static void extractNodeTreeTris(struct modelnode *node, struct colmesh *mesh,
+		f32 scale, const struct model *model, s32 *skipcount)
 {
 	if (!node) return;
 
-	if (node->type == 0x18 && node->rodata) {
-		/* DL node -- has vertices and display list */
-		extractDLNodeTris(&node->rodata->dl, mesh, scale);
-	} else if (node->type == MODELNODETYPE_GUNDL && node->rodata) {
-		extractGunDLNodeTris(&node->rodata->gundl, mesh, scale);
+	if (node->type == MODELNODETYPE_DL) {
+		if (!modelRodataIsReadable(node->rodata, sizeof(struct modelrodata_dl))) {
+			meshExtractLogMiss("MeshExtract.DL", model, node, node->rodata,
+					sizeof(struct modelrodata_dl),
+					node->rodata == NULL ? "NULL" : "page-unmapped",
+					skipcount);
+		} else {
+			extractDLNodeTris(&node->rodata->dl, mesh, scale, model, node,
+					skipcount);
+		}
+	} else if (node->type == MODELNODETYPE_GUNDL) {
+		if (!modelRodataIsReadable(node->rodata, sizeof(struct modelrodata_gundl))) {
+			meshExtractLogMiss("MeshExtract.GUNDL", model, node, node->rodata,
+					sizeof(struct modelrodata_gundl),
+					node->rodata == NULL ? "NULL" : "page-unmapped",
+					skipcount);
+		} else {
+			extractGunDLNodeTris(&node->rodata->gundl, mesh, scale, model, node,
+					skipcount);
+		}
 	}
 
 	/* Recurse into children */
 	if (node->child) {
-		extractNodeTreeTris(node->child, mesh, scale);
+		extractNodeTreeTris(node->child, mesh, scale, model, skipcount);
 	}
 
 	/* Recurse into siblings */
 	if (node->next) {
-		extractNodeTreeTris(node->next, mesh, scale);
+		extractNodeTreeTris(node->next, mesh, scale, model, skipcount);
 	}
 }
 
@@ -370,10 +427,17 @@ void meshExtractFromModel(struct model *model, struct colmesh *out)
 		return;
 	}
 
-	extractNodeTreeTris(model->definition->rootnode, out, 1.0f);
+	s32 skipped = 0;
+	extractNodeTreeTris(model->definition->rootnode, out, 1.0f, model, &skipped);
 
-	sysLogPrintf(LOG_NOTE, "MESHCOL: extracted %d local-space triangles from model",
-		out->numtris);
+	if (skipped > 0) {
+		sysLogPrintf(LOG_WARNING,
+			"MESHCOL: skipped %d unsafe model extraction node(s); extracted %d local-space triangles",
+			skipped, out->numtris);
+	} else {
+		sysLogPrintf(LOG_NOTE, "MESHCOL: extracted %d local-space triangles from model",
+			out->numtris);
+	}
 }
 
 void meshFree(struct colmesh *mesh)
