@@ -359,6 +359,7 @@ s32 objectivesDebugCompleteCurrentMission(void)
 
 	for (i = 0; i < objectiveGetCount(); i++) {
 		if (objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty())) {
+			g_ObjectiveStatuses[i] = OBJECTIVE_COMPLETE;
 			completed++;
 		}
 	}

@@ -921,6 +921,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_net_lifecycle_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_stage_load_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_debug_campaign_complete_hotkey.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_debug_credits_button.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
   ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp
@@ -990,6 +991,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_cutscene_layer.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_vehicle_observer_layer.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_provider_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_fast3d_blender_static.cpp
 
   # c038 jump capsule guards (physics-collision pillar, 2026-05-18):
   # source-level pins for the live multi-sample rendered-surface sweep and

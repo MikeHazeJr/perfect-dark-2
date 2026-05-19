@@ -176,6 +176,28 @@ TEST_CASE("charpreview: request seam clears head for integrated body",
 	        != std::string::npos);
 }
 
+/* B-345: campaign mission start can inherit a stale charpreview request
+ * after menu transition cleanup.  The preview path must yield whenever
+ * active gameplay owns the first-person rig, not only in MP gameplay. */
+TEST_CASE("charpreview: gameplay gunmem bail applies to solo and MP",
+          "[catalog][catalog-mgr-body][b-345][charpreview][gameplay]") {
+	const std::string src =
+		readTextFile("port/fast3d/pdgui_charpreview.c");
+
+	REQUIRE(src.find("charPreviewGameplayOwnsGunMem") != std::string::npos);
+	REQUIRE(src.find("!pdguiIsActive() || !menu_active") != std::string::npos);
+	REQUIRE(src.find("LOG.WPN.DIAG: charpreview GAMEPLAY-BAIL")
+	        != std::string::npos);
+	REQUIRE(src.find("charPreviewDropGameplayRequest(\"render\")")
+	        != std::string::npos);
+	REQUIRE(src.find("charPreviewDropGameplayRequest(\"request\")")
+	        != std::string::npos);
+
+	/* The old MP-only guard let solo campaign fight the master loader. */
+	REQUIRE(src.find("ACTIVE-GAMEPLAY-BAIL") == std::string::npos);
+	REQUIRE(src.find("&& g_Vars.mplayerisrunning") == std::string::npos);
+}
+
 /* B-297 LOUDFAIL channel -- a silently-black preview FBO is a class of
  * "user reports preview is black on screen X" bugs that the warning
  * channels in `menu.c::menuRenderModel` already log per cause but that

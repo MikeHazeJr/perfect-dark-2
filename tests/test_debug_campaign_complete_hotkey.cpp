@@ -3,8 +3,9 @@
  *
  * Static guards for the dev F6 campaign-complete path. F6 historically
  * froze MP bots; in solo campaign it must instead force the current loaded
- * mission's objectives complete. The freeze fallback is dev-only in
- * production code and must be restricted to Combat Simulator.
+ * mission's objectives complete and drive the normal mission-success
+ * end-stage flow. The freeze fallback is dev-only in production code and
+ * must be restricted to Combat Simulator.
  */
 
 #include "catch.hpp"
@@ -67,6 +68,9 @@ TEST_CASE("F6 completes loaded solo campaign objectives before Combat Sim bot-fr
 	REQUIRE(helper.find("STAGE_IS_GAMEPLAY(g_Vars.stagenum)") != std::string::npos);
 	REQUIRE(helper.find("objectiveGetCount() > 0") != std::string::npos);
 	REQUIRE(helper.find("objectivesDebugCompleteCurrentMission()") != std::string::npos);
+	REQUIRE(helper.find("g_Vars.bond->isdead = false") != std::string::npos);
+	REQUIRE(helper.find("g_Vars.bond->aborted = false") != std::string::npos);
+	REQUIRE(helper.find("mainEndStage()") != std::string::npos);
 	REQUIRE(freeze_helper.find("g_Vars.normmplayerisrunning") != std::string::npos);
 
 	const size_t action = end_frame.find("actionPressed(0, ACTION_DEBUG_BOT_FREEZE)");
@@ -100,6 +104,7 @@ TEST_CASE("forced current-mission objective completion resets with objectives",
 	REQUIRE(check.find("g_DebugForceCompleteCurrentMissionObjectives") != std::string::npos);
 	REQUIRE(check.find("return OBJECTIVE_COMPLETE") != std::string::npos);
 	REQUIRE(complete.find("g_DebugForceCompleteCurrentMissionObjectives = true") != std::string::npos);
+	REQUIRE(complete.find("g_ObjectiveStatuses[i] = OBJECTIVE_COMPLETE") != std::string::npos);
 	REQUIRE(complete.find("objectivesCheckAll()") != std::string::npos);
 	REQUIRE(reset_fn.find("g_DebugForceCompleteCurrentMissionObjectives = false") != std::string::npos);
 }

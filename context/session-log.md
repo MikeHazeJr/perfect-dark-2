@@ -1,5 +1,112 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-19-debug-credits-shortcut`) - 2026-05-19 - Settings Debug shortcut to Credits
+
+Mike asked for an option in Settings > Debug to go to Credits, primarily to shorten the credits rendering playtest path.
+
+### Change
+
+- Added a "Scene Shortcuts" section to `port/fast3d/pdgui_menu_mainmenu.cpp::renderSettingsDebug`.
+- Added a "Go to Credits" button that calls `mainChangeToStage(GRID_STAGE_CREDITS)`.
+- Gated the button to offline mode (`g_NetMode == NETMODE_NONE`) so a debug shortcut cannot locally desync a network session.
+- Added static coverage in `tests/test_debug_credits_button.cpp` and wired it into `pd-tests`.
+
+### Verification
+
+- Pending in this session: source checks and isolated build/test verification.
+- Manual playtest remains: Settings > Debug > Go to Credits should transition directly to the credits stage; the button should be disabled during netplay.
+
+### Context Sync
+
+- Updated `context/tasks.md` and `context/session-log.md`.
+
+## Session (`main-checkout-2026-05-19-fast3d-fog-alpha-squares`) - 2026-05-19 - credits particles/text and fog planes rendered as solid squares
+
+Mike reported that after the last mission, credits particles and text were visible but drawn as solid squares with no mask/texture transparency. He also connected the symptom to weird blue planes in stages, fog, and similar translucent effects. A prior daily-log entry said c3746 fixed a fog `A_FOG` mask, but Mike confirmed it was never actually fixed.
+
+### Root Cause
+
+- Credits particles use IA8 mask textures through `G_RM_XLU_SURF`; credits text uses CI4 font masks plus `G_TT_IA16`, then relies on alpha blending.
+- The shared fast3d path in `gfx_pc.cpp::gfx_sp_tri1` decided `use_alpha` only from cycle-2 `G_BL_CLR_MEM, G_BL_1MA`.
+- The previous c3746 fog patch only fixed one cycle-1 `A_FOG` test for shader fog. It did not make fog/additive modes enable alpha, did not inspect both c1/c2 fog fields, and did not route fog alpha into shader output alpha.
+- For modes such as `G_RM_ADD`, the renderer could therefore draw the full quad instead of a masked/fog-alpha blended plane.
+
+### Change
+
+- Added fast3d blender helpers in `gfx_pc.cpp` to decode blender fields by slot instead of ad hoc shifts.
+- `use_fog` now recognizes c1/c2 `G_BL_CLR_FOG` and first-alpha `G_BL_A_FOG`.
+- `use_alpha` now recognizes both normal translucent memory blends and first-alpha fog blends.
+- Added `SHADER_OPT_BLEND_ALPHA_FOG` through `gfx_cc.h`, `gfx_cc.cpp`, and `gfx_opengl.cpp`; fog-alpha blends now set fragment alpha from `vFog.a` after fog color mix.
+- Added `tests/test_fast3d_blender_static.cpp` and wired it into `pd-tests` to pin the field decode and prevent treating the second alpha slot's `A_MEM` value as `G_BL_A_FOG`.
+- Filed B-346.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session gfxalpha -Target all -BuildTimeoutSeconds 180` PASS for client/updater.
+- `.\devtools\build-session.ps1 -Session gfxalpha -Target tests -BuildTimeoutSeconds 180` PASS for `pd-tests.exe`.
+- Direct focused `.claude\session-builds\gfxalpha\pd-tests.exe "[rendering][fast3d][fog][static][b346]"` PASS (22 assertions / 2 cases).
+- Build output left available for Mike's manual playtest at `.claude/session-builds/gfxalpha/PerfectDark.exe`.
+- Manual playtest pending: finish the last mission and verify credits particles/text use masks instead of solid squares; check fog/additive stage effects for opaque blue planes.
+
+### Context Sync
+
+- Updated `context/bugs.md`, `context/tasks.md`, `context/session-log.md`, `context/pillars/rendering.md`, and `tools/kanban/state.json`.
+- Added Kanban card `c134`, active/watch/pending-completion, with manual credits/fog playtest as the remaining closure gate.
+- Parent context sync: no `..\context` directory exists in this checkout, so there was no parent copy to update.
+
+## Session (`main-checkout-2026-05-19-f6-mission-success`) - 2026-05-19 - F6 completes the mission, not just one objective
+
+Mike clarified that F6 should complete all objectives for the current mission/difficulty and effectively complete the mission, matching the automated campaign runner, not just surface a single objective completion.
+
+### Change
+
+- `objectivesDebugCompleteCurrentMission()` now stamps every difficulty-active objective status to `OBJECTIVE_COMPLETE` while keeping the force-complete flag for live `objectiveCheck()` callers.
+- The F6 campaign path now clears `g_Vars.bond->isdead` / `aborted` and calls `mainEndStage()`, matching the key part of `autocampaign.c`'s `AC_STATE_FORCE_END`.
+- The Combat Simulator bot-freeze fallback remains dev-build-only and Combat Simulator-only.
+- Static `[debug][campaign][f6]` coverage now pins status stamping, death/abort clearing, `mainEndStage()`, the dev gate, and the Combat Simulator freeze gate.
+
+### Verification
+
+- Scoped `git diff --check` PASS for the changed files.
+- `.\devtools\build-session.ps1 -Session f6obj -Target tests -BuildTimeoutSeconds 180` PASS.
+- Mike said he will do the runtime test himself, so focused binary/full rebuild were intentionally skipped after the tests target and `f6obj` was removed.
+- Manual playtest: start any solo campaign mission, press F6, confirm it goes to the normal successful endscreen / next mission flow; in Combat Simulator, F6 should freeze/resume bot AI; outside campaign and Combat Simulator, F6 should not toggle bot freeze.
+
+## Session (`main-checkout-2026-05-19-campaign-black-screen-charpreview`) - 2026-05-19 - mission-start black screen with live FPS counter
+
+Mike reported that starting a campaign mission produced a blank black screen while the FPS counter kept updating, then asked whether mission loading was using the catalog/manifest.
+
+### Root Cause
+
+- The mission was using catalog/manifest. `Build\pd-client.log` showed `GAMELOOP.MANIFEST`, `CATALOG: retain bundled 'base:defection'`, `MANIFEST-SP: load 'base:defection'`, `MANIFEST-SP: applied diff`, and `LOAD: lv.c entering stage load sequence for stagenum=0x30`.
+- The failure happened after stage load began: a stale charpreview/menu-model request kept trying to acquire `GUNMEMOWNER_INVMENU` during active solo gameplay.
+- That repeated menu-preview ownership path kept the first-person weapon/hand pool away from BONDGUN. The campaign weapon stayed stuck with `gunmemnew=3`, repeated `LOAD-mode6`, and no `bgunTickMasterLoad enter` for the mission weapon in the failing log.
+- The existing guard in `pdgui_charpreview.c` only bailed for active MP gameplay (`g_Vars.mplayerisrunning`), but solo campaign can inherit the same stale preview request after menu transition cleanup.
+
+### Change
+
+- Added `charPreviewGameplayOwnsGunMem()` and `charPreviewDropGameplayRequest()` in `pdgui_charpreview.c`.
+- Charpreview now drops requests at both request and render seams whenever player 0 has a chrbody and gameplay owns input/no actual menu is active.
+- Legitimate menu previews are still allowed while an actual menu is active, so title/CI/menu/pause preview behavior is preserved.
+- Added static `[b-345]` coverage in `tests/test_integrated_head_guard.cpp` to pin that the gameplay bail is not MP-only and that both request and render seams use it.
+- Filed B-345.
+- Added Kanban card `c133` for B-345 with a watch flag, pending-completion metadata, completed investigation/fix/verification subtasks, and the remaining manual Solo Mission UI playtest subtask.
+
+### Verification
+
+- `git diff --check` PASS for the changed files.
+- `.\devtools\build-session.ps1 -Session b345cp -Target all -BuildTimeoutSeconds 240` PASS for client/updater.
+- `.\devtools\build-session.ps1 -Session b345cp -Target tests -BuildTimeoutSeconds 240` PASS for `pd-tests.exe`.
+- `.\devtools\build-session.ps1 -Session b345cp -Target server -BuildTimeoutSeconds 240` PASS for `PerfectDarkServer.exe`.
+- Direct focused run with `C:\msys64\mingw64\bin` on PATH: `.claude\session-builds\b345cp\pd-tests.exe "[b-345]"` PASS (8 assertions / 1 case).
+- Client smoke/log review: `auto_campaign_first_cycle` PASS (20/20) once in `results-20260519T040853Z.json`. A later focused `mission_intro_flow` client run exited code 0 but missed the pre-existing `SMOKE: result=scripted_exit` harness line; the log still confirmed Defection loaded and the FP weapon reached `bgunTickMasterLoad ... CARTS->LOADED newwpn=3`, then rendered with `visible=1 inuse=1`. No `EXCEPTION_ACCESS_VIOLATION`, `FATAL`, old `ACTIVE-GAMEPLAY-BAIL`, or `ACQUIRE-GIVE-UP` markers appeared in that focused log.
+- Manual playtest still needed from the real Solo Mission UI, especially after prior menu/character-preview activity, to confirm the black screen no longer appears.
+
+### Context Sync
+
+- Updated `context/bugs.md`, `context/tasks.md`, and `tools/kanban/state.json`.
+- Parent context sync: no `..\context` directory exists in this checkout, so there was no parent copy to update.
+
 ## Session (`main-checkout-2026-05-18-f6-campaign-objectives`) - 2026-05-18 - F6 campaign objective completion hotkey
 
 Mike reported that pressing a function key, probably F6, did not complete the current campaign mission objectives as expected.

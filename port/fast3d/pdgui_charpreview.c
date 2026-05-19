@@ -34,6 +34,7 @@
 #include "constants.h"
 #include "assetcatalog.h"
 #include "modelcatalog.h"
+#include "pdgui.h"
 #include "pdgui_charpreview.h"
 
 /* Forward declarations for VI functions (vi.c) — needed to restore
@@ -90,6 +91,33 @@ static f32 s_PreviewRotY = 0.0f;     /* Y rotation in radians (set by caller) */
 static f32 s_PreviewAspect = 1.0f;   /* Projection aspect for FBO render (B-253 follow-up) */
 static Vp  s_PreviewVp;              /* Viewport for FBO render (must NOT be inline in display list) */
 
+static s32 charPreviewGameplayOwnsGunMem(void)
+{
+    struct player *player = g_Vars.players[0];
+    s32 menu_active = 0;
+
+    if (g_Vars.currentplayer != NULL) {
+        menu_active = g_Vars.currentplayer->menuisactive ? 1 : 0;
+    }
+
+    return player != NULL
+        && player->haschrbody
+        && (!pdguiIsActive() || !menu_active);
+}
+
+static void charPreviewDropGameplayRequest(const char *source)
+{
+    sysLogPrintf(LOG_NOTE,
+        "LOG.WPN.DIAG: charpreview GAMEPLAY-BAIL source=%s haschrbody=1 pdgui=%d menu=%d mp=%u -- request dropped to avoid master-loader race",
+        source ? source : "",
+        pdguiIsActive(),
+        (g_Vars.currentplayer != NULL && g_Vars.currentplayer->menuisactive) ? 1 : 0,
+        g_Vars.mplayerisrunning);
+
+    s_PreviewRequested = 0;
+    g_Menus[0].menumodel.newparams = 0;
+}
+
 /* ========================================================================
  * Init / Shutdown
  * ======================================================================== */
@@ -138,6 +166,11 @@ void pdguiCharPreviewInit(void)
  */
 static void charPreviewSubmitParams(u32 params, s32 type)
 {
+    if (charPreviewGameplayOwnsGunMem()) {
+        charPreviewDropGameplayRequest("request");
+        return;
+    }
+
     s_PreviewType = type;
     s_PreviewRequested = 1;
 
@@ -591,33 +624,13 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
         return gdl;
     }
 
-    /* B-246 round-7: bail out when the local player has spawned in active
-     * MP gameplay. Round-6 playtest log (no-hands repro with random spawn
-     * weapon) showed this path racing the FP rig's master loader for the
-     * gunmem pool every frame: charpreview requests INVMENU -> triggers
-     * BONDGUN-out via bgunEnterFlux (clears handmodeldef, sets
-     * gunmemnew=gunmemtype) -> master loader at bondgun.c:4232 calls
-     * bgunChangeGunMem(BONDGUN) on the timer-flush frame and wins ->
-     * full FLUX->...->LOADED cycle for the same weapon -> charpreview
-     * never gets the pool, retries forever (s_PreviewRequested stays 1
-     * via the curparams==0 early-return at line 641). 1825 cycles in 20
-     * seconds = the FP rig is constantly being torn down and rebuilt,
-     * so handmodeldef is NULL most frames and the hand-render gate
-     * skips. Player sees no hands and no weapon.
-     *
-     * In active MP gameplay there is no legitimate caller of charpreview --
-     * setup screens are gone, character / weapon previews are not on the
-     * HUD. Drop the request to break the race. If a future MP overlay
-     * needs in-match preview rendering, this guard will need to be
-     * revisited (e.g. allow when a known-safe overlay is active). */
-    if (g_Vars.players[0] != NULL
-            && g_Vars.players[0]->haschrbody
-            && g_Vars.mplayerisrunning) {
-        if (s_PreviewRequested) {
-            sysLogPrintf(LOG_NOTE,
-                "LOG.WPN.DIAG: charpreview ACTIVE-GAMEPLAY-BAIL haschrbody=1 mp=1 -- request dropped to avoid master-loader race");
-        }
-        s_PreviewRequested = 0;
+    /* B-345: bail out whenever active gameplay owns the FP rig. The old
+     * guard covered MP only, but solo campaign can inherit a stale preview
+     * request from menu transition cleanup too. If no actual menu is active,
+     * charpreview has no legitimate in-game owner and must not acquire
+     * INVMENU gun memory away from bgunTickMasterLoad. */
+    if (charPreviewGameplayOwnsGunMem()) {
+        charPreviewDropGameplayRequest("render");
         return gdl;
     }
 

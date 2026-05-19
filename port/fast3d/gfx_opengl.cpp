@@ -503,6 +503,9 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     if (cc_features.opt_fog) {
         if (cc_features.opt_alpha) {
             append_line(fs_buf, &fs_len, "    texel = vec4(mix(texel.rgb, vFog.rgb, vFog.a), texel.a);");
+            if (cc_features.opt_blend_alpha_fog) {
+                append_line(fs_buf, &fs_len, "    texel.a = vFog.a;");
+            }
         } else {
             append_line(fs_buf, &fs_len, "    texel = mix(texel, vFog.rgb, vFog.a);");
         }

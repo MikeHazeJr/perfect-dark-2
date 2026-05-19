@@ -90,7 +90,7 @@ Per [audits/codebase-architecture-rating-2026-04-27.md](../audits/codebase-archi
 
 ## What is in flight
 
-- The renderer is operational; no major active design under development.
+- B-346 credits/fog alpha artifact is fixed pending playtest. The fast3d blender decode now recognizes c1/c2 fog fields and fog-alpha blends, and the OpenGL shader can route fog alpha into fragment alpha for additive/fog planes. Mike is manually testing credits particles/text and foggy stage effects from isolated build `gfxalpha`.
 - HUD layer order discipline per [designs/menus/hud-layer-order.md](../designs/menus/hud-layer-order.md) (implemented).
 - GPU swarm benchmark per [designs/in-flight/gpu-swarm-and-test-scenarios.md](../designs/in-flight/gpu-swarm-and-test-scenarios.md) (Phase 1 design; Phase 2 gated on Mike's call on F.1 GL 4.3 vs transform feedback).
 

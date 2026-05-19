@@ -141,6 +141,7 @@ void menuPushDialog(struct menudialogdef *dialogdef);
 void menuPopDialog(void);
 s32 menuIsDialogOpen(struct menudialogdef *dialogdef);
 s32 menuDialogIsCurrent(const struct menudialog *dialog);
+void mainChangeToStage(s32 stagenum);
 
 /* Pause/control restoration — needed when ImGui menu close bypasses
  * the legacy menutick bg-transition that normally calls func0f0fa6ac. */
@@ -346,9 +347,14 @@ s16 mpChooseRandomSoloStage(void);
 #define GRID_STAGE_BOOTPAKMENU 0x5b
 #define GRID_STAGE_CREDITS     0x5c
 #endif
+#ifndef NETMODE_NONE
+#define NETMODE_NONE 0
+#endif
 #define GRID_STAGE_IS_SYSTEM(s) \
     ((s) == GRID_STAGE_TITLE || (s) == GRID_STAGE_BOOTPAKMENU || (s) == GRID_STAGE_CREDITS)
 #define GRID_STAGE_IS_GAMEPLAY(s) (!GRID_STAGE_IS_SYSTEM(s))
+
+extern s32 g_NetMode;
 
 /* MPOPTION_* bit mirrors (values locked in src/include/constants.h).
  * Grouped here so the C++ Main Menu TU does not need to include the
@@ -3854,6 +3860,26 @@ static void renderSettingsDebug(float scale)
         s32 ok = mempPCValidate("settings_debug");
         sysLogPrintf(LOG_NOTE, "SETTINGS_DEBUG: mempPCValidate = %s",
             ok ? "OK" : "CORRUPTED");
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ Scene Shortcuts ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Scene Shortcuts");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    const bool creditsEnabled = (g_NetMode == NETMODE_NONE);
+    if (!creditsEnabled) ImGui::BeginDisabled();
+    if (ImGui::Button("Go to Credits", ImVec2(btnW * 1.5f, btnH))) {
+        sysLogPrintf(LOG_NOTE, "SETTINGS_DEBUG: Go to Credits");
+        mainChangeToStage(GRID_STAGE_CREDITS);
+    }
+    if (!creditsEnabled) ImGui::EndDisabled();
+    if (!creditsEnabled) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("Disabled during netplay");
     }
 
     ImGui::Spacing();

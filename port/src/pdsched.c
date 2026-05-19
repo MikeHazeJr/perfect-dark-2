@@ -55,6 +55,11 @@ static s32 schedDebugCompleteCampaignObjectivesIfActive(void)
 			&& STAGE_IS_GAMEPLAY(g_Vars.stagenum)
 			&& objectiveGetCount() > 0) {
 		objectivesDebugCompleteCurrentMission();
+		if (g_Vars.bond) {
+			g_Vars.bond->isdead = false;
+			g_Vars.bond->aborted = false;
+		}
+		mainEndStage();
 		return 1;
 	}
 
