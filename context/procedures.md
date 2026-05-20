@@ -207,8 +207,9 @@ Before writing any code or making any changes:
 3. Read [constraints.md](constraints.md) (active and removed invariants).
 4. Read this file (procedures.md).
 5. Read [tasks.md](tasks.md) (current punch list) and the relevant pillar(s) for whatever you are touching.
-6. Summarize to Mike: where we are, what's next, any blockers.
-7. Confirm direction before starting.
+6. Check Kanban Decision Requests before selecting work: `python tools/kanban_evaluator.py list-decision-requests`. Read Mike's answered responses first unless the newest user message specifically directs the session to do something else.
+7. Summarize to Mike: where we are, what's next, any blockers.
+8. Confirm direction before starting.
 
 ---
 

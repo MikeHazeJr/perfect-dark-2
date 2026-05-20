@@ -1,0 +1,136 @@
+{
+  "pd_kind": "weapon",
+  "pd_schema_version": 1,
+  "id": "base:shotgun",
+  "weapon_id": 19,
+  "hi_model": "FILE_GSHOTGUN",
+  "lo_model": "FILE_GSHOTGUNLOD",
+  "equip_animation": "invanim_shotgun_singleshot",
+  "unequip_animation": null,
+  "pritosec_animation": null,
+  "sectopri_animation": null,
+  "functions": [
+    {
+      "type": 1,
+      "name": "L_GUN_089",
+      "unk06": 0,
+      "ammoindex": 0,
+      "noisesettings": {
+        "minradius": 0,
+        "maxradius": 25,
+        "incradius": 15,
+        "decbasespeed": 5,
+        "decremspeed": 6
+      },
+      "fire_animation": "invanim_shotgun_singleshot",
+      "flags": 0,
+      "recoilsettings": {
+        "xrange": 0.6,
+        "yrange": 0.6,
+        "zrange": 0.6,
+        "unk0c": 0.2,
+        "unk10": 1
+      },
+      "recoverytime60": 0,
+      "damage": 0.6,
+      "spread": 30,
+      "unk24": 20,
+      "unk25": 28,
+      "unk26": 0,
+      "unk27": 0,
+      "recoildist": 0,
+      "recoilangle": 0,
+      "slidemax": 0,
+      "impactforce": 4,
+      "duration60": 0,
+      "shootsound": "SFX_FIRE_SHOTGUN",
+      "penetration": 1
+    },
+    {
+      "type": 1,
+      "name": "L_GUN_105",
+      "unk06": 0,
+      "ammoindex": 0,
+      "noisesettings": {
+        "minradius": 0,
+        "maxradius": 25,
+        "incradius": 15,
+        "decbasespeed": 5,
+        "decremspeed": 6
+      },
+      "fire_animation": "invanim_shotgun_doubleshot",
+      "flags": 4096,
+      "recoilsettings": {
+        "xrange": 0.6,
+        "yrange": 0.6,
+        "zrange": 0.6,
+        "unk0c": 0.2,
+        "unk10": 1
+      },
+      "recoverytime60": 0,
+      "damage": 0.6,
+      "spread": 16,
+      "unk24": 20,
+      "unk25": 28,
+      "unk26": 0,
+      "unk27": 0,
+      "recoildist": 0,
+      "recoilangle": 0,
+      "slidemax": 0,
+      "impactforce": 4,
+      "duration60": 0,
+      "shootsound": "SFX_FIRE_SHOTGUN",
+      "penetration": 1
+    }
+  ],
+  "ammos": [
+    {
+      "type": 5,
+      "casingeject": 3,
+      "clipsize": 9,
+      "reload_animation": "invanim_shotgun_reload",
+      "flags": 4
+    },
+    null
+  ],
+  "aimsettings": {
+    "zoomfov": 0,
+    "guntransup": 3,
+    "guntransdown": 8,
+    "guntransside": 15,
+    "aimdamppal": 0.9721,
+    "aimdamp": 0.9767,
+    "tracktype": 1,
+    "unk18_04": 0,
+    "flags": 2
+  },
+  "muzzlez": 1,
+  "posx": 12,
+  "posy": -16.7,
+  "posz": -21,
+  "sway": 1,
+  "gunviscmds": [
+    [1, 0, 1, 43, 0],
+    [0, 0, 0, 0, 0]
+  ],
+  "partvisibility": [
+    [43, 0],
+    [90, 0],
+    [255]
+  ],
+  "shortname": "L_GUN_025",
+  "name": "L_GUN_025",
+  "manufacturer": "L_GUN_149",
+  "description": "L_GUN_173",
+  "flags": 157264,
+  "bot_pref": {
+    "unk00": 140,
+    "unk01": 156,
+    "unk02": 0,
+    "unk03": 0,
+    "haspriammogoal": 1,
+    "hassecammogoal": 1,
+    "pridistconfig": 1,
+    "secdistconfig": 1
+  }
+}

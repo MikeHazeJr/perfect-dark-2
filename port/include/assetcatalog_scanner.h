@@ -107,24 +107,28 @@ s32 assetCatalogRegisterStageSceneFiles(void);
 s32 assetCatalogScanComponents(const char *modsdir);
 
 /**
- * Scan the canonical external-format layout inside one loose folder mod.
+ * Scan external-format descriptors inside one loose folder mod.
  *
- * Accepts the same modder-facing paths as archive scanning, such as
- * weapons/<id>/weapon.ini, maps/<id>/arena.ini,
- * characters/heads/<id>/head.ini, and animations/<kind>/<id>/animation.ini.
- * This complements the legacy _components scanner and keeps loose folders and
- * .pdmod archives on the same authoring surface.
+ * Preferred authored content is typed .pd* descriptor files
+ * (heads/foo.pdhead + heads/foo/model.gltf, arenas/bar.pdarena +
+ * arenas/bar/geometry.obj, animations/baz.pdanim + sidecars, etc.). The
+ * earlier canonical folder layout (weapons/<id>/weapon.ini,
+ * characters/heads/<id>/head.ini, maps/<id>/arena.ini, ...) remains accepted
+ * for compatibility. .pdmod transport archives use the same scanner contract
+ * without extracting files into the mods folder.
  */
 s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir);
 
 /**
- * Scan component INI files that live inside a mounted/readable .pdmod archive.
+ * Scan component descriptors that live inside a mounted/readable .pdmod archive.
  *
  * This is the archive-side equivalent of assetCatalogScanComponents(): it
- * accepts old _components category/id INI entries and the new
- * external-format layout (weapons/<id>/weapon.ini, audio/sfx/<id>/sound.ini,
- * characters/heads/<id>/head.ini, etc.). Paths registered from archive INIs
- * are kept archive-relative so fsFileLoad can satisfy them through modVFS.
+ * accepts old _components category/id INI entries, typed .pd* INI descriptor
+ * entries, and the compatibility external-folder layout
+ * (weapons/<id>/weapon.ini, audio/sfx/<id>/sound.ini,
+ * characters/heads/<id>/head.ini, etc.). Paths registered from archive
+ * descriptors are kept archive-relative so fsFileLoad can satisfy them
+ * through modVFS.
  *
  * Returns the number of catalog entries registered.
  */

@@ -1,0 +1,7 @@
+{
+  "id": "fixture_pdxxx_folder",
+  "name": "Typed PD Folder Fixture",
+  "version": "1.0.0",
+  "author": "PD2 tests",
+  "description": "Loose folder fixture for typed .pdxxx content units."
+}

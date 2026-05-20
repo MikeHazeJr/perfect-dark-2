@@ -1,60 +1,56 @@
-# External-Format `.pdmod` Pipeline
+# External-Format Content + `.pdmod` Transport Pipeline
 
-Status: active implementation, started 2026-05-19.
+Status: done, shipped 2026-05-20.
 
 ## Goal
 
-Make `.pdmod` archives usable by external modders without requiring private JSON blobs or raw engine binary payloads. A `.pdmod` remains a ZIP archive with root `mod.json`, but assets inside it are standard editable files plus grouped `.ini` or tabular metadata.
+Make typed mod content files usable by external modders without requiring private JSON blobs or raw engine binary payloads. `*.pdxxx` remains the preferred content-unit family for organization and authoring clarity, while `.pdmod` remains the ZIP bundle/transport envelope with root `mod.json` for sharing and online-required content delivery. The payloads inside those content units and bundles should be standard editable files plus grouped `.ini` or tabular metadata.
 
 ## Hard Contract
 
 - `mod.json` is still required at archive root for mod discovery, sharing, registry-backed publication, network validation, and shell metadata.
-- Authored `.pdmod` payloads must not contain `.bin` files. Engine-native binary data may exist only as an internal cache generated from external source files.
-- Existing legacy `.pd*` JSON/ZIP outputs remain readable for compatibility, but they are no longer the modder-facing authoring target.
+- Authored mod content and `.pdmod` transport payloads must not contain `.bin` files. Engine-native binary data may exist only as an internal cache generated from external source files.
+- Typed `*.pdxxx` files are the preferred content-unit format for modder organization. The cleanup target is their internals: they should expose readable standard files and grouped INI/TSV metadata instead of opaque JSON/bin payloads. `.pdmod` is the higher-level package/transport used for sharing, Public Mods, and online-required content delivery.
 - Folder mods and `.pdmod` archive mods must use the same component registration behavior.
 - Archive paths must keep the existing trust rules: reserved inbox folders are browse-only and never auto-mounted.
 
 ## Canonical Layout
 
+Typed `.pdxxx` content descriptors are the preferred authored content units.
+Their standard source files live beside them, usually in a same-name sidecar
+folder. A `.pdmod` archive wraps this tree for transport and keeps `mod.json`
+at archive root.
+
 ```text
 mod.json
-weapons/<id>/weapon.ini
-characters/heads/<id>/head.ini
-characters/heads/<id>/model.gltf
-characters/bodies/<id>/body.ini
-characters/bodies/<id>/model.gltf
-maps/<id>/arena.ini
-maps/<id>/geometry.obj
-maps/<id>/pads.ini
-maps/<id>/setup.ini
-scenarios/<id>/scenario.ini
-scenarios/<id>/rooms.obj
-scenarios/<id>/props.ini
-scenarios/<id>/objectives.ini
-audio/sfx/<id>/sound.ini
-audio/sfx/<id>/sample.wav
-audio/voice/<id>/voice.ini
-audio/voice/<id>/sample.wav
-audio/music/<id>/music.ini
-audio/music/<id>/track.ogg
-ui/<id>/ui.ini
-ui/<id>/texture.png
-fonts/<id>/font.ini
-fonts/<id>/font.ttf
-lang/<id>/lang.ini
-lang/<id>/strings.tsv
-animations/weapon/<id>/animation.ini
-animations/character/<id>/animation.gltf
+weapons/<id>.pdwpn + weapons/<id>/model.gltf
+heads/<id>.pdhead + heads/<id>/model.gltf
+bodies/<id>.pdbody + bodies/<id>/model.gltf
+arenas/<id>.pdarena + arenas/<id>/geometry.obj + pads.ini + setup.ini
+scenarios/<id>.pdscenario + scenarios/<id>/rooms.obj + props.ini + objectives.ini
+meshes/<id>.pdmesh + meshes/<id>/model.gltf|geometry.obj
+audio/sfx/<id>.pdsfx + audio/sfx/<id>/sample.wav
+audio/voice/<id>.pdvoice + audio/voice/<id>/sample.wav
+audio/music/<id>.pdsong + audio/music/<id>/track.ogg|track.mp3|track.wav
+ui/<id>.pdui + ui/<id>/texture.png|texture.tga
+fonts/<id>.pdfont + fonts/<id>/font.ttf|font.otf
+lang/<id>.pdlang + lang/<id>/strings.tsv
+animations/<id>.pdanim + animations/<id>/animation.gltf
 ```
 
 Accepted alternates are deliberately narrow: `texture.tga` for UI textures, `track.mp3` or `track.wav` for music, `font.otf` for fonts, and `geometry.gltf` when a model needs hierarchy or skinning. No `.bin` alternate is valid for authored content.
+
+The earlier canonical-folder INI layout (`characters/heads/<id>/head.ini`,
+`maps/<id>/arena.ini`, `animations/<kind>/<id>/animation.ini`, etc.) remains
+accepted as a compatibility authoring layout, but it is no longer the preferred
+content-unit shape.
 
 ## Standard File Families
 
 - UI textures: `ui/<id>/ui.ini` points at `texture.png` or `texture.tga`. The runtime loads those bytes through `fsFileLoad`, so mounted archive entries and loose files use the same path.
 - Fonts: `fonts/<id>/font.ini` points at `font.ttf` or `font.otf`. Font files register as catalog UI entries and feed the existing ImGui font manager.
 - Language banks: `lang/<id>/lang.ini` points at UTF-8 `strings.tsv`. The TSV format is `index<TAB>text`, with optional comments starting with `#` or `;`; escaped `\n`, `\t`, and `\\` are decoded before the bank is packed into the runtime `langGet()` offset table.
-- Models, maps, and animations: descriptor INIs point at `model.gltf`, `animation.gltf`, `geometry.obj`, or `rooms.obj` as the authored source. The runtime cache adapter validates those standard source files through the same VFS-capable path as loose folders and archives. OBJ map/scenario sources now normalize to readable mesh JSON and activate as engine-owned collision mesh payloads. Model/head/body/weapon/prop GLTF/GLB/OBJ sources normalize to readable model JSON and activate as generated in-memory `modeldef` payloads; the old modeldef loader must never be handed a raw GLTF/OBJ file. Static/empty GLTF/GLB animation sources and skeletal translation/rotation/scale channels normalize to readable animation JSON and activate as engine `animtableentry` clip payloads; unsupported weights/interpolation fail clearly instead of falling back to raw source or `.bin`. The packed `.pdmod` fixture path now uses the production archive writer/reader plus VFS mount and reads canonical map/model/animation sidecars without extracting them; templates allow optional `catalog_id`/`id` overrides for repeated canonical leaf names.
+- Models, maps, and animations: typed `.pdhead`/`.pdbody`/`.pdmesh`/`.pdarena`/`.pdscenario`/`.pdanim` descriptors point at `model.gltf`, `animation.gltf`, `geometry.obj`, or `rooms.obj` as the authored source. The runtime cache adapter validates those standard source files through the same VFS-capable path as loose folders and archives. OBJ map/scenario sources now normalize to readable mesh JSON and activate as engine-owned collision mesh payloads. Model/head/body/weapon/prop GLTF/GLB/OBJ sources normalize to readable model JSON and activate as generated in-memory `modeldef` payloads; the old modeldef loader must never be handed a raw GLTF/OBJ file. Static/empty GLTF/GLB animation sources and skeletal translation/rotation/scale channels normalize to readable animation JSON and activate as engine `animtableentry` clip payloads; unsupported weights/interpolation fail clearly instead of falling back to raw source or `.bin`. The packed `.pdmod` fixture path now uses the production archive writer/reader plus VFS mount and reads typed content units plus sidecars without extracting them; templates allow optional `catalog_id`/`id` overrides for repeated canonical leaf names.
 
 ## INI Style
 
@@ -84,7 +80,11 @@ The game may compile standard source files into runtime data under a private cac
 
 If a cache is missing, stale, or invalid, the runtime recompiles from the source files. If compilation fails, the mod is invalidated with a clear validation error rather than silently falling back to a `.bin`.
 
-Current s6 state: done. `modasset_compiler` writes private `.pdmc` descriptors under `$S/mod-cache/<mod>/<asset>/` for validated GLTF/GLB/OBJ sources. OBJ map/scenario sources also write readable normalized `.pdmesh.json` cache files containing vertices and triangulated faces, including OBJ face fan triangulation and slash-form face tokens. Map/arena/scenario OBJ payloads activate as `struct colmesh` collision meshes and stage load merges matching loaded catalog colmeshes into `g_WorldMesh`. Static model sources for model/head/body/weapon/prop entries write readable `.pdmodel.json` caches and activate as generated in-memory `modeldef` payloads with a root position node and DL node. Static/empty GLTF/GLB weapon and character animation sources plus skeletal translation/rotation/scale channels now write readable `.pdanimation.json` caches, activate as catalog-owned `ASSET_PAYLOAD_ANIMATION_CLIP` payloads, and install at the same `animtableentry` plus header/frame byte-stream boundary used by base animation data. GLB binary chunks and `.gltf` embedded data URIs are accepted for static triangle primitives and animation data; `.gltf` sidecar binary buffer URIs are rejected because authored `.bin` payloads are outside the external-format contract. Loose folder mods scan the canonical layout with `assetCatalogScanExternalLayoutFolder()` and share descriptor registration behavior with mounted archive entries. Editable folder and archive-entry fixtures cover OBJ arena descriptors, map sidecars, embedded-data-URI GLTF head descriptors, static animation descriptors, and skeletal channel animation descriptors without authored `.bin` files. Live packed `.pdmod` fixture coverage builds that editable archive-entry layout through the production archive writer, opens it through the production reader, mounts it through VFS, and reads canonical entries without extraction. Current s7 state: done. `modpackPdmodFromFolder()` validates the canonical layout before writing, rejects authored `.bin`, generates missing commented descriptor and sidecar INI templates, checks referenced source files and unsafe paths, and surfaces detailed errors to Modding Hub through `modpackPdmodLastError()`. The in-memory writer rejects `.bin` entries too. Current s8 state: active. Static/build coverage now pins legacy `.pd*` walker registration and Public Mods folder sharing packages validated `.pdmod` archives on demand; final closure still requires in-game load/playback checks for legacy `.pd*`, external-layout `.pdmod`, folder mods, and Public Mods transfer/install behavior.
+Current s6 state: done. `modasset_compiler` writes private `.pdmc` descriptors under `$S/mod-cache/<mod>/<asset>/` for validated GLTF/GLB/OBJ sources. OBJ map/scenario sources also write readable normalized `.pdmesh.json` cache files and activate as `struct colmesh` collision meshes; stage load merges matching catalog colmeshes into `g_WorldMesh`. Static model sources for model/head/body/weapon/prop entries write readable `.pdmodel.json` caches and activate as generated in-memory `modeldef` payloads. Static/empty GLTF/GLB weapon and character animation sources plus skeletal translation/rotation/scale channels write readable `.pdanimation.json` caches, activate as catalog-owned `ASSET_PAYLOAD_ANIMATION_CLIP` payloads, and install at the same `animtableentry` plus header/frame byte-stream boundary used by base animation data. `.gltf` sidecar binary buffer URIs are rejected because authored `.bin` payloads are outside the external-format contract.
+
+Current s7 state: done. `modpackPdmodFromFolder()` validates typed `.pdxxx` content descriptors plus the compatibility canonical layout before writing, rejects authored `.bin`, generates missing commented descriptor and sidecar INI templates for the compatibility layout, checks referenced source files and unsafe paths, and surfaces detailed errors to Modding Hub through `modpackPdmodLastError()`. The in-memory writer rejects `.bin` entries too.
+
+Current s8 state: done. Mike's Build log validated boot, legacy `.pd*` runtime registration, `.pdui` auto-emit/reload, and zero-bin installed `.pdmod` discovery. Runtime smoke gates now validate the preferred authored shape both ways: enabled typed `.pdxxx` content as a loose folder mod and the same content wrapped in real `.pdmod` transport, loading GLTF head, OBJ arena, and GLTF skeletal animation sources into modeldef, colmesh, and animation clip payloads through readable generated caches. Public Mods transfer/install closure is implemented: received `.pdmod` downloads validate root `mod.json`, reject authored `.bin`, install into `mods/installed`, refresh `g_ModRegistry`, and compare archive/folder mods by root `mod.json` digest. Verified with focused `[social][public_mods][static]`, focused `[modding][pdmod][static][c3809]`, `pdxxx_content_folder_smoke`, `pdxxx_content_transport_smoke`, `public_mods_pdmod_install_smoke`, and queued `modpipe` all build.
 
 Startup policy: intro/menu presentation should come first. Enabled-mod validation/conversion may run on worker threads once it is safe, but GPU upload and engine object installation remain main/render-thread work.
 
@@ -102,7 +102,7 @@ Each implementation slice must include:
 
 - A folder fixture and a `.pdmod` archive fixture.
 - A legacy `.pd*` compatibility fixture when touching an existing universal kind.
-- Static or runtime tests proving `.bin` payloads are rejected from authored external-layout archives.
+- Static or runtime tests proving `.bin` payloads are rejected from authored typed content and `.pdmod` transport archives.
 - Context and Kanban updates before the subtask is marked done.
 
 ## Where to Look

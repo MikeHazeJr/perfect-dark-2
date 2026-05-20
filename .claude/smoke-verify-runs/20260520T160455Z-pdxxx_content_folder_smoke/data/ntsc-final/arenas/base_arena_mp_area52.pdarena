@@ -1,0 +1,13 @@
+{
+  "pd_kind": "arena",
+  "pd_schema_version": 1,
+  "id": "base:arena_mp_area52",
+  "arena_index": 8,
+  "slug": "mp_area52",
+  "category": "Dark",
+  "stagenum": 59,
+  "requirefeature": 0,
+  "name_langid": 20607,
+  "load_mode": "ARENA_LOADMODE_PLAYABLE",
+  "scenario": "base:scenario_mp_area52"
+}

@@ -1,5 +1,91 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-20-modpipe-publicmods-closure`) - 2026-05-20 - c3809 Public Mods closure
+
+Closed the final `c3809-s8` compatibility gate and moved the parent Kanban card to done.
+
+### Change
+
+- Public Mods received `.pdmod` downloads now validate root `mod.json`, reject authored `.bin` payloads, install atomically into `mods/installed`, and refresh `g_ModRegistry`.
+- Network distribution permanent installs refresh the mod registry after extraction so distributed mods appear without a relaunch.
+- Archive-backed mod registry entries now hash root `mod.json` bytes, matching folder-mod digest boundaries for online manifest comparison.
+- Added `public_mods_pdmod_install_smoke`, which packs the typed `*.pdxxx` fixture into a real installed `.pdmod` and proves discovery/load through VFS.
+- Updated Kanban `c3809`, `c3809-s8`, `c062`, and `c063` to done; updated the modding pillar, task list, and external-format design doc with the closed contract.
+
+### Status
+
+`c3809` is done. The shipped contract is: typed `*.pdxxx` files are the content-unit surface, `.pdmod` is the bundle/transport envelope, authored `.bin` files are invalid in both content units and archives, and generated cache remains private/readable/rebuildable.
+
+### Verification
+
+- Focused `[social][public_mods][static]` PASS: 3 cases / 55 assertions.
+- Focused `[modding][pdmod][static][c3809]` PASS: 13 cases / 498 assertions.
+- `public_mods_pdmod_install_smoke` PASS: 29/29 assertions, exit 0.
+- `pdxxx_content_folder_smoke` PASS: 28/28 assertions.
+- `pdxxx_content_transport_smoke` PASS: 29/29 assertions.
+- `.\devtools\build-session.ps1 -Session modpipe -Target all -BuildTimeoutSeconds 300` PASS.
+
+---
+
+## Session (`main-checkout-2026-05-20-kanban-decision-tab`) - 2026-05-20 - decision-request tab + session-start response check
+
+Mike asked to make the c121 decision-request mechanism easier to access and to ensure new sessions check his responses unless he gives a specific task override.
+
+### Change
+
+- Added a dedicated Kanban `Decision Requests` top-level tab beside Bug Tracker and Daily Flow. The tab shows unresolved decision requests and Mike's answered responses from the same `cards[].open_questions[]` ledger.
+- Added `/api/decision-requests` to `tools/kanban/server.py` so the browser can read a full question/response ledger, not only unresolved questions.
+- Added `tools/kanban_evaluator.py list-decision-requests` as the session/orchestrator CLI check for Mike's responses.
+- Updated `context/procedures.md` and `context/working-preferences.md`: new sessions check Decision Requests first unless the newest user message specifically says to do something else.
+- Updated Kanban card `c121` notes and marked the card pending-completion for Mike's review of the new tab.
+
+### Status
+
+Implementation is static/API verified and marked pending-completion on `c121` for Mike's UI review.
+
+### Verification
+
+- `python -m py_compile tools\kanban\server.py tools\kanban_evaluator.py` PASS.
+- `tools/kanban/state.json` JSON parse PASS; duplicate card/subtask id check PASS (119 cards).
+- `node -e` inline `index.html` script parse PASS.
+- `python tools\kanban_evaluator.py list-decision-requests` PASS and surfaces c121 q-001 with Mike's answered choice.
+- Local server job `/api/decision-requests` PASS and returns the same response ledger.
+
+---
+
+## Session (`main-checkout-2026-05-20-modpipe-s8-runtime-smokes`) - 2026-05-20 - external-format runtime validation
+
+Continued `c3809-s8` after Mike booted the game from `Build/` and provided a fresh runtime log. The Kanban subtask stayed active while the runtime gap was validated.
+
+### Change
+
+- Parsed Mike's `Build/logs/game client/pd-client.log` from the 11:03 run. It validated clean boot on dev `c91c6274`, legacy universal `.pd*` registration, `.pdui` auto-emit/reload, and installed `.pdmod` discovery with zero `.bin` entries in the installed archives. It did not exercise enabled external GLTF/OBJ/INI content.
+- Added `--debug-load-catalog-assets` to the client so smoke tests can force typed catalog loads and log modeldef, colmesh, and animation payload activation.
+- Added smoke fixture staging for directories plus runtime smoke tests for external `.pdmod` archive and loose folder mods. The first pass kept the root external-layout INI tree as compatibility coverage. The repair pass added typed `*.pdxxx` content-unit fixtures and smokes that validate the preferred authoring shape both as loose folder content and wrapped in a real `.pdmod` transport archive.
+- Fixed a boot-order bug found by the first archive smoke: `modmgrInit()` was loading/mounting archive components before `assetCatalogInit()`, so archive INIs could not register. `modmgrInit()` now runs after catalog allocation and base registration.
+- Corrected a stale Public Mods comment that still described folder mods as sending `mod.json`; the live path now packages folder mods into validated `.pdmod` archives before transfer.
+- Recorded Mike's corrected packaging direction: typed `*.pdxxx` files remain preferred for the actual content units and organization, while `.pdmod` is the bundle/transport envelope used to send needed content mods for online play, Public Mods, and sharing. The no-`.bin` rule still applies to authored content and transport archives.
+- Repaired the recent drift toward root external-layout `.pdmod` as the main surface: scanner and packer validation now accept typed `.pdwpn`, `.pdhead`, `.pdbody`, `.pdarena`, `.pdmesh`, `.pdanim`, `.pdsfx`, `.pdvoice`, `.pdsong`, `.pdui`, `.pdfont`, `.pdlang`, and `.pdscenario` descriptors with same-name sidecar folders. The root external-layout INI tree remains accepted compatibility only.
+- Fixed smoke-harness and discovery issues surfaced by the typed fixtures: directory fixture copies now replace stale fixture directories safely, and the chrome scanner treats direct `mod.json` folders as mod roots so valid typed sidecar folders are not probed as fake nested mods.
+
+### Status
+
+`c3809-s8` remains active. Legacy `.pd*` runtime registration, installed zero-bin `.pdmod` discovery, typed `*.pdxxx` folder runtime loading, typed `*.pdxxx` content wrapped by `.pdmod` transport, and older root external-layout compatibility smokes are verified. Public Mods folder sharing is static/build-pinned through validated `.pdmod` packaging; runtime transfer/install behavior remains the final closure gate unless Mike explicitly leaves it as manual-pending.
+
+### Verification
+
+- `tools/kanban/state.json` JSON parse PASS.
+- Smoke JSON parse PASS for `external_mod_layout_smoke`, `external_mod_folder_layout_smoke`, `pdxxx_content_folder_smoke`, and `pdxxx_content_transport_smoke`.
+- Scoped `git diff --check` PASS for touched source, smoke tests, fixtures, Kanban, and context files.
+- `.\devtools\build-session.ps1 -Session modpipe -Target all -BuildTimeoutSeconds 300` PASS after the typed-content repair and chrome-scanner sidecar-probe fix.
+- `.\devtools\build-session.ps1 -Session modpipe -Target tests -BuildTimeoutSeconds 180` PASS.
+- `.\devtools\run-pd-tests.ps1 -Session modpipe -Selector "[modding][pdmod][static][c3809]"` hit the known wrapper `Count` bug before running. Fallback direct run with the MSYS2 runtime path set passed: `.claude\session-builds\modpipe\pd-tests.exe "[modding][pdmod][static][c3809]" -r compact` -> 13 cases / 498 assertions.
+- Focused `.claude\session-builds\modpipe\pd-tests.exe "[social][public_mods][static]" -r compact` PASS -> 2 cases / 35 assertions.
+- `.\tools\smoke-verify\run.ps1 -Test external_mod_layout_smoke,external_mod_folder_layout_smoke -SourceBinary .claude\session-builds\modpipe\PerfectDark.exe -VerboseAssertions` PASS earlier: both compatibility smokes 28/28 assertions, exit 0.
+- `.\tools\smoke-verify\run.ps1 -Test pdxxx_content_folder_smoke -SourceBinary .claude\session-builds\modpipe\PerfectDark.exe -VerboseAssertions` PASS: 28/28 assertions, exit 0.
+- `.\tools\smoke-verify\run.ps1 -Test pdxxx_content_transport_smoke -SourceBinary .claude\session-builds\modpipe\PerfectDark.exe -VerboseAssertions` PASS: 29/29 assertions, exit 0. Runtime-proven preferred filetypes: typed `.pdhead`, `.pdarena`, and `.pdanim` descriptors with GLTF head -> modeldef payload, OBJ arena -> colmesh payload, and GLTF skeletal animation -> animation clip payload; generated cache files are readable `.pdmc`, `.pdmodel.json`, `.pdmesh.json`, and `.pdanimation.json`, with no authored `.bin`.
+- Parent `..\context` copy is absent in this checkout, so no parent sync is required.
+
 ## Session (`main-checkout-2026-05-20-modpipe-s8-static-compat-publicmods`) - 2026-05-20 - external-format compatibility static validation
 
 Continued from `c3809-s7` into the final compatibility/validation slice. `c3809-s8` remains active because the requested in-game load/playback checks have not been run in this session; this pass closes the static/build side and records the remaining runtime gate.

@@ -638,7 +638,116 @@ static asset_type_e sectionToType(const char *section)
 	if (strcmp(section, "arena") == 0)        return ASSET_ARENA;
 	if (strcmp(section, "body") == 0)         return ASSET_BODY;
 	if (strcmp(section, "head") == 0)         return ASSET_HEAD;
+	if (strcmp(section, "mesh") == 0)         return ASSET_MODEL;
+	if (strcmp(section, "model") == 0)        return ASSET_MODEL;
 	return ASSET_NONE;
+}
+
+static s32 pathEndsWithNoCase(const char *s, const char *suffix)
+{
+	if (!s || !suffix) {
+		return 0;
+	}
+	size_t n = strlen(s);
+	size_t m = strlen(suffix);
+	if (m > n) {
+		return 0;
+	}
+	const char *tail = s + n - m;
+	for (size_t i = 0; i < m; i++) {
+		if (tolower((u8)tail[i]) != tolower((u8)suffix[i])) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static asset_type_e typedPdContentTypeForPath(const char *path)
+{
+	if (pathEndsWithNoCase(path, ".pdwpn"))      return ASSET_WEAPON;
+	if (pathEndsWithNoCase(path, ".pdhead"))     return ASSET_HEAD;
+	if (pathEndsWithNoCase(path, ".pdbody"))     return ASSET_BODY;
+	if (pathEndsWithNoCase(path, ".pdarena"))    return ASSET_ARENA;
+	if (pathEndsWithNoCase(path, ".pdmesh"))     return ASSET_MODEL;
+	if (pathEndsWithNoCase(path, ".pdanim"))     return ASSET_ANIMATION;
+	if (pathEndsWithNoCase(path, ".pdsfx"))      return ASSET_AUDIO;
+	if (pathEndsWithNoCase(path, ".pdvoice"))    return ASSET_AUDIO;
+	if (pathEndsWithNoCase(path, ".pdsong"))     return ASSET_AUDIO;
+	if (pathEndsWithNoCase(path, ".pdui"))       return ASSET_UI;
+	if (pathEndsWithNoCase(path, ".pdfont"))     return ASSET_UI;
+	if (pathEndsWithNoCase(path, ".pdlang"))     return ASSET_LANG;
+	if (pathEndsWithNoCase(path, ".pdscenario")) return ASSET_GAMEMODE;
+	return ASSET_NONE;
+}
+
+static const char *pathLeafAnySeparator(const char *path)
+{
+	const char *slash = path ? strrchr(path, '/') : NULL;
+	const char *backslash = path ? strrchr(path, '\\') : NULL;
+	if (backslash && (!slash || backslash > slash)) {
+		slash = backslash;
+	}
+	return slash ? slash + 1 : path;
+}
+
+static void pathDirnameAnySeparator(const char *path, char *out, size_t outsz)
+{
+	if (!out || outsz == 0) {
+		return;
+	}
+	out[0] = '\0';
+	if (!path) {
+		return;
+	}
+
+	const char *slash = strrchr(path, '/');
+	const char *backslash = strrchr(path, '\\');
+	if (backslash && (!slash || backslash > slash)) {
+		slash = backslash;
+	}
+	if (!slash) {
+		return;
+	}
+
+	size_t len = (size_t)(slash - path);
+	if (len >= outsz) {
+		len = outsz - 1;
+	}
+	memcpy(out, path, len);
+	out[len] = '\0';
+}
+
+static void typedPdDescriptorComponentDir(const char *descriptor_path,
+                                          char *out, size_t outsz)
+{
+	if (!out || outsz == 0) {
+		return;
+	}
+	out[0] = '\0';
+	if (!descriptor_path) {
+		return;
+	}
+
+	char dir[FS_MAXPATH];
+	pathDirnameAnySeparator(descriptor_path, dir, sizeof(dir));
+
+	const char *leaf = pathLeafAnySeparator(descriptor_path);
+	char stem[128];
+	strncpy(stem, leaf ? leaf : "", sizeof(stem) - 1);
+	stem[sizeof(stem) - 1] = '\0';
+	char *dot = strrchr(stem, '.');
+	if (dot) {
+		*dot = '\0';
+	}
+
+	if (!stem[0]) {
+		snprintf(out, outsz, "%s", dir);
+	} else if (dir[0]) {
+		snprintf(out, outsz, "%s/%s", dir, stem);
+	} else {
+		snprintf(out, outsz, "%s", stem);
+	}
+	out[outsz - 1] = '\0';
 }
 
 /* ========================================================================
@@ -945,6 +1054,19 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		}
 		break;
 
+	case ASSET_MODEL:
+		{
+			const char *pf = iniGet(ini, "model_file",
+				iniGet(ini, "model",
+				iniGet(ini, "geometry_file",
+				iniGet(ini, "geometry",
+				iniGet(ini, "file_path", "")))));
+			if (pf[0]) {
+				catalogSetPrimaryFile(e, pf);
+			}
+		}
+		break;
+
 	case ASSET_WEAPON:
 		e->ext.weapon.weapon_id = iniGetInt(ini, "weapon_id", -1);
 		if (e->ext.weapon.weapon_id >= 0
@@ -1222,6 +1344,95 @@ static s32 scanExternalDescriptorPath(const char *mod_dir,
 	return scanExternalDescriptorChildren(base_dir, leaf, expected, mod_id);
 }
 
+static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
+                                         asset_type_e expected,
+                                         const char *mod_id)
+{
+	ini_section_t ini;
+	if (!iniParse(descriptor_path, &ini)) {
+		/* Legacy JSON/ZIP .pd* files are still valid through their existing
+		 * loaders; the external authoring scanner only consumes readable INI
+		 * descriptors. */
+		return 0;
+	}
+
+	asset_type_e ini_type = sectionToType(ini.type);
+	if (expected != ASSET_NONE && ini_type != expected) {
+		sysLogPrintf(LOG_WARNING,
+			"assetcatalog_scanner: typed .pd* descriptor type mismatch in '%s': "
+			"expected %d, got [%s]=%d",
+			descriptor_path, expected, ini.type, ini_type);
+	}
+
+	char component_dir[FS_MAXPATH];
+	typedPdDescriptorComponentDir(descriptor_path, component_dir, sizeof(component_dir));
+	if (!isDirectory(component_dir)) {
+		pathDirnameAnySeparator(descriptor_path, component_dir, sizeof(component_dir));
+	}
+	if (!component_dir[0]) {
+		return 0;
+	}
+
+	return registerComponent(&ini, component_dir, mod_id) ? 1 : 0;
+}
+
+static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,
+                                         const char *rel_dir,
+                                         const char *mod_id)
+{
+	char abs_dir[FS_MAXPATH];
+	if (rel_dir && rel_dir[0]) {
+		snprintf(abs_dir, sizeof(abs_dir), "%s/%s", root_dir, rel_dir);
+	} else {
+		snprintf(abs_dir, sizeof(abs_dir), "%s", root_dir);
+	}
+	abs_dir[sizeof(abs_dir) - 1] = '\0';
+
+	DIR *dp = opendir(abs_dir);
+	if (!dp) {
+		return 0;
+	}
+
+	s32 count = 0;
+	struct dirent *ent;
+	while ((ent = readdir(dp)) != NULL) {
+		if (!ent->d_name || ent->d_name[0] == '.') {
+			continue;
+		}
+
+		char child_rel[FS_MAXPATH];
+		if (rel_dir && rel_dir[0]) {
+			snprintf(child_rel, sizeof(child_rel), "%s/%s", rel_dir, ent->d_name);
+		} else {
+			snprintf(child_rel, sizeof(child_rel), "%s", ent->d_name);
+		}
+		child_rel[sizeof(child_rel) - 1] = '\0';
+
+		char child_abs[FS_MAXPATH];
+		snprintf(child_abs, sizeof(child_abs), "%s/%s", root_dir, child_rel);
+		child_abs[sizeof(child_abs) - 1] = '\0';
+
+		if (isDirectory(child_abs)) {
+			count += scanTypedPdDescriptorsRecurse(root_dir, child_rel, mod_id);
+			continue;
+		}
+
+		if (!isRegularFile(child_abs)) {
+			continue;
+		}
+
+		asset_type_e expected = typedPdContentTypeForPath(child_abs);
+		if (expected == ASSET_NONE) {
+			continue;
+		}
+
+		count += registerTypedPdDescriptorFile(child_abs, expected, mod_id);
+	}
+
+	closedir(dp);
+	return count;
+}
+
 /**
  * Scan a single category directory within a mod's _components/ folder.
  * e.g., mods/my_mod/_components/maps/
@@ -1380,10 +1591,11 @@ s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir
 		"animation.ini", ASSET_ANIMATION, mod_id);
 	total += scanExternalDescriptorPath(mod_dir, "animations/character",
 		"animation.ini", ASSET_ANIMATION, mod_id);
+	total += scanTypedPdDescriptorsRecurse(mod_dir, "", mod_id);
 
 	if (total > 0) {
 		sysLogPrintf(LOG_NOTE,
-			"assetcatalog_scanner: folder %s: %d external-layout descriptors registered",
+			"assetcatalog_scanner: folder %s: %d external-layout/.pd* descriptors registered",
 			mod_id, total);
 	}
 	return total;
@@ -1497,11 +1709,22 @@ static s32 archiveIniIsDescriptor(const char *entry_name)
 		|| strcmp(leaf, "animation.ini") == 0;
 }
 
+static s32 archiveEntryIsDescriptor(const char *entry_name)
+{
+	return archiveIniIsDescriptor(entry_name)
+		|| typedPdContentTypeForPath(entry_name) != ASSET_NONE;
+}
+
 static asset_type_e archiveExpectedTypeForPath(const char *entry_name)
 {
 	char seg0[64];
 	char seg1[64];
 	const char *leaf = pathLeaf(entry_name);
+
+	asset_type_e typed = typedPdContentTypeForPath(entry_name);
+	if (typed != ASSET_NONE) {
+		return typed;
+	}
 
 	pathSegment(entry_name, 0, seg0, sizeof(seg0));
 	pathSegment(entry_name, 1, seg1, sizeof(seg1));
@@ -1677,12 +1900,16 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 
 	for (s32 i = 0; i < entries; i++) {
 		const char *entry_name = modArchiveGetEntryName(archive, i);
-		if (!entry_name || !archiveIniIsDescriptor(entry_name)) {
+		if (!entry_name || !archiveEntryIsDescriptor(entry_name)) {
 			continue;
 		}
 
 		char component_dir[FS_MAXPATH];
-		pathDirname(entry_name, component_dir, sizeof(component_dir));
+		if (typedPdContentTypeForPath(entry_name) != ASSET_NONE) {
+			typedPdDescriptorComponentDir(entry_name, component_dir, sizeof(component_dir));
+		} else {
+			pathDirname(entry_name, component_dir, sizeof(component_dir));
+		}
 		if (!component_dir[0]) {
 			continue;
 		}

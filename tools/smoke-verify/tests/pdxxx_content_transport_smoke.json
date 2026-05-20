@@ -1,0 +1,81 @@
+{
+  "scenario_name": "pdxxx_content_transport_smoke",
+  "description": "c3809 runtime smoke for typed .pdxxx content units wrapped by .pdmod transport. The runner packs tests/fixtures/modpipe/pdxxx-content into a real root-mod.json .pdmod, enables it, then loads GLTF head, OBJ arena, and GLTF skeletal animation catalog assets through VFS without authored .bin files.",
+  "tags": ["modding", "pdmod", "pdxxx", "external", "c3809", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/modmgr.c",
+    "port/src/modarchive.c",
+    "port/src/modvfs.c",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/assetcatalog_load.c",
+    "port/src/modasset_compiler.c",
+    "port/src/main.c",
+    "tools/smoke-verify/lib/Install-Harness.ps1",
+    "tools/smoke-verify/run.ps1",
+    "tests/fixtures/modpipe/**"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/fixture_pdxxx_folder",
+    "mods/fixture_pdxxx_folder.pdmod"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/modpipe_pdxxx_content_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "packed_fixtures": [
+    { "src": "tests/fixtures/modpipe/pdxxx-content", "dst": "mods/fixture_pdxxx_content.pdmod" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--skip-intro",
+    "--debug-load-catalog-assets",
+    "head=tri_head,arena=tri_arena,animation=fixture:character_skeletal"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "modmgrInit loads the enabled .pdmod transport archive, mounts it through VFS, and registers typed .pdxxx content descriptors before catalog load init." },
+    { "at_ms": 25000, "type": "exit", "comment": "scripted exit after forced typed catalog loads have emitted modeldef, colmesh, and animation payload logs." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=pdxxx_content_transport_smoke",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "modmgr: parsed mod\\.json for 'fixture_pdxxx_content'.*archive=yes",
+      "modmgr: discovered mod \\[\\d+\\] 'fixture_pdxxx_content'.*\\[\\.pdmod\\] file=.*fixture_pdxxx_content\\.pdmod sha256=[0-9a-f]+\\.\\.",
+      "modmgr: loaded mods-enabled\\.json",
+      "modmgr: loading mod 'fixture_pdxxx_content' from archive '.*fixture_pdxxx_content\\.pdmod'",
+      "assetcatalog_scanner: archive fixture_pdxxx_content: 4 component descriptors registered",
+      "modmgr: initialized .+ 1 enabled",
+      "BOOT: --debug-load-catalog-assets request type=head id='tri_head'",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated external head modeldef 'tri_head'.*normalized=.*\\.pdmodel\\.json",
+      "BOOT: --debug-load-catalog-assets result type=head id='tri_head' result=OK.*payload=2",
+      "BOOT: --debug-load-catalog-assets request type=arena id='tri_arena'",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated arena OBJ colmesh 'tri_arena'.*mesh=.*\\.pdmesh\\.json",
+      "BOOT: --debug-load-catalog-assets result type=arena id='tri_arena' result=OK.*payload=3",
+      "BOOT: --debug-load-catalog-assets request type=animation id='fixture:character_skeletal'",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated animation clip 'fixture:character_skeletal'.*generated=.*\\.pdanimation\\.json",
+      "BOOT: --debug-load-catalog-assets result type=animation id='fixture:character_skeletal' result=OK.*payload=4",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "External-format archives cannot contain \\.bin",
+      "authored \\.bin",
+      "gltf_external_binary_buffers_are_not_allowed",
+      "fsFileLoad: could not find file: .*fixture_pdxxx_content/.*/mod\\.json",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: '.*' external .* failed",
+      "MODASSET\\.COMPILER: invalid external"
+    ],
+    "required_counts": [
+      { "pattern": "assetcatalog_scanner: archive fixture_pdxxx_content: 4 component descriptors registered", "min": 1, "max": 1 },
+      { "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK", "min": 3, "max": 3 }
+    ]
+  }
+}

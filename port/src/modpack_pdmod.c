@@ -280,6 +280,94 @@ static s32 relativeSourcePathIsSafe(const char *path)
 	return 1;
 }
 
+static s32 pathEndsWithNoCase(const char *s, const char *suffix)
+{
+	if (!s || !suffix) {
+		return 0;
+	}
+	size_t n = strlen(s);
+	size_t m = strlen(suffix);
+	if (m > n) {
+		return 0;
+	}
+	const char *tail = s + n - m;
+	for (size_t i = 0; i < m; i++) {
+		if (tolower((u8)tail[i]) != tolower((u8)suffix[i])) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static asset_type_e typedPdContentTypeForPath(const char *path)
+{
+	if (pathEndsWithNoCase(path, ".pdwpn"))      return ASSET_WEAPON;
+	if (pathEndsWithNoCase(path, ".pdhead"))     return ASSET_HEAD;
+	if (pathEndsWithNoCase(path, ".pdbody"))     return ASSET_BODY;
+	if (pathEndsWithNoCase(path, ".pdarena"))    return ASSET_ARENA;
+	if (pathEndsWithNoCase(path, ".pdmesh"))     return ASSET_MODEL;
+	if (pathEndsWithNoCase(path, ".pdanim"))     return ASSET_ANIMATION;
+	if (pathEndsWithNoCase(path, ".pdsfx"))      return ASSET_AUDIO;
+	if (pathEndsWithNoCase(path, ".pdvoice"))    return ASSET_AUDIO;
+	if (pathEndsWithNoCase(path, ".pdsong"))     return ASSET_AUDIO;
+	if (pathEndsWithNoCase(path, ".pdui"))       return ASSET_UI;
+	if (pathEndsWithNoCase(path, ".pdfont"))     return ASSET_UI;
+	if (pathEndsWithNoCase(path, ".pdlang"))     return ASSET_LANG;
+	if (pathEndsWithNoCase(path, ".pdscenario")) return ASSET_GAMEMODE;
+	return ASSET_NONE;
+}
+
+static void descriptorStemBaseRel(const char *srcFolder, const char *descriptorRel,
+                                  char *out, size_t outsz)
+{
+	if (!out || outsz == 0) {
+		return;
+	}
+	out[0] = '\0';
+	if (!descriptorRel) {
+		return;
+	}
+
+	char dir[FS_MAXPATH + 1];
+	pathDirnameRel(descriptorRel, dir, sizeof(dir));
+
+	if (typedPdContentTypeForPath(descriptorRel) == ASSET_NONE) {
+		strncpy(out, dir, outsz - 1);
+		out[outsz - 1] = '\0';
+		return;
+	}
+
+	const char *leaf = strrchr(descriptorRel, '/');
+	leaf = leaf ? leaf + 1 : descriptorRel;
+	char stem[128];
+	strncpy(stem, leaf, sizeof(stem) - 1);
+	stem[sizeof(stem) - 1] = '\0';
+	char *dot = strrchr(stem, '.');
+	if (dot) {
+		*dot = '\0';
+	}
+
+	char candidate[FS_MAXPATH + 1];
+	if (dir[0]) {
+		pathJoin(candidate, sizeof(candidate), dir, stem);
+	} else {
+		strncpy(candidate, stem, FS_MAXPATH);
+		candidate[FS_MAXPATH] = '\0';
+	}
+	normalizeSlashes(candidate);
+
+	char candidateAbs[FS_MAXPATH + 1];
+	pathJoin(candidateAbs, sizeof(candidateAbs), srcFolder, candidate);
+	if (dirExistsLocal(candidateAbs)) {
+		strncpy(out, candidate, outsz - 1);
+		out[outsz - 1] = '\0';
+		return;
+	}
+
+	strncpy(out, dir, outsz - 1);
+	out[outsz - 1] = '\0';
+}
+
 static const char *packerSidecarTemplate(const char *leaf)
 {
 	if (!leaf) {
@@ -404,7 +492,7 @@ static s32 validateNoForbiddenBinsRecurse(const char *fsRoot, const char *relRoo
 				return r;
 			}
 		} else if (S_ISREG(st.st_mode) && entryHasForbiddenBinPayload(childRel)) {
-			pdmodSetLastError("Authored .bin files are not allowed in external .pdmod archives: %s", childRel);
+			pdmodSetLastError("Authored .bin files are not allowed in mod content or .pdmod transport archives: %s", childRel);
 			closedir(d);
 			return MODPACK_PDMOD_ERR_LAYOUT;
 		}
@@ -433,7 +521,7 @@ static s32 validateReferencedPath(const char *srcFolder, const char *descriptorR
 	}
 
 	char descDir[FS_MAXPATH + 1];
-	pathDirnameRel(descriptorRel, descDir, sizeof(descDir));
+	descriptorStemBaseRel(srcFolder, descriptorRel, descDir, sizeof(descDir));
 
 	char sourceRel[FS_MAXPATH + 1];
 	if (strchr(value, '/') || strchr(value, '\\')) {
@@ -520,6 +608,141 @@ static s32 validateDescriptorSources(const char *srcFolder, const char *descript
 	return MODPACK_PDMOD_OK;
 }
 
+static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *descriptorRel)
+{
+	asset_type_e type = typedPdContentTypeForPath(descriptorRel);
+	if (type == ASSET_NONE) {
+		return MODPACK_PDMOD_OK;
+	}
+
+	static const char *modelKeys[] = {
+		"model_file", "model", "geometry_file", "geometry", "file_path"
+	};
+	static const char *arenaKeys[] = { "geometry_file", "geometry" };
+	static const char *scenarioKeys[] = {
+		"rooms_file", "rooms", "geometry_file", "geometry"
+	};
+	static const char *animationKeys[] = { "animation_file", "file_path" };
+	static const char *audioKeys[] = { "file_path" };
+	static const char *uiKeys[] = { "texture_file", "file_path", "texture" };
+	static const char *fontKeys[] = { "font_file", "file_path", "font" };
+	static const char *langKeys[] = {
+		"strings_file", "strings", "strings_tsv", "file_path"
+	};
+	static const char *mapOptionalKeys[] = {
+		"pads_file", "setup_file", "collision_file"
+	};
+	static const char *scenarioOptionalKeys[] = {
+		"props_file", "objectives_file", "pads_file", "setup_file"
+	};
+
+	switch (type) {
+	case ASSET_WEAPON:
+	case ASSET_HEAD:
+	case ASSET_BODY:
+	case ASSET_MODEL:
+		return validateDescriptorSources(srcFolder, descriptorRel,
+			modelKeys, (s32)(sizeof(modelKeys) / sizeof(modelKeys[0])),
+			NULL, 0);
+	case ASSET_ARENA:
+		return validateDescriptorSources(srcFolder, descriptorRel,
+			arenaKeys, (s32)(sizeof(arenaKeys) / sizeof(arenaKeys[0])),
+			mapOptionalKeys, (s32)(sizeof(mapOptionalKeys) / sizeof(mapOptionalKeys[0])));
+	case ASSET_GAMEMODE:
+		return validateDescriptorSources(srcFolder, descriptorRel,
+			scenarioKeys, (s32)(sizeof(scenarioKeys) / sizeof(scenarioKeys[0])),
+			scenarioOptionalKeys,
+			(s32)(sizeof(scenarioOptionalKeys) / sizeof(scenarioOptionalKeys[0])));
+	case ASSET_ANIMATION:
+		return validateDescriptorSources(srcFolder, descriptorRel,
+			animationKeys, (s32)(sizeof(animationKeys) / sizeof(animationKeys[0])),
+			NULL, 0);
+	case ASSET_AUDIO:
+		return validateDescriptorSources(srcFolder, descriptorRel,
+			audioKeys, (s32)(sizeof(audioKeys) / sizeof(audioKeys[0])),
+			NULL, 0);
+	case ASSET_UI:
+		if (pathEndsWithNoCase(descriptorRel, ".pdfont")) {
+			return validateDescriptorSources(srcFolder, descriptorRel,
+				fontKeys, (s32)(sizeof(fontKeys) / sizeof(fontKeys[0])),
+				NULL, 0);
+		}
+		return validateDescriptorSources(srcFolder, descriptorRel,
+			uiKeys, (s32)(sizeof(uiKeys) / sizeof(uiKeys[0])),
+			NULL, 0);
+	case ASSET_LANG:
+		return validateDescriptorSources(srcFolder, descriptorRel,
+			langKeys, (s32)(sizeof(langKeys) / sizeof(langKeys[0])),
+			NULL, 0);
+	default:
+		return MODPACK_PDMOD_OK;
+	}
+}
+
+static s32 validateTypedPdDescriptorsRecurse(const char *srcFolder,
+                                             const char *relRoot,
+                                             const char *destPath,
+                                             u32 *checked)
+{
+	char absDir[FS_MAXPATH + 1];
+	if (relRoot && relRoot[0]) {
+		pathJoin(absDir, sizeof(absDir), srcFolder, relRoot);
+	} else {
+		strncpy(absDir, srcFolder, FS_MAXPATH);
+		absDir[FS_MAXPATH] = '\0';
+	}
+
+	DIR *d = opendir(absDir);
+	if (!d) {
+		pdmodSetLastError("Could not scan source folder %s", absDir);
+		return MODPACK_PDMOD_ERR_IO;
+	}
+
+	struct dirent *ent;
+	while ((ent = readdir(d)) != NULL) {
+		char childAbs[FS_MAXPATH + 1];
+		pathJoin(childAbs, sizeof(childAbs), absDir, ent->d_name);
+		if (folderShouldSkip(ent->d_name, childAbs, destPath)) {
+			continue;
+		}
+
+		struct stat st;
+		if (stat(childAbs, &st) != 0) {
+			continue;
+		}
+
+		char childRel[FS_MAXPATH + 1];
+		if (relRoot && relRoot[0]) {
+			snprintf(childRel, sizeof(childRel), "%s/%s", relRoot, ent->d_name);
+		} else {
+			strncpy(childRel, ent->d_name, FS_MAXPATH);
+			childRel[FS_MAXPATH] = '\0';
+		}
+
+		if (S_ISDIR(st.st_mode)) {
+			s32 r = validateTypedPdDescriptorsRecurse(srcFolder, childRel,
+				destPath, checked);
+			if (r != MODPACK_PDMOD_OK) {
+				closedir(d);
+				return r;
+			}
+		} else if (S_ISREG(st.st_mode)
+				&& typedPdContentTypeForPath(childRel) != ASSET_NONE) {
+			s32 r = validateTypedPdDescriptorFile(srcFolder, childRel);
+			if (r != MODPACK_PDMOD_OK) {
+				closedir(d);
+				return r;
+			}
+			if (checked) {
+				(*checked)++;
+			}
+		}
+	}
+
+	closedir(d);
+	return MODPACK_PDMOD_OK;
+}
+
 typedef struct modpack_sidecar_rule {
 	const char *leaf;
 	const char *template_kind;
@@ -601,8 +824,14 @@ static s32 processCanonicalFamily(const char *srcFolder, const char *familyRel,
 static s32 validateExternalFolderLayout(const char *srcFolder, const char *destPath)
 {
 	u32 generated = 0;
+	u32 typedChecked = 0;
 
 	s32 r = validateNoForbiddenBinsRecurse(srcFolder, "", destPath);
+	if (r != MODPACK_PDMOD_OK) {
+		return r;
+	}
+
+	r = validateTypedPdDescriptorsRecurse(srcFolder, "", destPath, &typedChecked);
 	if (r != MODPACK_PDMOD_OK) {
 		return r;
 	}
@@ -660,6 +889,11 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 			"MODPACK.PDMOD: generated %u missing INI template(s) before packing",
 			generated);
 	}
+	if (typedChecked > 0) {
+		sysLogPrintf(LOG_NOTE,
+			"MODPACK.PDMOD: validated %u typed .pd* content descriptor(s) before packing",
+			typedChecked);
+	}
 
 	return MODPACK_PDMOD_OK;
 }
@@ -684,7 +918,7 @@ s32 modpackPdmodWriteSingle(const char *out_path,
 		const modpack_entry_t *e = &entries[i];
 		if (!e->entry_name || !e->entry_name[0]) continue;
 		if (entryHasForbiddenBinPayload(e->entry_name)) {
-			pdmodSetLastError("Authored .bin files are not allowed in external .pdmod archives: %s",
+			pdmodSetLastError("Authored .bin files are not allowed in mod content or .pdmod transport archives: %s",
 				e->entry_name);
 			return MODPACK_PDMOD_ERR_LAYOUT;
 		}

@@ -1,9 +1,9 @@
 /*
- * tests/test_mod_external_archive_static.cpp -- external-format .pdmod pins.
+ * tests/test_mod_external_archive_static.cpp -- external-format content pins.
  *
- * Static guards for the first c3809 implementation slice. These tests keep
- * the new archive authoring contract anchored until full fixture coverage is
- * wired through the live mod loader.
+ * Static guards for the c3809 implementation slices. Typed .pdxxx files are
+ * the content-unit surface; .pdmod is the transport wrapper used for sharing
+ * and online-required delivery.
  */
 
 #include "catch.hpp"
@@ -67,7 +67,7 @@ struct MountedArchive {
 
 TempArchive packArchiveFixture() {
 	const std::filesystem::path root =
-		"tests/fixtures/modpipe/external-archive-entries";
+		"tests/fixtures/modpipe/pdxxx-content";
 	const auto stamp =
 		std::chrono::high_resolution_clock::now().time_since_epoch().count();
 	TempArchive out{
@@ -91,7 +91,7 @@ TempArchive packArchiveFixture() {
 	mod_archive_writer_t *writer = modArchiveBegin(out.path.string().c_str());
 	REQUIRE(writer != nullptr);
 	modArchiveSetComment(writer,
-		"{\"id\":\"fixture_external_archive\",\"layout\":\"external\"}");
+		"{\"id\":\"fixture_pdxxx_content\",\"layout\":\"pdxxx-transport\"}");
 
 	for (const auto &file : files) {
 		INFO("packing " << file.first);
@@ -120,7 +120,8 @@ std::string readMountedText(const char *modId, const char *path) {
 TEST_CASE("external pdmod contract forbids authored .bin payloads",
           "[modding][pdmod][static][c3809]") {
 	std::string spec = readFile("context/designs/modding/external-format-pdmod-pipeline.md");
-	REQUIRE(spec.find("Authored `.pdmod` payloads must not contain `.bin`") != std::string::npos);
+	REQUIRE(spec.find("Authored mod content and `.pdmod` transport payloads must not contain `.bin`") != std::string::npos);
+	REQUIRE(spec.find("Typed `*.pdxxx` files are the preferred content-unit format") != std::string::npos);
 	REQUIRE(spec.find("No `.bin` alternate is valid") != std::string::npos);
 
 	std::string modmgr = readFile("port/src/modmgr.c");
@@ -131,7 +132,7 @@ TEST_CASE("external pdmod contract forbids authored .bin payloads",
 	std::string packer = readFile("port/src/modpack_pdmod.c");
 	REQUIRE(packer.find("entryHasForbiddenBinPayload(e->entry_name)") != std::string::npos);
 	REQUIRE(packer.find("validateNoForbiddenBinsRecurse(srcFolder") != std::string::npos);
-	REQUIRE(packer.find("Authored .bin files are not allowed in external .pdmod archives") != std::string::npos);
+	REQUIRE(packer.find("Authored .bin files are not allowed in mod content or .pdmod transport archives") != std::string::npos);
 }
 
 TEST_CASE("folder to pdmod packer validates layout and generates INI templates",
@@ -145,6 +146,9 @@ TEST_CASE("folder to pdmod packer validates layout and generates INI templates",
 	REQUIRE(packer.find("validateExternalFolderLayout") != std::string::npos);
 	REQUIRE(packer.find("r = validateExternalFolderLayout(src_folder, out_path)") != std::string::npos);
 	REQUIRE(packer.find("modArchiveBegin(out_path)") != std::string::npos);
+	REQUIRE(packer.find("validateTypedPdDescriptorsRecurse(srcFolder") != std::string::npos);
+	REQUIRE(packer.find("typedPdContentTypeForPath(childRel)") != std::string::npos);
+	REQUIRE(packer.find("MODPACK.PDMOD: validated %u typed .pd* content descriptor(s) before packing") != std::string::npos);
 	REQUIRE(packer.find("processCanonicalFamily(srcFolder") != std::string::npos);
 	REQUIRE(packer.find("writeTemplateIfMissing") != std::string::npos);
 	REQUIRE(packer.find("modiniTemplateForKind(kind)") != std::string::npos);
@@ -190,6 +194,9 @@ TEST_CASE("archive mods scan INI descriptors through the shared catalog scanner"
 	REQUIRE(scanner.find("if (out->type[0] == '\\0')") != std::string::npos);
 	REQUIRE(scanner.find("modArchiveExtractAlloc") != std::string::npos);
 	REQUIRE(scanner.find("archiveIniIsDescriptor") != std::string::npos);
+	REQUIRE(scanner.find("archiveEntryIsDescriptor") != std::string::npos);
+	REQUIRE(scanner.find("typedPdContentTypeForPath(entry_name)") != std::string::npos);
+	REQUIRE(scanner.find("typedPdDescriptorComponentDir(entry_name") != std::string::npos);
 	REQUIRE(scanner.find("qualifyArchiveIniPaths") != std::string::npos);
 	REQUIRE(scanner.find("iniGet(ini, \"catalog_id\", iniGet(ini, \"id\"") != std::string::npos);
 
@@ -205,6 +212,8 @@ TEST_CASE("folder and archive fixtures use the same external descriptor layout",
           "[modding][pdmod][static][c3809]") {
 	std::string scanner = readFile("port/src/assetcatalog_scanner.c");
 	REQUIRE(scanner.find("assetCatalogScanExternalLayoutFolder") != std::string::npos);
+	REQUIRE(scanner.find("scanTypedPdDescriptorsRecurse(mod_dir") != std::string::npos);
+	REQUIRE(scanner.find("registerTypedPdDescriptorFile") != std::string::npos);
 	REQUIRE(scanner.find("scanExternalDescriptorPath(mod_dir, \"maps\"") != std::string::npos);
 	REQUIRE(scanner.find("scanExternalDescriptorPath(mod_dir, \"characters/heads\"") != std::string::npos);
 	REQUIRE(scanner.find("scanExternalDescriptorPath(mod_dir, \"animations/weapon\"") != std::string::npos);
@@ -217,6 +226,7 @@ TEST_CASE("folder and archive fixtures use the same external descriptor layout",
 	REQUIRE(modjson != std::string::npos);
 	REQUIRE(folderScan != std::string::npos);
 	REQUIRE(modjson < folderScan);
+	REQUIRE(modmgr.find("modmgrDirHasDirectManifest") != std::string::npos);
 
 	std::string folderManifest = readFile("tests/fixtures/modpipe/external-folder/mod.json");
 	std::string folderArena = readFile("tests/fixtures/modpipe/external-folder/maps/tri_arena/arena.ini");
@@ -297,6 +307,43 @@ TEST_CASE("folder and archive fixtures use the same external descriptor layout",
 	REQUIRE(archiveSkeletalGltf.find(".bin") == std::string::npos);
 }
 
+TEST_CASE("typed pd content fixture keeps pdxxx files as content units",
+          "[modding][pdmod][static][c3809]") {
+	std::string manifest = readFile("tests/fixtures/modpipe/pdxxx-content/mod.json");
+	std::string head = readFile("tests/fixtures/modpipe/pdxxx-content/heads/tri_head.pdhead");
+	std::string headGltf = readFile("tests/fixtures/modpipe/pdxxx-content/heads/tri_head/model.gltf");
+	std::string arena = readFile("tests/fixtures/modpipe/pdxxx-content/arenas/tri_arena.pdarena");
+	std::string geometry = readFile("tests/fixtures/modpipe/pdxxx-content/arenas/tri_arena/geometry.obj");
+	std::string weaponAnim = readFile("tests/fixtures/modpipe/pdxxx-content/animations/weapon_idle.pdanim");
+	std::string weaponGltf = readFile("tests/fixtures/modpipe/pdxxx-content/animations/weapon_idle/animation.gltf");
+	std::string skeletalAnim = readFile("tests/fixtures/modpipe/pdxxx-content/animations/character_skeletal.pdanim");
+	std::string skeletalGltf = readFile("tests/fixtures/modpipe/pdxxx-content/animations/character_skeletal/animation.gltf");
+
+	REQUIRE(manifest.find("\"id\": \"fixture_pdxxx_content\"") != std::string::npos);
+	REQUIRE(head.find("; tri_head.pdhead") != std::string::npos);
+	REQUIRE(head.find("[head]") != std::string::npos);
+	REQUIRE(head.find("model_file = model.gltf") != std::string::npos);
+	REQUIRE(headGltf.find("\"meshes\"") != std::string::npos);
+	REQUIRE(arena.find("; tri_arena.pdarena") != std::string::npos);
+	REQUIRE(arena.find("[arena]") != std::string::npos);
+	REQUIRE(arena.find("geometry_file = geometry.obj") != std::string::npos);
+	REQUIRE(geometry.find("f 1 2 3") != std::string::npos);
+	REQUIRE(weaponAnim.find("catalog_id = fixture:weapon_idle") != std::string::npos);
+	REQUIRE(weaponAnim.find("category = weapon_animation") != std::string::npos);
+	REQUIRE(weaponGltf.find("\"animations\"") != std::string::npos);
+	REQUIRE(skeletalAnim.find("catalog_id = fixture:character_skeletal") != std::string::npos);
+	REQUIRE(skeletalAnim.find("category = character_animation") != std::string::npos);
+	REQUIRE(skeletalGltf.find("\"channels\"") != std::string::npos);
+
+	const std::string *texts[] = {
+		&manifest, &head, &headGltf, &arena, &geometry,
+		&weaponAnim, &weaponGltf, &skeletalAnim, &skeletalGltf
+	};
+	for (const std::string *text : texts) {
+		REQUIRE(text->find(".bin") == std::string::npos);
+	}
+}
+
 TEST_CASE("external archive scanner recognizes canonical descriptor families",
           "[modding][pdmod][static][c3809]") {
 	std::string scanner = readFile("port/src/assetcatalog_scanner.c");
@@ -310,6 +357,10 @@ TEST_CASE("external archive scanner recognizes canonical descriptor families",
 	REQUIRE(scanner.find("\"font.ini\"") != std::string::npos);
 	REQUIRE(scanner.find("\"lang.ini\"") != std::string::npos);
 	REQUIRE(scanner.find("\"animation.ini\"") != std::string::npos);
+	REQUIRE(scanner.find("\".pdhead\"") != std::string::npos);
+	REQUIRE(scanner.find("\".pdarena\"") != std::string::npos);
+	REQUIRE(scanner.find("\".pdanim\"") != std::string::npos);
+	REQUIRE(scanner.find("\".pdmesh\"") != std::string::npos);
 }
 
 TEST_CASE("legacy pd asset walkers remain registered during external pdmod migration",
@@ -560,7 +611,7 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(distrib.find("case ASSET_GAMEMODE:") != std::string::npos);
 }
 
-TEST_CASE("packed external pdmod fixture resolves canonical assets through production VFS",
+TEST_CASE("packed pdmod transport fixture resolves typed pdxxx content through production VFS",
           "[modding][pdmod][static][c3809]") {
 	TempArchive temp = packArchiveFixture();
 	OpenArchive opened;
@@ -572,22 +623,20 @@ TEST_CASE("packed external pdmod fixture resolves canonical assets through produ
 	REQUIRE(manifest != nullptr);
 	std::string manifestText(manifest, manifestSize);
 	free(manifest);
-	REQUIRE(manifestText.find("\"id\": \"fixture_external_archive\"") != std::string::npos);
+	REQUIRE(manifestText.find("\"id\": \"fixture_pdxxx_content\"") != std::string::npos);
 
 	const char *requiredEntries[] = {
 		"mod.json",
-		"maps/tri_arena/arena.ini",
-		"maps/tri_arena/geometry.obj",
-		"maps/tri_arena/pads.ini",
-		"maps/tri_arena/setup.ini",
-		"characters/heads/tri_head/head.ini",
-		"characters/heads/tri_head/model.gltf",
-		"animations/weapon/idle/animation.ini",
-		"animations/weapon/idle/animation.gltf",
-		"animations/character/idle/animation.ini",
-		"animations/character/idle/animation.gltf",
-		"animations/character/skeletal/animation.ini",
-		"animations/character/skeletal/animation.gltf",
+		"heads/tri_head.pdhead",
+		"heads/tri_head/model.gltf",
+		"arenas/tri_arena.pdarena",
+		"arenas/tri_arena/geometry.obj",
+		"arenas/tri_arena/pads.ini",
+		"arenas/tri_arena/setup.ini",
+		"animations/weapon_idle.pdanim",
+		"animations/weapon_idle/animation.gltf",
+		"animations/character_skeletal.pdanim",
+		"animations/character_skeletal/animation.gltf",
 	};
 
 	for (const char *entry : requiredEntries) {
@@ -602,7 +651,7 @@ TEST_CASE("packed external pdmod fixture resolves canonical assets through produ
 	}
 
 	modVfsInit();
-	MountedArchive mount{ "fixture_external_archive", false };
+	MountedArchive mount{ "fixture_pdxxx_content", false };
 	REQUIRE(modVfsMount(mount.modId.c_str(), opened.archive) == 1);
 	mount.mounted = true;
 
@@ -613,28 +662,25 @@ TEST_CASE("packed external pdmod fixture resolves canonical assets through produ
 	}
 
 	const std::string arena =
-		readMountedText(mount.modId.c_str(), "maps/tri_arena/arena.ini");
+		readMountedText(mount.modId.c_str(), "arenas/tri_arena.pdarena");
 	const std::string geometry =
-		readMountedText(mount.modId.c_str(), "maps/tri_arena/geometry.obj");
+		readMountedText(mount.modId.c_str(), "arenas/tri_arena/geometry.obj");
 	const std::string head =
-		readMountedText(mount.modId.c_str(), "characters/heads/tri_head/head.ini");
+		readMountedText(mount.modId.c_str(), "heads/tri_head.pdhead");
 	const std::string model =
-		readMountedText(mount.modId.c_str(), "characters/heads/tri_head/model.gltf");
+		readMountedText(mount.modId.c_str(), "heads/tri_head/model.gltf");
 	const std::string weaponAnim =
-		readMountedText(mount.modId.c_str(), "animations/weapon/idle/animation.ini");
-	const std::string characterAnim =
-		readMountedText(mount.modId.c_str(), "animations/character/idle/animation.ini");
+		readMountedText(mount.modId.c_str(), "animations/weapon_idle.pdanim");
 	const std::string skeletalAnim =
-		readMountedText(mount.modId.c_str(), "animations/character/skeletal/animation.ini");
+		readMountedText(mount.modId.c_str(), "animations/character_skeletal.pdanim");
 	const std::string skeletalGltf =
-		readMountedText(mount.modId.c_str(), "animations/character/skeletal/animation.gltf");
+		readMountedText(mount.modId.c_str(), "animations/character_skeletal/animation.gltf");
 
 	REQUIRE(arena.find("geometry_file = geometry.obj") != std::string::npos);
 	REQUIRE(geometry.find("f 1 2 3") != std::string::npos);
 	REQUIRE(head.find("model_file = model.gltf") != std::string::npos);
 	REQUIRE(model.find("data:application/octet-stream;base64,") != std::string::npos);
 	REQUIRE(weaponAnim.find("catalog_id = fixture:weapon_idle") != std::string::npos);
-	REQUIRE(characterAnim.find("catalog_id = fixture:character_idle") != std::string::npos);
 	REQUIRE(skeletalAnim.find("catalog_id = fixture:character_skeletal") != std::string::npos);
 	REQUIRE(skeletalGltf.find("\"path\": \"translation\"") != std::string::npos);
 

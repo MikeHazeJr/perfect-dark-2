@@ -1,0 +1,18 @@
+{
+  "schema": "pd2.modasset.mesh.v1",
+  "compiler_version": 1,
+  "asset_id": "tri_arena",
+  "kind": "arena",
+  "source": "./mods/fixture_pdxxx_content/arenas/tri_arena/geometry.obj",
+  "source_sha256": "6da60a8a4395f30ffd34cd2c31351554d2eaea58d3f468d5c6468ec8ffcfb350",
+  "vertex_count": 3,
+  "triangle_count": 1,
+  "vertices": [
+    [0, 0, 0],
+    [128, 0, 0],
+    [0, 0, 128]
+  ],
+  "triangles": [
+    [0, 1, 2]
+  ]
+}

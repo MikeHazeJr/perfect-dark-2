@@ -1,0 +1,9 @@
+[animation]
+catalog_id = fixture:character_skeletal
+name = Skeletal Channel Fixture
+anim_id = 103
+frame_count = 2
+
+[source]
+animation_file = animation.gltf
+category = character_animation

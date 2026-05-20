@@ -18,6 +18,8 @@ CLI subcommands:
   list-pending-completions  list every card with pending_completion non-null;
                             orchestrator surfaces these in step 6 daily log
                             under Awaiting Your Confirmation (c123)
+  list-decision-requests    list every decision question, including Mike's
+                            answered responses, for session-start checks
 
 State file (resolved relative to repo root):
   tools/kanban/state.json
@@ -59,6 +61,52 @@ def _question_is_resolved(q: dict[str, Any]) -> bool:
     if at == "custom":
         return bool(q.get("interpretation_confirmed"))
     return False
+
+
+def _question_status(q: dict[str, Any]) -> str:
+    if _question_is_resolved(q):
+        return "resolved"
+    if q.get("answer_type") == "custom":
+        if q.get("interpretation"):
+            return "needs_confirmation"
+        return "needs_interpretation"
+    return "awaiting_answer"
+
+
+def _question_selected_choice(q: dict[str, Any]) -> dict[str, Any] | None:
+    answer = q.get("answer")
+    if q.get("answer_type") != "choice" or answer is None:
+        return None
+    for ch in q.get("choices") or []:
+        if ch.get("id") == answer:
+            return ch
+    return None
+
+
+def _question_entry(card: dict[str, Any], q: dict[str, Any]) -> dict[str, Any]:
+    status = _question_status(q)
+    return {
+        "card_id": card.get("id"),
+        "card_title": card.get("title", ""),
+        "card_column": card.get("column", ""),
+        "card_pillar": card.get("pillar", ""),
+        "question_id": q.get("id"),
+        "question": q.get("question", ""),
+        "asked_by": q.get("asked_by", ""),
+        "asked_date": q.get("asked_date"),
+        "answer": q.get("answer"),
+        "answer_type": q.get("answer_type"),
+        "answered_date": q.get("answered_date"),
+        "custom_text": q.get("custom_text"),
+        "interpretation": q.get("interpretation"),
+        "interpretation_confirmed": bool(q.get("interpretation_confirmed")),
+        "selected_choice": _question_selected_choice(q),
+        "resolved": _question_is_resolved(q),
+        "status": status,
+        "needs_interpretation": status == "needs_interpretation",
+        "needs_confirmation": status == "needs_confirmation",
+        "follow_up_question_ids": q.get("follow_up_question_ids", []),
+    }
 
 
 def _card_blocked_q_ids(card: dict[str, Any]) -> list[str]:
@@ -179,6 +227,27 @@ def list_pending_interpretations(kanban: dict[str, Any]) -> list[dict[str, Any]]
     return pending
 
 
+def list_decision_requests(kanban: dict[str, Any]) -> list[dict[str, Any]]:
+    """All decision-request questions, including Mike's answered responses.
+
+    New sessions should read this before choosing work unless Mike has given a
+    specific override for the session.
+    """
+    requests: list[dict[str, Any]] = []
+    for card in kanban.get("cards", []):
+        for q in card.get("open_questions") or []:
+            requests.append(_question_entry(card, q))
+    status_rank = {
+        "needs_confirmation": 0,
+        "needs_interpretation": 1,
+        "awaiting_answer": 2,
+        "resolved": 3,
+    }
+    requests.sort(key=lambda e: e.get("answered_date") or e.get("asked_date") or "", reverse=True)
+    requests.sort(key=lambda e: status_rank.get(e.get("status"), 9))
+    return requests
+
+
 def find_question(kanban: dict[str, Any], q_id: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Locate a question across all cards. Returns (card, question) or (None, None)."""
     for card in kanban.get("cards", []):
@@ -223,6 +292,31 @@ def _cmd_list_pending_completions(args: argparse.Namespace) -> int:
         return 0
     pending = list_pending_completions(kanban)
     print(json.dumps({"pending": pending, "pending_count": len(pending)}, indent=2))
+    return 0
+
+
+def _cmd_list_decision_requests(args: argparse.Namespace) -> int:
+    kanban = load_json(KANBAN_PATH)
+    if not kanban:
+        print(json.dumps({
+            "requests": [],
+            "request_count": 0,
+            "unresolved_question_count": 0,
+            "answered_question_count": 0,
+            "needs_interpretation_count": 0,
+            "needs_confirmation_count": 0,
+        }))
+        return 0
+    requests = list_decision_requests(kanban)
+    payload = {
+        "requests": requests,
+        "request_count": len(requests),
+        "unresolved_question_count": len([r for r in requests if not r.get("resolved")]),
+        "answered_question_count": len([r for r in requests if r.get("answered_date")]),
+        "needs_interpretation_count": len([r for r in requests if r.get("needs_interpretation")]),
+        "needs_confirmation_count": len([r for r in requests if r.get("needs_confirmation")]),
+    }
+    print(json.dumps(payload, indent=2))
     return 0
 
 
@@ -280,6 +374,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p4 = sub.add_parser("list-pending-completions", help="list cards marked ready for completion review (c123)")
     p4.set_defaults(func=_cmd_list_pending_completions)
+
+    p5 = sub.add_parser("list-decision-requests", help="list decision questions and Mike responses")
+    p5.set_defaults(func=_cmd_list_decision_requests)
 
     return parser
 

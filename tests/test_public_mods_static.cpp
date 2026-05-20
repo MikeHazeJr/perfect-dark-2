@@ -25,6 +25,7 @@ TEST_CASE("Public Mods publishing is registry-backed and path-safe", "[social][p
 {
 	const std::string share = readTextFile("port/src/social_share.c");
 	const std::string ui = readTextFile("port/fast3d/pdgui_friends.cpp");
+	const std::string ft = readTextFile("port/src/file_transfer.c");
 	const std::string cmake = readTextFile("CMakeLists.txt");
 
 	REQUIRE(cmake.find("tests/test_public_mods_static.cpp") != std::string::npos);
@@ -52,11 +53,38 @@ TEST_CASE("Public Mods publishing is registry-backed and path-safe", "[social][p
 	REQUIRE(share.find("%s/mods/installed/%s") == std::string::npos);
 	REQUIRE(share.find("mod manifest offer") == std::string::npos);
 
+	REQUIRE(ft.find("#include \"modarchive.h\"") != std::string::npos);
+	REQUIRE(ft.find("#include \"modmgr.h\"") != std::string::npos);
+	REQUIRE(ft.find("static void fileTransferInstallReceivedMod") != std::string::npos);
+	REQUIRE(ft.find("modArchiveReadManifest(arc, &mfst_size)") != std::string::npos);
+	REQUIRE(ft.find("authored .bin payload") != std::string::npos);
+	REQUIRE(ft.find("snprintf(install_dir, sizeof(install_dir), \"%s/installed\", modsdir)") != std::string::npos);
+	REQUIRE(ft.find("modmgrRescanDirectory()") != std::string::npos);
+	REQUIRE(ft.find("if (r->kind == FT_KIND_MOD)") != std::string::npos);
+	REQUIRE(ft.find("fileTransferInstallReceivedMod(r->inbox_path, r->name)") != std::string::npos);
+
 	REQUIRE(ui.find("#include \"modmgr.h\"") != std::string::npos);
 	REQUIRE(ui.find("modmgrGetCount()") != std::string::npos);
 	REQUIRE(ui.find("ImGui::BeginCombo(\"Installed mod\"") != std::string::npos);
 	REQUIRE(ui.find("shareModPublicAdd(id, name, ver, size)") != std::string::npos);
 	REQUIRE(ui.find("InputTextWithHint(\"mod id\"") == std::string::npos);
+}
+
+TEST_CASE("Public Mods install path refreshes manifest digests and registry",
+          "[social][public_mods][static][c3809]")
+{
+	const std::string modmgr = readTextFile("port/src/modmgr.c");
+	const std::string distrib = readTextFile("port/src/net/netdistrib.c");
+
+	REQUIRE(modmgr.find("sha256Hash((const u8 *)mfstBuf, mfstSize, manifestSha)") != std::string::npos);
+	REQUIRE(modmgr.find("memcpy(mod->sha256, manifestSha, sizeof(mod->sha256))") != std::string::npos);
+	REQUIRE(modmgr.find("SHA-256 over the WHOLE archive file") == std::string::npos);
+	REQUIRE(modmgr.find("Folder mods use the same boundary") != std::string::npos);
+
+	REQUIRE(distrib.find("#include \"modmgr.h\"") != std::string::npos);
+	REQUIRE(distrib.find("modsdir = modmgrGetModsDir()") != std::string::npos);
+	REQUIRE(distrib.find("modmgrRescanDirectory()") != std::string::npos);
+	REQUIRE(distrib.find("refreshed mod registry after installing") != std::string::npos);
 }
 
 TEST_CASE("Public Mods registry writes JSON strings through an escaping helper", "[social][public_mods][static]")

@@ -441,13 +441,62 @@ function Get-SmokeLogCandidatePaths {
     )
 }
 
+function Remove-SmokePaths {
+    [CmdletBinding()] param(
+        [Parameter(Mandatory)] [string] $InstallDir,
+        [object] $Paths
+    )
+
+    if (-not $Paths) { return 0 }
+    if ($Paths -is [string]) {
+        $Paths = @($Paths)
+    } elseif ($Paths -isnot [System.Collections.IEnumerable]) {
+        return 0
+    }
+
+    $removed = 0
+    foreach ($p in $Paths) {
+        if (-not $p) { continue }
+        $rel = [string]$p
+        if (-not $rel) { continue }
+
+        $absPath = Join-Path $InstallDir $rel
+        $installRoot = [System.IO.Path]::GetFullPath($InstallDir)
+        $targetRoot = [System.IO.Path]::GetFullPath($absPath)
+        $installRootWithSep = $installRoot.TrimEnd([char[]]@(
+            [System.IO.Path]::DirectorySeparatorChar,
+            [System.IO.Path]::AltDirectorySeparatorChar
+        )) + [System.IO.Path]::DirectorySeparatorChar
+        if ($targetRoot.Equals($installRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+            -not $targetRoot.StartsWith($installRootWithSep, [System.StringComparison]::OrdinalIgnoreCase)) {
+            Write-Warning ("Remove-SmokePaths: path escapes install directory: {0}; skipping." -f $absPath)
+            continue
+        }
+
+        if (-not (Test-Path -LiteralPath $absPath)) { continue }
+        try {
+            $item = Get-Item -LiteralPath $absPath -ErrorAction Stop
+            if ($item.PSIsContainer) {
+                Remove-Item -LiteralPath $absPath -Recurse -Force -ErrorAction Stop
+            } else {
+                Remove-Item -LiteralPath $absPath -Force -ErrorAction Stop
+            }
+            $removed++
+            Write-Host ("  removed stale: {0}" -f $rel) -ForegroundColor DarkGray
+        } catch {
+            Write-Warning ("Remove-SmokePaths: failed to remove {0}: {1}" -f $absPath, $_.Exception.Message)
+        }
+    }
+    return $removed
+}
+
 function Copy-SmokeFixtures {
     <#
     .SYNOPSIS
-        Stage test-declared fixture files into the install directory.
+        Stage test-declared fixture files or directories into the install directory.
 
     .DESCRIPTION
-        Phase 1 smoke tests can pre-position files inside the install dir
+        Phase 1 smoke tests can pre-position files or directories inside the install dir
         before the binary launches via the optional `fixtures` array in
         the test JSON. Each entry has the shape:
 
@@ -463,8 +512,8 @@ function Copy-SmokeFixtures {
         Called after install seeding completes and before the binary
         launches. Source paths resolve against $ProjectRoot; destination
         paths resolve against $InstallDir. Parent directories are created
-        as needed. Existing destinations are overwritten (Copy-Item
-        -Force).
+        as needed. Existing destinations are overwritten. Directory sources
+        are copied recursively.
 
         Non-fatal on missing src: emits a warning and continues. The
         binary launch decides whether the missing fixture is fatal -- the
@@ -513,12 +562,36 @@ function Copy-SmokeFixtures {
         }
 
         $absDst = Join-Path $InstallDir $dst
+        $installRoot = [System.IO.Path]::GetFullPath($InstallDir)
+        $targetRoot = [System.IO.Path]::GetFullPath($absDst)
+        $installRootWithSep = $installRoot.TrimEnd([char[]]@(
+            [System.IO.Path]::DirectorySeparatorChar,
+            [System.IO.Path]::AltDirectorySeparatorChar
+        )) + [System.IO.Path]::DirectorySeparatorChar
+        if ($targetRoot.Equals($installRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+            -not $targetRoot.StartsWith($installRootWithSep, [System.StringComparison]::OrdinalIgnoreCase)) {
+            Write-Warning ("Copy-SmokeFixtures: dst escapes install directory: {0}; skipping." -f $absDst)
+            continue
+        }
         $absDstParent = Split-Path -Parent $absDst
         if ($absDstParent -and -not (Test-Path -LiteralPath $absDstParent)) {
             New-Item -ItemType Directory -Path $absDstParent -Force | Out-Null
         }
         try {
-            Copy-Item -LiteralPath $absSrc -Destination $absDst -Force -ErrorAction Stop
+            $srcItem = Get-Item -LiteralPath $absSrc -ErrorAction Stop
+            if (Test-Path -LiteralPath $absDst) {
+                $dstItem = Get-Item -LiteralPath $absDst -ErrorAction Stop
+                if ($dstItem.PSIsContainer) {
+                    Remove-Item -LiteralPath $absDst -Recurse -Force -ErrorAction Stop
+                } else {
+                    Remove-Item -LiteralPath $absDst -Force -ErrorAction Stop
+                }
+            }
+            if ($srcItem.PSIsContainer) {
+                Copy-Item -LiteralPath $absSrc -Destination $absDst -Recurse -Force -ErrorAction Stop
+            } else {
+                Copy-Item -LiteralPath $absSrc -Destination $absDst -Force -ErrorAction Stop
+            }
             $copied++
             Write-Host ("  fixture: {0} -> {1}" -f $src, $dst) -ForegroundColor DarkGray
         } catch {
@@ -526,4 +599,78 @@ function Copy-SmokeFixtures {
         }
     }
     return $copied
+}
+
+function Pack-SmokePdmodFixtures {
+    <#
+    .SYNOPSIS
+        Pack repo fixture directories into install-local .pdmod archives.
+
+    .DESCRIPTION
+        Mod pipeline smoke tests need a real archive mounted by the game, but
+        should not commit generated zip bytes. Each entry has the shape:
+
+            { "src": "<repo-relative directory>", "dst": "<install-relative .pdmod>" }
+
+        The source directory contents become archive root entries, so a source
+        with `mod.json` at its root produces a valid root-manifest .pdmod.
+    #>
+    [CmdletBinding()] param(
+        [Parameter(Mandatory)] [string] $ProjectRoot,
+        [Parameter(Mandatory)] [string] $InstallDir,
+        [object] $Fixtures
+    )
+
+    if (-not $Fixtures) { return 0 }
+    if ($Fixtures -isnot [System.Collections.IEnumerable]) { return 0 }
+
+    try {
+        Add-Type -AssemblyName System.IO.Compression | Out-Null
+        Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
+    } catch {
+        Write-Warning ("Pack-SmokePdmodFixtures: compression assemblies unavailable: {0}" -f $_.Exception.Message)
+        return 0
+    }
+
+    $packed = 0
+    foreach ($f in $Fixtures) {
+        if (-not $f) { continue }
+        $src = $null
+        $dst = $null
+        if ($f.PSObject.Properties.Match('src').Count -gt 0) { $src = [string]$f.src }
+        if ($f.PSObject.Properties.Match('dst').Count -gt 0) { $dst = [string]$f.dst }
+        if (-not $src -or -not $dst) {
+            Write-Warning "Pack-SmokePdmodFixtures: fixture entry missing src/dst; skipping."
+            continue
+        }
+
+        $absSrc = Join-Path $ProjectRoot $src
+        if (-not (Test-Path -LiteralPath $absSrc -PathType Container)) {
+            Write-Warning ("Pack-SmokePdmodFixtures: src directory does not exist: {0}; skipping." -f $absSrc)
+            continue
+        }
+
+        $absDst = Join-Path $InstallDir $dst
+        $absDstParent = Split-Path -Parent $absDst
+        if ($absDstParent -and -not (Test-Path -LiteralPath $absDstParent)) {
+            New-Item -ItemType Directory -Path $absDstParent -Force | Out-Null
+        }
+        if (Test-Path -LiteralPath $absDst) {
+            Remove-Item -LiteralPath $absDst -Force -ErrorAction SilentlyContinue
+        }
+
+        try {
+            [System.IO.Compression.ZipFile]::CreateFromDirectory(
+                $absSrc,
+                $absDst,
+                [System.IO.Compression.CompressionLevel]::Optimal,
+                $false)
+            $packed++
+            Write-Host ("  packed fixture: {0} -> {1}" -f $src, $dst) -ForegroundColor DarkGray
+        } catch {
+            Write-Warning ("Pack-SmokePdmodFixtures: failed to pack {0} -> {1}: {2}" -f $absSrc, $absDst, $_.Exception.Message)
+        }
+    }
+
+    return $packed
 }

@@ -1,0 +1,10 @@
+{
+  "pd_kind": "animation",
+  "pd_schema_version": 1,
+  "id": "base:invanim_remotemine_equip",
+  "category": "weapon_animation",
+  "opcodes": [
+    ["playanimation", "ANIM_GUN_REMOTEMINE_EQUIP", 0, 10000],
+    ["end"]
+  ]
+}

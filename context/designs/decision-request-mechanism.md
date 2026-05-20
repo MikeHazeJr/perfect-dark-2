@@ -3,7 +3,7 @@
 > Status: SHIPPED 2026-05-11 (worktree `clever-swirles-d24f0c`, card `c121`).
 > Asynchronous decision channel between Mike and AI sessions/orchestrator, mediated through
 > kanban cards. Schema extension on `state.json` + 6 HTTP endpoints + UI surfaces (badge,
-> banner, side panel, modal, card animation) + block-on-active gate + orchestrator CLI.
+> banner, side panel, modal, dedicated tab, card animation) + block-on-active gate + orchestrator CLI.
 
 ---
 
@@ -220,6 +220,20 @@ row in the side panel + the modal show:
   a follow-up question form so Mike can clarify, which spawns a new q-NNN linked
   via `follow_up_question_ids`.
 
+### 4.7 Dedicated Decision Requests tab
+
+Added 2026-05-20 per Mike's follow-up. Decision requests are a peer top-level tab
+beside Active Kanban, Bug Tracker, and Daily Flow. The tab shows two lanes:
+
+- Needs Action: unresolved questions, including custom answers waiting on session /
+  orchestrator interpretation and interpretations waiting on Mike confirmation.
+- Mike Responses: answered questions retained in `cards[].open_questions[]`, including
+  selected choice label/rationale/implication or custom response plus interpretation.
+
+This tab is the fastest human-readable surface for review, but not the only session
+handoff path. New sessions must also check the CLI/API ledger before choosing work
+unless Mike's newest message explicitly directs a different task.
+
 ---
 
 ## 5. Lifecycle flows
@@ -407,6 +421,15 @@ Response:
 }
 ```
 
+### `GET /api/decision-requests`
+
+List every decision request across all cards, including resolved questions with Mike's
+answers. Used by the dedicated tab and by session-start checks.
+
+Response shape mirrors `/api/open-questions` but includes resolved entries and response
+fields: `answer`, `answer_type`, `answered_date`, `selected_choice`, `resolved`, and
+`status` (`awaiting_answer`, `needs_interpretation`, `needs_confirmation`, `resolved`).
+
 ### `GET /api/cards/<card_id>/blocked-status`
 
 Returns whether the card is blocked, and on which questions.
@@ -497,6 +520,18 @@ Output:
 }
 ```
 
+### `list-decision-requests`
+
+Session-start command for reading Mike's responses before choosing work:
+
+```
+python tools/kanban_evaluator.py list-decision-requests
+```
+
+Returns every question, sorted with unresolved work first and answered responses after.
+This is mandatory for new sessions unless the newest user prompt gives a specific
+override task.
+
 ---
 
 ## 9. Integration points
@@ -567,9 +602,9 @@ This is the same staleness pattern as parked threads.
 context/designs/decision-request-mechanism.md   (this file)
 tools/kanban/
   state.json                                     (schema_version=2; cards[].open_questions[])
-  server.py                                      (+6 endpoints, +block-on-active GET)
-  index.html                                     (+badge, +banner, +side panel, +modal, +animation)
-tools/kanban_evaluator.py                        (new CLI: check-active-blocks, interpret-pending, cascade-on-answer)
+  server.py                                      (+6 endpoints, +block-on-active GET, +decision-request ledger GET)
+  index.html                                     (+badge, +banner, +side panel, +modal, +tab, +animation)
+tools/kanban_evaluator.py                        (CLI: check-active-blocks, interpret-pending, cascade-on-answer, list-decision-requests)
 ```
 
 Total surface area: one design doc, one new CLI module, surgical additions to three

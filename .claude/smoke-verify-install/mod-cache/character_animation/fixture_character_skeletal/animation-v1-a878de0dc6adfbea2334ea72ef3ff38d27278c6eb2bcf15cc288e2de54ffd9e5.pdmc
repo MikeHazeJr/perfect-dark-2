@@ -1,0 +1,14 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "fixture:character_skeletal",
+  "mod_id": "character_animation",
+  "kind": "animation",
+  "source": "./mods/fixture_pdxxx_content/animations/character_skeletal/animation.gltf",
+  "source_size": 799,
+  "source_sha256": "a878de0dc6adfbea2334ea72ef3ff38d27278c6eb2bcf15cc288e2de54ffd9e5",
+  "validation": "format=gltf animtableentry clips=1 frames=2 channels=1",
+  "normalized": "$S/mod-cache/character_animation/fixture_character_skeletal/animation-v1-a878de0dc6adfbea2334ea72ef3ff38d27278c6eb2bcf15cc288e2de54ffd9e5.pdanimation.json",
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <PR/ultratypes.h>
@@ -439,7 +440,6 @@ static void bootRunCatalogWork(void *arg)
 	}
 	g_ValidGbcRomFound = romdataCheckGbcRom();
 	gameInit();
-	modmgrInit();
 
 	bootProgressBeginPhase(BOOT_PHASE_CATALOG_INIT);
 	catalogInit();
@@ -447,6 +447,10 @@ static void bootRunCatalogWork(void *arg)
 	assetCatalogInit();
 	assetCatalogRegisterBaseGame();
 	assetCatalogRegisterStageSceneFiles();
+	/* External-format archive mods register component descriptors during
+	 * modmgrInit(). Keep mod loading behind assetCatalogInit() so mounted
+	 * .pdmod INIs and loose folder layouts share a valid catalog target. */
+	modmgrInit();
 	{
 		const char *modsdir = modmgrGetModsDir();
 		if (modsdir) {
@@ -996,6 +1000,189 @@ static void bootApplyDumpSwarmState(const char *arg)
 		g_BootDumpSwarmPath, SWARM_DUMP_MAX_FRAMES, SWARM_DUMP_INTERVAL_FRAMES);
 }
 
+static char *bootTrimArgToken(char *s)
+{
+	char *end;
+
+	if (!s) {
+		return s;
+	}
+	while (*s && isspace((u8)*s)) {
+		s++;
+	}
+	if (*s == '\0') {
+		return s;
+	}
+
+	end = s + strlen(s) - 1;
+	while (end > s && isspace((u8)*end)) {
+		*end-- = '\0';
+	}
+	return s;
+}
+
+static const char *bootDebugAssetTypeName(asset_type_e type)
+{
+	switch (type) {
+	case ASSET_MODEL:     return "model";
+	case ASSET_BODY:      return "body";
+	case ASSET_HEAD:      return "head";
+	case ASSET_WEAPON:    return "weapon";
+	case ASSET_MAP:       return "map";
+	case ASSET_ARENA:     return "arena";
+	case ASSET_CHARACTER: return "character";
+	case ASSET_PROP:      return "prop";
+	case ASSET_ANIMATION: return "animation";
+	case ASSET_TEXTURE:   return "texture";
+	case ASSET_AUDIO:     return "audio";
+	case ASSET_LANG:      return "lang";
+	case ASSET_UI:        return "ui";
+	case ASSET_HUD:       return "hud";
+	case ASSET_GAMEMODE:  return "gamemode";
+	default:              return "unknown";
+	}
+}
+
+static asset_type_e bootDebugParseAssetType(const char *s)
+{
+	if (!s || !s[0]) {
+		return ASSET_NONE;
+	}
+	if (strcmp(s, "model") == 0) return ASSET_MODEL;
+	if (strcmp(s, "body") == 0) return ASSET_BODY;
+	if (strcmp(s, "head") == 0) return ASSET_HEAD;
+	if (strcmp(s, "weapon") == 0) return ASSET_WEAPON;
+	if (strcmp(s, "map") == 0) return ASSET_MAP;
+	if (strcmp(s, "arena") == 0) return ASSET_ARENA;
+	if (strcmp(s, "character") == 0) return ASSET_CHARACTER;
+	if (strcmp(s, "prop") == 0) return ASSET_PROP;
+	if (strcmp(s, "animation") == 0 || strcmp(s, "anim") == 0) return ASSET_ANIMATION;
+	if (strcmp(s, "texture") == 0) return ASSET_TEXTURE;
+	if (strcmp(s, "audio") == 0) return ASSET_AUDIO;
+	if (strcmp(s, "lang") == 0 || strcmp(s, "language") == 0) return ASSET_LANG;
+	if (strcmp(s, "ui") == 0 || strcmp(s, "font") == 0) return ASSET_UI;
+	if (strcmp(s, "hud") == 0) return ASSET_HUD;
+	if (strcmp(s, "gamemode") == 0 || strcmp(s, "scenario") == 0) return ASSET_GAMEMODE;
+	return ASSET_NONE;
+}
+
+static void bootDebugLogTypedPayload(asset_type_e type, const char *asset_id, s32 loaded)
+{
+	const asset_entry_t *entry = assetCatalogResolve(asset_id);
+	const char *type_name = bootDebugAssetTypeName(type);
+
+	if (!entry) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-load-catalog-assets result type=%s id='%s' result=MISSING",
+			type_name, asset_id ? asset_id : "(null)");
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-load-catalog-assets result type=%s id='%s' result=%s state=%d payload=%d ref=%d bytes=%u",
+		type_name, asset_id, loaded ? "OK" : "FAIL",
+		(s32)entry->load_state, (s32)entry->payload_kind,
+		(s32)entry->ref_count, entry->data_size_bytes);
+
+	if (!loaded) {
+		return;
+	}
+
+	if (type == ASSET_MODEL || type == ASSET_WEAPON || type == ASSET_BODY
+			|| type == ASSET_HEAD || type == ASSET_PROP) {
+		struct modeldef *modeldef = catalogGetLoadedModeldef(asset_id);
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-load-catalog-assets modeldef type=%s id='%s' ptr=%p",
+			type_name, asset_id, (void *)modeldef);
+	}
+
+	if (type == ASSET_ARENA || type == ASSET_MAP || type == ASSET_GAMEMODE) {
+		struct colmesh *mesh = catalogGetLoadedColmesh(asset_id);
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-load-catalog-assets colmesh type=%s id='%s' ptr=%p",
+			type_name, asset_id, (void *)mesh);
+	}
+
+	if (type == ASSET_ANIMATION) {
+		const struct animtableentry *anim = NULL;
+		u32 clip_size = 0;
+		const void *clip = catalogGetLoadedAnimationClip(asset_id, &anim, &clip_size);
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-load-catalog-assets animation id='%s' clip=%p entry=%p bytes=%u",
+			asset_id, clip, (const void *)anim, clip_size);
+	}
+}
+
+static void bootApplyDebugLoadCatalogAssets(const char *arg)
+{
+	char buf[2048];
+	char *cursor;
+
+	if (!arg || !arg[0]) {
+		return;
+	}
+
+	if (strlen(arg) >= sizeof(buf)) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-load-catalog-assets argument too long; max=%zu",
+			sizeof(buf) - 1);
+		return;
+	}
+
+	strncpy(buf, arg, sizeof(buf) - 1);
+	buf[sizeof(buf) - 1] = '\0';
+
+	cursor = buf;
+	while (cursor && *cursor) {
+		char *next = strchr(cursor, ',');
+		char *eq;
+		char *type_name;
+		char *asset_id;
+		asset_type_e type;
+		s32 loaded;
+
+		if (next) {
+			*next++ = '\0';
+		}
+
+		cursor = bootTrimArgToken(cursor);
+		if (*cursor == '\0') {
+			cursor = next;
+			continue;
+		}
+
+		eq = strchr(cursor, '=');
+		if (!eq) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-load-catalog-assets token '%s' missing type=id form",
+				cursor);
+			cursor = next;
+			continue;
+		}
+
+		*eq = '\0';
+		type_name = bootTrimArgToken(cursor);
+		asset_id = bootTrimArgToken(eq + 1);
+		type = bootDebugParseAssetType(type_name);
+
+		if (type == ASSET_NONE || !asset_id[0]) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-load-catalog-assets invalid token type='%s' id='%s'",
+				type_name, asset_id);
+			cursor = next;
+			continue;
+		}
+
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-load-catalog-assets request type=%s id='%s'",
+			bootDebugAssetTypeName(type), asset_id);
+		loaded = catalogLoadTypedAsset(type, asset_id);
+		bootDebugLogTypedPayload(type, asset_id, loaded);
+
+		cursor = next;
+	}
+}
+
 /* Dispatcher called once from main() after the catalog is fully
  * initialised. */
 static void bootApplyCliFastPaths(void)
@@ -1011,6 +1198,7 @@ static void bootApplyCliFastPaths(void)
 	bootApplyListenBind(sysArgGetString("--listen-bind"));
 	bootApplyConnectHost(sysArgGetString("--connect-host"));
 	bootApplyDumpSwarmState(sysArgGetString("--dump-swarm-state"));
+	bootApplyDebugLoadCatalogAssets(sysArgGetString("--debug-load-catalog-assets"));
 }
 
 /* Called once per frame from pdmain.c's mainTick when the

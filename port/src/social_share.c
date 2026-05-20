@@ -637,9 +637,8 @@ s32 shareSendModRequest(u32 friend_handle, const char *mod_id)
 }
 
 /* When a mod request arrives, we serve only mods the local user explicitly
- * marked public. Archive-backed mods can transfer the .pdmod directly; legacy
- * folder mods still send mod.json as a manual-install hint until the public
- * mods transfer path can package folders into .pdmod archives on demand. */
+ * marked public. Archive-backed mods transfer the .pdmod directly; folder
+ * mods are packaged into validated .pdmod archives on demand before transfer. */
 static void handleModRequest(u32 from_handle, const u8 *payload, u32 payload_len)
 {
 	if (payload_len < 1) return;

@@ -1,0 +1,13 @@
+{
+  "Name": "pdxxx_content_folder_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 26.160235,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 28,
+  "AssertionsMet": 28,
+  "Failures": []
+}

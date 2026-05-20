@@ -964,6 +964,24 @@ static u32 modmgrHashString(const char *str)
 // Directory scanning
 // ---------------------------------------------------------------------------
 
+static bool modmgrDirHasDirectManifest(const char *fullpath)
+{
+	if (!fullpath || !fullpath[0]) {
+		return false;
+	}
+
+	char checkpath[FS_MAXPATH + 1];
+	struct stat st;
+
+	snprintf(checkpath, sizeof(checkpath), "%s/mod.json", fullpath);
+	if (stat(checkpath, &st) == 0 && S_ISREG(st.st_mode)) {
+		return true;
+	}
+
+	snprintf(checkpath, sizeof(checkpath), "%s/audio.ini", fullpath);
+	return stat(checkpath, &st) == 0 && S_ISREG(st.st_mode);
+}
+
 /* Try to register a single mod entry rooted at `fullpath`. `display_id` is
  * the directory-leaf name used for fallback id/name when mod.json parse
  * fails. `source_tag` labels the originating root for log messages (or NULL
@@ -1320,6 +1338,8 @@ static s32 modmgrTryRegisterArchive(const char *archivePath, const char *display
 		modArchiveClose(arc);
 		return 0;
 	}
+	u8 manifestSha[SHA256_DIGEST_SIZE];
+	sha256Hash((const u8 *)mfstBuf, mfstSize, manifestSha);
 
 	/* Initialise mod entry. dirpath is not used for archives; archive_path
 	 * is the canonical reference. */
@@ -1379,12 +1399,11 @@ static s32 modmgrTryRegisterArchive(const char *archivePath, const char *display
 	snprintf(hashsrc, sizeof(hashsrc), "%s:%s", mod->id, mod->version);
 	mod->contenthash = modmgrHashString(hashsrc);
 
-	/* SHA-256 over the WHOLE archive file -- this is the transfer-integrity
-	 * hash referenced by Section 7's distribution path. modArchiveSha256 is
-	 * a thin wrapper over sha256HashFile. */
-	if (modArchiveSha256(archivePath, mod->sha256) != 0) {
-		sha256Hash((const u8 *)hashsrc, strlen(hashsrc), mod->sha256);
-	}
+	/* SHA-256 over root mod.json bytes. Folder mods use the same boundary,
+	 * so an authored folder and the .pdmod transport generated from it
+	 * compare equal in manifest checks. File-transfer integrity remains
+	 * owned by the file-transfer and distribution packet digests. */
+	memcpy(mod->sha256, manifestSha, sizeof(mod->sha256));
 
 	/* Size for download estimation: archive file size, not uncompressed bytes. */
 	struct stat st;
@@ -1556,6 +1575,9 @@ static void modmgrScanDirectory(void)
 		if (modmgrTryRegisterModEntry(fullpath, ent->d_name, NULL, false)) {
 			continue;
 		}
+		if (modmgrDirHasDirectManifest(fullpath)) {
+			continue;
+		}
 
 		/* Entry is a directory with no manifest -- treat as category. */
 		modmgrScanCategoryFolder(fullpath, ent->d_name, false);
@@ -1611,6 +1633,9 @@ static void modmgrScanDirectory(void)
 			/* Try as mod first; if that fails (no manifest), try as category. */
 			if (modmgrTryRegisterModEntry(altpath, altent->d_name,
 			                              candidates[ci], true)) {
+				continue;
+			}
+			if (modmgrDirHasDirectManifest(altpath)) {
 				continue;
 			}
 			modmgrScanCategoryFolder(altpath, altent->d_name, true);

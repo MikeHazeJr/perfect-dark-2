@@ -1,0 +1,29 @@
+{
+  "Name": "pdxxx_content_folder_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": 0,
+  "ElapsedSeconds": 26.2327924,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 27,
+  "AssertionsMet": 24,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "modmgr: loading mod 'fixture_pdxxx_content' from folder '.*fixture_pdxxx_content'"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "assetcatalog_scanner: folder fixture_pdxxx_content: 4 external-layout/\\.pd\\* descriptors registered"
+    },
+    {
+      "Kind": "required_count_out_of_range",
+      "Pattern": "assetcatalog_scanner: folder fixture_pdxxx_content: 4 external-layout/\\.pd\\* descriptors registered",
+      "Count": 0,
+      "Min": 1,
+      "Max": 1
+    }
+  ]
+}

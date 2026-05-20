@@ -1,0 +1,13 @@
+{
+  "pd_kind": "arena",
+  "pd_schema_version": 1,
+  "id": "base:arena_mp_pipes",
+  "arena_index": 1,
+  "slug": "mp_pipes",
+  "category": "Dark",
+  "stagenum": 41,
+  "requirefeature": 0,
+  "name_langid": 20600,
+  "load_mode": "ARENA_LOADMODE_PLAYABLE",
+  "scenario": "base:scenario_mp_pipes"
+}

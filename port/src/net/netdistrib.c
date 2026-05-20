@@ -44,6 +44,7 @@
 #include "net/netmanifest.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "modmgr.h"
 #include "pdgui_theme_loader.h"
 #include "system.h"
 #include "fs.h"
@@ -1297,7 +1298,14 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
     }
 
     /* Build destination directory */
-    const char *modsdir = fsGetModDir();
+    const char *modsdir = modmgrGetModsDir();
+    if (!modsdir || !modsdir[0]) {
+        modsdir = fsGetModDir();
+    }
+    if (!modsdir || !modsdir[0]) {
+        sysLogPrintf(LOG_ERROR, "DISTRIB: no mods directory available for '%s'", slot->id);
+        goto done;
+    }
     char destdir[FS_MAXPATH];
     if (slot->temporary) {
         snprintf(destdir, sizeof(destdir), "%s/%s/%s/%s",
@@ -1395,6 +1403,12 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         }
 
         s_ClientStatus.received_count++;
+        if (!slot->temporary) {
+            modmgrRescanDirectory();
+            sysLogPrintf(LOG_NOTE,
+                         "DISTRIB: refreshed mod registry after installing '%s'",
+                         slot->id);
+        }
     }
 
     free(raw);

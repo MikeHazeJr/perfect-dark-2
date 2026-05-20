@@ -377,10 +377,22 @@ function Invoke-SmokeTestMultiProcess {
     Write-Info ("  install dir: {0}" -f $installInfo.InstallDir)
     Write-Info ("  state: {0}" -f $installInfo.InstallState)
 
+    if ($def.PSObject.Properties.Match('remove_paths').Count -gt 0 -and $def.remove_paths) {
+        $removeCount = Remove-SmokePaths -InstallDir $installInfo.InstallDir -Paths $def.remove_paths
+        if ($removeCount -gt 0) {
+            Write-Info ("  removed {0} stale path(s)" -f $removeCount)
+        }
+    }
     if ($def.PSObject.Properties.Match('fixtures').Count -gt 0 -and $def.fixtures) {
         $fixCount = Copy-SmokeFixtures -ProjectRoot $ProjectRoot -InstallDir $installInfo.InstallDir -Fixtures $def.fixtures
         if ($fixCount -gt 0) {
             Write-Info ("  staged {0} fixture(s)" -f $fixCount)
+        }
+    }
+    if ($def.PSObject.Properties.Match('packed_fixtures').Count -gt 0 -and $def.packed_fixtures) {
+        $packCount = Pack-SmokePdmodFixtures -ProjectRoot $ProjectRoot -InstallDir $installInfo.InstallDir -Fixtures $def.packed_fixtures
+        if ($packCount -gt 0) {
+            Write-Info ("  packed {0} fixture archive(s)" -f $packCount)
         }
     }
 
@@ -757,10 +769,22 @@ function Invoke-SmokeTest {
     # install dir before launching the binary. Optional `fixtures` array
     # in test JSON; entries shaped { src: <repo-relative>, dst: <install-relative> }.
     # Used by future mod_load_smoke / save_roundtrip_smoke / wall_jump_capsule_smoke.
+    if ($def.PSObject.Properties.Match('remove_paths').Count -gt 0 -and $def.remove_paths) {
+        $removeCount = Remove-SmokePaths -InstallDir $installInfo.InstallDir -Paths $def.remove_paths
+        if ($removeCount -gt 0) {
+            Write-Info ("  removed {0} stale path(s)" -f $removeCount)
+        }
+    }
     if ($def.PSObject.Properties.Match('fixtures').Count -gt 0 -and $def.fixtures) {
         $fixCount = Copy-SmokeFixtures -ProjectRoot $ProjectRoot -InstallDir $installInfo.InstallDir -Fixtures $def.fixtures
         if ($fixCount -gt 0) {
             Write-Info ("  staged {0} fixture(s)" -f $fixCount)
+        }
+    }
+    if ($def.PSObject.Properties.Match('packed_fixtures').Count -gt 0 -and $def.packed_fixtures) {
+        $packCount = Pack-SmokePdmodFixtures -ProjectRoot $ProjectRoot -InstallDir $installInfo.InstallDir -Fixtures $def.packed_fixtures
+        if ($packCount -gt 0) {
+            Write-Info ("  packed {0} fixture archive(s)" -f $packCount)
         }
     }
 

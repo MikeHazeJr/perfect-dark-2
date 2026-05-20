@@ -583,7 +583,7 @@
       "title": "Benchmarking: GPU bot behavior pipeline",
       "description": "GPU-side bot behavior pipeline design + implementation. Gated on Mike playtest after catalog lands. B-308: GPU bot AI not migrated.",
       "pillar": "benchmarking",
-      "column": "backlog",
+      "column": "active",
       "order": 3000,
       "priority": 3,
       "notes": "B-308 open in bugs.md  HF-1 in 2026-05-13 audit: multi-session lane, gated on Mike's 4 design calls per Phase 2 design doc.",
@@ -895,28 +895,28 @@
       "title": "Modding: fix SHA-256 mismatch (archive vs folder)",
       "description": "Archive mods digest entire archive file; folder mods digest only mod.json. manifestCheck compares them as equal so client-folder vs server-archive (same content) always disagrees, triggering unnecessary NEED_ASSETS. Unify to mod.json bytes only.",
       "pillar": "mod-infrastructure",
-      "column": "backlog",
+      "column": "done",
       "order": 15500,
       "priority": 3,
-      "notes": "modmgr.c:1331 vs modmgr.c:1074",
+      "notes": "Done 2026-05-20 under c3809-s8: archive-backed .pdmod registry entries now hash root mod.json bytes, matching folder-mod digest boundaries, so folder-backed typed *.pdxxx content packaged into .pdmod transport compares cleanly after sharing or online-required delivery. Verified by focused Public Mods static tests, c3809 static tests, public_mods_pdmod_install_smoke, and queued modpipe all build.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-20T16:58:00Z"
     },
     {
       "id": "c063",
       "title": "Modding: hot-register distributed mods in g_ModRegistry",
       "description": "netdistrib.c:1200 calls assetCatalogRegister directly. Component appears in catalog but g_ModRegistry is not updated, so Mod Manager UI does not show distributed mods until next launch. Call modmgrRescanDirectory after SVC_DISTRIB_END.",
       "pillar": "mod-infrastructure",
-      "column": "backlog",
+      "column": "done",
       "order": 16000,
       "priority": 3,
-      "notes": "",
+      "notes": "Done 2026-05-20 under c3809-s8: received Public Mods .pdmod downloads now validate root mod.json and no authored .bin payloads, install into mods/installed, and refresh g_ModRegistry without a relaunch. Permanent SVC_DISTRIB_END installs also refresh the registry. Verified by focused Public Mods static tests, public_mods_pdmod_install_smoke 29/29, and queued modpipe all build.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-20T16:58:00Z"
     },
     {
       "id": "c064",
@@ -1063,7 +1063,7 @@
       "title": "Physics-collision: jump surface collision multi-sample capsule sweep",
       "description": "Jump/vertical movement now needs the full c038 surface-miss fix: Stage 1 keeps cdTestVolume authoritative, Stage 2 samples rendered BG/model triangles around the full capsule skin, floor/ceiling probes filter by oriented normals, and player + bot vertical paths share the generic moving-prop solver.",
       "pillar": "physics-collision",
-      "column": "active",
+      "column": "done",
       "order": 21000,
       "priority": 3,
       "notes": "2026-05-17 ship: bot jumping in normal Combat Sim play (toggleable, OFF by default). MPOPTION_BOTJUMP 0x10000000 + UI toggle in pdgui_menu_room.cpp 'Bot Jumping' alongside Fast Movement (3fe1f005). 2026-05-18 implementation: src/lib/capsule.c adds generic selfprop-aware multi-sample rendered sweep over top/mid/bottom + lateral capsule skin, keeps Stage 1 authoritative when Stage 2 misses, and adds rendered floor/ceiling probes with oriented normal filters plus side-effect-free rendered prop-model rays. Player bondwalk vertical path now calls the generic floor/ceiling helpers and reconciles rendered floor sweep hits into current ground. Bot chr vertical path and botJumpDecide use the same solver, including obstacle-jump (low sweep blocked, raised sweep clear, landing floor exists). Verification: queued isolated jumpfix client/updater PASS, tests target PASS, direct [physics][jump] pd-tests PASS (42 assertions / 4 cases). Pending Mike playtest and repro-coordinate smoke.",
@@ -1585,10 +1585,10 @@
       "title": "Decision-request mechanism on kanban cards",
       "description": "Asynchronous decision channel between Mike and AI sessions/orchestrator, mediated through the kanban board. Each card gains an optional open_questions[] array; sessions add questions with curated choices (label + rationale + implication) and Mike answers via badge, banner, side panel, or modal in the kanban browser. Cards with unanswered questions BLOCK active or upcoming work (orchestrator refuses to spawn). Custom answers go through an orchestrator interpretation step that Mike confirms or refines (refines spawn follow-up questions linked by id).",
       "pillar": "tooling",
-      "column": "active",
+      "column": "done",
       "order": 154000,
       "priority": 2,
-      "notes": "Design: context/designs/decision-request-mechanism.md. Schema extension: tools/kanban/state.json schema_version=2 + cards[].open_questions[]. Server: tools/kanban/server.py +6 endpoints. UI: tools/kanban/index.html +badge, +banner, +side panel, +modal, +pulse animation. Orchestrator CLI: tools/kanban_evaluator.py (check-active-blocks, interpret-pending, cascade-on-answer).",
+      "notes": "Design: context/designs/decision-request-mechanism.md. Schema extension: tools/kanban/state.json schema_version=2 + cards[].open_questions[]. Server: tools/kanban/server.py +6 endpoints plus /api/decision-requests for the full question/response ledger. UI: tools/kanban/index.html +badge, +banner, +side panel, +modal, +pulse animation, and dedicated Decision Requests tab. Orchestrator/session CLI: tools/kanban_evaluator.py (check-active-blocks, interpret-pending, cascade-on-answer, list-decision-requests). Session-start rule: new sessions check Mike's decision responses first unless Mike gave a specific override.",
       "flag": null,
       "flagged_at": null,
       "open_questions": [
@@ -1621,8 +1621,25 @@
           "follow_up_question_ids": []
         }
       ],
+      "pending_completion": {
+        "marked_at": "2026-05-20T16:49:00Z",
+        "marked_by": "codex-main-checkout",
+        "summary": "Added the dedicated Decision Requests tab and a session-start response-check path for c121.",
+        "verify_notes": "Verified 2026-05-20: py_compile passed for server/evaluator; state.json parses with no duplicate card/subtask ids; inline index.html script parses with Node new Function; list-decision-requests returns c121 q-001 Mike response; /api/decision-requests returns the same response through a local server job. Manual browser review remains useful for final UI feel.",
+        "evidence_refs": [
+          "tools/kanban/index.html",
+          "tools/kanban/server.py",
+          "tools/kanban_evaluator.py",
+          "context/procedures.md",
+          "context/working-preferences.md"
+        ],
+        "expected_artifacts": [
+          "Decision Requests top-level tab shows unresolved questions and answered Mike responses.",
+          "New sessions can run tools/kanban_evaluator.py list-decision-requests before choosing work."
+        ]
+      },
       "created": "2026-05-12T00:00:00Z",
-      "updated": "2026-05-12T12:31:32Z"
+      "updated": "2026-05-20T16:49:00Z"
     },
     {
       "id": "c122",
@@ -2219,12 +2236,12 @@
     {
       "id": "c3809",
       "title": "Modding external-format .pdmod archive pipeline",
-      "description": "Implement the modder-facing .pdmod archive pipeline: root mod.json stays as package metadata, asset content becomes normal external files plus grouped INI/TSV metadata wherever practical, archive and folder mods share loader paths, and legacy .pd* JSON/ZIP assets remain compatible.",
+      "description": "Implement the modder-facing mod archive pipeline: typed .pd* files remain the content-unit format, their payloads become normal external files plus grouped INI/TSV metadata wherever practical, and .pdmod acts as the bundle/transport envelope for sharing and online-required content delivery.",
       "pillar": "modding",
-      "column": "active",
+      "column": "done",
       "order": 110000,
       "priority": 1,
-      "notes": "Started 2026-05-19. Full-external-format boundary: modder-authored standard files are canonical; .bin files are not valid authored .pdmod payloads. The game may generate private readable runtime caches from external files, but those caches are internal, rebuildable, not opaque blobs, and not part of the archive authoring contract. Each subtask is marked done only after format validation, in-game compatibility checks or targeted static equivalents, and context updates.",
+      "notes": "Done 2026-05-20. Full-external-format boundary: typed *.pdxxx files are the preferred mod content units; their payloads are standard authored files plus grouped INI/TSV metadata; .pdmod is the bundle/transport envelope for sharing, Public Mods, and online-required delivery; authored .bin files are invalid in both content units and transport archives. Runtime-generated cache stays private, readable, rebuildable, and unshipped. All subtasks passed format validation, targeted/static compatibility checks, runtime smokes, context updates, and queued modpipe all build. Final closure added Public Mods install behavior: received .pdmod downloads validate, install into mods/installed, and refresh the mod registry.",
       "subtasks": [
         {
           "id": "c3809-s1",
@@ -2273,21 +2290,21 @@
           "title": "Packer/exporter integration",
           "status": "done",
           "order": 7000,
-          "notes": "Done 2026-05-20: Modding Hub folder-to-.pdmod creation now validates canonical external-layout folders before archive writing, rejects authored .bin payloads from folder and in-memory packer entries, generates missing commented INI templates for descriptor families plus map/scenario sidecars, validates referenced source files and unsafe paths, and surfaces detailed validation errors through modpackPdmodLastError() in the Hub UI. Audio templates now specialize voice/music defaults. Verification: scoped diff check, Kanban JSON parse, no authored .bin fixture scan, queued tests target, focused [modding][pdmod][static][c3809] (10 cases / 393 assertions), queued all target, and queued server target passed."
+          "notes": "Done 2026-05-20: Modding Hub folder-to-.pdmod creation now validates typed *.pdxxx content descriptors plus compatibility external-layout folders before archive writing, rejects authored .bin payloads from folder and in-memory packer entries, generates missing commented INI templates for descriptor families plus map/scenario sidecars, validates referenced source files and unsafe paths, and surfaces detailed validation errors through modpackPdmodLastError() in the Hub UI. Audio templates now specialize voice/music defaults. Verification: scoped diff check, Kanban JSON parse, no authored .bin fixture scan, queued tests target, focused [modding][pdmod][static][c3809] (10 cases / 393 assertions), queued all target, and queued server target passed."
         },
         {
           "id": "c3809-s8",
           "title": "Compatibility + validation",
-          "status": "active",
+          "status": "done",
           "order": 8000,
-          "notes": "Active 2026-05-20: static/build validation slice complete, runtime playtest still pending. Legacy .pd* walker coverage is pinned for .pdwpn/.pdhead/.pdbody/.pdarena/.pdmesh/.pdanim/.pdsfx/.pdvoice/.pdsong/.pdui/.pdfont/.pdlang plus .pdscenario. Public Mods folder sharing now packages folder mods into validated .pdmod archives through modpackPdmodFromFolder() instead of sending only mod.json, and tests/test_public_mods_static.cpp is wired into pd-tests. Verification passed: diff check, Kanban JSON, no authored .bin fixture scan, tests target, focused [modding][pdmod][static][c3809] (12 cases / 463 assertions), focused [social][public_mods][static] (2 cases / 35 assertions), queued all target, and queued server target. Remaining before done: in-game load/playback checks for legacy .pd*, external-layout .pdmod, folder mod, and Public Mods transfer/install behavior."
+          "notes": "Done 2026-05-20: Mike's 11:03 runtime log from Build/logs/game client/pd-client.log validated boot on dev c91c6274, legacy .pd* universal walker registration (3378 scanned/3378 registered, 0 envelope/register failures), .pdui auto-emit/reload, and installed .pdmod discovery with no .bin entries in the three installed archives. Corrected direction is implemented: typed *.pdxxx files are the preferred content-unit surface; .pdmod is the bundle/transport envelope for sharing, Public Mods, and online-required content delivery; authored .bin is rejected from both content units and .pdmod transport. Scanner and packer accept typed .pdwpn/.pdhead/.pdbody/.pdarena/.pdmesh/.pdanim/.pdsfx/.pdvoice/.pdsong/.pdui/.pdfont/.pdlang/.pdscenario descriptors with same-name sidecar folders, while the root external-layout INI tree remains compatibility coverage. Runtime validation passed: pdxxx_content_folder_smoke 28/28, pdxxx_content_transport_smoke 29/29, and public_mods_pdmod_install_smoke 29/29 load GLTF head -> modeldef, OBJ arena -> colmesh, and GLTF skeletal animation -> animation clip through readable generated cache; transport smoke packs a real .pdmod and reads it through VFS without extraction; install smoke proves mods/installed .pdmod discovery/load. Public Mods transfer/install closure implemented: received .pdmod downloads validate root mod.json and no authored .bin, install into mods/installed, refresh g_ModRegistry, and archive/folder digest comparison uses root mod.json bytes. Focused [social][public_mods][static] passed 3 cases / 55 assertions, focused [modding][pdmod][static][c3809] passed 13 cases / 498 assertions, JSON/diff/no-bin checks passed, and queued modpipe all build passed.",
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-19T20:30:00Z",
       "pending_completion": null,
       "created": "2026-05-19T20:30:00Z",
-      "updated": "2026-05-20T02:52:00Z"
+      "updated": "2026-05-20T16:58:00Z"
     }
   ]
 }

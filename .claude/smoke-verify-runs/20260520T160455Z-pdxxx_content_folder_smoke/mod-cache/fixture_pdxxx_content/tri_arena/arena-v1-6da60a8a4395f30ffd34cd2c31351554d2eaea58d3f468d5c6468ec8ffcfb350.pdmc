@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "tri_arena",
+  "mod_id": "fixture_pdxxx_content",
+  "kind": "arena",
+  "source": "arenas/tri_arena/geometry.obj",
+  "source_size": 48,
+  "source_sha256": "6da60a8a4395f30ffd34cd2c31351554d2eaea58d3f468d5c6468ec8ffcfb350",
+  "validation": "format=obj vertices=3 triangles=1",
+  "normalized": "$S/mod-cache/fixture_pdxxx_content/tri_arena/arena-v1-6da60a8a4395f30ffd34cd2c31351554d2eaea58d3f468d5c6468ec8ffcfb350.pdmesh.json",
+  "vertex_count": 3,
+  "triangle_count": 1,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -45,6 +45,8 @@
 #include "sha256.h"
 #include "system.h"
 #include "fs.h"
+#include "modarchive.h"
+#include "modmgr.h"
 
 #include <SDL.h>
 #include <stdio.h>
@@ -325,6 +327,152 @@ static void sanitiseFilename(const char *src, char *out, u32 outsize)
 	if (i == 0) snprintf(out, outsize, "received");
 }
 
+static s32 ftEndsWithNoCase(const char *s, const char *suffix)
+{
+	if (!s || !suffix) return 0;
+	const size_t slen = strlen(s);
+	const size_t tlen = strlen(suffix);
+	if (tlen > slen) return 0;
+	const char *tail = s + slen - tlen;
+	for (size_t i = 0; i < tlen; i++) {
+		if (tolower((unsigned char)tail[i]) !=
+		    tolower((unsigned char)suffix[i])) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static s32 ftArchiveEntryHasForbiddenBinPayload(const char *name)
+{
+	if (!name || !name[0]) return 0;
+	const char *leaf = strrchr(name, '/');
+	leaf = leaf ? leaf + 1 : name;
+	if (!leaf[0] || leaf[0] == '.') return 0;
+	return ftEndsWithNoCase(leaf, ".bin");
+}
+
+static s32 ftValidateReceivedModArchive(const char *path)
+{
+	mod_archive_t *arc = modArchiveOpen(path);
+	if (!arc) {
+		sysLogPrintf(LOG_WARNING,
+		             "FT: received mod archive did not open: %s err=%d",
+		             path ? path : "", modArchiveLastError());
+		return 0;
+	}
+
+	u32 mfst_size = 0;
+	char *mfst = modArchiveReadManifest(arc, &mfst_size);
+	if (!mfst) {
+		sysLogPrintf(LOG_WARNING,
+		             "FT: received mod archive has no root mod.json: %s",
+		             path ? path : "");
+		modArchiveClose(arc);
+		return 0;
+	}
+	free(mfst);
+	(void)mfst_size;
+
+	const s32 count = modArchiveGetEntryCount(arc);
+	for (s32 i = 0; i < count; i++) {
+		const char *entry = modArchiveGetEntryName(arc, i);
+		if (ftArchiveEntryHasForbiddenBinPayload(entry)) {
+			sysLogPrintf(LOG_WARNING,
+			             "FT: received mod archive rejected for authored .bin payload: %s",
+			             entry ? entry : "");
+			modArchiveClose(arc);
+			return 0;
+		}
+	}
+
+	modArchiveClose(arc);
+	return 1;
+}
+
+static s32 ftCopyFileAtomic(const char *src, const char *dst)
+{
+	char tmp[FS_MAXPATH + 1];
+	snprintf(tmp, sizeof(tmp), "%s.tmp", dst);
+	remove(tmp);
+
+	FILE *in = fopen(src, "rb");
+	if (!in) return 0;
+	FILE *out = fopen(tmp, "wb");
+	if (!out) {
+		fclose(in);
+		return 0;
+	}
+
+	u8 buf[8192];
+	s32 ok = 1;
+	for (;;) {
+		size_t n = fread(buf, 1, sizeof(buf), in);
+		if (n > 0 && fwrite(buf, 1, n, out) != n) {
+			ok = 0;
+			break;
+		}
+		if (n < sizeof(buf)) {
+			if (ferror(in)) ok = 0;
+			break;
+		}
+	}
+
+	if (fclose(out) != 0) ok = 0;
+	fclose(in);
+
+	if (!ok) {
+		remove(tmp);
+		return 0;
+	}
+
+	remove(dst);
+	if (rename(tmp, dst) != 0) {
+		remove(tmp);
+		return 0;
+	}
+	return 1;
+}
+
+static void fileTransferInstallReceivedMod(const char *inbox_path,
+                                           const char *original_name)
+{
+	if (!inbox_path || !inbox_path[0]) return;
+	if (!ftValidateReceivedModArchive(inbox_path)) return;
+
+	const char *modsdir = modmgrGetModsDir();
+	char fallback_mods[FS_MAXPATH + 1];
+	if (!modsdir || !modsdir[0]) {
+		fsFullPath("./mods", fallback_mods, sizeof(fallback_mods));
+		fsCreateDir(fallback_mods);
+		modsdir = fallback_mods;
+	}
+
+	char install_dir[FS_MAXPATH + 1];
+	snprintf(install_dir, sizeof(install_dir), "%s/installed", modsdir);
+	fsCreateDir(install_dir);
+
+	char safe[96];
+	sanitiseFilename(original_name, safe, sizeof(safe));
+	if (!ftEndsWithNoCase(safe, ".pdmod") && !ftEndsWithNoCase(safe, ".zip")) {
+		strncat(safe, ".pdmod", sizeof(safe) - strlen(safe) - 1);
+	}
+
+	char dst[FS_MAXPATH + 1];
+	snprintf(dst, sizeof(dst), "%s/%s", install_dir, safe);
+	if (!ftCopyFileAtomic(inbox_path, dst)) {
+		sysLogPrintf(LOG_WARNING,
+		             "FT: received mod archive could not install to %s",
+		             dst);
+		return;
+	}
+
+	modmgrRescanDirectory();
+	sysLogPrintf(LOG_NOTE,
+	             "FT: installed received mod archive -> %s and refreshed mod registry",
+	             dst);
+}
+
 /* Build the destination path: <home>/social/inbox/<kind>/<friend>/<file>.
  * Creates intermediate folders. */
 static void buildInboxPath(s32 kind, const char *friend_agent, const char *name,
@@ -568,6 +716,10 @@ static void completeReceiver(ft_receiver_t *r, u32 src_ipv4, u16 src_port)
 	fclose(f);
 
 	writeSidecar(r);
+
+	if (r->kind == FT_KIND_MOD) {
+		fileTransferInstallReceivedMod(r->inbox_path, r->name);
+	}
 
 	(void)chatHistoryAppendAttachment(r->src_handle, (u32)r->kind, r->name,
 	                                   r->inbox_path, r->file_size);

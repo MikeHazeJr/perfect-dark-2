@@ -1,0 +1,76 @@
+{
+  "scenario_name": "external_mod_layout_smoke",
+  "description": "c3809 runtime smoke for the external-format .pdmod pipeline. The runner packs tests/fixtures/modpipe/external-archive-entries into a real root-mod.json .pdmod, stages it under mods/, enables it through a portable mods-enabled.json, then asks the client to load external GLTF head, OBJ arena, and GLTF skeletal animation catalog assets. This proves the archive VFS path reaches the same typed runtime payload boundaries as base content without authored .bin files.",
+  "tags": ["modding", "pdmod", "external", "c3809", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/modmgr.c",
+    "port/src/modarchive.c",
+    "port/src/modvfs.c",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/assetcatalog_load.c",
+    "port/src/modasset_compiler.c",
+    "port/src/main.c",
+    "tools/smoke-verify/lib/Install-Harness.ps1",
+    "tools/smoke-verify/run.ps1",
+    "tests/fixtures/modpipe/**"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/modpipe_external_archive_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "packed_fixtures": [
+    { "src": "tests/fixtures/modpipe/external-archive-entries", "dst": "mods/fixture_external_archive.pdmod" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--skip-intro",
+    "--debug-load-catalog-assets",
+    "head=tri_head,arena=tri_arena,animation=fixture:character_skeletal"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "modmgrInit loads the enabled archive, mounts it through VFS, and registers external descriptor INIs before catalog load init." },
+    { "at_ms": 25000, "type": "exit", "comment": "scripted exit after forced typed catalog loads have emitted modeldef, colmesh, and animation payload logs." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=external_mod_layout_smoke",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "modmgr: parsed mod\\.json for 'fixture_external_archive'.*archive=yes",
+      "modmgr: discovered mod \\[\\d+\\] 'fixture_external_archive'.*\\[\\.pdmod\\] file=.*fixture_external_archive\\.pdmod sha256=[0-9a-f]+\\.\\.",
+      "modmgr: loaded mods-enabled\\.json",
+      "modmgr: loading mod 'fixture_external_archive' from archive '.*fixture_external_archive\\.pdmod'",
+      "assetcatalog_scanner: archive fixture_external_archive: 5 component descriptors registered",
+      "modmgr: initialized .+ 1 enabled",
+      "BOOT: --debug-load-catalog-assets request type=head id='tri_head'",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated external head modeldef 'tri_head'.*normalized=.*\\.pdmodel\\.json",
+      "BOOT: --debug-load-catalog-assets result type=head id='tri_head' result=OK.*payload=2",
+      "BOOT: --debug-load-catalog-assets request type=arena id='tri_arena'",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated arena OBJ colmesh 'tri_arena'.*mesh=.*\\.pdmesh\\.json",
+      "BOOT: --debug-load-catalog-assets result type=arena id='tri_arena' result=OK.*payload=3",
+      "BOOT: --debug-load-catalog-assets request type=animation id='fixture:character_skeletal'",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated animation clip 'fixture:character_skeletal'.*generated=.*\\.pdanimation\\.json",
+      "BOOT: --debug-load-catalog-assets result type=animation id='fixture:character_skeletal' result=OK.*payload=4",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "External-format archives cannot contain \\.bin",
+      "authored \\.bin",
+      "gltf_external_binary_buffers_are_not_allowed",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: '.*' external .* failed",
+      "MODASSET\\.COMPILER: invalid external"
+    ],
+    "required_counts": [
+      { "pattern": "assetcatalog_scanner: archive fixture_external_archive: 5 component descriptors registered", "min": 1, "max": 1 },
+      { "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK", "min": 3, "max": 3 }
+    ]
+  }
+}

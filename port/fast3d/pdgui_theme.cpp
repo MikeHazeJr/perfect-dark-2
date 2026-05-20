@@ -1067,12 +1067,25 @@ static void cjson_skip_value(chrome_jparse *j)
  * pdguiThemeLateInit, and re-applied when modmgrApplyChanges runs.
  * ========================================================================= */
 
+static bool s_modDirHasDirectManifest(const char *mod_dir)
+{
+    if (!mod_dir || !mod_dir[0]) return false;
+
+    char path[FS_MAXPATH];
+    snprintf(path, sizeof(path), "%s/mod.json", mod_dir);
+    if (fsFileSize(path) > 0) return true;
+
+    snprintf(path, sizeof(path), "%s/audio.ini", mod_dir);
+    return fsFileSize(path) > 0;
+}
+
 s32 pdguiThemeScanModUiTextures(const char *mod_dir)
 {
     if (!mod_dir || !mod_dir[0]) return 0;
 
     char mod_json_path[FS_MAXPATH];
     snprintf(mod_json_path, sizeof(mod_json_path), "%s/mod.json", mod_dir);
+    if (fsFileSize(mod_json_path) <= 0) return 0;
 
     u32 size = 0;
     char *raw = (char *)fsFileLoad(mod_json_path, &size);
@@ -1354,6 +1367,8 @@ static s32 s_registerChromeStyleFromModDir(const char *mod_dir,
 
     char mod_json[FS_MAXPATH];
     snprintf(mod_json, sizeof(mod_json), "%s/mod.json", mod_dir);
+    if (fsFileSize(mod_json) <= 0) return 0;
+
     u32 size = 0;
     char *raw = (char *)fsFileLoad(mod_json, &size);
     if (!raw || !size) {
@@ -1653,9 +1668,10 @@ static void s_scanChromeStylesInDir(const char *dir_path, int allow_recurse)
 
         /* Attempt registration; if the child has no parseable chrome manifest
          * and we're allowed to recurse (depth 0), treat it as a category. */
+        const bool has_direct_manifest = s_modDirHasDirectManifest(child);
         int registered = s_registerChromeStyleFromModDir(child, ent->d_name, 0,
                                                          nullptr, 0);
-        if (!registered && allow_recurse) {
+        if (!registered && allow_recurse && !has_direct_manifest) {
             s_scanChromeStylesInDir(child, 0);
         }
     }

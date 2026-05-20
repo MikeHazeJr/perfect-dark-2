@@ -21,6 +21,7 @@ Serves the dev-window UI at / and provides these API endpoints:
   /api/cards/:id/questions/:qid/interpret           POST   orchestrator writes interpretation
   /api/cards/:id/questions/:qid/confirm-interpretation POST Mike confirms or refines (refine spawns follow-up)
   /api/open-questions                               GET    list every unresolved question
+  /api/decision-requests                            GET    list every question + Mike response
   /api/cards/:id/blocked-status                     GET    is this card blocked on open questions
 
   /api/cards/:id/mark-pending-completion            POST   session/orchestrator marks card ready for review
@@ -190,6 +191,55 @@ def _question_is_resolved(q):
     return False
 
 
+def _question_status(q):
+    if _question_is_resolved(q):
+        return "resolved"
+    if q.get("answer_type") == "custom":
+        if q.get("interpretation"):
+            return "needs_confirmation"
+        return "needs_interpretation"
+    return "awaiting_answer"
+
+
+def _question_selected_choice(q):
+    answer = q.get("answer")
+    if q.get("answer_type") != "choice" or answer is None:
+        return None
+    for ch in q.get("choices", []) or []:
+        if ch.get("id") == answer:
+            return ch
+    return None
+
+
+def _question_entry(card, q):
+    status = _question_status(q)
+    selected_choice = _question_selected_choice(q)
+    return {
+        "card_id": card.get("id"),
+        "card_title": card.get("title", ""),
+        "card_column": card.get("column", ""),
+        "card_pillar": card.get("pillar", ""),
+        "question_id": q.get("id"),
+        "question": q.get("question", ""),
+        "asked_by": q.get("asked_by", ""),
+        "asked_date": q.get("asked_date", ""),
+        "choices": q.get("choices", []),
+        "allow_custom": q.get("allow_custom", True),
+        "answer": q.get("answer"),
+        "answer_type": q.get("answer_type"),
+        "answered_date": q.get("answered_date"),
+        "custom_text": q.get("custom_text"),
+        "interpretation": q.get("interpretation"),
+        "interpretation_confirmed": bool(q.get("interpretation_confirmed")),
+        "selected_choice": selected_choice,
+        "resolved": _question_is_resolved(q),
+        "status": status,
+        "needs_interpretation": status == "needs_interpretation",
+        "needs_confirmation": status == "needs_confirmation",
+        "follow_up_question_ids": q.get("follow_up_question_ids", []),
+    }
+
+
 def _card_blocked_q_ids(card):
     return [q.get("id") for q in (card.get("open_questions") or []) if not _question_is_resolved(q)]
 
@@ -288,29 +338,39 @@ class Handler(BaseHTTPRequestHandler):
                     continue
                 blocked_cards += 1
                 for q in unresolved:
-                    questions.append({
-                        "card_id": card.get("id"),
-                        "card_title": card.get("title", ""),
-                        "card_column": card.get("column", ""),
-                        "card_pillar": card.get("pillar", ""),
-                        "question_id": q.get("id"),
-                        "question": q.get("question", ""),
-                        "asked_by": q.get("asked_by", ""),
-                        "asked_date": q.get("asked_date", ""),
-                        "choices": q.get("choices", []),
-                        "allow_custom": q.get("allow_custom", True),
-                        "answer_type": q.get("answer_type"),
-                        "custom_text": q.get("custom_text"),
-                        "interpretation": q.get("interpretation"),
-                        "needs_interpretation": q.get("answer_type") == "custom" and not q.get("interpretation"),
-                        "needs_confirmation": q.get("answer_type") == "custom" and bool(q.get("interpretation")) and not q.get("interpretation_confirmed"),
-                        "follow_up_question_ids": q.get("follow_up_question_ids", []),
-                    })
+                    questions.append(_question_entry(card, q))
             self.reply_json(200, {
                 "ok": True,
                 "questions": questions,
                 "blocked_card_count": blocked_cards,
                 "open_question_count": len(questions),
+            })
+            return
+
+        if self.path == "/api/decision-requests":
+            data = _load_state()
+            requests = []
+            for card in data.get("cards", []):
+                for q in (card.get("open_questions") or []):
+                    requests.append(_question_entry(card, q))
+            status_rank = {
+                "needs_confirmation": 0,
+                "needs_interpretation": 1,
+                "awaiting_answer": 2,
+                "resolved": 3,
+            }
+            requests.sort(key=lambda e: e.get("answered_date") or e.get("asked_date") or "", reverse=True)
+            requests.sort(key=lambda e: status_rank.get(e.get("status"), 9))
+            unresolved = [r for r in requests if not r.get("resolved")]
+            answered = [r for r in requests if r.get("answered_date")]
+            self.reply_json(200, {
+                "ok": True,
+                "requests": requests,
+                "request_count": len(requests),
+                "unresolved_question_count": len(unresolved),
+                "answered_question_count": len(answered),
+                "needs_interpretation_count": len([r for r in requests if r.get("needs_interpretation")]),
+                "needs_confirmation_count": len([r for r in requests if r.get("needs_confirmation")]),
             })
             return
 

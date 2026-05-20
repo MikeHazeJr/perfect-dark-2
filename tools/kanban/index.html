@@ -417,6 +417,32 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .oq-row .oq-pending-interp .oq-interp-label{font-size:0.6rem;font-weight:800;color:#f97316;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;display:block}
 .oq-row .oq-pending-interp .oq-interp-body{color:#fef3c7;font-size:0.76rem;line-height:1.4;margin-bottom:6px}
 
+/* Decision Requests tab */
+#panel-decisions{background:#0f172a}
+.decision-summary{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.decision-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid #334155;border-radius:6px;background:#1e293b;color:#cbd5e1;font-size:0.73rem;font-weight:700}
+.decision-pill strong{color:#fef3c7}
+.decision-pill.session-rule{border-color:#ca8a04;background:#422006;color:#fef9c3}
+.decision-layout{display:grid;grid-template-columns:minmax(320px,0.9fr) minmax(360px,1.1fr);gap:14px;align-items:start}
+.decision-section{min-width:0}
+.decision-section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:7px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:0.74rem;font-weight:800;text-transform:uppercase;letter-spacing:0.06em}
+.decision-section-head span:last-child{font-size:0.68rem;color:#94a3b8}
+.decision-response-row{background:#1e293b;border-radius:6px;padding:10px 12px;margin-bottom:10px;border-left:3px solid #38bdf8}
+.decision-response-row.needs-interpretation{border-left-color:#f97316}
+.decision-response-row .decision-cardline{font-size:0.66rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px}
+.decision-response-row .decision-cid{color:#bae6fd;font-family:ui-monospace,Consolas,monospace;font-weight:800;margin-right:5px}
+.decision-response-row .decision-q{font-size:0.84rem;color:#f8fafc;line-height:1.4;margin-bottom:8px}
+.decision-response-row .decision-answer{padding:8px 10px;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-size:0.78rem;line-height:1.45;white-space:pre-wrap}
+.decision-response-row .decision-answer-label{display:block;font-size:0.6rem;font-weight:800;color:#7dd3fc;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px}
+.decision-response-row .decision-answer-note{margin-top:6px;color:#cbd5e1;font-style:italic}
+.decision-response-row .decision-meta{font-size:0.66rem;color:#94a3b8;margin-top:7px;font-style:italic}
+.decision-response-row .decision-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.decision-status{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:8px;background:#334155;color:#cbd5e1;font-size:0.6rem;font-weight:800}
+.decision-status.resolved{background:#0c4a6e;color:#bae6fd}
+.decision-status.awaiting_answer{background:#854d0e;color:#fef3c7}
+.decision-status.needs_interpretation,.decision-status.needs_confirmation{background:#9a3412;color:#ffedd5}
+@media (max-width:900px){.decision-layout{grid-template-columns:1fr}}
+
 /* Open-questions modal */
 #oq-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);display:none;align-items:center;justify-content:center;z-index:240;padding:16px}
 #oq-modal-overlay.show{display:flex}
@@ -465,6 +491,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 <div id="tabs">
   <button class="tab-btn active" data-tab="kanban" onclick="switchTab('kanban')">Active Kanban</button>
   <button class="tab-btn" data-tab="bugs" onclick="switchTab('bugs')">Bug Tracker <span id="bugs-tab-count" style="opacity:0.7"></span></button>
+  <button class="tab-btn" data-tab="decisions" onclick="switchTab('decisions')">Decision Requests <span id="decision-tab-count" style="opacity:0.7"></span></button>
   <button class="tab-btn" data-tab="daily-flow" onclick="switchTab('daily-flow')">Daily Flow <span id="daily-flow-tab-count" style="opacity:0.7"></span></button>
 </div>
 
@@ -541,6 +568,33 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
       <div id="df-briefing-headlines" class="df-headlines"></div>
       <div id="df-briefing-focus" class="df-focus"></div>
       <div id="df-briefing-morning-results" class="df-morning-results"></div>
+    </div>
+  </div>
+
+  <div id="panel-decisions" class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Decision Requests</span>
+      <span class="panel-count" id="decision-count"></span>
+      <div class="panel-filters">
+        <button class="btn btn-ghost btn-sm" onclick="loadDecisionRequests()">Refresh</button>
+      </div>
+    </div>
+    <div class="decision-summary" id="decision-summary"></div>
+    <div class="decision-layout">
+      <section class="decision-section">
+        <div class="decision-section-head">
+          <span>Needs Action</span>
+          <span id="decision-open-count"></span>
+        </div>
+        <div id="decision-open-list"></div>
+      </section>
+      <section class="decision-section">
+        <div class="decision-section-head">
+          <span>Mike Responses</span>
+          <span id="decision-response-count"></span>
+        </div>
+        <div id="decision-response-list"></div>
+      </section>
     </div>
   </div>
 
@@ -865,6 +919,7 @@ function newId() {
 function getPillar(id) { return state.pillars.find(p => p.id === id) || null; }
 function pillarColor(id) { const p = getPillar(id); return p ? p.color : '#94a3b8'; }
 function now() { return new Date().toISOString(); }
+function shortDate(iso) { return iso ? String(iso).slice(0, 10) : ''; }
 
 function getCard(id) { return state.cards.find(c => c.id === id) || null; }
 
@@ -1669,6 +1724,7 @@ document.addEventListener('keydown', e => {
 
 let parkedData = null;
 let bugsData = null;
+let decisionRequestsData = null;
 let parkedFilters = {pillar: '', rcType: '', staleOnly: false};
 let bugsFilters = {status: 'not-fixed', severity: ''};
 let activeTab = 'kanban';
@@ -1711,6 +1767,7 @@ function switchTab(name) {
   for (const b of document.querySelectorAll('.tab-btn')) b.classList.toggle('active', b.dataset.tab === name);
   for (const p of document.querySelectorAll('#main-area > .panel')) p.classList.toggle('active', p.id === 'panel-' + name);
   if (name === 'bugs') renderBugs();
+  if (name === 'decisions') renderDecisionRequestsTab();
   if (name === 'daily-flow') renderDailyFlowTab();
 }
 
@@ -1729,6 +1786,16 @@ async function loadBugs() {
   if (activeTab === 'bugs') renderBugs();
 }
 
+async function loadDecisionRequests() {
+  try {
+    const r = await fetch('/api/decision-requests');
+    if (!r.ok) return;
+    decisionRequestsData = await r.json();
+    refreshDecisionTabCount();
+    if (activeTab === 'decisions') renderDecisionRequestsTab();
+  } catch (e) { /* optional surface; silent fail */ }
+}
+
 function refreshTabCounts() {
   if (parkedData) {
     const total = (parkedData.parked || []).length;
@@ -1745,6 +1812,129 @@ function refreshTabCounts() {
     const open = (bugsData.bugs || []).filter(b => b.status !== 'fixed').length;
     document.getElementById('bugs-tab-count').textContent = `(${open}/${total})`;
   }
+}
+
+function refreshDecisionTabCount() {
+  const badge = document.getElementById('decision-tab-count');
+  if (!badge || !decisionRequestsData) return;
+  const open = decisionRequestsData.unresolved_question_count || 0;
+  const answered = decisionRequestsData.answered_question_count || 0;
+  badge.textContent = (open || answered) ? `(${open}/${answered})` : '';
+  badge.title = `${open} unresolved, ${answered} answered`;
+}
+
+function decisionStatusLabel(status) {
+  if (status === 'needs_confirmation') return 'Needs confirmation';
+  if (status === 'needs_interpretation') return 'Needs interpretation';
+  if (status === 'awaiting_answer') return 'Awaiting answer';
+  if (status === 'resolved') return 'Answered';
+  return status || 'Unknown';
+}
+
+function renderDecisionRequestsTab() {
+  const panelCount = document.getElementById('decision-count');
+  const summary = document.getElementById('decision-summary');
+  const openList = document.getElementById('decision-open-list');
+  const responseList = document.getElementById('decision-response-list');
+  if (!summary || !openList || !responseList) return;
+
+  if (!decisionRequestsData) {
+    if (panelCount) panelCount.textContent = 'No decision data loaded';
+    summary.innerHTML = '';
+    openList.innerHTML = '<div class="empty-state">No decision-request data is available.</div>';
+    responseList.innerHTML = '';
+    return;
+  }
+
+  const requests = decisionRequestsData.requests || [];
+  const actionable = requests.filter(r => !r.resolved);
+  const responses = requests.filter(r => r.answered_date);
+  if (panelCount) panelCount.textContent =
+    `${decisionRequestsData.request_count || 0} total, ${actionable.length} unresolved`;
+
+  summary.innerHTML = [
+    `<span class="decision-pill"><strong>${actionable.length}</strong> unresolved</span>`,
+    `<span class="decision-pill"><strong>${decisionRequestsData.needs_interpretation_count || 0}</strong> need interpretation</span>`,
+    `<span class="decision-pill"><strong>${responses.length}</strong> Mike responses</span>`,
+    `<span class="decision-pill session-rule">Session-start check: read Mike responses first unless Mike gave a specific override.</span>`
+  ].join('');
+
+  document.getElementById('decision-open-count').textContent = `${actionable.length}`;
+  document.getElementById('decision-response-count').textContent = `${responses.length}`;
+
+  openList.innerHTML = '';
+  if (actionable.length === 0) {
+    openList.innerHTML = '<div class="empty-state">No decision requests waiting on action.</div>';
+  } else {
+    for (const q of actionable) openList.appendChild(buildOpenQuestionRow(q));
+  }
+
+  responseList.innerHTML = '';
+  if (responses.length === 0) {
+    responseList.innerHTML = '<div class="empty-state">No answered decision requests recorded.</div>';
+  } else {
+    for (const q of responses) responseList.appendChild(buildDecisionResponseRow(q));
+  }
+}
+
+function buildDecisionResponseRow(q) {
+  const row = document.createElement('div');
+  row.className = 'decision-response-row' + (!q.resolved ? ' needs-interpretation' : '');
+
+  const pillar = pillarById(q.card_pillar);
+  const cardLine = document.createElement('div');
+  cardLine.className = 'decision-cardline';
+  cardLine.innerHTML = `<span class="decision-cid">${escapeHtml(q.card_id)}</span>${escapeHtml(q.card_title || '')}` +
+    (pillar ? ' &middot; ' + escapeHtml(pillar.name) : '') +
+    ` <span class="decision-status ${escapeHtml(q.status || '')}">${escapeHtml(decisionStatusLabel(q.status))}</span>`;
+  row.appendChild(cardLine);
+
+  const question = document.createElement('div');
+  question.className = 'decision-q';
+  question.textContent = q.question || '';
+  row.appendChild(question);
+
+  const answer = document.createElement('div');
+  answer.className = 'decision-answer';
+  const choice = q.selected_choice || null;
+  if (q.answer_type === 'choice' && choice) {
+    answer.innerHTML =
+      `<span class="decision-answer-label">Selected choice ${escapeHtml(choice.id || '')}</span>` +
+      `<strong>${escapeHtml(choice.label || q.answer || '')}</strong>` +
+      (choice.rationale ? `<div class="decision-answer-note">${escapeHtml(choice.rationale)}</div>` : '') +
+      (choice.implication ? `<div class="decision-answer-note">Implication: ${escapeHtml(choice.implication)}</div>` : '') +
+      (q.custom_text ? `<div class="decision-answer-note">Note: ${escapeHtml(q.custom_text)}</div>` : '');
+  } else {
+    answer.innerHTML =
+      '<span class="decision-answer-label">Custom response</span>' +
+      escapeHtml(q.custom_text || q.answer || '');
+    if (q.interpretation) {
+      answer.innerHTML += `<div class="decision-answer-note">Interpretation: ${escapeHtml(q.interpretation)}</div>`;
+    }
+  }
+  row.appendChild(answer);
+
+  const meta = document.createElement('div');
+  meta.className = 'decision-meta';
+  meta.textContent = `asked ${shortDate(q.asked_date)}; answered ${shortDate(q.answered_date) || 'pending'}`;
+  row.appendChild(meta);
+
+  const actions = document.createElement('div');
+  actions.className = 'decision-actions';
+  const openCard = document.createElement('button');
+  openCard.className = 'btn btn-ghost btn-sm';
+  openCard.textContent = 'Open card';
+  openCard.onclick = () => openModal(q.card_id, null);
+  actions.appendChild(openCard);
+  if (!q.resolved) {
+    const openQuestion = document.createElement('button');
+    openQuestion.className = 'btn btn-primary btn-sm';
+    openQuestion.textContent = 'Resolve';
+    openQuestion.onclick = () => openOpenQuestionModal(q.card_id, q.question_id);
+    actions.appendChild(openQuestion);
+  }
+  row.appendChild(actions);
+  return row;
 }
 
 function refreshReadyBanner() {
@@ -2734,7 +2924,7 @@ async function answerOpenQuestion(cardId, questionId, choiceId, customText) {
     if (!r.ok) { alert('Answer failed: ' + (j.error || r.statusText)); return; }
     setSaveStatus('saved', j.resolved ? 'resolved' : 'awaiting interpretation');
     setTimeout(() => setSaveStatus('', ''), 1800);
-    await Promise.all([loadState(), loadOpenQuestions()]);
+    await Promise.all([loadState(), loadOpenQuestions(), loadDecisionRequests()]);
     closeOpenQuestionModal();
     if (document.getElementById('oq-sidebar').classList.contains('open')) renderOpenQuestionsSidebar();
   } catch (e) { setSaveStatus('', 'submit failed'); }
@@ -2772,7 +2962,7 @@ async function confirmInterpretationCore(cardId, questionId, confirmed, followUp
     if (!r.ok) { alert('Failed: ' + (j.error || r.statusText)); return; }
     setSaveStatus('saved', confirmed ? 'confirmed' : `follow-up ${j.follow_up_id || ''}`);
     setTimeout(() => setSaveStatus('', ''), 1800);
-    await Promise.all([loadState(), loadOpenQuestions()]);
+    await Promise.all([loadState(), loadOpenQuestions(), loadDecisionRequests()]);
     closeOpenQuestionModal();
     if (document.getElementById('oq-sidebar').classList.contains('open')) renderOpenQuestionsSidebar();
   } catch (e) { setSaveStatus('', 'submit failed'); }
@@ -3078,6 +3268,7 @@ Promise.all([
   loadBugs(),
   loadBriefing(),
   loadOpenQuestions(),
+  loadDecisionRequests(),
   loadPendingCompletions()
 ]).catch(err => {
   document.getElementById('board').innerHTML =

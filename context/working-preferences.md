@@ -15,6 +15,11 @@ Mike is the architect / designer. Claude is the intermediary / interpreter. Sess
 - Surface only architecturally significant decisions.
 - When Mike says "you make the calls" -- make them, log briefly, move on.
 
+## Decision responses
+
+- New sessions check Kanban Decision Requests before choosing work and read Mike's answered responses first.
+- If Mike's newest message gives a specific task, do that task; otherwise unresolved or newly answered decision requests are the first context check.
+
 ## Focus discipline
 
 - Stay on the critical task. Side asks queue rather than spawn elaborate sessions.

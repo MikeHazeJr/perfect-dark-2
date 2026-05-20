@@ -1,0 +1,13 @@
+{
+  "pd_kind": "head",
+  "pd_schema_version": 1,
+  "id": "base:head_mark2",
+  "headnum": 18,
+  "ismale": 1,
+  "unk00_01": 1,
+  "type": "HEADBODYTYPE_DEFAULT",
+  "height": 13,
+  "mesh": "FILE_CHEADMARK2",
+  "scale": 1,
+  "animscale": 1
+}
