@@ -12,6 +12,7 @@
 #   - PerfectDark.exe (game client, fully static -- no runtime DLLs required)
 #   - Updater.exe (standalone GUI updater; recovery path if client self-update breaks)
 #   - pd.ini (default config), put_your_rom_here.txt (BYOR onboarding text)
+#   - examples/modding/typed-pdxxx-basic (typed .pdxxx sample content)
 #   - data/<romid>/... (skeleton for first-launch ROM extraction; ships any
 #     pre-generated per-asset .pd<ext> seeds present in Build/data)
 #
@@ -599,6 +600,25 @@ if ($hasData) {
     }
 } else {
     Write-Host "  data/ -- NOT FOUND (skipped)" -ForegroundColor Yellow
+}
+
+# --- Modding examples ---
+#
+# Ship typed .pdxxx examples as editable sample content.  These are not
+# installed mods and are not authored .pdmod archives; .pdmod remains the
+# sharing / Public Mods / online transport wrapper produced from a folder.
+
+$examplesSource = Join-Path $ProjectRoot "examples\modding"
+if (Test-Path $examplesSource) {
+    $examplesDest = Join-Path $DistDir "examples\modding"
+    $examplesParent = Split-Path $examplesDest -Parent
+    if (-not (Test-Path $examplesParent)) {
+        New-Item -ItemType Directory -Path $examplesParent -Force | Out-Null
+    }
+    Copy-Item -Path $examplesSource -Destination $examplesDest -Recurse -Force
+    Write-Host "  examples/modding (typed .pdxxx samples)" -ForegroundColor Gray
+} else {
+    Write-Host "  examples/modding -- NOT FOUND (skipped)" -ForegroundColor Yellow
 }
 
 # --- put_your_rom_here.txt (B-322: replaces README.txt) ---

@@ -1273,6 +1273,32 @@ static int modmgrArchiveEntryHasForbiddenBinPayload(const char *name)
 	return 0;
 }
 
+static int modmgrArchiveEntryIsTypedPdAssetArchive(const char *name)
+{
+	if (!name) return 0;
+	static const char *suffixes[] = {
+		".pdwpn", ".pdhead", ".pdbody", ".pdarena", ".pdmesh", ".pdanim",
+		".pdsfx", ".pdvoice", ".pdsong", ".pdui", ".pdfont", ".pdlang",
+		".pdscenario", NULL
+	};
+	size_t n = strlen(name);
+	for (s32 i = 0; suffixes[i]; i++) {
+		size_t m = strlen(suffixes[i]);
+		if (m <= n) {
+			const char *tail = name + n - m;
+			s32 match = 1;
+			for (size_t j = 0; j < m; j++) {
+				if (tolower((u8)tail[j]) != tolower((u8)suffixes[i][j])) {
+					match = 0;
+					break;
+				}
+			}
+			if (match) return 1;
+		}
+	}
+	return 0;
+}
+
 static int modmgrArchiveFindForbiddenBinPayload(mod_archive_t *arc,
                                                  char *out_name,
                                                  s32 out_name_cap)
@@ -1282,14 +1308,33 @@ static int modmgrArchiveFindForbiddenBinPayload(mod_archive_t *arc,
 	s32 count = modArchiveGetEntryCount(arc);
 	for (s32 i = 0; i < count; i++) {
 		const char *name = modArchiveGetEntryName(arc, i);
-		if (!modmgrArchiveEntryHasForbiddenBinPayload(name)) {
-			continue;
+		if (modmgrArchiveEntryHasForbiddenBinPayload(name)) {
+			if (out_name && out_name_cap > 0) {
+				strncpy(out_name, name, out_name_cap - 1);
+				out_name[out_name_cap - 1] = '\0';
+			}
+			return 1;
 		}
-		if (out_name && out_name_cap > 0) {
-			strncpy(out_name, name, out_name_cap - 1);
-			out_name[out_name_cap - 1] = '\0';
+
+		if (modmgrArchiveEntryIsTypedPdAssetArchive(name)) {
+			u32 nested_size = 0;
+			void *nested = modArchiveExtractAlloc(arc, i, &nested_size);
+			if (!nested) {
+				continue;
+			}
+			char nested_bad[FS_MAXPATH + 1];
+			s32 has_nested_bin = modArchiveMemFindForbiddenBinPayload(
+				nested, nested_size, nested_bad, sizeof(nested_bad));
+			free(nested);
+			if (has_nested_bin) {
+				if (out_name && out_name_cap > 0) {
+					snprintf(out_name, out_name_cap, "%s::%s",
+						name, nested_bad);
+					out_name[out_name_cap - 1] = '\0';
+				}
+				return 1;
+			}
 		}
-		return 1;
 	}
 
 	return 0;

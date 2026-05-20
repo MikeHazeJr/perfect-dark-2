@@ -111,6 +111,25 @@ void *modArchiveExtractAlloc(mod_archive_t *arc, s32 idx, u32 *outSize);
 char *modArchiveReadManifest(mod_archive_t *arc, u32 *outSize);
 
 /**
+ * Extract one entry from a ZIP archive already loaded in memory. This is used
+ * for typed asset archives embedded inside a `.pdmod` transport archive, so
+ * callers can read `asset.pdhead::model.gltf` without extracting either
+ * archive to the mods folder.
+ *
+ * The returned buffer is allocated with malloc and must be freed by caller.
+ */
+void *modArchiveExtractMemAlloc(const void *archiveBytes, u32 archiveSize,
+                                const char *entryName, u32 *outSize);
+
+/**
+ * Return 1 if an in-memory ZIP archive contains any entry whose name includes
+ * a forbidden authored `.bin` payload segment. `outName` receives the first
+ * matching sanitized entry name when provided.
+ */
+s32 modArchiveMemFindForbiddenBinPayload(const void *archiveBytes, u32 archiveSize,
+                                         char *outName, u32 outNameCap);
+
+/**
  * Zip-level "comment" field from the EOCD record. Returns the static
  * archive-owned buffer (NUL-terminated). The defensive mirror per design
  * Section 4.5.5 lives here as a small JSON blob with name/creator/version.

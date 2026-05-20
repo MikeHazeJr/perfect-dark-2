@@ -443,6 +443,36 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .decision-status.needs_interpretation,.decision-status.needs_confirmation{background:#9a3412;color:#ffedd5}
 @media (max-width:900px){.decision-layout{grid-template-columns:1fr}}
 
+/* Memory Review tab */
+#panel-memory-review{background:#0f172a}
+.memory-summary{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.memory-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid #334155;border-radius:6px;background:#1e293b;color:#cbd5e1;font-size:0.73rem;font-weight:700}
+.memory-pill strong{color:#fef3c7}
+.memory-list{display:flex;flex-direction:column;gap:10px}
+.memory-row{background:#1e293b;border:1px solid #334155;border-left:4px solid #64748b;border-radius:6px;padding:11px 12px}
+.memory-row.keep{border-left-color:#22c55e}
+.memory-row.adjust{border-left-color:#f59e0b}
+.memory-row.remove{border-left-color:#ef4444}
+.memory-row-head{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:start;margin-bottom:9px}
+.memory-title{font-size:0.88rem;color:#f8fafc;font-weight:800;line-height:1.35}
+.memory-meta{font-size:0.66rem;color:#94a3b8;font-family:ui-monospace,Consolas,monospace;margin-top:3px}
+.memory-status{display:inline-block;padding:2px 7px;border-radius:999px;background:#334155;color:#cbd5e1;font-size:0.62rem;font-weight:800;text-transform:uppercase;letter-spacing:0.05em}
+.memory-status.keep{background:#14532d;color:#bbf7d0}
+.memory-status.adjust{background:#78350f;color:#fde68a}
+.memory-status.remove{background:#7f1d1d;color:#fecaca}
+.memory-actions{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px}
+.memory-choice{padding:5px 9px;border:1px solid #334155;border-radius:5px;background:#0f172a;color:#cbd5e1;font-size:0.72rem;font-weight:800;cursor:pointer}
+.memory-choice:hover{border-color:#60a5fa;color:#f8fafc}
+.memory-choice.active[data-status="keep"]{border-color:#22c55e;background:#14532d;color:#dcfce7}
+.memory-choice.active[data-status="adjust"]{border-color:#f59e0b;background:#78350f;color:#fef3c7}
+.memory-choice.active[data-status="remove"]{border-color:#ef4444;background:#7f1d1d;color:#fee2e2}
+.memory-note{width:100%;min-height:54px;resize:vertical;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-family:inherit;font-size:0.78rem;padding:7px 9px;margin-bottom:8px}
+.memory-note:focus{outline:none;border-color:#f59e0b}
+.memory-source{font-size:0.74rem;color:#cbd5e1}
+.memory-source summary{cursor:pointer;color:#93c5fd;font-weight:800;margin-bottom:7px}
+.memory-source pre{white-space:pre-wrap;overflow:auto;max-height:360px;background:#020617;border:1px solid #334155;border-radius:5px;color:#dbeafe;padding:10px;font-size:0.72rem;line-height:1.45}
+@media (max-width:760px){.memory-row-head{grid-template-columns:1fr}.memory-row-head .memory-status{justify-self:start}}
+
 /* Open-questions modal */
 #oq-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);display:none;align-items:center;justify-content:center;z-index:240;padding:16px}
 #oq-modal-overlay.show{display:flex}
@@ -492,6 +522,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
   <button class="tab-btn active" data-tab="kanban" onclick="switchTab('kanban')">Active Kanban</button>
   <button class="tab-btn" data-tab="bugs" onclick="switchTab('bugs')">Bug Tracker <span id="bugs-tab-count" style="opacity:0.7"></span></button>
   <button class="tab-btn" data-tab="decisions" onclick="switchTab('decisions')">Decision Requests <span id="decision-tab-count" style="opacity:0.7"></span></button>
+  <button class="tab-btn" data-tab="memory-review" onclick="switchTab('memory-review')">Memory Review <span id="memory-review-tab-count" style="opacity:0.7"></span></button>
   <button class="tab-btn" data-tab="daily-flow" onclick="switchTab('daily-flow')">Daily Flow <span id="daily-flow-tab-count" style="opacity:0.7"></span></button>
 </div>
 
@@ -596,6 +627,26 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
         <div id="decision-response-list"></div>
       </section>
     </div>
+  </div>
+
+  <div id="panel-memory-review" class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Memory Review</span>
+      <span class="panel-count" id="memory-review-count"></span>
+      <div class="panel-filters">
+        <select class="filter-sel" id="memory-review-filter" onchange="setMemoryReviewFilter(this.value)">
+          <option value="all">All</option>
+          <option value="unreviewed">Unreviewed</option>
+          <option value="keep">Keep</option>
+          <option value="adjust">Adjust</option>
+          <option value="remove">Remove</option>
+        </select>
+        <input class="filter-sel" id="memory-review-search" placeholder="Search" oninput="renderMemoryReviewTab()">
+        <button class="btn btn-ghost btn-sm" onclick="loadMemoryReview()">Refresh</button>
+      </div>
+    </div>
+    <div class="memory-summary" id="memory-review-summary"></div>
+    <div class="memory-list" id="memory-review-list"></div>
   </div>
 
   <aside id="parked-sidebar">
@@ -1725,8 +1776,11 @@ document.addEventListener('keydown', e => {
 let parkedData = null;
 let bugsData = null;
 let decisionRequestsData = null;
+let memoryReviewData = null;
 let parkedFilters = {pillar: '', rcType: '', staleOnly: false};
 let bugsFilters = {status: 'not-fixed', severity: ''};
+let memoryReviewFilter = 'all';
+const memoryReviewNoteTimers = {};
 let activeTab = 'kanban';
 let ctxCardId = null;
 let parkingCardId = null;
@@ -1768,6 +1822,7 @@ function switchTab(name) {
   for (const p of document.querySelectorAll('#main-area > .panel')) p.classList.toggle('active', p.id === 'panel-' + name);
   if (name === 'bugs') renderBugs();
   if (name === 'decisions') renderDecisionRequestsTab();
+  if (name === 'memory-review') renderMemoryReviewTab();
   if (name === 'daily-flow') renderDailyFlowTab();
 }
 
@@ -1796,6 +1851,16 @@ async function loadDecisionRequests() {
   } catch (e) { /* optional surface; silent fail */ }
 }
 
+async function loadMemoryReview() {
+  try {
+    const r = await fetch('/api/memory-review');
+    if (!r.ok) return;
+    memoryReviewData = await r.json();
+    refreshMemoryReviewTabCount();
+    if (activeTab === 'memory-review') renderMemoryReviewTab();
+  } catch (e) { /* optional surface; silent fail */ }
+}
+
 function refreshTabCounts() {
   if (parkedData) {
     const total = (parkedData.parked || []).length;
@@ -1821,6 +1886,30 @@ function refreshDecisionTabCount() {
   const answered = decisionRequestsData.answered_question_count || 0;
   badge.textContent = (open || answered) ? `(${open}/${answered})` : '';
   badge.title = `${open} unresolved, ${answered} answered`;
+}
+
+function memoryReviewCounts() {
+  const counts = {unreviewed: 0, keep: 0, adjust: 0, remove: 0};
+  const items = memoryReviewData ? (memoryReviewData.review_items || []) : [];
+  for (const item of items) {
+    const status = item.status || 'unreviewed';
+    counts[status] = (counts[status] || 0) + 1;
+  }
+  return {total: items.length, counts};
+}
+
+function refreshMemoryReviewTabCount() {
+  const badge = document.getElementById('memory-review-tab-count');
+  if (!badge || !memoryReviewData) return;
+  const summary = memoryReviewCounts();
+  const unreviewed = summary.counts.unreviewed || 0;
+  badge.textContent = summary.total ? `(${unreviewed}/${summary.total})` : '';
+  badge.title = `${unreviewed} unreviewed of ${summary.total}`;
+}
+
+function setMemoryReviewFilter(value) {
+  memoryReviewFilter = value || 'all';
+  renderMemoryReviewTab();
 }
 
 function decisionStatusLabel(status) {
@@ -1935,6 +2024,165 @@ function buildDecisionResponseRow(q) {
   }
   row.appendChild(actions);
   return row;
+}
+
+function memoryReviewStatusLabel(status) {
+  if (status === 'keep') return 'Keep';
+  if (status === 'adjust') return 'Adjust';
+  if (status === 'remove') return 'Remove';
+  return 'Unreviewed';
+}
+
+function renderMemoryReviewTab() {
+  const panelCount = document.getElementById('memory-review-count');
+  const summaryEl = document.getElementById('memory-review-summary');
+  const list = document.getElementById('memory-review-list');
+  const filterEl = document.getElementById('memory-review-filter');
+  const searchEl = document.getElementById('memory-review-search');
+  if (!summaryEl || !list) return;
+
+  if (!memoryReviewData) {
+    if (panelCount) panelCount.textContent = 'No memory data loaded';
+    summaryEl.innerHTML = '';
+    list.innerHTML = '<div class="empty-state">No memory review data is available.</div>';
+    return;
+  }
+
+  const summary = memoryReviewCounts();
+  const counts = summary.counts;
+  if (panelCount) panelCount.textContent = `${summary.total} memories, ${counts.unreviewed || 0} unreviewed`;
+  if (filterEl && filterEl.value !== memoryReviewFilter) filterEl.value = memoryReviewFilter;
+
+  summaryEl.innerHTML = [
+    `<span class="memory-pill"><strong>${counts.unreviewed || 0}</strong> unreviewed</span>`,
+    `<span class="memory-pill"><strong>${counts.keep || 0}</strong> keep</span>`,
+    `<span class="memory-pill"><strong>${counts.adjust || 0}</strong> adjust</span>`,
+    `<span class="memory-pill"><strong>${counts.remove || 0}</strong> remove</span>`
+  ].join('');
+
+  const search = (searchEl ? searchEl.value : '').trim().toLowerCase();
+  let items = memoryReviewData.review_items || [];
+  if (memoryReviewFilter !== 'all') {
+    items = items.filter(item => (item.status || 'unreviewed') === memoryReviewFilter);
+  }
+  if (search) {
+    items = items.filter(item => {
+      const haystack = `${item.id || ''} ${item.title || ''} ${item.source_text || ''} ${item.adjustment_note || ''}`.toLowerCase();
+      return haystack.includes(search);
+    });
+  }
+
+  list.innerHTML = '';
+  if (items.length === 0) {
+    list.innerHTML = '<div class="empty-state">No memories match this view.</div>';
+    return;
+  }
+  for (const item of items) list.appendChild(buildMemoryReviewRow(item));
+}
+
+function buildMemoryReviewRow(item) {
+  const status = item.status || 'unreviewed';
+  const row = document.createElement('div');
+  row.className = `memory-row ${escapeHtml(status)}`;
+
+  const head = document.createElement('div');
+  head.className = 'memory-row-head';
+  const titleWrap = document.createElement('div');
+  const title = document.createElement('div');
+  title.className = 'memory-title';
+  title.textContent = item.title || item.id || 'Untitled memory';
+  titleWrap.appendChild(title);
+  const meta = document.createElement('div');
+  meta.className = 'memory-meta';
+  meta.textContent = `${item.id || ''} | MEMORY.md:${item.line_start || '?'}-${item.line_end || '?'}`;
+  titleWrap.appendChild(meta);
+  head.appendChild(titleWrap);
+
+  const badge = document.createElement('span');
+  badge.className = `memory-status ${escapeHtml(status)}`;
+  badge.textContent = memoryReviewStatusLabel(status);
+  head.appendChild(badge);
+  row.appendChild(head);
+
+  const actions = document.createElement('div');
+  actions.className = 'memory-actions';
+  for (const nextStatus of ['keep', 'adjust', 'remove']) {
+    const btn = document.createElement('button');
+    btn.className = 'memory-choice' + (status === nextStatus ? ' active' : '');
+    btn.dataset.status = nextStatus;
+    btn.textContent = memoryReviewStatusLabel(nextStatus);
+    btn.onclick = () => setMemoryReviewStatus(item.id, nextStatus);
+    actions.appendChild(btn);
+  }
+  if (status !== 'unreviewed') {
+    const reset = document.createElement('button');
+    reset.className = 'memory-choice';
+    reset.dataset.status = 'unreviewed';
+    reset.textContent = 'Clear';
+    reset.onclick = () => setMemoryReviewStatus(item.id, 'unreviewed');
+    actions.appendChild(reset);
+  }
+  row.appendChild(actions);
+
+  const note = document.createElement('textarea');
+  note.className = 'memory-note';
+  note.placeholder = 'Adjustment note';
+  note.value = item.adjustment_note || '';
+  note.oninput = () => scheduleMemoryReviewNoteSave(item.id, note.value);
+  row.appendChild(note);
+
+  const details = document.createElement('details');
+  details.className = 'memory-source';
+  const summary = document.createElement('summary');
+  summary.textContent = 'Source memory';
+  details.appendChild(summary);
+  const pre = document.createElement('pre');
+  pre.textContent = item.source_text || '';
+  details.appendChild(pre);
+  row.appendChild(details);
+  return row;
+}
+
+function replaceMemoryReviewItem(updatedItem) {
+  if (!memoryReviewData || !updatedItem) return;
+  const items = memoryReviewData.review_items || [];
+  const idx = items.findIndex(item => item.id === updatedItem.id);
+  if (idx >= 0) items[idx] = updatedItem;
+}
+
+async function patchMemoryReviewItem(itemId, patch, rerender = true) {
+  setSaveStatus('saving', 'saving...');
+  try {
+    const r = await fetch(`/api/memory-review/${encodeURIComponent(itemId)}`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(patch)
+    });
+    const j = await r.json();
+    if (!r.ok) { alert('Memory review save failed: ' + (j.error || r.statusText)); return; }
+    replaceMemoryReviewItem(j.item);
+    if (j.summary && memoryReviewData) memoryReviewData.summary = j.summary;
+    refreshMemoryReviewTabCount();
+    setSaveStatus('saved', 'saved');
+    setTimeout(() => setSaveStatus('', ''), 1200);
+    if (rerender && activeTab === 'memory-review') renderMemoryReviewTab();
+  } catch (e) {
+    setSaveStatus('', 'save failed');
+  }
+}
+
+function setMemoryReviewStatus(itemId, status) {
+  patchMemoryReviewItem(itemId, {status});
+}
+
+function scheduleMemoryReviewNoteSave(itemId, note) {
+  if (memoryReviewNoteTimers[itemId]) clearTimeout(memoryReviewNoteTimers[itemId]);
+  const item = (memoryReviewData && memoryReviewData.review_items || []).find(i => i.id === itemId);
+  if (item) item.adjustment_note = note;
+  memoryReviewNoteTimers[itemId] = setTimeout(() => {
+    patchMemoryReviewItem(itemId, {adjustment_note: note}, false);
+    delete memoryReviewNoteTimers[itemId];
+  }, 500);
 }
 
 function refreshReadyBanner() {
@@ -3269,6 +3517,7 @@ Promise.all([
   loadBriefing(),
   loadOpenQuestions(),
   loadDecisionRequests(),
+  loadMemoryReview(),
   loadPendingCompletions()
 ]).catch(err => {
   document.getElementById('board').innerHTML =

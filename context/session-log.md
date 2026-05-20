@@ -1,5 +1,97 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-20-pdxxx-archive-repair`) - 2026-05-20 - pdxxx self-contained archive repair
+
+Mike corrected the c3811 archive contract: typed `*.pdxxx` files are not loose descriptors pointing at same-name folders. Each `.pdhead`, `.pdarena`, `.pdanim`, etc. must be a zip-openable asset archive containing its descriptor and authored source assets internally. `.pdmod` remains transport only.
+
+### Tracking
+
+- Added active Kanban card `c3812` with subtasks for contract correction, scanner/runtime nested archive support, packer/example archive generation, docs/UI wording, and validation.
+- Updated `context/tasks.md` and the modding pillar to supersede c3811's loose descriptor/sidecar wording with the self-contained typed asset archive contract.
+- Applied the Kanban memory review batch to `tools/kanban/memory-review.json`: 4 keep, 13 adjust, and 2 remove. Key corrections include `*.pdxxx` as per-asset archives, `.pdmod` as transport only, catalog as the single source of truth for asset references, and controller as a first-class citizen across every interaction surface. Follow-up correction: this is now applied to the displayed/rebuild source text too, not only adjustment notes, and `tools/kanban/memory-rebuild.md` exports the keep/adjust entries while excluding removed memories.
+
+### Current State
+
+Implementation is in progress. Next steps are to teach folder and `.pdmod` transport scanning to read typed asset archives directly, then replace the example files with actual zip-openable `.pdxxx` archives.
+
+---
+
+## Session (`main-checkout-2026-05-20-pdxxx-permanent-examples`) - 2026-05-20 - permanent typed pdxxx samples
+
+Continued Kanban `c3811` after Mike corrected the authoring split: typed `*.pdxxx` files are the content examples; `.pdmod` remains transport only.
+
+### Change
+
+- Added `examples/modding/README.md` and `examples/modding/typed-pdxxx-basic/` as a permanent modder-facing sample area outside the installed `mods/` tree.
+- The sample set includes `mod.json`, `heads/tri_head.pdhead` plus `model.gltf`, `arenas/tri_arena.pdarena` plus `geometry.obj` / `pads.ini` / `setup.ini`, and weapon/character `.pdanim` descriptors plus `animation.gltf` sidecars.
+- Added static coverage in `tests/test_mod_external_archive_static.cpp` proving the examples are typed `*.pdxxx` content units with external sidecars, not `.pdmod` authoring samples, and that the sample tree has no `.pdmod` archive or authored `.bin` files.
+- Added `tests/test_romextract_passd.cpp` coverage for the c3811 base-content split: startup validates/rebuilds base data through ROM verify, file/segment extraction, SHA-256 verify/re-extract, `DATA INTEGRITY`, and ROM release; base content is not treated as authored `.pdmod` examples.
+- Added Modding Hub discoverability in the Pack `.pdmod` tool: `Use Sample Folder` fills `examples/modding/typed-pdxxx-basic/` and `mods/typed-pdxxx-basic.pdmod`, while the UI text labels `.pdmod` as transport and typed files/sidecars as editable content.
+- Updated `devtools/release.ps1` to ship `examples/modding` in release packages.
+
+### Verification
+
+- `tools/kanban/state.json` JSON parse PASS.
+- Example tree scan PASS: no `.pdmod` or `.bin` files.
+- Scoped `git diff --check` PASS for touched tracked files.
+- `.\devtools\build-session.ps1 -Session pdxxxex -Target tests` PASS.
+- Direct focused test PASS: `[modding][pdxxx][examples][static][c3811]` 1 case / 95 assertions.
+- Direct broader mod-pipeline static selector PASS: `[modding][pdmod][static][c3809]` 13 cases / 498 assertions.
+- `.\devtools\build-session.ps1 -Session pdxxxex -Target all` PASS.
+- Direct base-content guard PASS: `[catalog][base-content][static][c3811]` 1 case / 23 assertions.
+- Direct Pass D self-heal selector PASS: `[catalog][passd]` 9 cases / 42 assertions.
+- `.\devtools\build-session.ps1 -Session pdxxxex -Target all` PASS after the base-content guard.
+- `devtools/release.ps1` parser PASS.
+- Direct release package guard PASS: `[release][layout][static][c3811]` 1 case / 11 assertions.
+- Direct typed-example/Hub guard PASS after Hub changes: `[modding][pdxxx][examples][static][c3811]` 2 cases / 103 assertions.
+- `.\devtools\build-session.ps1 -Session pdxxxex -Target all` PASS after the Hub/release packaging changes.
+
+### Status
+
+`c3811` is done. Typed examples are shipped and discoverable, `.pdmod` remains transport-only, and base content remains startup-validated/rebuildable instead of being treated as authored examples.
+
+---
+
+## Session (`main-checkout-2026-05-20-kanban-memory-review`) - 2026-05-20 - memory review Kanban tab
+
+Mike asked to put Codex's current memories into the new Kanban surface so he can mark each one keep, adjust, or remove before resetting and rebuilding memory.
+
+### Change
+
+- Seeded `tools/kanban/memory-review.json` from the 19 current `# Task Group:` sections in `C:\Users\mikeh\.codex\memories\MEMORY.md`.
+- Added a dedicated `Memory Review` top-level Kanban tab with summary counts, status filtering, search, keep/adjust/remove actions, adjustment notes, and expandable source text.
+- Added `/api/memory-review` plus `/api/memory-review/:id` PATCH support in `tools/kanban/server.py`, keeping this review workflow separate from `state.json`.
+- Left the actual Codex memory files untouched. This tab is the staging area Mike can revise before doing the reset/rebuild.
+
+### Verification
+
+- `python -m json.tool tools\kanban\memory-review.json` PASS.
+- `tools/kanban/state.json` JSON parse PASS.
+- `python -m py_compile tools\kanban\server.py tools\kanban_evaluator.py` PASS.
+- Inline `tools/kanban/index.html` script parse PASS.
+- Local API smoke PASS on a temporary server copy: `/api/memory-review` returned 19 items and `/api/memory-review/mem-001` PATCH updated status.
+- Scoped `git diff --check` PASS for the touched Kanban/context files.
+
+---
+
+## Session (`main-checkout-2026-05-20-modpipe-example-gap`) - 2026-05-20 - typed pdxxx examples gap
+
+Mike reported that he could not find `.pdmod` / `.pd*` archives with actually usable external files inside, only binary-looking output. He then re-clarified the intended split: typed `*.pdxxx` files are the actual content units; `.pdmod` is only the networking/Public Mods/online transport wrapper.
+
+### Findings
+
+- Repo `.pdmod` inventory currently includes `mods/base-ui.pdmod`, `mods/pd-modern-ui.pdmod`, `mods/bot-names.pdmod`, and `tools/smoke-verify/fixtures/test_smoke_skin.pdmod`.
+- Those archives contain zero authored `.bin` entries, which is correct, but they also contain no GLTF/OBJ/INI/TSV/audio/font asset payload examples. `base-ui` is theme JSON; the others are manifest-only.
+- Real external-format examples exist under `tests/fixtures/modpipe`: typed `.pdhead`, `.pdarena`, `.pdanim` descriptors plus `model.gltf`, `geometry.obj`, `pads.ini`, `setup.ini`, and `animation.gltf`.
+- The runtime smoke path wraps those fixtures into a real `.pdmod` transiently and validates VFS load, but that is transport validation. No permanent modder-facing typed `*.pdxxx` sample/export area is shipped.
+
+### Tracking
+
+- Added Kanban `c3811` as active: ship permanent typed `*.pdxxx` external-format examples, keep `.pdmod` to transport-only validation, and track base-content integrity validation/rebuild instead of base content as authored examples.
+- Updated `context/tasks.md` with the distinction between complete engine/packer support and the remaining sample/export/discoverability gap.
+
+---
+
 ## Session (`main-checkout-2026-05-20-publicmods-request-enable`) - 2026-05-20 - Public Mods request-download enable policy
 
 Mike clarified the request-download trust behavior: downloads from friends should hot-enable by default; downloads from non-friends should ask after download whether to enable.

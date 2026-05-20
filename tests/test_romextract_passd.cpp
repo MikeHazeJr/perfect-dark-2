@@ -208,3 +208,51 @@ TEST_CASE("passd: main.c wires drain (post-gameInit) + report (post-verify)",
 	REQUIRE(releasePos < drainPos);
 	REQUIRE(drainPos < mainProcPos);
 }
+
+TEST_CASE("c3811: base content validates and rebuilds at startup",
+          "[catalog][base-content][static][c3811]") {
+	const std::string main = readSourceFile("port/src/main.c");
+	const std::string extract = readSourceFile("port/src/romextract.c");
+	const std::string examples = readSourceFile("examples/modding/README.md");
+	REQUIRE(!main.empty());
+	REQUIRE(!extract.empty());
+	REQUIRE(!examples.empty());
+
+	const std::size_t romVerifyPos =
+		main.find("catalogCacheVerifyRom(g_RomName, NULL);");
+	const std::size_t extractFilesPos = main.find("romExtractAllFiles();");
+	const std::size_t verifyFilesPos = main.find("romExtractVerifyAll();");
+	const std::size_t extractSegsPos = main.find("romExtractAllSegments();");
+	const std::size_t verifySegsPos = main.find("romExtractVerifyAllSegments();");
+	const std::size_t reportPos =
+		main.find("romExtractEmitBootIntegrityReport();");
+	const std::size_t releasePos = main.find("romdataReleaseRom();");
+
+	REQUIRE(romVerifyPos != std::string::npos);
+	REQUIRE(extractFilesPos != std::string::npos);
+	REQUIRE(verifyFilesPos != std::string::npos);
+	REQUIRE(extractSegsPos != std::string::npos);
+	REQUIRE(verifySegsPos != std::string::npos);
+	REQUIRE(reportPos != std::string::npos);
+	REQUIRE(releasePos != std::string::npos);
+
+	REQUIRE(romVerifyPos < extractFilesPos);
+	REQUIRE(extractFilesPos < verifyFilesPos);
+	REQUIRE(verifyFilesPos < extractSegsPos);
+	REQUIRE(extractSegsPos < verifySegsPos);
+	REQUIRE(verifySegsPos < reportPos);
+	REQUIRE(reportPos < releasePos);
+
+	REQUIRE(extract.find("%s.sha256") != std::string::npos);
+	REQUIRE(extract.find("quarantining + re-extracting") != std::string::npos);
+	REQUIRE(extract.find("DATA INTEGRITY: %d validated, %d re-extracted, "
+	                     "%d unrecoverable") != std::string::npos);
+	REQUIRE(extract.find("data/_quarantine/%s") != std::string::npos);
+
+	REQUIRE(examples.find("typed `*.pdxxx` content files as the authoring surface") !=
+	        std::string::npos);
+	REQUIRE(examples.find("`.pdmod` is only the transport wrapper") !=
+	        std::string::npos);
+	REQUIRE(examples.find("do not add authored `*.bin` payloads") !=
+	        std::string::npos);
+}

@@ -81,6 +81,33 @@ TEST_CASE("release package keeps one ROM instruction file and excludes root READ
 	REQUIRE(release.find("Set-Content -LiteralPath $readmePath") != std::string::npos);
 }
 
+TEST_CASE("release package includes typed pdxxx modding examples",
+          "[release][layout][static][c3811]")
+{
+	const std::string release = readSourceFile("devtools/release.ps1");
+	const std::string examples = readSourceFile("examples/modding/README.md");
+	const std::string sample = readSourceFile(
+		"examples/modding/typed-pdxxx-basic/README.md");
+	REQUIRE(!release.empty());
+	REQUIRE(!examples.empty());
+	REQUIRE(!sample.empty());
+
+	REQUIRE(release.find("examples/modding/typed-pdxxx-basic") != std::string::npos);
+	REQUIRE(release.find("examples\\modding") != std::string::npos);
+	REQUIRE(release.find("typed .pdxxx samples") != std::string::npos);
+	REQUIRE(release.find("Copy-Item -Path $examplesSource -Destination $examplesDest -Recurse -Force") !=
+	        std::string::npos);
+
+	REQUIRE(examples.find("typed `*.pdxxx` content files as the authoring surface") !=
+	        std::string::npos);
+	REQUIRE(examples.find("`.pdmod` is only the transport wrapper") !=
+	        std::string::npos);
+	REQUIRE(sample.find("The content units are the typed `*.pdxxx` files") !=
+	        std::string::npos);
+	REQUIRE(sample.find("`.pdmod` is not the authoring format") !=
+	        std::string::npos);
+}
+
 TEST_CASE("game client logs are rooted under logs game client",
           "[logging][layout][static][b349]")
 {

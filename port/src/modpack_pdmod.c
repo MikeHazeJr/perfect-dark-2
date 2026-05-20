@@ -317,6 +317,24 @@ static asset_type_e typedPdContentTypeForPath(const char *path)
 	return ASSET_NONE;
 }
 
+static const char *typedPdArchiveDescriptorLeaf(const char *path)
+{
+	if (pathEndsWithNoCase(path, ".pdwpn"))      return "weapon.ini";
+	if (pathEndsWithNoCase(path, ".pdhead"))     return "head.ini";
+	if (pathEndsWithNoCase(path, ".pdbody"))     return "body.ini";
+	if (pathEndsWithNoCase(path, ".pdarena"))    return "arena.ini";
+	if (pathEndsWithNoCase(path, ".pdmesh"))     return "model.ini";
+	if (pathEndsWithNoCase(path, ".pdanim"))     return "animation.ini";
+	if (pathEndsWithNoCase(path, ".pdsfx"))      return "sound.ini";
+	if (pathEndsWithNoCase(path, ".pdvoice"))    return "voice.ini";
+	if (pathEndsWithNoCase(path, ".pdsong"))     return "music.ini";
+	if (pathEndsWithNoCase(path, ".pdui"))       return "ui.ini";
+	if (pathEndsWithNoCase(path, ".pdfont"))     return "font.ini";
+	if (pathEndsWithNoCase(path, ".pdlang"))     return "lang.ini";
+	if (pathEndsWithNoCase(path, ".pdscenario")) return "scenario.ini";
+	return NULL;
+}
+
 static void descriptorStemBaseRel(const char *srcFolder, const char *descriptorRel,
                                   char *out, size_t outsz)
 {
@@ -552,6 +570,44 @@ static s32 validateReferencedPath(const char *srcFolder, const char *descriptorR
 	return MODPACK_PDMOD_OK;
 }
 
+static s32 validateArchiveReferencedPath(mod_archive_t *arc,
+                                         const char *descriptorRel,
+                                         const char *key,
+                                         const char *value,
+                                         s32 required)
+{
+	if (!value || !value[0]) {
+		if (required) {
+			pdmodSetLastError("%s is missing required internal archive setting %s",
+				descriptorRel ? descriptorRel : "(descriptor)",
+				key ? key : "(source)");
+			return MODPACK_PDMOD_ERR_LAYOUT;
+		}
+		return MODPACK_PDMOD_OK;
+	}
+
+	if (!relativeSourcePathIsSafe(value) || strstr(value, "::")) {
+		pdmodSetLastError("%s uses unsafe internal archive path for %s: %s",
+			descriptorRel ? descriptorRel : "(descriptor)",
+			key ? key : "(source)", value);
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
+	if (entryHasForbiddenBinPayload(value)) {
+		pdmodSetLastError("%s points at forbidden authored .bin payload for %s: %s",
+			descriptorRel ? descriptorRel : "(descriptor)",
+			key ? key : "(source)", value);
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
+	if (modArchiveFindEntry(arc, value) < 0) {
+		pdmodSetLastError("%s references missing internal archive file for %s: %s",
+			descriptorRel ? descriptorRel : "(descriptor)",
+			key ? key : "(source)", value);
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
+
+	return MODPACK_PDMOD_OK;
+}
+
 static const char *iniFirstValueForKeys(const ini_section_t *ini,
                                         const char *const *keys, s32 keyCount,
                                         const char **outKey)
@@ -608,6 +664,41 @@ static s32 validateDescriptorSources(const char *srcFolder, const char *descript
 	return MODPACK_PDMOD_OK;
 }
 
+static s32 validateArchiveDescriptorSources(mod_archive_t *arc,
+                                            const ini_section_t *ini,
+                                            const char *descriptorRel,
+                                            const char *const *requiredKeys,
+                                            s32 requiredKeyCount,
+                                            const char *const *optionalKeys,
+                                            s32 optionalKeyCount)
+{
+	const char *key = NULL;
+	const char *value = iniFirstValueForKeys(ini, requiredKeys,
+		requiredKeyCount, &key);
+	s32 r = validateArchiveReferencedPath(arc, descriptorRel, key, value,
+		requiredKeyCount > 0);
+	if (r != MODPACK_PDMOD_OK) {
+		return r;
+	}
+
+	for (s32 i = 0; i < optionalKeyCount; i++) {
+		if (!optionalKeys[i] || !optionalKeys[i][0]) {
+			continue;
+		}
+		value = iniGet(ini, optionalKeys[i], "");
+		if (!value[0]) {
+			continue;
+		}
+		r = validateArchiveReferencedPath(arc, descriptorRel,
+			optionalKeys[i], value, 0);
+		if (r != MODPACK_PDMOD_OK) {
+			return r;
+		}
+	}
+
+	return MODPACK_PDMOD_OK;
+}
+
 static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *descriptorRel)
 {
 	asset_type_e type = typedPdContentTypeForPath(descriptorRel);
@@ -636,45 +727,172 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 		"props_file", "objectives_file", "pads_file", "setup_file"
 	};
 
+	char descriptorAbs[FS_MAXPATH + 1];
+	pathJoin(descriptorAbs, sizeof(descriptorAbs), srcFolder, descriptorRel);
+
+	ini_section_t archiveIni;
+	mod_archive_t *typedArchive = NULL;
+	if (!iniParse(descriptorAbs, &archiveIni)) {
+		typedArchive = modArchiveOpen(descriptorAbs);
+		if (typedArchive) {
+			for (s32 i = 0; i < modArchiveGetEntryCount(typedArchive); i++) {
+				const char *entry = modArchiveGetEntryName(typedArchive, i);
+				if (entryHasForbiddenBinPayload(entry)) {
+					pdmodSetLastError("%s contains forbidden authored .bin payload: %s",
+						descriptorRel, entry ? entry : "(unknown)");
+					modArchiveClose(typedArchive);
+					return MODPACK_PDMOD_ERR_LAYOUT;
+				}
+			}
+
+			const char *leaf = typedPdArchiveDescriptorLeaf(descriptorRel);
+			s32 idx = leaf ? modArchiveFindEntry(typedArchive, leaf) : -1;
+			if (idx < 0 && type == ASSET_MODEL) {
+				idx = modArchiveFindEntry(typedArchive, "mesh.ini");
+			}
+			if (idx < 0) {
+				pdmodSetLastError("%s is missing its internal descriptor %s",
+					descriptorRel, leaf ? leaf : "(descriptor)");
+				modArchiveClose(typedArchive);
+				return MODPACK_PDMOD_ERR_LAYOUT;
+			}
+
+			u32 iniSize = 0;
+			char *iniBytes = (char *)modArchiveExtractAlloc(typedArchive,
+				idx, &iniSize);
+			if (!iniBytes) {
+				pdmodSetLastError("%s internal descriptor could not be read",
+					descriptorRel);
+				modArchiveClose(typedArchive);
+				return MODPACK_PDMOD_ERR_LAYOUT;
+			}
+			s32 parsed = iniParseBuffer(leaf ? leaf : descriptorRel,
+				iniBytes, iniSize, &archiveIni);
+			free(iniBytes);
+			if (!parsed) {
+				pdmodSetLastError("%s internal descriptor is malformed",
+					descriptorRel);
+				modArchiveClose(typedArchive);
+				return MODPACK_PDMOD_ERR_LAYOUT;
+			}
+		} else {
+			/* Legacy JSON .pd* files are still accepted by the older walker
+			 * and parser paths. The new archive contract is enforced for
+			 * zip-openable typed packages, examples, and generated packs. */
+			return MODPACK_PDMOD_OK;
+		}
+	}
+
+	ini_section_t *archiveIniPtr = typedArchive ? &archiveIni : NULL;
+
 	switch (type) {
 	case ASSET_WEAPON:
 	case ASSET_HEAD:
 	case ASSET_BODY:
 	case ASSET_MODEL:
+		if (typedArchive) {
+			s32 r = validateArchiveDescriptorSources(typedArchive,
+				archiveIniPtr, descriptorRel, modelKeys,
+				(s32)(sizeof(modelKeys) / sizeof(modelKeys[0])),
+				NULL, 0);
+			modArchiveClose(typedArchive);
+			return r;
+		}
 		return validateDescriptorSources(srcFolder, descriptorRel,
 			modelKeys, (s32)(sizeof(modelKeys) / sizeof(modelKeys[0])),
 			NULL, 0);
 	case ASSET_ARENA:
+		if (typedArchive) {
+			s32 r = validateArchiveDescriptorSources(typedArchive,
+				archiveIniPtr, descriptorRel, arenaKeys,
+				(s32)(sizeof(arenaKeys) / sizeof(arenaKeys[0])),
+				mapOptionalKeys,
+				(s32)(sizeof(mapOptionalKeys) / sizeof(mapOptionalKeys[0])));
+			modArchiveClose(typedArchive);
+			return r;
+		}
 		return validateDescriptorSources(srcFolder, descriptorRel,
 			arenaKeys, (s32)(sizeof(arenaKeys) / sizeof(arenaKeys[0])),
 			mapOptionalKeys, (s32)(sizeof(mapOptionalKeys) / sizeof(mapOptionalKeys[0])));
 	case ASSET_GAMEMODE:
+		if (typedArchive) {
+			s32 r = validateArchiveDescriptorSources(typedArchive,
+				archiveIniPtr, descriptorRel, scenarioKeys,
+				(s32)(sizeof(scenarioKeys) / sizeof(scenarioKeys[0])),
+				scenarioOptionalKeys,
+				(s32)(sizeof(scenarioOptionalKeys) / sizeof(scenarioOptionalKeys[0])));
+			modArchiveClose(typedArchive);
+			return r;
+		}
 		return validateDescriptorSources(srcFolder, descriptorRel,
 			scenarioKeys, (s32)(sizeof(scenarioKeys) / sizeof(scenarioKeys[0])),
 			scenarioOptionalKeys,
 			(s32)(sizeof(scenarioOptionalKeys) / sizeof(scenarioOptionalKeys[0])));
 	case ASSET_ANIMATION:
+		if (typedArchive) {
+			s32 r = validateArchiveDescriptorSources(typedArchive,
+				archiveIniPtr, descriptorRel, animationKeys,
+				(s32)(sizeof(animationKeys) / sizeof(animationKeys[0])),
+				NULL, 0);
+			modArchiveClose(typedArchive);
+			return r;
+		}
 		return validateDescriptorSources(srcFolder, descriptorRel,
 			animationKeys, (s32)(sizeof(animationKeys) / sizeof(animationKeys[0])),
 			NULL, 0);
 	case ASSET_AUDIO:
+		if (typedArchive) {
+			s32 r = validateArchiveDescriptorSources(typedArchive,
+				archiveIniPtr, descriptorRel, audioKeys,
+				(s32)(sizeof(audioKeys) / sizeof(audioKeys[0])),
+				NULL, 0);
+			modArchiveClose(typedArchive);
+			return r;
+		}
 		return validateDescriptorSources(srcFolder, descriptorRel,
 			audioKeys, (s32)(sizeof(audioKeys) / sizeof(audioKeys[0])),
 			NULL, 0);
 	case ASSET_UI:
 		if (pathEndsWithNoCase(descriptorRel, ".pdfont")) {
+			if (typedArchive) {
+				s32 r = validateArchiveDescriptorSources(typedArchive,
+					archiveIniPtr, descriptorRel, fontKeys,
+					(s32)(sizeof(fontKeys) / sizeof(fontKeys[0])),
+					NULL, 0);
+				modArchiveClose(typedArchive);
+				return r;
+			}
 			return validateDescriptorSources(srcFolder, descriptorRel,
 				fontKeys, (s32)(sizeof(fontKeys) / sizeof(fontKeys[0])),
 				NULL, 0);
+		}
+		if (typedArchive) {
+			s32 r = validateArchiveDescriptorSources(typedArchive,
+				archiveIniPtr, descriptorRel, uiKeys,
+				(s32)(sizeof(uiKeys) / sizeof(uiKeys[0])),
+				NULL, 0);
+			modArchiveClose(typedArchive);
+			return r;
 		}
 		return validateDescriptorSources(srcFolder, descriptorRel,
 			uiKeys, (s32)(sizeof(uiKeys) / sizeof(uiKeys[0])),
 			NULL, 0);
 	case ASSET_LANG:
+		if (typedArchive) {
+			s32 r = validateArchiveDescriptorSources(typedArchive,
+				archiveIniPtr, descriptorRel, langKeys,
+				(s32)(sizeof(langKeys) / sizeof(langKeys[0])),
+				NULL, 0);
+			modArchiveClose(typedArchive);
+			return r;
+		}
 		return validateDescriptorSources(srcFolder, descriptorRel,
 			langKeys, (s32)(sizeof(langKeys) / sizeof(langKeys[0])),
 			NULL, 0);
 	default:
+		if (typedArchive) {
+			modArchiveClose(typedArchive);
+		}
 		return MODPACK_PDMOD_OK;
 	}
 }
@@ -921,6 +1139,15 @@ s32 modpackPdmodWriteSingle(const char *out_path,
 			pdmodSetLastError("Authored .bin files are not allowed in mod content or .pdmod transport archives: %s",
 				e->entry_name);
 			return MODPACK_PDMOD_ERR_LAYOUT;
+		}
+		if (typedPdContentTypeForPath(e->entry_name) != ASSET_NONE && e->data && e->len > 0) {
+			char badNested[FS_MAXPATH + 1];
+			if (modArchiveMemFindForbiddenBinPayload(e->data, e->len,
+					badNested, sizeof(badNested))) {
+				pdmodSetLastError("Authored .bin files are not allowed inside typed asset archives: %s::%s",
+					e->entry_name, badNested);
+				return MODPACK_PDMOD_ERR_LAYOUT;
+			}
 		}
 	}
 

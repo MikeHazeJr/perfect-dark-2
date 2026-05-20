@@ -8,6 +8,8 @@ Serves the dev-window UI at / and provides these API endpoints:
   /api/parked             GET  POST            parked.json (tools/kanban/parked.json)
   /api/bugs               GET  POST            bug state (tools/bugs/state.json)
   /api/briefing           GET                  daily-flow briefing (tools/kanban/daily-briefing.json)
+  /api/memory-review      GET  POST            memory review state (tools/kanban/memory-review.json)
+  /api/memory-review/:id  PATCH                update one memory review item status/note
 
   /api/park               POST                 park a kanban card by id + resume condition
   /api/unpark             POST                 restore a parked entry to kanban
@@ -60,6 +62,7 @@ STATE_PATH = BASE / "state.json"
 PARKED_PATH = BASE / "parked.json"
 BUGS_PATH = REPO_ROOT / "tools" / "bugs" / "state.json"
 BRIEFING_PATH = BASE / "daily-briefing.json"
+MEMORY_REVIEW_PATH = BASE / "memory-review.json"
 INDEX_PATH = BASE / "index.html"
 
 IDLE_TIMEOUT_S = max(1, int(os.environ.get("KANBAN_IDLE_TIMEOUT_S", "15")))
@@ -139,6 +142,53 @@ def write_json_atomic(path: pathlib.Path, body: bytes) -> str:
     tmp.write_text(serialized, encoding="utf-8")
     os.replace(tmp, path)
     return serialized
+
+
+def _default_memory_review():
+    return {
+        "schema_version": 1,
+        "semantic_version": "1.0.0",
+        "source_path": r"C:\Users\mikeh\.codex\memories\MEMORY.md",
+        "source_generated_from": "Task Group sections in MEMORY.md",
+        "generated_at": None,
+        "review_statuses": ["unreviewed", "keep", "adjust", "remove"],
+        "review_items": [],
+    }
+
+
+def _load_memory_review():
+    if not MEMORY_REVIEW_PATH.exists():
+        return _default_memory_review()
+    data = json.loads(read_text(MEMORY_REVIEW_PATH))
+    data.setdefault("review_statuses", ["unreviewed", "keep", "adjust", "remove"])
+    data.setdefault("review_items", [])
+    return data
+
+
+def _save_memory_review_atomic(data):
+    serialized = json.dumps(data, indent=2, ensure_ascii=True)
+    tmp = MEMORY_REVIEW_PATH.with_suffix(MEMORY_REVIEW_PATH.suffix + ".tmp")
+    tmp.write_text(serialized, encoding="utf-8")
+    os.replace(tmp, MEMORY_REVIEW_PATH)
+    return serialized
+
+
+def _memory_review_summary(data):
+    counts = {status: 0 for status in data.get("review_statuses", [])}
+    for item in data.get("review_items", []):
+        status = item.get("status") or "unreviewed"
+        counts[status] = counts.get(status, 0) + 1
+    return {
+        "total": len(data.get("review_items", [])),
+        "counts": counts,
+    }
+
+
+def _find_memory_review_item(data, item_id):
+    for item in data.get("review_items", []):
+        if item.get("id") == item_id:
+            return item
+    return None
 
 
 # ---------- decision-request mechanism helpers (c121) ----------
@@ -328,6 +378,12 @@ class Handler(BaseHTTPRequestHandler):
             self.reply_text(200, read_text(BRIEFING_PATH).encode("utf-8"), content_type="application/json; charset=utf-8")
             return
 
+        if self.path == "/api/memory-review":
+            data = _load_memory_review()
+            data["summary"] = _memory_review_summary(data)
+            self.reply_json(200, data)
+            return
+
         if self.path == "/api/open-questions":
             data = _load_state()
             questions = []
@@ -454,6 +510,13 @@ class Handler(BaseHTTPRequestHandler):
                 written = write_json_atomic(BUGS_PATH, self.read_body())
                 print(f"[kanban] bugs/state.json written ({len(written)} bytes)")
                 self.reply_json(200, {"ok": True})
+                return
+
+            if self.path == "/api/memory-review":
+                data = json.loads(self.read_body() or b"{}")
+                written = _save_memory_review_atomic(data)
+                print(f"[kanban] memory-review.json written ({len(written)} bytes)")
+                self.reply_json(200, {"ok": True, "summary": _memory_review_summary(data)})
                 return
 
             if self.path == "/api/park":
@@ -949,6 +1012,34 @@ class Handler(BaseHTTPRequestHandler):
             self.reply_json(400, {"error": str(exc)})
 
     def do_PATCH(self):
+        if self.path.startswith("/api/memory-review/"):
+            item_id = self.path[len("/api/memory-review/"):]
+            try:
+                patch = json.loads(self.read_body() or b"{}")
+                data = _load_memory_review()
+                item = _find_memory_review_item(data, item_id)
+                if item is None:
+                    self.reply_json(404, {"error": "memory review item not found"})
+                    return
+                allowed_statuses = set(data.get("review_statuses", ["unreviewed", "keep", "adjust", "remove"]))
+                if "status" in patch:
+                    status = patch.get("status")
+                    if status not in allowed_statuses:
+                        self.reply_json(400, {"error": f"invalid status {status!r}"})
+                        return
+                    item["status"] = status
+                    item["reviewed_at"] = None if status == "unreviewed" else _utcnow_iso()
+                if "adjustment_note" in patch:
+                    item["adjustment_note"] = patch.get("adjustment_note") or ""
+                item["updated_at"] = _utcnow_iso()
+                _save_memory_review_atomic(data)
+                print(f"[kanban] memory review {item_id} patched")
+                self.reply_json(200, {"ok": True, "item": item, "summary": _memory_review_summary(data)})
+            except Exception as exc:
+                print(f"[kanban] memory-review patch error: {exc}", file=sys.stderr)
+                self.reply_json(400, {"error": str(exc)})
+            return
+
         if self.path.startswith("/api/cards/"):
             card_id = self.path[len("/api/cards/"):]
             try:

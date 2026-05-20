@@ -1286,6 +1286,23 @@ static void renderPackTool(float contentW, float contentH, float scale)
         ImGui::TextDisabled("Output");
     }
 
+    ImGui::TextDisabled("Typed .pdxxx samples: examples/modding/typed-pdxxx-basic/");
+    ImGui::SameLine();
+    if (PdButton("Use Sample Folder", ImVec2(150.0f * scale, 0.0f))) {
+        snprintf(s_PdmodSrcFolder, sizeof(s_PdmodSrcFolder),
+                 "examples/modding/typed-pdxxx-basic/");
+        snprintf(s_PdmodOutPath, sizeof(s_PdmodOutPath),
+                 "mods/typed-pdxxx-basic.pdmod");
+        snprintf(s_PdmodStatusMsg, sizeof(s_PdmodStatusMsg),
+                 "Sample selected. Edit .pdxxx files first; pack .pdmod only for transport.");
+        s_PdmodStatusOk = true;
+    }
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + contentW);
+    ImGui::TextWrapped(".pdmod output is for sharing, Public Mods, or online delivery; the editable content is the typed files and sidecars.");
+    ImGui::PopTextWrapPos();
+    ImGui::PopStyleColor();
+
     {
         bool canPack = (s_PdmodSrcFolder[0] != '\0') && (s_PdmodOutPath[0] != '\0');
         float btnW = 140.0f * scale;

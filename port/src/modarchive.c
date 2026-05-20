@@ -638,6 +638,269 @@ char *modArchiveReadManifest(mod_archive_t *arc, u32 *outSize)
 	return out;
 }
 
+/* -------------------------------------------------------- Memory extraction */
+
+typedef struct mod_archive_mem_entry {
+	u32 size_compressed;
+	u32 size_uncompressed;
+	u32 crc32;
+	u32 lfh_offset;
+	u16 method;
+} mod_archive_mem_entry_t;
+
+static s64 findEocdOffsetMem(const u8 *bytes, u32 size)
+{
+	if (!bytes || size < EOCD_MIN_SIZE) {
+		setError(MODARCHIVE_ERR_FORMAT);
+		return -1;
+	}
+
+	u32 scanLen = (size < EOCD_SCAN_MAX) ? size : EOCD_SCAN_MAX;
+	u32 scanStart = size - scanLen;
+
+	for (s64 i = (s64)scanLen - EOCD_MIN_SIZE; i >= 0; i--) {
+		const u8 *p = bytes + scanStart + i;
+		if (readU32LE(p) != EOCD_SIG) {
+			continue;
+		}
+		u16 commentLen = readU16LE(&p[20]);
+		if ((u32)i + EOCD_MIN_SIZE + commentLen == scanLen) {
+			return (s64)scanStart + i;
+		}
+	}
+
+	setError(MODARCHIVE_ERR_FORMAT);
+	return -1;
+}
+
+static s64 lfhDataOffsetMem(const u8 *bytes, u32 size, u32 lfhOffset)
+{
+	if (!bytes || lfhOffset + 30 > size) return -1;
+	const u8 *lfh = bytes + lfhOffset;
+	if (readU32LE(lfh) != LFH_SIG) return -1;
+	u16 nameLen  = readU16LE(&lfh[26]);
+	u16 extraLen = readU16LE(&lfh[28]);
+	u32 dataOff = lfhOffset + 30u + (u32)nameLen + (u32)extraLen;
+	return (dataOff <= size) ? (s64)dataOff : -1;
+}
+
+static s32 memEntryNameHasForbiddenBinPayload(const char *name)
+{
+	if (!name) return 0;
+	for (const char *p = name; *p; p++) {
+		if (p[0] != '.') continue;
+		if ((p[1] == 'b' || p[1] == 'B') &&
+		    (p[2] == 'i' || p[2] == 'I') &&
+		    (p[3] == 'n' || p[3] == 'N') &&
+		    (p[4] == '\0' || p[4] == '.' || p[4] == '/')) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static s32 walkMemCentralDirectory(const void *archiveBytes, u32 archiveSize,
+                                   const char *targetName,
+                                   mod_archive_mem_entry_t *outEntry,
+                                   char *outForbidden, u32 outForbiddenCap)
+{
+	const u8 *bytes = (const u8 *)archiveBytes;
+	if (!bytes || archiveSize < EOCD_MIN_SIZE) {
+		setError(MODARCHIVE_ERR_FORMAT);
+		return 0;
+	}
+
+	s64 eocdOffset = findEocdOffsetMem(bytes, archiveSize);
+	if (eocdOffset < 0) {
+		return 0;
+	}
+
+	const u8 *eocd = bytes + eocdOffset;
+	u16 totalEntries = readU16LE(&eocd[10]);
+	u32 cdSize       = readU32LE(&eocd[12]);
+	u32 cdOffset     = readU32LE(&eocd[16]);
+
+	if (totalEntries == 0xFFFF || cdSize == 0xFFFFFFFFu || cdOffset == 0xFFFFFFFFu) {
+		setError(MODARCHIVE_ERR_LIMIT);
+		return 0;
+	}
+	if (cdOffset > archiveSize || cdSize > archiveSize - cdOffset) {
+		setError(MODARCHIVE_ERR_FORMAT);
+		return 0;
+	}
+
+	u32 walked = 0;
+	u32 foundTarget = 0;
+	const u8 *cd = bytes + cdOffset;
+	while (walked + 46 <= cdSize) {
+		const u8 *p = cd + walked;
+		if (readU32LE(p) != CDH_SIG) {
+			break;
+		}
+
+		u16 flags     = readU16LE(&p[8]);
+		u16 method    = readU16LE(&p[10]);
+		u32 crc       = readU32LE(&p[16]);
+		u32 csize     = readU32LE(&p[20]);
+		u32 usize     = readU32LE(&p[24]);
+		u16 nameLen   = readU16LE(&p[28]);
+		u16 extraLen  = readU16LE(&p[30]);
+		u16 cmtLen    = readU16LE(&p[32]);
+		u32 lfhOffset = readU32LE(&p[42]);
+		u32 recordLen = 46u + (u32)nameLen + (u32)extraLen + (u32)cmtLen;
+		if (walked + recordLen > cdSize) {
+			break;
+		}
+
+		char *name = (char *)malloc((size_t)nameLen + 1);
+		if (!name) {
+			setError(MODARCHIVE_ERR_MEM);
+			return 0;
+		}
+		memcpy(name, &p[46], nameLen);
+		name[nameLen] = '\0';
+		s32 safe = sanitiseEntryName(name, nameLen);
+
+		if (safe && outForbidden && outForbiddenCap > 0
+				&& memEntryNameHasForbiddenBinPayload(name)) {
+			strncpy(outForbidden, name, outForbiddenCap - 1);
+			outForbidden[outForbiddenCap - 1] = '\0';
+			free(name);
+			setError(MODARCHIVE_OK);
+			return 1;
+		}
+
+		if (safe && targetName && strcmp(name, targetName) == 0) {
+			if ((flags & ZIP_FLAG_ENCRYPTED) ||
+			    method == 0xFFFF ||
+			    (method != COMPRESSION_STORED && method != COMPRESSION_DEFLATED) ||
+			    csize == 0xFFFFFFFFu || usize == 0xFFFFFFFFu ||
+			    lfhOffset == 0xFFFFFFFFu || lfhOffset >= archiveSize) {
+				free(name);
+				setError(MODARCHIVE_ERR_FORMAT);
+				return 0;
+			}
+
+			if (outEntry) {
+				outEntry->size_compressed = csize;
+				outEntry->size_uncompressed = usize;
+				outEntry->crc32 = crc;
+				outEntry->lfh_offset = lfhOffset;
+				outEntry->method = method;
+			}
+			foundTarget = 1;
+			free(name);
+			break;
+		}
+
+		free(name);
+		walked += recordLen;
+	}
+
+	if (targetName && !foundTarget) {
+		setError(MODARCHIVE_ERR_NOTFOUND);
+		return 0;
+	}
+
+	setError(MODARCHIVE_OK);
+	return targetName ? 1 : 0;
+}
+
+void *modArchiveExtractMemAlloc(const void *archiveBytes, u32 archiveSize,
+                                const char *entryName, u32 *outSize)
+{
+	if (!archiveBytes || archiveSize == 0 || !entryName || !entryName[0]) {
+		setError(MODARCHIVE_ERR_NOTFOUND);
+		return NULL;
+	}
+
+	mod_archive_mem_entry_t e;
+	memset(&e, 0, sizeof(e));
+	if (!walkMemCentralDirectory(archiveBytes, archiveSize, entryName,
+			&e, NULL, 0)) {
+		return NULL;
+	}
+
+	if (e.size_uncompressed == 0) {
+		void *empty = malloc(1);
+		if (!empty) {
+			setError(MODARCHIVE_ERR_MEM);
+			return NULL;
+		}
+		((u8 *)empty)[0] = 0;
+		if (outSize) *outSize = 0;
+		setError(MODARCHIVE_OK);
+		return empty;
+	}
+
+	s64 dataOff = lfhDataOffsetMem((const u8 *)archiveBytes, archiveSize,
+		e.lfh_offset);
+	if (dataOff < 0 || (u32)dataOff + e.size_compressed > archiveSize) {
+		setError(MODARCHIVE_ERR_FORMAT);
+		return NULL;
+	}
+
+	u8 *out = (u8 *)malloc(e.size_uncompressed);
+	if (!out) {
+		setError(MODARCHIVE_ERR_MEM);
+		return NULL;
+	}
+
+	const u8 *src = ((const u8 *)archiveBytes) + dataOff;
+	if (e.method == COMPRESSION_STORED) {
+		if (e.size_compressed != e.size_uncompressed) {
+			free(out);
+			setError(MODARCHIVE_ERR_FORMAT);
+			return NULL;
+		}
+		memcpy(out, src, e.size_uncompressed);
+	} else {
+		z_stream zs;
+		memset(&zs, 0, sizeof(zs));
+		if (inflateInit2(&zs, -15) != Z_OK) {
+			free(out);
+			setError(MODARCHIVE_ERR_DECOMP);
+			return NULL;
+		}
+		zs.next_in = (Bytef *)(uintptr_t)src;
+		zs.avail_in = e.size_compressed;
+		zs.next_out = out;
+		zs.avail_out = e.size_uncompressed;
+		int r = inflate(&zs, Z_FINISH);
+		if (r != Z_STREAM_END || zs.total_out != e.size_uncompressed) {
+			inflateEnd(&zs);
+			free(out);
+			setError(MODARCHIVE_ERR_DECOMP);
+			return NULL;
+		}
+		inflateEnd(&zs);
+	}
+
+	uLong crc = crc32(0, out, e.size_uncompressed);
+	if ((u32)crc != e.crc32) {
+		free(out);
+		setError(MODARCHIVE_ERR_DECOMP);
+		return NULL;
+	}
+
+	if (outSize) *outSize = e.size_uncompressed;
+	setError(MODARCHIVE_OK);
+	return out;
+}
+
+s32 modArchiveMemFindForbiddenBinPayload(const void *archiveBytes, u32 archiveSize,
+                                         char *outName, u32 outNameCap)
+{
+	if (outName && outNameCap > 0) {
+		outName[0] = '\0';
+	}
+	if (!archiveBytes || archiveSize == 0) {
+		return 0;
+	}
+	return walkMemCentralDirectory(archiveBytes, archiveSize, NULL,
+		NULL, outName, outNameCap);
+}
+
 /* ---------------------------------------------------- File-level sha256 */
 
 s32 modArchiveSha256(const char *path, u8 digest[SHA256_DIGEST_SIZE])

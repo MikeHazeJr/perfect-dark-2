@@ -2297,7 +2297,7 @@
           "title": "Compatibility + validation",
           "status": "done",
           "order": 8000,
-          "notes": "Done 2026-05-20: Mike's 11:03 runtime log from Build/logs/game client/pd-client.log validated boot on dev c91c6274, legacy .pd* universal walker registration (3378 scanned/3378 registered, 0 envelope/register failures), .pdui auto-emit/reload, and installed .pdmod discovery with no .bin entries in the three installed archives. Corrected direction is implemented: typed *.pdxxx files are the preferred content-unit surface; .pdmod is the bundle/transport envelope for sharing, Public Mods, and online-required content delivery; authored .bin is rejected from both content units and .pdmod transport. Scanner and packer accept typed .pdwpn/.pdhead/.pdbody/.pdarena/.pdmesh/.pdanim/.pdsfx/.pdvoice/.pdsong/.pdui/.pdfont/.pdlang/.pdscenario descriptors with same-name sidecar folders, while the root external-layout INI tree remains compatibility coverage. Runtime validation passed: pdxxx_content_folder_smoke 28/28, pdxxx_content_transport_smoke 29/29, and public_mods_pdmod_install_smoke 29/29 load GLTF head -> modeldef, OBJ arena -> colmesh, and GLTF skeletal animation -> animation clip through readable generated cache; transport smoke packs a real .pdmod and reads it through VFS without extraction; install smoke proves mods/installed .pdmod discovery/load. Public Mods transfer/install closure implemented: received .pdmod downloads validate root mod.json and no authored .bin, install into mods/installed, refresh g_ModRegistry, and archive/folder digest comparison uses root mod.json bytes. Focused [social][public_mods][static] passed 3 cases / 55 assertions, focused [modding][pdmod][static][c3809] passed 13 cases / 498 assertions, JSON/diff/no-bin checks passed, and queued modpipe all build passed.",
+          "notes": "Done 2026-05-20: Mike's 11:03 runtime log from Build/logs/game client/pd-client.log validated boot on dev c91c6274, legacy .pd* universal walker registration (3378 scanned/3378 registered, 0 envelope/register failures), .pdui auto-emit/reload, and installed .pdmod discovery with no .bin entries in the three installed archives. Corrected direction is implemented: typed *.pdxxx files are the preferred content-unit surface; .pdmod is the bundle/transport envelope for sharing, Public Mods, and online-required content delivery; authored .bin is rejected from both content units and .pdmod transport. Scanner and packer accept typed .pdwpn/.pdhead/.pdbody/.pdarena/.pdmesh/.pdanim/.pdsfx/.pdvoice/.pdsong/.pdui/.pdfont/.pdlang/.pdscenario descriptors with same-name sidecar folders, while the root external-layout INI tree remains compatibility coverage. Runtime validation passed: pdxxx_content_folder_smoke 28/28, pdxxx_content_transport_smoke 29/29, and public_mods_pdmod_install_smoke 29/29 load GLTF head -> modeldef, OBJ arena -> colmesh, and GLTF skeletal animation -> animation clip through readable generated cache; transport smoke packs a real .pdmod and reads it through VFS without extraction; install smoke proves mods/installed .pdmod discovery/load. Public Mods transfer/install closure implemented: received .pdmod downloads validate root mod.json and no authored .bin, install into mods/installed, refresh g_ModRegistry, and archive/folder digest comparison uses root mod.json bytes. Focused [social][public_mods][static] passed 3 cases / 55 assertions, focused [modding][pdmod][static][c3809] passed 13 cases / 498 assertions, JSON/diff/no-bin checks passed, and queued modpipe all build passed."
         }
       ],
       "flag": "star",
@@ -2350,6 +2350,103 @@
       "pending_completion": null,
       "created": "2026-05-20T17:30:00Z",
       "updated": "2026-05-20T17:45:00Z"
+    },
+    {
+      "id": "c3811",
+      "title": "Modding: ship typed pdxxx examples and export",
+      "description": "Close the modder-discoverability gap by shipping permanent typed *.pdxxx content examples that contain actual external files such as GLTF, OBJ, INI, TSV, PNG/TGA, WAV/OGG/MP3, and fonts where applicable. .pdmod remains a networking/Public Mods transport wrapper, not the primary authoring surface; base content is validated and rebuilt at startup if needed.",
+      "pillar": "modding",
+      "column": "done",
+      "order": 112000,
+      "priority": 1,
+      "notes": "Done 2026-05-20. The corrected split is implemented and pinned: typed *.pdxxx files are the content/example units, .pdmod is only the networking/Public Mods/online transport wrapper, and base-game content stays in the startup validate/rebuild lane. Permanent examples now ship under examples/modding/typed-pdxxx-basic with .pdhead/.pdarena/.pdanim plus GLTF/OBJ/INI sidecars, no authored .bin, and no sample .pdmod archive. Modding Hub's Pack .pdmod tool can select the sample folder and labels .pdmod output as transport. release.ps1 includes examples/modding in the release package. Verification passed: Kanban JSON parse, no .pdmod/.bin example scan, release.ps1 parse, scoped diff check, tests target build, focused c3811 modding/release/base-content selectors, c3809/passd regression selectors, and queued pdxxxex all-target builds.",
+      "subtasks": [
+        {
+          "id": "c3811-s1",
+          "title": "Format inventory",
+          "status": "done",
+          "order": 1000,
+          "notes": "Done 2026-05-20: scanned repo .pdmod and typed *.pdxxx files. Installed .pdmod transport/theme samples contain no authored .bin, but they are not the intended content examples. Existing external GLTF/OBJ/INI typed fixtures are loose *.pdxxx content under tests/fixtures/modpipe."
+        },
+        {
+          "id": "c3811-s2",
+          "title": "Permanent typed samples",
+          "status": "done",
+          "order": 2000,
+          "notes": "Done 2026-05-20: added permanent checked-in typed *.pdxxx examples under examples/modding/typed-pdxxx-basic so modders can open .pdhead/.pdarena/.pdanim directly with model.gltf, geometry.obj, pads.ini, setup.ini, and animation.gltf sidecars. The example docs state .pdmod is transport-only, and static coverage proves no .pdmod archive or authored .bin file ships in the example tree. Verification passed: Kanban JSON parse, no .pdmod/.bin example scan, scoped diff check, tests target build, focused [modding][pdxxx][examples][static][c3811] 95 assertions / 1 case, focused [modding][pdmod][static][c3809] 498 assertions / 13 cases, and queued pdxxxex all-target build."
+        },
+        {
+          "id": "c3811-s3",
+          "title": "Base-content validate/rebuild",
+          "status": "done",
+          "order": 3000,
+          "notes": "Done 2026-05-20: pinned the base-content startup path as ROM verify -> file extract -> file SHA-256 verify/re-extract -> segment extract -> segment SHA-256 verify/re-extract -> DATA INTEGRITY report -> ROM release. Static coverage also pins the docs distinction that typed *.pdxxx files are the authoring examples, .pdmod is transport-only, and authored .bin payloads do not belong in examples. Verification passed: scoped diff check, Kanban JSON parse, tests target build, focused [catalog][base-content][static][c3811] 23 assertions / 1 case, focused [catalog][passd] 42 assertions / 9 cases, and queued pdxxxex all-target build."
+        },
+        {
+          "id": "c3811-s4",
+          "title": "Docs/UI discoverability",
+          "status": "done",
+          "order": 4000,
+          "notes": "Done 2026-05-20: Modding Hub Pack .pdmod tool exposes examples/modding/typed-pdxxx-basic through a Use Sample Folder action and labels .pdmod output as sharing/Public Mods/online transport. release.ps1 now ships examples/modding in the release package. Static coverage pins Modding Hub strings and release package inclusion, and docs label theme/manifest-only .pdmod files as transport/non-asset examples. Verification passed: Kanban JSON parse, release.ps1 parse, no .pdmod/.bin example scan, scoped diff check, tests target build, focused [modding][pdxxx][examples][static][c3811] 103 assertions / 2 cases, focused [release][layout][static][c3811] 11 assertions / 1 case, focused [catalog][base-content][static][c3811] 23 assertions / 1 case, and queued pdxxxex all-target build."
+        }
+      ],
+      "flag": "star",
+      "flagged_at": "2026-05-20T18:10:00Z",
+      "pending_completion": null,
+      "created": "2026-05-20T18:10:00Z",
+      "updated": "2026-05-20T19:20:00Z"
+    },
+    {
+      "id": "c3812",
+      "title": "Modding: repair pdxxx as self-contained asset archives",
+      "description": "Correct the typed content-unit contract: each *.pdxxx file is itself a zip-openable asset archive containing its descriptor, meshes, textures, audio, language data, and associated INI/TSV files as needed. .pdmod remains only the transport wrapper for Public Mods, sharing, and online-required delivery.",
+      "pillar": "modding",
+      "column": "active",
+      "order": 113000,
+      "priority": 1,
+      "notes": "Active 2026-05-20. Mike corrected c3811: typed *.pdxxx files must not be loose descriptors with sidecar folders. The intended asset unit is a self-contained ZIP archive with the typed extension; changing .pdhead/.pdarena/.pdanim/etc. to .zip should expose everything needed to edit or clone that asset. No authored .bin payloads. Runtime may use readable generated cache, but source-of-truth authored files stay inside the typed archive. .pdmod remains networking/Public Mods/online transport only. Memory review mem-002 is marked adjust, and a durable Codex memory note was added under extensions/ad_hoc/notes.",
+      "subtasks": [
+        {
+          "id": "c3812-s1",
+          "title": "Archive contract correction",
+          "status": "done",
+          "order": 1000,
+          "notes": "Done 2026-05-20: recorded corrected intent in Kanban, context/tasks.md, context/pillars/modding.md, and context/session-log.md. Contract: *.pdxxx is a zip-openable asset archive with root descriptor plus authored assets; .pdmod is transport only."
+        },
+        {
+          "id": "c3812-s2",
+          "title": "Scanner and runtime nested archive support",
+          "status": "active",
+          "order": 2000,
+          "notes": "Teach folder mods and .pdmod transport archives to scan typed *.pdxxx archive entries directly, then resolve internal files through an archive-entry path without extracting to the mod folder."
+        },
+        {
+          "id": "c3812-s3",
+          "title": "Packer and example archive generation",
+          "status": "backlog",
+          "order": 3000,
+          "notes": "Replace c3811 loose sample descriptors with actual .pdhead/.pdarena/.pdanim ZIP archives and make folder-to-.pdmod transport preserve those typed archives as files."
+        },
+        {
+          "id": "c3812-s4",
+          "title": "Docs, UI, and context wording",
+          "status": "backlog",
+          "order": 4000,
+          "notes": "Remove descriptor/sidecar wording. Use typed asset archive, authored asset files, and external source assets. Update Modding Hub copy, examples README, modding pillar, tasks, and session log."
+        },
+        {
+          "id": "c3812-s5",
+          "title": "Compatibility and validation",
+          "status": "backlog",
+          "order": 5000,
+          "notes": "Validate no authored .bin payloads, zip-openable typed examples, nested archive VFS/fs loads, legacy .pd* walker compatibility, .pdmod transport packing, focused modding tests, and queued all-target build."
+        }
+      ],
+      "flag": "star",
+      "flagged_at": "2026-05-20T20:05:00Z",
+      "pending_completion": null,
+      "created": "2026-05-20T20:05:00Z",
+      "updated": "2026-05-20T20:05:00Z"
     }
   ]
 }

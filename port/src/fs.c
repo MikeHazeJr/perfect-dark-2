@@ -16,6 +16,7 @@
 #include "fs.h"
 #include "modmgr.h"
 #include "versioninfo.h"  /* VERSION_ROMID for fsDataDir / fsDataPathFor */
+#include "modarchive.h"
 #ifndef PD_SERVER
 #include "modvfs.h"  /* Priority M / B-238: VFS-backed .pdmod mounts */
 #endif
@@ -77,6 +78,111 @@ s32 fsPathIsCwdRelative(const char *path)
 {
 	// ., .., ./, ../
 	return (path[0] == '.' && (path[1] == '.' || path[1] == '/' || path[1] == '\\' || path[1] == '\0'));
+}
+
+static const char *fsNestedArchiveSeparator(const char *name)
+{
+	return name ? strstr(name, "::") : NULL;
+}
+
+static void fsCopyArchiveEntryName(const char *entry, char *out, size_t outSize)
+{
+	if (!out || outSize == 0) {
+		return;
+	}
+	out[0] = '\0';
+	if (!entry) {
+		return;
+	}
+	while (*entry == '/' || *entry == '\\') {
+		entry++;
+	}
+	size_t i = 0;
+	while (entry[i] && i + 1 < outSize) {
+		out[i] = (entry[i] == '\\') ? '/' : entry[i];
+		i++;
+	}
+	out[i] = '\0';
+}
+
+static void *fsLoadNestedArchiveEntry(const char *name, u32 *outSize)
+{
+	const char *sep = fsNestedArchiveSeparator(name);
+	if (!sep || sep == name) {
+		return NULL;
+	}
+
+	char archiveName[FS_MAXPATH + 1];
+	size_t archiveLen = (size_t)(sep - name);
+	if (archiveLen == 0 || archiveLen >= sizeof(archiveName)) {
+		return NULL;
+	}
+	memcpy(archiveName, name, archiveLen);
+	archiveName[archiveLen] = '\0';
+
+	char entryName[FS_MAXPATH + 1];
+	fsCopyArchiveEntryName(sep + 2, entryName, sizeof(entryName));
+	if (!entryName[0]) {
+		return NULL;
+	}
+
+#ifndef PD_SERVER
+	{
+		u32 archiveSize = 0;
+		void *archiveBytes = modVfsResolveAnyAlloc(archiveName, &archiveSize, NULL, 0);
+		if (archiveBytes) {
+			u32 entrySize = 0;
+			void *raw = modArchiveExtractMemAlloc(archiveBytes, archiveSize,
+				entryName, &entrySize);
+			free(archiveBytes);
+			if (!raw) {
+				return NULL;
+			}
+			void *out = realloc(raw, (size_t)entrySize + 1);
+			if (!out) {
+				free(raw);
+				return NULL;
+			}
+			((u8 *)out)[entrySize] = 0;
+			if (outSize) {
+				*outSize = entrySize;
+			}
+			return out;
+		}
+	}
+#endif
+
+	char archiveFullBuf[FS_MAXPATH + 1];
+	const char *archiveFull = fsFullPath(archiveName, archiveFullBuf,
+		sizeof(archiveFullBuf));
+	mod_archive_t *arc = modArchiveOpen(archiveFull);
+	if (!arc) {
+		return NULL;
+	}
+
+	s32 idx = modArchiveFindEntry(arc, entryName);
+	if (idx < 0) {
+		modArchiveClose(arc);
+		return NULL;
+	}
+
+	u32 entrySize = 0;
+	void *raw = modArchiveExtractAlloc(arc, idx, &entrySize);
+	modArchiveClose(arc);
+	if (!raw) {
+		return NULL;
+	}
+
+	void *out = realloc(raw, (size_t)entrySize + 1);
+	if (!out) {
+		free(raw);
+		return NULL;
+	}
+	((u8 *)out)[entrySize] = 0;
+	if (outSize) {
+		*outSize = entrySize;
+	}
+	return out;
 }
 
 const char *fsFullPath(const char *relPath, char *out, size_t outSize)
@@ -337,6 +443,22 @@ const char *fsGetModDir(void)
 
 s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)
 {
+	{
+		u32 nestedSize = 0;
+		void *nested = fsLoadNestedArchiveEntry(name, &nestedSize);
+		if (nested) {
+			if (nestedSize > dstSize) {
+				sysLogPrintf(LOG_ERROR, "fsFileLoadTo: archive entry too big for buffer (%u > %u): %s",
+					nestedSize, dstSize, name);
+				free(nested);
+				return -1;
+			}
+			memcpy(dst, nested, nestedSize);
+			free(nested);
+			return (s32)nestedSize;
+		}
+	}
+
 #ifndef PD_SERVER
 	/* Priority M / B-238: archive-backed mount lookup. The VFS owns its
 	 * own decompression pass so we can copy out without going through the
@@ -393,6 +515,13 @@ s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)
 
 void *fsFileLoad(const char *name, u32 *outSize)
 {
+	{
+		void *nested = fsLoadNestedArchiveEntry(name, outSize);
+		if (nested) {
+			return nested;
+		}
+	}
+
 #ifndef PD_SERVER
 	/* Priority M / B-238: prefer the in-memory VFS for any path satisfied
 	 * by a mounted .pdmod / .zip archive. The buffer is sysMemZeroAlloc-
@@ -454,6 +583,15 @@ void *fsFileLoad(const char *name, u32 *outSize)
 
 s32 fsFileSize(const char *name)
 {
+	{
+		u32 nestedSize = 0;
+		void *nested = fsLoadNestedArchiveEntry(name, &nestedSize);
+		if (nested) {
+			free(nested);
+			return (s32)nestedSize;
+		}
+	}
+
 #ifndef PD_SERVER
 	/* Priority M / B-238: VFS short-circuit. modVfsGetSize is cheap --
 	 * a central-directory lookup, no decompression. */

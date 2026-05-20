@@ -680,6 +680,24 @@ static asset_type_e typedPdContentTypeForPath(const char *path)
 	return ASSET_NONE;
 }
 
+static const char *typedPdArchiveDescriptorLeaf(const char *path)
+{
+	if (pathEndsWithNoCase(path, ".pdwpn"))      return "weapon.ini";
+	if (pathEndsWithNoCase(path, ".pdhead"))     return "head.ini";
+	if (pathEndsWithNoCase(path, ".pdbody"))     return "body.ini";
+	if (pathEndsWithNoCase(path, ".pdarena"))    return "arena.ini";
+	if (pathEndsWithNoCase(path, ".pdmesh"))     return "model.ini";
+	if (pathEndsWithNoCase(path, ".pdanim"))     return "animation.ini";
+	if (pathEndsWithNoCase(path, ".pdsfx"))      return "sound.ini";
+	if (pathEndsWithNoCase(path, ".pdvoice"))    return "voice.ini";
+	if (pathEndsWithNoCase(path, ".pdsong"))     return "music.ini";
+	if (pathEndsWithNoCase(path, ".pdui"))       return "ui.ini";
+	if (pathEndsWithNoCase(path, ".pdfont"))     return "font.ini";
+	if (pathEndsWithNoCase(path, ".pdlang"))     return "lang.ini";
+	if (pathEndsWithNoCase(path, ".pdscenario")) return "scenario.ini";
+	return NULL;
+}
+
 static const char *pathLeafAnySeparator(const char *path)
 {
 	const char *slash = path ? strrchr(path, '/') : NULL;
@@ -759,6 +777,9 @@ static s32 sourcePathNeedsComponentPrefix(const char *value)
 	if (!value || !value[0]) {
 		return 0;
 	}
+	if (strstr(value, "::")) {
+		return 0;
+	}
 	if (value[0] == '/' || value[0] == '\\') {
 		return 0;
 	}
@@ -829,6 +850,96 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 
 	for (s32 i = 0; keys[i]; i++) {
 		qualifyIniSourcePath(ini, keys[i], component_dir);
+	}
+}
+
+static s32 archiveInnerPathIsSafe(const char *value)
+{
+	if (!value || !value[0]) {
+		return 0;
+	}
+	if (strstr(value, "::")) {
+		return 0;
+	}
+	if (value[0] == '/' || value[0] == '\\') {
+		return 0;
+	}
+	if (isalpha((u8)value[0]) && value[1] == ':') {
+		return 0;
+	}
+	const char *p = value;
+	while (*p) {
+		const char *end = p;
+		while (*end && *end != '/' && *end != '\\') {
+			end++;
+		}
+		if ((end - p) == 2 && p[0] == '.' && p[1] == '.') {
+			return 0;
+		}
+		p = (*end) ? end + 1 : end;
+	}
+	return 1;
+}
+
+static void qualifyTypedArchiveSourcePath(ini_section_t *ini, const char *key,
+                                          const char *archive_ref)
+{
+	if (!ini || !key || !archive_ref || !archive_ref[0]) {
+		return;
+	}
+
+	for (s32 i = 0; i < ini->count; i++) {
+		if (strcmp(ini->pairs[i].key, key) != 0) {
+			continue;
+		}
+		if (!archiveInnerPathIsSafe(ini->pairs[i].value)) {
+			continue;
+		}
+
+		char full[sizeof(ini->pairs[i].value)];
+		snprintf(full, sizeof(full), "%s::%s", archive_ref, ini->pairs[i].value);
+		strncpy(ini->pairs[i].value, full, sizeof(ini->pairs[i].value) - 1);
+		ini->pairs[i].value[sizeof(ini->pairs[i].value) - 1] = '\0';
+	}
+}
+
+static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
+                                           const char *archive_ref)
+{
+	static const char *keys[] = {
+		"bodyfile",
+		"headfile",
+		"model_file",
+		"model",
+		"lo_model_file",
+		"hand_model_file",
+		"geometry_file",
+		"geometry",
+		"collision_file",
+		"pads_file",
+		"setup_file",
+		"rooms_file",
+		"rooms",
+		"props_file",
+		"props",
+		"objectives_file",
+		"objectives",
+		"music_file",
+		"midi_file",
+		"file_path",
+		"animation_file",
+		"texture_file",
+		"texture",
+		"font_file",
+		"font",
+		"strings_file",
+		"strings",
+		"strings_tsv",
+		NULL
+	};
+
+	for (s32 i = 0; keys[i]; i++) {
+		qualifyTypedArchiveSourcePath(ini, keys[i], archive_ref);
 	}
 }
 
@@ -1350,10 +1461,45 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 {
 	ini_section_t ini;
 	if (!iniParse(descriptor_path, &ini)) {
-		/* Legacy JSON/ZIP .pd* files are still valid through their existing
-		 * loaders; the external authoring scanner only consumes readable INI
-		 * descriptors. */
-		return 0;
+		const char *descriptor_leaf = typedPdArchiveDescriptorLeaf(descriptor_path);
+		if (!descriptor_leaf) {
+			return 0;
+		}
+
+		mod_archive_t *arc = modArchiveOpen(descriptor_path);
+		if (!arc) {
+			/* Legacy JSON .pd* files are still valid through their existing
+			 * loaders; this scanner consumes readable INI descriptors and
+			 * zip-openable typed asset archives. */
+			return 0;
+		}
+
+		s32 idx = modArchiveFindEntry(arc, descriptor_leaf);
+		if (idx < 0 && expected == ASSET_MODEL) {
+			idx = modArchiveFindEntry(arc, "mesh.ini");
+		}
+		if (idx < 0) {
+			modArchiveClose(arc);
+			return 0;
+		}
+
+		u32 ini_size = 0;
+		char *ini_bytes = (char *)modArchiveExtractAlloc(arc, idx, &ini_size);
+		modArchiveClose(arc);
+		if (!ini_bytes) {
+			return 0;
+		}
+
+		s32 ok = iniParseBuffer(descriptor_leaf, ini_bytes, ini_size, &ini);
+		free(ini_bytes);
+		if (!ok) {
+			sysLogPrintf(LOG_WARNING,
+				"assetcatalog_scanner: invalid typed archive descriptor '%s' in '%s'",
+				descriptor_leaf, descriptor_path);
+			return 0;
+		}
+
+		qualifyTypedArchiveSourcePaths(&ini, descriptor_path);
 	}
 
 	asset_type_e ini_type = sectionToType(ini.type);
@@ -1762,6 +1908,9 @@ static s32 archivePathNeedsComponentPrefix(const char *value)
 	if (!value || !value[0]) {
 		return 0;
 	}
+	if (strstr(value, "::")) {
+		return 0;
+	}
 	if (value[0] == '/' || value[0] == '\\') {
 		return 0;
 	}
@@ -1924,9 +2073,33 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 		}
 
 		ini_section_t ini;
-		if (!iniParseBuffer(entry_name, ini_bytes, ini_size, &ini)) {
+		s32 typed_archive_entry = typedPdContentTypeForPath(entry_name) != ASSET_NONE;
+		s32 typed_archive_sources_qualified = 0;
+		s32 parsed = iniParseBuffer(entry_name, ini_bytes, ini_size, &ini);
+		if (!parsed && typed_archive_entry) {
+			const char *descriptor_leaf = typedPdArchiveDescriptorLeaf(entry_name);
+			if (descriptor_leaf) {
+				u32 nested_size = 0;
+				char *nested_ini = (char *)modArchiveExtractMemAlloc(
+					ini_bytes, ini_size, descriptor_leaf, &nested_size);
+				if (!nested_ini && archiveExpectedTypeForPath(entry_name) == ASSET_MODEL) {
+					nested_ini = (char *)modArchiveExtractMemAlloc(
+						ini_bytes, ini_size, "mesh.ini", &nested_size);
+				}
+				if (nested_ini) {
+					parsed = iniParseBuffer(descriptor_leaf, nested_ini,
+						nested_size, &ini);
+					free(nested_ini);
+					if (parsed) {
+						qualifyTypedArchiveSourcePaths(&ini, entry_name);
+						typed_archive_sources_qualified = 1;
+					}
+				}
+			}
+		}
+		if (!parsed) {
 			sysLogPrintf(LOG_WARNING,
-				"assetcatalog_scanner: invalid archive INI '%s' for '%s'",
+				"assetcatalog_scanner: invalid archive descriptor '%s' for '%s'",
 				entry_name, mod_id);
 			free(ini_bytes);
 			continue;
@@ -1942,7 +2115,9 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 				entry_name, expected, ini.type, ini_type);
 		}
 
-		qualifyArchiveIniPaths(&ini, component_dir);
+		if (!typed_archive_sources_qualified) {
+			qualifyArchiveIniPaths(&ini, component_dir);
+		}
 
 		if (registerComponent(&ini, component_dir, mod_id)) {
 			total++;

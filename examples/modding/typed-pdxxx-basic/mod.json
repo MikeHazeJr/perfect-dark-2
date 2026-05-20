@@ -1,0 +1,7 @@
+{
+  "id": "example_typed_pdxxx_basic",
+  "name": "Typed PDXXX Basic Examples",
+  "version": "1.0.0",
+  "author": "PD2 samples",
+  "description": "Loose typed .pdxxx examples with standard external sidecar files. Wrap as .pdmod only for networking, Public Mods, or sharing transport."
+}
