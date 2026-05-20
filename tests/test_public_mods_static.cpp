@@ -61,13 +61,43 @@ TEST_CASE("Public Mods publishing is registry-backed and path-safe", "[social][p
 	REQUIRE(ft.find("snprintf(install_dir, sizeof(install_dir), \"%s/installed\", modsdir)") != std::string::npos);
 	REQUIRE(ft.find("modmgrRescanDirectory()") != std::string::npos);
 	REQUIRE(ft.find("if (r->kind == FT_KIND_MOD)") != std::string::npos);
-	REQUIRE(ft.find("fileTransferInstallReceivedMod(r->inbox_path, r->name)") != std::string::npos);
+	REQUIRE(ft.find("fileTransferInstallReceivedMod(r->inbox_path, r->name, r->src_handle)") != std::string::npos);
 
 	REQUIRE(ui.find("#include \"modmgr.h\"") != std::string::npos);
 	REQUIRE(ui.find("modmgrGetCount()") != std::string::npos);
 	REQUIRE(ui.find("ImGui::BeginCombo(\"Installed mod\"") != std::string::npos);
 	REQUIRE(ui.find("shareModPublicAdd(id, name, ver, size)") != std::string::npos);
 	REQUIRE(ui.find("InputTextWithHint(\"mod id\"") == std::string::npos);
+}
+
+TEST_CASE("Request-download installs use friend-aware enable policy",
+          "[social][public_mods][static][c3810]")
+{
+	const std::string ft = readTextFile("port/src/file_transfer.c");
+	const std::string fth = readTextFile("port/include/file_transfer.h");
+	const std::string ui = readTextFile("port/fast3d/pdgui_friends.cpp");
+
+	REQUIRE(fth.find("fileTransferPendingModEnableCount") != std::string::npos);
+	REQUIRE(fth.find("fileTransferPendingModEnablePeek") != std::string::npos);
+	REQUIRE(fth.find("fileTransferPendingModEnableAccept") != std::string::npos);
+	REQUIRE(fth.find("fileTransferPendingModEnableDecline") != std::string::npos);
+
+	REQUIRE(ft.find("FT_PENDING_MOD_ENABLE_MAX") != std::string::npos);
+	REQUIRE(ft.find("ftFindInstalledArchiveModIndex(dst, safe)") != std::string::npos);
+	REQUIRE(ft.find("socialFriendByHandle(sender_handle)") != std::string::npos);
+	REQUIRE(ft.find("ftEnableModIndexNow(mod_index, \"friend request-download\")") != std::string::npos);
+	REQUIRE(ft.find("ftQueuePendingModEnable(sender_handle, mod)") != std::string::npos);
+	REQUIRE(ft.find("modmgrApplyChanges()") != std::string::npos);
+	REQUIRE(ft.find("installed disabled; enable prompt queue full") != std::string::npos);
+
+	REQUIRE(ui.find("renderReceivedModEnableModal") != std::string::npos);
+	REQUIRE(ui.find("fileTransferPendingModEnableCount() > 0") != std::string::npos);
+	REQUIRE(ui.find("fileTransferPendingModEnableAccept()") != std::string::npos);
+	REQUIRE(ui.find("fileTransferPendingModEnableDecline()") != std::string::npos);
+	REQUIRE(ui.find("Enable now") != std::string::npos);
+	REQUIRE(ui.find("Keep disabled") != std::string::npos);
+	REQUIRE(ui.find("not in your") != std::string::npos);
+	REQUIRE(ui.find("friends list") != std::string::npos);
 }
 
 TEST_CASE("Public Mods install path refreshes manifest digests and registry",

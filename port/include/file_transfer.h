@@ -80,6 +80,24 @@ u64 fileTransferKindSizeLimit(s32 kind);
 const char *fileTransferKindName(s32 kind);
 
 /* -------------------------------------------------------------------------
+ * Received-mod enable decision queue.
+ *
+ * Friend-sourced received mods are enabled immediately after install when
+ * validation passes. Non-friend received mods are installed disabled and
+ * queued here so the Social shell can ask the user whether to enable them
+ * after download.
+ * ------------------------------------------------------------------------- */
+
+s32 fileTransferPendingModEnableCount(void);
+s32 fileTransferPendingModEnablePeek(char *out_mod_id,
+                                     u32 out_mod_id_size,
+                                     char *out_mod_name,
+                                     u32 out_mod_name_size,
+                                     u32 *out_sender_handle);
+s32 fileTransferPendingModEnableAccept(void);
+void fileTransferPendingModEnableDecline(void);
+
+/* -------------------------------------------------------------------------
  * Convert-to-mod modal back-end.
  *
  * Builds a `.pdmod` archive at <home>/mods/installed/<id>.pdmod with a

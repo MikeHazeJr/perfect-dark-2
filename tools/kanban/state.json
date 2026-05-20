@@ -2305,6 +2305,51 @@
       "pending_completion": null,
       "created": "2026-05-19T20:30:00Z",
       "updated": "2026-05-20T16:58:00Z"
+    },
+    {
+      "id": "c3810",
+      "title": "Public Mods request-download enable policy",
+      "description": "Make received Public Mods request-download installs trust-aware: friend-sourced downloads hot-enable after validation and install; non-friend downloads install disabled and prompt the user to enable or keep disabled.",
+      "pillar": "modding",
+      "column": "done",
+      "order": 111000,
+      "priority": 1,
+      "notes": "Done 2026-05-20. Mike's latest Build/logs/game client/pd-client.log reached clean shutdown, applied mod:base-ui from an installed .pdmod, and showed no authored .bin regression. Request-download policy is implemented as a Public Mods follow-up: friend source gets automatic hot-enable after validated install, non-friend source queues an enable-choice modal after install. This preserves typed *.pdxxx content-unit guidance and .pdmod as sharing/online transport. Verification passed: Kanban JSON parse, scoped diff check, tests target build, focused [social][public_mods][static] 77 assertions / 4 cases, and queued modreq all-target build.",
+      "subtasks": [
+        {
+          "id": "c3810-s1",
+          "title": "Run-log verification",
+          "status": "done",
+          "order": 1000,
+          "notes": "Done 2026-05-20: checked Build/logs/game client/pd-client.log. The run reached startup, applied mod:base-ui from mods/base-ui.pdmod::theme.json, retained bundled catalog assets, and shut down cleanly. Remaining observations are known noisy MESHCOL skips plus one menu raw model catalog miss; no crash or mod-pipeline .bin failure was found."
+        },
+        {
+          "id": "c3810-s2",
+          "title": "Friend hot-enable install path",
+          "status": "done",
+          "order": 2000,
+          "notes": "Done 2026-05-20: received .pdmod installs now rescan the registry, identify the installed archive, validate it, then enable and apply/sync live when the sender handle is an accepted friend. Verified by scoped diff check and focused [social][public_mods][static] passing 77 assertions / 4 cases."
+        },
+        {
+          "id": "c3810-s3",
+          "title": "Non-friend enable prompt",
+          "status": "done",
+          "order": 3000,
+          "notes": "Done 2026-05-20: non-friend received .pdmod installs remain disabled and queue a Social-shell modal with Enable now / Keep disabled choices. The pending queue is exposed through file_transfer.h and keeps the Social shell active until the user accepts or declines. Verified by scoped diff check and focused [social][public_mods][static] passing 77 assertions / 4 cases."
+        },
+        {
+          "id": "c3810-s4",
+          "title": "Validation + context",
+          "status": "done",
+          "order": 4000,
+          "notes": "Done 2026-05-20: Kanban JSON parse, scoped diff check, tests target build, focused [social][public_mods][static] (77 assertions / 4 cases), queued modreq all-target build, context/tasks.md, context/session-log.md, and context/pillars/modding.md updates all completed."
+        }
+      ],
+      "flag": "star",
+      "flagged_at": "2026-05-20T17:30:00Z",
+      "pending_completion": null,
+      "created": "2026-05-20T17:30:00Z",
+      "updated": "2026-05-20T17:45:00Z"
     }
   ]
 }

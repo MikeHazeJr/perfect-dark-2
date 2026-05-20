@@ -205,6 +205,17 @@ static SOCKET s_Sock = INVALID_SOCKET;
 static s32    s_SocketReady;
 static u64    s_NextTransferId;
 
+#define FT_PENDING_MOD_ENABLE_MAX 4
+
+typedef struct {
+	u8  in_use;
+	u32 sender_handle;
+	char mod_id[MODMGR_ID_LEN];
+	char mod_name[MODMGR_NAME_LEN];
+} ft_pending_mod_enable_t;
+
+static ft_pending_mod_enable_t s_PendingModEnable[FT_PENDING_MOD_ENABLE_MAX];
+
 /* -------------------------------------------------------------------------
  * Helpers
  * ------------------------------------------------------------------------- */
@@ -343,6 +354,48 @@ static s32 ftEndsWithNoCase(const char *s, const char *suffix)
 	return 1;
 }
 
+static s32 ftCharEqPathNoCase(char a, char b)
+{
+	if (a == '\\') a = '/';
+	if (b == '\\') b = '/';
+	return tolower((unsigned char)a) == tolower((unsigned char)b);
+}
+
+static s32 ftPathEqualsNoCase(const char *a, const char *b)
+{
+	if (!a || !b) return 0;
+	while (*a && *b) {
+		if (!ftCharEqPathNoCase(*a, *b)) return 0;
+		a++;
+		b++;
+	}
+	return *a == '\0' && *b == '\0';
+}
+
+static const char *ftPathLeaf(const char *path)
+{
+	if (!path) return "";
+	const char *leaf = path;
+	const char *slash = strrchr(path, '/');
+	if (slash && slash + 1 > leaf) leaf = slash + 1;
+	slash = strrchr(path, '\\');
+	if (slash && slash + 1 > leaf) leaf = slash + 1;
+	return leaf;
+}
+
+static s32 ftStringEqualsNoCase(const char *a, const char *b)
+{
+	if (!a || !b) return 0;
+	while (*a && *b) {
+		if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) {
+			return 0;
+		}
+		a++;
+		b++;
+	}
+	return *a == '\0' && *b == '\0';
+}
+
 static s32 ftArchiveEntryHasForbiddenBinPayload(const char *name)
 {
 	if (!name || !name[0]) return 0;
@@ -434,8 +487,195 @@ static s32 ftCopyFileAtomic(const char *src, const char *dst)
 	return 1;
 }
 
+static s32 ftFindInstalledArchiveModIndex(const char *archive_path,
+                                          const char *archive_leaf)
+{
+	s32 leaf_match = -1;
+	const s32 count = modmgrGetCount();
+	for (s32 i = 0; i < count; i++) {
+		modinfo_t *mod = modmgrGetMod(i);
+		if (!mod || !mod->is_archive || !mod->archive_path[0]) {
+			continue;
+		}
+		if (ftPathEqualsNoCase(mod->archive_path, archive_path)) {
+			return i;
+		}
+		if (archive_leaf && archive_leaf[0] &&
+		    ftStringEqualsNoCase(ftPathLeaf(mod->archive_path), archive_leaf)) {
+			leaf_match = i;
+		}
+	}
+	return leaf_match;
+}
+
+static s32 ftFindModIndexById(const char *mod_id)
+{
+	if (!mod_id || !mod_id[0]) return -1;
+	const s32 count = modmgrGetCount();
+	for (s32 i = 0; i < count; i++) {
+		modinfo_t *mod = modmgrGetMod(i);
+		if (mod && strcmp(mod->id, mod_id) == 0) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+static s32 ftEnableModIndexNow(s32 mod_index, const char *reason)
+{
+	modinfo_t *mod = modmgrGetMod(mod_index);
+	if (!mod || !mod->valid) {
+		sysLogPrintf(LOG_WARNING,
+		             "FT: cannot enable received mod at index %d (%s)",
+		             (int)mod_index, reason ? reason : "invalid");
+		return -1;
+	}
+
+	char missing[256];
+	if (modmgrCheckDependencies(mod_index, missing, sizeof(missing)) > 0) {
+		sysLogPrintf(LOG_WARNING,
+		             "FT: received mod '%s' left disabled; missing dependencies: %s",
+		             mod->id, missing);
+		return -1;
+	}
+
+	if (!mod->enabled) {
+		modmgrSetEnabled(mod_index, 1);
+		modmgrApplyChanges();
+	} else {
+		modmgrSyncCatalogToRegistry();
+	}
+
+	if (reason && reason[0]) {
+		sysLogPrintf(LOG_NOTE,
+		             "FT: enabled received mod '%s' (%s)",
+		             mod->id, reason);
+	} else {
+		sysLogPrintf(LOG_NOTE,
+		             "FT: enabled received mod '%s'",
+		             mod->id);
+	}
+	return 0;
+}
+
+static s32 ftPendingModFirstIndex(void)
+{
+	for (s32 i = 0; i < FT_PENDING_MOD_ENABLE_MAX; i++) {
+		if (s_PendingModEnable[i].in_use) return i;
+	}
+	return -1;
+}
+
+static void ftPendingModClearIndex(s32 idx)
+{
+	if (idx < 0 || idx >= FT_PENDING_MOD_ENABLE_MAX) return;
+	memset(&s_PendingModEnable[idx], 0, sizeof(s_PendingModEnable[idx]));
+}
+
+static void ftQueuePendingModEnable(u32 sender_handle, const modinfo_t *mod)
+{
+	if (!mod || !mod->id[0]) return;
+
+	for (s32 i = 0; i < FT_PENDING_MOD_ENABLE_MAX; i++) {
+		if (s_PendingModEnable[i].in_use &&
+		    strcmp(s_PendingModEnable[i].mod_id, mod->id) == 0) {
+			s_PendingModEnable[i].sender_handle = sender_handle;
+			strncpy(s_PendingModEnable[i].mod_name, mod->name,
+			        sizeof(s_PendingModEnable[i].mod_name) - 1);
+			s_PendingModEnable[i].mod_name[
+				sizeof(s_PendingModEnable[i].mod_name) - 1] = '\0';
+			return;
+		}
+	}
+
+	for (s32 i = 0; i < FT_PENDING_MOD_ENABLE_MAX; i++) {
+		ft_pending_mod_enable_t *p = &s_PendingModEnable[i];
+		if (!p->in_use) {
+			p->in_use = 1;
+			p->sender_handle = sender_handle;
+			strncpy(p->mod_id, mod->id, sizeof(p->mod_id) - 1);
+			strncpy(p->mod_name, mod->name, sizeof(p->mod_name) - 1);
+			p->mod_id[sizeof(p->mod_id) - 1] = '\0';
+			p->mod_name[sizeof(p->mod_name) - 1] = '\0';
+			sysLogPrintf(LOG_NOTE,
+			             "FT: queued enable prompt for received mod '%s' from 0x%08x",
+			             p->mod_id, (unsigned)sender_handle);
+			return;
+		}
+	}
+
+	sysLogPrintf(LOG_WARNING,
+	             "FT: received mod '%s' installed disabled; enable prompt queue full",
+	             mod->id);
+}
+
+s32 fileTransferPendingModEnableCount(void)
+{
+	s32 count = 0;
+	for (s32 i = 0; i < FT_PENDING_MOD_ENABLE_MAX; i++) {
+		if (s_PendingModEnable[i].in_use) count++;
+	}
+	return count;
+}
+
+s32 fileTransferPendingModEnablePeek(char *out_mod_id,
+                                     u32 out_mod_id_size,
+                                     char *out_mod_name,
+                                     u32 out_mod_name_size,
+                                     u32 *out_sender_handle)
+{
+	const s32 idx = ftPendingModFirstIndex();
+	if (idx < 0) return 0;
+	const ft_pending_mod_enable_t *p = &s_PendingModEnable[idx];
+	if (out_mod_id && out_mod_id_size > 0) {
+		strncpy(out_mod_id, p->mod_id, out_mod_id_size - 1);
+		out_mod_id[out_mod_id_size - 1] = '\0';
+	}
+	if (out_mod_name && out_mod_name_size > 0) {
+		strncpy(out_mod_name, p->mod_name, out_mod_name_size - 1);
+		out_mod_name[out_mod_name_size - 1] = '\0';
+	}
+	if (out_sender_handle) {
+		*out_sender_handle = p->sender_handle;
+	}
+	return 1;
+}
+
+s32 fileTransferPendingModEnableAccept(void)
+{
+	const s32 idx = ftPendingModFirstIndex();
+	if (idx < 0) return -1;
+
+	char mod_id[MODMGR_ID_LEN];
+	strncpy(mod_id, s_PendingModEnable[idx].mod_id, sizeof(mod_id) - 1);
+	mod_id[sizeof(mod_id) - 1] = '\0';
+
+	const s32 mod_index = ftFindModIndexById(mod_id);
+	s32 rc = -1;
+	if (mod_index >= 0) {
+		rc = ftEnableModIndexNow(mod_index, "accepted received-mod prompt");
+	} else {
+		sysLogPrintf(LOG_WARNING,
+		             "FT: pending received mod '%s' is no longer installed",
+		             mod_id);
+	}
+	ftPendingModClearIndex(idx);
+	return rc;
+}
+
+void fileTransferPendingModEnableDecline(void)
+{
+	const s32 idx = ftPendingModFirstIndex();
+	if (idx < 0) return;
+	sysLogPrintf(LOG_NOTE,
+	             "FT: received mod '%s' kept disabled by user",
+	             s_PendingModEnable[idx].mod_id);
+	ftPendingModClearIndex(idx);
+}
+
 static void fileTransferInstallReceivedMod(const char *inbox_path,
-                                           const char *original_name)
+                                           const char *original_name,
+                                           u32 sender_handle)
 {
 	if (!inbox_path || !inbox_path[0]) return;
 	if (!ftValidateReceivedModArchive(inbox_path)) return;
@@ -471,6 +711,30 @@ static void fileTransferInstallReceivedMod(const char *inbox_path,
 	sysLogPrintf(LOG_NOTE,
 	             "FT: installed received mod archive -> %s and refreshed mod registry",
 	             dst);
+
+	const s32 mod_index = ftFindInstalledArchiveModIndex(dst, safe);
+	if (mod_index < 0) {
+		sysLogPrintf(LOG_WARNING,
+		             "FT: installed received mod archive was not found in registry: %s",
+		             dst);
+		return;
+	}
+
+	modinfo_t *mod = modmgrGetMod(mod_index);
+	if (!mod || !mod->valid) {
+		sysLogPrintf(LOG_WARNING,
+		             "FT: installed received mod archive is invalid: %s",
+		             mod && mod->validation_error[0]
+		                 ? mod->validation_error
+		                 : dst);
+		return;
+	}
+
+	if (socialFriendByHandle(sender_handle)) {
+		(void)ftEnableModIndexNow(mod_index, "friend request-download");
+	} else {
+		ftQueuePendingModEnable(sender_handle, mod);
+	}
 }
 
 /* Build the destination path: <home>/social/inbox/<kind>/<friend>/<file>.
@@ -718,7 +982,7 @@ static void completeReceiver(ft_receiver_t *r, u32 src_ipv4, u16 src_port)
 	writeSidecar(r);
 
 	if (r->kind == FT_KIND_MOD) {
-		fileTransferInstallReceivedMod(r->inbox_path, r->name);
+		fileTransferInstallReceivedMod(r->inbox_path, r->name, r->src_handle);
 	}
 
 	(void)chatHistoryAppendAttachment(r->src_handle, (u32)r->kind, r->name,

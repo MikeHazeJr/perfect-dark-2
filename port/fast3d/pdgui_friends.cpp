@@ -106,6 +106,7 @@ static bool socialShellNeedsMenuInput(void)
 	       s_ProfileFriendHandle != 0 ||
 	       s_AddFriendOpen ||
 	       s_ConvertSourcePath[0] != '\0' ||
+	       fileTransferPendingModEnableCount() > 0 ||
 	       pdguiNatDiagnosticsIsOpen() != 0;
 }
 
@@ -114,6 +115,7 @@ static bool socialShellBlockingModalOpen(void)
 	return s_AddFriendOpen ||
 	       s_ProfileFriendHandle != 0 ||
 	       s_ConvertSourcePath[0] != '\0' ||
+	       fileTransferPendingModEnableCount() > 0 ||
 	       pdguiNatDiagnosticsIsOpen() != 0;
 }
 
@@ -953,6 +955,53 @@ static void renderConvertToModModal(void)
 	socialShellSyncMenuPool();
 }
 
+static void renderReceivedModEnableModal(void)
+{
+	if (fileTransferPendingModEnableCount() <= 0) return;
+
+	char mod_id[MODMGR_ID_LEN];
+	char mod_name[MODMGR_NAME_LEN];
+	u32 sender_handle = 0;
+	if (!fileTransferPendingModEnablePeek(mod_id, sizeof(mod_id),
+	                                      mod_name, sizeof(mod_name),
+	                                      &sender_handle)) {
+		return;
+	}
+
+	socialShellSyncMenuPool();
+	ImGui::OpenPopup("Downloaded Mod");
+	if (ImGui::BeginPopupModal("Downloaded Mod", nullptr,
+	                            ImGuiWindowFlags_AlwaysAutoResize |
+	                            ImGuiWindowFlags_NoSavedSettings)) {
+		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+		ImGui::TextUnformatted(mod_name[0] ? mod_name : mod_id);
+		ImGui::PopStyleColor();
+		ImGui::TextDisabled("%s", mod_id);
+		ImGui::Separator();
+		ImGui::TextWrapped(
+		        "This mod was downloaded from a player who is not in your "
+		        "friends list. It was installed disabled.");
+		ImGui::TextWrapped("Enable it now or keep it disabled in Mod Manager.");
+		ImGui::Spacing();
+
+		if (ImGui::Button("Enable now", ImVec2(150, 0))) {
+			(void)fileTransferPendingModEnableAccept();
+			socialShellSyncMenuPool();
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Keep disabled", ImVec2(150, 0)) ||
+		    actionPressed(0, ACTION_CANCEL_USE)) {
+			fileTransferPendingModEnableDecline();
+			socialShellSyncMenuPool();
+			ImGui::CloseCurrentPopup();
+		}
+
+		(void)sender_handle;
+		ImGui::EndPopup();
+	}
+}
+
 extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 {
 	socialShellAdoptForceClose();
@@ -1574,6 +1623,7 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 	renderChatPanel(winW, winH);
 	renderProfileModal();
 	renderConvertToModModal();
+	renderReceivedModEnableModal();
 
 	if (s_AddFriendOpen) {
 		ImGui::OpenPopup("Add Friend");

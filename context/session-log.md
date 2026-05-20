@@ -1,5 +1,33 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-20-publicmods-request-enable`) - 2026-05-20 - Public Mods request-download enable policy
+
+Mike clarified the request-download trust behavior: downloads from friends should hot-enable by default; downloads from non-friends should ask after download whether to enable.
+
+### Change
+
+- Added Kanban card `c3810` under Modding and tracked the run-log verification plus friend/non-friend implementation subtasks.
+- Checked Mike's latest `Build/logs/game client/pd-client.log`: the run applied `mod:base-ui` from `mods/base-ui.pdmod::theme.json` and shut down cleanly. Observed known MESHCOL noise and one menu raw-model catalog miss, but no crash or authored `.bin` regression.
+- `file_transfer.c` now passes the sender handle into received `.pdmod` install, validates/install/rescans as before, then finds the installed archive-backed registry entry.
+- Friend-sourced installs enable and apply live through `modmgrSetEnabled()` + `modmgrApplyChanges()` after dependency/validity checks.
+- Non-friend installs remain disabled and queue a pending enable decision exposed through `file_transfer.h`.
+- `pdgui_friends.cpp` keeps the Social shell active while a pending decision exists and renders a modal with `Enable now` / `Keep disabled`.
+- Static coverage in `tests/test_public_mods_static.cpp` pins the new API, friend hot-enable path, non-friend queue path, and modal surface.
+
+### Verification
+
+- `tools/kanban/state.json` JSON parse PASS.
+- Scoped `git diff --check` PASS for the touched files.
+- `.\devtools\build-session.ps1 -Session modreq -Target tests` PASS.
+- Direct focused test with MinGW DLL path PASS: `[social][public_mods][static]` 4 cases / 77 assertions. The repo helper `run-pd-tests.ps1` still hits its known StrictMode `Count` issue before launch, so the binary was run directly with `C:\msys64\mingw64\bin` prepended.
+- `.\devtools\build-session.ps1 -Session modreq -Target all` PASS: client and updater targets succeeded.
+
+### Status
+
+`c3810` is ready to mark done. Runtime manual UX check remains useful: request a Public Mod from a friend and confirm it enables immediately; inject or receive a non-friend mod transfer and confirm the enable-choice modal appears.
+
+---
+
 ## Session (`main-checkout-2026-05-20-modpipe-publicmods-closure`) - 2026-05-20 - c3809 Public Mods closure
 
 Closed the final `c3809-s8` compatibility gate and moved the parent Kanban card to done.
