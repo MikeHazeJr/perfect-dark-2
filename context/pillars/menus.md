@@ -39,9 +39,9 @@ Migration is complete: every `.cpp` once owning `s_*PushedCtx` now has the remov
 
 ### Layer 3: Menu graph
 
-Named edges between menu types. [port/include/menugraph.h](../../port/include/menugraph.h) declares node types, edge types, `menuGraphNode`, `menuGraphEdge`, fire helpers (`menuGraphFirePushDialog`, `menuGraphFirePopOp`, `menuGraphFireSwitchSibling`, `menuGraphFireNetworkOp`, `menuGraphFireSceneOp`, `menuGraphFireProcessOp`, `menuGraphFireLocalOp`).
+Named edges between menu types. [port/include/menugraph.h](../../port/include/menugraph.h) declares node types, edge types, `menuGraphNode`, `menuGraphEdge`, fire helpers (`menuGraphFirePushDialog`, `menuGraphFireReplaceDialog`, `menuGraphFirePopOp`, `menuGraphFireSwitchSibling`, `menuGraphFireNetworkOp`, `menuGraphFireSceneOp`, `menuGraphFireProcessOp`, `menuGraphFireLocalOp`).
 
-Migration is partial: `menuGraphFire*` appears in 11 files (62 usages); raw `menuPushDialog / menuPopDialog` appears in 15 files (127 usages). The validated transition graph is aspirational; not enforced by a completeness test.
+The active ImGui menu surface is graph-routed as of c036 closure (2026-05-19): every `port/fast3d/pdgui_menu_*.cpp` file is statically checked to have zero direct `menuPushDialog / menuPopDialog` calls. Legacy C/runtime stack calls remain outside this controller-facing menu surface.
 
 ---
 
@@ -121,7 +121,7 @@ Per [constraints.md](../constraints.md):
 - Theme system with bundle support, mod-supplied themes, mod UI texture overrides.
 - Stack debug overlay for live introspection.
 - Nav helpers eliminate raw `ImGui::IsKeyPressed` from menus (statically enforced).
-- Menu graph substrate in place; 11 files migrated; pop / push / network-op / scene-op / process-op / sibling-switch / local-op helpers all available.
+- Menu graph substrate in place for the active ImGui menu surface; pop / push / replace-dialog / network-op / scene-op / process-op / sibling-switch / local-op helpers all available.
 - Lobby portrait baking (S352) + hover preview / drop shadow / team border (S356).
 - Theme editor + mod scanning + chrome style + font mod system (S280-S306 era).
 
@@ -129,7 +129,7 @@ Per [constraints.md](../constraints.md):
 
 ## What is in flight
 
-- **Menu graph completion.** 127 raw `menuPushDialog / menuPopDialog` calls in 15 files still bypass the graph. Migration is a Cohort 5-8 lane (per the input universality framework). No test asserts graph completeness yet.
+- **Menu graph completion.** Closed for the active ImGui/controller-facing surface in c036 (2026-05-19). Remaining legacy C/runtime stack calls are not part of that controller menu lane.
 - **Three deferred MENUITEM types.** [pdgui_menu_warning.cpp:1247-1258](../../port/fast3d/pdgui_menu_warning.cpp:1247) explicitly DEFERRED: `MENUITEMTYPE_LIST` (MP Pause Inventory, MP Character body/head, MP Load Settings/Preset/Player), `MENUITEMTYPE_PLAYERSTATS` (MP Pause Player Stats), `MENUITEMTYPE_RANKING` (MP Pause Player Ranking, MP Pause Team Rankings). Fallback at lines 622-629 outputs `[label]` placeholder text. The in-match inventory and ranking screens are placeholders.
 - **Action bar adoption.** Used in 19 of 31 files. Remaining 12 (`solomission`, `training`, `mpsettings` partially, `mpadvanced`, `challenges`, `logviewer`, `audiomod`, `stats`, `theme_editor`, `modmgr`, `endscreen`, `mpsetup` partially) place CTAs in scroll body. UX inconsistency.
 - **Widget helper adoption.** Used in 12 of 31 files. 19 menus still use raw ImGui widgets with default label-right.
@@ -138,7 +138,7 @@ Per [constraints.md](../constraints.md):
 
 ## Known gaps
 
-- **Menu graph node table not visible from header.** [port/include/menugraph.h](../../port/include/menugraph.h) declares `menuGraphNode`, `menuGraphEdge`, `menuGraphNodeCount` but the table is in `.c`. `test_menu_graph.cpp` checks no-raw-key-polling but not graph completeness (every node has at least one inbound and outbound edge).
+- **Menu graph node table not visible from header.** [port/include/menugraph.h](../../port/include/menugraph.h) declares `menuGraphNode`, `menuGraphEdge`, `menuGraphNodeCount` but the table is in `.c`. `test_menu_graph.cpp` now guards the active ImGui menu surface against direct stack calls, but full graph topology completeness (every node has expected inbound/outbound edges) remains a future hardening pass.
 - **Right-stick scroll spec decoupled from runtime.** Same gap as input system. [tests/test_right_stick_scroll.cpp:14-17](../../tests/test_right_stick_scroll.cpp:14) is the spec; runtime is `pdguiDriveImGuiNav` with no static link.
 - **Single-slot unregistered fallback.** [menupool.c:370-393](../../port/src/menupool.c:370) tracks one unregistered dialog at a time via `s_UnregisteredOwnedDef / s_UnregisteredOwnedCtx`. Two concurrent unregistered dialogs would silently leak the first's ctx. Comment acknowledges design choice; still a real gap if mod dialogs register late.
 - **`pdgui_menu_audiomod.cpp` is absent from primitive counts.** Did not appear in action bar, widget helper, or nav helper grep results. May be a stub or fully manual layout. Audit and migrate.

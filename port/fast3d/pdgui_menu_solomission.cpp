@@ -82,9 +82,6 @@ extern struct menudialogdef g_CoopOptionsMenuDialog;
 extern struct menudialogdef g_AntiMissionDifficultyMenuDialog;
 extern struct menudialogdef g_AntiOptionsMenuDialog;
 
-/* ---- Menu navigation ---- */
-void menuPushDialog(struct menudialogdef *dialogdef);
-void menuPopDialog(void);
 void menuStop(void);
 
 /* ---- Language ---- */
@@ -1419,7 +1416,9 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                     SM_SET_DIFFICULTY(&g_MissionConfig, DIFF_PA);
                     lvSetDifficulty(DIFF_PA);
                     pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-                    menuPushDialog(&g_PdModeSettingsMenuDialog);
+                    menuGraphFirePushDialog(MENU_TYPE_SOLO_MISSION,
+                                            "pd_mode_settings",
+                                            &g_PdModeSettingsMenuDialog);
                 } else {
                     SM_CLEAR_PDMODE(&g_MissionConfig);
                     SM_SET_DIFFICULTY(&g_MissionConfig, selDiff);
@@ -1516,7 +1515,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
     }
     if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_SOLO_MISSION, "back");
         ImGui::End();
         return 1;
     }
@@ -1592,8 +1591,9 @@ static s32 renderDifficulty(struct menudialog *dialog,
             SM_SET_DIFFICULTY(&g_MissionConfig, diff);
             lvSetDifficulty(diff);
             pdguiPlaySound(PDGUI_SND_SELECT);
-            menuPopDialog();
-            menuPushDialog(&g_AcceptMissionMenuDialog);
+            menuGraphFireReplaceDialog(MENU_TYPE_SOLO_MISSION,
+                                       "accept_mission",
+                                       &g_AcceptMissionMenuDialog);
         } else if ((clicked || kbConfirm) && locked) {
             pdguiPlaySound(PDGUI_SND_ERROR);
         }
@@ -1667,7 +1667,9 @@ static s32 renderDifficulty(struct menudialog *dialog,
 
         if (doSelect) {
             pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-            menuPushDialog(&g_PdModeSettingsMenuDialog);
+            menuGraphFirePushDialog(MENU_TYPE_SOLO_MISSION,
+                                    "pd_mode_settings",
+                                    &g_PdModeSettingsMenuDialog);
         }
 
         ImGui::PopID();
@@ -1707,7 +1709,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
 
         if (doCancel) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_SOLO_MISSION, "back");
         }
 
         ImGui::PopID();
@@ -1811,7 +1813,7 @@ static s32 renderCoopAntiDifficultyImpl(struct menudialog *dialog,
     }
     if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_SOLO_MISSION, "back");
         ImGui::End();
         return 1;
     }
@@ -1862,9 +1864,10 @@ static s32 renderCoopAntiDifficultyImpl(struct menudialog *dialog,
             SM_SET_DIFFICULTY(&g_MissionConfig, diff);
             lvSetDifficulty(diff);
             pdguiPlaySound(PDGUI_SND_SELECT);
-            menuPopDialog();
-            menuPushDialog(isCoop ? &g_CoopOptionsMenuDialog
-                                  : &g_AntiOptionsMenuDialog);
+            menuGraphFireReplaceDialog(MENU_TYPE_SOLO_MISSION,
+                                       isCoop ? "coop_options" : "anti_options",
+                                       isCoop ? &g_CoopOptionsMenuDialog
+                                              : &g_AntiOptionsMenuDialog);
         } else if ((clicked || kbConfirm) && locked) {
             pdguiPlaySound(PDGUI_SND_ERROR);
         }
@@ -1914,7 +1917,7 @@ static s32 renderCoopAntiDifficultyImpl(struct menudialog *dialog,
 
         if (doCancel) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_SOLO_MISSION, "back");
         }
 
         ImGui::PopID();
@@ -2091,7 +2094,7 @@ static s32 renderCoopAntiOptionsImpl(struct menudialog *dialog,
     /* B / Escape closes the dialog (d5 back rule). */
     if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_SOLO_MISSION, "back");
         ImGui::End();
         return 1;
     }
@@ -2285,7 +2288,7 @@ static s32 renderCoopAntiOptionsImpl(struct menudialog *dialog,
             menuhandlerBuddyOptionsContinue(MENUOP_SET, nullptr, nullptr);
         } else if (doCancel) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_SOLO_MISSION, "back");
         }
     }
     pdguiEndActionBar();
@@ -2358,7 +2361,7 @@ static s32 renderBriefingImpl(struct menudialog *dialog,
     /* Close with B / Escape */
     if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_SOLO_MISSION, "back");
     }
 
     /* Scrollable briefing text */
@@ -3039,7 +3042,7 @@ static s32 renderAbortMission(struct menudialog *dialog,
             s_AbortOpenedForDialog = nullptr;
             s_AbortOpenFrame = -1;
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "cancel");
         }
         pdguiSetPalette(prevPalette);
         return 1;
@@ -3176,13 +3179,13 @@ static s32 renderAbortMission(struct menudialog *dialog,
         ImGui::CloseCurrentPopup();
         s_AbortOpenedForDialog = nullptr;
         s_AbortOpenFrame = -1;
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "confirm");
     } else if (doCancel) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         ImGui::CloseCurrentPopup();
         s_AbortOpenedForDialog = nullptr;
         s_AbortOpenFrame = -1;
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "cancel");
     }
 
     ImGui::EndPopup();

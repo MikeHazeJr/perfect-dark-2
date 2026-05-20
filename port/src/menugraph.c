@@ -14,6 +14,9 @@
 #define EDGE_PUSH(id_, action_, label_, target_) \
     { (id_), (action_), (label_), MENU_GRAPH_DEST_PUSH_MENU, { .push_target = (target_) } }
 
+#define EDGE_PUSH_ANY(id_, action_, label_) \
+    { (id_), (action_), (label_), MENU_GRAPH_DEST_PUSH_MENU, { .push_target = MENU_TYPE_NONE } }
+
 #define EDGE_POP(id_, action_, label_) \
     { (id_), (action_), (label_), MENU_GRAPH_DEST_POP_TO_PARENT, { .push_target = MENU_TYPE_NONE } }
 
@@ -60,6 +63,14 @@ static const MenuGraphEdge s_MainSettingsEdges[] = {
     EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
 };
 
+static const MenuGraphEdge s_CiOptionsEdges[] = {
+    EDGE_POP("close", ACTION_MENU_CANCEL, "Close"),
+};
+
+static const MenuGraphEdge s_CinemaEdges[] = {
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+};
+
 static const MenuGraphEdge s_MainModdingEdges[] = {
     EDGE_PUSH("open_hub", ACTION_MENU_ACCEPT, "Open Modding Hub", MENU_TYPE_MODDING_HUB),
     EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
@@ -84,6 +95,10 @@ static const MenuGraphEdge s_GridEdges[] = {
 static const MenuGraphEdge s_SoloMissionEdges[] = {
     EDGE_SCENE("start", ACTION_MENU_ACCEPT, "Start Mission", SCENE_EVENT_GAMEPLAY_START),
     EDGE_SCENE("restart", ACTION_MENU_ACCEPT, "Restart Mission", SCENE_EVENT_GAMEPLAY_START),
+    EDGE_PUSH_ANY("pd_mode_settings", ACTION_MENU_ACCEPT, "PD Mode Settings"),
+    EDGE_PUSH_ANY("accept_mission", ACTION_MENU_ACCEPT, "Accept Mission"),
+    EDGE_PUSH_ANY("coop_options", ACTION_MENU_ACCEPT, "Co-op Options"),
+    EDGE_PUSH_ANY("anti_options", ACTION_MENU_ACCEPT, "Counter-Op Options"),
     EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
 };
 
@@ -125,11 +140,13 @@ static const MenuGraphEdge s_SoloInventoryEdges[] = {
 
 static const MenuGraphEdge s_SoloOptionsEdges[] = {
     EDGE_SWITCH("back", ACTION_MENU_CANCEL, "Back", MENU_TYPE_SOLO_MISSION_PAUSE),
+    EDGE_POP("close", ACTION_MENU_CANCEL, "Close"),
 };
 
 static const MenuGraphEdge s_MpPauseEdges[] = {
     EDGE_POP("resume", ACTION_MENU_CANCEL, "Resume"),
     EDGE_PUSH("end_game", ACTION_MENU_ACCEPT, "End Game", MENU_TYPE_WARNING_MODAL),
+    EDGE_PUSH("control_style", ACTION_MENU_ACCEPT, "Control Style", MENU_TYPE_SOLO_OPTIONS),
     EDGE_NETWORK("disconnect", ACTION_MENU_ACCEPT, "Disconnect", "disconnect"),
 };
 
@@ -162,6 +179,14 @@ static const MenuGraphEdge s_AgentCreateEdges[] = {
     EDGE_POP("cancel", ACTION_MENU_CANCEL, "Cancel"),
 };
 
+static const MenuGraphEdge s_CheatsEdges[] = {
+    EDGE_PUSH("unlock_all", ACTION_MENU_ACCEPT, "Unlock Everything", MENU_TYPE_WARNING_MODAL),
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+    EDGE_POP("close", ACTION_MENU_CANCEL, "Close"),
+    EDGE_POP("redirect", ACTION_MENU_CANCEL, "Redirect"),
+    EDGE_POP("warning_close", ACTION_MENU_CANCEL, "Close Warning"),
+};
+
 static const MenuGraphEdge s_ChallengesEdges[] = {
     EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
 };
@@ -175,20 +200,117 @@ static const MenuGraphEdge s_MpPlayerConfigEdges[] = {
 };
 
 static const MenuGraphEdge s_MpSetupEdges[] = {
+    EDGE_PUSH_ANY("more_options", ACTION_MENU_ACCEPT, "More Options"),
     EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
 };
 
 static const MenuGraphEdge s_MpAdvancedEdges[] = {
+    EDGE_PUSH("scenario", ACTION_MENU_ACCEPT, "Scenario", MENU_TYPE_MP_SETUP),
+    EDGE_PUSH("quick_team_scenario", ACTION_MENU_ACCEPT, "Quick Team Scenario", MENU_TYPE_MP_SETUP),
+    EDGE_PUSH("arena", ACTION_MENU_ACCEPT, "Arena", MENU_TYPE_MP_SETUP),
+    EDGE_PUSH("weapons", ACTION_MENU_ACCEPT, "Weapons", MENU_TYPE_MP_SETUP),
+    EDGE_PUSH("quick_team_weapons", ACTION_MENU_ACCEPT, "Quick Team Weapons", MENU_TYPE_MP_SETUP),
+    EDGE_PUSH("limits", ACTION_MENU_ACCEPT, "Limits", MENU_TYPE_MP_SETUP),
+    EDGE_PUSH("handicaps", ACTION_MENU_ACCEPT, "Player Handicaps", MENU_TYPE_MP_SETTINGS),
+    EDGE_PUSH("simulants", ACTION_MENU_ACCEPT, "Simulants", MENU_TYPE_MP_BOT_SETUP),
+    EDGE_PUSH("teams", ACTION_MENU_ACCEPT, "Teams", MENU_TYPE_MP_TEAM_SETUP),
+    EDGE_PUSH_ANY("manage_settings", ACTION_MENU_ACCEPT, "Manage Settings"),
+    EDGE_PUSH("load_settings", ACTION_MENU_ACCEPT, "Load Settings", MENU_TYPE_MP_PLAYER_CONFIG),
+    EDGE_PUSH("start_game", ACTION_MENU_ACCEPT, "Start Game", MENU_TYPE_MP_SETUP),
+    EDGE_PUSH("load_player", ACTION_MENU_ACCEPT, "Load Player", MENU_TYPE_MP_PLAYER_CONFIG),
+    EDGE_PUSH_ANY("player_settings", ACTION_MENU_ACCEPT, "Player Settings"),
+    EDGE_PUSH("drop_out", ACTION_MENU_ACCEPT, "Drop Out", MENU_TYPE_MP_PAUSE),
+    EDGE_PUSH("soundtrack", ACTION_MENU_ACCEPT, "Soundtrack", MENU_TYPE_MP_SOUNDTRACK),
+    EDGE_PUSH("team_names", ACTION_MENU_ACCEPT, "Team Names", MENU_TYPE_MP_TEAMNAMES),
+    EDGE_PUSH_ANY("abort_game", ACTION_MENU_ACCEPT, "Abort Game"),
+    EDGE_PUSH("player_name", ACTION_MENU_ACCEPT, "Name", MENU_TYPE_MP_PLAYER_CONFIG),
+    EDGE_PUSH_ANY("character", ACTION_MENU_ACCEPT, "Character"),
+    EDGE_PUSH("control", ACTION_MENU_ACCEPT, "Control", MENU_TYPE_MP_PAUSE),
+    EDGE_PUSH("player_options", ACTION_MENU_ACCEPT, "Player Options", MENU_TYPE_MP_PLAYER_CONFIG),
+    EDGE_PUSH("statistics", ACTION_MENU_ACCEPT, "Statistics", MENU_TYPE_MP_PLAYER_CONFIG),
     EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
 };
 
 static const MenuGraphEdge s_MpBotSetupEdges[] = {
+    EDGE_PUSH_ANY("character", ACTION_MENU_ACCEPT, "Character"),
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+};
+
+static const MenuGraphEdge s_MpSettingsEdges[] = {
+    EDGE_POP("done", ACTION_MENU_ACCEPT, "Done"),
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+};
+
+static const MenuGraphEdge s_MpSoundtrackEdges[] = {
+    EDGE_PUSH("select_music", ACTION_MENU_ACCEPT, "Select Music", MENU_TYPE_MP_TUNES),
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+};
+
+static const MenuGraphEdge s_MpTunesEdges[] = {
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+};
+
+static const MenuGraphEdge s_MpTeamNamesEdges[] = {
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+};
+
+static const MenuGraphEdge s_TrainingEdges[] = {
+    EDGE_PUSH_ANY("bio_profile", ACTION_MENU_ACCEPT, "Bio Profile"),
+    EDGE_PUSH_ANY("bio_text", ACTION_MENU_ACCEPT, "Bio Text"),
+    EDGE_PUSH_ANY("hangar_location", ACTION_MENU_ACCEPT, "Hangar Location"),
+    EDGE_PUSH_ANY("hangar_vehicle", ACTION_MENU_ACCEPT, "Hangar Vehicle"),
+    EDGE_PUSH_ANY("hangar_holograph", ACTION_MENU_ACCEPT, "Hangar Holograph"),
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+    EDGE_POP("close", ACTION_MENU_CANCEL, "Close"),
+};
+
+static const MenuGraphEdge s_FrWeaponListEdges[] = {
+    EDGE_PUSH("difficulty", ACTION_MENU_ACCEPT, "Difficulty", MENU_TYPE_FR_DIFFICULTY),
+    EDGE_PUSH("info", ACTION_MENU_ACCEPT, "Training Info", MENU_TYPE_FR_INFO),
     EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
 };
 
 static const MenuGraphEdge s_FrDifficultyEdges[] = {
     EDGE_PUSH("start", ACTION_MENU_ACCEPT, "Start Firing Range", MENU_TYPE_FR_INFO),
     EDGE_POP("cancel", ACTION_MENU_CANCEL, "Cancel"),
+};
+
+static const MenuGraphEdge s_FrInfoEdges[] = {
+    EDGE_POP("cancel", ACTION_MENU_CANCEL, "Cancel"),
+    EDGE_POP("abort", ACTION_MENU_CANCEL, "Abort"),
+};
+
+static const MenuGraphEdge s_FrResultEdges[] = {
+    EDGE_POP("continue", ACTION_MENU_ACCEPT, "Continue"),
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+};
+
+static const MenuGraphEdge s_DtListEdges[] = {
+    EDGE_PUSH("details", ACTION_MENU_ACCEPT, "Details", MENU_TYPE_DT_DETAILS),
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+};
+
+static const MenuGraphEdge s_DtDetailsEdges[] = {
+    EDGE_POP("begin", ACTION_MENU_ACCEPT, "Begin"),
+    EDGE_POP("cancel", ACTION_MENU_CANCEL, "Cancel"),
+};
+
+static const MenuGraphEdge s_DtResultEdges[] = {
+    EDGE_POP("continue", ACTION_MENU_ACCEPT, "Continue"),
+};
+
+static const MenuGraphEdge s_HtListEdges[] = {
+    EDGE_PUSH("details", ACTION_MENU_ACCEPT, "Details", MENU_TYPE_HT_DETAILS),
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+};
+
+static const MenuGraphEdge s_HtDetailsEdges[] = {
+    EDGE_POP("begin", ACTION_MENU_ACCEPT, "Begin"),
+    EDGE_POP("cancel", ACTION_MENU_CANCEL, "Cancel"),
+};
+
+static const MenuGraphEdge s_HtResultEdges[] = {
+    EDGE_POP("continue", ACTION_MENU_ACCEPT, "Continue"),
 };
 
 static const MenuGraphEdge s_WarningModalEdges[] = {
@@ -203,10 +325,12 @@ static const MenuGraphNode s_Nodes[] = {
     NODE(MENU_TYPE_MAIN_MENU, "main_menu", s_MainMenuEdges),
     NODE(MENU_TYPE_MAIN_SOLO_VIEW, "main_solo_view", s_MainSoloEdges),
     NODE(MENU_TYPE_MAIN_SETTINGS_VIEW, "main_settings_view", s_MainSettingsEdges),
+    NODE(MENU_TYPE_CI_OPTIONS, "ci_options", s_CiOptionsEdges),
     NODE(MENU_TYPE_MAIN_MODDING_VIEW, "main_modding_view", s_MainModdingEdges),
     NODE(MENU_TYPE_MAIN_ONLINE_VIEW, "main_online_view", s_MainOnlineEdges),
     NODE(MENU_TYPE_MAIN_STATS_VIEW, "main_stats_view", s_MainStatsEdges),
     NODE(MENU_TYPE_GRID_SUBMENU, "grid_submenu", s_GridEdges),
+    NODE(MENU_TYPE_CINEMA, "cinema", s_CinemaEdges),
     NODE(MENU_TYPE_SOLO_MISSION, "solo_mission", s_SoloMissionEdges),
     NODE(MENU_TYPE_ROOM, "room", s_RoomEdges),
     NODE(MENU_TYPE_ENDSCREEN_SOLO, "endscreen_solo", s_EndscreenSoloEdges),
@@ -221,13 +345,28 @@ static const MenuGraphNode s_Nodes[] = {
     NODE(MENU_TYPE_NETWORK, "network", s_NetworkEdges),
     NODE(MENU_TYPE_AGENT_SELECT, "agent_select", s_AgentSelectEdges),
     NODE(MENU_TYPE_AGENT_CREATE, "agent_create", s_AgentCreateEdges),
+    NODE(MENU_TYPE_CHEATS, "cheats", s_CheatsEdges),
     NODE(MENU_TYPE_CHALLENGES, "challenges", s_ChallengesEdges),
     NODE(MENU_TYPE_MP_TEAM_SETUP, "mp_team_setup", s_MpTeamSetupEdges),
     NODE(MENU_TYPE_MP_PLAYER_CONFIG, "mp_player_config", s_MpPlayerConfigEdges),
     NODE(MENU_TYPE_MP_SETUP, "mp_setup", s_MpSetupEdges),
+    NODE(MENU_TYPE_MP_SETTINGS, "mp_settings", s_MpSettingsEdges),
+    NODE(MENU_TYPE_MP_SOUNDTRACK, "mp_soundtrack", s_MpSoundtrackEdges),
+    NODE(MENU_TYPE_MP_TUNES, "mp_tunes", s_MpTunesEdges),
+    NODE(MENU_TYPE_MP_TEAMNAMES, "mp_teamnames", s_MpTeamNamesEdges),
     NODE(MENU_TYPE_MP_ADVANCED, "mp_advanced", s_MpAdvancedEdges),
     NODE(MENU_TYPE_MP_BOT_SETUP, "mp_bot_setup", s_MpBotSetupEdges),
+    NODE(MENU_TYPE_TRAINING, "training", s_TrainingEdges),
+    NODE(MENU_TYPE_FR_WEAPON_LIST, "fr_weapon_list", s_FrWeaponListEdges),
     NODE(MENU_TYPE_FR_DIFFICULTY, "fr_difficulty", s_FrDifficultyEdges),
+    NODE(MENU_TYPE_FR_INFO, "fr_info", s_FrInfoEdges),
+    NODE(MENU_TYPE_FR_RESULT, "fr_result", s_FrResultEdges),
+    NODE(MENU_TYPE_DT_LIST, "dt_list", s_DtListEdges),
+    NODE(MENU_TYPE_DT_DETAILS, "dt_details", s_DtDetailsEdges),
+    NODE(MENU_TYPE_DT_RESULT, "dt_result", s_DtResultEdges),
+    NODE(MENU_TYPE_HT_LIST, "ht_list", s_HtListEdges),
+    NODE(MENU_TYPE_HT_DETAILS, "ht_details", s_HtDetailsEdges),
+    NODE(MENU_TYPE_HT_RESULT, "ht_result", s_HtResultEdges),
     NODE(MENU_TYPE_WARNING_MODAL, "warning_modal", s_WarningModalEdges),
 };
 
@@ -311,7 +450,8 @@ s32 menuGraphFirePushDialog(menu_type_t source,
     }
 
     menu_type_t actual = menupoolTypeForDialogdef(dialogdef);
-    if (actual != edge->payload.push_target) {
+    if (edge->payload.push_target != MENU_TYPE_NONE &&
+            actual != edge->payload.push_target) {
         sysLogPrintf(LOG_WARNING,
             "MENU.GRAPH.FIRE source=%s edge=%s target=%s actual=%s ok=0",
             menupoolTypeName(source), edge_id,
@@ -324,8 +464,53 @@ s32 menuGraphFirePushDialog(menu_type_t source,
         "MENU.GRAPH.FIRE source=%s edge=%s trigger=%d dest=%s target=%s ok=1",
         menupoolTypeName(source), edge_id, (int)edge->trigger,
         menuGraphDestKindName(edge->kind),
-        menupoolTypeName(edge->payload.push_target));
+        edge->payload.push_target == MENU_TYPE_NONE
+            ? menupoolTypeName(actual)
+            : menupoolTypeName(edge->payload.push_target));
 
+    menuPushDialog(dialogdef);
+    return 0;
+}
+
+s32 menuGraphFireReplaceDialog(menu_type_t source,
+                               const char *edge_id,
+                               struct menudialogdef *dialogdef)
+{
+    const MenuGraphEdge *edge = menuGraphEdge(source, edge_id);
+    if (!edge || !dialogdef) {
+        sysLogPrintf(LOG_WARNING,
+            "MENU.GRAPH.FIRE source=%s edge=%s dest=missing ok=0",
+            menupoolTypeName(source), edge_id ? edge_id : "(null)");
+        return -1;
+    }
+
+    if (edge->kind != MENU_GRAPH_DEST_PUSH_MENU) {
+        sysLogPrintf(LOG_WARNING,
+            "MENU.GRAPH.FIRE source=%s edge=%s dest=%s ok=0",
+            menupoolTypeName(source), edge_id, menuGraphDestKindName(edge->kind));
+        return -2;
+    }
+
+    menu_type_t actual = menupoolTypeForDialogdef(dialogdef);
+    if (edge->payload.push_target != MENU_TYPE_NONE &&
+            actual != edge->payload.push_target) {
+        sysLogPrintf(LOG_WARNING,
+            "MENU.GRAPH.FIRE source=%s edge=%s target=%s actual=%s ok=0",
+            menupoolTypeName(source), edge_id,
+            menupoolTypeName(edge->payload.push_target),
+            menupoolTypeName(actual));
+        return -3;
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "MENU.GRAPH.FIRE source=%s edge=%s trigger=%d dest=%s target=%s replace=1 ok=1",
+        menupoolTypeName(source), edge_id, (int)edge->trigger,
+        menuGraphDestKindName(edge->kind),
+        edge->payload.push_target == MENU_TYPE_NONE
+            ? menupoolTypeName(actual)
+            : menupoolTypeName(edge->payload.push_target));
+
+    menuPopDialog();
     menuPushDialog(dialogdef);
     return 0;
 }
@@ -477,6 +662,14 @@ s32 menuGraphFirePopOp(menu_type_t source,
     sysLogPrintf(LOG_NOTE,
         "MENU.GRAPH.RESULT source=%s edge=%s rc=%d ok=%d",
         menupoolTypeName(source), edge_id, rc, rc == 0 ? 1 : 0);
+
+    if (rc == 0) {
+        if (edge->kind == MENU_GRAPH_DEST_POP_TO_PARENT) {
+            menuPopDialog();
+        } else if (edge->kind == MENU_GRAPH_DEST_POP_TO_ROOT) {
+            menupoolReleaseAll();
+        }
+    }
 
     return rc;
 }

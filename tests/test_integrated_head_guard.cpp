@@ -3,8 +3,8 @@
  * pin the integrated-head head-selector lock across every body+head
  * picker site.
  *
- * Bodies with `unk00_01 == 1` (Skedar, Dr Carroll, Eye Spy) carry their
- * own head model.  The renderer's request seam at
+ * Bodies with `unk00_01 == 1` (Skedar, Dr Carroll, Eye Spy, Chicrob)
+ * carry their own head/model geometry.  The renderer's request seam at
  * `pdguiCharPreviewRequestEx` already clears the requested head when a
  * body declares `complete` (catalogGetBodyIsComplete).  Without a
  * matching guard at the picker UI, the user can still cycle / pick a
@@ -173,6 +173,30 @@ TEST_CASE("charpreview: request seam clears head for integrated body",
 	        != std::string::npos);
 	/* Comment captures the design intent so search-by-symptom finds it. */
 	REQUIRE(src.find("drop the requested head")
+	        != std::string::npos);
+}
+
+/* B-345 follow-up: Chicago and Skedar Ruins robots are authored as
+ * BODY_CHICROB with headnum 0x00 in solo setup. That zero is a setup
+ * placeholder, not a real separate head. The catalog row must therefore
+ * declare the body self-contained so bodyAllocateModel does not request
+ * or warn about a phantom head. */
+TEST_CASE("bodydata: Chicrob is self-contained and suppresses phantom head loads",
+          "[catalog][catalog-mgr-body][b-345][integrated-head][bodydata]") {
+	const std::string data = readTextFile("port/src/bodydata_authored.c");
+	const std::string body = readTextFile("src/game/body.c");
+	const std::string chicago = readTextFile("src/setups/setuppete.c");
+	const std::string ruins = readTextFile("src/setups/setupazt.c");
+
+	REQUIRE(data.find("{ \"base:sp_body_118\", 118, 1, 1, 0")
+	        != std::string::npos);
+	REQUIRE(body.find("case BODY_CHICROB:\n\t\treturn RACE_ROBOT;")
+	        != std::string::npos);
+	REQUIRE(body.find("&& !catalogGetBodyIsComplete(bodynum)")
+	        != std::string::npos);
+	REQUIRE(chicago.find("BODY_CHICROB, 0x00, AILIST_INIT_ROBOT")
+	        != std::string::npos);
+	REQUIRE(ruins.find("BODY_CHICROB, 0x00, AILIST_INIT_ROBOT")
 	        != std::string::npos);
 }
 

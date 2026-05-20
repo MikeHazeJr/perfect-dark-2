@@ -50,12 +50,15 @@
 #include "pdgui_style.h"
 #include "pdgui_nineslice.h"
 #include "pdgui_scaling.h"
+#include "pdgui_fontmgr.h"
 #include "system.h"
 #include "assetcatalog.h"
+#include "assetprovider.h"
 #include "fs.h"
 #include "config.h"
 #include "modarchive.h"
 #include "sha256.h"
+#include "../external/stb_image.h"
 extern "C" {
 #include "modmgr.h"
 }
@@ -246,6 +249,27 @@ static void decodeCi4(const uint8_t  *src,
 static GLuint s_uploadGLTex(const uint8_t *rgba32, uint32_t w, uint32_t h)
 {
     GLuint tex = 0;
+    static GLint s_MaxTextureSize = 0;
+
+    if (!rgba32 || !w || !h) {
+        sysLogPrintf(LOG_ERROR, "PDGUI theme: invalid GL texture upload (%ux%u)", w, h);
+        return 0;
+    }
+
+    if (s_MaxTextureSize <= 0) {
+        glGetIntegerv(GL_MAX_TEXTURE_SIZE, &s_MaxTextureSize);
+        if (s_MaxTextureSize <= 0) {
+            s_MaxTextureSize = 4096;
+        }
+    }
+
+    if (w > (uint32_t)s_MaxTextureSize || h > (uint32_t)s_MaxTextureSize) {
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI theme: texture %ux%u exceeds GL_MAX_TEXTURE_SIZE=%d",
+            w, h, (int)s_MaxTextureSize);
+        return 0;
+    }
+
     glGenTextures(1, &tex);
     if (!tex) {
         sysLogPrintf(LOG_ERROR, "PDGUI theme: glGenTextures failed (%ux%u)", w, h);
@@ -373,6 +397,7 @@ static std::unordered_map<std::string, GLuint> s_ThemeTexCache;
  * source texture size without depending on the asset catalog's
  * data_size_bytes heuristic. */
 static std::unordered_map<std::string, std::pair<uint32_t, uint32_t>> s_ThemeTexDims;
+static std::unordered_map<std::string, bool> s_CatalogUiApplied;
 static bool s_ThemeInitDone = false;
 
 /**
@@ -730,18 +755,70 @@ static GLuint s_loadTgaFromMem(const uint8_t *data, uint32_t fileSize,
     return tex;
 }
 
+static bool s_pathHasExt(const char *path, const char *ext)
+{
+    size_t path_len;
+    size_t ext_len;
+
+    if (!path || !ext) return false;
+    path_len = strlen(path);
+    ext_len = strlen(ext);
+    if (path_len < ext_len) return false;
+
+    return _stricmp(path + path_len - ext_len, ext) == 0;
+}
+
+static GLuint s_loadImageTexture(const char *path, uint32_t *out_w, uint32_t *out_h)
+{
+    if (!path || !path[0]) {
+        return 0;
+    }
+
+    if (s_pathHasExt(path, ".tga")) {
+        return s_loadTgaTexture(path, out_w, out_h);
+    }
+
+    u32 fileSize = 0;
+    uint8_t *bytes = (uint8_t *)fsFileLoad(path, &fileSize);
+    if (!bytes || fileSize == 0) {
+        sysLogPrintf(LOG_WARNING, "PDGUI theme: failed to load image '%s'", path);
+        if (bytes) free(bytes);
+        return 0;
+    }
+
+    int w = 0;
+    int h = 0;
+    int comp = 0;
+    uint8_t *rgba = stbi_load_from_memory(bytes, (int)fileSize, &w, &h, &comp, 4);
+    free(bytes);
+
+    if (!rgba || w <= 0 || h <= 0) {
+        sysLogPrintf(LOG_WARNING, "PDGUI theme: unsupported image '%s' (%s)",
+            path, stbi_failure_reason() ? stbi_failure_reason() : "decode failed");
+        if (rgba) stbi_image_free(rgba);
+        return 0;
+    }
+
+    GLuint tex = s_uploadGLTex(rgba, (uint32_t)w, (uint32_t)h);
+    if (out_w) *out_w = (uint32_t)w;
+    if (out_h) *out_h = (uint32_t)h;
+    stbi_image_free(rgba);
+    return tex;
+}
+
 /**
  * Register a theme texture from a mod file path.
- * Loads the TGA, uploads to GL, registers in catalog + cache.
+ * Loads a PNG/TGA through fsFileLoad/VFS, uploads to GL, registers in catalog
+ * + cache.
  */
-static void s_registerModTexture(const char *catalog_id, const char *path)
+static s32 s_registerModTexture(const char *catalog_id, const char *path)
 {
     uint32_t w = 0, h = 0;
-    GLuint gl_id = s_loadTgaTexture(path, &w, &h);
+    GLuint gl_id = s_loadImageTexture(path, &w, &h);
     if (!gl_id) {
         sysLogPrintf(LOG_WARNING,
             "PDGUI theme: '%s' from '%s' — load failed, skipping", catalog_id, path);
-        return;
+        return 0;
     }
 
     sysLogPrintf(LOG_NOTE,
@@ -763,6 +840,7 @@ static void s_registerModTexture(const char *catalog_id, const char *path)
 
     s_ThemeTexCache[catalog_id] = gl_id;
     s_ThemeTexDims[catalog_id]  = { w, h };
+    return 1;
 }
 
 
@@ -1117,6 +1195,70 @@ s32 pdguiThemeScanModUiTextures(const char *mod_dir)
     return count;
 }
 
+struct catalog_ui_apply_ctx {
+    s32 textures;
+    s32 fonts;
+};
+
+static const char *s_catalogUiPath(const asset_entry_t *entry)
+{
+    if (!entry || entry->source.primary.provider != fileProvider()) {
+        return NULL;
+    }
+
+    const char *path = fileProviderPath(entry->source.primary);
+    return (path && path[0]) ? path : NULL;
+}
+
+static void s_applyCatalogUiAsset(const asset_entry_t *entry, void *userdata)
+{
+    catalog_ui_apply_ctx *ctx = (catalog_ui_apply_ctx *)userdata;
+    const char *path = s_catalogUiPath(entry);
+
+    if (!entry || !path || !path[0]) {
+        return;
+    }
+
+    if (s_CatalogUiApplied.find(entry->id) != s_CatalogUiApplied.end()) {
+        return;
+    }
+
+    if (s_pathHasExt(path, ".png") || s_pathHasExt(path, ".tga")) {
+        if (s_registerModTexture(entry->id, path)) {
+            s_CatalogUiApplied[entry->id] = true;
+            if (ctx) ctx->textures++;
+        }
+        return;
+    }
+
+    if (s_pathHasExt(path, ".ttf") || s_pathHasExt(path, ".otf")) {
+        s32 before = pdguiFontMgrGetCount();
+        if (before <= 0) {
+            pdguiFontMgrInit();
+            before = pdguiFontMgrGetCount();
+        }
+
+        pdguiFontMgrLoadFont(entry->id, path, 24.0f);
+        if (pdguiFontMgrGetCount() > before) {
+            s_CatalogUiApplied[entry->id] = true;
+            if (ctx) ctx->fonts++;
+        }
+    }
+}
+
+static void s_applyCatalogUiAssets(void)
+{
+    catalog_ui_apply_ctx ctx = { 0, 0 };
+
+    assetCatalogIterateByType(ASSET_UI, s_applyCatalogUiAsset, &ctx);
+
+    if (ctx.textures || ctx.fonts) {
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI theme: applied %d catalog UI texture(s), %d catalog font(s)",
+            ctx.textures, ctx.fonts);
+    }
+}
+
 void pdguiThemeApplyEnabledModUiTextures(void)
 {
     if (!s_ThemeLateInitDone) return;
@@ -1137,6 +1279,8 @@ void pdguiThemeApplyEnabledModUiTextures(void)
     if (total > 0)
         sysLogPrintf(LOG_NOTE,
             "PDGUI theme: %d UI texture override(s) applied from mods", total);
+
+    s_applyCatalogUiAssets();
 }
 
 static s32 s_parseFillModeToken(const chrome_jtok *tok)

@@ -1,5 +1,441 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-20-modpipe-s8-static-compat-publicmods`) - 2026-05-20 - external-format compatibility static validation
+
+Continued from `c3809-s7` into the final compatibility/validation slice. `c3809-s8` remains active because the requested in-game load/playback checks have not been run in this session; this pass closes the static/build side and records the remaining runtime gate.
+
+### Change
+
+- Wired `tests/test_public_mods_static.cpp` into `pd-tests`; it had existed but was not compiled by the test target.
+- Updated Public Mods folder-mod requests so folder-backed public mods are packaged through `modpackPdmodFromFolder()` into a validated `.pdmod` under the social outbox before transfer. This replaces the old `mod.json`-only hint path and keeps folder/archive sharing on the same installable archive shape.
+- Added c3809 static coverage for the legacy `.pd*` walker matrix: `.pdwpn`, `.pdhead`, `.pdbody`, `.pdarena`, `.pdmesh`, `.pdanim`, `.pdsfx`, `.pdvoice`, `.pdsong`, `.pdui`, `.pdfont`, `.pdlang`, plus `.pdscenario`.
+- Added c3809/Public Mods pins that folder sharing uses `modpackPdmodFromFolder()`, reports `modpackPdmodLastError()`, and transfers the generated `.pdmod`.
+
+### Status
+
+`c3809-s8` is static/build-verified but still active. Remaining before done: in-game load/playback checks for legacy `.pd*`, external-layout `.pdmod`, loose folder mods, and Public Mods transfer/install behavior.
+
+### Verification
+
+- Scoped `git diff --check` PASS for touched source, tests, Kanban, and context files.
+- `tools/kanban/state.json` JSON parse PASS.
+- `rg -n "\.bin" tests\fixtures\modpipe` returned no matches.
+- `.\devtools\build-session.ps1 -Session modpipe -Target tests -BuildTimeoutSeconds 180` PASS after wiring Public Mods static tests.
+- Focused `.claude\session-builds\modpipe\pd-tests.exe "[modding][pdmod][static][c3809]" --reporter compact` PASS (12 cases / 463 assertions).
+- Focused `.claude\session-builds\modpipe\pd-tests.exe "[social][public_mods][static]" --reporter compact` PASS (2 cases / 35 assertions).
+- `.\devtools\build-session.ps1 -Session modpipe -Target all -BuildTimeoutSeconds 240` PASS for client/updater.
+- `.\devtools\build-session.ps1 -Session modpipe -Target server -BuildTimeoutSeconds 180` PASS.
+- Parent `..\context` copy is absent in this checkout, so no parent sync is required.
+
+## Session (`main-checkout-2026-05-20-modpipe-s7-packer-exporter`) - 2026-05-20 - external-format packer/exporter integration
+
+Continued the external-format `.pdmod` pipeline with `c3809-s7`. The Kanban subtask was already active from the prior slice; notes were updated before implementation, then `c3809-s7` was marked done only after focused validation and queued builds passed. `c3809-s8` is now active for final compatibility and validation.
+
+### Change
+
+- Added a validation/template pass to `modpackPdmodFromFolder()` before archive writing. The packer rejects authored `.bin` payloads, scans canonical external-layout families, generates missing commented descriptor templates, generates map/scenario sidecar templates, validates referenced source files, and rejects unsafe source paths.
+- Added `modpackPdmodLastError()` plus layout/template error codes so Modding Hub can show modder-readable pack failures instead of only numeric return codes.
+- Extended the in-memory `.pdmod` writer to reject authored `.bin` entries as well.
+- Updated Modding Hub folder packing text and failure handling for the external-layout/no-`.bin` contract.
+- Specialized voice/music INI templates so generated defaults set the correct audio category and music source filename.
+- Expanded c3809 static coverage to pin packer validation, template generation, no-authored-`.bin` enforcement, detailed Hub errors, and specialized audio templates.
+
+### Status
+
+`c3809-s7` is done. `c3809-s8` is active next: run the final compatibility and validation pass for legacy `.pd*`, new external-layout `.pdmod`, loose folder mods, Public Mods share/publish, and in-game load/playback checks. Runtime gameplay checks remain Mike-pending unless he runs them or explicitly asks this session to launch/playtest.
+
+### Verification
+
+- Scoped `git diff --check` PASS for touched packer, scanner, Hub UI, tests, Kanban, and context files.
+- `tools/kanban/state.json` JSON parse PASS.
+- `rg -n "\.bin" tests\fixtures\modpipe` returned no matches.
+- `.\devtools\build-session.ps1 -Session modpipe -Target tests -BuildTimeoutSeconds 180` PASS.
+- Focused `.claude\session-builds\modpipe\pd-tests.exe "[modding][pdmod][static][c3809]" --reporter compact` PASS (10 cases / 393 assertions).
+- `.\devtools\build-session.ps1 -Session modpipe -Target all -BuildTimeoutSeconds 240` PASS for client/updater.
+- `.\devtools\build-session.ps1 -Session modpipe -Target server -BuildTimeoutSeconds 180` PASS.
+- Parent `..\context` copy is absent in this checkout, so no parent sync is required.
+
+## Session (`main-checkout-2026-05-20-modpipe-s6-skeletal-channel-pack`) - 2026-05-20 - external-format skeletal animation channel packing
+
+Continued `c3809-s6` after live packed `.pdmod` fixture coverage. The Kanban subtask was updated first to show the active skeletal-channel packing slice, then marked done only after focused tests and queued builds passed. `c3809-s7` is now active for packer/exporter integration.
+
+### Change
+
+- Replaced the prior fail-closed GLTF channel path with real skeletal channel packing for translation, rotation, and scale channels.
+- `modasset_compiler` now parses GLTF/GLB animation samplers/channels, validates embedded text buffers or GLB BIN chunks, rejects weights and unsupported interpolation clearly, and packs accepted channels into the same `animtableentry` header/frame byte-stream boundary used by base animation data.
+- Translation channels use engine `ANIMFIELD_S32_TRANSLATE` metadata plus per-frame fixed-millimeter deltas; rotation channels convert GLTF quaternions into engine float Euler frame values; scale channels pack float scale triples.
+- Added editable folder and archive-entry skeletal animation fixtures with embedded data-URI GLTF data and no authored `.bin` files.
+- Updated c3809 static coverage to pin skeletal channel support, unsupported-path failure strings, the no-authored-`.bin` fixture contract, and the packed `.pdmod` VFS fixture reading the skeletal descriptor.
+
+### Status
+
+`c3809-s6` is done. `c3809-s7` is active next: Modding Hub folder-to-`.pdmod` creation must validate the canonical layout, generate missing commented INI templates, and refuse malformed archives clearly.
+
+### Verification
+
+- Scoped `git diff --check` PASS for touched mod-pipeline source, tests, fixtures, Kanban, and context files.
+- `tools/kanban/state.json` JSON parse PASS.
+- `rg -n "\.bin" tests\fixtures\modpipe` returned no matches.
+- `.\devtools\build-session.ps1 -Session modpipe -Target tests -BuildTimeoutSeconds 180` PASS.
+- Focused `.claude\session-builds\modpipe\pd-tests.exe "[modding][pdmod][static][c3809]" --reporter compact` PASS (9 cases / 356 assertions).
+- First queued all-target build exposed missing math declarations in this MinGW/C11 profile; fixed, then reran `.\devtools\build-session.ps1 -Session modpipe -Target all -BuildTimeoutSeconds 240` PASS for client/updater.
+- `.\devtools\build-session.ps1 -Session modpipe -Target server -BuildTimeoutSeconds 180` PASS.
+- Parent `..\context` copy is absent in this checkout, so no parent sync is required.
+
+## Session (`main-checkout-2026-05-20-modpipe-s6-packed-pdmod-vfs`) - 2026-05-20 - external-format packed pdmod VFS fixture
+
+Continued `c3809-s6` after the static animation backend. The Kanban subtask stayed active because skeletal weapon/character channel packing is still pending, but live packed `.pdmod` production archive/VFS coverage is now complete.
+
+### Change
+
+- Added optional `catalog_id`/`id` overrides to external descriptor scanning so canonical leaves such as `animations/weapon/idle` and `animations/character/idle` do not collide when both are present.
+- Updated model/map/animation fixtures with explicit animation catalog IDs plus map sidecars for the archive-entry arena.
+- Linked `pd-tests` with production archive/VFS code (`modarchive.c`, `modvfs.c`, `sha256.c`) and a focused zlib link instead of relying only on static source inspection.
+- Added a packed `.pdmod` fixture path to the c3809 static suite: tests build the editable archive-entry folder through `modArchiveBegin` / `modArchiveAddFileDisk` / `modArchiveFinish`, reopen it with `modArchiveOpen`, mount it with `modVfsMount`, and read canonical `mod.json`, map, model, and animation entries without extracting to the mod folder.
+
+### Status
+
+`c3809-s6` remains active. OBJ collision, static modeldef conversion, canonical folder/archive-entry fixtures, static/empty GLTF/GLB animation clips, and live packed `.pdmod` production writer/reader/VFS fixture coverage are build-verified. Remaining before s6 can close: full skeletal weapon/character animation channel packing.
+
+### Verification
+
+- Scoped `git diff --check` PASS for touched mod-pipeline source, tests, fixtures, Kanban, and context files.
+- `tools/kanban/state.json` JSON parse PASS.
+- `rg -n "\.bin" tests\fixtures\modpipe` returned no matches.
+- `.\devtools\build-session.ps1 -Session modpipe -Target tests -BuildTimeoutSeconds 180` PASS.
+- Focused `.claude\session-builds\modpipe\pd-tests.exe "[modding][pdmod][static][c3809]" --reporter compact` PASS (9 cases / 323 assertions).
+- `.\devtools\build-session.ps1 -Session modpipe -Target all -BuildTimeoutSeconds 240` PASS for client/updater; `.\devtools\build-session.ps1 -Session modpipe -Target server -BuildTimeoutSeconds 180` PASS for server.
+- Parent `..\context` copy is absent in this checkout, so no parent sync is required.
+
+## Session (`main-checkout-2026-05-20-modpipe-s6-animation-static`) - 2026-05-20 - external-format static animation backend
+
+Continued `c3809-s6` from the canonical folder/archive fixture slice. The Kanban subtask was updated first with the active animation boundary, then kept active after verification because full skeletal channel packing and live packed `.pdmod` runtime fixture coverage remain.
+
+### Change
+
+- Added `ASSET_PAYLOAD_ANIMATION_CLIP` as a catalog-owned generated animation payload.
+- Extended `modasset_compiler` so GLTF/GLB animation descriptors can normalize to readable `.pdanimation.json` cache files and compile static/empty clips into an `animtableentry` plus header/frame byte-stream payload. Unsupported skeletal channels fail with `gltf_animation_channels_not_supported_yet` instead of falling back to raw source or `.bin`.
+- Wired external animation catalog entries through the generated clip load/unload path. Loaded clips install into `g_Anims` at the existing engine-facing boundary, and unload restores the ROM animation table entry where applicable.
+- Updated the direct mod animation override path to compile external animation sources through the generated clip path. Weapon `.pdanim` gunscript compatibility stays intact, and external GLTF failures do not silently raw-load or `.bin`-fallback.
+- Added folder and archive-entry fixtures for weapon and character animation descriptors using static/empty GLTF clips with no authored `.bin` files.
+- Expanded c3809 static coverage to pin `.pdanimation.json`, static clip generation, unsupported-channel errors, source `anim_id` mapping, catalog payload wiring, mod override behavior, and no authored `.bin` fixtures.
+
+### Status
+
+`c3809-s6` remains active. OBJ collision, static modeldef conversion, canonical folder/archive-entry fixtures, and static/empty GLTF/GLB animation clips are build-verified. Remaining before s6 can close: full skeletal weapon/character animation channel packing and live packed `.pdmod` VFS/runtime fixture coverage.
+
+### Verification
+
+- Scoped `git diff --check` PASS for touched mod-pipeline source, tests, fixtures, Kanban, and context files.
+- `tools/kanban/state.json` JSON parse PASS.
+- `rg -n "\.bin" tests\fixtures\modpipe` returned no matches.
+- `.\devtools\build-session.ps1 -Session modpipe -Target tests -BuildTimeoutSeconds 180` PASS.
+- Focused `.claude\session-builds\modpipe\pd-tests.exe "[modding][pdmod][static][c3809]" --reporter compact` PASS (8 cases / 236 assertions).
+- `.\devtools\build-session.ps1 -Session modpipe -Target all -BuildTimeoutSeconds 180` PASS.
+- `.\devtools\build-session.ps1 -Session modpipe -Target server -BuildTimeoutSeconds 180` PASS.
+- Parent `..\context` copy is absent in this checkout, so no parent sync is required.
+
+## Session (`main-checkout-2026-05-20-modpipe-s6-fixtures`) - 2026-05-20 - external-format folder/archive fixtures
+
+Continued `c3809-s6` from the static modeldef backend. The Kanban subtask was updated first with the active fixture slice and animation boundary notes before implementation.
+
+### Change
+
+- Added `assetCatalogScanExternalLayoutFolder()` so loose folder mods scan the canonical external layout after root `mod.json` registration instead of relying only on legacy `_components` folders.
+- Wired folder mod loading to call the canonical layout scanner while preserving existing `mod.json` content registration and legacy component scanning.
+- Added editable folder and archive-entry fixtures under `tests/fixtures/modpipe/` for an OBJ arena, embedded-data-URI GLTF head model, and animation descriptors. The fixtures intentionally contain no authored `.bin` files.
+- Expanded c3809 static coverage to pin folder/archive descriptor parity, fixture paths, no authored `.bin` fixture content, and the public scanner API.
+- Fixed the `modasset_compiler.c` forward declaration needed by the GLB reader path after the all-target build exposed `readLe32` as an implicit declaration.
+- Cleaned the new scanner header comment so it no longer triggers the server build's `/* within comment` warning.
+
+### Status
+
+`c3809-s6` remains active. OBJ collision, static modeldef conversion, and canonical folder/archive-entry fixtures are build-verified. Remaining before s6 can close: weapon/character animation backend and live packed `.pdmod` VFS/runtime fixture coverage.
+
+### Verification
+
+- Scoped `git diff --check` PASS for touched mod-pipeline source, tests, Kanban, and context files.
+- `tools/kanban/state.json` JSON parse PASS.
+- `rg -n "\.bin" tests\fixtures\modpipe` returned no matches.
+- `.\devtools\build-session.ps1 -Session modpipe -Target tests -BuildTimeoutSeconds 180` PASS.
+- Focused `.claude\session-builds\modpipe\pd-tests.exe "[modding][pdmod][static][c3809]" --reporter compact` PASS (8 cases / 206 assertions).
+- First queued all-target run exposed the `readLe32` declaration issue; fixed, then reran `.\devtools\build-session.ps1 -Session modpipe -Target all -BuildTimeoutSeconds 180` PASS.
+- `.\devtools\build-session.ps1 -Session modpipe -Target server -BuildTimeoutSeconds 180` PASS after the scanner-header warning cleanup.
+- Parent `..\context` copy is absent in this checkout, so no parent sync is required.
+
+## Session (`main-checkout-2026-05-20-modpipe-s6-static-modeldef`) - 2026-05-20 - external-format static modeldef backend
+
+Mike said to continue the external-format `.pdmod` pipeline after the build-verified OBJ colmesh slice. Verified `c3809-s6` was still active, updated the Kanban notes first, then continued with the static model backend.
+
+### Change
+
+- Extended `modasset_compiler` with a static GLTF/GLB parser path for model-owning entries. GLB binary chunks and `.gltf` embedded data URIs are accepted for triangle primitives; `.gltf` sidecar binary buffers are rejected so authored `.bin` does not return through the GLTF route.
+- Added readable `.pdmodel.json` normalized cache output for model/head/body/weapon/prop GLTF/GLB/OBJ sources. Cache descriptors remain `.pdmc`, source-hashed, private, readable, and rebuildable under `$S/mod-cache`.
+- Added `modAssetCompilerBuildModeldef()` and `modAssetCompilerFreeModeldef()`. Generated modeldefs use a root `MODELNODETYPE_POSITION` node plus `MODELNODETYPE_DL` node with generated Vtx/Gfx/Col data, so catalog activation reaches the existing `ASSET_PAYLOAD_STAGE_MODELDEF` runtime boundary instead of passing raw source text to the legacy model loader.
+- Updated catalog model payload activation to build generated modeldefs for external model sources and to free generated modeldefs through the compiler instead of provider `assetUnload()`.
+- Updated c3809 static coverage to pin `.pdmodel.json`, GLTF/GLB sidecar-bin rejection, generated modeldef nodes/Gfx commands, catalog activation, and generated-modeldef unload ownership.
+
+### Status
+
+`c3809-s6` remains active. Static model GLTF/GLB/OBJ conversion now reaches a modeldef-compatible catalog payload and is build-verified. Remaining before s6 can close: weapon/character animation conversion and broader folder/archive fixtures.
+
+### Verification
+
+- Scoped `git diff --check` PASS for touched mod-pipeline source, tests, Kanban, and context files.
+- `.\devtools\build-session.ps1 -Session modpipe -Target tests -BuildTimeoutSeconds 180` PASS.
+- Focused `.claude\session-builds\modpipe\pd-tests.exe "[modding][pdmod][static][c3809]" --reporter compact` PASS after loading `devtools/_build-env-prelude.ps1` (7 cases / 159 assertions).
+- `.\devtools\build-session.ps1 -Session modpipe -Target all -BuildTimeoutSeconds 180` PASS.
+- `.\devtools\build-session.ps1 -Session modpipe -Target server -BuildTimeoutSeconds 180` PASS.
+- Removed isolated build session `modpipe`.
+- Parent `..\context` copy is absent in this checkout, so no parent sync is required.
+
+## Session (`main-checkout-2026-05-20-modpipe-s6-obj-colmesh`) - 2026-05-20 - external-format OBJ mesh backend
+
+Mike asked to implement the c3809-s6 models/maps/animations plan with no authored `.bin` payloads. Re-verified the live context and Kanban state: `c3809-s1` through `s5` are done, `c3809-s6` is active, and the previous s6 slice only had validation/cache guards.
+
+### Change
+
+- Recorded the locked c3809-s6 decisions in the Codex memory note area and mirrored them to Kanban: authored formats stay GLTF/GLB/OBJ plus INI, persistent cache is allowed only as readable generated cache, runtime assets must hit the same game-facing engine boundary as base content, and boot should prioritize intro/menu before background mod conversion where safe.
+- Extended `modasset_compiler` from descriptor-only validation into an OBJ mesh converter. OBJ sources now parse vertices and slash-form faces, fan-triangulate polygons, write readable `.pdmesh.json` normalized mesh cache, and keep `.pdmc` descriptors keyed by compiler version plus full source SHA-256.
+- Added public `meshInit` / `meshAddTriangle` helpers so generated external geometry can enter the existing `struct colmesh` engine collision format instead of raw source text or opaque blobs.
+- Added `ASSET_PAYLOAD_COLMESH`, catalog load/unload ownership for OBJ-backed map/arena/scenario collision meshes, and `catalogGetLoadedColmesh`.
+- Stage load now merges matching loaded catalog colmeshes into `g_WorldMesh`, so external OBJ arena/scenario collision participates in the same capsule/world collision path as base content. `assetCatalogFindModMapByStagenum` now considers enabled mod `ASSET_ARENA` rows as stage owners as well as `ASSET_MAP`.
+- Updated c3809 static guards to pin the readable cache, OBJ parser/converter, catalog colmesh payload, and stage-load merge path.
+
+### Status
+
+`c3809-s6` remains active. OBJ map/scenario collision is now engine-facing; GLTF model rendering, GLTF weapon animation, GLTF character animation, and folder/archive fixture coverage remain before the subtask can be marked done.
+
+### Verification
+
+- Scoped `git diff --check` PASS for the touched mod-pipeline files, context, and Kanban state.
+- `tools/kanban/state.json` JSON parse PASS.
+- `.\devtools\build-session.ps1 -Session modpipe -Target tests -BuildTimeoutSeconds 180` PASS.
+- Focused `.claude\session-builds\modpipe\pd-tests.exe "[modding][pdmod][static][c3809]" --reporter compact` PASS after loading `devtools/_build-env-prelude.ps1` outside the sandbox (7 cases / 145 assertions). Raw sandbox execution hung before printing help/output; the project build environment run exited cleanly.
+- `.\devtools\build-session.ps1 -Session modpipe -Target all -BuildTimeoutSeconds 180` PASS for client/updater in this wrapper summary.
+- `.\devtools\build-session.ps1 -Session modpipe -Target server -BuildTimeoutSeconds 180` PASS.
+- Removed isolated build session `modpipe`; parent `..\context` copy is absent in this checkout, so no parent sync is required.
+
+## Session (`main-checkout-2026-05-19-modpipe-s6-cache-adapter`) - 2026-05-19 - external-format model/map/animation cache guard
+
+Mike asked to verify the pre-compaction state and continue the external-format `.pdmod` pipeline. Verified Kanban `c3809`: s1-s5 done, `c3809-s6` active, no parent `..\context` copy present.
+
+### Change
+
+- Added `modasset_compiler` as the private runtime cache adapter for external GLTF/GLB/OBJ sources. It validates source shape, hashes source bytes loaded through `fsFileLoad`/VFS, and writes `.pdmc` descriptors under `$S/mod-cache/<mod>/<asset>/` with source SHA-256 and validation metadata. No `.bin` authoring path was introduced.
+- Wired catalog lifecycle activation so modeldef-owning assets validate/cache external sources but refuse to pass raw GLTF/OBJ into `modeldefLoadToNewFromHandle`. Metadata assets such as maps, arenas, scenarios, and animations can activate after cache validation.
+- Added `scenario.ini` template support plus `rooms_file` / `props_file` / `objectives_file` path qualification for folder and archive descriptors.
+- Expanded network hot-registration parity for `head.ini`, `body.ini`, `arena.ini`, `scenario.ini`, and `animation.ini`.
+- Added static coverage for the s6 cache adapter and descriptor families.
+- Updated Kanban `c3809-s6` notes, the external-format design doc, tasks, and the modding pillar. `c3809-s6` remains active because native model/map/animation backend output and folder/archive fixtures are still pending.
+
+### Verification
+
+- Scoped `git diff --check` PASS for the touched mod-pipeline files and Kanban state.
+- `tools/kanban/state.json` JSON parse PASS.
+- `.\devtools\build-session.ps1 -Session modpipe -Target tests -BuildTimeoutSeconds 180` PASS.
+- Focused `.claude\session-builds\modpipe\pd-tests.exe "[modding][pdmod][static][c3809]"` PASS (122 assertions / 7 cases).
+- `.\devtools\build-session.ps1 -Session modpipe -Target all -BuildTimeoutSeconds 180` PASS for client/updater in this checkout's wrapper summary.
+
+### Next
+
+Continue `c3809-s6` with the native runtime backend boundary: either real renderer/collision/animation consumption of cached GLTF/OBJ-derived data or a narrower explicit "preview-only" route for external sources. Do not mark s6 done until folder and `.pdmod` fixtures prove archive VFS loading without extraction.
+
+## Session (`main-checkout-2026-05-19-b345-f6-credits-followup`) - 2026-05-19 - rejected B-345 card and F6 Credits follow-up
+
+Mike rejected Kanban card `c133` because some mission starts still looked black or missing props, and updated the starred `cmpbhfdir2lxo` campaign auto-runner card with the note that F6 could advance past Campaign into Challenges when Credits should play.
+
+### Change
+
+- Checked the rejected `c133` card and the updated `cmpbhfdir2lxo` notes/subtasks in `tools/kanban/state.json`.
+- Fixed the final campaign ImGui endscreen bridge: Skedar Ruins now exposes the action label `Credits` and routes through `endscreenContinue(2)` before the normal next-mission path.
+- Fixed a confirmed B-345 follow-up catalog miss from the broad campaign smoke: BODY_CHICROB/base:sp_body_118 is now authored as self-contained (`unk00_01=1`), matching Chicago and Skedar Ruins setup entries that use `BODY_CHICROB, 0x00` with no separate head.
+- Added B-345 regression coverage for the Chicrob setup/headnum path and bodyAllocateModel self-contained warning gate.
+- Added `tools/smoke-verify/tests/mission_escape_hoverbed_intro.json` to launch Area 51 - Escape and verify the Elvis hoverbed model loads at mission start.
+- Updated Kanban `c133` with second-pass subtasks/evidence and restored pending-completion metadata; updated `cmpbhfdir2lxo` with the F6 Credits fix and verification notes.
+
+### Verification
+
+- Scoped `git diff --check` PASS for the changed source/test/smoke files.
+- `.\devtools\build-session.ps1 -Session f6credits -Target tests -BuildTimeoutSeconds 180` PASS.
+- Focused `.claude\session-builds\f6credits\pd-tests.exe "[b-345]"` PASS (17 assertions / 2 cases).
+- Focused `.claude\session-builds\f6credits\pd-tests.exe "[debug][campaign][f6]"` PASS (47 assertions / 2 cases).
+- `.\devtools\build-session.ps1 -Session f6credits -Target all -BuildTimeoutSeconds 180` PASS.
+- `auto_campaign_first_cycle` reached Defection, Investigation, Extraction, Villa, and Chicago without crash/black-screen stall, loaded `base:sp_body_118` / `CchicrobZ`, and no longer emitted the prior runtime `head_canon=NULL for headnum=0` warning; it still failed its current full-campaign assertion because the fixture exits at 200s.
+- `mission_escape_hoverbed_intro` PASS (`results-20260519T201545Z.json`, 13/13 assertions), including `file 214 (PhoverbedZ) loaded`, setup complete, first tick, and scripted exit.
+
+### Context Sync
+
+- Updated `context/bugs.md`, `context/tasks.md`, `context/session-log.md`, `context/pillars/catalog.md`, `context/pillars/tests.md`, and `tools/kanban/state.json`.
+- Parent `..\context` copy is absent in this checkout, so no parent sync is required.
+- Manual retest remains: start the previously affected missions from the real Solo Mission UI and confirm the world/props render; on the final campaign endscreen after F6, confirm the action is Credits.
+
+## Session (`main-checkout-2026-05-19-c036-controller-cohorts-close`) - 2026-05-19 - Controller Support Cohorts completion
+
+Mike asked to complete the Controller Support Cohorts card and keep controller support first-class. The remaining c036 subtask was s036-08, the multi-session menu graph completion lane.
+
+### Change
+
+- Closed c036 / s036-08 for the active ImGui controller-facing menu surface.
+- Added graph-side support for legacy/unregistered dialog targets (`EDGE_PUSH_ANY`), pop-then-push flows (`menuGraphFireReplaceDialog`), and graph-owned pop/root-release semantics after successful pop operations.
+- Migrated remaining active `port/fast3d/pdgui_menu_*.cpp` direct `menuPushDialog()` / `menuPopDialog()` transitions through named graph edges, including training, solo mission, cheats, controller diagrams, main menu, MP setup, MP advanced, MP settings, and bot setup.
+- Added a c036 static guard in `tests/test_menu_graph.cpp` asserting active ImGui menu files have zero direct stack calls.
+- Updated `tools/kanban/state.json`, `context/tasks.md`, `context/pillars/input.md`, and `context/pillars/menus.md` to mark c036 complete.
+
+### Verification
+
+- `git diff --check` PASS for the touched code, test, card, and context files.
+- `tools/kanban/state.json` JSON parse PASS.
+- Raw stack-call scan over active `port/fast3d/pdgui_menu_*.cpp` files PASS with no matches.
+- Isolated `c036done` client/updater build PASS via `.\devtools\build-session.ps1 -Session c036done -Target all -BuildTimeoutSeconds 180`. In this checkout the wrapper summary covered client/updater only, so server/tests were run separately.
+- Isolated `c036done` tests target PASS, followed by focused `.claude\session-builds\c036done\pd-tests.exe "[input][menu_graph]"` PASS (606 assertions / 31 cases).
+- Isolated `c036done` server target PASS.
+- Removed isolated build session `c036done`; `..\context` copy is absent, so no parent context sync was required.
+
+### Scope Note
+
+- Legacy C/runtime stack calls remain outside this controller-facing card. The completion boundary is the active ImGui menu surface that controller users navigate.
+
+## Session (`main-checkout-2026-05-19-modpipe-external-format`) - 2026-05-19 - external-format `.pdmod` pipeline start
+
+Mike asked to implement the full external-format `.pdmod` pipeline from the plan, with Kanban subtasks checked off as each slice is validated. He clarified the hard contract during kickoff: authored archives should not need `.bin` files at all.
+
+### Started
+
+- Created Kanban parent `c3809` under Modding with subtasks for tracking/format contract, shared INI/archive scanning, metadata families, audio/music, UI/font/lang, models/maps/animations, packer/exporter integration, and compatibility validation.
+- Added `context/designs/modding/external-format-pdmod-pipeline.md` as the live contract: root `mod.json` stays mandatory, asset payloads become external standard files plus grouped `.ini` / `.tsv`, and `.bin` files are invalid as authored `.pdmod` payloads.
+- Updated `context/pillars/modding.md` and `context/tasks.md` to record the active c3809 lane and no-authored-`.bin` invariant.
+
+### Scanner Slice
+
+- Completed `c3809-s1` and `c3809-s2`; `c3809-s3` is now active.
+- Added shared INI memory parsing plus buffer/file writer APIs in `assetcatalog_scanner`.
+- Added archive component scanning for legacy `_components/.../*.ini` and canonical external descriptors such as `weapons/<id>/weapon.ini`, `characters/heads/<id>/head.ini`, `maps/<id>/arena.ini`, `audio/.../*.ini`, `ui/<id>/ui.ini`, `fonts/<id>/font.ini`, `lang/<id>/lang.ini`, and `animations/.../animation.ini`.
+- Archive INI file references are qualified to archive-relative paths before catalog registration so `fsFileLoad` can satisfy them through the mounted VFS.
+- `modmgr` now validates `.pdmod`/root-`mod.json` archives and marks authored `.bin` payloads invalid; legacy `.pd*` compatibility is unaffected because those files do not register through root `.pdmod` archive discovery.
+
+### Verification
+
+- Scoped `git diff --check` PASS for the scanner/modmgr/test/context/card files.
+- `tools/kanban/state.json` JSON parse PASS.
+- `.\devtools\build-session.ps1 -Session modpipe -Target tests -BuildTimeoutSeconds 180` PASS.
+- Focused `.claude\session-builds\modpipe\pd-tests.exe "[modding][pdmod][static][c3809]"` PASS (33 assertions / 3 cases).
+- `.\devtools\build-session.ps1 -Session modpipe -Target all -BuildTimeoutSeconds 180` PASS.
+
+### Metadata Slice
+
+- Completed `c3809-s3`; `c3809-s4` is now active.
+- Grouped INI files now keep the first section as the asset type and allow later sections to organize settings without changing the registered type.
+- Added commented metadata templates for weapon, head, body, arena, and animation descriptors through `modiniTemplateForKind()`.
+- Extended scanner metadata handling for head/body/arena/animation source paths, body/head dependency lists, and animation-to-body reverse dependencies while keeping legacy JSON / `.pd*` walker compatibility in place.
+
+### Metadata Verification
+
+- Scoped `git diff --check` PASS after the metadata changes.
+- `tools/kanban/state.json` JSON parse PASS.
+- `.\devtools\build-session.ps1 -Session modpipe -Target tests -BuildTimeoutSeconds 180` PASS.
+- Focused `.claude\session-builds\modpipe\pd-tests.exe "[modding][pdmod][static][c3809]"` PASS (45 assertions / 4 cases).
+- `.\devtools\build-session.ps1 -Session modpipe -Target all -BuildTimeoutSeconds 180` PASS.
+
+### Audio Slice
+
+- Completed `c3809-s4`; `c3809-s5` is now active.
+- Added audio descriptor/template support for standard `file_path` sources, `audio_category`, SFX/voice WAV authoring, music OGG/MP3/WAV authoring, and optional `midi_file` sidecars.
+- Updated WAV SFX and mod music loaders to try `fsFileLoad` first, which lets mounted `.pdmod` archive entries play through VFS memory buffers instead of requiring extraction to the mod folder.
+- Updated network-distributed audio INI handling for `sound.ini`, `voice.ini`, `music.ini`, and textual `audio_category` values.
+
+### Audio Verification
+
+- Scoped `git diff --check` PASS after the audio changes.
+- `tools/kanban/state.json` JSON parse PASS.
+- `.\devtools\build-session.ps1 -Session modpipe -Target tests -BuildTimeoutSeconds 180` PASS.
+- Focused `.claude\session-builds\modpipe\pd-tests.exe "[modding][pdmod][static][c3809]"` PASS (63 assertions / 5 cases).
+- `.\devtools\build-session.ps1 -Session modpipe -Target all -BuildTimeoutSeconds 180` PASS.
+
+### UI/Font/Lang Slice
+
+- Completed `c3809-s5`; `c3809-s6` is now active.
+- Added commented `ui.ini`, `font.ini`, and `lang.ini` templates covering PNG/TGA textures, TTF/OTF fonts, and UTF-8 `strings.tsv` banks.
+- External source paths in folder components and archive descriptors are qualified from the component directory when authors use local filenames such as `texture.png`, `font.ttf`, or `strings.tsv`.
+- Catalog language entries now retain `strings_file`; `langManifestEnsureId()` loads mod `strings.tsv` files through `fsFileLoad`, builds the same 512-entry offset table consumed by `langGet()`, and tracks/reloads those mod banks without exposing a `.bin` authoring payload.
+- PDGUI catalog UI assets now apply standard texture/font sources: PNG/TGA files load through `fsFileLoad`/VFS and `stbi_load_from_memory` with a `GL_MAX_TEXTURE_SIZE` guard, and TTF/OTF paths feed the existing font manager.
+- Network-distributed component hot-registration now recognizes `ui.ini`, `font.ini`, and `lang.ini`, preserving source paths and lang `bank_id`/`strings_file` metadata.
+
+### UI/Font/Lang Verification
+
+- Scoped `git diff --check` PASS for the UI/font/lang source, test, context, and card files.
+- `tools/kanban/state.json` JSON parse PASS.
+- `.\devtools\build-session.ps1 -Session modpipe -Target tests -BuildTimeoutSeconds 180` PASS.
+- Focused `.claude\session-builds\modpipe\pd-tests.exe "[modding][pdmod][static][c3809]"` PASS (87 assertions / 6 cases).
+- `.\devtools\build-session.ps1 -Session modpipe -Target all -BuildTimeoutSeconds 180` PASS.
+
+### Next
+
+- Implement `c3809-s6` models/maps/animations: GLTF/OBJ-facing descriptors and internal compile-cache adapters for engine-native runtime data, with no authored `.bin` payloads.
+
+## Session (`main-checkout-2026-05-19-skedar-swarm-stress-b352`) - 2026-05-19 - Skedar Swarm high-count stress hardening
+
+Mike provided three large release logs from `C:/Users/mikeh/Downloads/Perfect Dark 2.0/` and reported split CPU/GPU Swarm symptoms: GPU crashed when cycling above 128 bots, GPU bots looked like they wanted wallrunning but were not reliably doing it and jumped mostly together, CPU did not visibly jump at lower counts, CPU could reach much higher counts but failed after a 4 -> 4096 jump, and volume spawns appeared to land in death/abyss areas.
+
+### Log Findings
+
+- All three logs were from `dev 77cd2bf3`; current repo HEAD during this session was `6706ad39`, so the binaries were older than the checkout.
+- `pd-client.1.log` was GPU Swarm on `base:mp_felicity`. It cycled 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128, then crashed immediately on 128 -> 256 before `despawn_all freed ...` logged.
+- The GPU summary before the crash showed `BENCHMARK.SWARM.GPU.VEL: count=128 active=0`, matching the visible jitter/no-apply behavior when async readback fences were late.
+- `pd-client.log` was CPU Swarm on `base:mp_ravine`. It reached 4096 twice, logged the expected long audio/frame hitch, emitted a synchronized burst of `SKJUMP.SWARM`, `SWARM.BEHAVIOR.JUMP`, and `SURFACE_LOCO.PIN`, then hit `FATAL: Unknown GBI opcode 0x80`.
+- `pd-client.2.log` was CPU Swarm on `base:test_mp2` and showed volume placement failures even at low counts (`spawned=3 ... failed=1`), consistent with unsafe random-volume candidates around a bad/death-floor player area.
+
+### Root Cause
+
+- GPU slot-keyed readback/floor-cache invalidation happened after `respawn_swarm()`, but `respawn_swarm()` begins by freeing the current chr population. A crash in the free loop could therefore happen before stale GPU state was cleared.
+- `swarm_drain_death_state()` unconditionally wrote `act_die` and `act_dead` notify fields. Those fields are unioned with other action payloads, including `ACT_SKJUMP`, so cleanup could corrupt non-death action state during a high-count jump/despawn cycle.
+- Volume/ring spawn placement only wall-corrected X/Z and height. It did not snap candidates onto a real floor, reject `GEOFLAG_DIE`, or reject candidates too far from valid ground.
+- `swarmTestApplyMovementIntent()` allowed every cooldown-ready Skedar in jump range to call `chrTrySkJump()` in the same frame. At high counts this created large synchronized animation/state bursts, which matched the CPU 4096 renderer fatal window.
+- The async GPU readback ring treated a barely-late fence as "consume nothing"; at 128 bots this can produce visible `active=0` windows instead of continuous movement.
+
+### Change
+
+- Filed B-352 in `context/bugs.md`.
+- `despawn_all()` and `cycler_tick()` now invalidate GPU readback/floor-cache state before chr mass-free, while retaining the post-respawn invalidate for fresh identities.
+- `swarm_drain_death_state()` now only writes death-action union fields when the current action is death state.
+- Added `swarm_finalize_spawn_candidate()` to wall-correct, snap to a real non-`GEOFLAG_DIE` floor, reject candidates too far from floor, then re-check clearance.
+- Added frame phasing and a per-frame start budget for Skedar jump requests so high-count CPU/GPU runs do not begin hundreds/thousands of jumps in one frame.
+- `swarm_gpu.cpp` now gives <=256-bot readback fences a short bounded wait before skipping the consumer, reducing the `active=0` jitter at the live-debug tiers.
+- Added `[testscenarios][static][b352]` static coverage for the high-count guards.
+
+### Verification
+
+- Scoped `git diff --check` PASS for `port/src/swarm_test.c`, `port/fast3d/swarm_gpu.cpp`, and `tests/test_catalog_provider_static.cpp`.
+- `.\devtools\build-session.ps1 -Session skstress -Target tests -BuildTimeoutSeconds 180` PASS.
+- Direct focused `.claude\session-builds\skstress\pd-tests.exe "[testscenarios][static][b352]"` PASS (25 assertions / 1 case).
+- `.\devtools\build-session.ps1 -Session skstress -Target all -BuildTimeoutSeconds 180` PASS.
+- Removed isolated build session `skstress`.
+
+### Continuation: Focused Smoke Gate
+
+- Added `tools/smoke-verify/tests/swarm_gpu_b352_stress_smoke.json`, a shorter B-352 GPU_FULL stress fixture that launches `base:mp_felicity`, cycles 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 -> 256, asserts the 128 -> 256 despawn/respawn evidence, rejects `active=0` high-count readback, and exits before the longer 512/768 ladder.
+- Extended `[testscenarios][static][b352]` to pin the new smoke fixture plus the 256-count assertions and high-count nonzero readback guard.
+- Fixed smoke-runner log discovery for the centralized log layout: `Get-SmokeLogPath` now prefers `logs/game client/<leaf>` with root-level `<leaf>` fallback, and log clearing removes both current and historical locations.
+- Verified JSON parse and scoped diff check for the fixture/static/harness files; queued isolated `sksmoke` tests build PASS; focused `.claude\session-builds\sksmoke\pd-tests.exe "[testscenarios][static][b352]"` PASS (33 assertions / 1 case); queued isolated `sksmoke` all-target build PASS.
+- Removed isolated build session `sksmoke`.
+- First runner attempt false-failed because it looked for root `pd-client.log`; the actual nested log proved a full B-352 pass to 256 with nonzero GPU readback and `SMOKE: result=scripted_exit`.
+- After the log-path fix, an early runner attempt exposed B-353: intermittent `0xC0000005` around the 16 -> 32 cycle under `--no-crash-handler`, with `.claude/smoke-verify-runs/results-20260519T190928Z.json` stopping after `TESTSCEN.SWARM: cycle NEXT prev_idx=2 -> idx=3 target=32 (alive_was=16)`.
+- B-353 root cause was stale Swarm slot ownership, not the smoke fixture. A slot could retain a `chr` whose prop had already been processed by the engine free path, leaving a stale `chr->prop` / missing `prop->chr` backlink; teardown and behavior paths trusted that pointer.
+
+### Continuation: B-353 Closure
+
+- Added `swarm_live_prop_for_chr()` to prove prop-pool range, `PROPTYPE_CHR`, model, chrnum, and `prop->chr == chr` before any Swarm slot deref.
+- Added stale-slot cleanup so teardown, death polling, movement intent, AI decision, CPU/GPU loops, and GPU handoff clear/refill invalid slots instead of passing stale props into `chrRemove()` or readback arrays.
+- Extended `[testscenarios][static][b352]` to pin the live-prop guard, stale-slot cleanup in `despawn_all()` / `death_poll`, and GPU handoff filtering.
+- Verified queued isolated `sklive` tests build PASS; focused `.claude\session-builds\sklive\pd-tests.exe "[testscenarios][static][b352]"` PASS (38 assertions / 1 case); queued isolated `sklive` all-target build PASS.
+- Normal smoke-runner `swarm_gpu_b352_stress_smoke` PASS twice after the fix: `results-20260519T194220Z.json` and `results-20260519T194503Z.json`, both 24/24 assertions, exit 0.
+
+### Context Sync
+
+- Updated `context/bugs.md`, `context/tasks.md`, `context/session-log.md`, `context/pillars/physics-collision.md`, and `context/pillars/tests.md`.
+- Parent `..\context` copy is absent in this checkout, so no parent sync is required.
+- Manual retest remains for the broad B-352 gameplay symptoms: GPU Swarm should cycle past 128 toward 256 without exception, GPU bots should keep nonzero active movement and visible wall/surface behavior, jump bursts should be staggered, CPU 4096 should avoid the immediate renderer fatal, and volume spawn should avoid death/abyss floors. B-353 itself is fixed and runner-verified.
+
 ## Session (`main-checkout-2026-05-19-jump-side-entry-b350`) - 2026-05-19 - airborne side-entry through overhead blockers
 
 Mike provided `C:/Users/mikeh/Downloads/Perfect Dark 2.0/pd-client.log` from another machine and reported that collision was mostly improved, but the player could still jump sideways through the sides of overhead solid blockers and sometimes get stuck above a doorway / inside a new blocker. Dynamic object collision looked good: couch top collision worked after moving the couch.
@@ -29,7 +465,8 @@ Mike provided `C:/Users/mikeh/Downloads/Perfect Dark 2.0/pd-client.log` from ano
 
 ### Context Sync
 
-- Updated `context/bugs.md`, `context/tasks.md`, `context/session-log.md`, and `context/pillars/physics-collision.md`.
+- Updated `context/bugs.md`, `context/tasks.md`, `context/session-log.md`, `context/pillars/physics-collision.md`, and `tools/kanban/state.json`.
+- Kanban card `c136` tracks the B-350 started-and-completed session slice, with the code/build subtasks done and manual CI Training retest still active.
 - Parent `..\context` copy is absent in this checkout, so no parent sync is required.
 - Manual retest remains: CI Training overhead blockers/doorway should block side-entry without wall trapping; moved couch dynamic collision should still allow landing/jumping from its new position.
 
@@ -62,7 +499,7 @@ Mike provided a large `pd-client.log` from another machine. After collision test
 
 ### Context Sync
 
-- Updated `context/bugs.md`, `context/tasks.md`, `context/session-log.md`, and `context/pillars/menus.md`.
+- Updated `context/bugs.md`, `context/tasks.md`, `context/session-log.md`, `context/pillars/menus.md`, and `tools/kanban/state.json` (`c135`).
 - Parent `..\context` copy is absent in this checkout, so no parent sync is required.
 
 ## Session (`main-checkout-2026-05-19-updater-logs-rom-readme`) - 2026-05-19 - updater ROM preservation evidence and log layout

@@ -28,6 +28,13 @@ extern "C" {
 int stb_vorbis_decode_filename(const char *filename, int *channels,
                                int *sample_rate, short **output);
 
+/**
+ * Decode an entire OGG Vorbis memory buffer to interleaved S16 PCM.
+ * Same output contract as stb_vorbis_decode_filename().
+ */
+int stb_vorbis_decode_memory(const unsigned char *data, int data_len,
+                             int *channels, int *sample_rate, short **output);
+
 #ifdef __cplusplus
 }
 #endif

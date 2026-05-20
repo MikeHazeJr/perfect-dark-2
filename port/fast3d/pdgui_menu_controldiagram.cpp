@@ -44,6 +44,7 @@
 #include "pdgui_layout.h"
 #include "pdgui_nav.h"
 #include "system.h"
+#include "menugraph.h"
 
 /* =========================================================================
  * Forward declarations (C boundary)
@@ -59,10 +60,6 @@ struct menu;
 /* Dialog defs */
 extern struct menudialogdef g_SoloMissionControlStyleMenuDialog;
 extern struct menudialogdef g_MpControlMenuDialog;
-
-/* Menu stack */
-void menuPushDialog(struct menudialogdef *dialogdef);
-void menuPopDialog(void);
 
 /* Bridge accessors (pdgui_bridge.c, Batch 10) */
 s32  pdguiCdGetControlMode(s32 mpindex);
@@ -276,7 +273,7 @@ static s32 renderSoloMissionControlStyle(struct menudialog *dialog,
 
     if (backPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_SOLO_OPTIONS, "close");
         ImGui::End();
         return 1;
     }
@@ -379,7 +376,7 @@ static s32 renderSoloMissionControlStyle(struct menudialog *dialog,
     if (pdguiBeginActionBar("##cd_smc_ab")) {
         if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_SOLO_OPTIONS, "close");
         }
     }
     pdguiEndActionBar();
@@ -429,7 +426,7 @@ static s32 renderMpControl(struct menudialog *dialog,
 
     if (backPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_MP_PAUSE, "resume");
         ImGui::End();
         return 1;
     }
@@ -468,7 +465,8 @@ static s32 renderMpControl(struct menudialog *dialog,
 
         if (ImGui::Selectable("Control Style", false, 0,
                               ImVec2(0, pdguiScale(24.0f)))) {
-            menuPushDialog(&g_SoloMissionControlStyleMenuDialog);
+            menuGraphFirePushDialog(MENU_TYPE_MP_PAUSE, "control_style",
+                                    &g_SoloMissionControlStyleMenuDialog);
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
         ImVec2 rmax = ImGui::GetItemRectMax();
@@ -527,7 +525,7 @@ static s32 renderMpControl(struct menudialog *dialog,
     if (pdguiBeginActionBar("##cd_mpctrl_ab")) {
         if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_MP_PAUSE, "resume");
         }
     }
     pdguiEndActionBar();

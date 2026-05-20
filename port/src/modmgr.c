@@ -1236,6 +1236,47 @@ static int modmgrHasArchiveExtension(const char *name)
 	return 0;
 }
 
+static int modmgrArchiveEntryHasForbiddenBinPayload(const char *name)
+{
+	if (!name) return 0;
+
+	for (const char *p = name; *p; p++) {
+		if (p[0] != '.') {
+			continue;
+		}
+		if ((p[1] == 'b' || p[1] == 'B') &&
+		    (p[2] == 'i' || p[2] == 'I') &&
+		    (p[3] == 'n' || p[3] == 'N') &&
+		    (p[4] == '\0' || p[4] == '.' || p[4] == '/')) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static int modmgrArchiveFindForbiddenBinPayload(mod_archive_t *arc,
+                                                 char *out_name,
+                                                 s32 out_name_cap)
+{
+	if (!arc) return 0;
+
+	s32 count = modArchiveGetEntryCount(arc);
+	for (s32 i = 0; i < count; i++) {
+		const char *name = modArchiveGetEntryName(arc, i);
+		if (!modmgrArchiveEntryHasForbiddenBinPayload(name)) {
+			continue;
+		}
+		if (out_name && out_name_cap > 0) {
+			strncpy(out_name, name, out_name_cap - 1);
+			out_name[out_name_cap - 1] = '\0';
+		}
+		return 1;
+	}
+
+	return 0;
+}
+
 /* Try to register a single archive at `archivePath`. The archive is opened,
  * its root mod.json is decompressed and parsed, then closed (the mounted
  * handle is reopened during modmgrLoadMod when the mod is enabled).
@@ -1305,6 +1346,19 @@ static s32 modmgrTryRegisterArchive(const char *archivePath, const char *display
 		snprintf(mod->validation_error, MODMGR_ERROR_LEN,
 			"Malformed mod.json inside archive -- failed to parse");
 		mod->has_modjson = false;
+	}
+
+	if (ok) {
+		char badEntry[FS_MAXPATH + 1];
+		if (modmgrArchiveFindForbiddenBinPayload(arc, badEntry, sizeof(badEntry))) {
+			mod->valid = false;
+			snprintf(mod->validation_error, MODMGR_ERROR_LEN,
+				"External-format archives cannot contain .bin authoring payloads: %s",
+				badEntry);
+			sysLogPrintf(LOG_ERROR,
+				"modmgr: archive '%s' rejected for authored .bin payload '%s'",
+				archivePath, badEntry);
+		}
 	}
 
 	modArchiveClose(arc);
@@ -1883,6 +1937,11 @@ static void modmgrLoadMod(modinfo_t *mod)
 		 * call modVfsUnmount + modArchiveClose in modmgrUnloadAllMods. */
 		modVfsMount(mod->id, mod->archive_handle);
 
+		/* External-format .pdmod pipeline: archive component INIs are the
+		 * same authoring surface as loose folder _components, but paths stay
+		 * archive-relative so fsFileLoad resolves them through the VFS mount. */
+		assetCatalogScanComponentsFromArchive(mod->id, mod->archive_handle);
+
 		mod->loaded = true;
 		return;
 	}
@@ -1894,8 +1953,9 @@ static void modmgrLoadMod(modinfo_t *mod)
 		modmgrLoadAudioIni(mod);
 	} else {
 		// D3b: Register mod.json content sections (bodies, heads, arenas) into catalog.
-		// Component-based content (maps, characters) is handled by assetCatalogScanComponents().
+		// Legacy _components content is handled by assetCatalogScanComponents().
 		modmgrRegisterModJsonContent(mod);
+		assetCatalogScanExternalLayoutFolder(mod->id, mod->dirpath);
 	}
 
 	// P2: Parse bot name overrides if this mod has them

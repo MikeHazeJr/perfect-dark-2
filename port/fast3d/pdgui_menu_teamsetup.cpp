@@ -40,9 +40,6 @@ extern "C" {
 extern struct menudialogdef g_MpTeamsMenuDialog;
 extern struct menudialogdef g_MpAutoTeamMenuDialog;
 
-/* Menu stack */
-void menuPopDialog(void);
-
 /* Match config types, struct definitions, and g_MatchConfig */
 #include "net/matchsetup.h"
 #define MPOPTION_TEAMSENABLED 0x00000002

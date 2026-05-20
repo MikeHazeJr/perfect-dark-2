@@ -867,11 +867,45 @@ void pdguiEndscreenStartMission(void)
 }
 
 /**
+ * Returns 1 if there is another campaign action to advance to.
+ * Skedar Ruins returns true because the action is Credits, not MBR.
+ */
+s32 pdguiEndscreenHasNextMission(void)
+{
+    s32 stageindex = (s32)g_MissionConfig.stageindex;
+
+    if (g_Vars.stagenum == STAGE_SKEDARRUINS) {
+        return 1;
+    }
+
+    return (stageindex >= 0
+        && stageindex < SOLOSTAGEINDEX_SKEDARRUINS) ? 1 : 0;
+}
+
+/**
  * Advance to the next mission and start it. Equivalent to pressing Accept
  * on the Next Mission dialog.
  */
 void pdguiEndscreenNextMission(void)
 {
+    if (g_Vars.stagenum == STAGE_SKEDARRUINS) {
+        sysLogPrintf(LOG_NOTE,
+            "GAMELOOP.CAMPAIGN: endscreen CREDITS (from final campaign stageindex=%d stage=0x%02x)",
+            g_MissionConfig.stageindex, (u32)g_MissionConfig.stagenum);
+        lvSetPaused(false);
+        endscreenContinue(2);
+        sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
+            "endscreen credits");
+        return;
+    }
+
+    if (!pdguiEndscreenHasNextMission()) {
+        sysLogPrintf(LOG_WARNING,
+            "GAMELOOP.CAMPAIGN: endscreen NEXT_MISSION ignored at stageindex=%d stage=0x%02x",
+            g_MissionConfig.stageindex, (u32)g_MissionConfig.stagenum);
+        return;
+    }
+
     /* S303 bookend: "Next Mission" advance-and-load. endscreenAdvance bumps
      * g_MissionConfig.stageindex + resolves the next stage; menuhandler
      * then calls mainChangeToStage with the new stage. Log pre/post so the
@@ -986,11 +1020,12 @@ void pdguiEndscreenExitToRoom(void)
 }
 
 /**
- * Returns 1 if there is a next mission to advance to, 0 if at the last stage.
+ * Label for the solo completed action. The final campaign mission advances
+ * to credits rather than the special-mission tail.
  */
-s32 pdguiEndscreenHasNextMission(void)
+const char *pdguiEndscreenNextMissionLabel(void)
 {
-    return (g_MissionConfig.stageindex + 1 < NUM_SOLOSTAGES) ? 1 : 0;
+    return (g_Vars.stagenum == STAGE_SKEDARRUINS) ? "Credits" : "Next Mission";
 }
 
 /* ========================================================================

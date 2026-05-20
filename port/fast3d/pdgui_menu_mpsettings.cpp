@@ -64,6 +64,7 @@
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "menugraph.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -82,10 +83,6 @@ extern struct menudialogdef g_MpHandicapsMenuDialog;
 extern struct menudialogdef g_MpSelectTunesMenuDialog;
 extern struct menudialogdef g_MpSoundtrackMenuDialog;
 extern struct menudialogdef g_MpTeamNamesMenuDialog;
-
-/* ---- Menu stack ---- */
-void menuPushDialog(struct menudialogdef *dialogdef);
-void menuPopDialog(void);
 
 /* ---- Handicap wrappers (matchsetup.c -- avoid types.h in C++) ---- */
 u8   matchGetPlayerHandicap(s32 playernum);
@@ -359,11 +356,10 @@ static PdmsWindowFrame pdms_BeginStandardWindow(const char *imguiId, const char 
     return wf;
 }
 
-static void pdms_CloseCurrentDialog(void)
+static void pdms_CloseCurrentDialog(menu_type_t source, const char *edge_id)
 {
     pdguiPlaySound(PDGUI_SND_KBCANCEL);
-    /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
-    menuPopDialog();
+    menuGraphFirePop(source, edge_id);
 }
 
 static bool pdms_BackPressed(void)
@@ -525,7 +521,7 @@ static s32 renderHandicap(struct menudialog *dialog,
     {
         /* Handicap uses its own Begin path and never pushes g_CtxImGuiMenu,
          * so no pool-owned ctx involved — plain menuPopDialog. */
-        pdms_CloseCurrentDialog();
+        pdms_CloseCurrentDialog(MENU_TYPE_MP_SETTINGS, "done");
     }
 
     ImGui::End();
@@ -732,7 +728,7 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
 
     if (pdms_BackPressed()) {
         pdms_EndTunesPreview();
-        pdms_CloseCurrentDialog();
+        pdms_CloseCurrentDialog(MENU_TYPE_MP_TUNES, "back");
         ImGui::End();
         return 1;
     }
@@ -1034,7 +1030,7 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
     if (pdguiBeginActionBar("##pdms_tunes_ab")) {
         if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
             pdms_EndTunesPreview();
-            pdms_CloseCurrentDialog();
+            pdms_CloseCurrentDialog(MENU_TYPE_MP_TUNES, "back");
         }
     }
     pdguiEndActionBar();
@@ -1073,7 +1069,7 @@ static s32 renderSoundtrack(struct menudialog *dialog, struct menu *, s32, s32)
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (pdms_BackPressed()) {
-        pdms_CloseCurrentDialog();
+        pdms_CloseCurrentDialog(MENU_TYPE_MP_SOUNDTRACK, "back");
         ImGui::End();
         return 1;
     }
@@ -1126,7 +1122,8 @@ static s32 renderSoundtrack(struct menudialog *dialog, struct menu *, s32, s32)
         float selH = pdguiScale(36.0f);
         if (ImGui::Selectable(pickLabel, false, 0, ImVec2(0, selH))) {
             pdguiPlaySound(PDGUI_SND_SELECT);
-            menuPushDialog(&g_MpSelectTunesMenuDialog);
+            menuGraphFirePushDialog(MENU_TYPE_MP_SOUNDTRACK, "select_music",
+                                    &g_MpSelectTunesMenuDialog);
         }
 
         ImGui::Spacing();
@@ -1148,7 +1145,7 @@ static s32 renderSoundtrack(struct menudialog *dialog, struct menu *, s32, s32)
 
     if (pdguiBeginActionBar("##pdms_soundtrack_ab")) {
         if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
-            pdms_CloseCurrentDialog();
+            pdms_CloseCurrentDialog(MENU_TYPE_MP_SOUNDTRACK, "back");
         }
     }
     pdguiEndActionBar();
@@ -1236,7 +1233,7 @@ static s32 renderTeamNames(struct menudialog *dialog, struct menu *, s32, s32)
         for (u32 t = 0; t < PDMS_MAX_TEAMS; t++) {
             tn_CommitBuffer(t);
         }
-        pdms_CloseCurrentDialog();
+        pdms_CloseCurrentDialog(MENU_TYPE_MP_TEAMNAMES, "back");
         ImGui::End();
         return 1;
     }
@@ -1305,7 +1302,7 @@ static s32 renderTeamNames(struct menudialog *dialog, struct menu *, s32, s32)
             for (u32 t = 0; t < PDMS_MAX_TEAMS; t++) {
                 tn_CommitBuffer(t);
             }
-            pdms_CloseCurrentDialog();
+            pdms_CloseCurrentDialog(MENU_TYPE_MP_TEAMNAMES, "back");
         }
     }
     pdguiEndActionBar();

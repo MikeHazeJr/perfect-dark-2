@@ -50,6 +50,7 @@
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "menugraph.h"
 
 extern "C" {
 #include "pdgui_menus.h"  /* for pdguiMenuCheatsRegister declaration */
@@ -70,10 +71,6 @@ extern struct menudialogdef g_CheatsWeaponsMenuDialog;
 extern struct menudialogdef g_CheatsBuddiesMenuDialog;
 extern struct menudialogdef g_CheatsWarningMenuDialog;
 extern struct menudialogdef g_CheatsConfirmUnlockMenuDialog;
-
-/* ---- Menu navigation ---- */
-void menuPushDialog(struct menudialogdef *dialogdef);
-void menuPopDialog(void);
 
 /* ---- Language (names of cheats etc.) ---- */
 char *langGet(s32 textid);
@@ -449,7 +446,7 @@ static s32 renderCheatsHub(struct menudialog *dialog,
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         /* S300: menuCloseDialog (invoked by menuPopDialog) releases the
          * pool slot and pops the owned ctx; no explicit ctx pop here. */
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_CHEATS, "back");
         ImGui::End();
         return 1;
     }
@@ -611,11 +608,12 @@ static s32 renderCheatsHub(struct menudialog *dialog,
         /* Route through the legacy DANGER dialog so cheatMenuHandleDialog
          * etc. fire their OPEN/CLOSE side effects consistently.  Our
          * renderCheatsConfirmUnlock will catch it. */
-        menuPushDialog(&g_CheatsConfirmUnlockMenuDialog);
+        menuGraphFirePushDialog(MENU_TYPE_CHEATS, "unlock_all",
+                                &g_CheatsConfirmUnlockMenuDialog);
     }
     if (wantClose) {
         /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_CHEATS, "close");
     }
 
     pdguiNavTickWrap();
@@ -668,7 +666,7 @@ static s32 renderCheatsSubRedirect(struct menudialog *dialog,
     /* Draw nothing -- the already-open hub will pick up s_PendingTab next
      * frame.  Pop self so the stack returns to g_CheatsMenuDialog (which our
      * hub renders). */
-    menuPopDialog();
+    menuGraphFirePop(MENU_TYPE_CHEATS, "redirect");
     s_LastSeen = nullptr;
     return 1;
 }
@@ -726,7 +724,7 @@ static s32 renderCheatsWarning(struct menudialog *dialog,
          * a subsequent dialog push re-opens cleanly. */
         if (s_CheatsWarnOpenedForDialog == (void *)dialog) {
             s_CheatsWarnOpenedForDialog = nullptr;
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_CHEATS, "warning_close");
         }
         return 1;
     }
@@ -762,7 +760,7 @@ static s32 renderCheatsWarning(struct menudialog *dialog,
     if (wantClose) {
         ImGui::CloseCurrentPopup();
         s_CheatsWarnOpenedForDialog = nullptr;
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_CHEATS, "warning_close");
     }
 
     ImGui::EndPopup();
@@ -838,7 +836,7 @@ static s32 renderCheatsConfirmUnlock(struct menudialog *dialog,
             s_CheatsUnlockOpenedForDialog = nullptr;
             s_CheatsUnlockOpenFrame = -1;
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "cancel");
         }
         pdguiSetPalette(prevPalette);
         return 1;
@@ -969,13 +967,13 @@ static s32 renderCheatsConfirmUnlock(struct menudialog *dialog,
         ImGui::CloseCurrentPopup();
         s_CheatsUnlockOpenedForDialog = nullptr;
         s_CheatsUnlockOpenFrame = -1;
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "confirm");
     } else if (doNo) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         ImGui::CloseCurrentPopup();
         s_CheatsUnlockOpenedForDialog = nullptr;
         s_CheatsUnlockOpenFrame = -1;
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "cancel");
     }
 
     ImGui::EndPopup();

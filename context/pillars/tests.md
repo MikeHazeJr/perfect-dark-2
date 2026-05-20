@@ -141,6 +141,13 @@ Use `-Scope <alias>` instead of memorizing raw Catch2 selectors.
 
 Per-binary smoke fixtures that exercise the production exes end-to-end. Distinct from the Catch2 unit suite above. Runner: `tools/smoke-verify/run.ps1`. Fixtures live under `tools/smoke-verify/tests/*.json` (declarative log-assertion schema with `required_lines`, `forbidden_patterns`, `required_counts`, `fixtures`, `boot_args`, optional `target`, optional `runtime_strategy`). Shared and per-test install modes managed by `tools/smoke-verify/lib/Install-Harness.ps1`. Tests-pillar meta-smoke at `tools/smoke-verify/run-pd-tests-smoke.ps1`.
 
+### Recent hardening (2026-05-19)
+
+- `swarm_gpu_b352_stress_smoke.json` focuses the B-352 GPU Swarm crash boundary: `base:mp_felicity`, GPU_FULL, 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 -> 256, asserts 256 respawn/readback evidence, forbids high-count `active=0`, and exits before the longer 512/768 ladder.
+- `Get-SmokeLogPath` now prefers the current centralized client log path `logs/game client/<leaf>` and falls back to historical root-level logs. The install clear path also removes both locations, which prevents false `log_missing` failures after B-349 moved client logs under `logs/`.
+- B-353 is closed for the new B-352 machine gate: Swarm slots now prove a live prop/backlink before teardown, death polling, movement intent, and GPU handoff. The normal `swarm_gpu_b352_stress_smoke` runner passed twice after the fix (`results-20260519T194220Z.json`, `results-20260519T194503Z.json`), each with 24/24 assertions and exit 0.
+- `mission_escape_hoverbed_intro.json` is the B-345 rejected-card object gate: direct-launches Area 51 - Escape (`stagenum=0x19`) and asserts the mission-start setup path loads the Elvis hoverbed model (`file 214 (PhoverbedZ) loaded`) without crash/timeout. First verified `results-20260519T201545Z.json` with 13/13 assertions and exit 0.
+
 ### Per-pillar coverage matrix (Phase-2 complete 2026-05-14/15)
 
 - **catalog** -- `boot_smoke.json` asserts `LOADER.UNIVERSAL.OK: kind=weapon scanned=86 registered=86 envelope_failures=0 register_failures=0` plus the universal-summary line. Commits: `9d22eb59` (tighten).

@@ -25,6 +25,7 @@
 #include "audio.h"
 #include "system.h"
 #include "fs.h"
+#include "modvfs.h"
 #include "external/minimp3.h"
 #include "external/stb_vorbis.h"
 
@@ -69,10 +70,23 @@ static s16 *modmusic_loadWav(const char *path, u32 *outLen)
     s32 cvtResult;
     Uint8 *pcm;
     Uint32 pcmLen;
+    u32 fileSize = 0;
+    void *fileBytes = NULL;
 
     *outLen = 0;
 
-    if (SDL_LoadWAV(path, &wavSpec, &wavBuf, &wavRawLen) == NULL) {
+    fileBytes = fsFileLoad(path, &fileSize);
+    if (fileBytes && fileSize > 0 && fileSize <= 0x7fffffffU) {
+        SDL_RWops *rw = SDL_RWFromConstMem(fileBytes, (int)fileSize);
+        if (rw) {
+            SDL_LoadWAV_RW(rw, 1, &wavSpec, &wavBuf, &wavRawLen);
+        }
+        free(fileBytes);
+    } else if (fileBytes) {
+        free(fileBytes);
+    }
+
+    if (!wavBuf && SDL_LoadWAV(path, &wavSpec, &wavBuf, &wavRawLen) == NULL) {
         sysLogPrintf(LOG_WARNING, "modmusic: failed to load WAV '%s': %s",
                      path, SDL_GetError());
         return NULL;
@@ -133,6 +147,7 @@ static s16 *modmusic_loadMp3(const char *path, u32 *outLen)
     FILE *f;
     long fsize;
     u8 *mp3data;
+    u32 fileSize = 0;
     mp3dec_t dec;
     mp3dec_frame_info_t info;
     mp3d_sample_t frame_pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
@@ -145,30 +160,38 @@ static s16 *modmusic_loadMp3(const char *path, u32 *outLen)
 
     *outLen = 0;
 
-    f = fopen(path, "rb");
-    if (!f) {
-        sysLogPrintf(LOG_WARNING, "modmusic: cannot open MP3 '%s'", path);
-        return NULL;
-    }
+    mp3data = (u8 *)fsFileLoad(path, &fileSize);
+    fsize = (long)fileSize;
 
-    fseek(f, 0, SEEK_END);
-    fsize = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    if (!mp3data) {
+        f = fopen(path, "rb");
+        if (!f) {
+            sysLogPrintf(LOG_WARNING, "modmusic: cannot open MP3 '%s'", path);
+            return NULL;
+        }
 
-    if (fsize <= 0 || fsize > 256 * 1024 * 1024) {
+        fseek(f, 0, SEEK_END);
+        fsize = ftell(f);
+        fseek(f, 0, SEEK_SET);
+
+        if (fsize <= 0 || fsize > 256 * 1024 * 1024) {
+            fclose(f);
+            return NULL;
+        }
+
+        mp3data = (u8 *)malloc((size_t)fsize);
+        if (!mp3data) { fclose(f); return NULL; }
+
+        if ((long)fread(mp3data, 1, (size_t)fsize, f) != fsize) {
+            free(mp3data);
+            fclose(f);
+            return NULL;
+        }
         fclose(f);
-        return NULL;
-    }
-
-    mp3data = (u8 *)malloc((size_t)fsize);
-    if (!mp3data) { fclose(f); return NULL; }
-
-    if ((long)fread(mp3data, 1, (size_t)fsize, f) != fsize) {
+    } else if (fsize <= 0 || fsize > 256 * 1024 * 1024) {
         free(mp3data);
-        fclose(f);
         return NULL;
     }
-    fclose(f);
 
     mp3dec_init(&dec);
     mp3remaining = (s32)fsize;
@@ -267,11 +290,25 @@ static s16 *modmusic_loadOgg(const char *path, u32 *outLen)
     int channels = 0, sample_rate = 0;
     short *decoded = NULL;
     s32 totalSamples;
+    u32 fileSize = 0;
+    void *fileBytes = NULL;
 
     *outLen = 0;
 
-    totalSamples = stb_vorbis_decode_filename(path, &channels, &sample_rate,
-                                               &decoded);
+    fileBytes = fsFileLoad(path, &fileSize);
+    if (fileBytes && fileSize > 0 && fileSize <= 0x7fffffffU) {
+        totalSamples = stb_vorbis_decode_memory((const unsigned char *)fileBytes,
+                                                (int)fileSize,
+                                                &channels, &sample_rate,
+                                                &decoded);
+        free(fileBytes);
+    } else {
+        if (fileBytes) {
+            free(fileBytes);
+        }
+        totalSamples = stb_vorbis_decode_filename(path, &channels, &sample_rate,
+                                                   &decoded);
+    }
     if (totalSamples <= 0 || !decoded) {
         sysLogPrintf(LOG_WARNING, "modmusic: OGG decode failed '%s'", path);
         return NULL;
@@ -401,10 +438,12 @@ void modMusicPlay(const char *file_path)
         modMusicStop();
     }
 
-    /* Resolve relative paths (e.g. "mods/foo/track.mp3") through fsFullPath()
-     * so the file is found regardless of CWD. Absolute paths pass through. */
+    /* Resolve loose relative paths through fsFullPath() so they are found
+     * regardless of CWD. Mounted .pdmod entries must stay archive-relative;
+     * fsFileLoad in the decoders will resolve those through modVFS. */
     resolved = file_path;
-    if (file_path[0] != '/' && file_path[0] != '\\' &&
+    if (!modVfsCanResolve(file_path) &&
+        file_path[0] != '/' && file_path[0] != '\\' &&
         !(file_path[0] && file_path[1] == ':')) {
         const char *full = fsFullPath(file_path, resolvedBuf, sizeof(resolvedBuf));
         if (full && full[0]) {

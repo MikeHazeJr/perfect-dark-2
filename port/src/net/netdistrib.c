@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <zlib.h>
@@ -937,11 +938,58 @@ static asset_type_e iniFilenameToAssetType(const char *ini_name)
     if (strcmp(ini_name, "texture.ini") == 0)   return ASSET_TEXTURE;
     if (strcmp(ini_name, "skin.ini") == 0)      return ASSET_SKIN;
     if (strcmp(ini_name, "weapon.ini") == 0)    return ASSET_WEAPON;
+    if (strcmp(ini_name, "head.ini") == 0)      return ASSET_HEAD;
+    if (strcmp(ini_name, "body.ini") == 0)      return ASSET_BODY;
+    if (strcmp(ini_name, "arena.ini") == 0)     return ASSET_ARENA;
+    if (strcmp(ini_name, "scenario.ini") == 0)  return ASSET_GAMEMODE;
+    if (strcmp(ini_name, "animation.ini") == 0) return ASSET_ANIMATION;
     if (strcmp(ini_name, "audio.ini") == 0)     return ASSET_AUDIO;
+    if (strcmp(ini_name, "sound.ini") == 0)     return ASSET_AUDIO;
+    if (strcmp(ini_name, "sfx.ini") == 0)       return ASSET_AUDIO;
+    if (strcmp(ini_name, "voice.ini") == 0)     return ASSET_AUDIO;
+    if (strcmp(ini_name, "music.ini") == 0)     return ASSET_AUDIO;
     if (strcmp(ini_name, "hud.ini") == 0)       return ASSET_HUD;
-    if (strcmp(ini_name, "sfx.ini") == 0)       return ASSET_SFX;
-    if (strcmp(ini_name, "music.ini") == 0)     return ASSET_MUSIC;
+    if (strcmp(ini_name, "ui.ini") == 0)        return ASSET_UI;
+    if (strcmp(ini_name, "font.ini") == 0)      return ASSET_UI;
+    if (strcmp(ini_name, "lang.ini") == 0)      return ASSET_LANG;
     return ASSET_NONE;
+}
+
+static s32 distribParseAudioCategoryValue(const char *value, s32 default_category)
+{
+    if (!value || !value[0]) {
+        return default_category;
+    }
+
+    if (((u8)value[0] >= '0' && (u8)value[0] <= '9') || value[0] == '-' || value[0] == '+') {
+        s32 n = (s32)strtol(value, NULL, 10);
+        if (n >= AUDIO_CAT_SFX && n <= AUDIO_CAT_VOICE) {
+            return n;
+        }
+        return default_category;
+    }
+
+    char lower[32];
+    s32 i = 0;
+    while (value[i] && i < (s32)sizeof(lower) - 1) {
+        lower[i] = (char)tolower((u8)value[i]);
+        i++;
+    }
+    lower[i] = '\0';
+
+    if (strcmp(lower, "music") == 0 || strcmp(lower, "track") == 0) {
+        return AUDIO_CAT_MUSIC;
+    }
+    if (strcmp(lower, "voice") == 0 || strcmp(lower, "dialog") == 0 ||
+            strcmp(lower, "dialogue") == 0) {
+        return AUDIO_CAT_VOICE;
+    }
+    if (strcmp(lower, "sfx") == 0 || strcmp(lower, "sound") == 0 ||
+            strcmp(lower, "soundfx") == 0) {
+        return AUDIO_CAT_SFX;
+    }
+
+    return default_category;
 }
 
 static void distribSetPrimaryFromFile(asset_entry_t *e, const char *dirpath, const char *relpath)
@@ -997,6 +1045,47 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         e->ext.bot_variant.reaction_time = iniGetFloat(ini, "reaction_time", 0.5f);
         e->ext.bot_variant.aggression    = iniGetFloat(ini, "aggression", 0.5f);
         break;
+    case ASSET_ARENA:
+        e->ext.arena.stagenum = iniGetInt(ini, "stagenum", -1);
+        e->ext.arena.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
+        e->ext.arena.name_langid = iniGetInt(ini, "name_langid", 0);
+        e->ext.arena.load_mode = iniGetInt(ini, "load_mode", ARENA_LOADMODE_PLAYABLE);
+        {
+            const char *gf = iniGet(ini, "geometry_file",
+                iniGet(ini, "geometry", ""));
+            if (gf[0]) {
+                distribSetPrimaryFromFile(e, dirpath, gf);
+            }
+        }
+        break;
+    case ASSET_BODY:
+        e->ext.body.bodynum = (s16)iniGetInt(ini, "bodynum", -1);
+        e->ext.body.name_langid = (s16)iniGetInt(ini, "name_langid", 0);
+        e->ext.body.headnum = (s16)iniGetInt(ini, "headnum", -1);
+        e->ext.body.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
+        catalogSetBodyDisplayName(e, iniGet(ini, "display_name",
+            iniGet(ini, "name", "")));
+        catalogSetBodyRigClass(e, iniGet(ini, "rig_class", ""));
+        {
+            const char *mf = iniGet(ini, "model_file",
+                iniGet(ini, "model", ""));
+            if (mf[0]) {
+                distribSetPrimaryFromFile(e, dirpath, mf);
+            }
+        }
+        break;
+    case ASSET_HEAD:
+        e->ext.head.headnum = (s16)iniGetInt(ini, "headnum", -1);
+        e->ext.head.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
+        catalogSetHeadRigClass(e, iniGet(ini, "rig_class", ""));
+        {
+            const char *mf = iniGet(ini, "model_file",
+                iniGet(ini, "model", ""));
+            if (mf[0]) {
+                distribSetPrimaryFromFile(e, dirpath, mf);
+            }
+        }
+        break;
     case ASSET_WEAPON:
         e->ext.weapon.weapon_id = iniGetInt(ini, "weapon_id", -1);
         if (e->ext.weapon.weapon_id >= 0
@@ -1014,6 +1103,24 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
          * those keys are now parsed-and-ignored; the manager is the
          * single source of truth. */
         e->ext.weapon.dual_wieldable = iniGetInt(ini, "dual_wieldable", 0);
+        break;
+    case ASSET_ANIMATION:
+        e->ext.anim.anim_id = iniGetInt(ini, "anim_id", -1);
+        if (e->ext.anim.anim_id >= 0) {
+            e->source_animnum = e->ext.anim.anim_id;
+        }
+        strncpy(e->ext.anim.name, iniGet(ini, "name", ""),
+                sizeof(e->ext.anim.name) - 1);
+        e->ext.anim.frame_count = iniGetInt(ini, "frame_count", 0);
+        strncpy(e->ext.anim.target_body, iniGet(ini, "target_body", ""),
+                sizeof(e->ext.anim.target_body) - 1);
+        {
+            const char *af = iniGet(ini, "animation_file",
+                iniGet(ini, "file_path", ""));
+            if (af[0]) {
+                distribSetPrimaryFromFile(e, dirpath, af);
+            }
+        }
         break;
     case ASSET_PROP:
         e->ext.prop.prop_type = iniGetInt(ini, "prop_type", 0);
@@ -1039,12 +1146,35 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
     case ASSET_AUDIO:
         e->ext.audio.sound_id = iniGetInt(ini, "sound_id", -1);
         strncpy(e->ext.audio.name, iniGet(ini, "name", ""), sizeof(e->ext.audio.name) - 1);
-        e->ext.audio.category = iniGetInt(ini, "category", AUDIO_CAT_SFX);
+        e->ext.audio.category = distribParseAudioCategoryValue(
+            iniGet(ini, "audio_category",
+                iniGet(ini, "kind",
+                iniGet(ini, "category", ""))), AUDIO_CAT_SFX);
         e->ext.audio.duration_ms = iniGetInt(ini, "duration_ms", 0);
         strncpy(e->ext.audio.file_path, iniGet(ini, "file_path", ""),
                 sizeof(e->ext.audio.file_path) - 1);
         if (e->ext.audio.file_path[0]) {
             distribSetPrimaryFromFile(e, dirpath, e->ext.audio.file_path);
+        }
+        break;
+    case ASSET_GAMEMODE:
+        e->ext.gamemode.mode_id = iniGetInt(ini, "mode_id", -1);
+        strncpy(e->ext.gamemode.name, iniGet(ini, "name", ""),
+                sizeof(e->ext.gamemode.name) - 1);
+        strncpy(e->ext.gamemode.description, iniGet(ini, "description", ""),
+                sizeof(e->ext.gamemode.description) - 1);
+        e->ext.gamemode.min_players = iniGetInt(ini, "min_players", 2);
+        e->ext.gamemode.max_players = iniGetInt(ini, "max_players", 8);
+        e->ext.gamemode.team_based = iniGetInt(ini, "team_based", 0);
+        e->ext.gamemode.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
+        {
+            const char *rf = iniGet(ini, "rooms_file",
+                iniGet(ini, "rooms",
+                iniGet(ini, "geometry_file",
+                iniGet(ini, "geometry", ""))));
+            if (rf[0]) {
+                distribSetPrimaryFromFile(e, dirpath, rf);
+            }
         }
         break;
     case ASSET_HUD:
@@ -1055,6 +1185,32 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                 sizeof(e->ext.hud.texture_file) - 1);
         if (e->ext.hud.texture_file[0]) {
             distribSetPrimaryFromFile(e, dirpath, e->ext.hud.texture_file);
+        }
+        break;
+    case ASSET_UI:
+        {
+            const char *pf = iniGet(ini, "file_path",
+                iniGet(ini, "texture_file",
+                iniGet(ini, "font_file",
+                iniGet(ini, "texture",
+                iniGet(ini, "font", "")))));
+            if (pf[0]) {
+                distribSetPrimaryFromFile(e, dirpath, pf);
+            }
+        }
+        break;
+    case ASSET_LANG:
+        e->ext.lang.bank_id = iniGetInt(ini, "bank_id", -1);
+        {
+            const char *sf = iniGet(ini, "strings_file",
+                iniGet(ini, "strings",
+                iniGet(ini, "strings_tsv",
+                iniGet(ini, "file_path", ""))));
+            strncpy(e->ext.lang.strings_file, sf,
+                    sizeof(e->ext.lang.strings_file) - 1);
+            if (e->ext.lang.strings_file[0]) {
+                distribSetPrimaryFromFile(e, dirpath, e->ext.lang.strings_file);
+            }
         }
         break;
     default:
@@ -1159,8 +1315,11 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         char inipath[FS_MAXPATH];
         const char *ini_names[] = { "map.ini", "character.ini", "bot.ini", "prop.ini",
                                     "textures.ini", "texture.ini", "skin.ini",
-                                    "weapon.ini", "audio.ini", "hud.ini",
-                                    "sfx.ini", "music.ini", NULL };
+                                    "weapon.ini", "head.ini", "body.ini",
+                                    "arena.ini", "scenario.ini", "animation.ini",
+                                    "audio.ini", "hud.ini",
+                                    "sound.ini", "sfx.ini", "voice.ini", "music.ini",
+                                    "ui.ini", "font.ini", "lang.ini", NULL };
         ini_section_t ini;
         s32 registered = 0;
 

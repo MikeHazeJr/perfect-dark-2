@@ -1,0 +1,70 @@
+{
+  "scenario_name": "swarm_gpu_b352_stress_smoke",
+  "description": "B-352 focused GPU Swarm stress smoke. Reproduces the short path from Mike's base:mp_felicity log: launch GPU_FULL Swarm, cycle 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 -> 256, and stop before the longer 512/768 ladder. Pre-fix the 128 -> 256 transition crashed before TESTSCEN.SWARM: despawn_all freed ... could log, and high-count GPU readback could report active=0 for full seconds. This smoke pins the mass-free, 256 respawn, and nonzero high-count readback evidence.",
+  "tags": ["debug", "swarm", "gpu", "benchmark", "stress", "B-352"],
+  "paths_of_interest": [
+    "port/fast3d/swarm_gpu.cpp",
+    "port/src/swarm_test.c",
+    "port/src/testscenarios.c",
+    "port/src/actionmap.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--debug-swarm-map",
+    "base:mp_felicity",
+    "--launch-scenario",
+    "swarm_gpu"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,      "type": "wait", "comment": "boot path arms GPU swarm on the B-352 repro map" },
+    { "at_ms": 12000, "type": "action", "name": "ACTION_USE",        "action": "tap", "comment": "dismiss first-launch endscreen if the early player-position latch hit the known restart path" },
+    { "at_ms": 18000, "type": "action", "name": "ACTION_CANCEL_USE", "action": "tap", "comment": "fallback: cancel transient menu" },
+    { "at_ms": 22000, "type": "action", "name": "ACTION_USE",        "action": "tap", "comment": "advance any transient screen" },
+    { "at_ms": 40000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 4 -> 8" },
+    { "at_ms": 50000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 8 -> 16" },
+    { "at_ms": 60000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 16 -> 32" },
+    { "at_ms": 70000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 32 -> 48" },
+    { "at_ms": 80000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 48 -> 64" },
+    { "at_ms": 90000,  "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 64 -> 128" },
+    { "at_ms": 110000, "type": "action", "name": "ACTION_TESTSCEN_CYCLE_COUNT", "action": "tap", "comment": "cycle 128 -> 256, the B-352 crash boundary" },
+    { "at_ms": 150000, "type": "exit", "comment": "scripted exit after the 256 tier settles and readback telemetry has time to publish" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=swarm_gpu_b352_stress_smoke",
+      "BOOT: --launch-scenario 'swarm_gpu' armed",
+      "BOOT: --launch-scenario consuming latch: testScenarioLaunch\\(3\\) .* map_override=base:mp_felicity",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "TESTSCEN\\.LAUNCH: Swarm-GPU map='base:mp_felicity'",
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x43",
+      "TESTSCEN\\.SWARM: session armed -- method=GPU_FULL",
+      "TESTSCEN\\.SWARM: cycle NEXT .* target=128",
+      "TESTSCEN\\.SWARM: cycle NEXT .* target=256",
+      "TESTSCEN\\.SWARM: despawn_all freed 128 chrs \\(was count=128\\)",
+      "TESTSCEN\\.SWARM: post-cycle target=256 actual=256",
+      "BENCHMARK\\.SWARM\\.GPU: SUMMARY count=256",
+      "BENCHMARK\\.SWARM\\.GPU\\.VEL: count=(128|256) active=[1-9]\\d*",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x32",
+      "BENCHMARK\\.SWARM\\.GPU\\.VEL: count=(128|256) active=0\\b",
+      "BENCHMARK\\.SWARM\\.GPU\\.VEL: .* max_unit_per_frame=([6-9]|[1-9]\\d+)\\.",
+      "BENCHMARK\\.SWARM\\.GPU\\.VEL: .* max_cm_per_sec=([4-9]\\d{2}|\\d{4,})\\b"
+    ],
+    "required_counts": [
+      { "pattern": "TESTSCEN\\.SWARM: cycle NEXT", "min": 7 },
+      { "pattern": "BENCHMARK\\.SWARM\\.GPU\\.VEL", "min": 1 }
+    ]
+  }
+}

@@ -33,10 +33,10 @@ struct meshgrid g_WorldMesh;
 /* Internal helpers                                                          */
 /* ======================================================================== */
 
-static void meshGrow(struct colmesh *mesh, s32 needed)
+static bool meshGrow(struct colmesh *mesh, s32 needed)
 {
 	if (mesh->numtris + needed <= mesh->capacity) {
-		return;
+		return true;
 	}
 	s32 newcap = mesh->capacity * 2;
 	if (newcap < mesh->numtris + needed) {
@@ -48,10 +48,11 @@ static void meshGrow(struct colmesh *mesh, s32 needed)
 	struct meshtri *newptr = realloc(mesh->tris, newcap * sizeof(struct meshtri));
 	if (!newptr) {
 		sysLogPrintf(LOG_WARNING, "MESHCOL: meshGrow realloc failed (%d tris)", newcap);
-		return;
+		return false;
 	}
 	mesh->tris = newptr;
 	mesh->capacity = newcap;
+	return true;
 }
 
 static void gridCellAdd(struct meshgridcell *cell, s32 triindex)
@@ -124,13 +125,15 @@ static void meshTransformPoint(const Mtxf *mtx, const struct coord *src,
 	dst->z = src->x * mtx->m[0][2] + src->y * mtx->m[1][2] + src->z * mtx->m[2][2] + mtx->m[3][2];
 }
 
-static void addTriToMesh(struct colmesh *mesh,
+static bool addTriToMesh(struct colmesh *mesh,
                          f32 x0, f32 y0, f32 z0,
                          f32 x1, f32 y1, f32 z1,
                          f32 x2, f32 y2, f32 z2,
                          u16 flags)
 {
-	meshGrow(mesh, 1);
+	if (!meshGrow(mesh, 1)) {
+		return false;
+	}
 	struct meshtri *tri = &mesh->tris[mesh->numtris];
 	tri->v0.x = x0; tri->v0.y = y0; tri->v0.z = z0;
 	tri->v1.x = x1; tri->v1.y = y1; tri->v1.z = z1;
@@ -154,6 +157,7 @@ static void addTriToMesh(struct colmesh *mesh,
 	}
 
 	mesh->numtris++;
+	return true;
 }
 
 /* Classify a triangle as floor, wall, or ceiling based on normal */
@@ -422,7 +426,7 @@ static void extractNodeTreeTris(struct modelnode *node, struct colmesh *mesh,
 
 void meshExtractFromModel(struct model *model, struct colmesh *out)
 {
-	memset(out, 0, sizeof(*out));
+	meshInit(out);
 	if (!model || !model->definition || !model->definition->rootnode) {
 		return;
 	}
@@ -438,6 +442,36 @@ void meshExtractFromModel(struct model *model, struct colmesh *out)
 		sysLogPrintf(LOG_NOTE, "MESHCOL: extracted %d local-space triangles from model",
 			out->numtris);
 	}
+}
+
+void meshInit(struct colmesh *mesh)
+{
+	if (mesh) {
+		memset(mesh, 0, sizeof(*mesh));
+	}
+}
+
+bool meshAddTriangle(struct colmesh *mesh, const struct coord *v0,
+                     const struct coord *v1, const struct coord *v2)
+{
+	struct coord normal;
+
+	if (!mesh || !v0 || !v1 || !v2) {
+		return false;
+	}
+
+	meshComputeNormal((struct coord *)v0, (struct coord *)v1,
+		(struct coord *)v2, &normal);
+
+	if (normal.x == 0.0f && normal.y == 0.0f && normal.z == 0.0f) {
+		return false;
+	}
+
+	return addTriToMesh(mesh,
+		v0->x, v0->y, v0->z,
+		v1->x, v1->y, v1->z,
+		v2->x, v2->y, v2->z,
+		classifyTriFlags(&normal));
 }
 
 void meshFree(struct colmesh *mesh)

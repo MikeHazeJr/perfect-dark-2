@@ -91,10 +91,6 @@ extern struct menudialogdef g_KohOptionsMenuDialog;
 extern struct menudialogdef g_PacOptionsMenuDialog;
 extern struct menudialogdef g_ExtGameOptionsMenuDialog;
 
-/* ---- Menu navigation ---- */
-void menuPushDialog(struct menudialogdef *dialogdef);
-void menuPopDialog(void);
-
 /* ---- Language ---- */
 char *langGet(s32 textid);
 /* langSafe comes from pdgui.h */
@@ -1452,7 +1448,8 @@ static s32 renderMpScenarioOptionsImpl(ScenarioOptionVariant variant,
     ImGui::End();
 
     if (wantExtOpts) {
-        menuPushDialog(&g_ExtGameOptionsMenuDialog);
+        menuGraphFirePushDialog(MENU_TYPE_MP_SETUP, "more_options",
+                                &g_ExtGameOptionsMenuDialog);
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
     }
     return 1;

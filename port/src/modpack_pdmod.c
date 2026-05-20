@@ -16,14 +16,43 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdarg.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <PR/ultratypes.h>
 
 #include "fs.h"
 #include "system.h"
+#include "assetcatalog_scanner.h"
 #include "modarchive.h"
 #include "modpack_pdmod.h"
+
+static char s_pdmodLastError[512];
+
+static void pdmodClearLastError(void)
+{
+	s_pdmodLastError[0] = '\0';
+}
+
+static void pdmodSetLastError(const char *fmt, ...)
+{
+	va_list ap;
+
+	if (!fmt) {
+		pdmodClearLastError();
+		return;
+	}
+
+	va_start(ap, fmt);
+	vsnprintf(s_pdmodLastError, sizeof(s_pdmodLastError), fmt, ap);
+	va_end(ap);
+	s_pdmodLastError[sizeof(s_pdmodLastError) - 1] = '\0';
+}
+
+const char *modpackPdmodLastError(void)
+{
+	return s_pdmodLastError;
+}
 
 /* ------------------------------------------------------------ JSON helper */
 
@@ -131,19 +160,545 @@ done:
 	return pos;
 }
 
+/* ------------------------------------------------------ Layout validation */
+
+static int folderShouldSkip(const char *leaf, const char *fullPath, const char *destPath);
+
+static s32 entryHasForbiddenBinPayload(const char *name)
+{
+	if (!name) return 0;
+
+	for (const char *p = name; *p; p++) {
+		if (p[0] != '.') {
+			continue;
+		}
+		if ((p[1] == 'b' || p[1] == 'B') &&
+		    (p[2] == 'i' || p[2] == 'I') &&
+		    (p[3] == 'n' || p[3] == 'N') &&
+		    (p[4] == '\0' || p[4] == '.' || p[4] == '/' || p[4] == '\\')) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static void pathJoin(char *out, size_t cap, const char *left, const char *right)
+{
+	if (!out || cap == 0) {
+		return;
+	}
+	if (!left || !left[0]) {
+		snprintf(out, cap, "%s", right ? right : "");
+		return;
+	}
+	if (!right || !right[0]) {
+		snprintf(out, cap, "%s", left);
+		return;
+	}
+
+	size_t len = strlen(left);
+	if (left[len - 1] == '/' || left[len - 1] == '\\') {
+		snprintf(out, cap, "%s%s", left, right);
+	} else {
+		snprintf(out, cap, "%s/%s", left, right);
+	}
+	out[cap - 1] = '\0';
+}
+
+static void pathDirnameRel(const char *path, char *out, size_t outsz)
+{
+	if (!out || outsz == 0) {
+		return;
+	}
+	out[0] = '\0';
+	if (!path) {
+		return;
+	}
+
+	const char *slash = strrchr(path, '/');
+	if (!slash) {
+		return;
+	}
+
+	size_t len = (size_t)(slash - path);
+	if (len >= outsz) {
+		len = outsz - 1;
+	}
+	memcpy(out, path, len);
+	out[len] = '\0';
+}
+
+static void normalizeSlashes(char *s)
+{
+	if (!s) {
+		return;
+	}
+	for (; *s; s++) {
+		if (*s == '\\') {
+			*s = '/';
+		}
+	}
+}
+
+static s32 fileExistsRegular(const char *path)
+{
+	struct stat st;
+	return path && stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static s32 dirExistsLocal(const char *path)
+{
+	struct stat st;
+	return path && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static s32 relativeSourcePathIsSafe(const char *path)
+{
+	if (!path || !path[0]) {
+		return 0;
+	}
+	if (path[0] == '/' || path[0] == '\\') {
+		return 0;
+	}
+	if (isalpha((u8)path[0]) && path[1] == ':') {
+		return 0;
+	}
+
+	const char *p = path;
+	while (*p) {
+		const char *end = p;
+		while (*end && *end != '/' && *end != '\\') {
+			end++;
+		}
+		if ((end - p) == 2 && p[0] == '.' && p[1] == '.') {
+			return 0;
+		}
+		p = (*end) ? end + 1 : end;
+	}
+
+	return 1;
+}
+
+static const char *packerSidecarTemplate(const char *leaf)
+{
+	if (!leaf) {
+		return NULL;
+	}
+	if (strcmp(leaf, "pads.ini") == 0) {
+		return
+			"; pads.ini - generated external map pad/spawn template\n"
+			"[pads]\n"
+			"; Add one pad_<n> row per spawn or navigation pad.\n"
+			"default_spawn = 0,0,0\n"
+			"; pad_0 = 0,0,0,0\n";
+	}
+	if (strcmp(leaf, "setup.ini") == 0) {
+		return
+			"; setup.ini - generated external map setup template\n"
+			"[setup]\n"
+			"; Add setup props here once the importer supports authored props.\n"
+			"props = none\n";
+	}
+	if (strcmp(leaf, "props.ini") == 0) {
+		return
+			"; props.ini - generated external scenario props template\n"
+			"[props]\n"
+			"props = none\n"
+			"; prop_0 = model:id,0,0,0\n";
+	}
+	if (strcmp(leaf, "objectives.ini") == 0) {
+		return
+			"; objectives.ini - generated external scenario objectives template\n"
+			"[objectives]\n"
+			"objectives = none\n"
+			"; objective_0 = description,complete_when\n";
+	}
+	return NULL;
+}
+
+static const char *packerTemplateForKind(const char *kind, const char *leaf)
+{
+	const char *templ = modiniTemplateForKind(kind);
+	if (templ) {
+		return templ;
+	}
+	return packerSidecarTemplate(leaf);
+}
+
+static s32 writeTemplateIfMissing(const char *absPath, const char *relPath,
+                                  const char *kind, u32 *generated)
+{
+	if (fileExistsRegular(absPath)) {
+		return MODPACK_PDMOD_OK;
+	}
+
+	const char *leaf = relPath ? strrchr(relPath, '/') : NULL;
+	leaf = leaf ? leaf + 1 : relPath;
+	const char *templ = packerTemplateForKind(kind, leaf);
+	if (!templ) {
+		pdmodSetLastError("No INI template is registered for %s", relPath ? relPath : "(unknown)");
+		return MODPACK_PDMOD_ERR_TEMPLATE;
+	}
+
+	FILE *f = fopen(absPath, "wb");
+	if (!f) {
+		pdmodSetLastError("Could not create missing INI template %s", relPath ? relPath : absPath);
+		return MODPACK_PDMOD_ERR_TEMPLATE;
+	}
+	size_t len = strlen(templ);
+	if (fwrite(templ, 1, len, f) != len) {
+		fclose(f);
+		pdmodSetLastError("Could not write INI template %s", relPath ? relPath : absPath);
+		return MODPACK_PDMOD_ERR_TEMPLATE;
+	}
+	fclose(f);
+	if (generated) {
+		(*generated)++;
+	}
+	return MODPACK_PDMOD_OK;
+}
+
+static s32 validateNoForbiddenBinsRecurse(const char *fsRoot, const char *relRoot,
+                                           const char *destPath)
+{
+	char absDir[FS_MAXPATH + 1];
+	if (relRoot && relRoot[0]) {
+		pathJoin(absDir, sizeof(absDir), fsRoot, relRoot);
+	} else {
+		strncpy(absDir, fsRoot, FS_MAXPATH);
+		absDir[FS_MAXPATH] = '\0';
+	}
+
+	DIR *d = opendir(absDir);
+	if (!d) {
+		pdmodSetLastError("Could not scan source folder %s", absDir);
+		return MODPACK_PDMOD_ERR_IO;
+	}
+
+	struct dirent *ent;
+	while ((ent = readdir(d)) != NULL) {
+		char childAbs[FS_MAXPATH + 1];
+		pathJoin(childAbs, sizeof(childAbs), absDir, ent->d_name);
+		if (folderShouldSkip(ent->d_name, childAbs, destPath)) {
+			continue;
+		}
+
+		struct stat st;
+		if (stat(childAbs, &st) != 0) {
+			continue;
+		}
+
+		char childRel[FS_MAXPATH + 1];
+		if (relRoot && relRoot[0]) {
+			snprintf(childRel, sizeof(childRel), "%s/%s", relRoot, ent->d_name);
+		} else {
+			strncpy(childRel, ent->d_name, FS_MAXPATH);
+			childRel[FS_MAXPATH] = '\0';
+		}
+
+		if (S_ISDIR(st.st_mode)) {
+			s32 r = validateNoForbiddenBinsRecurse(fsRoot, childRel, destPath);
+			if (r != MODPACK_PDMOD_OK) {
+				closedir(d);
+				return r;
+			}
+		} else if (S_ISREG(st.st_mode) && entryHasForbiddenBinPayload(childRel)) {
+			pdmodSetLastError("Authored .bin files are not allowed in external .pdmod archives: %s", childRel);
+			closedir(d);
+			return MODPACK_PDMOD_ERR_LAYOUT;
+		}
+	}
+
+	closedir(d);
+	return MODPACK_PDMOD_OK;
+}
+
+static s32 validateReferencedPath(const char *srcFolder, const char *descriptorRel,
+                                  const char *key, const char *value, s32 required)
+{
+	if (!value || !value[0]) {
+		if (required) {
+			pdmodSetLastError("%s is missing required source setting %s",
+				descriptorRel ? descriptorRel : "(descriptor)", key ? key : "(source)");
+			return MODPACK_PDMOD_ERR_LAYOUT;
+		}
+		return MODPACK_PDMOD_OK;
+	}
+
+	if (!relativeSourcePathIsSafe(value)) {
+		pdmodSetLastError("%s uses unsafe source path for %s: %s",
+			descriptorRel ? descriptorRel : "(descriptor)", key ? key : "(source)", value);
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
+
+	char descDir[FS_MAXPATH + 1];
+	pathDirnameRel(descriptorRel, descDir, sizeof(descDir));
+
+	char sourceRel[FS_MAXPATH + 1];
+	if (strchr(value, '/') || strchr(value, '\\')) {
+		strncpy(sourceRel, value, FS_MAXPATH);
+		sourceRel[FS_MAXPATH] = '\0';
+	} else if (descDir[0]) {
+		pathJoin(sourceRel, sizeof(sourceRel), descDir, value);
+	} else {
+		strncpy(sourceRel, value, FS_MAXPATH);
+		sourceRel[FS_MAXPATH] = '\0';
+	}
+	normalizeSlashes(sourceRel);
+
+	if (entryHasForbiddenBinPayload(sourceRel)) {
+		pdmodSetLastError("%s points at forbidden authored .bin payload for %s: %s",
+			descriptorRel ? descriptorRel : "(descriptor)", key ? key : "(source)", sourceRel);
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
+
+	char sourceAbs[FS_MAXPATH + 1];
+	pathJoin(sourceAbs, sizeof(sourceAbs), srcFolder, sourceRel);
+	if (!fileExistsRegular(sourceAbs)) {
+		pdmodSetLastError("%s references missing source file for %s: %s",
+			descriptorRel ? descriptorRel : "(descriptor)", key ? key : "(source)", sourceRel);
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
+
+	return MODPACK_PDMOD_OK;
+}
+
+static const char *iniFirstValueForKeys(const ini_section_t *ini,
+                                        const char *const *keys, s32 keyCount,
+                                        const char **outKey)
+{
+	for (s32 i = 0; i < keyCount; i++) {
+		const char *value = iniGet(ini, keys[i], "");
+		if (value[0]) {
+			if (outKey) {
+				*outKey = keys[i];
+			}
+			return value;
+		}
+	}
+	if (outKey) {
+		*outKey = keyCount > 0 ? keys[0] : "source";
+	}
+	return "";
+}
+
+static s32 validateDescriptorSources(const char *srcFolder, const char *descriptorRel,
+                                     const char *const *requiredKeys, s32 requiredKeyCount,
+                                     const char *const *optionalKeys, s32 optionalKeyCount)
+{
+	char descriptorAbs[FS_MAXPATH + 1];
+	pathJoin(descriptorAbs, sizeof(descriptorAbs), srcFolder, descriptorRel);
+
+	ini_section_t ini;
+	if (!iniParse(descriptorAbs, &ini)) {
+		pdmodSetLastError("Malformed INI descriptor: %s", descriptorRel);
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
+
+	const char *key = NULL;
+	const char *value = iniFirstValueForKeys(&ini, requiredKeys, requiredKeyCount, &key);
+	s32 r = validateReferencedPath(srcFolder, descriptorRel, key, value, requiredKeyCount > 0);
+	if (r != MODPACK_PDMOD_OK) {
+		return r;
+	}
+
+	for (s32 i = 0; i < optionalKeyCount; i++) {
+		if (!optionalKeys[i] || !optionalKeys[i][0]) {
+			continue;
+		}
+		value = iniGet(&ini, optionalKeys[i], "");
+		if (!value[0]) {
+			continue;
+		}
+		r = validateReferencedPath(srcFolder, descriptorRel, optionalKeys[i], value, 0);
+		if (r != MODPACK_PDMOD_OK) {
+			return r;
+		}
+	}
+
+	return MODPACK_PDMOD_OK;
+}
+
+typedef struct modpack_sidecar_rule {
+	const char *leaf;
+	const char *template_kind;
+} modpack_sidecar_rule_t;
+
+static s32 processCanonicalFamily(const char *srcFolder, const char *familyRel,
+                                  const char *descriptorLeaf, const char *templateKind,
+                                  const char *const *requiredKeys, s32 requiredKeyCount,
+                                  const char *const *optionalKeys, s32 optionalKeyCount,
+                                  const modpack_sidecar_rule_t *sidecars,
+                                  s32 sidecarCount, u32 *generated)
+{
+	char familyAbs[FS_MAXPATH + 1];
+	pathJoin(familyAbs, sizeof(familyAbs), srcFolder, familyRel);
+	if (!dirExistsLocal(familyAbs)) {
+		return MODPACK_PDMOD_OK;
+	}
+
+	DIR *d = opendir(familyAbs);
+	if (!d) {
+		pdmodSetLastError("Could not scan canonical family folder %s", familyRel);
+		return MODPACK_PDMOD_ERR_IO;
+	}
+
+	struct dirent *ent;
+	while ((ent = readdir(d)) != NULL) {
+		if (!ent->d_name || ent->d_name[0] == '.') {
+			continue;
+		}
+
+		char assetAbs[FS_MAXPATH + 1];
+		pathJoin(assetAbs, sizeof(assetAbs), familyAbs, ent->d_name);
+		if (!dirExistsLocal(assetAbs)) {
+			continue;
+		}
+
+		char descriptorRel[FS_MAXPATH + 1];
+		snprintf(descriptorRel, sizeof(descriptorRel), "%s/%s/%s",
+			familyRel, ent->d_name, descriptorLeaf);
+		descriptorRel[sizeof(descriptorRel) - 1] = '\0';
+
+		char descriptorAbs[FS_MAXPATH + 1];
+		pathJoin(descriptorAbs, sizeof(descriptorAbs), srcFolder, descriptorRel);
+
+		s32 r = writeTemplateIfMissing(descriptorAbs, descriptorRel, templateKind, generated);
+		if (r != MODPACK_PDMOD_OK) {
+			closedir(d);
+			return r;
+		}
+
+		for (s32 i = 0; i < sidecarCount; i++) {
+			char sidecarRel[FS_MAXPATH + 1];
+			snprintf(sidecarRel, sizeof(sidecarRel), "%s/%s/%s",
+				familyRel, ent->d_name, sidecars[i].leaf);
+			sidecarRel[sizeof(sidecarRel) - 1] = '\0';
+
+			char sidecarAbs[FS_MAXPATH + 1];
+			pathJoin(sidecarAbs, sizeof(sidecarAbs), srcFolder, sidecarRel);
+			r = writeTemplateIfMissing(sidecarAbs, sidecarRel,
+				sidecars[i].template_kind, generated);
+			if (r != MODPACK_PDMOD_OK) {
+				closedir(d);
+				return r;
+			}
+		}
+
+		r = validateDescriptorSources(srcFolder, descriptorRel,
+			requiredKeys, requiredKeyCount, optionalKeys, optionalKeyCount);
+		if (r != MODPACK_PDMOD_OK) {
+			closedir(d);
+			return r;
+		}
+	}
+
+	closedir(d);
+	return MODPACK_PDMOD_OK;
+}
+
+static s32 validateExternalFolderLayout(const char *srcFolder, const char *destPath)
+{
+	u32 generated = 0;
+
+	s32 r = validateNoForbiddenBinsRecurse(srcFolder, "", destPath);
+	if (r != MODPACK_PDMOD_OK) {
+		return r;
+	}
+
+	static const char *modelKeys[] = { "model_file", "model" };
+	static const char *arenaKeys[] = { "geometry_file", "geometry" };
+	static const char *scenarioKeys[] = { "rooms_file", "rooms", "geometry_file", "geometry" };
+	static const char *animationKeys[] = { "animation_file", "file_path" };
+	static const char *audioKeys[] = { "file_path" };
+	static const char *uiKeys[] = { "texture_file", "file_path", "texture" };
+	static const char *fontKeys[] = { "font_file", "file_path", "font" };
+	static const char *langKeys[] = { "strings_file", "strings", "strings_tsv", "file_path" };
+	static const char *mapOptionalKeys[] = { "pads_file", "setup_file", "collision_file" };
+	static const char *scenarioOptionalKeys[] = { "props_file", "objectives_file", "pads_file", "setup_file" };
+
+	static const modpack_sidecar_rule_t mapSidecars[] = {
+		{ "pads.ini",  "pads.ini" },
+		{ "setup.ini", "setup.ini" },
+	};
+	static const modpack_sidecar_rule_t scenarioSidecars[] = {
+		{ "props.ini",      "props.ini" },
+		{ "objectives.ini", "objectives.ini" },
+	};
+
+	#define RUN_FAMILY(path, leaf, kind, req, opt, opt_count, side, side_count)  \
+		do {                                                                      \
+			r = processCanonicalFamily(srcFolder, path, leaf, kind,                \
+				req, (s32)(sizeof(req) / sizeof((req)[0])),                        \
+				opt, (s32)(opt_count), side, (s32)(side_count), &generated);        \
+			if (r != MODPACK_PDMOD_OK) return r;                                  \
+		} while (0)
+
+	RUN_FAMILY("weapons", "weapon.ini", "weapon", modelKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY("characters/heads", "head.ini", "head", modelKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY("characters/bodies", "body.ini", "body", modelKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY("maps", "arena.ini", "arena", arenaKeys,
+		mapOptionalKeys, sizeof(mapOptionalKeys) / sizeof(mapOptionalKeys[0]),
+		mapSidecars, sizeof(mapSidecars) / sizeof(mapSidecars[0]));
+	RUN_FAMILY("scenarios", "scenario.ini", "scenario", scenarioKeys,
+		scenarioOptionalKeys, sizeof(scenarioOptionalKeys) / sizeof(scenarioOptionalKeys[0]),
+		scenarioSidecars, sizeof(scenarioSidecars) / sizeof(scenarioSidecars[0]));
+	RUN_FAMILY("audio/sfx", "sound.ini", "sfx", audioKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY("audio/voice", "voice.ini", "voice", audioKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY("audio/music", "music.ini", "music", audioKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY("ui", "ui.ini", "ui", uiKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY("fonts", "font.ini", "font", fontKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY("lang", "lang.ini", "lang", langKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY("animations/weapon", "animation.ini", "animation", animationKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY("animations/character", "animation.ini", "animation", animationKeys, NULL, 0, NULL, 0);
+
+	#undef RUN_FAMILY
+
+	if (generated > 0) {
+		sysLogPrintf(LOG_NOTE,
+			"MODPACK.PDMOD: generated %u missing INI template(s) before packing",
+			generated);
+	}
+
+	return MODPACK_PDMOD_OK;
+}
+
 /* ----------------------------------------------------------- Public: bulk */
 
 s32 modpackPdmodWriteSingle(const char *out_path,
                              const char *manifest_json, u32 manifest_len,
                              const modpack_entry_t *entries, s32 entry_count)
 {
-	if (!out_path || !out_path[0] || !manifest_json) return MODPACK_PDMOD_ERR_OPEN;
+	pdmodClearLastError();
+	if (!out_path || !out_path[0] || !manifest_json) {
+		pdmodSetLastError("Missing output path or manifest");
+		return MODPACK_PDMOD_ERR_OPEN;
+	}
+	if (entry_count > 0 && !entries) {
+		pdmodSetLastError("Entry list is missing");
+		return MODPACK_PDMOD_ERR_OPEN;
+	}
+
+	for (s32 i = 0; i < entry_count; i++) {
+		const modpack_entry_t *e = &entries[i];
+		if (!e->entry_name || !e->entry_name[0]) continue;
+		if (entryHasForbiddenBinPayload(e->entry_name)) {
+			pdmodSetLastError("Authored .bin files are not allowed in external .pdmod archives: %s",
+				e->entry_name);
+			return MODPACK_PDMOD_ERR_LAYOUT;
+		}
+	}
 
 	mod_archive_writer_t *w = modArchiveBegin(out_path);
-	if (!w) return MODPACK_PDMOD_ERR_OPEN;
+	if (!w) {
+		pdmodSetLastError("Could not open destination archive: %s", out_path);
+		return MODPACK_PDMOD_ERR_OPEN;
+	}
 
 	if (modArchiveAddFileMem(w, "mod.json", manifest_json, manifest_len) != MODARCHIVE_OK) {
 		modArchiveAbort(w);
+		pdmodSetLastError("Could not write mod.json into archive");
 		return MODPACK_PDMOD_ERR_IO;
 	}
 
@@ -156,6 +711,7 @@ s32 modpackPdmodWriteSingle(const char *out_path,
 		s32 r = modArchiveAddFileMem(w, e->entry_name, e->data, e->len);
 		if (r != MODARCHIVE_OK) {
 			modArchiveAbort(w);
+			pdmodSetLastError("Could not write archive entry: %s", e->entry_name);
 			return MODPACK_PDMOD_ERR_IO;
 		}
 	}
@@ -168,6 +724,7 @@ s32 modpackPdmodWriteSingle(const char *out_path,
 	}
 
 	if (modArchiveFinish(w) != MODARCHIVE_OK) {
+		pdmodSetLastError("Could not finish archive: %s", out_path);
 		return MODPACK_PDMOD_ERR_IO;
 	}
 	return MODPACK_PDMOD_OK;
@@ -231,11 +788,13 @@ static s32 packFolderRecurse(mod_archive_writer_t *w,
 		} else if (S_ISREG(st.st_mode)) {
 			if ((u64)*bytesAccum + (u64)st.st_size > 0xFFFFFFFFull) {
 				closedir(d);
+				pdmodSetLastError("Source folder exceeds 4 GiB while adding %s", childRel);
 				return MODPACK_PDMOD_ERR_TOO_BIG;
 			}
 			*bytesAccum += (u32)st.st_size;
 			if (modArchiveAddFileDisk(w, childRel, childAbs) != MODARCHIVE_OK) {
 				closedir(d);
+				pdmodSetLastError("Could not add archive entry %s", childRel);
 				return MODPACK_PDMOD_ERR_IO;
 			}
 		}
@@ -247,7 +806,9 @@ static s32 packFolderRecurse(mod_archive_writer_t *w,
 
 s32 modpackPdmodFromFolder(const char *src_folder, const char *out_path)
 {
+	pdmodClearLastError();
 	if (!src_folder || !src_folder[0] || !out_path || !out_path[0]) {
+		pdmodSetLastError("Missing source folder or output path");
 		return MODPACK_PDMOD_ERR_OPEN;
 	}
 
@@ -257,38 +818,54 @@ s32 modpackPdmodFromFolder(const char *src_folder, const char *out_path)
 	char mfstPath[FS_MAXPATH + 1];
 	snprintf(mfstPath, sizeof(mfstPath), "%s/mod.json", src_folder);
 	FILE *mf = fopen(mfstPath, "rb");
-	if (!mf) return MODPACK_PDMOD_ERR_NO_MFST;
+	if (!mf) {
+		pdmodSetLastError("mod.json not found in folder root: %s", mfstPath);
+		return MODPACK_PDMOD_ERR_NO_MFST;
+	}
 	fseek(mf, 0, SEEK_END);
 	long mfsize = ftell(mf);
 	if (mfsize <= 0 || mfsize > (long)(8 * 1024 * 1024)) {
 		fclose(mf);
+		pdmodSetLastError("mod.json is empty or too large: %s", mfstPath);
 		return MODPACK_PDMOD_ERR_BAD_MFST;
 	}
 	fseek(mf, 0, SEEK_SET);
 	char *mfBuf = (char *)malloc(mfsize + 1);
 	if (!mfBuf) {
 		fclose(mf);
+		pdmodSetLastError("Could not allocate memory for mod.json");
 		return MODPACK_PDMOD_ERR_IO;
 	}
 	if (fread(mfBuf, 1, mfsize, mf) != (size_t)mfsize) {
 		free(mfBuf);
 		fclose(mf);
+		pdmodSetLastError("Could not read mod.json: %s", mfstPath);
 		return MODPACK_PDMOD_ERR_IO;
 	}
 	fclose(mf);
 	mfBuf[mfsize] = '\0';
 
+	s32 r = validateExternalFolderLayout(src_folder, out_path);
+	if (r != MODPACK_PDMOD_OK) {
+		free(mfBuf);
+		return r;
+	}
+
 	mod_archive_writer_t *w = modArchiveBegin(out_path);
 	if (!w) {
 		free(mfBuf);
+		pdmodSetLastError("Could not open destination archive: %s", out_path);
 		return MODPACK_PDMOD_ERR_OPEN;
 	}
 
 	u32 bytesAccum = 0;
-	s32 r = packFolderRecurse(w, src_folder, "", out_path, &bytesAccum);
+	r = packFolderRecurse(w, src_folder, "", out_path, &bytesAccum);
 	if (r != MODPACK_PDMOD_OK) {
 		modArchiveAbort(w);
 		free(mfBuf);
+		if (!s_pdmodLastError[0]) {
+			pdmodSetLastError("Could not pack source folder: %s", src_folder);
+		}
 		return r;
 	}
 
@@ -299,6 +876,7 @@ s32 modpackPdmodFromFolder(const char *src_folder, const char *out_path)
 
 	if (modArchiveFinish(w) != MODARCHIVE_OK) {
 		free(mfBuf);
+		pdmodSetLastError("Could not finish archive: %s", out_path);
 		return MODPACK_PDMOD_ERR_IO;
 	}
 	free(mfBuf);

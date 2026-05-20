@@ -10,7 +10,7 @@
  *   - Head selection carousel (auto-set from body, user can override)
  *   - Portrait preview placeholder (colored silhouette with initials)
  *   - Create button → saves new agent via filemgrSaveOrLoad
- *   - Cancel button → pops back to Agent Select
+ *   - Cancel button -> returns to Agent Select
  *
  * IMPORTANT: C++ file — must NOT include types.h (#define bool s32 breaks C++).
  * Use extern "C" forward declarations for all game symbols.
@@ -91,10 +91,6 @@ char *mpGetBodyName(u8 mpbodynum);
 #define FILETYPE_GAME 0
 void filemgrPushSelectLocationDialog(s32 arg0, u32 filetype);
 s32 filemgrSaveOrLoad(struct fileguid *guid, s32 fileop, uintptr_t playernum);
-
-/* Menu stack */
-void menuPushDialog(struct menudialogdef *dialogdef);
-void menuPopDialog(void);
 
 /* Language strings */
 char *langGet(s32 textid);

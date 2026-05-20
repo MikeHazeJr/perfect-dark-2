@@ -171,20 +171,15 @@ Per [constraints.md](../constraints.md):
 
 ## What is in flight
 
-- **Input universality Branch 2 / Cohorts 5-8.** Per [designs/input/input-universality-and-transitions.md](../designs/input/input-universality-and-transitions.md), Cohort 1 (layer types + scene events), Cohort 2 (layer push/pop), Cohort 3 (IMC ownership migration), Cohort 4 (per-player cutscene state) shipped. Cohorts 5-8 cover full controller support, menu graph completion, and remaining transitional shim retirement. Post-context-rebuild priority lane after Catalog Gate 3.
+- **Input universality Branch 2 / Cohorts 5-8.** Complete 2026-05-19 via c036. Controller is first-class across actionmap-owned system actions, fullscreen/console/debug chords, gameplay suppression gates, observer lifecycle, right-stick menu scroll, tap/hold gameplay affordances, vehicle look/handbrake/use, and the active ImGui menu graph surface.
 - **Input mapping menu rebuild.** Phase 1 design at [designs/input/input-mapping-menu-rebuild.md](../designs/input/input-mapping-menu-rebuild.md); Phase 2 implementation gated on Priority L menu pass.
 
 ---
 
 ## Known gaps
 
-- **F-key system actions migrated to actionmap.** s036-02 moved the former raw F-key handlers behind actionmap dispatch in `pdsched.c`. B-344 extends the F6 consumer: in loaded solo campaign it completes current mission objectives first; bot-freeze is dev-build-only and only allowed while Combat Simulator is running (`g_Vars.normmplayerisrunning`). Remaining risk is playtest coverage of the context-sensitive branch, not raw SDL bypass.
-- **`gfx_sdl2.cpp` has 3 raw hotkeys.** Lines 335-345: Alt+Enter (fullscreen), F10 (mesh debug), backquote (console toggle). Backquote duplicates `ACTION_CONSOLE_TOGGLE`. Migrate or delete the duplicates.
-- **`input.c` retains direct hardware polling.** Lines 1075, 1092, 1099 call `SDL_GameControllerGetAxis` and `SDL_GameControllerGetButton` for trigger and stick-direction VKs. Used by legacy `inputKeyJustPressed` (line 1115, marked DEPRECATED). After full controller migration, narrow to mouse buttons only per the DEPRECATED comment.
-- **Layer stack IMC pointers deferred.** [port/src/inputlayer.c:210, 237](../../port/src/inputlayer.c:210) have `.imc = NULL, /* Cohort 3: &g_ImcGameplay */` and `/* Cohort 3: &g_ImcMenu */`. Layer stack only owns IMC lifecycle for vehicle and cutscene; gameplay and menu IMCs are still in `inputctx.c` on_push/on_pop callbacks. Wire as part of Cohort 5+.
-- **`pdgui_spectator.cpp:162` uses the wrong gate.** Checks `io.WantCaptureKeyboard` rather than `gameplayInputSuppressed()` or top-of-stack ctx. WantCaptureKeyboard is ImGui-internal state, not the input authority.
-- **Right-stick scroll spec is decoupled from runtime.** [tests/test_right_stick_scroll.cpp:14-18](../../tests/test_right_stick_scroll.cpp:14) is the spec; runtime is `pdguiDriveImGuiNav`. If runtime drifts from deadzone 0.15 / max 1200 px/s / exponent 1.7, no test catches it. Add a static test linking the runtime constants to the spec.
-- **Observer layer asymmetry.** [port/src/inputlayer.c:157-183](../../port/src/inputlayer.c:157) `onObserverPush` activates `g_ImcObserver` only when source == SPECTATOR; `onObserverPop` deactivates unconditionally. Likely safe but defect.
+- **c036 is closed; remaining controller risk is live playtest breadth.** Static/build coverage pins the actionmap migrations, right-stick constants, observer lifecycle, and active ImGui menu graph surface. Mike playtest should still sanity-check common controller flows: main menu, mission start/cancel, training flows, multiplayer setup/options, cheats/modal confirms, tap/hold interact/reload, crouch/squat/crouch-jump, and vehicle look/dismount.
+- **Legacy runtime menu stack calls still exist outside the active ImGui menu surface.** The c036 closure removed direct stack calls from `port/fast3d/pdgui_menu_*.cpp`; older C menu/runtime plumbing remains out of scope unless a future card targets full legacy stack retirement.
 
 ---
 
@@ -196,7 +191,7 @@ Coverage at `tests/`: `test_input_authority`, `test_input_layer_stack`, `test_ac
 
 ## Active design references
 
-- [designs/input/input-universality-and-transitions.md](../designs/input/input-universality-and-transitions.md) - Phase 1 design, K.1-K.9 decided 2026-04-27. Cohorts 5-8 in flight.
+- [designs/input/input-universality-and-transitions.md](../designs/input/input-universality-and-transitions.md) - Phase 1 design, K.1-K.9 decided 2026-04-27. Cohorts 5-8 complete via c036.
 - [designs/input/input-mapping-menu-rebuild.md](../designs/input/input-mapping-menu-rebuild.md) - Phase 1 design. Phase 2 implementation pending.
 - [designs/input/contextual-input-schemes.md](../designs/input/contextual-input-schemes.md) - IMC architecture formalization. J-1 / J-2 / J-3 landed.
 - [designs/input/input-authority-methodology.md](../designs/input/input-authority-methodology.md) - Policy preventing two-stack drift.

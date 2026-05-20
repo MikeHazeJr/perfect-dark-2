@@ -6,8 +6,9 @@
  *
  * 68 body entries (63 named MP/SP bodies + 5 SP-fallback bodies). Reverse-
  * engineered from the historical g_HeadsAndBodies[] table (body subset
- * filtered by unk00_01 == 0 + filenum != 0). Catalog ID slugs match the
- * prior base/bodies.pdbase JSON archive so historical references survive.
+ * filtered by filenum != 0, plus self-contained bodies that set
+ * unk00_01 == 1). Catalog ID slugs match the prior base/bodies.pdbase
+ * JSON archive so historical references survive.
  *
  * Engine-API constraint: nothing in src/ or port/ outside the catalog
  * registration code (assetcatalog_base.c, assetcatalog_base_extended.c,
@@ -60,7 +61,7 @@ const body_authored_record_t g_BodyData[] = {
 	{ "base:ciaguy", 115, 1, 0, 1, HEADBODYTYPE_DEFAULT          , 159, FILE_CCIAGUY             ,                 1.0f,        0.9389671683f, FILE_GHAND_CIA            },
 	{ "base:a51trooper", 116, 1, 0, 1, HEADBODYTYPE_DEFAULT          , 159, FILE_CA51TROOPER         ,                 1.0f,        0.9389671683f, FILE_GHAND_JOFROCK        },
 	{ "base:a51airman", 117, 1, 0, 0, HEADBODYTYPE_DEFAULT          , 157, FILE_CA51AIRMAN          ,                 1.0f,        0.9389671683f, FILE_GHAND_A51AIRMAN      },
-	{ "base:sp_body_118", 118, 1, 0, 0, HEADBODYTYPE_DEFAULT          , 159, FILE_CCHICROB            ,                 1.0f,                 1.0f, 0                         },
+	{ "base:sp_body_118", 118, 1, 1, 0, HEADBODYTYPE_DEFAULT          , 159, FILE_CCHICROB            ,                 1.0f,                 1.0f, 0                         },
 	{ "base:steward", 119, 1, 0, 0, HEADBODYTYPE_DEFAULT          , 153, FILE_CSTEWARD            ,                 1.0f,         0.892018795f, FILE_GHAND_JOFROCK        },
 	{ "base:stewardess", 120, 0, 0, 0, HEADBODYTYPE_FEMALE           , 143, FILE_CSTEWARDESS         ,                 1.0f,        0.8544600606f, FILE_GHAND_JOFROCK        },
 	{ "base:president", 121, 1, 0, 0, HEADBODYTYPE_DEFAULT          , 159, FILE_CPRESIDENT          ,                 1.0f,        0.9389671683f, FILE_GHAND_PRESIDENT      },

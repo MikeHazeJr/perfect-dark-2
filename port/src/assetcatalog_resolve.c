@@ -186,7 +186,9 @@ static void findMapCb(const asset_entry_t *entry, void *userdata)
 		return;
 	}
 
-	if (entry->ext.map.stagenum == ctx->stagenum) {
+	if (entry->type == ASSET_MAP && entry->ext.map.stagenum == ctx->stagenum) {
+		ctx->result = entry;
+	} else if (entry->type == ASSET_ARENA && entry->ext.arena.stagenum == ctx->stagenum) {
 		ctx->result = entry;
 	}
 }
@@ -198,6 +200,9 @@ const asset_entry_t *assetCatalogFindModMapByStagenum(s32 stagenum)
 	ctx.result = NULL;
 
 	assetCatalogIterateByType(ASSET_MAP, findMapCb, &ctx);
+	if (!ctx.result) {
+		assetCatalogIterateByType(ASSET_ARENA, findMapCb, &ctx);
+	}
 
 	return ctx.result;
 }

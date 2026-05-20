@@ -505,6 +505,7 @@ static int           s_StateTexArmed   = 0;
  * pre-Slice-2 behaviour by NOT initializing ring buffers and falling
  * back to the blocking readback at the call-site. */
 #define SWARM_READBACK_RING_DEPTH 2
+#define SWARM_READBACK_LATE_WAIT_NS 2000000ull
 static GLuint  s_ReadbackRingBuf[SWARM_READBACK_RING_DEPTH] = {0, 0};
 static void   *s_ReadbackRingFence[SWARM_READBACK_RING_DEPTH] = {NULL, NULL};
 static s32     s_ReadbackRingCount[SWARM_READBACK_RING_DEPTH] = {0, 0};
@@ -1696,7 +1697,16 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 			 * essentially always be signaled by now. If we DO hit
 			 * TIMEOUT_EXPIRED that's a stronger perf signal than the
 			 * blocking get -- the GPU is genuinely behind. */
-			const GLenum wait = s_glClientWaitSync(fence, 0, 0);
+			GLenum wait = s_glClientWaitSync(fence, 0, 0);
+			/* At small live-debug counts, a fence that is barely late is
+			 * more visible as jitter than as perf savings. Give it a short
+			 * bounded wait so 128/256-bot GPU_FULL runs keep applying
+			 * movement instead of reporting active=0 for entire seconds. */
+			if (wait == GL_TIMEOUT_EXPIRED && count <= 256) {
+				wait = s_glClientWaitSync(fence,
+					GL_SYNC_FLUSH_COMMANDS_BIT,
+					(GLuint64)SWARM_READBACK_LATE_WAIT_NS);
+			}
 			if (wait == GL_ALREADY_SIGNALED
 					|| wait == GL_CONDITION_SATISFIED) {
 				consumed_count = s_ReadbackRingCount[read_idx];

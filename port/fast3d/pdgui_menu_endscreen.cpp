@@ -109,6 +109,7 @@ void pdguiEndscreenExitToMainMenu(void);
 void pdguiEndscreenExitToRoom(void); /* Networked MP exit-to-room variant. */
 void netSendLobbyResync(void); /* v49 CLC_LOBBY_RESYNC client helper. */
 s32 pdguiEndscreenHasNextMission(void);
+const char *pdguiEndscreenNextMissionLabel(void);
 s32 pdguiEndscreenGetPlacementIndex(void);
 const char *pdguiEndscreenGetTitle(void);
 s32 pdguiEndscreenTitleChanged(void);
@@ -739,7 +740,8 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
         if (completed) {
             /* NEXT MISSION (default)  |  RETRY MISSION / MAIN MENU */
             if (pdguiEndscreenHasNextMission()) {
-                if (pdguiActionBarButton("Next Mission", 1, halfW) && !inputSuppressed) {
+                const char *nextLabel = pdguiEndscreenNextMissionLabel();
+                if (pdguiActionBarButton(nextLabel, 1, halfW) && !inputSuppressed) {
                     menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "continue",
                         endscreenGraphNextMission, NULL);
                 }

@@ -391,17 +391,21 @@ endif()
 if(WIN32)
   if(EXISTS "${_msys_lib}/libz.a")
     message(STATUS "ZLIB: Static linking via ${_msys_lib}/libz.a")
-    list(APPEND LIBS "${_msys_lib}/libz.a")
+    set(PD_ZLIB_LIB "${_msys_lib}/libz.a")
+    list(APPEND LIBS "${PD_ZLIB_LIB}")
   elseif(ZLIB_INCLUDE_DIR AND EXISTS "${ZLIB_INCLUDE_DIR}/../lib/libz.a")
     get_filename_component(_z_a "${ZLIB_INCLUDE_DIR}/../lib/libz.a" ABSOLUTE)
     message(STATUS "ZLIB: Static linking via ${_z_a}")
-    list(APPEND LIBS "${_z_a}")
+    set(PD_ZLIB_LIB "${_z_a}")
+    list(APPEND LIBS "${PD_ZLIB_LIB}")
   else()
     message(WARNING "ZLIB: No libz.a at ${_msys_lib}, falling back to dynamic (will need zlib1.dll)")
-    list(APPEND LIBS "${ZLIB_LIBRARY}")
+    set(PD_ZLIB_LIB "${ZLIB_LIBRARY}")
+    list(APPEND LIBS "${PD_ZLIB_LIB}")
   endif()
 else()
-  list(APPEND LIBS "${ZLIB_LIBRARY}")
+  set(PD_ZLIB_LIB "${ZLIB_LIBRARY}")
+  list(APPEND LIBS "${PD_ZLIB_LIB}")
 endif()
 
 # libcurl -- static linking on Windows via MSYS2 MinGW64; dynamic fallback elsewhere.
@@ -991,6 +995,11 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_cutscene_layer.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_vehicle_observer_layer.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_provider_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_public_mods_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/modarchive.c
+  ${CMAKE_SOURCE_DIR}/port/src/modvfs.c
+  ${CMAKE_SOURCE_DIR}/port/src/sha256.c
   ${CMAKE_SOURCE_DIR}/tests/test_fast3d_blender_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_credits_texture_static.cpp
 
@@ -1118,6 +1127,8 @@ target_compile_options(pd-tests PRIVATE
 )
 if(WIN32)
   target_link_libraries(pd-tests PRIVATE -static-libgcc -static-libstdc++
-    -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+    -Wl,-Bstatic "${PD_ZLIB_LIB}" -lwinpthread -Wl,-Bdynamic)
+else()
+  target_link_libraries(pd-tests PRIVATE "${PD_ZLIB_LIB}")
 endif()
 set_target_properties(pd-tests PROPERTIES OUTPUT_NAME "pd-tests")

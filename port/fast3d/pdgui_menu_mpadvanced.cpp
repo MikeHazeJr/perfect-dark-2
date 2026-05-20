@@ -25,8 +25,9 @@
  *   - Delegates ALL state mutation to legacy C handlers (setup.c / mainmenu.c
  *     / scenarios.c) through the s205 shadow-struct call-through pattern
  *     (same ABI as the s203/s204 shadows in mpsetup.cpp / botsetup.cpp).
- *   - Selectables that open sub-dialogs call menuPushDialog(&target) directly
- *     -- that's what the legacy menu runtime does when an item has the
+ *   - Selectables that open sub-dialogs fire named menu graph edges, which
+ *     delegate to the same legacy dialog push that MENUITEMFLAG_SELECTABLE_OPENSDIALOG
+ *     used when an item had the
  *     MENUITEMFLAG_SELECTABLE_OPENSDIALOG flag.  Zero-function-loss because
  *     every target is either already ImGui-rendered (Batches 5-6) or still
  *     legacy-rendered.
@@ -125,10 +126,6 @@ extern struct menudialogdef g_MpPlayerStatsMenuDialog;
 extern struct menudialogdef g_MpSoundtrackMenuDialog;
 extern struct menudialogdef g_MpTeamNamesMenuDialog;
 extern struct menudialogdef g_MpAbortMenuDialog;
-
-/* ---- Menu navigation ---- */
-void menuPushDialog(struct menudialogdef *dialogdef);
-void menuPopDialog(void);
 
 /* ---- Language ---- */
 char *langGet(s32 textid);
@@ -417,7 +414,8 @@ static bool ma_BackPressed(void)
 
 /* ---- Hub row: label + optional dynamic-text on the right, pushes a
  *      target dialog on click.  Plays SND_SELECT. ---- */
-static bool hubPushRow(const char *label, struct menudialogdef *target,
+static bool hubPushRow(const char *edgeId, const char *label,
+                       struct menudialogdef *target,
                        const char *rightSideText = nullptr)
 {
     ImGui::PushID(label);
@@ -439,7 +437,9 @@ static bool hubPushRow(const char *label, struct menudialogdef *target,
             ImGui::GetColorU32(ImGuiCol_TextDisabled), rightSideText);
     }
     if (clicked) {
-        if (target) menuPushDialog(target);
+        if (target) {
+            menuGraphFirePushDialog(MENU_TYPE_MP_ADVANCED, edgeId, target);
+        }
         pdguiPlaySound(PDGUI_SND_SELECT);
     }
     ImGui::PopID();
@@ -531,20 +531,20 @@ static s32 renderMpAdvancedSetupImpl(u8 variant, const struct menudialogdef *def
         const char *scenText = mpMenuTextScenarioShortName(nullptr);
         const char *arenaText = mpMenuTextArenaName(nullptr);
 
-        hubPushRow("Scenario",           &g_MpScenarioMenuDialog, scenText);
+        hubPushRow("scenario", "Scenario", &g_MpScenarioMenuDialog, scenText);
         hubHandlerRow("Options",         menuhandlerMpOpenOptions);
-        hubPushRow("Arena",              &g_MpArenaMenuDialog, arenaText);
-        hubPushRow("Weapons",            &g_MpWeaponsMenuDialog);
-        hubPushRow("Limits",             &g_MpLimitsMenuDialog);
-        hubPushRow("Player Handicaps",   &g_MpHandicapsMenuDialog);
-        hubPushRow("Simulants",          &g_MpSimulantsMenuDialog);
-        hubPushRow("Teams",              &g_MpTeamsMenuDialog);
+        hubPushRow("arena", "Arena", &g_MpArenaMenuDialog, arenaText);
+        hubPushRow("weapons", "Weapons", &g_MpWeaponsMenuDialog);
+        hubPushRow("limits", "Limits", &g_MpLimitsMenuDialog);
+        hubPushRow("handicaps", "Player Handicaps", &g_MpHandicapsMenuDialog);
+        hubPushRow("simulants", "Simulants", &g_MpSimulantsMenuDialog);
+        hubPushRow("teams", "Teams", &g_MpTeamsMenuDialog);
 
         ImGui::Separator();
         ImGui::Dummy(ImVec2(0, pdguiScale(4.0f)));
 
-        hubPushRow("Manage Settings",    &g_ManageSettingsDialog);
-        hubPushRow("Load Settings",      &g_MpLoadSettingsMenuDialog);
+        hubPushRow("manage_settings", "Manage Settings", &g_ManageSettingsDialog);
+        hubPushRow("load_settings", "Load Settings", &g_MpLoadSettingsMenuDialog);
         hubHandlerRow("Save Settings",   menuhandlerMpSaveSettings);
     }
     ImGui::EndChild();
@@ -603,10 +603,10 @@ static s32 renderMpQuickGo(struct menudialog *dialog, struct menu *, s32, s32)
     if (ImGui::BeginChild("##mp_qg_body", ImVec2(0, bodyH),
                           ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
-        hubPushRow("Start Game",       &g_MpReadyMenuDialog);
-        hubPushRow("Load Player",      &g_MpLoadPlayerMenuDialog);
-        hubPushRow("Player Settings",  &g_MpPlayerSetupViaQuickGoMenuDialog);
-        hubPushRow("Drop Out",         &g_MpDropOutMenuDialog);
+        hubPushRow("start_game", "Start Game", &g_MpReadyMenuDialog);
+        hubPushRow("load_player", "Load Player", &g_MpLoadPlayerMenuDialog);
+        hubPushRow("player_settings", "Player Settings", &g_MpPlayerSetupViaQuickGoMenuDialog);
+        hubPushRow("drop_out", "Drop Out", &g_MpDropOutMenuDialog);
     }
     ImGui::EndChild();
 
@@ -657,7 +657,7 @@ static void qtRootBigButton(const char *label, u8 param)
         s205_handlerdata h{};
         menuhandlerMpQuickTeamOption(MENUOP_SET, &it, &h);
         pdguiPlaySound(PDGUI_SND_SELECT);
-        /* The handler itself calls menuPushDialog(&g_MpQuickTeamGameSetupMenuDialog)
+        /* The handler itself opens g_MpQuickTeamGameSetupMenuDialog
          * so we do not need to pop/push ourselves. */
     }
     ImGui::PopID();
@@ -760,11 +760,11 @@ static s32 renderMpQuickTeamGameSetup(struct menudialog *dialog, struct menu *, 
         const char *arenaText = mpMenuTextArenaName(nullptr);
         const char *wsetText  = mpMenuTextWeaponSetName(nullptr);
 
-        hubPushRow("Scenario",      &g_MpQuickTeamScenarioMenuDialog, scenText);
+        hubPushRow("quick_team_scenario", "Scenario", &g_MpQuickTeamScenarioMenuDialog, scenText);
         hubHandlerRow("Options",    menuhandlerMpOpenOptions);
-        hubPushRow("Arena",         &g_MpArenaMenuDialog, arenaText);
-        hubPushRow("Weapons",       &g_MpQuickTeamWeaponsMenuDialog, wsetText);
-        hubPushRow("Limits",        &g_MpLimitsMenuDialog);
+        hubPushRow("arena", "Arena", &g_MpArenaMenuDialog, arenaText);
+        hubPushRow("quick_team_weapons", "Weapons", &g_MpQuickTeamWeaponsMenuDialog, wsetText);
+        hubPushRow("limits", "Limits", &g_MpLimitsMenuDialog);
 
         /* The separator visibility for the quickteam items: the legacy
          * separator handler hides itself when mpquickteam == PLAYERSONLY,
@@ -878,8 +878,8 @@ static s32 renderMpStuffImpl(u8 variant, const struct menudialogdef *def)
                           ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
-        hubPushRow("Soundtrack",  &g_MpSoundtrackMenuDialog);
-        hubPushRow("Team Names",  &g_MpTeamNamesMenuDialog);
+        hubPushRow("soundtrack", "Soundtrack", &g_MpSoundtrackMenuDialog);
+        hubPushRow("team_names", "Team Names", &g_MpTeamNamesMenuDialog);
 
         ImGui::PushItemWidth(pdguiScale(220.0f));
         renderHandlerDropdown("Lock##mp_stuff_lock", menuhandlerMpLock, 0, 0);
@@ -898,9 +898,9 @@ static s32 renderMpStuffImpl(u8 variant, const struct menudialogdef *def)
         ImGui::Separator();
         ImGui::Dummy(ImVec2(0, pdguiScale(4.0f)));
 
-        hubPushRow("Start Game",  &g_MpReadyMenuDialog);
-        hubPushRow("Drop Out",    &g_MpDropOutMenuDialog);
-        hubPushRow("Abort Game",  &g_MpAbortMenuDialog);
+        hubPushRow("start_game", "Start Game", &g_MpReadyMenuDialog);
+        hubPushRow("drop_out", "Drop Out", &g_MpDropOutMenuDialog);
+        hubPushRow("abort_game", "Abort Game", &g_MpAbortMenuDialog);
     }
     ImGui::EndChild();
 
@@ -980,16 +980,16 @@ static s32 renderMpPlayerSetupHubImpl(u8 variant, const struct menudialogdef *de
         const char *nameText = mpGetCurrentPlayerName(nullptr);
         const char *saveText = mpMenuTextSavePlayerOrCopy(nullptr);
 
-        hubPushRow("Name",           &g_MpPlayerNameMenuDialog, nameText);
-        hubPushRow("Character",      &g_MpCharacterMenuDialog);
-        hubPushRow("Control",        &g_MpControlMenuDialog);
-        hubPushRow("Player Options", &g_MpPlayerOptionsMenuDialog);
-        hubPushRow("Statistics",     &g_MpPlayerStatsMenuDialog);
+        hubPushRow("player_name", "Name", &g_MpPlayerNameMenuDialog, nameText);
+        hubPushRow("character", "Character", &g_MpCharacterMenuDialog);
+        hubPushRow("control", "Control", &g_MpControlMenuDialog);
+        hubPushRow("player_options", "Player Options", &g_MpPlayerOptionsMenuDialog);
+        hubPushRow("statistics", "Statistics", &g_MpPlayerStatsMenuDialog);
 
         ImGui::Separator();
         ImGui::Dummy(ImVec2(0, pdguiScale(4.0f)));
 
-        hubPushRow("Load Player",    &g_MpLoadPlayerMenuDialog);
+        hubPushRow("load_player", "Load Player", &g_MpLoadPlayerMenuDialog);
 
         /* Save Player: the legacy handler inspects fileguid.fileid and
          * either pushes the save dialog or the select-location filemgr.

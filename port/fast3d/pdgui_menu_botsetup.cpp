@@ -84,10 +84,6 @@ extern struct menudialogdef g_MpChangeSimulantMenuDialog;
 extern struct menudialogdef g_MpEditSimulantMenuDialog;
 extern struct menudialogdef g_MpSimulantCharacterMenuDialog;
 
-/* ---- Menu navigation ---- */
-void menuPushDialog(struct menudialogdef *dialogdef);
-void menuPopDialog(void);
-
 /* ---- Language ---- */
 char *langGet(s32 textid);
 /* langSafe comes from pdgui.h */
@@ -957,7 +953,7 @@ static s32 renderMpChangeSimulant(struct menudialog *dialog, struct menu *, s32,
  *
  * Copy and Delete handlers pop the Edit dialog automatically.  Change Type
  * handler pushes g_MpChangeSimulantMenuDialog.  Character is wired up to
- * menuPushDialog(&g_MpSimulantCharacterMenuDialog) directly (legacy used
+ * a named menu graph edge to push g_MpSimulantCharacterMenuDialog (legacy used
  * SELECTABLE_OPENSDIALOG with dialogdef in param3; we do the push in C++).
  */
 
@@ -1022,7 +1018,8 @@ static s32 renderMpEditSimulant(struct menudialog *dialog, struct menu *, s32, s
         /* Character... */
         if (ImGui::Selectable("Character...", false)) {
             pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-            menuPushDialog(&g_MpSimulantCharacterMenuDialog);
+            menuGraphFirePushDialog(MENU_TYPE_MP_BOT_SETUP, "character",
+                                    &g_MpSimulantCharacterMenuDialog);
         }
 
         ImGui::Separator();

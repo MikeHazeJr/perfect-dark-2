@@ -4,9 +4,11 @@
  * Two entry points used by every code path that authors a `.pdmod`:
  *
  *   modpackPdmodFromFolder(src_folder, out_path)
- *     - Recursively packs every file under `src_folder` into the archive,
- *       preserving relative paths. mod.json must already exist at the
- *       folder root. Used by M-4 first-run auto-migration.
+ *     - Validates the external authoring layout, generates missing commented
+ *       INI templates for canonical asset folders, then recursively packs
+ *       every accepted file under `src_folder` into the archive, preserving
+ *       relative paths. mod.json must already exist at the folder root. Used
+ *       by M-4 first-run auto-migration and Modding Hub folder export.
  *
  *   modpackPdmodWriteSingle(out_path, manifest_json, manifest_len,
  *                            entries[], entry_count)
@@ -37,6 +39,8 @@ extern "C" {
 #define MODPACK_PDMOD_ERR_BAD_MFST   -3   /* mod.json failed to parse */
 #define MODPACK_PDMOD_ERR_IO         -4   /* read/write failure during pack */
 #define MODPACK_PDMOD_ERR_TOO_BIG    -5   /* source exceeds 4 GiB total */
+#define MODPACK_PDMOD_ERR_LAYOUT     -6   /* invalid external layout */
+#define MODPACK_PDMOD_ERR_TEMPLATE   -7   /* failed to generate template */
 
 /* In-memory entry for the bulk writer. */
 typedef struct modpack_entry {
@@ -54,6 +58,13 @@ typedef struct modpack_entry {
  * Returns MODPACK_PDMOD_OK on success.
  */
 s32 modpackPdmodFromFolder(const char *src_folder, const char *out_path);
+
+/**
+ * Human-readable detail for the most recent failure from this module.
+ *
+ * Returns an empty string when the last operation did not publish detail.
+ */
+const char *modpackPdmodLastError(void);
 
 /**
  * Write a single .pdmod archive from an in-memory manifest plus an

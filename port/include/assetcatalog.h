@@ -168,6 +168,8 @@ typedef enum {
     ASSET_PAYLOAD_NONE = 0,
     ASSET_PAYLOAD_SYSMEM_BYTES,
     ASSET_PAYLOAD_STAGE_MODELDEF,
+    ASSET_PAYLOAD_COLMESH,
+    ASSET_PAYLOAD_ANIMATION_CLIP,
     ASSET_PAYLOAD_RUNTIME_ACTIVE
 } asset_payload_kind_t;
 
@@ -350,6 +352,7 @@ typedef struct asset_entry {
         } effect;
         struct {
             s32 bank_id;               /* LANGBANK_* constant (0x01-0x44) */
+            char strings_file[128];    /* UTF-8 TSV source for mod language banks */
         } lang;
         struct {
             s32  type;                 /* BOTTYPE_* constant (e.g. BOTTYPE_GENERAL) */

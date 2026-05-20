@@ -614,6 +614,70 @@ TEST_CASE("skedar swarm behavior intents stay wired for CPU and GPU benchmarks",
 	REQUIRE(swarm.find("SURFACE_LOCO.TRACE") != std::string::npos);
 }
 
+TEST_CASE("skedar swarm stress guards cover high-count cycles", "[testscenarios][static][b352]")
+{
+	const std::string swarm = readTextFile("port/src/swarm_test.c");
+	const std::string gpu = readTextFile("port/fast3d/swarm_gpu.cpp");
+	const std::string smoke =
+		readTextFile("tools/smoke-verify/tests/swarm_gpu_b352_stress_smoke.json");
+
+	const size_t despawn = swarm.find("static void despawn_all(void)");
+	REQUIRE(despawn != std::string::npos);
+	const size_t despawnLoop =
+		swarm.find("for (s32 i = 0; i < TESTSCEN_SWARM_MAX_COUNT; i++)", despawn);
+	REQUIRE(despawnLoop != std::string::npos);
+	REQUIRE(swarm.find("swarmGpuInvalidateReadback();", despawn) < despawnLoop);
+	REQUIRE(swarm.find("swarmGpuInvalidateFloorCache();", despawn) < despawnLoop);
+
+	const size_t drain = swarm.find("static void swarm_drain_death_state");
+	REQUIRE(drain != std::string::npos);
+	const size_t fade = swarm.find("chr->fadealpha = -1;", drain);
+	REQUIRE(fade != std::string::npos);
+	const std::string drainBlock = swarm.substr(drain, fade - drain);
+	const size_t dieGuard = drainBlock.find("if (chr->actiontype == ACT_DIE)");
+	const size_t dieClear = drainBlock.find("chr->act_die.notifychrindex = 0", dieGuard);
+	const size_t deadGuard = drainBlock.find("else if (chr->actiontype == ACT_DEAD)");
+	const size_t deadClear = drainBlock.find("chr->act_dead.notifychrindex = 0", deadGuard);
+	REQUIRE(dieGuard != std::string::npos);
+	REQUIRE(dieClear != std::string::npos);
+	REQUIRE(deadGuard != std::string::npos);
+	REQUIRE(deadClear != std::string::npos);
+	REQUIRE(dieGuard < dieClear);
+	REQUIRE(deadGuard < deadClear);
+	REQUIRE(drainBlock.find("clearing both is safe") == std::string::npos);
+
+	REQUIRE(swarm.find("SWARM_SPAWN_MAX_FLOOR_DELTA") != std::string::npos);
+	REQUIRE(swarm.find("SWARM_SPAWN_FLOOR_SNAP_OFFSET") != std::string::npos);
+	REQUIRE(swarm.find("GEOFLAG_DIE") != std::string::npos);
+	REQUIRE(swarm.find("swarm_finalize_spawn_candidate(&pos, &corrected_room") != std::string::npos);
+	REQUIRE(swarm.find("static struct prop *swarm_live_prop_for_chr") != std::string::npos);
+	REQUIRE(swarm.find("prop->type != PROPTYPE_CHR || prop->chr != chr") != std::string::npos);
+	REQUIRE(swarm.find("swarm_clear_slot_after_stale_prop(i, \"despawn_all\")") != std::string::npos);
+	REQUIRE(swarm.find("swarm_clear_slot_after_stale_prop(i, \"death_poll\")") != std::string::npos);
+	REQUIRE(swarm.find("chrs[i] = swarm_live_prop_for_chr(s_Swarm[i].chr)") != std::string::npos);
+
+	const size_t jumpGate = swarm.find("swarm_skjump_start_allowed(slot_index)");
+	const size_t jumpCall = swarm.find("chrTrySkJump(chr", jumpGate);
+	REQUIRE(jumpGate != std::string::npos);
+	REQUIRE(jumpCall != std::string::npos);
+	REQUIRE(jumpGate < jumpCall);
+	REQUIRE(swarm.find("SWARM_SKJUMP_MAX_STARTS_PER_FRAME") != std::string::npos);
+
+	REQUIRE(gpu.find("SWARM_READBACK_LATE_WAIT_NS") != std::string::npos);
+	REQUIRE(gpu.find("GL_SYNC_FLUSH_COMMANDS_BIT") != std::string::npos);
+
+	REQUIRE(smoke.find("\"scenario_name\": \"swarm_gpu_b352_stress_smoke\"") !=
+		std::string::npos);
+	REQUIRE(smoke.find("base:mp_felicity") != std::string::npos);
+	REQUIRE(smoke.find("target=256") != std::string::npos);
+	REQUIRE(smoke.find("despawn_all freed 128 chrs") != std::string::npos);
+	REQUIRE(smoke.find("post-cycle target=256 actual=256") != std::string::npos);
+	REQUIRE(smoke.find("BENCHMARK\\\\.SWARM\\\\.GPU\\\\.VEL: count=(128|256) active=[1-9]\\\\d*") !=
+		std::string::npos);
+	REQUIRE(smoke.find("BENCHMARK\\\\.SWARM\\\\.GPU\\\\.VEL: count=(128|256) active=0\\\\b") !=
+		std::string::npos);
+}
+
 TEST_CASE("typed catalog metadata lifecycle uses runtime activation", "[catalog][provider][static]")
 {
 	const std::string catalogLoad = readTextFile("port/src/assetcatalog_load.c");

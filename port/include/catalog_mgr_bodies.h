@@ -25,8 +25,8 @@
  *
  * Bodies-specific carryover from heads: bodies preserve `canvaryheight`
  * and `handfilenum` fields (heads dropped both per heads I.1). The
- * integrated-head invariant (unk00_01 == 1 for Skedar / Dr Caroll /
- * EyeSpy) is the body-side semantic of the same bit head slots use to
+ * self-contained-body invariant (unk00_01 == 1 for Skedar / Dr Caroll /
+ * EyeSpy / Chicrob) is the body-side semantic of the same bit head slots use to
  * signal "standalone head model"; the manager surfaces it through
  * catalogManagerGetBodyByIndex(...)->unk00_01 so the S593g bodyAllocate
  * Model warning gate (body.c:417) keeps suppressing for those bodies.
@@ -66,7 +66,7 @@ typedef struct body_data {
 
     /* Body-relevant fields, bitfields unpacked */
     u8  ismale;               /* 0 = female, 1 = male */
-    u8  unk00_01;             /* 1 = integrated-head body (Skedar/Dr Caroll/EyeSpy); 0 = normal body */
+    u8  unk00_01;             /* 1 = self-contained body (Skedar/Dr Caroll/EyeSpy/Chicrob); 0 = normal body */
     u8  canvaryheight;        /* 1 = per-chr height variance (Skedar) */
     u8  type;                 /* HEADBODYTYPE_* */
     u16 height;               /* body height; bot.c speed scaling source */

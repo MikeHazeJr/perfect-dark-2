@@ -1255,14 +1255,12 @@ static void renderPackTool(float contentW, float contentH, float scale)
     }
 
     /* ================================================================
-     * PACK .pdmod FROM FOLDER (c3808)
+     * PACK .pdmod FROM FOLDER (c3808/c3809-s7)
      *
-     * v1 minimal UI: two text inputs (source folder + output .pdmod
-     * path) and one button that calls modpackPdmodFromFolder. The
-     * helper recursively archives every file under the folder into a
-     * single .pdmod, reading mod.json from the folder root to embed
-     * the comment mirror. Surfaces the legacy first-run auto-migration
-     * path (port/src/modmigrate.c) as a first-class authoring tool.
+     * Packs the external authoring layout: root mod.json plus standard
+     * files and grouped INI/TSV metadata. The helper validates canonical
+     * asset folders, generates missing commented INI templates, and refuses
+     * authored .bin payloads before writing the archive.
      * ============================================================== */
     static char s_PdmodSrcFolder[FS_MAXPATH] = "mods/staging/";
     static char s_PdmodOutPath[FS_MAXPATH]   = "mods/packed.pdmod";
@@ -1313,14 +1311,23 @@ static void renderPackTool(float contentW, float contentH, float scale)
                     case MODPACK_PDMOD_ERR_BAD_MFST:reason = "mod.json failed to parse"; break;
                     case MODPACK_PDMOD_ERR_IO:      reason = "read/write failure"; break;
                     case MODPACK_PDMOD_ERR_TOO_BIG: reason = "source exceeds 4 GiB"; break;
+                    case MODPACK_PDMOD_ERR_LAYOUT:  reason = "external layout validation failed"; break;
+                    case MODPACK_PDMOD_ERR_TEMPLATE:reason = "could not generate INI template"; break;
                     default: break;
                 }
-                snprintf(s_PdmodStatusMsg, sizeof(s_PdmodStatusMsg),
-                         "Pack failed: %s (rc=%d)", reason, (int)ret);
+                const char *detail = modpackPdmodLastError();
+                if (detail && detail[0]) {
+                    snprintf(s_PdmodStatusMsg, sizeof(s_PdmodStatusMsg),
+                             "Pack failed: %s", detail);
+                } else {
+                    snprintf(s_PdmodStatusMsg, sizeof(s_PdmodStatusMsg),
+                             "Pack failed: %s (rc=%d)", reason, (int)ret);
+                }
                 s_PdmodStatusOk = false;
                 sysLogPrintf(LOG_WARNING,
-                             "MODPACK.PDMOD: failed folder=%s output=%s rc=%d",
-                             s_PdmodSrcFolder, s_PdmodOutPath, (int)ret);
+                             "MODPACK.PDMOD: failed folder=%s output=%s rc=%d reason=%s detail=%s",
+                             s_PdmodSrcFolder, s_PdmodOutPath, (int)ret,
+                             reason, (detail && detail[0]) ? detail : "");
             }
         }
         if (!canPack) ImGui::EndDisabled();
@@ -1333,7 +1340,7 @@ static void renderPackTool(float contentW, float contentH, float scale)
             ImGui::TextColored(pdguiVec4TintDanger(),  "%s", s_PdmodStatusMsg);
         }
     } else {
-        ImGui::TextDisabled("Pack a folder mod (mod.json + .pd<ext> files) into a single .pdmod archive.");
+        ImGui::TextDisabled("Pack an external-layout folder mod (mod.json + standard files + INI/TSV, no .bin) into a .pdmod archive.");
     }
 }
 

@@ -25,6 +25,8 @@ extern "C" {
 #endif
 
 struct modeldef;
+struct colmesh;
+struct animtableentry;
 
 /* ========================================================================
  * Initialization
@@ -149,6 +151,21 @@ s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId);
  * Only entries loaded through the typed lifecycle model path return non-NULL.
  */
 struct modeldef *catalogGetLoadedModeldef(const char *assetId);
+
+/**
+ * Return a catalog-owned activated collision mesh for a loaded OBJ-backed
+ * map/arena/scenario asset. The caller must not free or mutate it.
+ */
+struct colmesh *catalogGetLoadedColmesh(const char *assetId);
+
+/**
+ * Return a catalog-owned generated animation clip for a loaded animation asset.
+ * The returned byte buffer is in the same header+frame stream shape consumed by
+ * animLoadHeader/animLoadFrame. The caller must not free or mutate it.
+ */
+const void *catalogGetLoadedAnimationClip(const char *assetId,
+                                          const struct animtableentry **out_entry,
+                                          u32 *out_size);
 
 /**
  * Type-checked release wrapper. Same validation rule as

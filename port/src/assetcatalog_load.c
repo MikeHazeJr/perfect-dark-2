@@ -22,7 +22,10 @@
 #include "assetcatalog_deps.h"
 #include "assetprovider.h"
 #include "assetload.h"
+#include "modasset_compiler.h"
+#include "data.h"
 #include "game/modeldef.h"
+#include "lib/meshcollision.h"
 #include "langmanifest.h"
 #include "system.h"
 #include "fs.h"
@@ -59,6 +62,15 @@ static s32 s_FileQueryCount = 0;
 static s32 s_TexQueryCount  = 0;
 static s32 s_AnimQueryCount = 0;
 static s32 s_SndQueryCount  = 0;
+
+typedef struct catalog_animation_clip_payload {
+    struct animtableentry entry;
+    u32 data_size;
+    u8 *data;
+} catalog_animation_clip_payload_t;
+
+extern struct animtableentry *g_RomAnims;
+extern u8 **g_AnimReplacements;
 
 /* ========================================================================
  * Initialization
@@ -415,8 +427,51 @@ static s32 s_catalogTypeUsesModelPayload(asset_type_e type)
 static s32 s_catalogLoadEntryModelPayload(asset_entry_t *entry, asset_data_handle_t handle)
 {
     char desc[128];
+    modasset_compiled_result_t compiled;
+    const char *source_path = NULL;
     struct modeldef *modeldef;
     s32 loaded_size;
+
+    if (handle.provider == fileProvider()) {
+        source_path = fileProviderPath(handle);
+    }
+
+    if (modAssetCompilerIsExternalSource(source_path)) {
+        s32 cache_result = modAssetCompilerCompileReadable(entry,
+            s_catalogPayloadKind(entry->type), source_path, &compiled);
+        if (cache_result < 0) {
+            sysLogPrintf(LOG_WARNING,
+                         "CATALOG.LIFECYCLE.ACTIVATE: '%s' external %s source validation failed (%s)",
+                         entry->id, s_catalogPayloadKind(entry->type),
+                         assetDescribe(handle, desc, sizeof(desc)));
+            return 0;
+        }
+
+        if (modAssetCompilerBuildModeldef(entry, source_path, &modeldef) <= 0
+                || !modeldef) {
+            sysLogPrintf(LOG_WARNING,
+                         "CATALOG.LIFECYCLE.ACTIVATE: '%s' external %s modeldef conversion failed (%s)",
+                         entry->id, s_catalogPayloadKind(entry->type),
+                         assetDescribe(handle, desc, sizeof(desc)));
+            return 0;
+        }
+
+        entry->loaded_data      = modeldef;
+        entry->data_size_bytes  = (u32)(sizeof(*modeldef)
+            + compiled.vertex_count * (s32)sizeof(Vtx)
+            + compiled.triangle_count * 2 * (s32)sizeof(Gfx));
+        entry->payload_kind     = ASSET_PAYLOAD_STAGE_MODELDEF;
+        entry->load_state       = ASSET_STATE_ACTIVE;
+        entry->ref_count        = 1;
+
+        sysLogPrintf(LOG_NOTE,
+                     "CATALOG.LIFECYCLE.ACTIVATE: activated external %s modeldef '%s' vertices=%d tris=%d cache=%s normalized=%s",
+                     s_catalogPayloadKind(entry->type), entry->id,
+                     compiled.vertex_count, compiled.triangle_count,
+                     compiled.descriptor_path[0] ? compiled.descriptor_path : "(no descriptor)",
+                     compiled.normalized_path[0] ? compiled.normalized_path : "(no normalized model)");
+        return 1;
+    }
 
     modeldef = modeldefLoadToNewFromHandle(handle, entry->source_filenum);
     if (!modeldef) {
@@ -516,8 +571,157 @@ static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type)
         || type == ASSET_EFFECT;
 }
 
+static s32 s_catalogTypeCanUseObjColmeshPayload(asset_type_e type)
+{
+    return type == ASSET_ARENA
+        || type == ASSET_GAMEMODE
+        || type == ASSET_MAP;
+}
+
+static void s_catalogInstallAnimationClip(asset_entry_t *entry,
+                                          const struct animtableentry *anim)
+{
+    s32 anim_id;
+
+    if (!entry || !anim) {
+        return;
+    }
+
+    anim_id = entry->ext.anim.anim_id;
+    if (anim_id < 0 || anim_id >= g_NumAnimations || !g_Anims) {
+        return;
+    }
+
+    g_Anims[anim_id] = *anim;
+    g_Anims[anim_id].data = 0xffffffff;
+
+    if (g_AnimReplacements) {
+        g_AnimReplacements[anim_id] = NULL;
+    }
+}
+
+static s32 s_catalogLoadEntryAnimationPayload(asset_entry_t *entry)
+{
+    const char *source_path = entryGetFilePath(entry);
+    modasset_compiled_result_t compiled;
+    catalog_animation_clip_payload_t *payload;
+    struct animtableentry anim;
+    u8 *clip_data = NULL;
+    u32 clip_size = 0;
+    s32 compile_result;
+    s32 clip_result;
+
+    if (!modAssetCompilerIsExternalSource(source_path)) {
+        return 0;
+    }
+
+    compile_result = modAssetCompilerCompileReadable(entry, "animation",
+        source_path, &compiled);
+    if (compile_result < 0) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' external animation cache failed",
+                     entry->id);
+        return -1;
+    }
+
+    clip_result = modAssetCompilerBuildAnimationClip(entry, source_path,
+        &anim, &clip_data, &clip_size);
+    if (clip_result <= 0) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' external animation clip build failed",
+                     entry->id);
+        return -1;
+    }
+
+    payload = malloc(sizeof(*payload));
+    if (!payload) {
+        modAssetCompilerFreeAnimationClip(clip_data);
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' animation payload allocation failed",
+                     entry->id);
+        return -1;
+    }
+
+    payload->entry = anim;
+    payload->data_size = clip_size;
+    payload->data = clip_data;
+
+    s_catalogInstallAnimationClip(entry, &payload->entry);
+
+    entry->loaded_data      = payload;
+    entry->data_size_bytes  = (u32)(sizeof(*payload) + clip_size);
+    entry->payload_kind     = ASSET_PAYLOAD_ANIMATION_CLIP;
+    entry->load_state       = ASSET_STATE_ACTIVE;
+    entry->ref_count        = 1;
+
+    sysLogPrintf(LOG_NOTE,
+                 "CATALOG.LIFECYCLE.ACTIVATE: activated animation clip '%s' frames=%d cache=%s generated=%s",
+                 entry->id, payload->entry.numframes,
+                 compiled.descriptor_path[0] ? compiled.descriptor_path : "(no descriptor)",
+                 compiled.normalized_path[0] ? compiled.normalized_path : "(no normalized animation)");
+    return 1;
+}
+
 static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry)
 {
+    const char *source_path = entryGetFilePath(entry);
+    modasset_compiled_result_t compiled;
+
+    if (modAssetCompilerIsExternalSource(source_path)) {
+        s32 cache_result = modAssetCompilerCompileReadable(entry,
+            s_catalogPayloadKind(entry->type), source_path, &compiled);
+        if (cache_result < 0) {
+            sysLogPrintf(LOG_WARNING,
+                         "CATALOG.LIFECYCLE.ACTIVATE: '%s' external %s source validation failed",
+                         entry->id, s_catalogPayloadKind(entry->type));
+            return 0;
+        }
+
+        if (s_catalogTypeCanUseObjColmeshPayload(entry->type)) {
+            struct colmesh *mesh = malloc(sizeof(*mesh));
+            s32 mesh_result;
+
+            if (!mesh) {
+                sysLogPrintf(LOG_WARNING,
+                             "CATALOG.LIFECYCLE.ACTIVATE: '%s' OBJ colmesh allocation failed",
+                             entry->id);
+                return 0;
+            }
+
+            mesh_result = modAssetCompilerBuildObjColmesh(source_path, mesh);
+            if (mesh_result < 0) {
+                free(mesh);
+                sysLogPrintf(LOG_WARNING,
+                             "CATALOG.LIFECYCLE.ACTIVATE: '%s' OBJ colmesh build failed",
+                             entry->id);
+                return 0;
+            }
+            if (mesh_result > 0) {
+                entry->loaded_data      = mesh;
+                entry->data_size_bytes  = (u32)(sizeof(*mesh)
+                    + (mesh->numtris * (s32)sizeof(struct meshtri)));
+                entry->payload_kind     = ASSET_PAYLOAD_COLMESH;
+                entry->load_state       = ASSET_STATE_ACTIVE;
+                entry->ref_count        = 1;
+
+                sysLogPrintf(LOG_NOTE,
+                             "CATALOG.LIFECYCLE.ACTIVATE: activated %s OBJ colmesh '%s' tris=%d cache=%s mesh=%s",
+                             s_catalogPayloadKind(entry->type), entry->id,
+                             mesh->numtris,
+                             compiled.descriptor_path[0] ? compiled.descriptor_path : "(no descriptor)",
+                             compiled.normalized_path[0] ? compiled.normalized_path : "(no normalized mesh)");
+                return 1;
+            }
+
+            free(mesh);
+        }
+
+        sysLogPrintf(LOG_NOTE,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' external %s source ready via private cache %s",
+                     entry->id, s_catalogPayloadKind(entry->type),
+                     compiled.descriptor_path[0] ? compiled.descriptor_path : "(no cache path)");
+    }
+
     entry->loaded_data      = entry;
     entry->data_size_bytes  = 0;
     entry->payload_kind     = ASSET_PAYLOAD_RUNTIME_ACTIVE;
@@ -673,6 +877,13 @@ static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
         return s_catalogLoadEntryAudioPayload(entry, handle);
     }
 
+    if (entry->type == ASSET_ANIMATION) {
+        s32 animation_payload = s_catalogLoadEntryAnimationPayload(entry);
+        if (animation_payload != 0) {
+            return animation_payload > 0;
+        }
+    }
+
     if (s_catalogTypeUsesMetadataRuntimePayload(entry->type)) {
         return s_catalogLoadEntryMetadataPayload(entry);
     }
@@ -761,6 +972,60 @@ struct modeldef *catalogGetLoadedModeldef(const char *assetId)
     return (struct modeldef *)entry->loaded_data;
 }
 
+struct colmesh *catalogGetLoadedColmesh(const char *assetId)
+{
+    const asset_entry_t *entry;
+
+    if (!assetId) {
+        return NULL;
+    }
+
+    entry = assetCatalogResolve(assetId);
+    if (!entry
+            || entry->load_state < ASSET_STATE_LOADED
+            || entry->payload_kind != ASSET_PAYLOAD_COLMESH) {
+        return NULL;
+    }
+
+    return (struct colmesh *)entry->loaded_data;
+}
+
+const void *catalogGetLoadedAnimationClip(const char *assetId,
+                                          const struct animtableentry **out_entry,
+                                          u32 *out_size)
+{
+    const asset_entry_t *entry;
+    const catalog_animation_clip_payload_t *payload;
+
+    if (out_entry) {
+        *out_entry = NULL;
+    }
+    if (out_size) {
+        *out_size = 0;
+    }
+
+    if (!assetId) {
+        return NULL;
+    }
+
+    entry = assetCatalogResolve(assetId);
+    if (!entry
+            || entry->load_state < ASSET_STATE_LOADED
+            || entry->payload_kind != ASSET_PAYLOAD_ANIMATION_CLIP
+            || !entry->loaded_data) {
+        return NULL;
+    }
+
+    payload = (const catalog_animation_clip_payload_t *)entry->loaded_data;
+    if (out_entry) {
+        *out_entry = &payload->entry;
+    }
+    if (out_size) {
+        *out_size = payload->data_size;
+    }
+    return payload->data;
+}
+
 static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry);
 
 /**
@@ -818,7 +1083,38 @@ static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
         if (entry->payload_kind == ASSET_PAYLOAD_SYSMEM_BYTES) {
             sysMemFree(entry->loaded_data);
         } else if (entry->payload_kind == ASSET_PAYLOAD_STAGE_MODELDEF) {
-            assetUnload(catalogEffectiveHandle(entry));
+            asset_data_handle_t handle = catalogEffectiveHandle(entry);
+            const char *source_path = NULL;
+
+            if (handle.provider == fileProvider()) {
+                source_path = fileProviderPath(handle);
+            }
+
+            if (modAssetCompilerIsExternalSource(source_path)) {
+                modAssetCompilerFreeModeldef((struct modeldef *)entry->loaded_data);
+            } else {
+                assetUnload(handle);
+            }
+        } else if (entry->payload_kind == ASSET_PAYLOAD_COLMESH) {
+            meshFree((struct colmesh *)entry->loaded_data);
+            free(entry->loaded_data);
+        } else if (entry->payload_kind == ASSET_PAYLOAD_ANIMATION_CLIP) {
+            catalog_animation_clip_payload_t *payload =
+                (catalog_animation_clip_payload_t *)entry->loaded_data;
+            s32 anim_id = entry->ext.anim.anim_id;
+
+            if (anim_id >= 0 && anim_id < g_NumAnimations) {
+                if (g_RomAnims && g_Anims) {
+                    g_Anims[anim_id] = g_RomAnims[anim_id];
+                }
+                if (g_AnimReplacements) {
+                    g_AnimReplacements[anim_id] = NULL;
+                }
+            }
+            if (payload) {
+                modAssetCompilerFreeAnimationClip(payload->data);
+                free(payload);
+            }
         } else if (entry->payload_kind == ASSET_PAYLOAD_RUNTIME_ACTIVE) {
             /* Runtime-owned activation (for example language banks) is
              * detached from this catalog reference. The owning subsystem

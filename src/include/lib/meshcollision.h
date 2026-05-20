@@ -75,6 +75,15 @@ struct meshgrid {
  * Caller owns the colmesh and must free with meshFree(). */
 void meshExtractFromModel(struct model *model, struct colmesh *out);
 
+/* Initialize a caller-owned colmesh before manual construction. */
+void meshInit(struct colmesh *mesh);
+
+/* Add a local-space triangle to a caller-owned colmesh. The helper computes
+ * normal and GEOFLAG floor/wall/ceiling classification using the same engine
+ * rules as extracted display-list geometry. */
+bool meshAddTriangle(struct colmesh *mesh, const struct coord *v0,
+                     const struct coord *v1, const struct coord *v2);
+
 /* Free a colmesh's triangle array */
 void meshFree(struct colmesh *mesh);
 

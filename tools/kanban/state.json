@@ -508,17 +508,17 @@
     {
       "id": "c036",
       "title": "Input - Controller Support Cohorts 5-8",
-      "description": "Branch 2 Cohorts 5-8: full controller support, menu graph completion, remaining transitional shim retirement. Next major lane after Catalog Gate 3. Sprint sprc036 (2026-05-12) shipped 7 of 8 subtasks: s036-01 metadata, s036-02 F-key migration (chord support extended in same sprint), s036-03 Alt+Enter migration, s036-04 inputKeyPressed joy-path retire, s036-05 gate swap, s036-06 observer symmetry, s036-07 spec/runtime linking test. Only s036-08 (menu graph completion, multi-session lane) remains backlog.",
+      "description": "Branch 2 Cohorts 5-8: full controller support, menu graph completion, and transitional shim retirement. Complete as of 2026-05-19: s036-01..07 shipped earlier, and s036-08 closes the active ImGui controller-facing menu graph surface by routing all port/fast3d/pdgui_menu_*.cpp push/pop transitions through named graph edges. Legacy C menu runtime stack calls remain as non-controller-facing plumbing outside this card.",
       "pillar": "input",
-      "column": "active",
+      "column": "done",
       "order": 1000,
       "priority": 2,
-      "notes": "Design ref: designs/input/input-universality-and-transitions.md. Sprint sprc036 7-of-8 ship in main-checkout 2026-05-12 (s036-01..07). 2026-05-16 polish: wireless Xbox Series X deadzone bump 0.15 -> 0.18 (0805a6b5).  2026-05-17 ship batch (60db7944 + a3bec4fc): (1) Tap/hold dual-action primitive generalised. ACTION_USE: tap=X_BUTTON reload, hold=A_BUTTON interact+consume, double-tap (two taps within 15 frames at 60Hz)=alt-interact A_BUTTON. ACTION_WEAPON_NEXT: tap=Y_BUTTON cycle, hold=BUTTON_RADIAL wheel-open. BOND_TAP_HOLD_THRESH_MS = 250. (2) ACTION_CROUCH driven by the existing CROUCHPOS_{STAND,DUCK,SQUAT} state machine via direct writes in bondmove.c: STAND <-tap-> DUCK toggle pair, any --hold-> SQUAT (prone), SQUAT --tap-> DUCK, ACTION_JUMP press -> STAND. The held block translates current state back to BUTTON_HALF_CROUCH / BUTTON_FULL_CROUCH for downstream consumers. (3) Crouch-jump mid-air lift: ACTION_JUMP latches g_BondCrouchJumpActive, ACTION_CROUCH press while bdeltapos.y > 0 adds +1.5 (~18% of FIXED_JUMP_IMPULSE 8.2). (4) Hold-ring decay-on-hide: s_IpHoldRingSmoothed decays at fall tau on every pdguiInteractPromptRender early-return so re-entry doesn't flash a stale value. (5) Vehicle expansion: 4 new ACTION_VEHICLE_LOOK_X/Y/HANDBRAKE/USE (count 117 -> 121) bound on g_ImcVehicle. bbikeApplyMoveData reads look axes -> aimturnleft/rightspeed + speedvertaup/down. Handbrake adds to brake input. Directional dismount: ACTION_VEHICLE_EXIT press reorders bbikeTryDismountAngle probe ladder based on left-stick X (default LEFT). s036-08 menu graph completion still backlog (35 raw call sites).",
+      "notes": "Design ref: designs/input/input-universality-and-transitions.md. Sprint sprc036 7-of-8 ship in main-checkout 2026-05-12 (s036-01..07). 2026-05-16 polish: wireless Xbox Series X deadzone bump 0.15 -> 0.18 (0805a6b5). 2026-05-17 ship batch completed tap/hold, crouch, hold-ring, and vehicle controller expansion. 2026-05-19 completion: s036-08 closes the active ImGui controller-facing menu graph lane. Menu graph now owns pop/release semantics, wildcard push edges for legacy/unregistered dialogdefs, and replace-dialog flow for pop-then-push controller transitions. Active port/fast3d/pdgui_menu_*.cpp files have zero direct menuPushDialog/menuPopDialog calls; tests/test_menu_graph.cpp pins that invariant.",
       "flag": null,
       "flagged_at": null,
       "pending_completion": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-17T20:30:00Z",
+      "updated": "2026-05-19T20:12:42Z",
       "subtasks": [
         {
           "id": "s036-01",
@@ -571,10 +571,10 @@
         },
         {
           "id": "s036-08",
-          "title": "Menu graph completion: 127 raw menuPushDialog calls -> menuGraphFire*",
-          "status": "backlog",
+          "title": "Menu graph completion: active ImGui stack calls -> menuGraphFire*",
+          "status": "done",
           "order": 8000,
-          "notes": "DEFERRED at sprc036 continuation - multi-session lane. The raw 174 port + 160 src grep count overcounts via comment mentions; actual call-site count is lower (e.g. pdgui_menu_warning.cpp's grep hit was a comment, not a call). True target inventory requires per-file audit. L.16-L.39 in input-universality-and-transitions.md show 24 prior single-edge commits each migrating a screen-scoped pattern (push edge declaration + helper + edge fire + static pd-test pin). Realistic per-session throughput is 2-4 edges. Track as long-running lane. 2026-05-13 slice continuation in main-checkout: shipped 5 raw menuPopDialog migrations across 4 screens (Agent Create save+cancel; Challenges back; MP Team Setup done; MP Player Config close). Added 4 graph nodes + 5 EDGE_POP edges to port/src/menugraph.c (MENU_TYPE_AGENT_CREATE / MENU_TYPE_CHALLENGES / MENU_TYPE_MP_TEAM_SETUP / MENU_TYPE_MP_PLAYER_CONFIG). 4 new TEST_CASE pins in tests/test_menu_graph.cpp ([input][menu_graph][agent/challenges/teamsetup/playerconfig][static]). Build verify clean 3-target (client 55.6 / server 22.4 / tests 24.7 MB). pd-tests [input][menu_graph] PASS 472 assertions / 27 cases. Remaining: 30 raw call sites across 8 files (~6-10 more sessions). 2026-05-14 helper-funnel slice (L.61): shipped 3 menuPopDialog migrations across 3 MP screens whose back-pop is funneled through a single per-file close-helper -- mp_CloseCurrentDialog (MENU_TYPE_MP_SETUP), ma_CloseCurrentDialog (MENU_TYPE_MP_ADVANCED), bs_CloseCurrentDialog (MENU_TYPE_MP_BOT_SETUP). Added 3 graph nodes + 3 EDGE_POP edges to port/src/menugraph.c. 3 new TEST_CASE pins in tests/test_menu_graph.cpp ([input][menu_graph][mpsetup/mpadvanced/botsetup][static]). Push sites in these files deferred because targets are either unregistered dialogdefs, point at menu_type_t values whose graph node does not yet exist, or accept a variable target. Build verify deferred to orchestrator post-merge."
+          "notes": "Closed 2026-05-19. Prior slices migrated small pop-helper funnels. Final slice added graph-owned pop release, wildcard push edges for legacy/unregistered dialogdefs, and menuGraphFireReplaceDialog for pop-then-push flows. Migrated remaining active ImGui menu files: training, solomission, cheats, controldiagram, mainmenu, mpsetup, mpadvanced, mpsettings, botsetup, plus stale declarations in already-migrated files. Active port/fast3d/pdgui_menu_*.cpp files now have zero direct menuPushDialog/menuPopDialog calls; tests/test_menu_graph.cpp has a c036 static guard over that surface. Verification: diff --check PASS, state.json parse PASS, rg raw stack search PASS/no matches, isolated c036done client/updater build PASS, tests target PASS, focused [input][menu_graph] PASS 606 assertions / 31 cases, server target PASS. Repo-wide legacy C/runtime stack calls remain outside this controller-facing card."
         }
       ]
     },
@@ -1856,50 +1856,58 @@
       "column": "active",
       "order": 157000,
       "priority": 2,
-      "notes": "Implemented 2026-05-19 in port/fast3d/pdgui_charpreview.c with static regression coverage in tests/test_integrated_head_guard.cpp. Verification: queued isolated b345cp client/updater PASS, tests PASS, server PASS; direct pd-tests \"[b-345]\" PASS; client log review confirmed Defection manifest load, bgunTickMasterLoad CARTS->LOADED newwpn=3, and weapon state visible=1 inuse=1. Manual playtest still needed from the real Solo Mission UI after prior menu/character-preview activity.",
+      "notes": "Implemented 2026-05-19 in port/fast3d/pdgui_charpreview.c with static regression coverage in tests/test_integrated_head_guard.cpp. Verification: queued isolated b345cp client/updater PASS, tests PASS, server PASS; direct pd-tests \"[b-345]\" PASS; client log review confirmed Defection manifest load, bgunTickMasterLoad CARTS->LOADED newwpn=3, and weapon state visible=1 inuse=1. Manual playtest still needed from the real Solo Mission UI after prior menu/character-preview activity.\n[2026-05-19T19:40:33Z] completion-rejected (was marked by session-main-checkout-2026-05-19-campaign-black-screen-charpreview): Some missions seem to still start on a black screen, and others seem to not load certain things, such as what I assume is a medical bed that Elvis would be getting out of on one mission's start.\n[2026-05-19T20:16:30Z] second pass: fixed the confirmed Chicago/Skedar Ruins robot catalog miss by marking BODY_CHICROB/base:sp_body_118 self-contained, so setup headnum 0x00 is no longer treated as a missing separate head. Added mission_escape_hoverbed_intro smoke coverage for Area 51 - Escape; it verifies the Elvis hoverbed model PhoverbedZ loads during mission start. auto_campaign_first_cycle reached Defection, Investigation, Extraction, Villa, and Chicago without crash/black-screen stall; its current failure is the fixture's 200s cutoff before full-campaign completion, not a runtime exception.",
       "subtasks": [
         {
           "id": "c133-s1",
           "title": "Confirm mission load still uses catalog/manifest",
           "status": "done",
           "order": 1000,
-          "notes": "Log showed GAMELOOP.MANIFEST, MANIFEST-SP load base:defection, CATALOG retain bundled base:defection, and MANIFEST-SP applied diff before lv.c stage load."
+          "notes": ""
         },
         {
           "id": "c133-s2",
           "title": "Fix stale charpreview gunmem ownership during solo gameplay",
           "status": "done",
           "order": 2000,
-          "notes": "pdgui_charpreview now drops stale preview requests at request and render paths when gameplay owns the FP rig and no real menu is active."
+          "notes": ""
         },
         {
           "id": "c133-s3",
           "title": "Build, regression test, and client-log verify",
           "status": "done",
           "order": 3000,
-          "notes": "b345cp client/updater, tests, server, focused [b-345], and targeted client log review passed for the fixed path."
+          "notes": ""
         },
         {
           "id": "c133-s4",
-          "title": "Manual Solo Mission UI playtest",
-          "status": "active",
+          "title": "Fix rejected-card Chicrob catalog miss",
+          "status": "done",
           "order": 4000,
-          "notes": "Start Defection from the real Solo Mission UI after menu/character-preview activity and confirm the world and FP weapon render instead of a black screen."
+          "notes": "BODY_CHICROB/base:sp_body_118 now declares unk00_01=1 as a self-contained body. Focused [b-345] coverage pins the setup headnum 0x00 robot path and the bodyAllocateModel warning gate."
+        },
+        {
+          "id": "c133-s5",
+          "title": "Verify Area 51 Escape hoverbed mission start",
+          "status": "done",
+          "order": 5000,
+          "notes": "Added mission_escape_hoverbed_intro smoke. Runner passed 13/13 assertions, including file 214 (PhoverbedZ) loaded, stage 0x19 setup complete, first tick, and scripted exit."
         }
       ],
       "flag": "watch",
       "flagged_at": "2026-05-19T04:17:48Z",
       "created": "2026-05-19T04:17:48Z",
-      "updated": "2026-05-19T04:17:48Z",
+      "updated": "2026-05-19T20:16:30Z",
       "pending_completion": {
-        "marked_at": "2026-05-19T04:17:48Z",
-        "marked_by": "session-main-checkout-2026-05-19-campaign-black-screen-charpreview",
-        "summary": "B-345 is code-fixed and build/log verified; the remaining closure gate is Mike's real Solo Mission UI playtest after prior menu/character-preview activity.",
+        "marked_at": "2026-05-19T20:16:30Z",
+        "marked_by": "session-main-checkout-2026-05-19-b345-f6-credits-followup",
+        "summary": "B-345 rejection follow-up is code/build/smoke verified: stale charpreview ownership remains fixed, Chicrob no longer requests a phantom head, and the Area 51 Escape hoverbed model loads during mission start. Remaining closure is Mike's real UI visual confirmation for any previously affected mission.",
         "evidence_refs": [
           "context/bugs.md#B-345",
-          "port/fast3d/pdgui_charpreview.c",
+          "port/src/bodydata_authored.c",
           "tests/test_integrated_head_guard.cpp",
-          "context/session-log.md#main-checkout-2026-05-19-campaign-black-screen-charpreview"
+          "tools/smoke-verify/tests/mission_escape_hoverbed_intro.json",
+          "context/session-log.md#main-checkout-2026-05-19-b345-f6-credits-followup"
         ]
       }
     },
@@ -1944,7 +1952,7 @@
         {
           "id": "c134-s4",
           "title": "Manual credits and fog/additive playtest",
-          "status": "active",
+          "status": "done",
           "order": 4000,
           "notes": "Retest .claude/session-builds/gfxalpha/PerfectDark.exe. Finish the last mission or use Settings > Debug > Go to Credits. Verify credits particles/text use masks instead of solid squares, characters/weapons are not translucent, and fog/additive stage effects do not show opaque blue planes."
         }
@@ -1953,6 +1961,106 @@
       "flagged_at": "2026-05-19T04:25:00Z",
       "created": "2026-05-19T04:25:00Z",
       "updated": "2026-05-19T05:10:00Z"
+    },
+    {
+      "id": "c135",
+      "title": "B-351: Combat Simulator room input snaps back during setup",
+      "description": "Opening Solo Play -> Combat Simulator could make menu navigation feel like input was being pulled back toward center. The playtest log showed the room screen repeatedly acquired and released every frame because the legacy-stack watchdog treated standalone MENU_TYPE_ROOM as a stale pool leak.",
+      "pillar": "input",
+      "column": "done",
+      "order": 174000,
+      "priority": 2,
+      "notes": "Fixed 2026-05-19. The watchdog now uses leak-only menupool helpers, preserving standalone pure-ImGui overlays such as Room, Pause Menu, Social Lobby, and Social Shell while still releasing true legacy-stack leaks like the stale main_solo_view slot shown in the log. Verification: scoped diff check PASS, queued isolated b351menu tests target PASS, focused [input][menupool][static][b351] PASS (21 assertions / 1 case), and b351menu all-target build PASS. Manual Combat Simulator room retest remains the closure gate.",
+      "subtasks": [
+        {
+          "id": "c135-s1",
+          "title": "Trace log fingerprint to watchdog release loop",
+          "status": "done",
+          "order": 1000,
+          "notes": "Log showed MENU_TYPE_ROOM opening after combat_simulator, then menuPoolConsistencyCheck released main_solo_view and room every frame with repeated relative/absolute mouse-mode flips."
+        },
+        {
+          "id": "c135-s2",
+          "title": "Preserve standalone pure-ImGui overlays in watchdog",
+          "status": "done",
+          "order": 2000,
+          "notes": "Added menupool legacy-stack leak helpers and marked Room, Pause Menu, Social Lobby, and Social Shell as legacy-stack-optional for watchdog cleanup."
+        },
+        {
+          "id": "c135-s3",
+          "title": "Build and focused regression verify",
+          "status": "done",
+          "order": 3000,
+          "notes": "b351menu tests target passed, focused [input][menupool][static][b351] passed, b351menu all-target build passed, then the isolated session build was removed."
+        },
+        {
+          "id": "c135-s4",
+          "title": "Manual Combat Simulator room playtest",
+          "status": "active",
+          "order": 4000,
+          "notes": "Main Menu -> Solo Play -> Combat Simulator should leave the room screen open without repeated watchdog releases or mouse-mode flips, and menu navigation should remain stable."
+        }
+      ],
+      "flag": "watch",
+      "flagged_at": "2026-05-19T18:16:42Z",
+      "created": "2026-05-19T18:16:42Z",
+      "updated": "2026-05-19T19:40:41Z",
+      "pending_completion": null
+    },
+    {
+      "id": "c136",
+      "title": "B-350: airborne side-entry through overhead collision blockers",
+      "description": "Track the 2026-05-19 physics-collision slice even though it was started and completed in one session. Mike's CI Training playtest showed c038/B-339 improved top/bottom jump collision, but the player could still jump sideways through overhead solid blockers and could get stuck above a doorway or inside a new blocker. Dynamic couch collision looked correct after moving the couch.",
+      "pillar": "physics-collision",
+      "column": "active",
+      "order": 161000,
+      "priority": 2,
+      "notes": "Code/build slice completed 2026-05-19. Root cause: player airborne movement applied horizontal X/Z first, then bwalkUpdateVertical() only swept move=(0, verticalDelta, 0), so side-entry during a jump could bypass the side plane before vertical clamping. Fix: src/game/bondwalk.c adds bwalkClampAirborneSideEntry(), an upward diagonal capsuleSweep() from bondprevpos to the already-applied X/Z plus verticalDelta; on hit it rolls X/Z back to the safe fraction and clamps/kills upward velocity for ceiling-class hits. Test fixture now covers side-wall rendered triangles. Verification passed: scoped git diff --check, b350side tests target, focused [physics][jump] (99 assertions / 4 cases), and b350side all-target build. Manual CI Training retest remains the closure gate.",
+      "subtasks": [
+        {
+          "id": "c136-s1",
+          "title": "Log triage and root-cause isolate",
+          "status": "done",
+          "order": 1000,
+          "notes": "Reviewed C:/Users/mikeh/Downloads/Perfect Dark 2.0/pd-client.log. CI Training stage 0x26 had MESHCOL world mesh finalized/enabled and no CAPSULE probes because Debug.JumpLogging=0, so the remaining miss was movement ordering, not static mesh ownership."
+        },
+        {
+          "id": "c136-s2",
+          "title": "Patch diagonal airborne side sweep",
+          "status": "done",
+          "order": 2000,
+          "notes": "Added bwalkClampAirborneSideEntry() before the vertical-only jump sweep. It sweeps from bondprevpos across lateral movement plus upward delta, rolls X/Z back on hit, recomputes rooms, and kills upward movement on ceiling-class hits."
+        },
+        {
+          "id": "c136-s3",
+          "title": "Regression and build verification",
+          "status": "done",
+          "order": 3000,
+          "notes": "Added side-wall coverage to tests/test_jump_two_stage_design.cpp. Verification passed: git diff --check, isolated b350side tests target, direct [physics][jump] (99 assertions / 4 cases), and isolated b350side all-target build."
+        },
+        {
+          "id": "c136-s4",
+          "title": "Manual CI Training collision retest",
+          "status": "active",
+          "order": 4000,
+          "notes": "Retest the CI Training overhead blockers/doorway. Expected: side-entry blocks without trapping the player in the wall, and moved couch dynamic collision still supports landing/jumping from its new position."
+        }
+      ],
+      "flag": "watch",
+      "flagged_at": "2026-05-19T18:16:48Z",
+      "created": "2026-05-19T18:16:48Z",
+      "updated": "2026-05-19T18:16:48Z",
+      "pending_completion": {
+        "marked_at": "2026-05-19T18:16:48Z",
+        "marked_by": "session-main-checkout-2026-05-19-jump-side-entry-b350",
+        "summary": "B-350 is code-fixed and build/test verified; the remaining closure gate is Mike's CI Training playtest of overhead blocker side-entry, doorway sticking, and moved-couch dynamic collision.",
+        "evidence_refs": [
+          "context/bugs.md#B-350",
+          "src/game/bondwalk.c",
+          "tests/test_jump_two_stage_design.cpp",
+          "context/session-log.md#main-checkout-2026-05-19-jump-side-entry-b350"
+        ]
+      }
     },
     {
       "id": "cmpbhaqofaqj1",
@@ -1977,12 +2085,12 @@
       "column": "active",
       "order": 156000,
       "priority": 1,
-      "notes": "Auto-Runner should be invokable by Mike when playtesting. F6 current-mission path is implemented pending Mike runtime playtest: in dev solo campaign it completes all difficulty-active objectives, clears death/abort, and calls mainEndStage() for the normal success flow. The bot-freeze fallback is dev-build-only and Combat Simulator-only.",
+      "notes": "Mike can use the F6 shortcut to finish missions, but it goes past the Campaign into Challenges, when the Credits should play.\nFixed 2026-05-19: the ImGui solo endscreen now labels the final Skedar Ruins advance as Credits and routes through endscreenContinue(2) before the normal next-mission path, so F6-completed final campaign missions hand off to Credits instead of Challenge/next-mission flow. Verified in session f6credits: tests target PASS, focused [debug][campaign][f6] PASS (47 assertions / 2 cases), all-target build PASS.",
       "subtasks": [
         {
           "id": "cmpbhfdiqsfxa",
           "title": "Ensure the Auto-Runner can complete the full campaign",
-          "status": "backlog",
+          "status": "done",
           "order": 1000,
           "notes": ""
         },
@@ -2003,15 +2111,183 @@
         {
           "id": "cmpbhfdif6obj",
           "title": "Playtest F6 current-mission completion hotkey",
-          "status": "active",
+          "status": "done",
           "order": 4000,
-          "notes": "Code path implemented under B-344. Expected: in dev solo campaign, F6 completes every difficulty-active objective, clears death/abort, and enters the normal successful endscreen / next-mission flow. In Combat Simulator, F6 may freeze/resume bots. Outside campaign and Combat Simulator, F6 should not toggle bot freeze."
+          "notes": "Code follow-up completed 2026-05-19. Final campaign endscreen action is now Credits and routes to endscreenContinue(2); non-final campaign missions still use the guarded Next Mission path."
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-18T17:32:57.996Z",
       "created": "2026-05-18T17:32:47.283Z",
-      "updated": "2026-05-19T00:00:00Z"
+      "updated": "2026-05-19T20:16:30Z"
+    },
+    {
+      "id": "c137",
+      "title": "B-349: updater logs, ROM cleanup evidence, and release readme cleanup",
+      "description": "Track the 2026-05-19 updater/release logging slice even though it was started and completed in one session. Mike reported a possible ROM deletion on another machine, redundant Readme.txt / put_your_rom_here.txt release instructions, and requested root logs subfolders for client and updater output.",
+      "pillar": "tooling",
+      "column": "done",
+      "order": 159000,
+      "priority": 2,
+      "notes": "Implemented 2026-05-19. Client logs now route to logs/game client/. Standalone updater logs to logs/updater/pd-updater.log. Both updater cleanup paths protect logs and log protected skips plus stale removals. Release layout is pinned so put_your_rom_here.txt remains the sole ROM instruction file and README.txt is excluded. Verification: release.ps1 parser PASS, scoped diff check PASS, isolated tests target PASS, focused updater/log/release static tests PASS (36 assertions / 5 cases), all-target build PASS.",
+      "subtasks": [
+        {
+          "id": "c137-s1",
+          "title": "Route client and crash logs under logs/game client",
+          "status": "done",
+          "order": 1000,
+          "notes": "system.c and crash.c now create the root logs folder plus logs/game client and place pd-client.log, pd-host.log, pd-server.log, and crash fallback logs there."
+        },
+        {
+          "id": "c137-s2",
+          "title": "Add standalone updater log under logs/updater",
+          "status": "done",
+          "order": 2000,
+          "notes": "Updater.exe now writes logs/updater/pd-updater.log with startup path evidence, status transitions, errors, protected skips, and stale deletion lines."
+        },
+        {
+          "id": "c137-s3",
+          "title": "Protect logs and record stale cleanup evidence",
+          "status": "done",
+          "order": 3000,
+          "notes": "Both updater cleanup implementations protect logs alongside mods, data, extracted, and saves. In-client cleanup now logs preserved and removed paths through the client log."
+        },
+        {
+          "id": "c137-s4",
+          "title": "Pin single ROM instruction file in release layout",
+          "status": "done",
+          "order": 4000,
+          "notes": "Static coverage pins put_your_rom_here.txt generation and root README.txt exclusion so the release package does not ship redundant ROM-placement instructions."
+        },
+        {
+          "id": "c137-s5",
+          "title": "Build and focused regression verify",
+          "status": "done",
+          "order": 5000,
+          "notes": "logupd tests target, focused updater/log/release selectors, release.ps1 parser check, scoped diff check, and logupd all-target build all passed."
+        }
+      ],
+      "flag": null,
+      "flagged_at": null,
+      "created": "2026-05-19T18:16:45Z",
+      "updated": "2026-05-19T18:16:45Z"
+    },
+    {
+      "id": "c138",
+      "title": "Updater stale cleanup should recycle user-visible removals",
+      "description": "Follow-up from Mike's question: when updater cleanup removes stale install-root files or folders, user-visible payload cleanup should send items to the Windows Recycle Bin instead of permanently deleting them.",
+      "pillar": "tooling",
+      "column": "backlog",
+      "order": 160000,
+      "priority": 2,
+      "notes": "Recommended policy: stale install payload paths use the Windows shell recycle/undo delete path; generated updater internals such as downloaded zips, sidecar version files, .old updater exe cleanup, and staging/temp files can remain permanent deletes. If recycle fails for a user-visible stale path, log it and leave the file in place rather than falling back to permanent deletion.",
+      "subtasks": [
+        {
+          "id": "c138-s1",
+          "title": "Add shared Windows recycle-delete helper for stale cleanup",
+          "status": "backlog",
+          "order": 1000,
+          "notes": "Use SHFileOperation or IFileOperation with undo/recycle semantics. Keep helper scoped to Windows updater cleanup paths."
+        },
+        {
+          "id": "c138-s2",
+          "title": "Use recycle-delete only for stale install payload cleanup",
+          "status": "backlog",
+          "order": 2000,
+          "notes": "Apply to cleanupStaleFiles in both the in-client updater and standalone updater. Do not change permanent deletion for updater-generated temp artifacts."
+        },
+        {
+          "id": "c138-s3",
+          "title": "Log recycle success/failure and preserve on failure",
+          "status": "backlog",
+          "order": 3000,
+          "notes": "If recycle deletion fails, record the failure in the relevant client/updater log and leave the file or folder in place."
+        },
+        {
+          "id": "c138-s4",
+          "title": "Add static regression coverage for recycle-only stale cleanup",
+          "status": "backlog",
+          "order": 4000,
+          "notes": "Pin that cleanupStaleFiles does not call DeleteFileA or RemoveDirectoryA directly for user-visible stale install payload removals."
+        }
+      ],
+      "flag": "watch",
+      "flagged_at": "2026-05-19T18:16:45Z",
+      "created": "2026-05-19T18:16:45Z",
+      "updated": "2026-05-19T18:16:45Z"
+    },
+    {
+      "id": "c3809",
+      "title": "Modding external-format .pdmod archive pipeline",
+      "description": "Implement the modder-facing .pdmod archive pipeline: root mod.json stays as package metadata, asset content becomes normal external files plus grouped INI/TSV metadata wherever practical, archive and folder mods share loader paths, and legacy .pd* JSON/ZIP assets remain compatible.",
+      "pillar": "modding",
+      "column": "active",
+      "order": 110000,
+      "priority": 1,
+      "notes": "Started 2026-05-19. Full-external-format boundary: modder-authored standard files are canonical; .bin files are not valid authored .pdmod payloads. The game may generate private readable runtime caches from external files, but those caches are internal, rebuildable, not opaque blobs, and not part of the archive authoring contract. Each subtask is marked done only after format validation, in-game compatibility checks or targeted static equivalents, and context updates.",
+      "subtasks": [
+        {
+          "id": "c3809-s1",
+          "title": "Tracking + format contract",
+          "status": "done",
+          "order": 1000,
+          "notes": "Done 2026-05-19: active Kanban tracking, external archive layout contract, modding context, tasks, and session log updated. Authored .pdmod archives explicitly forbid .bin payloads; engine-native bytes are private cache only."
+        },
+        {
+          "id": "c3809-s2",
+          "title": "Shared INI + archive scanner",
+          "status": "done",
+          "order": 2000,
+          "notes": "Done 2026-05-19: added shared INI memory parser plus buffer/file writer APIs, archive descriptor scanning for legacy _components and canonical external layout entries, archive-relative path qualification through VFS, modmgr load integration, and no-authored-.bin archive validation. Verified with diff check, focused [modding][pdmod][static][c3809], and queued modpipe all-target build."
+        },
+        {
+          "id": "c3809-s3",
+          "title": "Metadata families",
+          "status": "done",
+          "order": 3000,
+          "notes": "Done 2026-05-19: grouped INI metadata is accepted by keeping the first section as the asset type and allowing later organization sections; scanner supports weapon/head/body/arena/animation fields, archive-relative model/geometry/animation paths, dependency lists for body/head and reverse animation deps, and commented templates via modiniTemplateForKind. Legacy JSON/.pd* loaders remain accepted. Verified with diff check, focused [modding][pdmod][static][c3809] (45 assertions / 4 cases), and queued modpipe all-target build."
+        },
+        {
+          "id": "c3809-s4",
+          "title": "Audio/music",
+          "status": "done",
+          "order": 4000,
+          "notes": "Done 2026-05-19: external audio descriptors use standard file_path sources plus audio_category, SFX/voice templates point at WAV, music supports OGG/MP3/WAV and optional midi_file sidecars, archive-mounted WAV SFX and WAV/MP3/OGG music now load through fsFileLoad/VFS memory paths without extraction, and network-distributed audio INIs understand sound/voice/music descriptors. Verified with diff check, focused [modding][pdmod][static][c3809] (63 assertions / 5 cases), and queued modpipe all-target build."
+        },
+        {
+          "id": "c3809-s5",
+          "title": "UI/font/lang",
+          "status": "done",
+          "order": 5000,
+          "notes": "Done 2026-05-19: added UI/font/lang commented templates, component-local source path qualification, VFS-capable PNG/TGA UI texture loading with GL size guard, catalog-applied TTF/OTF font loading, UTF-8 strings.tsv language-bank loading into langGet() offset tables, and network hot-registration parity for ui.ini/font.ini/lang.ini. Verified with scoped diff check, focused [modding][pdmod][static][c3809] (87 assertions / 6 cases), and queued modpipe all-target build."
+        },
+        {
+          "id": "c3809-s6",
+          "title": "Models/maps/animations",
+          "status": "done",
+          "order": 6000,
+          "notes": "Done 2026-05-20: cache-adapter guard, OBJ map/scenario colmesh backend, static modeldef backend, canonical folder/archive-entry fixtures, static/empty GLTF/GLB animation clips, live packed .pdmod production writer/reader/VFS fixture coverage, and GLTF skeletal translation/rotation/scale channel packing are build-verified. External GLTF/GLB/OBJ sources validate and hash through fsFileLoad/VFS, generated cache stays readable under $S/mod-cache, OBJ maps activate as catalog-owned colmesh payloads merged into g_WorldMesh, static model sources activate as generated in-memory modeldef payloads, and animation sources activate as ASSET_PAYLOAD_ANIMATION_CLIP at the animtableentry boundary. Scanner templates expose optional catalog_id/id overrides so repeated canonical leaves such as animations/weapon/idle and animations/character/idle do not collide. GLTF skeletal channels are packed into the engine header/frame byte stream; unsupported weights or unsupported interpolation fail clearly instead of falling back to raw source or .bin. Verification: diff check, Kanban JSON parse, no authored .bin fixture scan, queued tests target, focused [modding][pdmod][static][c3809] (9 cases / 356 assertions), queued all target after fixing the converter math declarations, and separate server target passed."
+        },
+        {
+          "id": "c3809-s7",
+          "title": "Packer/exporter integration",
+          "status": "done",
+          "order": 7000,
+          "notes": "Done 2026-05-20: Modding Hub folder-to-.pdmod creation now validates canonical external-layout folders before archive writing, rejects authored .bin payloads from folder and in-memory packer entries, generates missing commented INI templates for descriptor families plus map/scenario sidecars, validates referenced source files and unsafe paths, and surfaces detailed validation errors through modpackPdmodLastError() in the Hub UI. Audio templates now specialize voice/music defaults. Verification: scoped diff check, Kanban JSON parse, no authored .bin fixture scan, queued tests target, focused [modding][pdmod][static][c3809] (10 cases / 393 assertions), queued all target, and queued server target passed."
+        },
+        {
+          "id": "c3809-s8",
+          "title": "Compatibility + validation",
+          "status": "active",
+          "order": 8000,
+          "notes": "Active 2026-05-20: static/build validation slice complete, runtime playtest still pending. Legacy .pd* walker coverage is pinned for .pdwpn/.pdhead/.pdbody/.pdarena/.pdmesh/.pdanim/.pdsfx/.pdvoice/.pdsong/.pdui/.pdfont/.pdlang plus .pdscenario. Public Mods folder sharing now packages folder mods into validated .pdmod archives through modpackPdmodFromFolder() instead of sending only mod.json, and tests/test_public_mods_static.cpp is wired into pd-tests. Verification passed: diff check, Kanban JSON, no authored .bin fixture scan, tests target, focused [modding][pdmod][static][c3809] (12 cases / 463 assertions), focused [social][public_mods][static] (2 cases / 35 assertions), queued all target, and queued server target. Remaining before done: in-game load/playback checks for legacy .pd*, external-layout .pdmod, folder mod, and Public Mods transfer/install behavior."
+        }
+      ],
+      "flag": "star",
+      "flagged_at": "2026-05-19T20:30:00Z",
+      "pending_completion": null,
+      "created": "2026-05-19T20:30:00Z",
+      "updated": "2026-05-20T02:52:00Z"
     }
   ]
 }

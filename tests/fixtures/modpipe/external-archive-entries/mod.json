@@ -1,0 +1,7 @@
+{
+  "id": "fixture_external_archive",
+  "name": "External Archive Fixture",
+  "version": "1.0.0",
+  "author": "PD2 tests",
+  "description": "Directory mirror of entries expected inside a .pdmod archive."
+}

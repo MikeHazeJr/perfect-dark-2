@@ -107,10 +107,6 @@ extern struct menudialogdef g_MpLoadSettingsMenuDialog;
 extern struct menudialogdef g_MpLoadPresetMenuDialog;
 extern struct menudialogdef g_MpLoadPlayerMenuDialog;
 
-/* ---- Menu navigation ---- */
-void menuPushDialog(struct menudialogdef *dialogdef);
-void menuPopDialog(void);
-
 /* ---- Language ---- */
 char *langGet(s32 textid);
 /* langSafe comes from pdgui.h */
@@ -1499,7 +1495,7 @@ static s32 renderMpLoadPlayer(struct menudialog *dialog, struct menu *, s32, s32
         if (r.clicked && r.clickedGlobalIdx >= 0) {
             /* Legacy SET branches:
              *   - Already-loaded error: pushes file-error dialog.
-             *   - Successful load: menuPopDialog() + filemgrSaveOrLoad
+             *   - Successful load: graph pop + filemgrSaveOrLoad
              *     (which replaces g_PlayerConfigsArray[0] wholesale).
              * Either way we don't need to do anything else -- the
              * legacy handler drives the dialog transitions.  BUT we

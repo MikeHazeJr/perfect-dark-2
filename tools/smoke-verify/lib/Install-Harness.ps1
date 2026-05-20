@@ -300,12 +300,13 @@ function New-SmokeSharedInstall {
     }
 
     # Stale prior test artefacts in the shared dir: nuke the relevant log
-    # so the test sees a fresh log file. Client tests target pd-client.log;
-    # server tests target pd-server.log. Both can coexist in the shared
-    # install dir without interference.
-    $logPath = Join-Path $installDir $logFileName
-    if (Test-Path -LiteralPath $logPath) {
-        Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
+    # so the test sees a fresh log file. Current clients write under
+    # logs/game client/, but keep clearing the historical root-level path
+    # so older installs and hand-authored test runs stay deterministic.
+    foreach ($logPath in (Get-SmokeLogCandidatePaths -InstallDir $installDir -Leaf $logFileName)) {
+        if (Test-Path -LiteralPath $logPath) {
+            Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
+        }
     }
 
     # Seed the firewall allow rule against the canonical path (idempotent).
@@ -406,15 +407,38 @@ function Add-SmokeFirewallAllowRule {
 function Get-SmokeLogPath {
     [CmdletBinding()] param(
         [Parameter(Mandatory)] [string] $InstallDir,
-        [string] $Target = "pd"
+        [string] $Target = "pd",
+        [string] $Leaf = ""
     )
     # c115 server-pillar extension (2026-05-14): port/src/system.c routes
     # sysLog output to pd-server.log when g_NetDedicated is set (which
     # server_main.c does before sysInit). The client target keeps the
     # historical pd-client.log destination. The two files coexist in the
     # shared install dir.
-    $leaf = if ($Target -eq "pd-server") { "pd-server.log" } else { "pd-client.log" }
-    return (Join-Path $InstallDir $leaf)
+    if (-not $Leaf) {
+        $Leaf = if ($Target -eq "pd-server") { "pd-server.log" } else { "pd-client.log" }
+    }
+
+    $candidates = @(Get-SmokeLogCandidatePaths -InstallDir $InstallDir -Leaf $Leaf)
+    foreach ($p in $candidates) {
+        if (Test-Path -LiteralPath $p) {
+            return $p
+        }
+    }
+
+    return $candidates[0]
+}
+
+function Get-SmokeLogCandidatePaths {
+    [CmdletBinding()] param(
+        [Parameter(Mandatory)] [string] $InstallDir,
+        [Parameter(Mandatory)] [string] $Leaf
+    )
+
+    return @(
+        (Join-Path $InstallDir (Join-Path "logs\game client" $Leaf)),
+        (Join-Path $InstallDir $Leaf)
+    )
 }
 
 function Copy-SmokeFixtures {

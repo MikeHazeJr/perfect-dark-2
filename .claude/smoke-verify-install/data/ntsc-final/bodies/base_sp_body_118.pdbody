@@ -4,7 +4,7 @@
   "id": "base:sp_body_118",
   "bodynum": 118,
   "ismale": 1,
-  "unk00_01": 0,
+  "unk00_01": 1,
   "canvaryheight": 0,
   "type": "HEADBODYTYPE_DEFAULT",
   "height": 159,

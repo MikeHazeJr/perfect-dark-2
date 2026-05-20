@@ -36,8 +36,8 @@ s32 catalogMgrBodyIsInRangePure(s32 bodynum);
 
 /* Integrated-head body predicate.
  *
- * Returns 1 if unk00_01 == 1 (integrated-head body: Skedar, Dr Caroll,
- * EyeSpy). Returns 0 otherwise (normal body, body sentinel slot, or
+ * Returns 1 if unk00_01 == 1 (self-contained body: Skedar, Dr Caroll,
+ * EyeSpy, Chicrob). Returns 0 otherwise (normal body, body sentinel slot, or
  * bodies with separate head models).
  *
  * The S593g bodyAllocateModel warning gate at body.c:417 reads through

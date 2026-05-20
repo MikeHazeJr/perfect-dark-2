@@ -7,7 +7,9 @@
 #include "utils.h"
 #include "mod.h"
 #include "data.h"
+#include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "modasset_compiler.h"
 
 #define MOD_TEXTURES_DIR "textures"
 #define MOD_ANIMATIONS_DIR "animations"
@@ -112,6 +114,44 @@ void *modSequenceLoad(u16 num, u32 *outSize)
 	return NULL;
 }
 
+static void *modAnimationLoadCatalogClip(const CatalogResolveResult *r, u16 num)
+{
+	const asset_entry_t *entry;
+	const struct animtableentry *compiled_entry = NULL;
+	u32 clip_size = 0;
+	const void *clip_data;
+
+	if (!r || r->catalog_id < 0 || !r->path
+			|| !modAssetCompilerIsExternalSource(r->path)) {
+		return NULL;
+	}
+
+	entry = assetCatalogGetByIndex(r->catalog_id);
+	if (!entry || entry->type != ASSET_ANIMATION) {
+		return NULL;
+	}
+
+	if (!catalogLoadTypedAsset(ASSET_ANIMATION, entry->id)) {
+		return NULL;
+	}
+
+	clip_data = catalogGetLoadedAnimationClip(entry->id,
+		&compiled_entry, &clip_size);
+	if (!clip_data || clip_size == 0) {
+		return NULL;
+	}
+
+	if (compiled_entry && num < g_NumAnimations && g_Anims) {
+		g_Anims[num] = *compiled_entry;
+		g_Anims[num].data = 0xffffffff;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"CATALOG: anim %d -> generated clip \"%s\" (entry %d, %u bytes)",
+		(s32)num, r->path, r->catalog_id, clip_size);
+	return (void *)clip_data;
+}
+
 void *modAnimationLoadData(u16 num)
 {
 	/* C-6: catalog is primary animation router.
@@ -120,6 +160,13 @@ void *modAnimationLoadData(u16 num)
 	{
 		CatalogResolveResult r = catalogResolveAnim((s32)num);
 		if (r.is_mod_override && r.path) {
+			if (modAssetCompilerIsExternalSource(r.path)) {
+				void *clip = modAnimationLoadCatalogClip(&r, num);
+				if (clip) {
+					return clip;
+				}
+				sysFatalError("External animation %04x failed to compile from %s.", num, r.path);
+			}
 			void *data = fsFileLoad(r.path, NULL);
 			if (data) {
 				sysLogPrintf(LOG_NOTE, "CATALOG: anim %d → mod override \"%s\" (entry %d)",
@@ -153,6 +200,17 @@ void *modAnimationTryCatalogOverride(u16 num)
 	 * No legacy fallback, no sysFatalError — caller uses ROM DMA on NULL. */
 	const char *path = catalogGetAnimOverride((s32)num);
 	if (path) {
+		if (modAssetCompilerIsExternalSource(path)) {
+			CatalogResolveResult r = catalogResolveAnim((s32)num);
+			void *clip = modAnimationLoadCatalogClip(&r, num);
+			if (clip) {
+				return clip;
+			}
+			sysLogPrintf(LOG_WARNING,
+				"C-6: generated clip for ROM anim %d failed to build: %s",
+				(s32)num, path);
+			return NULL;
+		}
 		void *data = fsFileLoad(path, NULL);
 		if (data) {
 			sysLogPrintf(LOG_NOTE, "CATALOG: anim %d → mod override (ROM base) \"%s\"", (s32)num, path);

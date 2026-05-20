@@ -9,7 +9,8 @@
  *   4. Register a catalog entry based on the INI type and fields
  *
  * The INI parser is minimal but sufficient for the component .ini format:
- *   - One section per file: [map], [character], [textures], etc.
+ *   - First section names the asset type: [map], [weapon], [head], etc.
+ *   - Later sections may group settings for modders; keys share one flat map.
  *   - Key = value pairs, one per line
  *   - Hash and semicolon comments, blank lines ignored
  *   - No multiline values, no escaping
@@ -27,7 +28,9 @@
 #include "types.h"
 #include "constants.h"
 #include "assetcatalog.h"
+#include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
+#include "modarchive.h"
 #include "romdata.h"
 #include "system.h"
 #include "fs.h"
@@ -61,23 +64,42 @@ static char *trimWhitespace(char *str)
 	return str;
 }
 
-s32 iniParse(const char *filepath, ini_section_t *out)
+s32 iniParseBuffer(const char *label, const char *data, u32 len, ini_section_t *out)
 {
-	FILE *fp = fopen(filepath, "r");
-	if (!fp) {
+	if (!data || !out) {
 		return 0;
 	}
 
 	memset(out, 0, sizeof(*out));
 
-	char line[512];
-	s32 in_section = 0;
+	char *buf = (char *)malloc((size_t)len + 1);
+	if (!buf) {
+		sysLogPrintf(LOG_ERROR,
+			"assetcatalog_scanner: out of memory parsing INI '%s'",
+			label ? label : "(memory)");
+		return 0;
+	}
+	memcpy(buf, data, len);
+	buf[len] = '\0';
 
-	while (fgets(line, sizeof(line), fp)) {
+	s32 in_section = 0;
+	char *line = buf;
+
+	while (line && *line) {
+		char *next = strpbrk(line, "\r\n");
+		if (next) {
+			char eol = *next;
+			*next++ = '\0';
+			if (eol == '\r' && *next == '\n') {
+				next++;
+			}
+		}
+
 		char *p = trimWhitespace(line);
 
 		/* skip blank lines and comments */
 		if (*p == '\0' || *p == '#' || *p == ';') {
+			line = next;
 			continue;
 		}
 
@@ -86,9 +108,12 @@ s32 iniParse(const char *filepath, ini_section_t *out)
 			char *end = strchr(p, ']');
 			if (end) {
 				*end = '\0';
-				strncpy(out->type, p + 1, sizeof(out->type) - 1);
+				if (out->type[0] == '\0') {
+					strncpy(out->type, p + 1, sizeof(out->type) - 1);
+				}
 				in_section = 1;
 			}
+			line = next;
 			continue;
 		}
 
@@ -111,10 +136,362 @@ s32 iniParse(const char *filepath, ini_section_t *out)
 				out->count++;
 			}
 		}
+
+		line = next;
 	}
 
-	fclose(fp);
+	free(buf);
 	return (out->type[0] != '\0') ? 1 : 0;
+}
+
+s32 iniParse(const char *filepath, ini_section_t *out)
+{
+	FILE *fp = fopen(filepath, "rb");
+	if (!fp) {
+		return 0;
+	}
+
+	if (fseek(fp, 0, SEEK_END) != 0) {
+		fclose(fp);
+		return 0;
+	}
+
+	long size = ftell(fp);
+	if (size < 0) {
+		fclose(fp);
+		return 0;
+	}
+	rewind(fp);
+
+	char *buf = (char *)malloc((size_t)size + 1);
+	if (!buf) {
+		fclose(fp);
+		return 0;
+	}
+
+	size_t got = fread(buf, 1, (size_t)size, fp);
+	fclose(fp);
+
+	s32 ok = 0;
+	if (got == (size_t)size) {
+		ok = iniParseBuffer(filepath, buf, (u32)size, out);
+	}
+
+	free(buf);
+	return ok;
+}
+
+static s32 iniWriteAppend(char *out, u32 out_cap, u32 *used, const char *text)
+{
+	if (!out || !used || !text) {
+		return 0;
+	}
+
+	u32 len = (u32)strlen(text);
+	if (*used + len >= out_cap) {
+		return 0;
+	}
+
+	memcpy(out + *used, text, len);
+	*used += len;
+	out[*used] = '\0';
+	return 1;
+}
+
+s32 iniWriteBuffer(const ini_section_t *ini, char *out, u32 out_cap, u32 *out_len)
+{
+	if (!ini || !ini->type[0] || !out || out_cap == 0) {
+		return 0;
+	}
+
+	u32 used = 0;
+	out[0] = '\0';
+
+	char line[384];
+	snprintf(line, sizeof(line), "[%s]\n", ini->type);
+	if (!iniWriteAppend(out, out_cap, &used, line)) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < ini->count; i++) {
+		snprintf(line, sizeof(line), "%s = %s\n",
+			ini->pairs[i].key, ini->pairs[i].value);
+		if (!iniWriteAppend(out, out_cap, &used, line)) {
+			return 0;
+		}
+	}
+
+	if (out_len) {
+		*out_len = used;
+	}
+	return 1;
+}
+
+s32 iniWriteFile(const char *filepath, const ini_section_t *ini)
+{
+	if (!filepath || !filepath[0] || !ini) {
+		return 0;
+	}
+
+	char buf[16384];
+	u32 len = 0;
+	if (!iniWriteBuffer(ini, buf, sizeof(buf), &len)) {
+		return 0;
+	}
+
+	FILE *fp = fopen(filepath, "wb");
+	if (!fp) {
+		return 0;
+	}
+
+	size_t wrote = fwrite(buf, 1, len, fp);
+	fclose(fp);
+	return wrote == len ? 1 : 0;
+}
+
+const char *modiniTemplateForKind(const char *kind)
+{
+	if (!kind) {
+		return NULL;
+	}
+
+	if (strcmp(kind, "weapon") == 0) {
+		return
+			"; weapon.ini - external weapon metadata\n"
+			"; The folder name is the catalog id unless an importer overrides it.\n"
+			"[weapon]\n"
+			"; catalog_id = mod:weapon_id\n"
+			"name = New Weapon\n"
+			"weapon_id = -1\n"
+			"dual_wieldable = 0\n"
+			"; requirefeature = 0\n"
+			"\n"
+			"[models]\n"
+			"model_file = model.gltf\n"
+			"; lo_model_file = model_lod.gltf\n"
+			"\n"
+			"[animations]\n"
+			"; equip_animation = equip.gltf\n"
+			"; unequip_animation = unequip.gltf\n"
+			"; pritosec_animation = primary_to_secondary.gltf\n"
+			"; sectopri_animation = secondary_to_primary.gltf\n"
+			"\n"
+			"[gameplay]\n"
+			"; ammo_type = default\n"
+			"; fire_mode = semiauto\n"
+			"; muzzle_z = 0.0\n";
+	}
+
+	if (strcmp(kind, "head") == 0) {
+		return
+			"; head.ini - external multiplayer head metadata\n"
+			"[head]\n"
+			"; catalog_id = mod:head_id\n"
+			"headnum = -1\n"
+			"rig_class = human_male_neck_standard\n"
+			"; requirefeature = 0\n"
+			"\n"
+			"[model]\n"
+			"model_file = model.gltf\n"
+			"; scale = 1.0\n"
+			"; animscale = 1.0\n"
+			"\n"
+			"[dependencies]\n"
+			"; deps = mod:shared_texture, mod:blink_animation\n";
+	}
+
+	if (strcmp(kind, "body") == 0) {
+		return
+			"; body.ini - external multiplayer body metadata\n"
+			"[body]\n"
+			"; catalog_id = mod:body_id\n"
+			"display_name = New Body\n"
+			"bodynum = -1\n"
+			"headnum = -1\n"
+			"rig_class = human_male_neck_standard\n"
+			"; name_langid = 0\n"
+			"; requirefeature = 0\n"
+			"\n"
+			"[model]\n"
+			"model_file = model.gltf\n"
+			"; hand_model_file = hand.gltf\n"
+			"; scale = 1.0\n"
+			"; animscale = 1.0\n"
+			"\n"
+			"[dependencies]\n"
+			"; deps = mod:walk_animation, mod:body_texture\n";
+	}
+
+	if (strcmp(kind, "arena") == 0) {
+		return
+			"; arena.ini - external map/arena metadata\n"
+			"[arena]\n"
+			"; catalog_id = mod:arena_id\n"
+			"stagenum = -1\n"
+			"load_mode = 0\n"
+			"; name_langid = 0\n"
+			"; requirefeature = 0\n"
+			"\n"
+			"[geometry]\n"
+			"geometry_file = geometry.obj\n"
+			"; collision_file = collision.obj\n"
+			"; pads_file = pads.ini\n"
+			"; setup_file = setup.ini\n"
+			"\n"
+			"[music]\n"
+			"; music_file = audio/music/track/music.ini\n";
+	}
+
+	if (strcmp(kind, "scenario") == 0) {
+		return
+			"; scenario.ini - external scenario metadata\n"
+			"[scenario]\n"
+			"; catalog_id = mod:scenario_id\n"
+			"name = New Scenario\n"
+			"mode_id = -1\n"
+			"min_players = 2\n"
+			"max_players = 8\n"
+			"team_based = 0\n"
+			"; requirefeature = 0\n"
+			"\n"
+			"[rooms]\n"
+			"rooms_file = rooms.obj\n"
+			"; props_file = props.ini\n"
+			"; objectives_file = objectives.ini\n"
+			"\n"
+			"[setup]\n"
+			"; pads_file = pads.ini\n"
+			"; setup_file = setup.ini\n";
+	}
+
+	if (strcmp(kind, "animation") == 0) {
+		return
+			"; animation.ini - external animation metadata\n"
+			"[animation]\n"
+			"; catalog_id = mod:animation_id\n"
+			"name = New Animation\n"
+			"anim_id = -1\n"
+			"frame_count = 0\n"
+			"; target_body = mod:body_id\n"
+			"\n"
+			"[source]\n"
+			"animation_file = animation.gltf\n"
+			"; category = weapon_animation\n";
+	}
+
+	if (strcmp(kind, "voice") == 0) {
+		return
+			"; voice.ini - external voice metadata\n"
+			"[audio]\n"
+			"name = New Voice Line\n"
+			"sound_id = -1\n"
+			"audio_category = voice\n"
+			"duration_ms = 0\n"
+			"\n"
+			"[source]\n"
+			"; Voice authoring uses WAV.\n"
+			"file_path = sample.wav\n"
+			"\n"
+			"[voice]\n"
+			"; actor = unknown\n"
+			"; transcript =\n"
+			"; language =\n"
+			"; context =\n";
+	}
+
+	if (strcmp(kind, "music") == 0) {
+		return
+			"; music.ini - external music metadata\n"
+			"[audio]\n"
+			"name = New Music Track\n"
+			"sound_id = -1\n"
+			"audio_category = music\n"
+			"duration_ms = 0\n"
+			"\n"
+			"[source]\n"
+			"; Music authoring supports OGG, MP3, or WAV.\n"
+			"file_path = track.ogg\n"
+			"; file_path = track.mp3\n"
+			"; file_path = track.wav\n"
+			"; midi_file = track.mid\n";
+	}
+
+	if (strcmp(kind, "sfx") == 0 || strcmp(kind, "audio") == 0) {
+		return
+			"; sound.ini - external SFX metadata\n"
+			"[audio]\n"
+			"name = New Audio\n"
+			"sound_id = -1\n"
+			"audio_category = sfx\n"
+			"duration_ms = 0\n"
+			"\n"
+			"[source]\n"
+			"; SFX authoring uses WAV.\n"
+			"file_path = sample.wav\n"
+			"\n"
+			"[voice]\n"
+			"; actor = unknown\n"
+			"; transcript =\n"
+			"; language =\n"
+			"; context =\n";
+	}
+
+	if (strcmp(kind, "ui") == 0) {
+		return
+			"; ui.ini - external UI texture metadata\n"
+			"[ui]\n"
+			"name = New UI Texture\n"
+			"; catalog_id = mod:ui_texture\n"
+			"\n"
+			"[source]\n"
+			"; UI texture authoring supports PNG or TGA.\n"
+			"texture_file = texture.png\n"
+			"; texture_file = texture.tga\n"
+			"\n"
+			"[nine_slice]\n"
+			"; left = 0\n"
+			"; right = 0\n"
+			"; top = 0\n"
+			"; bottom = 0\n"
+			"; edge_mode = stretch\n"
+			"; center_mode = stretch\n";
+	}
+
+	if (strcmp(kind, "font") == 0) {
+		return
+			"; font.ini - external UI font metadata\n"
+			"[font]\n"
+			"name = New Font\n"
+			"; catalog_id = mod:font_name\n"
+			"\n"
+			"[source]\n"
+			"; Font authoring supports TTF or OTF.\n"
+			"font_file = font.ttf\n"
+			"; font_file = font.otf\n"
+			"\n"
+			"[rendering]\n"
+			"size_px = 24\n"
+			"; oversample_v = 2\n"
+			"; shadow = false\n"
+			"; glow = false\n";
+	}
+
+	if (strcmp(kind, "lang") == 0 || strcmp(kind, "language") == 0) {
+		return
+			"; lang.ini - external UTF-8 language-bank metadata\n"
+			"[lang]\n"
+			"; LANGBANK_* slot to override or provide.\n"
+			"bank_id = -1\n"
+			"; locale = en\n"
+			"\n"
+			"[source]\n"
+			"; strings.tsv is UTF-8 tab-separated text: index<TAB>text.\n"
+			"strings_file = strings.tsv\n"
+			"; The loader also accepts strings = strings.tsv for compatibility.\n"
+			"; strings = strings.tsv\n";
+	}
+
+	return NULL;
 }
 
 const char *iniGet(const ini_section_t *ini, const char *key, const char *defval)
@@ -216,12 +593,18 @@ static asset_type_e categoryToType(const char *dirname)
 	if (strcmp(dirname, "vehicles") == 0)    return ASSET_VEHICLE;
 	if (strcmp(dirname, "missions") == 0)    return ASSET_MISSION;
 	if (strcmp(dirname, "ui") == 0)          return ASSET_UI;
+	if (strcmp(dirname, "fonts") == 0)       return ASSET_UI;
 	if (strcmp(dirname, "tools") == 0)       return ASSET_TOOL;
 	if (strcmp(dirname, "animations") == 0)  return ASSET_ANIMATION;
 	if (strcmp(dirname, "hud") == 0)         return ASSET_HUD;
 	if (strcmp(dirname, "gamemodes") == 0)   return ASSET_GAMEMODE;
+	if (strcmp(dirname, "scenarios") == 0)   return ASSET_GAMEMODE;
 	if (strcmp(dirname, "audio") == 0)       return ASSET_AUDIO;
 	if (strcmp(dirname, "lang_banks") == 0)  return ASSET_LANG;
+	if (strcmp(dirname, "lang") == 0)        return ASSET_LANG;
+	if (strcmp(dirname, "arenas") == 0)      return ASSET_ARENA;
+	if (strcmp(dirname, "bodies") == 0)      return ASSET_BODY;
+	if (strcmp(dirname, "heads") == 0)       return ASSET_HEAD;
 	return ASSET_NONE;
 }
 
@@ -242,14 +625,102 @@ static asset_type_e sectionToType(const char *section)
 	if (strcmp(section, "vehicle") == 0)      return ASSET_VEHICLE;
 	if (strcmp(section, "mission") == 0)      return ASSET_MISSION;
 	if (strcmp(section, "ui") == 0)           return ASSET_UI;
+	if (strcmp(section, "font") == 0)         return ASSET_UI;
 	if (strcmp(section, "tool") == 0)         return ASSET_TOOL;
 	if (strcmp(section, "animation") == 0)    return ASSET_ANIMATION;
 	if (strcmp(section, "hud") == 0)          return ASSET_HUD;
 	if (strcmp(section, "gamemode") == 0)     return ASSET_GAMEMODE;
+	if (strcmp(section, "scenario") == 0)     return ASSET_GAMEMODE;
 	if (strcmp(section, "audio") == 0)        return ASSET_AUDIO;
 	if (strcmp(section, "texture") == 0)      return ASSET_TEXTURE;
 	if (strcmp(section, "lang_bank") == 0)    return ASSET_LANG;
+	if (strcmp(section, "lang") == 0)         return ASSET_LANG;
+	if (strcmp(section, "arena") == 0)        return ASSET_ARENA;
+	if (strcmp(section, "body") == 0)         return ASSET_BODY;
+	if (strcmp(section, "head") == 0)         return ASSET_HEAD;
 	return ASSET_NONE;
+}
+
+/* ========================================================================
+ * External Source Path Handling
+ * ======================================================================== */
+
+static s32 sourcePathNeedsComponentPrefix(const char *value)
+{
+	if (!value || !value[0]) {
+		return 0;
+	}
+	if (value[0] == '/' || value[0] == '\\') {
+		return 0;
+	}
+	if (isalpha((u8)value[0]) && value[1] == ':') {
+		return 0;
+	}
+	if (strchr(value, '/') || strchr(value, '\\')) {
+		return 0;
+	}
+	return 1;
+}
+
+static void qualifyIniSourcePath(ini_section_t *ini, const char *key,
+                                 const char *component_dir)
+{
+	if (!ini || !key || !component_dir || !component_dir[0]) {
+		return;
+	}
+
+	for (s32 i = 0; i < ini->count; i++) {
+		if (strcmp(ini->pairs[i].key, key) != 0) {
+			continue;
+		}
+		if (!sourcePathNeedsComponentPrefix(ini->pairs[i].value)) {
+			continue;
+		}
+
+		char full[sizeof(ini->pairs[i].value)];
+		snprintf(full, sizeof(full), "%s/%s", component_dir, ini->pairs[i].value);
+		strncpy(ini->pairs[i].value, full, sizeof(ini->pairs[i].value) - 1);
+		ini->pairs[i].value[sizeof(ini->pairs[i].value) - 1] = '\0';
+	}
+}
+
+static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
+{
+	static const char *keys[] = {
+		"bodyfile",
+		"headfile",
+		"model_file",
+		"model",
+		"lo_model_file",
+		"hand_model_file",
+		"geometry_file",
+		"geometry",
+		"collision_file",
+		"pads_file",
+		"setup_file",
+		"rooms_file",
+		"rooms",
+		"props_file",
+		"props",
+		"objectives_file",
+		"objectives",
+		"music_file",
+		"midi_file",
+		"file_path",
+		"animation_file",
+		"texture_file",
+		"texture",
+		"font_file",
+		"font",
+		"strings_file",
+		"strings",
+		"strings_tsv",
+		NULL
+	};
+
+	for (s32 i = 0; keys[i]; i++) {
+		qualifyIniSourcePath(ini, keys[i], component_dir);
+	}
 }
 
 /* ========================================================================
@@ -293,6 +764,33 @@ static s32 parseAudioCategoryValue(const char *value, s32 default_category)
 	return default_category;
 }
 
+static void registerDependencyList(const char *owner_id, const char *deps,
+                                   s32 is_bundled)
+{
+	if (!owner_id || !owner_id[0] || !deps || !deps[0]) {
+		return;
+	}
+
+	char buf[512];
+	strncpy(buf, deps, sizeof(buf) - 1);
+	buf[sizeof(buf) - 1] = '\0';
+
+	char *tok = buf;
+	while (tok) {
+		char *next = strpbrk(tok, ",|");
+		if (next) {
+			*next++ = '\0';
+		}
+
+		char *dep = trimWhitespace(tok);
+		if (dep[0]) {
+			catalogDepRegister(owner_id, dep, is_bundled);
+		}
+
+		tok = next;
+	}
+}
+
 /**
  * Register a single component from a parsed INI section.
  *
@@ -304,6 +802,13 @@ static s32 parseAudioCategoryValue(const char *value, s32 default_category)
 static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
                               const char *mod_id)
 {
+	ini_section_t local_ini;
+	if (ini) {
+		local_ini = *ini;
+		qualifyIniSourcePaths(&local_ini, dirpath);
+		ini = &local_ini;
+	}
+
 	asset_type_e type = sectionToType(ini->type);
 	if (type == ASSET_NONE) {
 		sysLogPrintf(LOG_WARNING, "assetcatalog_scanner: unknown section type '%s' in %s",
@@ -311,10 +816,12 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		return 0;
 	}
 
-	/* Build the asset ID.
-	 * Convention: {mod_category}_{folder_name}
-	 * The INI "name" field is display-only; the folder name is the ID. */
+	/* Build the asset ID. The INI "name" field is display-only; the
+	 * folder name is the default ID, and catalog_id/id can override it
+	 * when canonical layouts have repeated leaf names such as animation
+	 * categories using "idle" in more than one family. */
 	const char *category = iniGet(ini, "category", mod_id);
+	const char *explicit_id = iniGet(ini, "catalog_id", iniGet(ini, "id", ""));
 
 	/* Extract folder name from dirpath (last path component) */
 	const char *folder = strrchr(dirpath, '/');
@@ -322,7 +829,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 
 	/* Build ID: use category + folder name, or just folder if category matches */
 	char idbuf[CATALOG_ID_LEN];
-	snprintf(idbuf, sizeof(idbuf), "%s", folder);
+	snprintf(idbuf, sizeof(idbuf), "%s", explicit_id[0] ? explicit_id : folder);
 
 	/* Register the base entry */
 	asset_entry_t *e = assetCatalogRegister(idbuf, type);
@@ -394,6 +901,50 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		}
 		break;
 
+	case ASSET_ARENA:
+		e->ext.arena.stagenum = iniGetInt(ini, "stagenum", -1);
+		e->ext.arena.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
+		e->ext.arena.name_langid = iniGetInt(ini, "name_langid", 0);
+		e->ext.arena.load_mode = iniGetInt(ini, "load_mode", ARENA_LOADMODE_PLAYABLE);
+		{
+			const char *gf = iniGet(ini, "geometry_file",
+				iniGet(ini, "geometry", ""));
+			if (gf[0]) {
+				catalogSetPrimaryFile(e, gf);
+			}
+		}
+		break;
+
+	case ASSET_BODY:
+		e->ext.body.bodynum = (s16)iniGetInt(ini, "bodynum", -1);
+		e->ext.body.name_langid = (s16)iniGetInt(ini, "name_langid", 0);
+		e->ext.body.headnum = (s16)iniGetInt(ini, "headnum", -1);
+		e->ext.body.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
+		catalogSetBodyDisplayName(e, iniGet(ini, "display_name",
+			iniGet(ini, "name", "")));
+		catalogSetBodyRigClass(e, iniGet(ini, "rig_class", ""));
+		{
+			const char *mf = iniGet(ini, "model_file",
+				iniGet(ini, "model", ""));
+			if (mf[0]) {
+				catalogSetPrimaryFile(e, mf);
+			}
+		}
+		break;
+
+	case ASSET_HEAD:
+		e->ext.head.headnum = (s16)iniGetInt(ini, "headnum", -1);
+		e->ext.head.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
+		catalogSetHeadRigClass(e, iniGet(ini, "rig_class", ""));
+		{
+			const char *mf = iniGet(ini, "model_file",
+				iniGet(ini, "model", ""));
+			if (mf[0]) {
+				catalogSetPrimaryFile(e, mf);
+			}
+		}
+		break;
+
 	case ASSET_WEAPON:
 		e->ext.weapon.weapon_id = iniGetInt(ini, "weapon_id", -1);
 		if (e->ext.weapon.weapon_id >= 0
@@ -427,9 +978,19 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 
 	case ASSET_ANIMATION:
 		e->ext.anim.anim_id = iniGetInt(ini, "anim_id", -1);
+		if (e->ext.anim.anim_id >= 0) {
+			e->source_animnum = e->ext.anim.anim_id;
+		}
 		strncpy(e->ext.anim.name, iniGet(ini, "name", ""), sizeof(e->ext.anim.name) - 1);
 		e->ext.anim.frame_count = iniGetInt(ini, "frame_count", 0);
 		strncpy(e->ext.anim.target_body, iniGet(ini, "target_body", ""), sizeof(e->ext.anim.target_body) - 1);
+		{
+			const char *af = iniGet(ini, "animation_file",
+				iniGet(ini, "file_path", ""));
+			if (af[0]) {
+				catalogSetPrimaryFile(e, af);
+			}
+		}
 		break;
 
 	case ASSET_TEXTURE:
@@ -450,13 +1011,25 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.gamemode.min_players = iniGetInt(ini, "min_players", 2);
 		e->ext.gamemode.max_players = iniGetInt(ini, "max_players", 4);
 		e->ext.gamemode.team_based = iniGetInt(ini, "team_based", 0);
+		e->ext.gamemode.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
+		{
+			const char *rf = iniGet(ini, "rooms_file",
+				iniGet(ini, "rooms",
+				iniGet(ini, "geometry_file",
+				iniGet(ini, "geometry", ""))));
+			if (rf[0]) {
+				catalogSetPrimaryFile(e, rf);
+			}
+		}
 		break;
 
 	case ASSET_AUDIO:
 		e->ext.audio.sound_id = iniGetInt(ini, "sound_id", -1);
 		strncpy(e->ext.audio.name, iniGet(ini, "name", ""), sizeof(e->ext.audio.name) - 1);
 		e->ext.audio.category = parseAudioCategoryValue(
-			iniGet(ini, "category", ""), AUDIO_CAT_SFX);
+			iniGet(ini, "audio_category",
+				iniGet(ini, "kind",
+				iniGet(ini, "category", ""))), AUDIO_CAT_SFX);
 		e->ext.audio.duration_ms = iniGetInt(ini, "duration_ms", 0);
 		strncpy(e->ext.audio.file_path, iniGet(ini, "file_path", ""), sizeof(e->ext.audio.file_path) - 1);
 		if (e->ext.audio.file_path[0]) {
@@ -474,16 +1047,46 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		}
 		break;
 
+	case ASSET_UI:
+		{
+			const char *pf = iniGet(ini, "file_path",
+				iniGet(ini, "texture_file",
+				iniGet(ini, "font_file",
+				iniGet(ini, "texture",
+				iniGet(ini, "font", "")))));
+			if (pf[0]) {
+				catalogSetPrimaryFile(e, pf);
+			}
+		}
+		break;
+
 	case ASSET_LANG:
 		/* bank_id: the LANGBANK_* slot this mod lang bank occupies.
 		 * Mod declares an integer bank_id (0-68) in its component INI. */
 		e->ext.lang.bank_id = iniGetInt(ini, "bank_id", -1);
+		{
+			const char *sf = iniGet(ini, "strings_file",
+				iniGet(ini, "strings",
+				iniGet(ini, "strings_tsv",
+				iniGet(ini, "file_path", ""))));
+			strncpy(e->ext.lang.strings_file, sf, sizeof(e->ext.lang.strings_file) - 1);
+			if (sf[0]) {
+				catalogSetPrimaryFile(e, sf);
+			}
+		}
 		break;
 
 	default:
 		/* ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC, ASSET_UI, ASSET_HUD,
 		 * ASSET_VEHICLE, ASSET_MISSION, ASSET_TOOL -- no extra fields needed */
 		break;
+	}
+
+	if (type == ASSET_BODY || type == ASSET_HEAD) {
+		registerDependencyList(e->id, iniGet(ini, "deps", ""), e->bundled);
+	}
+	if (type == ASSET_ANIMATION && e->ext.anim.target_body[0]) {
+		catalogDepRegister(e->ext.anim.target_body, e->id, e->bundled);
 	}
 
 	return 1;
@@ -530,6 +1133,93 @@ static s32 findAndParseIni(const char *component_dir, ini_section_t *out)
 
 	closedir(dp);
 	return found;
+}
+
+static s32 isRegularFile(const char *path)
+{
+	struct stat st;
+	return path && stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static s32 registerComponentIniFile(const char *component_dir,
+                                    const char *ini_path,
+                                    asset_type_e expected,
+                                    const char *label,
+                                    const char *mod_id)
+{
+	ini_section_t ini;
+	if (!iniParse(ini_path, &ini)) {
+		sysLogPrintf(LOG_WARNING,
+			"assetcatalog_scanner: invalid external-layout INI '%s'",
+			ini_path);
+		return 0;
+	}
+
+	asset_type_e ini_type = sectionToType(ini.type);
+	if (expected != ASSET_NONE && ini_type != expected) {
+		sysLogPrintf(LOG_WARNING,
+			"assetcatalog_scanner: external-layout type mismatch in '%s': "
+			"expected %d, got [%s]=%d",
+			label ? label : ini_path, expected, ini.type, ini_type);
+	}
+
+	return registerComponent(&ini, component_dir, mod_id) ? 1 : 0;
+}
+
+static s32 scanExternalDescriptorChildren(const char *base_dir,
+                                          const char *leaf,
+                                          asset_type_e expected,
+                                          const char *mod_id)
+{
+	if (!isDirectory(base_dir)) {
+		return 0;
+	}
+
+	DIR *dp = opendir(base_dir);
+	if (!dp) {
+		return 0;
+	}
+
+	s32 count = 0;
+	struct dirent *ent;
+	char component_dir[FS_MAXPATH];
+	char ini_path[FS_MAXPATH];
+	char label[FS_MAXPATH];
+
+	while ((ent = readdir(dp)) != NULL) {
+		if (ent->d_name[0] == '.') {
+			continue;
+		}
+
+		snprintf(component_dir, sizeof(component_dir), "%s/%s",
+			base_dir, ent->d_name);
+		if (!isDirectory(component_dir)) {
+			continue;
+		}
+
+		snprintf(ini_path, sizeof(ini_path), "%s/%s", component_dir, leaf);
+		if (!isRegularFile(ini_path)) {
+			continue;
+		}
+
+		snprintf(label, sizeof(label), "%s/%s", ent->d_name, leaf);
+		count += registerComponentIniFile(component_dir, ini_path, expected,
+			label, mod_id);
+	}
+
+	closedir(dp);
+	return count;
+}
+
+static s32 scanExternalDescriptorPath(const char *mod_dir,
+                                      const char *relative_dir,
+                                      const char *leaf,
+                                      asset_type_e expected,
+                                      const char *mod_id)
+{
+	char base_dir[FS_MAXPATH];
+	snprintf(base_dir, sizeof(base_dir), "%s/%s", mod_dir, relative_dir);
+	return scanExternalDescriptorChildren(base_dir, leaf, expected, mod_id);
 }
 
 /**
@@ -648,6 +1338,281 @@ static s32 scanModDir(const char *mod_dir, const char *mod_id)
 	return count;
 }
 
+s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir)
+{
+	if (!mod_id || !mod_id[0] || !mod_dir || !mod_dir[0]) {
+		return 0;
+	}
+
+	s32 total = 0;
+
+	total += scanExternalDescriptorPath(mod_dir, "weapons",
+		"weapon.ini", ASSET_WEAPON, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "characters/heads",
+		"head.ini", ASSET_HEAD, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "characters/bodies",
+		"body.ini", ASSET_BODY, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "maps",
+		"arena.ini", ASSET_ARENA, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "maps",
+		"map.ini", ASSET_MAP, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "scenarios",
+		"scenario.ini", ASSET_GAMEMODE, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "audio/sfx",
+		"sound.ini", ASSET_AUDIO, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "audio/sfx",
+		"sfx.ini", ASSET_AUDIO, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "audio/voice",
+		"voice.ini", ASSET_AUDIO, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "audio/music",
+		"music.ini", ASSET_AUDIO, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "ui",
+		"ui.ini", ASSET_UI, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "ui",
+		"texture.ini", ASSET_UI, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "fonts",
+		"font.ini", ASSET_UI, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "lang",
+		"lang.ini", ASSET_LANG, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "animations",
+		"animation.ini", ASSET_ANIMATION, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "animations/weapon",
+		"animation.ini", ASSET_ANIMATION, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "animations/character",
+		"animation.ini", ASSET_ANIMATION, mod_id);
+
+	if (total > 0) {
+		sysLogPrintf(LOG_NOTE,
+			"assetcatalog_scanner: folder %s: %d external-layout descriptors registered",
+			mod_id, total);
+	}
+	return total;
+}
+
+#ifndef PD_SERVER
+static s32 stringEndsWithNoCase(const char *s, const char *suffix)
+{
+	if (!s || !suffix) {
+		return 0;
+	}
+	size_t n = strlen(s);
+	size_t m = strlen(suffix);
+	if (m > n) {
+		return 0;
+	}
+	const char *tail = s + n - m;
+	for (size_t i = 0; i < m; i++) {
+		if (tolower((u8)tail[i]) != tolower((u8)suffix[i])) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static const char *pathLeaf(const char *path)
+{
+	const char *slash = strrchr(path, '/');
+	return slash ? slash + 1 : path;
+}
+
+static void pathDirname(const char *path, char *out, size_t outsz)
+{
+	if (!out || outsz == 0) {
+		return;
+	}
+	out[0] = '\0';
+	if (!path) {
+		return;
+	}
+	const char *slash = strrchr(path, '/');
+	if (!slash) {
+		return;
+	}
+	size_t len = (size_t)(slash - path);
+	if (len >= outsz) {
+		len = outsz - 1;
+	}
+	memcpy(out, path, len);
+	out[len] = '\0';
+}
+
+static void pathSegment(const char *path, s32 segment_index, char *out, size_t outsz)
+{
+	if (!out || outsz == 0) {
+		return;
+	}
+	out[0] = '\0';
+	if (!path || segment_index < 0) {
+		return;
+	}
+
+	const char *p = path;
+	for (s32 i = 0; i < segment_index; i++) {
+		const char *slash = strchr(p, '/');
+		if (!slash) {
+			return;
+		}
+		p = slash + 1;
+	}
+
+	const char *end = strchr(p, '/');
+	size_t len = end ? (size_t)(end - p) : strlen(p);
+	if (len >= outsz) {
+		len = outsz - 1;
+	}
+	memcpy(out, p, len);
+	out[len] = '\0';
+}
+
+static s32 archiveIniIsDescriptor(const char *entry_name)
+{
+	if (!stringEndsWithNoCase(entry_name, ".ini")) {
+		return 0;
+	}
+
+	char seg0[64];
+	pathSegment(entry_name, 0, seg0, sizeof(seg0));
+
+	/* Legacy folder-mod component layout inside .pdmod. */
+	if (strcmp(seg0, "_components") == 0) {
+		return 1;
+	}
+
+	const char *leaf = pathLeaf(entry_name);
+	return strcmp(leaf, "weapon.ini") == 0
+		|| strcmp(leaf, "head.ini") == 0
+		|| strcmp(leaf, "body.ini") == 0
+		|| strcmp(leaf, "arena.ini") == 0
+		|| strcmp(leaf, "map.ini") == 0
+		|| strcmp(leaf, "scenario.ini") == 0
+		|| strcmp(leaf, "sound.ini") == 0
+		|| strcmp(leaf, "sfx.ini") == 0
+		|| strcmp(leaf, "voice.ini") == 0
+		|| strcmp(leaf, "music.ini") == 0
+		|| strcmp(leaf, "audio.ini") == 0
+		|| strcmp(leaf, "ui.ini") == 0
+		|| strcmp(leaf, "texture.ini") == 0
+		|| strcmp(leaf, "font.ini") == 0
+		|| strcmp(leaf, "lang.ini") == 0
+		|| strcmp(leaf, "animation.ini") == 0;
+}
+
+static asset_type_e archiveExpectedTypeForPath(const char *entry_name)
+{
+	char seg0[64];
+	char seg1[64];
+	const char *leaf = pathLeaf(entry_name);
+
+	pathSegment(entry_name, 0, seg0, sizeof(seg0));
+	pathSegment(entry_name, 1, seg1, sizeof(seg1));
+
+	if (strcmp(seg0, "_components") == 0) {
+		char category[64];
+		pathSegment(entry_name, 1, category, sizeof(category));
+		return categoryToType(category);
+	}
+
+	if (strcmp(seg0, "weapons") == 0) return ASSET_WEAPON;
+	if (strcmp(seg0, "animations") == 0) return ASSET_ANIMATION;
+	if (strcmp(seg0, "audio") == 0) return ASSET_AUDIO;
+	if (strcmp(seg0, "ui") == 0) return ASSET_UI;
+	if (strcmp(seg0, "fonts") == 0) return ASSET_UI;
+	if (strcmp(seg0, "lang") == 0) return ASSET_LANG;
+	if (strcmp(seg0, "scenarios") == 0) return ASSET_GAMEMODE;
+
+	if (strcmp(seg0, "characters") == 0) {
+		if (strcmp(seg1, "heads") == 0) return ASSET_HEAD;
+		if (strcmp(seg1, "bodies") == 0) return ASSET_BODY;
+		return ASSET_CHARACTER;
+	}
+
+	if (strcmp(seg0, "maps") == 0) {
+		if (strcmp(leaf, "arena.ini") == 0) return ASSET_ARENA;
+		return ASSET_MAP;
+	}
+
+	return ASSET_NONE;
+}
+
+static s32 archivePathNeedsComponentPrefix(const char *value)
+{
+	if (!value || !value[0]) {
+		return 0;
+	}
+	if (value[0] == '/' || value[0] == '\\') {
+		return 0;
+	}
+	if (isalpha((u8)value[0]) && value[1] == ':') {
+		return 0;
+	}
+	if (strchr(value, '/') || strchr(value, '\\')) {
+		return 0;
+	}
+	return 1;
+}
+
+static void qualifyArchiveIniPath(ini_section_t *ini, const char *key,
+                                  const char *component_dir)
+{
+	if (!ini || !key || !component_dir || !component_dir[0]) {
+		return;
+	}
+
+	for (s32 i = 0; i < ini->count; i++) {
+		if (strcmp(ini->pairs[i].key, key) != 0) {
+			continue;
+		}
+		if (!archivePathNeedsComponentPrefix(ini->pairs[i].value)) {
+			continue;
+		}
+
+		char full[sizeof(ini->pairs[i].value)];
+		snprintf(full, sizeof(full), "%s/%s", component_dir, ini->pairs[i].value);
+		strncpy(ini->pairs[i].value, full, sizeof(ini->pairs[i].value) - 1);
+		ini->pairs[i].value[sizeof(ini->pairs[i].value) - 1] = '\0';
+	}
+}
+
+static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir)
+{
+	static const char *keys[] = {
+		"bodyfile",
+		"headfile",
+		"model_file",
+		"model",
+		"lo_model_file",
+		"hand_model_file",
+		"geometry_file",
+		"geometry",
+		"collision_file",
+		"pads_file",
+		"setup_file",
+		"rooms_file",
+		"rooms",
+		"props_file",
+		"props",
+		"objectives_file",
+		"objectives",
+		"music_file",
+		"midi_file",
+		"file_path",
+		"animation_file",
+		"texture_file",
+		"texture",
+		"font_file",
+		"font",
+		"strings_file",
+		"strings",
+		"strings_tsv",
+		NULL
+	};
+
+	for (s32 i = 0; keys[i]; i++) {
+		qualifyArchiveIniPath(ini, keys[i], component_dir);
+	}
+}
+#endif
+
 /* ========================================================================
  * Public API
  * ======================================================================== */
@@ -694,6 +1659,76 @@ s32 assetCatalogScanComponents(const char *modsdir)
 	sysLogPrintf(LOG_NOTE, "assetcatalog_scanner: scan complete, %d mod components registered",
 		total);
 	return total;
+}
+
+s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *archive)
+{
+#ifdef PD_SERVER
+	(void)mod_id;
+	(void)archive;
+	return 0;
+#else
+	if (!mod_id || !mod_id[0] || !archive) {
+		return 0;
+	}
+
+	s32 total = 0;
+	s32 entries = modArchiveGetEntryCount(archive);
+
+	for (s32 i = 0; i < entries; i++) {
+		const char *entry_name = modArchiveGetEntryName(archive, i);
+		if (!entry_name || !archiveIniIsDescriptor(entry_name)) {
+			continue;
+		}
+
+		char component_dir[FS_MAXPATH];
+		pathDirname(entry_name, component_dir, sizeof(component_dir));
+		if (!component_dir[0]) {
+			continue;
+		}
+
+		u32 ini_size = 0;
+		char *ini_bytes = (char *)modArchiveExtractAlloc(archive, i, &ini_size);
+		if (!ini_bytes) {
+			sysLogPrintf(LOG_WARNING,
+				"assetcatalog_scanner: could not read archive INI '%s' for '%s'",
+				entry_name, mod_id);
+			continue;
+		}
+
+		ini_section_t ini;
+		if (!iniParseBuffer(entry_name, ini_bytes, ini_size, &ini)) {
+			sysLogPrintf(LOG_WARNING,
+				"assetcatalog_scanner: invalid archive INI '%s' for '%s'",
+				entry_name, mod_id);
+			free(ini_bytes);
+			continue;
+		}
+		free(ini_bytes);
+
+		asset_type_e expected = archiveExpectedTypeForPath(entry_name);
+		asset_type_e ini_type = sectionToType(ini.type);
+		if (expected != ASSET_NONE && ini_type != expected) {
+			sysLogPrintf(LOG_WARNING,
+				"assetcatalog_scanner: archive type mismatch in '%s': "
+				"expected %d, got [%s]=%d",
+				entry_name, expected, ini.type, ini_type);
+		}
+
+		qualifyArchiveIniPaths(&ini, component_dir);
+
+		if (registerComponent(&ini, component_dir, mod_id)) {
+			total++;
+		}
+	}
+
+	if (total > 0) {
+		sysLogPrintf(LOG_NOTE,
+			"assetcatalog_scanner: archive %s: %d component descriptors registered",
+			mod_id, total);
+	}
+	return total;
+#endif
 }
 
 /* ========================================================================

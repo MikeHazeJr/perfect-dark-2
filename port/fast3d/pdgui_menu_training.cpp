@@ -93,10 +93,6 @@ extern struct menudialogdef g_HangarVehicleHolographMenuDialog;
 extern struct menudialogdef g_HangarVehicleDetailsMenuDialog;
 extern struct menudialogdef g_HangarLocationDetailsMenuDialog;
 
-/* ---- Menu navigation ---- */
-void menuPushDialog(struct menudialogdef *dialogdef);
-void menuPopDialog(void);
-
 /* ---- Firing Range API (training.h / trainingmenus.h) ---- */
 /* Difficulty (0=Bronze, 1=Silver, 2=Gold) */
 #define FRDIFFICULTY_BRONZE 0
@@ -524,7 +520,7 @@ static s32 renderFrTrainingInfo(struct menudialog *dialog,
     {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         frAbortMenuHandler(MENUOP_SET, nullptr, nullptr);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_FR_INFO, inGame ? "abort" : "cancel");
     }
 
     ImGui::End();
@@ -690,7 +686,7 @@ static s32 renderBioText(struct menudialog *dialog,
             || pdguiMenuCancelPressed())
         {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_FR_RESULT, "back");
         }
     }
 
@@ -762,7 +758,7 @@ static s32 renderDtResult(struct menudialog *dialog,
         if (PdButton("Continue", ImVec2(btnW, btnH))
             || pdguiMenuAcceptPressed())
         {
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_DT_RESULT, "continue");
         }
     }
 
@@ -846,7 +842,8 @@ static s32 renderHtList(struct menudialog *dialog,
             var80088bb4 = (u8)i;
             pdguiPlaySound(PDGUI_SND_SELECT);
             s_HtNeedsInit = true;
-            menuPushDialog(&g_HtDetailsMenuDialog);
+            menuGraphFirePushDialog(MENU_TYPE_HT_LIST, "details",
+                                    &g_HtDetailsMenuDialog);
         }
 
         if (isSelected && ImGui::IsWindowFocused()) {
@@ -886,7 +883,7 @@ static s32 renderHtList(struct menudialog *dialog,
         {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             s_HtNeedsInit = true;
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_HT_LIST, "back");
         }
     }
 
@@ -958,7 +955,7 @@ static s32 renderHtResult(struct menudialog *dialog,
         if (PdButton("Continue", ImVec2(btnW, btnH))
             || pdguiMenuAcceptPressed())
         {
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_HT_RESULT, "continue");
         }
     }
 
@@ -1017,7 +1014,7 @@ static s32 renderNowSafe(struct menudialog *dialog,
             || pdguiMenuCancelPressed())
         {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_TRAINING, "close");
         }
     }
 
@@ -1235,7 +1232,7 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
     if (backPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_FR_WEAPON_LIST, "back");
         ImGui::End();
         return 1;
     }
@@ -1265,10 +1262,12 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
             s32 tier = pdguiTrFrWeaponScoreTier(weaponnum);
             if (tier > 0) {
                 frSetDifficulty(tier);
-                menuPushDialog(&g_FrDifficultyMenuDialog);
+                menuGraphFirePushDialog(MENU_TYPE_FR_WEAPON_LIST, "difficulty",
+                                        &g_FrDifficultyMenuDialog);
             } else {
                 frSetDifficulty(FRDIFFICULTY_BRONZE);
-                menuPushDialog(&g_FrTrainingInfoPreGameMenuDialog);
+                menuGraphFirePushDialog(MENU_TYPE_FR_WEAPON_LIST, "info",
+                                        &g_FrTrainingInfoPreGameMenuDialog);
             }
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
@@ -1305,10 +1304,12 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
             s32 tier = pdguiTrFrWeaponScoreTier(weaponnum);
             if (tier > 0) {
                 frSetDifficulty(tier);
-                menuPushDialog(&g_FrDifficultyMenuDialog);
+                menuGraphFirePushDialog(MENU_TYPE_FR_WEAPON_LIST, "difficulty",
+                                        &g_FrDifficultyMenuDialog);
             } else {
                 frSetDifficulty(FRDIFFICULTY_BRONZE);
-                menuPushDialog(&g_FrTrainingInfoPreGameMenuDialog);
+                menuGraphFirePushDialog(MENU_TYPE_FR_WEAPON_LIST, "info",
+                                        &g_FrTrainingInfoPreGameMenuDialog);
             }
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
@@ -1349,7 +1350,7 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
         if (PdButton("Back", ImVec2(btnW, btnH))) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_FR_WEAPON_LIST, "back");
         }
     }
 
@@ -1382,7 +1383,7 @@ static s32 renderBioList(struct menudialog *dialog,
 
     if (backPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_TRAINING, "back");
         ImGui::End();
         return 1;
     }
@@ -1423,7 +1424,8 @@ static s32 renderBioList(struct menudialog *dialog,
                                   ImVec2(0, pdguiScale(22.0f)))) {
                 s_BioCursor = i;
                 pdguiTrBioSetSlot(i);
-                menuPushDialog(&g_BioProfileMenuDialog);
+                menuGraphFirePushDialog(MENU_TYPE_TRAINING, "bio_profile",
+                                        &g_BioProfileMenuDialog);
                 pdguiPlaySound(PDGUI_SND_SELECT);
             }
             if (ImGui::IsItemHovered()) s_BioCursor = i;
@@ -1448,7 +1450,8 @@ static s32 renderBioList(struct menudialog *dialog,
                                   ImVec2(0, pdguiScale(22.0f)))) {
                 s_BioCursor = slot;
                 pdguiTrBioSetSlot(slot);
-                menuPushDialog(&g_BioTextMenuDialog);
+                menuGraphFirePushDialog(MENU_TYPE_TRAINING, "bio_text",
+                                        &g_BioTextMenuDialog);
                 pdguiPlaySound(PDGUI_SND_SELECT);
             }
             if (ImGui::IsItemHovered()) s_BioCursor = slot;
@@ -1468,7 +1471,7 @@ static s32 renderBioList(struct menudialog *dialog,
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
         if (PdButton("Back", ImVec2(btnW, btnH))) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_TRAINING, "back");
         }
     }
 
@@ -1497,7 +1500,7 @@ static s32 renderBioProfile(struct menudialog *dialog,
 
     if (backPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_TRAINING, "back");
         ImGui::End();
         return 1;
     }
@@ -1563,7 +1566,7 @@ static s32 renderBioProfile(struct menudialog *dialog,
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
         if (PdButton("Back", ImVec2(btnW, btnH))) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_TRAINING, "back");
         }
     }
 
@@ -1595,7 +1598,7 @@ static s32 renderDtList(struct menudialog *dialog,
 
     if (backPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_DT_LIST, "back");
         ImGui::End();
         return 1;
     }
@@ -1630,7 +1633,8 @@ static s32 renderDtList(struct menudialog *dialog,
         if (ImGui::Selectable(buf, sel, 0, ImVec2(0, pdguiScale(22.0f)))) {
             s_DtCursor = i;
             pdguiTrDtSetSlot(i);
-            menuPushDialog(&g_DtDetailsMenuDialog);
+            menuGraphFirePushDialog(MENU_TYPE_DT_LIST, "details",
+                                    &g_DtDetailsMenuDialog);
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
         if (ImGui::IsItemHovered()) s_DtCursor = i;
@@ -1648,7 +1652,7 @@ static s32 renderDtList(struct menudialog *dialog,
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
         if (PdButton("Back", ImVec2(btnW, btnH))) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_DT_LIST, "back");
         }
     }
 
@@ -1670,6 +1674,7 @@ typedef void (*TrainingVoidFn)(void);
 
 static s32 renderTrainingDetailsImpl(const char *imguiId,
                                       const char *title,
+                                      menu_type_t sourceType,
                                       const char *deviceName,
                                       const char *description,
                                       u32 weaponFilenum,
@@ -1692,7 +1697,7 @@ static s32 renderTrainingDetailsImpl(const char *imguiId,
     if (backPressed()) {
         if (onAbort) onAbort();
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(sourceType, "cancel");
         ImGui::End();
         return 1;
     }
@@ -1756,13 +1761,13 @@ static s32 renderTrainingDetailsImpl(const char *imguiId,
         if (PdButton(okLabel, ImVec2(btnW, btnH))) {
             if (onBegin) onBegin();
             pdguiPlaySound(PDGUI_SND_SELECT);
-            menuPopDialog();
+            menuGraphFirePop(sourceType, "begin");
         }
         ImGui::SameLine(0, pdguiScale(12.0f));
         if (PdButton(cancelLabel, ImVec2(btnW, btnH))) {
             if (onAbort) onAbort();
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(sourceType, "cancel");
         }
     }
 
@@ -1797,6 +1802,7 @@ static s32 renderDtDetails(struct menudialog *dialog,
     s32 training     = pdguiTrDtIsInTraining();
 
     return renderTrainingDetailsImpl("##dt_details", "Device Training",
+                                      MENU_TYPE_DT_DETAILS,
                                       name, desc, filenum, training,
                                       dt_Begin_cb, dt_End_cb, winW, winH);
 }
@@ -1828,6 +1834,7 @@ static s32 renderHtDetails(struct menudialog *dialog,
     s32 training     = pdguiTrHtIsInTraining();
 
     return renderTrainingDetailsImpl("##ht_details", "Holotraining",
+                                      MENU_TYPE_HT_DETAILS,
                                       name, desc, filenum, training,
                                       ht_Begin_cb, ht_End_cb, winW, winH);
 }
@@ -1857,7 +1864,7 @@ static s32 renderHangarList(struct menudialog *dialog,
 
     if (backPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_TRAINING, "back");
         ImGui::End();
         return 1;
     }
@@ -1899,7 +1906,8 @@ static s32 renderHangarList(struct menudialog *dialog,
                                   ImVec2(0, pdguiScale(22.0f)))) {
                 s_HangarCursor = i;
                 pdguiTrHangarSetSlot(i);
-                menuPushDialog(&g_HangarLocationDetailsMenuDialog);
+                menuGraphFirePushDialog(MENU_TYPE_TRAINING, "hangar_location",
+                                        &g_HangarLocationDetailsMenuDialog);
                 pdguiPlaySound(PDGUI_SND_SELECT);
             }
             if (ImGui::IsItemHovered()) s_HangarCursor = i;
@@ -1923,7 +1931,8 @@ static s32 renderHangarList(struct menudialog *dialog,
                                   ImVec2(0, pdguiScale(22.0f)))) {
                 s_HangarCursor = i;
                 pdguiTrHangarSetSlot(i);
-                menuPushDialog(&g_HangarVehicleDetailsMenuDialog);
+                menuGraphFirePushDialog(MENU_TYPE_TRAINING, "hangar_vehicle",
+                                        &g_HangarVehicleDetailsMenuDialog);
                 pdguiPlaySound(PDGUI_SND_SELECT);
             }
             if (ImGui::IsItemHovered()) s_HangarCursor = i;
@@ -1943,7 +1952,7 @@ static s32 renderHangarList(struct menudialog *dialog,
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
         if (PdButton("Back", ImVec2(btnW, btnH))) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_TRAINING, "back");
         }
     }
 
@@ -1978,7 +1987,7 @@ static s32 renderHangarDetailsImpl(const char *imguiId, bool isVehicle,
 
     if (backPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_TRAINING, "back");
         ImGui::End();
         return 1;
     }
@@ -2023,19 +2032,20 @@ static s32 renderHangarDetailsImpl(const char *imguiId, bool isVehicle,
             float totalW = btnW * 2.0f + pdguiScale(12.0f);
             ImGui::SetCursorPosX((diagW - totalW) * 0.5f);
             if (PdButton("Holograph", ImVec2(btnW, btnH))) {
-                menuPushDialog(&g_HangarVehicleHolographMenuDialog);
+                menuGraphFirePushDialog(MENU_TYPE_TRAINING, "hangar_holograph",
+                                        &g_HangarVehicleHolographMenuDialog);
                 pdguiPlaySound(PDGUI_SND_SELECT);
             }
             ImGui::SameLine(0, pdguiScale(12.0f));
             if (PdButton("Back", ImVec2(btnW, btnH))) {
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
-                menuPopDialog();
+                menuGraphFirePop(MENU_TYPE_TRAINING, "back");
             }
         } else {
             ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
             if (PdButton("Back", ImVec2(btnW, btnH))) {
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
-                menuPopDialog();
+                menuGraphFirePop(MENU_TYPE_TRAINING, "back");
             }
         }
     }
@@ -2088,7 +2098,7 @@ static s32 renderHangarVehicleHolograph(struct menudialog *dialog,
 
     if (backPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_TRAINING, "back");
         ImGui::End();
         return 1;
     }
@@ -2116,7 +2126,7 @@ static s32 renderHangarVehicleHolograph(struct menudialog *dialog,
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
         if (PdButton("Back", ImVec2(btnW, btnH))) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_TRAINING, "back");
         }
     }
 

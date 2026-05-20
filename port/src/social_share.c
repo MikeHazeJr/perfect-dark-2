@@ -21,7 +21,9 @@
 #include "listening_room.h"
 #include "playerstats.h"
 #include "file_transfer.h"
+#include "fs.h"
 #include "modmgr.h"
+#include "modpack_pdmod.h"
 #include "system.h"
 
 #include <SDL.h>
@@ -299,7 +301,7 @@ typedef struct {
 static mod_public_entry_t s_MyPublicMods[MOD_PUBLIC_MAX];
 static s32                s_NumMyPublicMods;
 
-#include "fs.h"
+static s32 shareModIdIsSafe(const char *mod_id);
 
 static const char *modPublicPath(void)
 {
@@ -309,6 +311,40 @@ static const char *modPublicPath(void)
 	sysGetHomePath(home, sizeof(home));
 	snprintf(path, sizeof(path), "%s/social/mod-public.json", home);
 	return path;
+}
+
+static s32 packFolderModForPublicShare(const modinfo_t *mod, char *out_path, u32 out_path_size)
+{
+	if (!mod || !out_path || out_path_size == 0 || !mod->dirpath[0] ||
+			!shareModIdIsSafe(mod->id)) {
+		return -1;
+	}
+
+	char home[400];
+	char social_dir[FS_MAXPATH + 1];
+	char outbox_dir[FS_MAXPATH + 1];
+	char mods_dir[FS_MAXPATH + 1];
+	sysGetHomePath(home, sizeof(home));
+	snprintf(social_dir, sizeof(social_dir), "%s/social", home);
+	snprintf(outbox_dir, sizeof(outbox_dir), "%s/outbox", social_dir);
+	snprintf(mods_dir, sizeof(mods_dir), "%s/mods", outbox_dir);
+	fsCreateDir(social_dir);
+	fsCreateDir(outbox_dir);
+	fsCreateDir(mods_dir);
+
+	snprintf(out_path, out_path_size, "%s/%s.pdmod", mods_dir, mod->id);
+	out_path[out_path_size - 1] = '\0';
+
+	s32 r = modpackPdmodFromFolder(mod->dirpath, out_path);
+	if (r != MODPACK_PDMOD_OK) {
+		const char *detail = modpackPdmodLastError();
+		sysLogPrintf(LOG_WARNING,
+			"SHARE: public folder mod \"%s\" failed to package for transfer rc=%d detail=%s",
+			mod->id, (int)r, (detail && detail[0]) ? detail : "");
+		return -1;
+	}
+
+	return 0;
 }
 
 static s32 shareModIdIsSafe(const char *mod_id)
@@ -641,29 +677,27 @@ static void handleModRequest(u32 from_handle, const u8 *payload, u32 payload_len
 		return;
 	}
 
-	/* Folder form -- send a manifest file as a hint. The receiver gets
-	 * the mod.json which they can use to ask the user to manually
-	 * fetch the rest. Sending the entire folder verbatim is a
-	 * follow-up that piggybacks on Priority M's archive packaging. */
+	/* Folder form -- package to a normal .pdmod before transfer so the
+	 * receiver gets the same installable archive shape as archive-backed
+	 * mods. The packer validates the external layout and refuses authored
+	 * .bin payloads before this path can publish anything. */
 	if (!mod->dirpath[0]) {
 		sysLogPrintf(LOG_WARNING, "SHARE: public mod \"%s\" has no folder/archive path",
 		             mod_id);
 		return;
 	}
 
-	char manifest_path[FS_MAXPATH + 32];
-	snprintf(manifest_path, sizeof(manifest_path), "%s/mod.json", mod->dirpath);
-	FILE *probe = NULL;
-	probe = fopen(manifest_path, "rb");
-	if (probe) {
-		fclose(probe);
-		(void)fileTransferSendFile(from_handle, manifest_path);
-		sysLogPrintf(LOG_NOTE, "SHARE: mod manifest offer -> 0x%08x manifest=%s",
-		             (unsigned)from_handle, manifest_path);
-	} else {
-		sysLogPrintf(LOG_WARNING, "SHARE: mod \"%s\" not found locally; ignoring request from 0x%08x",
-		             mod_id, (unsigned)from_handle);
+	char pdmod_path[FS_MAXPATH + 1];
+	if (packFolderModForPublicShare(mod, pdmod_path, sizeof(pdmod_path)) == 0) {
+		(void)fileTransferSendFile(from_handle, pdmod_path);
+		sysLogPrintf(LOG_NOTE, "SHARE: mod offer -> 0x%08x packaged=%s",
+		             (unsigned)from_handle, pdmod_path);
+		return;
 	}
+
+	sysLogPrintf(LOG_WARNING,
+		"SHARE: public folder mod \"%s\" could not be packaged; ignoring request from 0x%08x",
+		mod_id, (unsigned)from_handle);
 }
 
 /* -------------------------------------------------------------------------

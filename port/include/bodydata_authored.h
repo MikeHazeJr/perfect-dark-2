@@ -36,7 +36,7 @@ typedef struct {
 	const char *catalog_id;   /* "base:dark_combat" / "base:sp_body_107" */
 	s16  bodynum;             /* historical g_HeadsAndBodies[] index */
 	u8   ismale;
-	u8   unk00_01;            /* 1 = integrated-head body (Skedar/Dr Caroll/EyeSpy); 0 = normal */
+	u8   unk00_01;            /* 1 = self-contained body (Skedar/Dr Caroll/EyeSpy/Chicrob); 0 = normal */
 	u8   canvaryheight;       /* 1 = per-chr height variance (Skedar) */
 	u8   type;                /* HEADBODYTYPE_* */
 	u16  height;

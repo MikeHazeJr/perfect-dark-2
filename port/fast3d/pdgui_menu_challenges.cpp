@@ -55,9 +55,6 @@ extern struct menudialogdef g_MpChallengeListOrDetailsMenuDialog;
 extern struct menudialogdef g_MpCompletedChallengesMenuDialog;
 extern struct menudialogdef g_MpChallengesMenuDialog;  /* Batch 12 — root-menu variant */
 
-/* Menu stack */
-void menuPopDialog(void);
-
 /* Challenge API (challenge.c) */
 s32   challengeGetNumAvailable(void);
 char *challengeGetNameBySlot(s32 slot);

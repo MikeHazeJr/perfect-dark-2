@@ -529,11 +529,17 @@ TEST_CASE("menu graph: main-menu close uses pop graph edge", "[input][menu_graph
     REQUIRE(close.find("lvSetPaused(false)") != std::string::npos);
     REQUIRE(close.find("playerUnpause()") != std::string::npos);
     REQUIRE(close.find("g_PlayersWithControl[0] = true") != std::string::npos);
-    REQUIRE(close.find("menuPopDialog()") != std::string::npos);
-    REQUIRE(close.find("inputCtxPopDeferred(&g_CtxImGuiMenu)") != std::string::npos);
+    REQUIRE(close.find("menuPopDialog()") == std::string::npos);
+    REQUIRE(close.find("inputCtxPopDeferred(&g_CtxImGuiMenu)") == std::string::npos);
     REQUIRE(render.find("menuGraphFirePopOp(MENU_TYPE_MAIN_MENU, \"close\"") != std::string::npos);
     REQUIRE(render.find("menuPopDialog();") == std::string::npos);
     REQUIRE(render.find("inputCtxPopDeferred(&g_CtxImGuiMenu);") == std::string::npos);
+
+    const std::string popOp = functionBlock(graph, "s32 menuGraphFirePopOp");
+    REQUIRE_FALSE(popOp.empty());
+    REQUIRE(popOp.find("if (rc == 0)") != std::string::npos);
+    REQUIRE(popOp.find("menuPopDialog();") != std::string::npos);
+    REQUIRE(popOp.find("menupoolReleaseAll();") != std::string::npos);
 }
 
 TEST_CASE("menu graph: priority nodes and dialog-push firing substrate exist", "[input][menu_graph][static]")
@@ -553,6 +559,7 @@ TEST_CASE("menu graph: priority nodes and dialog-push firing substrate exist", "
     REQUIRE(header.find("MENU_GRAPH_DEST_LOCAL_OP") != std::string::npos);
     REQUIRE(header.find("typedef struct MenuGraphNode") != std::string::npos);
     REQUIRE(header.find("menuGraphFirePushDialog") != std::string::npos);
+    REQUIRE(header.find("menuGraphFireReplaceDialog") != std::string::npos);
     REQUIRE(header.find("menuGraphFirePushOp") != std::string::npos);
     REQUIRE(header.find("menuGraphFireSwitchSibling") != std::string::npos);
     REQUIRE(header.find("menuGraphFireSceneOp") != std::string::npos);
@@ -576,7 +583,18 @@ TEST_CASE("menu graph: priority nodes and dialog-push firing substrate exist", "
     REQUIRE(graph.find("NODE(MENU_TYPE_SOCIAL_LOBBY") != std::string::npos);
     REQUIRE(graph.find("NODE(MENU_TYPE_NETWORK") != std::string::npos);
     REQUIRE(graph.find("NODE(MENU_TYPE_AGENT_SELECT") != std::string::npos);
+    REQUIRE(graph.find("NODE(MENU_TYPE_CHEATS") != std::string::npos);
+    REQUIRE(graph.find("NODE(MENU_TYPE_MP_SETTINGS") != std::string::npos);
+    REQUIRE(graph.find("NODE(MENU_TYPE_TRAINING") != std::string::npos);
+    REQUIRE(graph.find("NODE(MENU_TYPE_FR_WEAPON_LIST") != std::string::npos);
+    REQUIRE(graph.find("NODE(MENU_TYPE_DT_LIST") != std::string::npos);
+    REQUIRE(graph.find("NODE(MENU_TYPE_HT_LIST") != std::string::npos);
     REQUIRE(graph.find("NODE(MENU_TYPE_WARNING_MODAL") != std::string::npos);
+    REQUIRE(graph.find("#define EDGE_PUSH_ANY") != std::string::npos);
+    REQUIRE(graph.find("EDGE_PUSH_ANY(\"pd_mode_settings\", ACTION_MENU_ACCEPT, \"PD Mode Settings\")") != std::string::npos);
+    REQUIRE(graph.find("EDGE_PUSH_ANY(\"bio_profile\", ACTION_MENU_ACCEPT, \"Bio Profile\")") != std::string::npos);
+    REQUIRE(graph.find("EDGE_PUSH(\"select_music\", ACTION_MENU_ACCEPT, \"Select Music\", MENU_TYPE_MP_TUNES)") != std::string::npos);
+    REQUIRE(graph.find("EDGE_PUSH_ANY(\"more_options\", ACTION_MENU_ACCEPT, \"More Options\")") != std::string::npos);
     REQUIRE(graph.find("EDGE_NETWORK(\"disconnect\", ACTION_MENU_ACCEPT") != std::string::npos);
     REQUIRE(graph.find("EDGE_PUSH(\"joining\", ACTION_MENU_ACCEPT, \"Joining\", MENU_TYPE_NETWORK_JOINING)") != std::string::npos);
     REQUIRE(graph.find("EDGE_POP(\"host_started\", ACTION_MENU_ACCEPT") != std::string::npos);
@@ -592,9 +610,15 @@ TEST_CASE("menu graph: priority nodes and dialog-push firing substrate exist", "
     const std::string fire = functionBlock(graph, "menuGraphFirePushDialog");
     REQUIRE_FALSE(fire.empty());
     REQUIRE(fire.find("menupoolTypeForDialogdef(dialogdef)") != std::string::npos);
+    REQUIRE(fire.find("edge->payload.push_target != MENU_TYPE_NONE") != std::string::npos);
     REQUIRE(fire.find("actual != edge->payload.push_target") != std::string::npos);
     REQUIRE(fire.find("MENU.GRAPH.FIRE") != std::string::npos);
     REQUIRE(fire.find("menuPushDialog(dialogdef)") != std::string::npos);
+
+    const std::string replace = functionBlock(graph, "menuGraphFireReplaceDialog");
+    REQUIRE_FALSE(replace.empty());
+    REQUIRE(replace.find("menuPopDialog();") != std::string::npos);
+    REQUIRE(replace.find("menuPushDialog(dialogdef);") != std::string::npos);
 
     const std::string pushOp = functionBlock(graph, "menuGraphFirePushOp");
     REQUIRE_FALSE(pushOp.empty());
@@ -1180,4 +1204,48 @@ TEST_CASE("menu graph: MP Bot Setup back uses graph pop edge", "[input][menu_gra
     REQUIRE_FALSE(close.empty());
     REQUIRE(close.find("menuGraphFirePop(MENU_TYPE_MP_BOT_SETUP, \"back\")") != std::string::npos);
     REQUIRE(close.find("menuPopDialog()") == std::string::npos);
+}
+
+TEST_CASE("menu graph: c036 ImGui menu surface has no raw stack calls", "[input][menu_graph][c036][static]")
+{
+    const char *paths[] = {
+        "port/fast3d/pdgui_menu_agentcreate.cpp",
+        "port/fast3d/pdgui_menu_agentselect.cpp",
+        "port/fast3d/pdgui_menu_audiomod.cpp",
+        "port/fast3d/pdgui_menu_botsetup.cpp",
+        "port/fast3d/pdgui_menu_challenges.cpp",
+        "port/fast3d/pdgui_menu_cheats.cpp",
+        "port/fast3d/pdgui_menu_controldiagram.cpp",
+        "port/fast3d/pdgui_menu_endscreen.cpp",
+        "port/fast3d/pdgui_menu_forge.cpp",
+        "port/fast3d/pdgui_menu_lobby.cpp",
+        "port/fast3d/pdgui_menu_logviewer.cpp",
+        "port/fast3d/pdgui_menu_mainmenu.cpp",
+        "port/fast3d/pdgui_menu_moddinghub.cpp",
+        "port/fast3d/pdgui_menu_modmgr.cpp",
+        "port/fast3d/pdgui_menu_mpadvanced.cpp",
+        "port/fast3d/pdgui_menu_mpingame.cpp",
+        "port/fast3d/pdgui_menu_mppause.cpp",
+        "port/fast3d/pdgui_menu_mpsettings.cpp",
+        "port/fast3d/pdgui_menu_mpsetup.cpp",
+        "port/fast3d/pdgui_menu_network.cpp",
+        "port/fast3d/pdgui_menu_pausemenu.cpp",
+        "port/fast3d/pdgui_menu_playerconfig.cpp",
+        "port/fast3d/pdgui_menu_room.cpp",
+        "port/fast3d/pdgui_menu_solomission.cpp",
+        "port/fast3d/pdgui_menu_stack_debug.cpp",
+        "port/fast3d/pdgui_menu_stats.cpp",
+        "port/fast3d/pdgui_menu_teamsetup.cpp",
+        "port/fast3d/pdgui_menu_theme_editor.cpp",
+        "port/fast3d/pdgui_menu_training.cpp",
+        "port/fast3d/pdgui_menu_update.cpp",
+        "port/fast3d/pdgui_menu_warning.cpp",
+    };
+
+    for (const char *path : paths) {
+        const std::string source = readTextFile(path);
+        REQUIRE_FALSE(source.empty());
+        REQUIRE(source.find("menuPushDialog(") == std::string::npos);
+        REQUIRE(source.find("menuPopDialog(") == std::string::npos);
+    }
 }

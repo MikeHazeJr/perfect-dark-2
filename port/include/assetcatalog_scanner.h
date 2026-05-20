@@ -16,6 +16,7 @@
 
 #include <PR/ultratypes.h>
 #include "assetcatalog.h"
+#include "modarchive.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -106,6 +107,30 @@ s32 assetCatalogRegisterStageSceneFiles(void);
 s32 assetCatalogScanComponents(const char *modsdir);
 
 /**
+ * Scan the canonical external-format layout inside one loose folder mod.
+ *
+ * Accepts the same modder-facing paths as archive scanning, such as
+ * weapons/<id>/weapon.ini, maps/<id>/arena.ini,
+ * characters/heads/<id>/head.ini, and animations/<kind>/<id>/animation.ini.
+ * This complements the legacy _components scanner and keeps loose folders and
+ * .pdmod archives on the same authoring surface.
+ */
+s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir);
+
+/**
+ * Scan component INI files that live inside a mounted/readable .pdmod archive.
+ *
+ * This is the archive-side equivalent of assetCatalogScanComponents(): it
+ * accepts old _components category/id INI entries and the new
+ * external-format layout (weapons/<id>/weapon.ini, audio/sfx/<id>/sound.ini,
+ * characters/heads/<id>/head.ini, etc.). Paths registered from archive INIs
+ * are kept archive-relative so fsFileLoad can satisfy them through modVFS.
+ *
+ * Returns the number of catalog entries registered.
+ */
+s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *archive);
+
+/**
  * Scan the flat bot_variants/ directory directly under modsdir.
  *
  * Handles user-created bot variants saved by the in-game Bot Customizer:
@@ -141,9 +166,34 @@ typedef struct ini_section {
 /**
  * Parse a .ini file into an ini_section_t.
  * Returns 1 on success, 0 on failure.
- * Only parses the first section (component INIs have one section).
+ * The first section names the asset type; later sections are allowed for
+ * grouped metadata and share the same flat key-value map.
  */
 s32 iniParse(const char *filepath, ini_section_t *out);
+
+/**
+ * Parse a .ini document already loaded in memory. `label` is used only for
+ * diagnostics; the input does not need to be NUL-terminated.
+ */
+s32 iniParseBuffer(const char *label, const char *data, u32 len, ini_section_t *out);
+
+/**
+ * Write a parsed INI section back to a caller-provided UTF-8 buffer.
+ * `out_len` receives the byte count excluding the trailing NUL when non-NULL.
+ */
+s32 iniWriteBuffer(const ini_section_t *ini, char *out, u32 out_cap, u32 *out_len);
+
+/**
+ * Write a parsed INI section to disk using the same formatting as
+ * iniWriteBuffer().
+ */
+s32 iniWriteFile(const char *filepath, const ini_section_t *ini);
+
+/**
+ * Return a commented template for canonical external-format metadata.
+ * Supported kinds: weapon, head, body, arena, animation, sfx, voice, music.
+ */
+const char *modiniTemplateForKind(const char *kind);
 
 /**
  * Look up a value by key in a parsed INI section.

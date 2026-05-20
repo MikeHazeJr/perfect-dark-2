@@ -38,6 +38,8 @@
 #include "lib/model.h"
 #include "lib/rng.h"
 #include "lib/ailist.h"
+#include "lib/collision.h"
+#include "game/bg.h"
 #include "game/spawnpool.h"  /* spawnPoolCorrectPosition for ring spawn fix-up */
 #include "game/chr.h"
 #include "game/chraction.h"
@@ -121,9 +123,10 @@ extern bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
  *   3. Force chr->target = -1, chr->cover = -1 (chrBeginDead handles
  *      cover; this is belt-and-braces for chrs that started with cover
  *      = -1 already and skipped chrBeginDead).
- *   4. Clear chr->act_die.notifychrindex / chr->act_dead.notifychrindex
- *      so any stale alert-fanout cursor cannot dangle into a re-used
- *      g_ChrSlots[] entry.
+ *   4. Clear death-action notify cursors only when the chr is actually
+ *      in a death action. These fields share storage with other action
+ *      payloads (for example ACT_SKJUMP), so non-death actions must not
+ *      be normalized by writing death-union members.
  *
  * Called by despawn_all and despawn_slot before chrRemove.
  * ------------------------------------------------------------------ */
@@ -150,11 +153,14 @@ static void swarm_drain_death_state(struct chrdata *chr)
 	chr->target = -1;
 	chr->cover  = -1;
 
-	/* Step 4: clear the alert-fanout cursors so any future re-use of
-	 * the chr's g_ChrSlots[] entry starts with index=0. The fields are
-	 * unioned; clearing both is safe regardless of actiontype. */
-	chr->act_die.notifychrindex  = 0;
-	chr->act_dead.notifychrindex = 0;
+	/* Step 4: clear alert-fanout cursors only in the action payload
+	 * that is live now. The payload is unioned; writing both fields
+	 * corrupts non-death action state such as ACT_SKJUMP. */
+	if (chr->actiontype == ACT_DIE) {
+		chr->act_die.notifychrindex = 0;
+	} else if (chr->actiontype == ACT_DEAD) {
+		chr->act_dead.notifychrindex = 0;
+	}
 
 	/* Step 5: force chr->fadealpha to a benign value. chrTickDead /
 	 * the corpse-fade walker reads this; with the chr freed, the
@@ -439,6 +445,69 @@ static void swarm_free_aibot(struct aibot *aibot)
 		s32 idx = (s32)((addr - base) / sizeof(struct aibot));
 		s_SwarmAibotInUse[idx] = 0;
 	}
+}
+
+static struct prop *swarm_live_prop_for_chr(struct chrdata *chr)
+{
+	if (!chr || !chr->prop || chr->chrnum < 0 || chr->model == NULL
+			|| g_Vars.maxprops <= 0) {
+		return NULL;
+	}
+
+	struct prop *prop = chr->prop;
+	const uintptr_t props_base = (uintptr_t)g_Vars.props;
+	const uintptr_t props_end =
+		props_base + (uintptr_t)(sizeof(struct prop) * g_Vars.maxprops);
+	const uintptr_t prop_addr = (uintptr_t)prop;
+
+	if (props_base == 0 || prop_addr < props_base || prop_addr >= props_end) {
+		return NULL;
+	}
+	if (prop->type != PROPTYPE_CHR || prop->chr != chr) {
+		return NULL;
+	}
+
+	return prop;
+}
+
+static void swarm_clear_slot_after_stale_prop(s32 i, const char *context)
+{
+	if (i < 0 || i >= TESTSCEN_SWARM_MAX_COUNT) {
+		return;
+	}
+
+	struct chrdata *chr = s_Swarm[i].chr;
+	struct prop *prop = chr ? chr->prop : NULL;
+	struct chrdata *prop_chr = NULL;
+
+	if (prop) {
+		const uintptr_t props_base = (uintptr_t)g_Vars.props;
+		const uintptr_t props_end =
+			props_base + (uintptr_t)(sizeof(struct prop) * g_Vars.maxprops);
+		const uintptr_t prop_addr = (uintptr_t)prop;
+		if (props_base != 0 && g_Vars.maxprops > 0
+				&& prop_addr >= props_base && prop_addr < props_end) {
+			prop_chr = prop->chr;
+		} else {
+			prop = NULL;
+		}
+	}
+
+	if (chr && chr->aibot) {
+		swarm_free_aibot(chr->aibot);
+		chr->aibot = NULL;
+	}
+
+	sysLogPrintf(LOG_WARNING,
+		"TESTSCEN.SWARM: %s dropped stale slot=%d chr=%p chrnum=%d model=%p prop=%p prop_chr=%p",
+		context ? context : "stale", i, (void *)chr,
+		chr ? (s32)chr->chrnum : -2,
+		(void *)(chr ? chr->model : NULL),
+		(void *)prop, (void *)prop_chr);
+
+	s_Swarm[i].chr = NULL;
+	s_Swarm[i].counted_kill = 0;
+	s_Swarm[i].respawn_delay = 0;
 }
 
 /* Init an aibot struct so the bot AI can drive seek/attack/dodge.
@@ -865,10 +934,20 @@ static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms,
 static void despawn_all(void)
 {
 	s32 freed = 0;
+	/* GPU readback and floor-cache state are keyed by swarm slot. Drop
+	 * them before freeing chrs so an in-flight snapshot cannot survive
+	 * into a mass identity swap if a cycle dies partway through despawn. */
+	swarmGpuInvalidateReadback();
+	swarmGpuInvalidateFloorCache();
+
 	for (s32 i = 0; i < TESTSCEN_SWARM_MAX_COUNT; i++) {
 		struct chrdata *chr = s_Swarm[i].chr;
-		if (chr && chr->prop) {
-			struct prop *prop = chr->prop;
+		struct prop *prop = swarm_live_prop_for_chr(chr);
+		if (chr && !prop) {
+			swarm_clear_slot_after_stale_prop(i, "despawn_all");
+			continue;
+		}
+		if (prop) {
 			/* Release the aibot slot BEFORE chrRemove so we don't
 			 * lose the chr->aibot pointer needed to find our pool
 			 * index. ammoheld points into MEMPOOL_STAGE which is
@@ -955,6 +1034,8 @@ static void despawn_all(void)
  * death_poll_and_respawn path picks them up over subsequent ticks
  * (streaming refill). */
 #define SWARM_VOLUME_RETRY_SCALE 1.2f
+#define SWARM_SPAWN_MAX_FLOOR_DELTA 500.0f
+#define SWARM_SPAWN_FLOOR_SNAP_OFFSET 10.0f
 
 /* Per-cycle placement diagnostic counters. Reset in respawn_swarm,
  * surfaced via the cycle summary log so each playtest log shows
@@ -964,6 +1045,107 @@ static void despawn_all(void)
 static s32 s_PlacementOk;
 static s32 s_PlacementGrown;
 static s32 s_PlacementFailed;
+
+static s32 swarm_append_unique_room(RoomNum *rooms, s32 count, s32 max,
+                                    RoomNum room)
+{
+	if (room < 0 || count >= max) {
+		return count;
+	}
+	for (s32 i = 0; i < count; i++) {
+		if (rooms[i] == room) {
+			return count;
+		}
+	}
+	rooms[count++] = room;
+	return count;
+}
+
+/* Volume and ring candidates are selected around the player, not from the
+ * map's authored spawn pads. Correct the vertical component onto a real,
+ * non-death floor before committing the chr. This prevents random-volume
+ * picks from landing below the playable surface or on GEOFLAG_DIE tiles. */
+static s32 swarm_snap_spawn_to_safe_floor(struct coord *pos,
+                                          RoomNum *room,
+                                          f32 chr_radius)
+{
+	RoomNum inrooms[21];
+	RoomNum aboverooms[21];
+	RoomNum bestroom = -1;
+	RoomNum grooms[8];
+	s32 grcount = 0;
+	RoomNum floorroom = -1;
+	u16 floorflags = 0;
+
+	if (!pos || !room) {
+		return 0;
+	}
+
+	grcount = swarm_append_unique_room(grooms, grcount, 7, *room);
+	inrooms[0] = -1;
+	aboverooms[0] = -1;
+	bgFindRoomsByPos(pos, inrooms, aboverooms, 20, &bestroom);
+	for (s32 i = 0; inrooms[i] >= 0 && grcount < 7; i++) {
+		grcount = swarm_append_unique_room(grooms, grcount, 7, inrooms[i]);
+	}
+	grcount = swarm_append_unique_room(grooms, grcount, 7, bestroom);
+	if (grcount <= 0) {
+		return 0;
+	}
+	grooms[grcount] = -1;
+
+	const f32 ground_y = cdFindGroundInfoAtCyl(pos, chr_radius, grooms,
+		NULL, NULL, &floorflags, &floorroom, NULL, NULL);
+	if (ground_y <= -99000.0f) {
+		return 0;
+	}
+	if (floorflags & GEOFLAG_DIE) {
+		return 0;
+	}
+	if (fabsf(pos->y - ground_y) > SWARM_SPAWN_MAX_FLOOR_DELTA) {
+		return 0;
+	}
+
+	pos->y = ground_y + SWARM_SPAWN_FLOOR_SNAP_OFFSET;
+	if (floorroom >= 0) {
+		*room = floorroom;
+	} else {
+		*room = grooms[0];
+	}
+
+	if (!bgTestPosInRoom(pos, *room)) {
+		bestroom = -1;
+		inrooms[0] = -1;
+		aboverooms[0] = -1;
+		bgFindRoomsByPos(pos, inrooms, aboverooms, 20, &bestroom);
+		if (inrooms[0] >= 0) {
+			*room = inrooms[0];
+		} else if (bestroom >= 0) {
+			*room = bestroom;
+		} else {
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+static s32 swarm_finalize_spawn_candidate(struct coord *pos,
+                                          RoomNum *room,
+                                          f32 chr_radius,
+                                          f32 chr_height)
+{
+	if (!spawnPoolCorrectPosition(pos, room, chr_radius, chr_height)) {
+		return 0;
+	}
+	if (!swarm_snap_spawn_to_safe_floor(pos, room, chr_radius)) {
+		return 0;
+	}
+	if (!spawnPoolCorrectPosition(pos, room, chr_radius, chr_height)) {
+		return 0;
+	}
+	return swarm_snap_spawn_to_safe_floor(pos, room, chr_radius);
+}
 
 /* Forward decl: respawn_ring is defined below respawn_swarm but
  * respawn_swarm needs to call it. */
@@ -992,7 +1174,7 @@ static s32 swarm_pick_volume_position(const struct coord *center,
 		center->z + rz,
 	};
 	RoomNum corrected_room = center_room;
-	if (!spawnPoolCorrectPosition(&pos, &corrected_room,
+	if (!swarm_finalize_spawn_candidate(&pos, &corrected_room,
 			chr_radius, chr_height)) {
 		return 0;
 	}
@@ -1173,7 +1355,8 @@ static void respawn_ring(s32 count)
 		 * push, and skip this position entirely if the chr is too tall
 		 * for the spot (height failure). */
 		RoomNum corrected_room = prooms[0];
-		if (!spawnPoolCorrectPosition(&pos, &corrected_room, 30.0f, 180.0f)) {
+		if (!swarm_finalize_spawn_candidate(&pos, &corrected_room,
+				30.0f, 180.0f)) {
 			/* S594h-Unit-C: leave the slot empty for the streaming-fill
 			 * path. death_poll_and_respawn picks up empty slots over
 			 * subsequent ticks. Store the INTENDED ring position so
@@ -1259,12 +1442,12 @@ static void gpu_fallback_seek_tick(struct coord *player_pos)
 {
 	for (s32 i = 0; i < s_SwarmCount; i++) {
 		struct chrdata *chr = s_Swarm[i].chr;
-		if (!chr || !chr->prop || chr->chrnum < 0 || chr->model == NULL
+		struct prop *prop = swarm_live_prop_for_chr(chr);
+		if (!prop
 				|| chr->actiontype == ACT_DEAD
 				|| chr->actiontype == ACT_DIE) {
 			continue;
 		}
-		struct prop *prop = chr->prop;
 		f32 dx = player_pos->x - prop->pos.x;
 		f32 dz = player_pos->z - prop->pos.z;
 		f32 d2 = dx * dx + dz * dz;
@@ -1299,8 +1482,12 @@ static void gpu_fallback_seek_tick(struct coord *player_pos)
 static void despawn_slot(s32 i)
 {
 	struct chrdata *chr = s_Swarm[i].chr;
-	if (chr && chr->prop) {
-		struct prop *prop = chr->prop;
+	struct prop *prop = swarm_live_prop_for_chr(chr);
+	if (chr && !prop) {
+		swarm_clear_slot_after_stale_prop(i, "despawn_slot");
+		return;
+	}
+	if (prop) {
 		if (chr->aibot) {
 			swarm_free_aibot(chr->aibot);
 			chr->aibot = NULL;
@@ -1350,7 +1537,8 @@ static s32 respawn_slot(s32 i)
 		 * geometry shifted) the original spot might now be inside a wall.
 		 * Conservative chr_radius/height -- spawn_one_skedar picks the
 		 * actual scale, so this gates with a slight over-estimate. */
-		if (!spawnPoolCorrectPosition(&pos, &corrected_room, 30.0f, 180.0f)) {
+		if (!swarm_finalize_spawn_candidate(&pos, &corrected_room,
+				30.0f, 180.0f)) {
 			/* Mike directive 2026-05-17: "they sometimes spawn in walls
 			 * or not at all". If the slot's stored ring position is
 			 * permanently blocked, retrying the same spot every frame
@@ -1382,7 +1570,8 @@ static s32 respawn_slot(s32 i)
 					ppos.z + rad_jitter * sinf(ang_jitter),
 				};
 				RoomNum jroom = g_Vars.currentplayer->prop->rooms[0];
-				if (spawnPoolCorrectPosition(&jpos, &jroom, 30.0f, 180.0f)) {
+				if (swarm_finalize_spawn_candidate(&jpos, &jroom,
+						30.0f, 180.0f)) {
 					pos = jpos;
 					corrected_room = jroom;
 					jitter_ok = 1;
@@ -1461,6 +1650,19 @@ static void death_poll_and_respawn(void)
 			continue;
 		}
 
+		struct prop *prop = swarm_live_prop_for_chr(chr);
+		if (!prop) {
+			if (!s_Swarm[i].counted_kill) {
+				s_SwarmKills++;
+			}
+			swarm_clear_slot_after_stale_prop(i, "death_poll");
+			if (refill_budget > 0) {
+				(void)respawn_slot(i);
+				refill_budget--;
+			}
+			continue;
+		}
+
 		/* Phase 1: detect newly-dead chr. */
 		if (!s_Swarm[i].counted_kill) {
 			if (chr->actiontype == ACT_DEAD || chr->actiontype == ACT_DIE
@@ -1524,15 +1726,18 @@ static void cycler_tick(void)
 		(dir > 0) ? "NEXT" : "PREV",
 		((idx - dir) % N + N) % N, idx, next, s_SwarmCount);
 
+	/* Identity invalidation must happen before respawn_swarm(), not only
+	 * after it, because respawn_swarm begins by freeing the current chr
+	 * population. The post-respawn invalidate below remains harmless, but
+	 * this pre-free guard protects stress cycles that fail mid-despawn. */
+	swarmGpuInvalidateReadback();
+	swarmGpuInvalidateFloorCache();
+
 	respawn_swarm(next);
 
-	/* Slice 2 c029 (2026-05-16): the cycler just despawned all chrs and
-	 * spawned fresh ones at the new count. Drop the async readback ring
-	 * so we don't apply last frame's positions (for now-freed chrs) to
-	 * the newly-spawned chrs sharing the same slot indices. The next 2
-	 * frames consume nothing; from frame 3 onward the ring is back in
-	 * steady state with current-identity data. No-op if the ring isn't
-	 * armed (CPU mode / driver fallback). */
+	/* Slice 2 c029 (2026-05-16): keep the post-respawn invalidate too,
+	 * so the newly-spawned identities start with an empty readback ring.
+	 * No-op if the ring isn't armed (CPU mode / driver fallback). */
 	swarmGpuInvalidateReadback();
 	/* Slice 3 c029: the per-bot floor cache is also indexed by slot, so
 	 * the same identity-change reasoning applies. The drift threshold
@@ -1647,6 +1852,10 @@ static s32 s_SwarmGpuAiFiresApplied;
 #define SWARM_SKJUMP_MIN_RANGE        200.0f
 #define SWARM_SKJUMP_MAX_RANGE        550.0f
 #define SWARM_SKJUMP_COOLDOWN_60       60
+#define SWARM_SKJUMP_MAX_STARTS_PER_FRAME 24
+#define SWARM_SKJUMP_PHASE_SMALL        4
+#define SWARM_SKJUMP_PHASE_MEDIUM       8
+#define SWARM_SKJUMP_PHASE_LARGE       16
 #define SWARM_SURFACE_WALL_HORIZ_MIN    0.3f
 
 static f32 swarm_absf(f32 v)
@@ -1772,6 +1981,38 @@ static void swarm_trace_surface_contact(struct chrdata *chr, s32 slot_index)
 	s_SwarmLastTraceFrame[slot_index] = lvframe;
 }
 
+static s32 swarm_skjump_phase_span(void)
+{
+	if (s_SwarmCount <= 16) {
+		return SWARM_SKJUMP_PHASE_SMALL;
+	}
+	if (s_SwarmCount <= 128) {
+		return SWARM_SKJUMP_PHASE_MEDIUM;
+	}
+	return SWARM_SKJUMP_PHASE_LARGE;
+}
+
+static s32 swarm_skjump_start_allowed(s32 slot_index)
+{
+	static s32 s_Frame = -1;
+	static s32 s_Used = 0;
+	const s32 frame = g_Vars.lvframe60;
+	const s32 phase_span = swarm_skjump_phase_span();
+
+	if (s_Frame != frame) {
+		s_Frame = frame;
+		s_Used = 0;
+	}
+	if (((slot_index + frame) % phase_span) != 0) {
+		return 0;
+	}
+	if (s_Used >= SWARM_SKJUMP_MAX_STARTS_PER_FRAME) {
+		return 0;
+	}
+	s_Used++;
+	return 1;
+}
+
 s32 swarmTestApplyMovementIntent(struct chrdata *chr,
                                  s32 slot_index,
                                  s32 target_propnum,
@@ -1780,7 +2021,7 @@ s32 swarmTestApplyMovementIntent(struct chrdata *chr,
                                  f32 range_to_target,
                                  const f32 *vel_hint)
 {
-	if (!chr || !chr->prop || !chr->model || chr->chrnum < 0) {
+	if (!swarm_live_prop_for_chr(chr)) {
 		return 0;
 	}
 	if (slot_index < 0 || slot_index >= TESTSCEN_SWARM_MAX_COUNT) {
@@ -1818,6 +2059,7 @@ s32 swarmTestApplyMovementIntent(struct chrdata *chr,
 		const s32 elapsed = lvframe - s_SwarmLastSkJump60[slot_index];
 		if ((s_SwarmLastSkJump60[slot_index] == 0
 					|| elapsed >= SWARM_SKJUMP_COOLDOWN_60)
+				&& swarm_skjump_start_allowed(slot_index)
 				&& chrTrySkJump(chr, 0, 0, 0, 0)) {
 			s_SwarmLastSkJump60[slot_index] = lvframe;
 			sysLogPrintf(LOG_NOTE,
@@ -1842,7 +2084,7 @@ s32 swarmTestApplyAiDecision(struct chrdata *chr,
                              s32 anim_key,
                              f32 range_to_target)
 {
-	if (!chr || !chr->prop || !chr->model || chr->chrnum < 0) {
+	if (!swarm_live_prop_for_chr(chr)) {
 		return 0;
 	}
 	if (slot_index < 0 || slot_index >= TESTSCEN_SWARM_MAX_COUNT) {
@@ -2174,7 +2416,7 @@ void swarmTestTick(void)
 		const s32 lvframe = g_Vars.lvframe60;
 		for (s32 i = 0; i < s_SwarmCount; i++) {
 			struct chrdata *chr = s_Swarm[i].chr;
-			if (!chr || !chr->aibot || chr->chrnum < 0) continue;
+			if (!swarm_live_prop_for_chr(chr) || !chr->aibot) continue;
 			chr->target = player_propnum;
 			chr->aibot->attackingplayernum = 0;
 			chr->aibot->command = AIBOTCMD_ATTACK;
@@ -2205,7 +2447,7 @@ void swarmTestTick(void)
 		if ((g_Vars.lvframe60 % 60) == 0) {
 			for (s32 i = 0; i < s_SwarmCount && i < 4; i++) {
 				struct chrdata *chr = s_Swarm[i].chr;
-				if (!chr || !chr->aibot) continue;
+				if (!swarm_live_prop_for_chr(chr) || !chr->aibot) continue;
 				const f32 px = g_Vars.currentplayer->prop->pos.x;
 				const f32 pz = g_Vars.currentplayer->prop->pos.z;
 				const f32 dx = px - chr->prop->pos.x;
@@ -2232,7 +2474,7 @@ void swarmTestTick(void)
 		 * stress-test reasons (bot-bot phasing). */
 		for (s32 i = 0; i < s_SwarmCount; i++) {
 			struct chrdata *chr = s_Swarm[i].chr;
-			if (!chr || !chr->aibot || chr->chrnum < 0) continue;
+			if (!swarm_live_prop_for_chr(chr) || !chr->aibot) continue;
 			chr->target = -1;
 			chr->aibot->attackingplayernum = -1;
 			chr->aibot->attackpropnum = -1;
@@ -2251,10 +2493,11 @@ void swarmTestTick(void)
 		const struct coord pp = g_Vars.currentplayer->prop->pos;
 		for (s32 i = 0; i < s_SwarmCount; i++) {
 			struct chrdata *chr = s_Swarm[i].chr;
-			if (!chr || !chr->prop || chr->chrnum < 0) continue;
-			const f32 dx = pp.x - chr->prop->pos.x;
-			const f32 dy = pp.y - chr->prop->pos.y;
-			const f32 dz = pp.z - chr->prop->pos.z;
+			struct prop *prop = swarm_live_prop_for_chr(chr);
+			if (!prop) continue;
+			const f32 dx = pp.x - prop->pos.x;
+			const f32 dy = pp.y - prop->pos.y;
+			const f32 dz = pp.z - prop->pos.z;
 			const f32 dist = sqrtf(dx * dx + dy * dy + dz * dz);
 			(void)swarmTestApplyMovementIntent(chr, i, player_propnum,
 				1, 1, dist, NULL);
@@ -2305,7 +2548,8 @@ void swarmTestTick(void)
 		} else if (swarmGpuAvailable()) {
 			struct chrdata *chrs[TESTSCEN_SWARM_MAX_COUNT];
 			for (s32 i = 0; i < TESTSCEN_SWARM_MAX_COUNT; i++) {
-				chrs[i] = s_Swarm[i].chr;
+				chrs[i] = swarm_live_prop_for_chr(s_Swarm[i].chr)
+					? s_Swarm[i].chr : NULL;
 			}
 			swarmGpuStepAndApply(&player_pos, chrs, s_SwarmCount,
 				(s32)method_now, player_propnum);
@@ -2451,7 +2695,8 @@ s32 swarmTestGetInPlayCount(void)
 {
 	s32 n = 0;
 	for (s32 i = 0; i < s_SwarmCount; i++) {
-		if (s_Swarm[i].chr != NULL && !s_Swarm[i].counted_kill) n++;
+		if (swarm_live_prop_for_chr(s_Swarm[i].chr)
+				&& !s_Swarm[i].counted_kill) n++;
 	}
 	return n;
 }

@@ -137,8 +137,6 @@ struct missionconfig {
  * the handler functions approach instead. */
 
 /* Game state functions */
-void menuPushDialog(struct menudialogdef *dialogdef);
-void menuPopDialog(void);
 s32 menuIsDialogOpen(struct menudialogdef *dialogdef);
 s32 menuDialogIsCurrent(const struct menudialog *dialog);
 void mainChangeToStage(s32 stagenum);
@@ -3649,14 +3647,6 @@ static s32 pdguiMainMenuGraphClose(void *userdata)
     g_PlayersWithControl[0] = true;
     sysLogPrintf(LOG_NOTE, "MENU_IMGUI: game state restored -- lvIsPaused=%d", lvIsPaused());
 
-    menuPopDialog();
-
-    if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-        sysLogPrintf(LOG_NOTE,
-            "MENU_IMGUI: defensive inputCtxPopDeferred(g_CtxImGuiMenu) -- leak class caught on top-level close");
-        inputCtxPopDeferred(&g_CtxImGuiMenu);
-    }
-
     return 0;
 }
 
@@ -5353,7 +5343,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
     /* S304 / CI load: attach g_CtxImGuiMenu whenever this window is open, not
      * only on IsWindowAppearing. After a stage transition into CI, ImGui may
      * keep "##main_menu" without a fresh Appearing frame while menupool still
-     * has the slot live from menuPushDialog (ctx=NULL). Gameplay stayed the
+     * has the slot live from the legacy dialog push (ctx=NULL). Gameplay stayed the
      * input stack top so pdguiIsActive() was false and the interact prompt
      * drew over the main menu (Hold X facing the hub PC). menupoolAcquireDialog
      * is idempotent; S300 attaches the ctx on active slots when owned_ctx was
@@ -6173,10 +6163,8 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
         sysLogPrintf(LOG_NOTE,
             "MENU_IMGUI: CI Options redirect CLOSE (dialog=%p)%s",
             (void *)def, titleCloseCi ? " [via X]" : "");
-        /* S311: menuCloseDialog (invoked by menuPopDialog) releases the
-         * pool slot and pops the owned ctx; no explicit ctx pop here. */
         s_LastDialog = nullptr;
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_CI_OPTIONS, "close");
     }
 
     /* D-pad wrapping must be called before End(). */
@@ -6270,7 +6258,7 @@ static s32 renderCiDeadPlayer2(struct menudialog *dialog,
     }
 
     if (wantClose) {
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_CI_OPTIONS, "close");
     }
 
     pdguiNavTickWrap();
@@ -6471,8 +6459,7 @@ static s32 renderCinemaList(struct menudialog *dialog,
     pdguiEndActionBar();
 
     if (wantClose) {
-        /* S311: menuCloseDialog cascade releases pool slot + ctx. */
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_CINEMA, "back");
     }
 
     pdguiNavTickWrap();

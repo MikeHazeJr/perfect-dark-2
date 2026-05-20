@@ -113,6 +113,82 @@ static void ogg_reader_close(ogg_reader_t *r)
     /* Note: pcm_buf is returned to caller, not freed here */
 }
 
+static int decode_loaded_audio(SDL_AudioSpec *spec, Uint8 *buf, Uint32 len,
+                               int *channels, int *sample_rate, short **output)
+{
+    SDL_AudioCVT cvt;
+
+    *channels = spec->channels;
+    *sample_rate = spec->freq;
+
+    if (spec->format == AUDIO_S16SYS && spec->channels <= 2) {
+        int totalSamples = (int)(len / sizeof(short));
+        *output = (short *)malloc(len);
+        if (!*output) { SDL_FreeWAV(buf); return -1; }
+        memcpy(*output, buf, len);
+        SDL_FreeWAV(buf);
+        return totalSamples;
+    }
+
+    int cvtResult = SDL_BuildAudioCVT(&cvt,
+        spec->format, spec->channels, spec->freq,
+        AUDIO_S16SYS, spec->channels, spec->freq);
+
+    if (cvtResult < 0) {
+        SDL_FreeWAV(buf);
+        return -1;
+    }
+
+    if (cvtResult > 0) {
+        Uint32 cvtBufLen = len * (Uint32)cvt.len_mult;
+        Uint8 *cvtBuf = (Uint8 *)malloc(cvtBufLen);
+        if (!cvtBuf) { SDL_FreeWAV(buf); return -1; }
+        memcpy(cvtBuf, buf, len);
+        SDL_FreeWAV(buf);
+
+        cvt.buf = cvtBuf;
+        cvt.len = (int)len;
+        if (SDL_ConvertAudio(&cvt) < 0) {
+            free(cvtBuf);
+            return -1;
+        }
+
+        int totalSamples = cvt.len_cvt / (int)sizeof(short);
+        *output = (short *)cvtBuf;
+        *channels = spec->channels;
+        return totalSamples;
+    }
+
+    int totalSamples = (int)(len / sizeof(short));
+    *output = (short *)malloc(len);
+    if (!*output) { SDL_FreeWAV(buf); return -1; }
+    memcpy(*output, buf, len);
+    SDL_FreeWAV(buf);
+    return totalSamples;
+}
+
+int stb_vorbis_decode_memory(const unsigned char *data, int data_len,
+                             int *channels, int *sample_rate, short **output)
+{
+    SDL_AudioSpec spec;
+    Uint8 *buf = NULL;
+    Uint32 len = 0;
+
+    if (!data || data_len <= 0 || !channels || !sample_rate || !output) return -1;
+
+    *channels = 0;
+    *sample_rate = 0;
+    *output = NULL;
+
+    SDL_RWops *rw = SDL_RWFromConstMem(data, data_len);
+    if (!rw) return -1;
+    if (SDL_LoadWAV_RW(rw, 1, &spec, &buf, &len) == NULL) {
+        return -1;
+    }
+
+    return decode_loaded_audio(&spec, buf, len, channels, sample_rate, output);
+}
+
 /*
  * For a production-ready OGG decoder, the full stb_vorbis.c should be
  * vendored. This stub implementation attempts to decode using SDL2's
@@ -127,7 +203,6 @@ int stb_vorbis_decode_filename(const char *filename, int *channels,
     SDL_AudioSpec spec;
     Uint8 *buf = NULL;
     Uint32 len = 0;
-    SDL_AudioCVT cvt;
 
     if (!filename || !channels || !sample_rate || !output) return -1;
 
@@ -176,57 +251,7 @@ int stb_vorbis_decode_filename(const char *filename, int *channels,
         free(fdata);
     }
 
-    /* Convert to S16 stereo at original sample rate */
-    *channels = spec.channels;
-    *sample_rate = spec.freq;
-
-    if (spec.format == AUDIO_S16SYS && spec.channels <= 2) {
-        /* Already in target format */
-        int totalSamples = (int)(len / sizeof(short));
-        *output = (short *)malloc(len);
-        if (!*output) { SDL_FreeWAV(buf); return -1; }
-        memcpy(*output, buf, len);
-        SDL_FreeWAV(buf);
-        return totalSamples;
-    }
-
-    /* Need conversion to S16 */
-    int cvtResult = SDL_BuildAudioCVT(&cvt,
-        spec.format, spec.channels, spec.freq,
-        AUDIO_S16SYS, spec.channels, spec.freq);
-
-    if (cvtResult < 0) {
-        SDL_FreeWAV(buf);
-        return -1;
-    }
-
-    if (cvtResult > 0) {
-        Uint32 cvtBufLen = len * (Uint32)cvt.len_mult;
-        Uint8 *cvtBuf = (Uint8 *)malloc(cvtBufLen);
-        if (!cvtBuf) { SDL_FreeWAV(buf); return -1; }
-        memcpy(cvtBuf, buf, len);
-        SDL_FreeWAV(buf);
-
-        cvt.buf = cvtBuf;
-        cvt.len = (int)len;
-        if (SDL_ConvertAudio(&cvt) < 0) {
-            free(cvtBuf);
-            return -1;
-        }
-
-        int totalSamples = cvt.len_cvt / (int)sizeof(short);
-        *output = (short *)cvtBuf;
-        *channels = spec.channels;
-        return totalSamples;
-    }
-
-    /* No conversion needed */
-    int totalSamples = (int)(len / sizeof(short));
-    *output = (short *)malloc(len);
-    if (!*output) { SDL_FreeWAV(buf); return -1; }
-    memcpy(*output, buf, len);
-    SDL_FreeWAV(buf);
-    return totalSamples;
+    return decode_loaded_audio(&spec, buf, len, channels, sample_rate, output);
 }
 
 #if defined(__GNUC__) || defined(__clang__)

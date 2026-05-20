@@ -452,9 +452,23 @@ s32 audioPlayFileSound(const char *path, u16 volume, u8 pan)
     SDL_AudioSpec wavSpec;
     Uint8 *wavBuf = NULL;
     Uint32 wavLen = 0;
+    u32 fileSize = 0;
+    void *fileBytes = fsFileLoad(path, &fileSize);
 
-    if (SDL_LoadWAV(path, &wavSpec, &wavBuf, &wavLen) == NULL) {
-        return 0;
+    if (fileBytes && fileSize > 0 && fileSize <= 0x7fffffffU) {
+        SDL_RWops *rw = SDL_RWFromConstMem(fileBytes, (int)fileSize);
+        if (rw) {
+            SDL_LoadWAV_RW(rw, 1, &wavSpec, &wavBuf, &wavLen);
+        }
+        free(fileBytes);
+    } else if (fileBytes) {
+        free(fileBytes);
+    }
+
+    if (!wavBuf) {
+        if (SDL_LoadWAV(path, &wavSpec, &wavBuf, &wavLen) == NULL) {
+            return 0;
+        }
     }
 
     /* Convert to device format: 22050 Hz, AUDIO_S16SYS, 2-channel */

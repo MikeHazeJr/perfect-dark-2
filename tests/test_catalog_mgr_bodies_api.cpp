@@ -16,7 +16,7 @@
  *   - Bounds-check rule: in-range = ok, out-of-range = miss.  Bodies
  *     have no RANDOM_GENDER sentinel (heads-only).
  *   - Integrated-head predicate: catalogMgrBodyIsIntegratedHeadPure(1) == 1
- *     for Skedar / Dr Caroll / EyeSpy semantics; (0) and any other value
+ *     for self-contained bodies such as Skedar / Dr Caroll / EyeSpy / Chicrob; (0) and any other value
  *     == 0.  This is the S593g warning gate's truth.
  *
  * @SYNC: changes to src/include/data.h (g_HeadsAndBodies size) must be
@@ -58,7 +58,7 @@ TEST_CASE("catalog-mgr-body: bounds-check out-of-range",
 
 TEST_CASE("catalog-mgr-body: integrated-head predicate",
           "[catalog-mgr-body][gate3][f1][integrated-head]") {
-	/* Skedar / Dr Caroll / EyeSpy semantic: unk00_01 == 1 for body slots. */
+	/* Self-contained body semantic: unk00_01 == 1 for body slots. */
 	REQUIRE(catalogMgrBodyIsIntegratedHeadPure(1) == 1);
 	/* Normal body: unk00_01 == 0. */
 	REQUIRE(catalogMgrBodyIsIntegratedHeadPure(0) == 0);

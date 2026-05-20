@@ -30,7 +30,9 @@ TEST_CASE("Public Mods publishing is registry-backed and path-safe", "[social][p
 	REQUIRE(cmake.find("tests/test_public_mods_static.cpp") != std::string::npos);
 
 	REQUIRE(share.find("#include \"modmgr.h\"") != std::string::npos);
+	REQUIRE(share.find("#include \"modpack_pdmod.h\"") != std::string::npos);
 	REQUIRE(share.find("static s32 shareModIdIsSafe") != std::string::npos);
+	REQUIRE(share.find("static s32 packFolderModForPublicShare") != std::string::npos);
 	REQUIRE(share.find("isalnum(ch) || ch == '_' || ch == '-' || ch == '.'") != std::string::npos);
 	REQUIRE(share.find("mod_id[0] == '.' || mod_id[len - 1] == '.'") != std::string::npos);
 	REQUIRE(share.find("ch == '.' && mod_id[i + 1] == '.'") != std::string::npos);
@@ -43,7 +45,12 @@ TEST_CASE("Public Mods publishing is registry-backed and path-safe", "[social][p
 	REQUIRE(share.find("friend_handle == 0 || !shareModIdIsSafe(mod_id)") != std::string::npos);
 	REQUIRE(share.find("unsafe mod id request") != std::string::npos);
 	REQUIRE(share.find("non-public mod") != std::string::npos);
+	REQUIRE(share.find("modpackPdmodFromFolder(mod->dirpath, out_path)") != std::string::npos);
+	REQUIRE(share.find("modpackPdmodLastError()") != std::string::npos);
+	REQUIRE(share.find("fileTransferSendFile(from_handle, pdmod_path)") != std::string::npos);
+	REQUIRE(share.find("public folder mod") != std::string::npos);
 	REQUIRE(share.find("%s/mods/installed/%s") == std::string::npos);
+	REQUIRE(share.find("mod manifest offer") == std::string::npos);
 
 	REQUIRE(ui.find("#include \"modmgr.h\"") != std::string::npos);
 	REQUIRE(ui.find("modmgrGetCount()") != std::string::npos);

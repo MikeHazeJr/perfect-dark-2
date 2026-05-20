@@ -74,6 +74,9 @@ const char *menuGraphDestKindName(MenuGraphDestKind kind);
 s32 menuGraphFirePushDialog(menu_type_t source,
                             const char *edge_id,
                             struct menudialogdef *dialogdef);
+s32 menuGraphFireReplaceDialog(menu_type_t source,
+                               const char *edge_id,
+                               struct menudialogdef *dialogdef);
 s32 menuGraphFirePushOp(menu_type_t source,
                         const char *edge_id,
                         MenuGraphPushOpFn op,

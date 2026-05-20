@@ -1,0 +1,50 @@
+{
+  "scenario_name": "mission_escape_hoverbed_intro",
+  "description": "B-345 follow-up: launch Area 51 - Escape directly and verify the Elvis hoverbed intro object is present in the stage-start asset path. This targets the rejected-card report that some mission starts still black-screen or miss objects such as the medical/hover bed Elvis gets out of.",
+  "tags": ["catalog", "solo", "mission", "cutscene", "hoverbed", "b-345"],
+  "paths_of_interest": [
+    "src/setups/setuptra.c",
+    "src/game/modeldata/general.c",
+    "port/src/assetcatalog_base_extended.c",
+    "port/src/net/netmanifest.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--launch-mission",
+    "0x19",
+    "--difficulty",
+    "agent"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "boot path: --launch-mission 0x19 seeds Area 51 - Escape directly." },
+    { "at_ms": 30000, "type": "action", "name": "ACTION_USE", "action": "tap", "comment": "intro cutscene skip attempt #1." },
+    { "at_ms": 32000, "type": "action", "name": "ACTION_SKIP_CUTSCENE", "action": "tap", "comment": "intro cutscene skip attempt #2." },
+    { "at_ms": 60000, "type": "exit", "comment": "scripted exit after setup and first gameplay frames settle." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mission_escape_hoverbed_intro",
+      "BOOT: --launch-mission .* -> stagenum=0x19 difficulty=0",
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x19",
+      "LOAD: calling setupCreateProps stagenum=0x19",
+      "SETUP: setupLoadStage complete",
+      "file 214 \\(PhoverbedZ\\) loaded",
+      "TICK: lvTick enter tick=\\d+ stagenum=0x19",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "CATALOG_CRITICAL: .*model"
+    ],
+    "required_counts": []
+  }
+}

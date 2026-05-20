@@ -128,6 +128,47 @@ static asset_type_e lvCatalogAssetTypeForId(const char *assetId)
 	return entry ? entry->type : ASSET_NONE;
 }
 
+static s32 lvAddLoadedCatalogColmeshes(const char *category)
+{
+	s32 added = 0;
+	s32 total = assetCatalogGetCount();
+
+	if (!category || !category[0]) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < total; i++) {
+		const asset_entry_t *entry = assetCatalogGetByIndex(i);
+		struct colmesh *mesh;
+		s32 before;
+
+		if (!entry || !entry->occupied || entry->bundled) {
+			continue;
+		}
+
+		if (category && category[0]
+				&& strncmp(entry->category, category, CATALOG_CATEGORY_LEN) != 0) {
+			continue;
+		}
+
+		mesh = catalogGetLoadedColmesh(entry->id);
+		if (!mesh || mesh->numtris <= 0) {
+			continue;
+		}
+
+		before = g_WorldMesh.numtris;
+		meshWorldAddMesh(mesh, NULL);
+		if (g_WorldMesh.numtris > before) {
+			added++;
+			sysLogPrintf(LOG_NOTE,
+				"MESHCOL: added catalog OBJ mesh '%s' tris=%d",
+				entry->id, g_WorldMesh.numtris - before);
+		}
+	}
+
+	return added;
+}
+
 /* M0.2: helper — returns true if player has any button or stick input.
  * Replaces the old joyGetButtons(contpad, 0xffffffff) + stick deadzone checks.
  * Threshold 0.125 matches the legacy 10/80 stick deadzone. */
@@ -339,6 +380,7 @@ void lvReset(s32 stagenum)
 	// are never touched.  If no mod map entry exists for this stagenum the diff
 	// produces an empty toLoad list and unloads any lingering mod assets from the
 	// previous stage.
+	const char *stageAssetCategory = NULL;
 	{
 #define STAGE_DIFF_MAX 64
 		const char *toLoad[STAGE_DIFF_MAX];
@@ -348,6 +390,7 @@ void lvReset(s32 stagenum)
 
 		const struct asset_entry *modMap = assetCatalogFindModMapByStagenum(stagenum);
 		const char *stageAssetId = modMap ? modMap->id : NULL;
+		stageAssetCategory = (modMap && modMap->category[0]) ? modMap->category : NULL;
 
 		s32 diffTotal = catalogComputeStageDiff(stageAssetId,
 		                                        toLoad,  &loadCount,
@@ -472,6 +515,7 @@ void lvReset(s32 stagenum)
 					meshrooms++;
 				}
 			}
+			meshrooms += lvAddLoadedCatalogColmeshes(stageAssetCategory);
 			meshWorldFinalize();
 			sysLogPrintf(LOG_NOTE, "MESHCOL: ENABLED -- rooms=%d tris=%d",
 				meshrooms, g_WorldMesh.numtris);

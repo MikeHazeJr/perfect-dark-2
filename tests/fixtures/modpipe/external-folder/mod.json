@@ -1,0 +1,7 @@
+{
+  "id": "fixture_external_folder",
+  "name": "External Folder Fixture",
+  "version": "1.0.0",
+  "author": "PD2 tests",
+  "description": "Folder fixture for external-format model and arena descriptors."
+}

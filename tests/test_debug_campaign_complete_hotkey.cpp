@@ -108,3 +108,39 @@ TEST_CASE("forced current-mission objective completion resets with objectives",
 	REQUIRE(complete.find("objectivesCheckAll()") != std::string::npos);
 	REQUIRE(reset_fn.find("g_DebugForceCompleteCurrentMissionObjectives = false") != std::string::npos);
 }
+
+TEST_CASE("ImGui endscreen routes final campaign advance to credits",
+          "[debug][campaign][f6][endscreen][static]")
+{
+	const std::string bridge = read_text_file_debug_hotkey("port/fast3d/pdgui_bridge.c");
+	const std::string endscreen = read_text_file_debug_hotkey("port/fast3d/pdgui_menu_endscreen.cpp");
+
+	const std::string next = function_block_debug_hotkey(
+		bridge, "void pdguiEndscreenNextMission");
+	const std::string has_next = function_block_debug_hotkey(
+		bridge, "s32 pdguiEndscreenHasNextMission");
+	const std::string label = function_block_debug_hotkey(
+		bridge, "const char *pdguiEndscreenNextMissionLabel");
+	const std::string render = function_block_debug_hotkey(
+		endscreen, "static void renderSoloEndscreen");
+
+	const size_t final_stage = next.find("g_Vars.stagenum == STAGE_SKEDARRUINS");
+	const size_t credits = next.find("endscreenContinue(2)", final_stage);
+	const size_t advance = next.find("endscreenAdvance()");
+
+	REQUIRE(final_stage != std::string::npos);
+	REQUIRE(credits != std::string::npos);
+	REQUIRE(advance != std::string::npos);
+	REQUIRE(credits < advance);
+	REQUIRE(next.find("sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL") != std::string::npos);
+	REQUIRE(next.find("!pdguiEndscreenHasNextMission()") != std::string::npos);
+
+	REQUIRE(has_next.find("g_Vars.stagenum == STAGE_SKEDARRUINS") != std::string::npos);
+	REQUIRE(has_next.find("SOLOSTAGEINDEX_SKEDARRUINS") != std::string::npos);
+	REQUIRE(has_next.find("NUM_SOLOSTAGES") == std::string::npos);
+
+	REQUIRE(label.find("\"Credits\"") != std::string::npos);
+	REQUIRE(label.find("\"Next Mission\"") != std::string::npos);
+	REQUIRE(render.find("pdguiEndscreenNextMissionLabel()") != std::string::npos);
+	REQUIRE(render.find("pdguiActionBarButton(nextLabel") != std::string::npos);
+}

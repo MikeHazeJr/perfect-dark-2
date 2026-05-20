@@ -405,9 +405,10 @@ function Invoke-SmokeTestMultiProcess {
     # pd-client.log; ensure pd-host.log is wiped too if it exists from a
     # prior run.
     foreach ($leaf in @("pd-client.log", "pd-host.log", "pd-server.log")) {
-        $p = Join-Path $installInfo.InstallDir $leaf
-        if (Test-Path -LiteralPath $p) {
-            Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+        foreach ($p in (Get-SmokeLogCandidatePaths -InstallDir $installInfo.InstallDir -Leaf $leaf)) {
+            if (Test-Path -LiteralPath $p) {
+                Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+            }
         }
     }
 
@@ -441,7 +442,7 @@ function Invoke-SmokeTestMultiProcess {
         if ($pdef.PSObject.Properties.Match('log_file').Count -gt 0 -and $pdef.log_file) {
             $logFile = [string]$pdef.log_file
         }
-        $logPath = Join-Path $installInfo.InstallDir $logFile
+        $logPath = Get-SmokeLogPath -InstallDir $installInfo.InstallDir -Leaf $logFile
 
         # All processes share the same --smoke <test-path> so each binary
         # loads the same scripted schedule (typically just a single exit
