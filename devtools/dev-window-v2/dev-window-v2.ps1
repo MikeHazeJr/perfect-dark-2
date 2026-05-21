@@ -1280,6 +1280,9 @@ function Refresh-LatestRelease {
                                          VerticalAlignment="Center" Margin="0,0,20,0"/>
                             <Button x:Name="BtnCliLaunch" Content="LAUNCH" Style="{StaticResource GreenBtn}"
                                     Padding="22,10" FontSize="24" Margin="0,0,8,0"/>
+                            <Button x:Name="BtnCliLaunchCodex" Content="Codex CLI Admin" Style="{StaticResource ToolBtn}"
+                                    Padding="18,10" FontSize="22" MinHeight="44" Margin="0,0,8,0"
+                                    ToolTip="Open Codex CLI as administrator in the project root. Does not use the prompt box."/>
                             <Button x:Name="BtnCliCopy" Content="Copy Prompt" Style="{StaticResource ToolBtn}"
                                     Padding="18,10" FontSize="22" MinHeight="44" Margin="0,0,8,0"/>
                             <Button x:Name="BtnCliReset" Content="Reset" Style="{StaticResource ToolBtn}"
@@ -1375,7 +1378,7 @@ $namedElements = @(
     "BtnCliActionReview","BtnCliActionCustom","LblCliActiveAction",
     "TxtCliPrompt","TxtCliCardSearch","LstCliCards",
     "LblCliSelectedCards","BtnCliCardsRefresh",
-    "RdoCliModeInteractive","RdoCliModeHeadless","BtnCliLaunch","BtnCliCopy","BtnCliReset"
+    "RdoCliModeInteractive","RdoCliModeHeadless","BtnCliLaunch","BtnCliLaunchCodex","BtnCliCopy","BtnCliReset"
 )
 foreach ($name in $namedElements) {
     $ui[$name] = $window.FindName($name)
@@ -3006,6 +3009,7 @@ $script:CliActiveAction      = ""           # "" or Goal/Plan/Investigate/BugFix
 $script:CliCardsCache        = @()           # all active+backlog cards from kanban
 $script:CliSelectedCardIds   = @()           # ids of selected cards (preserved across filter)
 $script:CliClaudeExe         = $null         # resolved on first use
+$script:CliCodexExe          = $null         # resolved on first use
 $script:CliPreallocatedRange = "c126-c130"   # default reservation hint for spawned sessions
 $script:CliBodyText          = ""            # c127 correction: the user's substance (body slot content)
 $script:CliWrapPrefix        = ""            # c127 correction: current wrap's prefix, for body extraction
@@ -3029,6 +3033,28 @@ function Get-CliClaudeExe {
         $cmd = Get-Command "claude.cmd" -ErrorAction SilentlyContinue
         if (-not $cmd) { $cmd = Get-Command "claude" -ErrorAction SilentlyContinue }
         if ($cmd) { $script:CliClaudeExe = $cmd.Source; return $cmd.Source }
+    } catch {}
+    return $null
+}
+
+function Get-CliCodexExe {
+    if ($script:CliCodexExe) { return $script:CliCodexExe }
+    # Prefer the .cmd shim on Windows (npm installs create both codex and codex.cmd).
+    $candidates = @(
+        (Join-Path $env:APPDATA "npm\codex.cmd"),
+        (Join-Path $env:APPDATA "npm\codex"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Codex\codex.exe"),
+        (Join-Path $env:ProgramFiles "Codex\codex.exe")
+    )
+    foreach ($c in $candidates) {
+        if ($c -and (Test-Path -LiteralPath $c)) { $script:CliCodexExe = $c; return $c }
+    }
+    # Fall back to PATH lookup.
+    try {
+        $cmd = Get-Command "codex.cmd" -ErrorAction SilentlyContinue
+        if (-not $cmd) { $cmd = Get-Command "codex.exe" -ErrorAction SilentlyContinue }
+        if (-not $cmd) { $cmd = Get-Command "codex" -ErrorAction SilentlyContinue }
+        if ($cmd) { $script:CliCodexExe = $cmd.Source; return $cmd.Source }
     } catch {}
     return $null
 }
@@ -3588,6 +3614,37 @@ function Invoke-CliLaunchHeadless {
                 Add-LogLine ("CLI: headless callback error: " + $_.Exception.Message) "#B81818"
             }
         }
+}
+
+function Invoke-CliLaunchCodexAdmin {
+    $codexExe = Get-CliCodexExe
+    if (-not $codexExe) {
+        Add-LogLine "CLI: codex executable not found. Install Codex CLI and make sure codex is on PATH." "#B81818"
+        [System.Windows.MessageBox]::Show(
+            "Codex CLI executable not found. Install Codex CLI and make sure codex is on PATH.",
+            "Codex CLI",
+            "OK",
+            "Warning") | Out-Null
+        return
+    }
+
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "cmd.exe"
+        $psi.Arguments = "/K cd /d `"" + $script:ProjectRoot + "`" && `"" + $codexExe + "`""
+        $psi.WorkingDirectory = $script:ProjectRoot
+        $psi.UseShellExecute = $true
+        $psi.Verb = "runas"
+        [System.Diagnostics.Process]::Start($psi) | Out-Null
+        Add-LogSessionLine ">>> CLI launch: Codex admin console requested." "#0078A8"
+    } catch {
+        Add-LogLine ("CLI: failed to launch Codex admin console: " + $_.Exception.Message) "#B81818"
+        [System.Windows.MessageBox]::Show(
+            "Failed to launch Codex CLI as administrator: " + $_.Exception.Message,
+            "Codex CLI",
+            "OK",
+            "Warning") | Out-Null
+    }
 }
 
 # ============================================================================
@@ -4208,6 +4265,7 @@ $ui["TxtCliCardSearch"].Add_TextChanged({ Apply-CliCardsFilter })
 $ui["LstCliCards"].Add_SelectionChanged({ Sync-CliSelectedCardsFromListBox })
 
 $ui["BtnCliLaunch"].Add_Click({ Invoke-CliLaunch })
+$ui["BtnCliLaunchCodex"].Add_Click({ Invoke-CliLaunchCodexAdmin })
 $ui["BtnCliCopy"].Add_Click({
     try {
         $composed = Build-CliComposedPrompt

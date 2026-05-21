@@ -24,6 +24,7 @@ extern "C" {
 #include "modarchive.h"
 #include "modvfs.h"
 #include "weapon_graph_archive.h"
+#include "weapon_graph_runtime.h"
 }
 
 namespace {
@@ -893,6 +894,243 @@ TEST_CASE("weapon graph nested payload inventory derives IDs and content hashes"
 	REQUIRE(inventoryJson.find(projectileHash) != std::string::npos);
 }
 
+TEST_CASE("weapon graph runtime compiler validates modules and deterministic IR",
+          "[modding][pdxxx][weapon_graph][compiler][c3814]") {
+	const std::string graph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_weapon\",\n"
+		"  \"graph_id\": \"unit_test_graph_v1\",\n"
+		"  \"nodes\": [\n"
+		"    {\n"
+		"      \"id\": \"primary_action\",\n"
+		"      \"kind\": \"fire.hitscan\",\n"
+		"      \"params\": {\n"
+		"        \"recoverytime_ticks60\": 12,\n"
+		"        \"projectile_ref\": null,\n"
+		"        \"damage\": 1.25,\n"
+		"        \"ammo_slot\": 0,\n"
+		"        \"mode\": \"primary\"\n"
+		"      }\n"
+		"    },\n"
+		"    {\n"
+		"      \"id\": \"secondary_action\",\n"
+		"      \"kind\": \"spawn.fired_projectile\",\n"
+		"      \"params\": {\n"
+		"        \"mode\": \"secondary\",\n"
+		"        \"projectile_ref\": \"base:test_weapon__projectile_rocket\",\n"
+		"        \"timer_ticks60\": 180\n"
+		"      }\n"
+		"    }\n"
+		"  ],\n"
+		"  \"edges\": [ { \"from\": \"primary_action\", \"to\": \"secondary_action\" } ],\n"
+		"  \"exports\": [\n"
+		"    { \"name\": \"primary\", \"node\": \"primary_action\" },\n"
+		"    { \"name\": \"secondary\", \"node\": \"secondary_action\" }\n"
+		"  ]\n"
+		"}\n";
+
+	weapon_graph_ir_t a;
+	weapon_graph_ir_t b;
+	char err[256] = {};
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+		static_cast<u32>(graph.size()), &a, err, sizeof(err)) == 0);
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+		static_cast<u32>(graph.size()), &b, err, sizeof(err)) == 0);
+	REQUIRE(a.node_count == 2);
+	REQUIRE(a.edge_count == 1);
+	REQUIRE(a.export_count == 2);
+	REQUIRE(a.nodes[0].opcode == WEAPON_GRAPH_OP_FIRE_HITSCAN);
+	REQUIRE(a.nodes[1].opcode == WEAPON_GRAPH_OP_SPAWN_FIRED_PROJECTILE);
+	REQUIRE(std::string(a.source_sha256).size() == 64);
+	REQUIRE(std::string(a.ir_sha256).size() == 64);
+	REQUIRE(std::string(a.ir_sha256) == std::string(b.ir_sha256));
+	REQUIRE(std::string(a.params[a.nodes[0].param_start].key) == "ammo_slot");
+
+	REQUIRE(weaponGraphOpcodeForKind(ASSET_PROJECTILE,
+		"projectile.fly_by_wire") == WEAPON_GRAPH_OP_PROJECTILE_FLY_BY_WIRE);
+	REQUIRE(weaponGraphOpcodeForKind(ASSET_ENTITY,
+		"entity.autogun") == WEAPON_GRAPH_OP_ENTITY_AUTOGUN);
+	REQUIRE(weaponGraphOpcodeForKind(ASSET_WEAPON,
+		"projectile.fly_by_wire") == WEAPON_GRAPH_OP_INVALID);
+
+	const std::string weaponIni =
+		"[weapon]\n"
+		"catalog_id = base:test_weapon\n"
+		"behavior_graph = behavior.graph.json\n";
+	TempArchive weapon = writeArchiveEntries("weapon-graph-compiler", {
+		{ "weapon.ini", weaponIni },
+		{ "behavior.graph.json", graph },
+	});
+	weapon_graph_ir_t fromArchive;
+	REQUIRE(weaponGraphCompileArchiveFile(weapon.path.string().c_str(),
+		ASSET_WEAPON, &fromArchive, err, sizeof(err)) == 0);
+	REQUIRE(std::string(fromArchive.ir_sha256) == std::string(a.ir_sha256));
+}
+
+TEST_CASE("weapon graph runtime compiler rejects unsafe or ambiguous graphs",
+          "[modding][pdxxx][weapon_graph][compiler][c3814]") {
+	char err[256] = {};
+	weapon_graph_ir_t ir;
+
+	const std::string unsupported =
+		"{\"schema\":\"pd.weapon_graph.v1\",\"asset_id\":\"base:test\","
+		"\"graph_id\":\"bad\",\"nodes\":[{\"id\":\"n\",\"kind\":\"script.lua\","
+		"\"params\":{}}],\"edges\":[],\"exports\":[]}";
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, unsupported.data(),
+		static_cast<u32>(unsupported.size()), &ir, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("unsupported") != std::string::npos);
+
+	const std::string badUnit =
+		"{\"schema\":\"pd.weapon_graph.v1\",\"asset_id\":\"base:test\","
+		"\"graph_id\":\"bad_unit\",\"nodes\":[{\"id\":\"n\","
+		"\"kind\":\"fire.hitscan\",\"params\":{\"timer\":5}}],"
+		"\"edges\":[],\"exports\":[]}";
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, badUnit.data(),
+		static_cast<u32>(badUnit.size()), &ir, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("units") != std::string::npos);
+
+	const std::string badRef =
+		"{\"schema\":\"pd.weapon_graph.v1\",\"asset_id\":\"base:test\","
+		"\"graph_id\":\"bad_ref\",\"nodes\":[{\"id\":\"n\","
+		"\"kind\":\"spawn.fired_projectile\","
+		"\"params\":{\"projectile_ref\":\"rocket\"}}],"
+		"\"edges\":[],\"exports\":[]}";
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, badRef.data(),
+		static_cast<u32>(badRef.size()), &ir, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("catalog id") != std::string::npos);
+
+	const std::string cycle =
+		"{\"schema\":\"pd.projectile_graph.v1\",\"asset_id\":\"base:p\","
+		"\"graph_id\":\"cycle\",\"nodes\":["
+		"{\"id\":\"a\",\"kind\":\"projectile.spawn_state\",\"params\":{}},"
+		"{\"id\":\"b\",\"kind\":\"projectile.motion\",\"params\":{}}],"
+		"\"edges\":[{\"from\":\"a\",\"to\":\"b\"},{\"from\":\"b\",\"to\":\"a\"}],"
+		"\"exports\":[]}";
+	REQUIRE(weaponGraphCompileJson(ASSET_PROJECTILE, cycle.data(),
+		static_cast<u32>(cycle.size()), &ir, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("cycle") != std::string::npos);
+}
+
+TEST_CASE("weapon graph runtime is wired to a Debug Settings toggle",
+          "[modding][pdxxx][weapon_graph][debug_toggle][c3814]") {
+	const std::string runtime = readFile("port/src/weapon_graph_runtime.c");
+	REQUIRE(runtime.find("Debug.WeaponGraphRuntime") != std::string::npos);
+	REQUIRE(runtime.find("configRegisterInt(\"Debug.WeaponGraphRuntime\"") != std::string::npos);
+	REQUIRE(runtime.find("weaponGraphRuntimeEnabled") != std::string::npos);
+	REQUIRE(runtime.find("weaponGraphRuntimeSetEnabled") != std::string::npos);
+
+	const std::string settings = readFile("port/fast3d/pdgui_menu_mainmenu.cpp");
+	REQUIRE(settings.find("Weapon Graph Runtime") != std::string::npos);
+	REQUIRE(settings.find("weaponGraphRuntimeEnabled()") != std::string::npos);
+	REQUIRE(settings.find("weaponGraphRuntimeSetEnabled") != std::string::npos);
+}
+
+TEST_CASE("weapon graph runtime registers held weapon IR for gameplay gate",
+          "[modding][pdxxx][weapon_graph][runtime][held][c3814]") {
+	const std::string graph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_weapon\",\n"
+		"  \"graph_id\": \"held_runtime_test_v1\",\n"
+		"  \"nodes\": [\n"
+		"    {\n"
+		"      \"id\": \"primary_action\",\n"
+		"      \"kind\": \"fire.hitscan\",\n"
+		"      \"params\": {\n"
+		"        \"mode\": \"primary\",\n"
+		"        \"function_type\": \"shoot_single\",\n"
+		"        \"ammo_slot\": 0,\n"
+		"        \"flags\": 64,\n"
+		"        \"damage\": 7.5,\n"
+		"        \"impactforce\": 2.25,\n"
+		"        \"duration_ticks60\": 5,\n"
+		"        \"shootsound\": 1234,\n"
+		"        \"penetration\": 3\n"
+		"      }\n"
+		"    },\n"
+		"    {\n"
+		"      \"id\": \"secondary_action\",\n"
+		"      \"kind\": \"fire.auto_cadence\",\n"
+		"      \"params\": {\n"
+		"        \"mode\": \"secondary\",\n"
+		"        \"function_type\": \"shoot_automatic\",\n"
+		"        \"initial_rpm\": 300,\n"
+		"        \"turret_accel\": 8,\n"
+		"        \"turret_decel\": 12,\n"
+		"        \"max_rpm\": 900\n"
+		"      }\n"
+		"    }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [\n"
+		"    { \"name\": \"primary\", \"node\": \"primary_action\" },\n"
+		"    { \"name\": \"secondary\", \"node\": \"secondary_action\" }\n"
+		"  ]\n"
+		"}\n";
+
+	weapon_graph_ir_t ir;
+	char err[256] = {};
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+		static_cast<u32>(graph.size()), &ir, err, sizeof(err)) == 0);
+
+	weaponGraphRuntimeClearAll();
+	weaponGraphRuntimeSetEnabled(0);
+	REQUIRE(weaponGraphRuntimeRegisterHeldIr(7, &ir, err, sizeof(err)) == 0);
+	REQUIRE(weaponGraphRuntimeGetHeldFunctionForGameplay(7, 0) == nullptr);
+
+	weaponGraphRuntimeSetEnabled(1);
+	const weapon_graph_held_function_t *primary =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(7, 0);
+	const weapon_graph_held_function_t *secondary =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(7, 1);
+	REQUIRE(primary != nullptr);
+	REQUIRE(secondary != nullptr);
+	REQUIRE(primary->opcode == WEAPON_GRAPH_OP_FIRE_HITSCAN);
+	REQUIRE(primary->has_damage == 1);
+	REQUIRE(primary->damage == Approx(7.5f));
+	REQUIRE(primary->has_impactforce == 1);
+	REQUIRE(primary->impactforce == Approx(2.25f));
+	REQUIRE(primary->has_duration_ticks60 == 1);
+	REQUIRE(primary->duration_ticks60 == 5);
+	REQUIRE(primary->has_shootsound == 1);
+	REQUIRE(primary->shootsound == 1234);
+	REQUIRE(primary->has_penetration == 1);
+	REQUIRE(primary->penetration == 3);
+	REQUIRE(primary->flags == 64);
+	REQUIRE(secondary->opcode == WEAPON_GRAPH_OP_FIRE_AUTO_CADENCE);
+	REQUIRE(secondary->has_initial_rpm == 1);
+	REQUIRE(secondary->initial_rpm == Approx(300.0f));
+	REQUIRE(secondary->has_max_rpm == 1);
+	REQUIRE(secondary->max_rpm == Approx(900.0f));
+	REQUIRE(secondary->has_turret_accel == 1);
+	REQUIRE(secondary->turret_accel == 8);
+	REQUIRE(secondary->has_turret_decel == 1);
+	REQUIRE(secondary->turret_decel == 12);
+
+	weaponGraphRuntimeSetEnabled(0);
+	weaponGraphRuntimeClearAll();
+}
+
+TEST_CASE("held weapon graph adapter is wired into runtime callsites",
+          "[modding][pdxxx][weapon_graph][runtime][static][c3814]") {
+	const std::string walker = readFile("port/src/loader_walker_weapon.c");
+	REQUIRE(walker.find("weaponGraphRuntimeRegisterWeaponArchive") != std::string::npos);
+	REQUIRE(walker.find("behavior.graph.json") == std::string::npos);
+
+	const std::string accessors = readFile("src/game/game_0b0fd0.c");
+	REQUIRE(accessors.find("weapon_graph_runtime.h") != std::string::npos);
+	REQUIRE(accessors.find("weaponGraphRuntimeGetHeldFunctionForGameplay") != std::string::npos);
+	REQUIRE(accessors.find("gsetGetDamage") != std::string::npos);
+	REQUIRE(accessors.find("weaponGetNumTicksPerShot") != std::string::npos);
+
+	const std::string bondgun = readFile("src/game/bondgun.c");
+	REQUIRE(bondgun.find("weapon_graph_runtime.h") != std::string::npos);
+	REQUIRE(bondgun.find("weaponGraphRuntimeGetHeldFunctionForGameplay(hand->gset.weaponnum") != std::string::npos);
+	REQUIRE(bondgun.find("graph->has_max_rpm") != std::string::npos);
+	REQUIRE(bondgun.find("ammoindex = (graph && graph->ammo_slot >= 0)") != std::string::npos);
+}
+
 TEST_CASE("public mods share folder mods as validated pdmod archives",
           "[modding][pdmod][static][c3809]") {
 	std::string share = readFile("port/src/social_share.c");
@@ -1594,6 +1832,42 @@ TEST_CASE("Modding Hub exposes typed pdxxx examples as pack input",
 	        std::string::npos);
 }
 
+TEST_CASE("Modding Hub exposes weapon graph browser tab",
+          "[modding][pdxxx][weapon_graph][ui][c3814]") {
+	const std::string hub = readFile("port/fast3d/pdgui_menu_moddinghub.cpp");
+	REQUIRE(!hub.empty());
+
+	REQUIRE(hub.find("\"Weapons\"") != std::string::npos);
+	REQUIRE(hub.find("renderWeaponTool") != std::string::npos);
+	REQUIRE(hub.find("assetCatalogGetByIndex") != std::string::npos);
+	REQUIRE(hub.find("ASSET_WEAPON") != std::string::npos);
+	REQUIRE(hub.find("weaponGraphArchiveReadTextFile") != std::string::npos);
+	REQUIRE(hub.find("behavior.graph.json") != std::string::npos);
+	REQUIRE(hub.find("nested_payloads.json") != std::string::npos);
+	REQUIRE(hub.find("weapon.ini") != std::string::npos);
+	REQUIRE(hub.find("s_WeaponSelectedId") != std::string::npos);
+}
+
+TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
+          "[modding][pdxxx][weapon_graph][ui][editor][c3814]") {
+	const std::string hub = readFile("port/fast3d/pdgui_menu_moddinghub.cpp");
+	REQUIRE(!hub.empty());
+
+	REQUIRE(hub.find("Use as Template") != std::string::npos);
+	REQUIRE(hub.find("weaponToolStartTemplate") != std::string::npos);
+	REQUIRE(hub.find("weaponToolSaveCustom") != std::string::npos);
+	REQUIRE(hub.find("Save Weapon Mod") != std::string::npos);
+	REQUIRE(hub.find("modArchiveBegin(archivePath)") != std::string::npos);
+	REQUIRE(hub.find("weaponCopyTemplatePayloads") != std::string::npos);
+	REQUIRE(hub.find("modArchiveAddFileDisk") != std::string::npos);
+	REQUIRE(hub.find("weaponGraphValidateJson") != std::string::npos);
+	REQUIRE(hub.find("mods/Weapons/%s") != std::string::npos);
+	REQUIRE(hub.find("pdguiFileBrowserOpen(label, \"mods\", filters)") !=
+	        std::string::npos);
+	REQUIRE(hub.find("ASSET_PROJECTILE") != std::string::npos);
+	REQUIRE(hub.find("ASSET_ENTITY") != std::string::npos);
+}
+
 TEST_CASE("base arena extractor emits zip-openable pdarena archives",
           "[modding][pdxxx][base][static][c3812]") {
 	const std::string arena = readFile("port/src/romextract_pdarena.c");
@@ -1605,6 +1879,44 @@ TEST_CASE("base arena extractor emits zip-openable pdarena archives",
 	REQUIRE(arena.find("modArchiveAddFileMem(aw, \"manifest.json\"") != std::string::npos);
 	REQUIRE(arena.find("fsFileOpenWrite(relpath)") == std::string::npos);
 	REQUIRE(arena.find("Emit one .pdarena JSON") == std::string::npos);
+}
+
+TEST_CASE("base scenario extractor emits standard map and text payloads",
+          "[modding][pdxxx][base][static][c3812]") {
+	const std::string arena = readFile("port/src/romextract_pdarena.c");
+	REQUIRE(!arena.empty());
+
+	REQUIRE(arena.find("s_buildTilesExports") != std::string::npos);
+	REQUIRE(arena.find("s_buildPadsTsv") != std::string::npos);
+	REQUIRE(arena.find("s_buildWordsTsv") != std::string::npos);
+	REQUIRE(arena.find("preprocessTilesFile") != std::string::npos);
+	REQUIRE(arena.find("preprocessPadsFile") != std::string::npos);
+	REQUIRE(arena.find("rooms.obj") != std::string::npos);
+	REQUIRE(arena.find("scenario.mtl") != std::string::npos);
+	REQUIRE(arena.find("tiles.tsv") != std::string::npos);
+	REQUIRE(arena.find("pads.tsv") != std::string::npos);
+	REQUIRE(arena.find("setup.tsv") != std::string::npos);
+	REQUIRE(arena.find("mpsetup.tsv") != std::string::npos);
+	REQUIRE(arena.find("visual_segments.tsv") != std::string::npos);
+	REQUIRE(arena.find("geometry_file = rooms.obj") != std::string::npos);
+	REQUIRE(arena.find("geometry_format = OBJ") != std::string::npos);
+	REQUIRE(arena.find("s_existingArchiveHasEntry(dst_rel, \"rooms.obj\")") !=
+	        std::string::npos);
+	REQUIRE(arena.find("modArchiveAddFileMem(aw, \"rooms.obj\"") !=
+	        std::string::npos);
+	REQUIRE(arena.find("rooms.obj.sha256") != std::string::npos);
+	REQUIRE(arena.find("tiles.tsv.sha256") != std::string::npos);
+	REQUIRE(arena.find("pads.tsv.sha256") != std::string::npos);
+
+	REQUIRE(arena.find("geometry_file = geometry.bin") == std::string::npos);
+	REQUIRE(arena.find("\\\"geometry\\\": \\\"geometry.bin\\\"") ==
+	        std::string::npos);
+	REQUIRE(arena.find("tiles_file = tiles.bin") == std::string::npos);
+	REQUIRE(arena.find("pads_file = pads.bin") == std::string::npos);
+	REQUIRE(arena.find("setup_file = setup.bin") == std::string::npos);
+	REQUIRE(arena.find("mpsetup_file = mpsetup.bin") == std::string::npos);
+	REQUIRE(arena.find("s_addStageBin") == std::string::npos);
+	REQUIRE(arena.find("modArchiveAddFileDisk") == std::string::npos);
 }
 
 TEST_CASE("base character extractors emit zip-openable pdhead and pdbody archives",

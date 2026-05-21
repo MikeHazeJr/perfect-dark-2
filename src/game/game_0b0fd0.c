@@ -16,6 +16,7 @@
 #include "data.h"
 #include "types.h"
 #include "catalog_mgr_weapons.h" /* S484 F2: route weaponFindById through catalog manager */
+#include "weapon_graph_runtime.h"
 
 /**
  * Canonical weapon accessor. Routes through the Catalog Manager
@@ -438,6 +439,13 @@ struct inventory_ammo *gsetGetAmmoDefinition(struct gset *gset)
 
 u8 gsetGetSinglePenetration(struct gset *gset)
 {
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+
+	if (graph && graph->has_penetration) {
+		return graph->penetration;
+	}
+
 	struct weaponfunc *func = gsetGetWeaponFunction(gset);
 
 	if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
@@ -462,6 +470,12 @@ s32 handGetCasingEject(struct gset *gset)
 
 f32 gsetGetImpactForce(struct gset *gset)
 {
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+	if (graph && graph->has_impactforce) {
+		return graph->impactforce;
+	}
+
 	struct weaponfunc *func = gsetGetWeaponFunction(gset);
 	f32 result = 0;
 
@@ -475,10 +489,29 @@ f32 gsetGetImpactForce(struct gset *gset)
 
 f32 gsetGetDamage(struct gset *gset)
 {
-	struct weaponfunc *func = gsetGetWeaponFunction(gset);
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+	struct weaponfunc *func = NULL;
 	f32 damage = 0;
 
-	if (func) {
+	if (graph && graph->has_damage) {
+		damage = graph->damage;
+
+		if (graph->opcode == WEAPON_GRAPH_OP_MELEE_STRIKE &&
+				gset->weaponnum == WEAPON_REAPER) {
+			damage *= LVUPDATE60FREAL();
+		}
+	} else {
+		func = gsetGetWeaponFunction(gset);
+	}
+
+	if (!graph || !graph->has_damage) {
+		if (!func) {
+			func = gsetGetWeaponFunction(gset);
+		}
+	}
+
+	if (func && (!graph || !graph->has_damage)) {
 		if ((func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
 			struct weaponfunc_shoot *shootfunc = (struct weaponfunc_shoot *)func;
 			damage = shootfunc->damage;
@@ -513,8 +546,16 @@ f32 gsetGetDamage(struct gset *gset)
 u8 gsetGetFireslotDuration(struct gset *gset)
 {
 #if VERSION >= VERSION_PAL_FINAL
-	struct weaponfunc *func = gsetGetWeaponFunction(gset);
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+	struct weaponfunc *func = NULL;
 	u8 result = 0;
+
+	if (graph && graph->has_duration_ticks60) {
+		result = graph->duration_ticks60;
+	} else {
+		func = gsetGetWeaponFunction(gset);
+	}
 
 	if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
 		struct weaponfunc_shoot *funcshoot = (struct weaponfunc_shoot *)func;
@@ -527,6 +568,12 @@ u8 gsetGetFireslotDuration(struct gset *gset)
 
 	return result;
 #else
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+	if (graph && graph->has_duration_ticks60) {
+		return graph->duration_ticks60;
+	}
+
 	struct weaponfunc *func = gsetGetWeaponFunction(gset);
 
 	if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
@@ -540,6 +587,12 @@ u8 gsetGetFireslotDuration(struct gset *gset)
 
 u16 gsetGetSingleShootSound(struct gset *gset)
 {
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+	if (graph && graph->has_shootsound) {
+		return graph->shootsound;
+	}
+
 	struct weaponfunc *func = gsetGetWeaponFunction(gset);
 
 	if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
@@ -552,6 +605,12 @@ u16 gsetGetSingleShootSound(struct gset *gset)
 
 bool gsetHasFunctionFlags(struct gset *gset, u32 flags)
 {
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+	if (graph) {
+		return (graph->flags & flags) == flags;
+	}
+
 	struct weaponfunc *func = gsetGetWeaponFunction(gset);
 
 	if (func) {
@@ -565,13 +624,20 @@ s8 weaponGetNumTicksPerShot(u32 weaponnum, u32 funcindex)
 {
 	u32 stack[2];
 	s32 result = 0;
-	struct weapon *weapon = weaponFindById(weaponnum);
-	struct weaponfunc *func = weapon->functions[funcindex];
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay((s32)weaponnum, (s32)funcindex);
 
-	if (func && func->type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC) {
-		struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *)func;
+	if (graph && graph->has_max_rpm && graph->max_rpm > 0.0f) {
+		result = 3600.0f / graph->max_rpm;
+	} else {
+		struct weapon *weapon = weaponFindById(weaponnum);
+		struct weaponfunc *func = weapon->functions[funcindex];
 
-		result = 3600.0f / autofunc->maxrpm;
+		if (func && func->type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC) {
+			struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *)func;
+
+			result = 3600.0f / autofunc->maxrpm;
+		}
 	}
 
 #if VERSION != VERSION_PAL_BETA
@@ -580,7 +646,6 @@ s8 weaponGetNumTicksPerShot(u32 weaponnum, u32 funcindex)
 		result = TICKS(result);
 	}
 #endif
-
 	return result;
 }
 

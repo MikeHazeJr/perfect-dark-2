@@ -819,6 +819,38 @@ TEST_CASE("menu input: Combat Sim room controller parity is wired", "[input][men
     REQUIRE(theme.find("ImGuiChildFlags_Border | ImGuiChildFlags_NavFlattened") != std::string::npos);
 }
 
+TEST_CASE("menu input: Y-Social is first-class only on main and pause menus", "[input][menu_graph][social][static][c087][c088]")
+{
+    const std::string mainmenu = readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp");
+    const std::string pause = readTextFile("port/fast3d/pdgui_menu_pausemenu.cpp");
+    const std::string room = readTextFile("port/fast3d/pdgui_menu_room.cpp");
+
+    REQUIRE_FALSE(mainmenu.empty());
+    REQUIRE_FALSE(pause.empty());
+    REQUIRE_FALSE(room.empty());
+
+    const std::string mainRender = functionBlock(mainmenu, "renderMainMenu");
+    const std::string pauseRender = functionBlock(pause, "pdguiPauseMenuRender");
+    REQUIRE_FALSE(mainRender.empty());
+    REQUIRE_FALSE(pauseRender.empty());
+
+    REQUIRE(mainRender.find("pdguiMenuTertiaryPressed()") != std::string::npos);
+    REQUIRE(mainRender.find("!pdguiFriendsSocialIsOpen()") != std::string::npos);
+    REQUIRE(mainRender.find("menuGraphFirePushOp(MENU_TYPE_MAIN_MENU, \"social\"") != std::string::npos);
+    REQUIRE(mainRender.find("pdguiDrawActionPromptCentered(ACTION_MENU_SOCIAL") != std::string::npos);
+    REQUIRE(mainRender.find("!socialSurfaceOpen") != std::string::npos);
+
+    REQUIRE(pause.find("#include \"pdgui_friends.h\"") != std::string::npos);
+    REQUIRE(pause.find("#include \"pdgui_glyphs.h\"") != std::string::npos);
+    REQUIRE(pauseRender.find("pdguiMenuTertiaryPressed()") != std::string::npos);
+    REQUIRE(pauseRender.find("pdguiFriendsSocialOpen()") != std::string::npos);
+    REQUIRE(pauseRender.find("pdguiDrawActionPromptCentered(ACTION_MENU_SOCIAL") != std::string::npos);
+    REQUIRE(pauseRender.find("!socialSurfaceOpen && !endgamePopupWasOpen && !shortcutsPopupWasOpen") != std::string::npos);
+
+    REQUIRE(room.find("do NOT poll pdguiMenuTertiaryPressed") != std::string::npos);
+    REQUIRE(room.find("pdguiMenuTertiaryPressed()") == std::string::npos);
+}
+
 TEST_CASE("menu graph: Room Leave uses graph network edge", "[input][menu_graph][room][static]")
 {
     const std::string room = readTextFile("port/fast3d/pdgui_menu_room.cpp");

@@ -14,9 +14,12 @@
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "fs.h"
 #include "loader_pool.h"
 #include "loader_walker.h"
 #include "loader_walker_common.h"
+#include "system.h"
+#include "weapon_graph_runtime.h"
 
 static s32 s_register(const char *manifest, size_t manifest_len,
                       const char *pd_kind, const char *id,
@@ -45,6 +48,19 @@ static s32 s_register(const char *manifest, size_t manifest_len,
      * envelope. parseWeapon uses weapon_id from the envelope to pick
      * the pool slot. */
     loaderPoolParseWeaponJson(manifest, manifest_len);
+
+    {
+        char full_buf[FS_MAXPATH + 1];
+        char err[256];
+        const char *full = fsFullPath(file_path, full_buf, sizeof(full_buf));
+        err[0] = '\0';
+        if (!full || weaponGraphRuntimeRegisterWeaponArchive((s32)weapon_id,
+                full, err, sizeof(err)) != 0) {
+            sysLogPrintf(LOG_WARNING,
+                "weapon_graph_runtime: held IR unavailable for %s (%s)",
+                id ? id : "<unknown>", err[0] ? err : "archive open failed");
+        }
+    }
 
     return e ? 1 : -1;
 }

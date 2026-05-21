@@ -127,6 +127,8 @@ Live bindings using this pattern:
 - `ACTION_WEAPON_NEXT`: tap = Y_BUTTON cycle; hold = BUTTON_RADIAL wheel-open.
 - `ACTION_CROUCH`: drives the existing `CROUCHPOS_{STAND, DUCK, SQUAT}` state machine directly (STAND tap → DUCK, DUCK tap → STAND, any hold → SQUAT, SQUAT tap → DUCK, ACTION_JUMP press → STAND).
 
+Natural-stop cases stay consumer-owned. The input primitive does not need a separate ammo-empty, door-open, full-charge, beam, overheat, or cooldown primitive; those consumers use the same threshold/consume APIs and decide when their own interaction or weapon behavior has naturally stopped. Future weapon-specific adoption is tracked under Kanban `c3814-s15`.
+
 The hold-ring visual (`pdguiDrawHoldProgressRingAroundBox`) decays the smoothed value toward 0 on every `pdguiInteractPromptRender` early-return (menu open, CI intro, prop label NULL) so a re-entry doesn't flash from a stale value.
 
 Crouch-jump: `ACTION_JUMP` latches `g_BondCrouchJumpActive[pi]`; a fresh `ACTION_CROUCH` press while `bdeltapos.y > 0` (mid-jump) adds +1.5 to vertical velocity, consumes the latch (single-shot per jump). Players clear surfaces slightly above their regular jump apex. Bots get the same boost but only on `BOTDIFF_HARD+` AND when the target Y delta is in the just-barely 30-60 unit zone.
@@ -173,13 +175,14 @@ Per [constraints.md](../constraints.md):
 
 - **Input universality Branch 2 / Cohorts 5-8.** Complete 2026-05-19 via c036. Controller is first-class across actionmap-owned system actions, fullscreen/console/debug chords, gameplay suppression gates, observer lifecycle, right-stick menu scroll, tap/hold gameplay affordances, vehicle look/handbrake/use, and the active ImGui menu graph surface.
 - **Combat Sim Room per-element binding sweep.** Code/build verified 2026-05-21 under c086, pending Mike playtest. Room-specific controller parity now includes X/right-click context parity for player rows and Add Bot, Start-to-Start-Match from right-panel rows, focused-panel LT/RT skipping, left-panel section walking, and Y undefined on Combat Sim per Q4. MKB Ctrl/Shift-click multi-select remains.
+- **Y-Social on allowed menu roots.** Code/build verified 2026-05-21 under c087/c088, pending Mike playtest. Main Menu and Pause Menu poll `pdguiMenuTertiaryPressed()` at the screen level, open Social through the existing menu/social ownership path, render the `ACTION_MENU_SOCIAL` glyph, and block parent B/Escape close while the Social shell owns input. Combat Sim Room remains explicitly undefined for Y per Q4.
 - **Input mapping menu rebuild.** Phase 1 design at [designs/input/input-mapping-menu-rebuild.md](../designs/input/input-mapping-menu-rebuild.md); Phase 2 implementation gated on Priority L menu pass.
 
 ---
 
 ## Known gaps
 
-- **c036/c086 are code-verified; remaining controller risk is live playtest breadth.** Static/build coverage pins the actionmap migrations, right-stick constants, observer lifecycle, active ImGui menu graph surface, and Combat Sim Room per-element binding sweep. Mike playtest should still sanity-check common controller flows: main menu, Combat Sim setup/start/return, mission start/cancel, training flows, multiplayer setup/options, cheats/modal confirms, tap/hold interact/reload, crouch/squat/crouch-jump, and vehicle look/dismount.
+- **c036/c086/c087/c088 are code-verified; remaining controller risk is live playtest breadth.** Static/build coverage pins the actionmap migrations, right-stick constants, observer lifecycle, active ImGui menu graph surface, Combat Sim Room per-element binding sweep, and Y-Social root-menu restriction. Mike playtest should still sanity-check common controller flows: main menu, Social from Main/Pause, Combat Sim setup/start/return, mission start/cancel, training flows, multiplayer setup/options, cheats/modal confirms, tap/hold interact/reload, crouch/squat/crouch-jump, and vehicle look/dismount.
 - **Legacy runtime menu stack calls still exist outside the active ImGui menu surface.** The c036 closure removed direct stack calls from `port/fast3d/pdgui_menu_*.cpp`; older C menu/runtime plumbing remains out of scope unless a future card targets full legacy stack retirement.
 
 ---

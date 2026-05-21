@@ -1,10 +1,10 @@
 /**
  * loader_walker_scenario.c -- Step 4 (2026-05-03).
  *
- * Walks data/<romid>/scenarios/*.pdscenario and registers each as
- * ASSET_MAP. Per Q-1 the .pdscenario is a UNIFIED ZIP (geometry + tiles +
- * pads + setup + mpsetup + manifest); the manifest envelope at top level
- * carries `stagenum` and `kind` (mp / solo / firingrange / coop).
+ * Walks scenario .pdscenario files and registers each as
+ * ASSET_MAP. Per Q-1 the .pdscenario is a UNIFIED ZIP (rooms.obj plus
+ * tiles/pads/setup text payloads + manifest); the manifest envelope at
+ * top level carries `stagenum` and `kind` (mp / solo / firingrange / coop).
  */
 
 #include <stddef.h>

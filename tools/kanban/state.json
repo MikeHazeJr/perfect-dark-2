@@ -291,12 +291,57 @@
       "description": "Press/Hold canonical action handling in actionmap. Hold/tap first-class with actionHeldForMs, actionWasTap, actionConsumeHold, actionHoldProgress.",
       "pillar": "input",
       "column": "done",
-      "order": 16000,
-      "notes": "",
+      "order": 154000,
+      "priority": 3,
+      "notes": "Closed 2026-05-21 after verification. Completed core: press/tap and hold share the same physical input state; actionWasTap consumes the short-release path by elapsed release time below threshold; actionHeldForMs gates the long-held path at or above threshold; actionConsumeHold prevents the later release from also firing tap; actionHoldProgress pins full briefly after consumption then returns to 0. Verified concrete consumers: ACTION_USE tap=reload / hold=interact+consume, ACTION_WEAPON_NEXT tap=cycle / hold=radial+consume, ACTION_CROUCH tap/hold stance state machine. Natural-stop cases are not a new actionmap primitive: interaction one-shot consumption is covered by ACTION_USE, and future ammo-empty/full-charge/beam/overheat/cooldown behavior belongs to c3814-s15 held-weapon runtime adapter consumer work.",
+      "subtasks": [
+        {
+          "id": "c020-s1",
+          "title": "Core tap/hold primitive",
+          "status": "done",
+          "order": 1000,
+          "notes": "Done: actionHeldForMs, actionWasTap, actionConsumeHold, actionHoldConsumed, and actionHoldProgress implement the shared physical input plus threshold/consumption model."
+        },
+        {
+          "id": "c020-s2",
+          "title": "Press/tap release semantics",
+          "status": "done",
+          "order": 2000,
+          "notes": "Done: tap is release-time consumption only, requiring released=true, hold_consumed=false, and elapsed time below the configured threshold."
+        },
+        {
+          "id": "c020-s3",
+          "title": "Hold threshold and consumption semantics",
+          "status": "done",
+          "order": 3000,
+          "notes": "Done: hold consumers use actionHeldForMs plus !actionHoldConsumed, then call actionConsumeHold so the later physical release cannot also fire the tap path."
+        },
+        {
+          "id": "c020-s4",
+          "title": "Current gameplay consumers",
+          "status": "done",
+          "order": 4000,
+          "notes": "Done: ACTION_USE, ACTION_WEAPON_NEXT, and ACTION_CROUCH use the canonical pattern in bondmove.c and are covered by [press-hold] tests."
+        },
+        {
+          "id": "c020-s5",
+          "title": "Future weapon natural-stop consumers",
+          "status": "done",
+          "order": 5000,
+          "notes": "Closed for the input/menu lane: these are consumer-owned weapon runtime behaviors and are tracked under c3814-s15 held-weapon runtime adapter, not as a new actionmap primitive."
+        },
+        {
+          "id": "c020-s6",
+          "title": "Interaction natural-stop audit",
+          "status": "done",
+          "order": 6000,
+          "notes": "Closed for the input/menu lane: current ACTION_USE one-shot interactions consume at threshold through actionConsumeHold; any future interaction with a different natural stop remains a consumer implementation on the same primitive."
+        }
+      ],
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-21T08:15:00Z"
     },
     {
       "id": "c021",
@@ -1211,28 +1256,60 @@
       "title": "Y-Social binding + glyph + Online-status docking on Main Menu",
       "description": "Per Mike Q4 (2026-05-03), Y-Social is restricted to Main Menu and Pause Menu only. Bind ACTION_MENU_TERTIARY (Y) at the screen level in pdgui_menu_mainmenu.cpp render entry: poll pdguiMenuTertiaryPressed(), guard with !pdguiFriendsSocialIsOpen(), call pdguiFriendsSocialOpen(). Render the social glyph in the upper-right corner via the new pdguiSocialGlyph() helper, docked to the bottom edge of the Online status indicator (Online status placement defined in mainmenu render; glyph y = status_y + status_height). The shared pdguiSocialGlyph helper lives in port/fast3d/pdgui_glyphs.cpp or a new pdgui_chrome.cpp; the helper takes the (x, y) anchor + scale and renders the [Y] Social pill in PD-themed style.",
       "pillar": "social",
-      "column": "backlog",
-      "order": 11000,
-      "priority": 3,
-      "notes": "Q4 next-playtest blocker per Mike. Pair with c088 (Pause Menu). Foundation: ACTION_MENU_SOCIAL alias already in actionmap.h.\nPriority pass 2026-05-20: social docking is player-facing polish; keep behind gameplay stability and core online flow.",
-      "flag": null,
-      "flagged_at": null,
+      "column": "active",
+      "order": 2300,
+      "priority": 1,
+      "notes": "Code/build verified 2026-05-21. Main Menu now polls pdguiMenuTertiaryPressed at screen level, guards against already-open social surfaces, fires the existing MENU_TYPE_MAIN_MENU social graph edge, renders ACTION_MENU_SOCIAL glyph in the top-right chrome area, and prevents parent B/Escape close while the social shell owns input. The original helper request was satisfied through the existing pdguiDrawActionPromptCentered glyph API rather than introducing a redundant wrapper.",
+      "flag": "watch",
+      "flagged_at": "2026-05-21T08:15:00Z",
       "created": "2026-05-03T00:00:00Z",
-      "updated": "2026-05-20T21:22:57.831Z"
+      "updated": "2026-05-21T08:15:00Z",
+      "pending_completion": {
+        "marked_at": "2026-05-21T08:15:00Z",
+        "marked_by": "codex-menuinput-social",
+        "summary": "Implemented Main Menu Y-Social binding and glyph parity through the menu graph.",
+        "verify_notes": "Verified 2026-05-21 in isolated session menuinput: focused pd-tests [input][menu_graph] passed (662 assertions / 34 cases); focused pd-tests [press-hold] passed (47 assertions / 13 cases); queued all-target build passed after rerun with a 300s active-build watchdog. Manual controller retest should confirm Y opens Social from Main Menu and B/Escape closes Social without closing the Main Menu beneath it.",
+        "evidence_refs": [
+          "port/fast3d/pdgui_menu_mainmenu.cpp",
+          "tests/test_menu_graph.cpp"
+        ],
+        "expected_artifacts": [
+          "Y opens Social from Main Menu.",
+          "The Social glyph appears in the Main Menu top-right chrome area.",
+          "B/Escape does not close the Main Menu while Social owns input.",
+          "Combat Sim Room still has no Y-Social binding."
+        ]
+      }
     },
     {
       "id": "c088",
       "title": "Y-Social binding + glyph + Online-status docking on Pause Menu",
       "description": "Per Mike Q4 (2026-05-03), Y-Social is restricted to Main Menu and Pause Menu only. Bind ACTION_MENU_TERTIARY (Y) at the screen level in pdgui_menu_pausemenu.cpp render entry. Render the social glyph in the upper-right corner via the shared pdguiSocialGlyph() helper, docked to the bottom edge of the Online status indicator. Pause menu also benefits from the social access during mid-match coordination. Same helper implementation as c087.",
       "pillar": "social",
-      "column": "backlog",
-      "order": 12000,
-      "priority": 3,
-      "notes": "Q4 next-playtest blocker per Mike. Pair with c087 (Main Menu).\nPriority pass 2026-05-20: pair with c087 after the critical gameplay-stability lane.",
-      "flag": null,
-      "flagged_at": null,
+      "column": "active",
+      "order": 2400,
+      "priority": 1,
+      "notes": "Code/build verified 2026-05-21. Pause Menu now includes the Social shell/glyph headers, polls pdguiMenuTertiaryPressed at screen level, opens Social through pdguiFriendsSocialOpen, renders ACTION_MENU_SOCIAL glyph in the top-right chrome area, and blocks parent pause-menu close while the Social shell owns input.",
+      "flag": "watch",
+      "flagged_at": "2026-05-21T08:15:00Z",
       "created": "2026-05-03T00:00:00Z",
-      "updated": "2026-05-20T21:22:57.831Z"
+      "updated": "2026-05-21T08:15:00Z",
+      "pending_completion": {
+        "marked_at": "2026-05-21T08:15:00Z",
+        "marked_by": "codex-menuinput-social",
+        "summary": "Implemented Pause Menu Y-Social binding and glyph parity.",
+        "verify_notes": "Verified 2026-05-21 in isolated session menuinput: focused pd-tests [input][menu_graph] passed (662 assertions / 34 cases); focused pd-tests [press-hold] passed (47 assertions / 13 cases); queued all-target build passed after rerun with a 300s active-build watchdog. Manual controller retest should confirm Y opens Social from Pause Menu and B/Escape closes Social without closing Pause beneath it.",
+        "evidence_refs": [
+          "port/fast3d/pdgui_menu_pausemenu.cpp",
+          "tests/test_menu_graph.cpp"
+        ],
+        "expected_artifacts": [
+          "Y opens Social from Pause Menu.",
+          "The Social glyph appears in the Pause Menu top-right chrome area.",
+          "B/Escape does not close Pause while Social owns input.",
+          "End Game and Shortcuts modal close gating still works."
+        ]
+      }
     },
     {
       "id": "c089",
@@ -2454,7 +2531,7 @@
       "column": "active",
       "order": 900,
       "priority": 1,
-      "notes": "Created 2026-05-21 from Mike's weapon behavior graph directive. Canonical schema design landed at context/designs/modding/weapon-behavior-graph-assets.md. Base behavior audit landed at context/designs/modding/base-weapon-behavior-coverage.md and context/designs/modding/base-weapon-parameter-matrix.md. Module parameter spec landed at context/designs/modding/weapon-graph-module-parameters.md. Runtime cutover split landed at context/designs/modding/weapon-graph-runtime-cutover-plan.md. Locked direction: .pdweapon is the only weapon archive extension for this system; .pdwpn is fully deprecated, was never released, and must be removed rather than accepted as input, alias, migration source, or compatibility path; .pdprojectile and .pdentity are first-class catalog asset types; .pdentity is behavior/archetype data and does not replace ASSET_PROP; weapons may embed/catalog nested projectiles/entities so each weapon archive remains self-contained; exact duplicate embedded payloads are shared by SHA-256 over canonical archive content; behavior is authored as graph JSON and compiled to deterministic runtime IR; base assets regenerate through the boot/self-heal path. Implemented so far: archive layouts, nested catalog ID rule, canonical payload digest rule, node categories, IR boundary, Laptop Gun projectile-to-entity split, validation gates, current 86-weapon function inventory, first 86-weapon parameter matrix, named weapon/projectile/entity graph modules, runtime mapping for Slayer rockets, grenades, proxy mines, mines, Dragon proxy behavior, thrown Laptop Gun, deployed Laptop Gun autogun behavior, first .pdprojectile/.pdentity candidate list, concrete runtime implementation slices, live .pdweapon emitter/scanner/walker/packer/example/test cutover, first-class .pdprojectile/.pdentity catalog/manifest metadata plumbing, shared weapon graph archive helper APIs, derived nested ID/collision checks, canonical archive-content SHA-256 helpers, nested payload inventory scanning/formatting, base .pdweapon nested_payloads.json scaffolding, graph-shaped base_weapon_graph_v1 emission, embedded .pdprojectile/.pdentity payload archive generation, canonical nested payload inventory writing, and stale temporary legacy graph self-heal. Active next: add graph validator and deterministic runtime IR compiler.",
+      "notes": "Sprint status 2026-05-21. COMPLETED: c3814-s1..s14 and c3814-s20 are done. This includes canonical .pdweapon/.pdprojectile/.pdentity schema/design, base weapon behavior audit, 86-weapon parameter matrix, named graph modules, runtime cutover plan, .pdweapon-only live cutover with .pdwpn removed from code/tests/examples, first-class .pdprojectile/.pdentity catalog/scanner/packer/manifest/UI metadata, weapon_graph_archive helper APIs, derived nested ID/collision checks, canonical archive-content SHA-256, nested_payloads.json scan/format, base .pdweapon base_weapon_graph_v1 emission, embedded .pdprojectile/.pdentity payload archives under projectiles/ and entities/, canonical nested payload inventory rows, stale temporary legacy graph self-heal, graph schema/module/unit/catalog/cycle validation, deterministic runtime IR compilation with stable opcode IDs and sorted parameter blocks, source/IR SHA-256 digests, Debug Settings UI/config storage for the graph runtime toggle, Mods Hub Weapons browser tab, focused c3814 tests, and wpir all-target build verification. PARTIAL: c3814-s15 registers held weapon IR and feeds graph-backed shared gameplay accessors plus first direct held shooting helpers behind the Debug Settings toggle. c3814-s21/s22 now expose a Weapons tab Template flow: selected weapons can be cloned, catalog refs can be selected for model/texture/animation/audio/projectile/entity, model/texture/animation/audio/graph files can be imported with the in-engine file browser, edited graph JSON is save-validated, and a new .pdweapon archive is written under mods/Weapons/<slug>/ with copied template payloads, imported files, mod.json, rescan, and enable. INCOMPLETE / CLI SPRINT ORDER: c3814-s15 ACTIVE - finish remaining direct held-weapon firing callsites for cooldown, trigger state, full hitscan execution, charge/release, beam, melee, specials, devices, presentation, reticles, overlays, zoom, and model visibility; c3814-s16 - projectile IR adapter for rockets, homing, Slayer fly-by-wire, Devastator wall-hugger, grenades, N-Bombs, bolts, knives, mines, and thrown Laptop carrier; c3814-s17 - entity IR adapter for armed explosives, proxy/remote/timed detonatables, N-Bomb storm, Laptop autogun, sticky devices, owner cleanup, and pickup/recover; c3814-s18 - parity tests and removal guards; c3814-s19 - complete gameplay callsite gating for the existing Debug > Settings toggle while legacy behavior remains default; c3814-s21 - finish true embedding of selected catalog assets instead of reference-only fields, plus projectile/entity file import affordances; c3814-s22 - add stronger saved-archive parity/hot-register coverage for custom weapon mods. LOCKED: .pdwpn remains unsupported because it was never released; .pdentity is behavior/archetype data, not an ASSET_PROP replacement; weapons stay self-contained by embedding/cataloging nested projectile/entity assets.",
       "subtasks": [
         {
           "id": "c3814-s1",
@@ -2529,16 +2606,16 @@
         {
           "id": "c3814-s14",
           "title": "Add graph validator and deterministic IR compiler",
-          "status": "active",
+          "status": "done",
           "order": 2900,
-          "notes": "Active next: validate graph schema, pins, modules, units, catalog references, and cycles; compile graph JSON to deterministic runtime IR with stable opcodes, parameter blocks, and dependency digests."
+          "notes": "Done 2026-05-21: added weapon_graph_runtime validation and deterministic IR compilation for .pdweapon/.pdprojectile/.pdentity graphs. Validates schema, graph IDs, module names, duplicate node IDs, edge references, cycles, catalog-like refs, unsafe script modules, and time-unit ambiguity; compiles to stable opcode IDs, sorted parameter blocks, source_sha256, and ir_sha256. Also added Debug Settings UI/config storage for the graph runtime toggle. Verified focused [modding][pdxxx][weapon_graph][compiler][c3814], focused [c3814], and wpir all-target build logs."
         },
         {
           "id": "c3814-s15",
           "title": "Adapt held weapon behavior to graph IR",
-          "status": "backlog",
+          "status": "active",
           "order": 3000,
-          "notes": "Drive non-physical held-weapon modules from compiled IR first: ammo gates/consume, cooldown, hitscan, auto cadence, burst, charge/release, beam tick, melee, specials, devices, presentation, reticles, overlays, zoom, and model visibility."
+          "notes": "Active, partial 2026-05-21: .pdweapon walker compiles/registers held IR; shared gameplay accessors read graph damage, impact force, fire-slot duration, numeric shoot sound, penetration, function flags, and max_rpm cadence; direct held shooting helpers use graph-backed burst flags, ammo slot, spin-up/spin-down, muzzle flash flag, initial/max RPM, and ammo consumption behind the Debug Settings runtime toggle. Remaining: cooldown, trigger state, full hitscan execution, charge/release, beam tick, melee, specials, devices, presentation, reticles, overlays, zoom, model visibility, and parity tests. Legacy behavior remains the default fallback until parity is proven."
         },
         {
           "id": "c3814-s16",
@@ -2560,6 +2637,34 @@
           "status": "backlog",
           "order": 3300,
           "notes": "Add static/runtime parity coverage across weapon, projectile, and entity families, hard-guard against live .pdwpn reintroduction, and track any temporary adapters with owner/removal conditions."
+        },
+        {
+          "id": "c3814-s19",
+          "title": "Gate graph runtime behind Debug Settings toggle",
+          "status": "backlog",
+          "order": 3400,
+          "notes": "Partially landed with c3814-s14/s15: Debug > Settings exposes and persists the Weapon Graph Runtime toggle, and shared held-weapon gameplay accessors now honor it. Remaining work is to route direct firing/projectile/entity callsites through the toggle as those adapters land; legacy behavior stays default until parity is proven."
+        },
+        {
+          "id": "c3814-s20",
+          "title": "Add Mods Weapons browser tab",
+          "status": "done",
+          "order": 3500,
+          "notes": "Done 2026-05-21: added a Modding Hub Weapons tab that lists catalog weapon assets, marks Base vs Mod entries, shows catalog/model/runtime/archive details, and previews weapon.ini, behavior.graph.json, and nested_payloads.json when the .pdweapon archive is resolvable. Base entries remain inspection-only. Verified [weapon_graph][ui][c3814], focused [c3814], and wpir all-target build logs."
+        },
+        {
+          "id": "c3814-s21",
+          "title": "Add weapon template editor imports",
+          "status": "active",
+          "order": 3600,
+          "notes": "Active, partial 2026-05-21: the Mods Hub Weapons tab now has a Template flow that clones the selected weapon, exposes catalog pickers for model, texture, animation, audio, projectile, and entity refs, and uses the in-engine file browser for model, texture, animation, audio, and graph JSON imports. Remaining: embed selected catalog assets into the saved .pdweapon instead of storing reference-only fields where the selected asset is not already part of the template/import payload, and add projectile/entity typed-archive file import affordances."
+        },
+        {
+          "id": "c3814-s22",
+          "title": "Save self-contained weapon mods",
+          "status": "active",
+          "order": 3700,
+          "notes": "Active, partial 2026-05-21: Save Weapon Mod writes mods/Weapons/<slug>/<slug>.pdweapon with weapon.ini, manifest.json, behavior.graph.json, nested_payloads.json, copied non-root template payloads, and imported model/texture/animation/audio files; graph JSON is validated before save; mod.json is written, mods are rescanned, and the new mod is enabled. Remaining: add deeper saved-archive parity/hot-registration tests and true catalog-selected payload embedding for all referenced asset types."
         },
         {
           "id": "c3814-s3",
@@ -2587,17 +2692,17 @@
       "flagged_at": "2026-05-21T00:00:00Z",
       "pending_completion": null,
       "created": "2026-05-21T00:00:00Z",
-      "updated": "2026-05-21T01:15:00-04:00"
+      "updated": "2026-05-21T08:59:00-04:00"
     },
     {
       "id": "c3812",
       "title": "Modding: repair pdxxx as self-contained asset archives",
       "description": "Correct the typed content-unit contract: each *.pdxxx file is itself a zip-openable asset archive containing its descriptor, meshes, textures, audio, language data, and associated INI/TSV files as needed. Weapon behavior uses .pdweapon only; .pdwpn is pre-release code debt to remove. .pdmod remains only the transport wrapper for Public Mods, sharing, and online-required delivery.",
       "pillar": "modding",
-      "column": "active",
+      "column": "done",
       "order": 1000,
       "priority": 1,
-      "notes": "Active 2026-05-20. Mike corrected c3811: typed *.pdxxx files must not be loose descriptors with sidecar folders. The intended asset unit is a self-contained ZIP archive with the typed extension; changing .pdhead/.pdarena/.pdanim/etc. to .zip should expose everything needed to edit or clone that asset. No authored .bin payloads. Runtime may use readable generated cache, but source-of-truth authored files stay inside the typed archive. .pdmod remains networking/Public Mods/online transport only. Memory review mem-002 is marked adjust, and a durable Codex memory note was added under extensions/ad_hoc/notes.\nPriority pass 2026-05-20: first critical path slot. Finish the self-contained typed *.pdxxx archive repair before advancing broader input/collision/stability work.\nWeapon behavior correction 2026-05-21: .pdweapon is the only weapon behavior archive extension. .pdwpn is a pre-release implementation name to remove, not an accepted extension, alias, or compatibility path.\nNon-weapon extractor update 2026-05-21: canonical .pdcharacter archives now emit with character.ini plus nested .pdbody/.pdhead dependency archives; scanner, packer, and typed archive suffix recognition accept .pdcharacter. Weapon .pdweapon/.pdwpn work remains in c3814.\nNon-weapon audio extractor update 2026-05-21: base .pdsfx and .pdvoice archives now write decoded mono PCM16 sample.wav plus sample.wav.sha256, descriptors/manifests point at sample.wav with source_format provenance, and old descriptor-only/sample.bin archives are stale unless sample.wav is present. Weapon .pdweapon/.pdwpn work remains in c3814.\nNon-weapon language extractor update 2026-05-21: base .pdlang archives now decode raw ROM language offset tables into editable strings.tsv plus strings.tsv.sha256, descriptors/manifests point at strings.tsv, and old data.bin-only language archives are stale unless strings.tsv is present.\nNon-weapon font extractor update 2026-05-21: base .pdfont archives now decode ROM bitmap fonts into glyphs.pgm, metrics.tsv, and kerning.tsv plus SHA-256 sidecars; descriptors/manifests point at those files, and old data.bin-only font archives are stale.\nNon-weapon song extractor update 2026-05-21: base .pdsong archives now inflate N64 RareZip compressed-MIDI sequences and emit standard sequence.mid plus editable sequence.tsv with SHA-256 sidecars; descriptors/manifests point at those files, and old data.bin-only music archives are stale.\nNon-weapon animation/mesh extractor update 2026-05-21: character .pdanim archives now emit header.tsv and frames.tsv instead of frames.bin. .pdmesh archives now promote PD_MODELDEF, walk model display lists, and emit standard Wavefront model.obj plus model.mtl and SHA-256 sidecars instead of geometry.bin or a TSV byte table. Weapon .pdweapon/.pdwpn work remains in c3814.",
+      "notes": "Completed non-weapon typed asset archive migration as of 2026-05-21. The c3812 archive contract is now implemented for base and mod content equally: each typed *.pdxxx content unit is zip-openable and carries a root descriptor plus authored source files, while .pdmod remains transport only. Completed non-weapon outputs include c3812-s1..s4, nested typed archive/VFS support, packer/examples/docs, canonical .pdcharacter, .pdhead/.pdbody/.pdarena root descriptors, .pdmesh model.obj/model.mtl, .pdsfx/.pdvoice sample.wav, .pdsong sequence.mid/sequence.tsv, .pdlang strings.tsv, .pdfont glyphs.pgm/metrics.tsv/kerning.tsv, character .pdanim header.tsv/frames.tsv, and .pdscenario rooms.obj/scenario.mtl/tiles.tsv/pads.tsv/setup.tsv/mpsetup.tsv/visual_segments.tsv. Old raw authored payloads such as geometry.bin, tiles.bin, pads.bin, setup.bin, mpsetup.bin, sample.bin, data.bin, frames.bin, and mesh byte tables are treated as stale or rejected by focused guards. Verification: pdxasset client build passed and focused [modding][pdxxx][base][static][c3812] passed 212 assertions / 11 cases. Weapon archive closure is explicitly out of scope here and remains tracked by c3814 for .pdweapon only.",
       "subtasks": [
         {
           "id": "c3812-s1",
@@ -2630,16 +2735,16 @@
         {
           "id": "c3812-s5",
           "title": "Compatibility and validation",
-          "status": "active",
+          "status": "done",
           "order": 5000,
-          "notes": "Active 2026-05-20. Focused c3809/c3811/c3812 tests pass, tests target builds, zip-openable typed examples are verified, and c3812 archive-inventory/reference coverage verifies required inner authored files, no authored .bin, and descriptor/GLTF/OBJ references resolving inside each archive. Nested archive VFS preflight/resolve is covered, client/updater all-target build passed, and dedicated server now links after adding the missing archive source/stubs. Mike clarified the stricter full-asset bar: model textures/UV material references, rig or mesh linkage, animation targets, weapon model/animation/audio relationships, and all authored dependencies must live inside the asset archive. Follow-up correction 2026-05-21: weapon behavior belongs in .pdweapon only; .pdwpn support should not be implemented. Non-weapon extractor update 2026-05-21: .pdcharacter emitter/scanner/packer support is wired and focused c3812 static coverage passes; .pdhead/.pdbody are dependency/runtime compatibility archives under the character asset. The file/dependency archive gate is now passing; remaining closure is runtime/playtest sanity if Mike wants it before advancing. Audio closure slice 2026-05-21: focused [modding][pdxxx][base][static][c3812] passes with WAV payload guards, and all-target isolated build passes in session pdxaudio. Language closure slice 2026-05-21: focused [modding][pdxxx][base][static][c3812] now passes 106 assertions / 6 cases with TSV language guards, and all-target isolated build passes in session pdxaudio. Font closure slice 2026-05-21: focused [modding][pdxxx][base][static][c3812] now passes 124 assertions / 7 cases with bitmap-font guards, scoped diff check passes, and all-target isolated build in session pdxfont passes for client/updater after correcting the pdcharacter compile break. Song/animation/mesh closure slice 2026-05-21: .pdsong now writes sequence.mid and sequence.tsv instead of data.bin, character .pdanim writes header.tsv and frames.tsv instead of frames.bin, and .pdmesh now writes standard model.obj plus model.mtl instead of geometry.bin or TSV fallback; client build passes in session pdxmesh, and focused [modding][pdxxx][base][static][c3812] passes 183 assertions / 10 cases."
+          "notes": "Done 2026-05-21. Completed non-weapon compatibility and validation after the scenario/map payload pass: .pdscenario now exports rooms.obj, scenario.mtl, tiles.tsv, pads.tsv, setup.tsv, mpsetup.tsv, and visual_segments.tsv with SHA-256 sidecars instead of copying opaque stage internals. Existing .pdscenario archives without rooms.obj are stale. Focused c3812 static coverage now pins 11 non-weapon archive cases and rejects raw scenario .bin payload names. Verified with pdxasset client build and [modding][pdxxx][base][static][c3812] 212 assertions / 11 cases. Weapon assets remain excluded and owned by c3814."
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-20T20:05:00Z",
       "pending_completion": null,
       "created": "2026-05-20T20:05:00Z",
-      "updated": "2026-05-21T01:10:00-04:00"
+      "updated": "2026-05-21T08:12:00-04:00"
     },
     {
       "id": "c3813",

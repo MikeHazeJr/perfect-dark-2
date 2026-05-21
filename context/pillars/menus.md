@@ -132,6 +132,7 @@ Per [constraints.md](../constraints.md):
 
 - **Menu graph completion.** Closed for the active ImGui/controller-facing surface in c036 (2026-05-19). Remaining legacy C/runtime stack calls are not part of that controller menu lane.
 - **Combat Sim Room flow parity.** Code/build verified 2026-05-21 under c086, pending Mike playtest. Main Menu -> Combat Simulator -> Room -> Start Match and Room/Endscreen return paths remain graph-routed. Room panels and grouping headers are non-focusable where practical; focus lands on actionable contents. RS scroll continues to use the innermost-scroll target, and the Room left/right panels avoid extra nested scrollbars beyond the necessary settings/player-list scroll regions.
+- **Y-Social root-menu parity.** Code/build verified 2026-05-21 under c087/c088, pending Mike playtest. Main Menu uses the existing `MENU_TYPE_MAIN_MENU` social graph edge from Y, Pause Menu opens the Social shell directly, both render the `ACTION_MENU_SOCIAL` glyph in the top-right chrome area, and both suppress parent B/Escape close while Social owns input. Combat Sim Room remains intentionally unbound for Y.
 - **Three deferred MENUITEM types.** [pdgui_menu_warning.cpp:1247-1258](../../port/fast3d/pdgui_menu_warning.cpp:1247) explicitly DEFERRED: `MENUITEMTYPE_LIST` (MP Pause Inventory, MP Character body/head, MP Load Settings/Preset/Player), `MENUITEMTYPE_PLAYERSTATS` (MP Pause Player Stats), `MENUITEMTYPE_RANKING` (MP Pause Player Ranking, MP Pause Team Rankings). Fallback at lines 622-629 outputs `[label]` placeholder text. The in-match inventory and ranking screens are placeholders.
 - **Action bar adoption.** Used in 19 of 31 files. Remaining 12 (`solomission`, `training`, `mpsettings` partially, `mpadvanced`, `challenges`, `logviewer`, `audiomod`, `stats`, `theme_editor`, `modmgr`, `endscreen`, `mpsetup` partially) place CTAs in scroll body. UX inconsistency.
 - **Widget helper adoption.** Used in 12 of 31 files. 19 menus still use raw ImGui widgets with default label-right.
@@ -149,7 +150,7 @@ Per [constraints.md](../constraints.md):
 
 ## Tests
 
-Coverage at `tests/`: `test_menu_stack` (9 cases), `test_menu_reachability` (6 synthetic trees), `test_menu_graph` (static source guard, including c086 Room parity guards), `test_right_stick_scroll` (math spec), `test_nested_scroll` (innermost scroll target), `menupool_pure.c` (pure mirror).
+Coverage at `tests/`: `test_menu_stack` (9 cases), `test_menu_reachability` (6 synthetic trees), `test_menu_graph` (static source guard, including c086 Room parity and c087/c088 Y-Social guards), `test_right_stick_scroll` (math spec), `test_nested_scroll` (innermost scroll target), `menupool_pure.c` (pure mirror).
 
 ---
 

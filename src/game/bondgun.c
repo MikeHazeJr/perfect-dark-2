@@ -58,6 +58,7 @@
 #include "lib/lib_317f0.h"
 #include "data.h"
 #include "types.h"
+#include "weapon_graph_runtime.h"
 #include "platform.h"
 #include "game/stagetable.h"
 #include "video.h"
@@ -1787,24 +1788,48 @@ s32 bgun0f09a3f8(struct hand *hand, struct weaponfunc *func)
 	bool burst = false;
 	bool smallburst = false;
 	struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(hand->gset.weaponnum, hand->gset.weaponfunc);
+	u32 funcflags = graph ? graph->flags : func->flags;
+	s32 ammoindex = (graph && graph->ammo_slot >= 0) ? graph->ammo_slot : func->ammoindex;
+	bool legacyauto = (func->type & 0xff00) == 0x100;
+	bool isauto = (graph && graph->has_max_rpm) ? true : legacyauto;
+	s32 turretaccel = 0;
+	s32 turretdecel = 0;
 
-	if ((func->flags & FUNCFLAG_BURST3) && hand->burstbullets < 3) {
+	if (isauto) {
+		if (graph && graph->has_turret_accel) {
+			turretaccel = graph->turret_accel;
+		} else if (legacyauto) {
+			struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *) func;
+			turretaccel = autofunc->turretaccel;
+		}
+
+		if (graph && graph->has_turret_decel) {
+			turretdecel = graph->turret_decel;
+		} else if (legacyauto) {
+			struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *) func;
+			turretdecel = autofunc->turretdecel;
+		}
+	}
+
+	if ((funcflags & FUNCFLAG_BURST3) && hand->burstbullets < 3) {
 		// Make automatics do single shot when holding aim
-		if (!g_Vars.currentplayer->insightaimmode || (func->type & 0xff00) != 0x100) {
+		if (!g_Vars.currentplayer->insightaimmode || !isauto) {
 			// Not aiming and not an automatic weapon
 			smallburst = true;
 		}
 	}
 
-	if ((func->flags & FUNCFLAG_BURST2) && hand->burstbullets < 2) {
+	if ((funcflags & FUNCFLAG_BURST2) && hand->burstbullets < 2) {
 		smallburst = true;
 	}
 
-	if ((func->flags & FUNCFLAG_BURST5) && hand->burstbullets < 5) {
+	if ((funcflags & FUNCFLAG_BURST5) && hand->burstbullets < 5) {
 		smallburst = true;
 	}
 
-	if ((func->flags & FUNCFLAG_BURST50) && hand->burstbullets < 50) {
+	if ((funcflags & FUNCFLAG_BURST50) && hand->burstbullets < 50) {
 		burst = true;
 	}
 
@@ -1813,19 +1838,17 @@ s32 bgun0f09a3f8(struct hand *hand, struct weaponfunc *func)
 	}
 
 	if (hand->triggeron || (hand->stateflags & HANDSTATEFLAG_00000010) == 0 || burst) {
-		if (func->ammoindex >= 0
-				&& hand->loadedammo[func->ammoindex] == 0
-				&& ctrl->ammotypes[func->ammoindex] >= 0) {
+		if (ammoindex >= 0
+				&& hand->loadedammo[ammoindex] == 0
+				&& ctrl->ammotypes[ammoindex] >= 0) {
 			// Clip is empty
 			return -1;
 		}
 
-		if ((func->type & 0xff00) == 0x100) {
-			struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *) func;
-
-			if (autofunc->turretaccel > 0) {
+		if (isauto) {
+			if (turretaccel > 0) {
 				if (hand->gs_float1 < 1) {
-					hand->gs_float1 += LVUPDATE60FREAL() / autofunc->turretaccel;
+					hand->gs_float1 += LVUPDATE60FREAL() / turretaccel;
 
 					if (hand->gs_float1 > 1) {
 						hand->gs_float1 = 1;
@@ -1857,15 +1880,15 @@ s32 bgun0f09a3f8(struct hand *hand, struct weaponfunc *func)
 			hand->stateframes = 0;
 		}
 
-		if ((func->flags & FUNCFLAG_BURST3) && hand->burstbullets == 2) {
+		if ((funcflags & FUNCFLAG_BURST3) && hand->burstbullets == 2) {
 			smallburst = false;
 		}
 
-		if ((func->flags & FUNCFLAG_BURST2) && hand->burstbullets == 1) {
+		if ((funcflags & FUNCFLAG_BURST2) && hand->burstbullets == 1) {
 			smallburst = false;
 		}
 
-		if ((func->flags & FUNCFLAG_BURST5) && hand->burstbullets == 4) {
+		if ((funcflags & FUNCFLAG_BURST5) && hand->burstbullets == 4) {
 			smallburst = false;
 		}
 
@@ -1876,12 +1899,10 @@ s32 bgun0f09a3f8(struct hand *hand, struct weaponfunc *func)
 		return 2;
 	}
 
-	if ((func->type & 0xff00) == (INVENTORYFUNCTYPE_SHOOT_AUTOMATIC & 0xff00)) {
-		struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *) func;
-
-		if (autofunc->turretdecel > 0) {
+	if (isauto) {
+		if (turretdecel > 0) {
 			if (hand->gs_float1 > 0) {
-				hand->gs_float1 -= LVUPDATE60FREAL() / autofunc->turretdecel;
+				hand->gs_float1 -= LVUPDATE60FREAL() / turretdecel;
 
 				if (hand->gs_float1 < 0) {
 					hand->gs_float1 = 0;
@@ -1903,6 +1924,12 @@ s32 bgun0f09a3f8(struct hand *hand, struct weaponfunc *func)
 void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, struct weaponfunc *func)
 {
 	bool usesammo = true;
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(hand->gset.weaponnum, hand->gset.weaponfunc);
+	u32 funcflags = graph ? graph->flags : func->flags;
+	s32 ammoindex = (graph && graph->ammo_slot >= 0) ? graph->ammo_slot : func->ammoindex;
+	bool legacyauto = (func->type & 0xff00) == 0x100;
+	bool isauto = (graph && graph->has_max_rpm) ? true : legacyauto;
 
 	static u32 rontime = 2;
 	static u32 rofftime = 4;
@@ -1912,12 +1939,23 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 
 	hand->firing = true;
 
-	if ((func->type & 0xff00) == 0x100) {
-		struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *) func;
+	if (isauto) {
 		f32 tmp;
 		f32 tmp2;
+		f32 initialrpm = graph && graph->has_initial_rpm ? graph->initial_rpm : 0.0f;
+		f32 maxrpm = graph && graph->has_max_rpm ? graph->max_rpm : 0.0f;
 
-		tmp = autofunc->initialrpm + (autofunc->maxrpm - autofunc->initialrpm) * hand->gs_float1;
+		if (legacyauto) {
+			struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *) func;
+			if (!graph || !graph->has_initial_rpm) {
+				initialrpm = autofunc->initialrpm;
+			}
+			if (!graph || !graph->has_max_rpm) {
+				maxrpm = autofunc->maxrpm;
+			}
+		}
+
+		tmp = initialrpm + (maxrpm - initialrpm) * hand->gs_float1;
 		tmp2 = tmp / 60.0f * (LVUPDATE60FREAL() / 60.0f) + hand->shotremainder;
 
 		hand->shotstotake = tmp2;
@@ -1940,11 +1978,13 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 
 	hand->burstbullets += hand->shotstotake;
 
-	if (func->flags & FUNCFLAG_NOMUZZLEFLASH) {
+	if (funcflags & FUNCFLAG_NOMUZZLEFLASH) {
 		hand->flashon = false;
 	} else {
 		if (g_BgunGeMuzzleFlashes) {
-			if (func->type == INVENTORYFUNCTYPE_SHOOT_SINGLE || (hand->shotstotake & 1)) {
+			if ((!isauto && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT)
+					|| func->type == INVENTORYFUNCTYPE_SHOOT_SINGLE
+					|| (hand->shotstotake & 1)) {
 				hand->flashon = true;
 			}
 		} else {
@@ -1963,13 +2003,13 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 
 		bgunRumble(handnum, info->weaponnum);
 
-		if (usesammo && func->ammoindex >= 0) {
-			hand->loadedammo[func->ammoindex] -= hand->shotstotake;
+		if (usesammo && ammoindex >= 0) {
+			hand->loadedammo[ammoindex] -= hand->shotstotake;
 
-			if (hand->loadedammo[func->ammoindex] < 0) {
+			if (hand->loadedammo[ammoindex] < 0) {
 				// Note: loadedammo is negative
-				hand->shotstotake += hand->loadedammo[func->ammoindex];
-				hand->loadedammo[func->ammoindex] = 0;
+				hand->shotstotake += hand->loadedammo[ammoindex];
+				hand->loadedammo[ammoindex] = 0;
 			}
 		}
 

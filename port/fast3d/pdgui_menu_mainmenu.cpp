@@ -68,6 +68,7 @@ extern "C" {
 #include "net/matchsetup.h"
 #include "testscenarios.h"
 #include "swarm_test.h" /* S594h-Unit-A item 6 UI: team mode picker */
+#include "weapon_graph_runtime.h"
 }
 
 /* ========================================================================
@@ -3815,6 +3816,16 @@ static void renderSettingsDebug(float scale)
     }
 
     ImGui::Spacing();
+
+    {
+        bool graphRuntime = weaponGraphRuntimeEnabled() != 0;
+        if (ImGui::Checkbox("Weapon Graph Runtime", &graphRuntime)) {
+            weaponGraphRuntimeSetEnabled(graphRuntime ? 1 : 0);
+            configSave("pd.ini");
+        }
+    }
+
+    ImGui::Spacing();
     ImGui::Spacing();
 
     /* S306: UI Theme selector + Theme Editor launcher moved to the new
@@ -5464,6 +5475,16 @@ static s32 renderMainMenu(struct menudialog *dialog,
     bool socialSurfaceOpen = pdguiFriendsAnySurfaceIsOpen() != 0;
     if (!ImGui::IsWindowAppearing()
         && !socialSurfaceOpen
+        && !pdguiFriendsSocialIsOpen()
+        && pdguiMenuTertiaryPressed()) {
+        if (menuGraphFirePushOp(MENU_TYPE_MAIN_MENU, "social",
+                pdguiMainMenuGraphOpenSocial, NULL) == 0) {
+            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+        }
+        socialSurfaceOpen = true;
+    }
+    if (!ImGui::IsWindowAppearing()
+        && !socialSurfaceOpen
         && (titleClose || actionCancelEdge)) {
         if (s_MenuView != 0) {
             if (s_MenuView == 2) {
@@ -5500,6 +5521,12 @@ static s32 renderMainMenu(struct menudialog *dialog,
          * button-toggle-between-Quit-Game-and-Confirm-Quit pattern).
          * ================================================================ */
         static s32 s_QuitOpenFrame = -1;
+        if (!socialSurfaceOpen) {
+            pdguiDrawActionPromptCentered(ACTION_MENU_SOCIAL,
+                                          dialogX + dialogW - padR - pdguiScale(66.0f),
+                                          dialogY + pdguiScale(10.0f),
+                                          "Social");
+        }
 
         ImGui::Dummy(ImVec2(0, 8.0f * scale));
 

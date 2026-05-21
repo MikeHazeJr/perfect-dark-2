@@ -1,6 +1,6 @@
 # Weapon Graph Runtime Cutover Plan
 
-Status: implementation split for Kanban `c3814-s9`; Slice 1 (`c3814-s10`), Slice 2 (`c3814-s11`), and Slice 3 (`c3814-s12`) landed 2026-05-21.
+Status: implementation split for Kanban `c3814-s9`; Slice 1 (`c3814-s10`) through Slice 5 (`c3814-s14`) landed 2026-05-21. Slice 6 (`c3814-s15`) is active next.
 
 This document turns the schema, base behavior audit, parameter matrix, and module parameter spec into sequenced runtime work. It is intentionally split so the pre-release `.pdwpn` removal can land cleanly before graph compiler and gameplay runtime work begins.
 
@@ -108,7 +108,7 @@ Exit gates:
 ### Slice 5: graph validator and deterministic IR compiler
 
 Kanban: `c3814-s14`.
-Status: active next.
+Status: done 2026-05-21.
 
 Scope:
 
@@ -123,9 +123,18 @@ Exit gates:
 - Compiler output is deterministic across repeated runs.
 - Runtime code does not parse editor-only graph affordances on the hot path.
 
+Landed:
+
+- Added `weapon_graph_runtime` validation for schema names, graph IDs, known module kinds, duplicate node IDs, edge references, cycles, catalog-style references, unsafe script-like modules, and explicit units for time-like parameters.
+- Added deterministic IR compilation with stable opcode IDs, sorted parameter blocks, `source_sha256`, and `ir_sha256`.
+- Added archive-file compilation through the shared graph archive reader for `.pdweapon`, `.pdprojectile`, and `.pdentity`.
+- Added Debug Settings UI/config storage for the graph runtime toggle. Gameplay callsite use of that toggle is part of Slice 6 and later adapters.
+- Verified focused compiler coverage, focused `[c3814]`, and all-target build logs under session `wpir`.
+
 ### Slice 6: held-weapon runtime adapter
 
 Kanban: `c3814-s15`.
+Status: active, partial 2026-05-21.
 
 Scope:
 
@@ -138,6 +147,13 @@ Exit gates:
 - Non-physical base weapon families can run from IR without behavior drift.
 - Old authored weapon data is no longer the gameplay source of truth for converted modules.
 - Focused parity tests cover fire cadence, ammo consumption, charge/release, and device toggles.
+
+Landed so far:
+
+- `.pdweapon` walker compiles/registers held IR from each weapon archive after the legacy pool payload is parsed.
+- Shared gameplay accessors read graph-backed damage, impact force, fire-slot duration, numeric shoot sound, penetration, function flags, and max_rpm cadence when the Debug Settings graph runtime toggle is enabled.
+- Direct held shooting helpers read graph-backed burst flags, ammo slot, spin-up/spin-down, muzzle flash flag, initial/max RPM, and ammo consumption when the toggle is enabled.
+- Legacy behavior remains the default fallback and still owns direct firing state-machine callsites.
 
 ### Slice 7: projectile runtime adapter
 
@@ -188,7 +204,7 @@ Exit gates:
 
 ## First Active Code Task
 
-Continue with `c3814-s14`: validate graph schema, module names, units, catalog references, and cycles, then compile graph JSON to deterministic runtime IR with stable opcode IDs, parameter blocks, and dependency digests.
+Continue with `c3814-s15`: adapt held weapon behavior to compiled graph IR for non-physical modules first, using the Debug Settings runtime toggle as the gameplay callsite gate while legacy behavior remains the default fallback.
 
 ## Sentinel
 

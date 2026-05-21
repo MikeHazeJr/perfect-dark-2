@@ -28,6 +28,8 @@
 #include "menupool.h"
 #include "menugraph.h"
 #include "actionmap.h"
+#include "pdgui_friends.h"
+#include "pdgui_glyphs.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -670,6 +672,12 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
     if (ImGui::Begin("##PdPauseMenu", NULL, flags)) {
         /* PD-authentic dialog frame */
         pdguiDrawPdDialog(menuX, menuY, menuW, menuH, "PAUSED", 1);
+        bool socialSurfaceOpen = pdguiFriendsAnySurfaceIsOpen() != 0;
+        if (!socialSurfaceOpen && pdguiMenuTertiaryPressed()) {
+            pdguiFriendsSocialOpen();
+            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+            socialSurfaceOpen = true;
+        }
 
         /* Inset content area — S297 chrome-aware padding.  The base values
          * (24px / 60px) assume the procedural dialog + title bar; large
@@ -687,6 +695,12 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
         if (insB > padB) padB = insB;
 
         ImGui::SetCursorPos(ImVec2(padX, padY));
+        if (!socialSurfaceOpen) {
+            pdguiDrawActionPromptCentered(ACTION_MENU_SOCIAL,
+                                          menuX + menuW - padR - pdguiScale(66.0f),
+                                          menuY + pdguiScale(12.0f),
+                                          "Social");
+        }
 
         /* Tab buttons across the top.  Four slots: Rankings, Settings,
          * Shortcuts (debug-shortcuts modal), End Game (danger).  The
@@ -988,7 +1002,7 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
          * 2026-04-26: same gate applies to the Shortcuts modal. */
         if (s_PauseJustOpened) {
             s_PauseJustOpened = false;
-        } else if (!endgamePopupWasOpen && !shortcutsPopupWasOpen) {
+        } else if (!socialSurfaceOpen && !endgamePopupWasOpen && !shortcutsPopupWasOpen) {
             /* S311: title X button or Escape closes (X channel avoids
              * the one-frame-swallow class that needed two clicks). */
             if (pdguiConsumeTitleClose() ||

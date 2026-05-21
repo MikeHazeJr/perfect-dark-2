@@ -1,5 +1,192 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-21-weapon-template-save`) - 2026-05-21 - c3814 weapon template/save UI
+
+Mike asked to continue the weapon migration through the Mods menu Weapon tab and keep Kanban progress accurate.
+
+### Implemented
+
+- Advanced Kanban `c3814-s21` and `c3814-s22` to active/partial.
+- Added a Template flow to the Modding Hub Weapons tab.
+- `Use as Template` clones the selected base or mod `.pdweapon` archive into editor state.
+- Added catalog pickers for model, texture, animation, audio, projectile, and entity references.
+- Added in-engine file browser imports for model, texture, animation, audio, and behavior graph JSON.
+- `Save Weapon Mod` validates edited graph JSON, writes `mods/Weapons/<slug>/<slug>.pdweapon` with `weapon.ini`, `manifest.json`, `behavior.graph.json`, `nested_payloads.json`, copied non-root template payloads, and imported files, then writes `mod.json`, rescans mods, and enables the new mod.
+- Added static UI coverage for the template/import/save affordances.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wpir -Selector "[weapon_graph][ui][c3814]" -BuildTimeoutSeconds 240` PASS: 25 assertions / 2 test cases.
+- `.\devtools\run-pd-tests.ps1 -Session wpir -Selector "[c3814]" -BuildTimeoutSeconds 240` PASS: 234 assertions / 12 test cases.
+- `.\devtools\build-session.ps1 -Session wpir -Target all -BuildTimeoutSeconds 300` PASS after log inspection: client and updater linked.
+
+### Remaining
+
+- `c3814-s21`: selected catalog assets that are not already copied from the template/import payload are currently stored as refs; true embedding of selected catalog payloads still needs to land, along with projectile/entity typed-archive file import buttons.
+- `c3814-s22`: add stronger saved custom weapon parity/hot-register tests.
+- `c3814-s15`, `c3814-s16`, `c3814-s17`, `c3814-s18`, and `c3814-s19` remain open for runtime completion.
+
+---
+
+## Session (`main-checkout-2026-05-21-weapon-graph-held-adapter`) - 2026-05-21 - c3814 held weapon IR bridge
+
+Mike asked to continue the weapon behavior migration and keep Kanban tracking accurate.
+
+### Implemented
+
+- Advanced active Kanban `c3814-s15` with a first held-weapon runtime bridge, but did not mark it done.
+- Added a held-function registry in `weapon_graph_runtime`.
+- Updated the `.pdweapon` walker so each weapon archive compiles/registers held IR during load.
+- Wired shared gameplay accessors through the Debug Settings graph runtime toggle for graph-backed damage, impact force, fire-slot duration, numeric shoot sound, penetration, function flags, and max_rpm cadence.
+- Extended direct held shooting helpers to use graph-backed burst flags, ammo slot, spin-up/spin-down, muzzle flash flag, initial/max RPM, and ammo consumption while the toggle is enabled.
+- Added focused runtime/static tests for held IR registration, debug-gated lookup, and gameplay accessor wiring.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wpir -Selector "[runtime][held][c3814]" -BuildTimeoutSeconds 240` PASS: 26 assertions / 1 test case.
+- `.\devtools\run-pd-tests.ps1 -Session wpir -Selector "[c3814]" -BuildTimeoutSeconds 240` PASS: 209 assertions / 10 test cases.
+- `.\devtools\build-session.ps1 -Session wpir -Target all -BuildTimeoutSeconds 300` PASS after log inspection: client and updater linked.
+
+### Remaining
+
+- `c3814-s15` remains active. Remaining held-weapon work: cooldown, trigger state, full hitscan execution, charge/release, beam, melee, specials, devices, presentation, reticles, overlays, zoom, model visibility, and parity tests.
+- Projectile/entity runtime adapters and the Mods > Weapons browser/editor/save flow remain pending.
+
+---
+
+## Session (`main-checkout-2026-05-21-modhub-weapon-browser`) - 2026-05-21 - c3814 Mods Weapons browser
+
+Mike asked for a Mods menu Weapon tab where existing/base weapons can be viewed with model, texture, animation, nested payload, and behavior graph context.
+
+### Implemented
+
+- Completed Kanban `c3814-s20`.
+- Added a Weapons tool to the Modding Hub tab strip.
+- The tab lists catalog weapon assets, marks Base vs Mod entries, and shows catalog ID, weapon ID, runtime index, model reference, dual-wield flag, and resolved archive path.
+- The detail pane previews `weapon.ini`, `behavior.graph.json`, and `nested_payloads.json` from a resolvable `.pdweapon` archive.
+- Base game weapons remain inspection-only in this slice. Template/import editing and save/register flow remain `c3814-s21` and `c3814-s22`.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wpir -Selector "[weapon_graph][ui][c3814]" -BuildTimeoutSeconds 240` PASS: 11 assertions / 1 test case.
+- `.\devtools\run-pd-tests.ps1 -Session wpir -Selector "[c3814]" -BuildTimeoutSeconds 240` PASS: 220 assertions / 11 test cases.
+- `.\devtools\build-session.ps1 -Session wpir -Target all -BuildTimeoutSeconds 300` PASS after log inspection: client and updater linked.
+
+### Remaining
+
+- Weapon template/clone editor with catalog pickers/file imports remains `c3814-s21`.
+- Saving self-contained `.pdweapon` mods and registering/enabling them natively remains `c3814-s22`.
+
+---
+
+## Session (`main-checkout-2026-05-21-weapon-graph-ir-compiler`) - 2026-05-21 - c3814 graph IR compiler and debug toggle
+
+Mike asked to continue the weapon behavior/projectile/entity migration and keep the Kanban board current so CLI can sprint from the remaining work.
+
+### Implemented
+
+- Completed Kanban `c3814-s14` and moved `c3814-s15` active next.
+- Added `weapon_graph_runtime` validation for `.pdweapon`, `.pdprojectile`, and `.pdentity` graph JSON: schema names, graph IDs, known module kinds, duplicate node IDs, edge references, cycles, catalog-style references, unsafe script-like modules, and explicit time units.
+- Added deterministic graph-to-runtime-IR compilation with stable opcode IDs, sorted parameter blocks, `source_sha256`, and `ir_sha256`.
+- Added archive-file compilation through the shared graph archive reader.
+- Added a persisted Debug > Settings `Weapon Graph Runtime` toggle shell. It is visible/config-backed now; gameplay callsite gating still belongs to the held/projectile/entity adapter slices.
+- Added focused c3814 compiler coverage and static coverage for the Debug Settings toggle wiring.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wpir -Selector "[modding][pdxxx][weapon_graph][compiler][c3814]" -BuildTimeoutSeconds 240` PASS: 26 assertions / 2 test cases.
+- `.\devtools\run-pd-tests.ps1 -Session wpir -Selector "[c3814]" -BuildTimeoutSeconds 240` PASS: 170 assertions / 8 test cases.
+- `.\devtools\build-session.ps1 -Session wpir -Target all -BuildTimeoutSeconds 300` PASS after inspecting logs: client and updater linked, and `pd-tests.exe` exists from the focused test build.
+- Kanban JSON parse/order validation passed.
+
+### Remaining
+
+- Active next: `c3814-s15` held-weapon runtime adapter. It must use the Debug Settings toggle as the gameplay callsite gate while legacy behavior remains default.
+- Still pending after that: projectile IR adapter (`c3814-s16`), deployed entity IR adapter (`c3814-s17`), parity/removal guards (`c3814-s18`), full gameplay toggle callsite closure (`c3814-s19`), Mods > Weapons browser (`c3814-s20`), template/import editor (`c3814-s21`), and self-contained `.pdweapon` save/register flow (`c3814-s22`).
+
+---
+
+## Session (`main-checkout-2026-05-21-nonweapon-scenario-archives`) - 2026-05-21 - c3812 non-weapon scenario archives completed
+
+Mike asked to complete the remaining non-weapon asset migration according to the memory/Kanban plan, while leaving `.pdweapon` work to the parallel c3814 session.
+
+### Implemented
+
+- Updated `.pdscenario` extraction so base stage archives no longer copy raw `geometry.bin`, `tiles.bin`, `pads.bin`, `setup.bin`, or `mpsetup.bin`.
+- Reused the runtime tile and pad preprocessing formats to export standard `rooms.obj` plus `scenario.mtl`, decoded `tiles.tsv`, decoded `pads.tsv`, setup/mpsetup word tables, and `visual_segments.tsv` provenance with SHA-256 sidecars.
+- Existing `.pdscenario` archives without `rooms.obj` are now stale and regenerate on the next extraction pass.
+- Added focused c3812 static coverage that pins the standard scenario payloads and rejects the old raw stage-internal names.
+- Updated Kanban `c3812` to done for the non-weapon archive migration. Weapon archive closure remains c3814-only.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session pdxasset -Target client -BuildTimeoutSeconds 180` PASS.
+- `.\devtools\run-pd-tests.ps1 -Session pdxasset -Selector "[modding][pdxxx][base][static][c3812]" -BuildTimeoutSeconds 180` PASS: 212 assertions / 11 test cases.
+
+---
+
+## Session (`codex-menuinput-social-closeout`) - 2026-05-21 - input/menu lane Social and press-hold closeout
+
+Mike asked to finish the input and menu system according to memory and Kanban.
+
+### Implemented
+
+- Added Main Menu Y-Social parity: `pdguiMenuTertiaryPressed()` opens Social through the existing `MENU_TYPE_MAIN_MENU` social graph edge, with a guard for already-open Social surfaces.
+- Added Pause Menu Y-Social parity: `pdguiMenuTertiaryPressed()` opens the Social shell, and the menu now includes the Social/glyph headers.
+- Added `ACTION_MENU_SOCIAL` glyph rendering to the top-right chrome area of Main Menu and Pause Menu.
+- Prevented Main Menu and Pause Menu B/Escape parent close while the Social shell owns input.
+- Added a static c087/c088 guard proving Y-Social is only wired on Main Menu/Pause Menu and remains absent from Combat Sim Room.
+- Closed Kanban `c020` for the input/menu lane: press/tap and hold remain one threshold/consumption primitive, with future weapon natural-stop behavior tracked under `c3814-s15`.
+- Updated Kanban `c087` and `c088` as code/build verified pending Mike controller playtest.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session menuinput -Target all -BuildTimeoutSeconds 300` PASS after the first run hit the default 60-second active-build watchdog while compiling.
+- `.\devtools\run-pd-tests.ps1 -Session menuinput -Selector "[input][menu_graph]" -BuildTimeoutSeconds 300` PASS: 662 assertions / 34 test cases.
+- `.\devtools\run-pd-tests.ps1 -Session menuinput -Selector "[press-hold]" -BuildTimeoutSeconds 300` PASS: 47 assertions / 13 test cases.
+- Kanban JSON parse passed.
+
+### Remaining
+
+- Mike manual retest: Y opens Social from Main Menu and Pause Menu; B/Escape closes Social without closing the parent menu; Combat Sim Room still has no Y-Social binding; local Combat Sim match can flow Room -> Start Match -> post-match -> Return to Room / Back to Menu.
+
+---
+
+## Session (`codex-c020-press-hold-handoff`) - 2026-05-21 - press/hold Kanban sprint handoff
+
+Mike asked to update the Kanban card with completed vs incomplete press/hold work so the CLI sprint can drive the remaining items to completion.
+
+### Updated
+
+- Reopened Kanban `c020` as an active follow-up and updated it with explicit completed core behavior: shared physical input state, release-time tap path, thresholded hold path, hold consumption suppressing later tap, and post-consumption hold-ring decay.
+- Added `c020` subtasks splitting completed primitive/current consumers from incomplete downstream adoption.
+- Marked incomplete work as consumer-specific: future weapon/interaction systems should use the completed primitive for natural-stop conditions such as full-charge fire, beam/overheat cooldown, ammo-empty stop, and one-shot door/open interactions.
+- Updated `context/tasks.md` with the same sprint handoff summary.
+
+### Verification
+
+- Kanban JSON parse passed after the update.
+
+---
+
+## Session (`codex-devwindow-codex-cli-admin`) - 2026-05-21 - Dev Window v2 Codex CLI admin launcher
+
+Mike asked for Dev Window v2 to open Codex CLI directly because he is not using Claude CLI right now, and specifically did not need prompting assistance.
+
+### Implemented
+
+- Added a separate `Codex CLI Admin` button to the Dev Window v2 CLI tab launch row.
+- Added `Get-CliCodexExe`, resolving `codex` from common Windows npm/app install paths or PATH.
+- Added `Invoke-CliLaunchCodexAdmin`, which opens an elevated interactive `cmd.exe` in the project root and runs Codex CLI without reading or requiring the prompt textbox.
+- Left the existing Claude prompt-composition flow intact for historical/sprint-report use.
+
+### Verification
+
+- PowerShell AST parse passed for `devtools/dev-window-v2/dev-window-v2.ps1`.
+- New patch adds no em-dashes; existing unrelated em-dashes remain in older comments.
+
+---
+
 ## Session (`main-checkout-2026-05-21-pdweapon-base-graph-emitter`) - 2026-05-21 - c3814 base `.pdweapon` graph emitter and nested payload archives
 
 Mike asked to continue to completion for `.pdweapon` according to the weapon graph plan.

@@ -41,8 +41,11 @@
 #include "assetcatalog_load.h"
 #include "pdgui_charpreview.h"
 #include "fs.h"
+#include "modarchive.h"
 #include "modpack.h"
 #include "modpack_pdmod.h"
+#include "weapon_graph_archive.h"
+#include "weapon_graph_runtime.h"
 #include "../external/stb_image.h"
 
 /* ========================================================================
@@ -127,12 +130,14 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0,0))
  * ======================================================================== */
 
 static bool s_Visible    = false;
-static int  s_ActiveTool = 0;    /* 0=ModManager, 1=INI, 2=Scale, 3=Pack, 4=Audio, 5=SkinEditor, 6=MapImport, 7=NineSlice, 8=FontMod */
+static int  s_ActiveTool = 0;    /* 0=ModManager, 1=INI, 2=Scale, 3=Pack, 4=Audio, 5=SkinEditor, 6=MapImport, 7=NineSlice, 8=FontMod, 9=Weapons */
 static int  s_LastLoggedTool = -1;
 static int  s_ModHubOpenFrame = -1; /* B-210: frame stamp for open-input debounce */
 static void chromeToolReset(void);
 static void fontToolReset(void);
 static void renderFontTool(float w, float h, float scale);
+static void weaponToolRefresh(void);
+static void renderWeaponTool(float w, float h, float scale);
 
 static void moddingHubClose(const char *reason)
 {
@@ -261,6 +266,53 @@ static bool     s_IniStatusOk  = true;
 static bool     s_IniEmptyLogged = false;
 
 /* ========================================================================
+ * Weapon browser state (Tab 9)
+ * ======================================================================== */
+
+#define HUB_WEAPON_TEXT_PREVIEW_LEN 8192
+
+static char s_WeaponSelectedId[CATALOG_ID_LEN] = "";
+static char s_WeaponLoadedId[CATALOG_ID_LEN] = "";
+static char s_WeaponArchivePath[FS_MAXPATH] = "";
+static char s_WeaponStatus[192] = "";
+static bool s_WeaponStatusOk = true;
+static char s_WeaponIniPreview[4096] = "";
+static char s_WeaponGraphPreview[HUB_WEAPON_TEXT_PREVIEW_LEN] = "";
+static char s_WeaponNestedPreview[4096] = "";
+
+enum WeaponImportTarget {
+    WEAPON_IMPORT_NONE = 0,
+    WEAPON_IMPORT_MODEL,
+    WEAPON_IMPORT_TEXTURE,
+    WEAPON_IMPORT_ANIMATION,
+    WEAPON_IMPORT_AUDIO,
+    WEAPON_IMPORT_GRAPH,
+};
+
+static bool s_WeaponEditActive = false;
+static s32  s_WeaponEditWeaponId = -1;
+static bool s_WeaponEditDualWieldable = false;
+static char s_WeaponEditTemplateId[CATALOG_ID_LEN] = "";
+static char s_WeaponEditTemplateArchive[FS_MAXPATH] = "";
+static char s_WeaponEditDisplayName[96] = "";
+static char s_WeaponEditSlug[64] = "";
+static char s_WeaponEditCatalogId[CATALOG_ID_LEN] = "";
+static char s_WeaponEditModelRef[CATALOG_ID_LEN] = "";
+static char s_WeaponEditTextureRef[CATALOG_ID_LEN] = "";
+static char s_WeaponEditAnimationRef[CATALOG_ID_LEN] = "";
+static char s_WeaponEditAudioRef[CATALOG_ID_LEN] = "";
+static char s_WeaponEditProjectileRef[CATALOG_ID_LEN] = "";
+static char s_WeaponEditEntityRef[CATALOG_ID_LEN] = "";
+static char s_WeaponImportModelPath[FS_MAXPATH] = "";
+static char s_WeaponImportTexturePath[FS_MAXPATH] = "";
+static char s_WeaponImportAnimationPath[FS_MAXPATH] = "";
+static char s_WeaponImportAudioPath[FS_MAXPATH] = "";
+static char s_WeaponImportGraphPath[FS_MAXPATH] = "";
+static char s_WeaponEditGraph[HUB_WEAPON_TEXT_PREVIEW_LEN] = "";
+static char s_WeaponEditNested[4096] = "";
+static WeaponImportTarget s_WeaponImportTarget = WEAPON_IMPORT_NONE;
+
+/* ========================================================================
  * INI Editor — helpers
  * ======================================================================== */
 
@@ -298,6 +350,7 @@ static const char *hubToolName(int tool)
         "Map Import",
         "Menu Style",
         "Font Mod",
+        "Weapons",
     };
     if (tool < 0 || tool >= (int)(sizeof(kNames) / sizeof(kNames[0]))) {
         return "Unknown";
@@ -494,6 +547,926 @@ static bool iniSaveFile(int idx)
                  "modhub.ini: saved id='%s' path='%s' pairs=%d",
                  ie.id, path, s_IniNumPairs);
     return true;
+}
+
+/* ========================================================================
+ * Weapon browser helpers
+ * ======================================================================== */
+
+static bool hubPathIsAbsolute(const char *path)
+{
+    if (!path || !path[0]) return false;
+    if ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) {
+        return path[1] == ':';
+    }
+    return path[0] == '/' || path[0] == '\\';
+}
+
+static bool hubPathExists(const char *path)
+{
+    struct stat st;
+    return path && path[0] && stat(path, &st) == 0;
+}
+
+static void weaponIdToFilename(const char *id, char *out, size_t outSize)
+{
+    if (!out || outSize == 0) return;
+    out[0] = '\0';
+    if (!id) return;
+    size_t i = 0;
+    for (; i + 1 < outSize && id[i]; i++) {
+        out[i] = (id[i] == ':') ? '_' : id[i];
+    }
+    out[i] = '\0';
+}
+
+static void weaponCopyPreview(char *dst, size_t dstSize, const char *src, u32 srcSize)
+{
+    if (!dst || dstSize == 0) return;
+    dst[0] = '\0';
+    if (!src || srcSize == 0) return;
+    size_t n = srcSize;
+    if (n >= dstSize) n = dstSize - 1;
+    memcpy(dst, src, n);
+    dst[n] = '\0';
+    if (srcSize >= dstSize && dstSize > 8) {
+        strcpy(dst + dstSize - 8, "\n...");
+    }
+}
+
+static void weaponSetStatus(bool ok, const char *msg)
+{
+    s_WeaponStatusOk = ok;
+    snprintf(s_WeaponStatus, sizeof(s_WeaponStatus), "%s", msg ? msg : "");
+}
+
+static void weaponToolSlugify(const char *src, char *dst, size_t dstSize)
+{
+    if (!dst || dstSize == 0) return;
+    dst[0] = '\0';
+    if (!src) return;
+    size_t j = 0;
+    for (size_t i = 0; src[i] && j + 1 < dstSize; i++) {
+        char c = src[i];
+        if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+        if (c == ' ' || c == ':' || c == '.' || c == '/') c = '_';
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+                c == '_' || c == '-') {
+            if ((c == '_' || c == '-') && j == 0) continue;
+            dst[j++] = c;
+        }
+    }
+    while (j > 0 && (dst[j - 1] == '_' || dst[j - 1] == '-')) j--;
+    dst[j] = '\0';
+}
+
+static void weaponJsonEscape(const char *src, char *dst, size_t dstSize)
+{
+    if (!dst || dstSize == 0) return;
+    dst[0] = '\0';
+    if (!src) return;
+    size_t j = 0;
+    for (size_t i = 0; src[i] && j + 1 < dstSize; i++) {
+        unsigned char c = (unsigned char)src[i];
+        if ((c == '"' || c == '\\') && j + 2 < dstSize) {
+            dst[j++] = '\\';
+            dst[j++] = (char)c;
+        } else if (c == '\n' && j + 2 < dstSize) {
+            dst[j++] = '\\';
+            dst[j++] = 'n';
+        } else if (c == '\r') {
+            continue;
+        } else if (c >= 0x20) {
+            dst[j++] = (char)c;
+        }
+    }
+    dst[j] = '\0';
+}
+
+static const char *weaponPathLeaf(const char *path)
+{
+    if (!path) return "";
+    const char *slash = strrchr(path, '/');
+    const char *backslash = strrchr(path, '\\');
+    const char *leaf = slash > backslash ? slash : backslash;
+    return leaf ? leaf + 1 : path;
+}
+
+static bool weaponImportEntryName(const char *folder, const char *srcPath,
+                                  char *out, size_t outSize)
+{
+    if (!out || outSize == 0) return false;
+    out[0] = '\0';
+    const char *leaf = weaponPathLeaf(srcPath);
+    if (!folder || !folder[0] || !leaf || !leaf[0]) return false;
+    char safe[128];
+    size_t j = 0;
+    for (size_t i = 0; leaf[i] && j + 1 < sizeof(safe); i++) {
+        char c = leaf[i];
+        if (c == '\\' || c == '/' || c == ':') c = '_';
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.') {
+            safe[j++] = c;
+        }
+    }
+    safe[j] = '\0';
+    if (!safe[0]) return false;
+    snprintf(out, outSize, "%s/%s", folder, safe);
+    return true;
+}
+
+static bool weaponReadTextFilePreview(const char *path, char *dst, size_t dstSize)
+{
+    if (!dst || dstSize == 0) return false;
+    dst[0] = '\0';
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    size_t n = fread(dst, 1, dstSize - 1, f);
+    bool ok = !ferror(f);
+    dst[n] = '\0';
+    fclose(f);
+    return ok;
+}
+
+static void weaponReplaceJsonStringField(char *json, size_t jsonSize,
+                                         const char *field, const char *value)
+{
+    if (!json || jsonSize == 0 || !field || !value) return;
+    char needle[96];
+    snprintf(needle, sizeof(needle), "\"%s\"", field);
+    char *key = strstr(json, needle);
+    if (!key) return;
+    char *colon = strchr(key + strlen(needle), ':');
+    if (!colon) return;
+    char *first = strchr(colon, '"');
+    if (!first) return;
+    char *last = strchr(first + 1, '"');
+    if (!last) return;
+
+    char replacement[CATALOG_ID_LEN + 4];
+    snprintf(replacement, sizeof(replacement), "\"%s\"", value);
+    size_t prefixLen = (size_t)(first - json);
+    size_t oldLen = (size_t)(last - first + 1);
+    size_t replLen = strlen(replacement);
+    size_t suffixLen = strlen(last + 1);
+    if (prefixLen + replLen + suffixLen + 1 >= jsonSize) return;
+    memmove(json + prefixLen + replLen, last + 1, suffixLen + 1);
+    memcpy(json + prefixLen, replacement, replLen);
+}
+
+static void weaponDefaultGraph(const char *catalogId, char *out, size_t outSize)
+{
+    if (!out || outSize == 0) return;
+    snprintf(out, outSize,
+        "{\n"
+        "  \"schema\": \"pd.weapon_graph.v1\",\n"
+        "  \"asset_id\": \"%s\",\n"
+        "  \"graph_id\": \"custom\",\n"
+        "  \"nodes\": [],\n"
+        "  \"edges\": [],\n"
+        "  \"exports\": []\n"
+        "}\n",
+        catalogId && catalogId[0] ? catalogId : "user:weapon");
+}
+
+static char *weaponImportPathMutableForTarget(WeaponImportTarget target)
+{
+    switch (target) {
+        case WEAPON_IMPORT_MODEL:     return s_WeaponImportModelPath;
+        case WEAPON_IMPORT_TEXTURE:   return s_WeaponImportTexturePath;
+        case WEAPON_IMPORT_ANIMATION: return s_WeaponImportAnimationPath;
+        case WEAPON_IMPORT_AUDIO:     return s_WeaponImportAudioPath;
+        case WEAPON_IMPORT_GRAPH:     return s_WeaponImportGraphPath;
+        default:                      return NULL;
+    }
+}
+
+static void weaponArchivePathForEntry(const asset_entry_t *e,
+                                      char *out, size_t outSize)
+{
+    if (!out || outSize == 0) return;
+    out[0] = '\0';
+    if (!e) return;
+
+    if (e->bundled || strncmp(e->id, "base:", 5) == 0) {
+        char slug[128];
+        char relKind[FS_MAXPATH];
+        char relData[FS_MAXPATH];
+        weaponIdToFilename(e->id, slug, sizeof(slug));
+        snprintf(relKind, sizeof(relKind), "weapons/%s.pdweapon", slug);
+        if (fsDataPathFor(relKind, relData, sizeof(relData))) {
+            char full[FS_MAXPATH + 1];
+            const char *resolved = fsFullPath(relData, full, sizeof(full));
+            if (resolved && resolved[0]) {
+                strncpy(out, resolved, outSize - 1);
+                out[outSize - 1] = '\0';
+            }
+        }
+        return;
+    }
+
+    if (strstr(e->dirpath, ".pdweapon") != NULL) {
+        if (hubPathIsAbsolute(e->dirpath)) {
+            strncpy(out, e->dirpath, outSize - 1);
+            out[outSize - 1] = '\0';
+        } else {
+            char full[FS_MAXPATH + 1];
+            const char *resolved = fsFullPath(e->dirpath, full, sizeof(full));
+            if (resolved && resolved[0]) {
+                strncpy(out, resolved, outSize - 1);
+                out[outSize - 1] = '\0';
+            }
+        }
+    }
+}
+
+static const asset_entry_t *weaponSelectedEntry(void)
+{
+    if (!s_WeaponSelectedId[0]) return NULL;
+    const asset_entry_t *e = assetCatalogResolve(s_WeaponSelectedId);
+    if (!e || e->type != ASSET_WEAPON) return NULL;
+    return e;
+}
+
+static void weaponToolRefresh(void)
+{
+    s_WeaponLoadedId[0] = '\0';
+    s_WeaponStatus[0] = '\0';
+    s_WeaponStatusOk = true;
+}
+
+static void weaponToolLoadSelected(void)
+{
+    const asset_entry_t *e = weaponSelectedEntry();
+    s_WeaponArchivePath[0] = '\0';
+    s_WeaponIniPreview[0] = '\0';
+    s_WeaponGraphPreview[0] = '\0';
+    s_WeaponNestedPreview[0] = '\0';
+    s_WeaponStatus[0] = '\0';
+    s_WeaponStatusOk = true;
+
+    if (!e) {
+        snprintf(s_WeaponStatus, sizeof(s_WeaponStatus), "No weapon selected");
+        s_WeaponStatusOk = false;
+        return;
+    }
+
+    strncpy(s_WeaponLoadedId, e->id, sizeof(s_WeaponLoadedId) - 1);
+    s_WeaponLoadedId[sizeof(s_WeaponLoadedId) - 1] = '\0';
+    weaponArchivePathForEntry(e, s_WeaponArchivePath, sizeof(s_WeaponArchivePath));
+
+    if (!s_WeaponArchivePath[0] || !hubPathExists(s_WeaponArchivePath)) {
+        snprintf(s_WeaponStatus, sizeof(s_WeaponStatus),
+                 e->dirpath[0] ? "Archive preview unavailable for this catalog source"
+                               : "Archive preview unavailable until base assets regenerate");
+        s_WeaponStatusOk = false;
+        return;
+    }
+
+    char *text = NULL;
+    u32 size = 0;
+    if (weaponGraphArchiveReadTextFile(s_WeaponArchivePath, "weapon.ini", &text, &size) == 0) {
+        weaponCopyPreview(s_WeaponIniPreview, sizeof(s_WeaponIniPreview), text, size);
+        free(text);
+        text = NULL;
+    }
+    if (weaponGraphArchiveReadTextFile(s_WeaponArchivePath, "behavior.graph.json", &text, &size) == 0) {
+        weaponCopyPreview(s_WeaponGraphPreview, sizeof(s_WeaponGraphPreview), text, size);
+        free(text);
+        text = NULL;
+    }
+    if (weaponGraphArchiveReadTextFile(s_WeaponArchivePath, "nested_payloads.json", &text, &size) == 0) {
+        weaponCopyPreview(s_WeaponNestedPreview, sizeof(s_WeaponNestedPreview), text, size);
+        free(text);
+        text = NULL;
+    }
+
+    snprintf(s_WeaponStatus, sizeof(s_WeaponStatus), "Loaded weapon archive preview");
+    s_WeaponStatusOk = true;
+}
+
+static void weaponToolStartTemplate(const asset_entry_t *e)
+{
+    if (!e) {
+        weaponSetStatus(false, "Select a weapon before creating a template");
+        return;
+    }
+    if (strcmp(s_WeaponLoadedId, e->id) != 0) {
+        weaponToolLoadSelected();
+    }
+    if (!s_WeaponArchivePath[0] || !hubPathExists(s_WeaponArchivePath)) {
+        weaponSetStatus(false, "Template archive is not available yet");
+        return;
+    }
+
+    memset(s_WeaponEditTemplateId, 0, sizeof(s_WeaponEditTemplateId));
+    memset(s_WeaponEditTemplateArchive, 0, sizeof(s_WeaponEditTemplateArchive));
+    memset(s_WeaponEditModelRef, 0, sizeof(s_WeaponEditModelRef));
+    memset(s_WeaponEditTextureRef, 0, sizeof(s_WeaponEditTextureRef));
+    memset(s_WeaponEditAnimationRef, 0, sizeof(s_WeaponEditAnimationRef));
+    memset(s_WeaponEditAudioRef, 0, sizeof(s_WeaponEditAudioRef));
+    memset(s_WeaponEditProjectileRef, 0, sizeof(s_WeaponEditProjectileRef));
+    memset(s_WeaponEditEntityRef, 0, sizeof(s_WeaponEditEntityRef));
+    memset(s_WeaponImportModelPath, 0, sizeof(s_WeaponImportModelPath));
+    memset(s_WeaponImportTexturePath, 0, sizeof(s_WeaponImportTexturePath));
+    memset(s_WeaponImportAnimationPath, 0, sizeof(s_WeaponImportAnimationPath));
+    memset(s_WeaponImportAudioPath, 0, sizeof(s_WeaponImportAudioPath));
+    memset(s_WeaponImportGraphPath, 0, sizeof(s_WeaponImportGraphPath));
+
+    strncpy(s_WeaponEditTemplateId, e->id, sizeof(s_WeaponEditTemplateId) - 1);
+    strncpy(s_WeaponEditTemplateArchive, s_WeaponArchivePath,
+            sizeof(s_WeaponEditTemplateArchive) - 1);
+    s_WeaponEditWeaponId = e->ext.weapon.weapon_id;
+    s_WeaponEditDualWieldable = e->ext.weapon.dual_wieldable != 0;
+
+    const char *name = e->ext.weapon.name[0] ? e->ext.weapon.name : e->id;
+    snprintf(s_WeaponEditDisplayName, sizeof(s_WeaponEditDisplayName),
+             "%s Custom", name);
+    weaponToolSlugify(s_WeaponEditDisplayName, s_WeaponEditSlug,
+                      sizeof(s_WeaponEditSlug));
+    if (!s_WeaponEditSlug[0]) {
+        snprintf(s_WeaponEditSlug, sizeof(s_WeaponEditSlug), "custom_weapon");
+    }
+    snprintf(s_WeaponEditCatalogId, sizeof(s_WeaponEditCatalogId),
+             "user:%s", s_WeaponEditSlug);
+
+    if (e->ext.weapon.model_file[0]) {
+        strncpy(s_WeaponEditModelRef, e->ext.weapon.model_file,
+                sizeof(s_WeaponEditModelRef) - 1);
+    }
+    if (s_WeaponGraphPreview[0]) {
+        strncpy(s_WeaponEditGraph, s_WeaponGraphPreview,
+                sizeof(s_WeaponEditGraph) - 1);
+        s_WeaponEditGraph[sizeof(s_WeaponEditGraph) - 1] = '\0';
+    } else {
+        weaponDefaultGraph(s_WeaponEditCatalogId, s_WeaponEditGraph,
+                           sizeof(s_WeaponEditGraph));
+    }
+    weaponReplaceJsonStringField(s_WeaponEditGraph, sizeof(s_WeaponEditGraph),
+                                 "asset_id", s_WeaponEditCatalogId);
+    if (s_WeaponNestedPreview[0]) {
+        strncpy(s_WeaponEditNested, s_WeaponNestedPreview,
+                sizeof(s_WeaponEditNested) - 1);
+        s_WeaponEditNested[sizeof(s_WeaponEditNested) - 1] = '\0';
+    } else {
+        snprintf(s_WeaponEditNested, sizeof(s_WeaponEditNested),
+                 "{\n  \"schema\": \"pd.weapon_nested_payloads.v1\",\n"
+                 "  \"asset_id\": \"%s\",\n  \"payloads\": []\n}\n",
+                 s_WeaponEditCatalogId);
+    }
+
+    s_WeaponEditActive = true;
+    weaponSetStatus(true, "Template ready. Edit fields, then save as a weapon mod.");
+}
+
+static bool weaponAddImportFile(mod_archive_writer_t *w,
+                                const char *folder,
+                                const char *srcPath,
+                                char *outEntry,
+                                size_t outEntrySize)
+{
+    if (outEntry && outEntrySize) outEntry[0] = '\0';
+    if (!w || !srcPath || !srcPath[0]) return true;
+    char entry[FS_MAXPATH];
+    if (!weaponImportEntryName(folder, srcPath, entry, sizeof(entry))) {
+        return false;
+    }
+    if (modArchiveAddFileDisk(w, entry, srcPath) != MODARCHIVE_OK) {
+        return false;
+    }
+    if (outEntry && outEntrySize) {
+        strncpy(outEntry, entry, outEntrySize - 1);
+        outEntry[outEntrySize - 1] = '\0';
+    }
+    return true;
+}
+
+static bool weaponEntryMatchesImport(const char *entry,
+                                     const char *modelEntry,
+                                     const char *textureEntry,
+                                     const char *animEntry,
+                                     const char *audioEntry)
+{
+    return (modelEntry && modelEntry[0] && strcmp(entry, modelEntry) == 0) ||
+           (textureEntry && textureEntry[0] && strcmp(entry, textureEntry) == 0) ||
+           (animEntry && animEntry[0] && strcmp(entry, animEntry) == 0) ||
+           (audioEntry && audioEntry[0] && strcmp(entry, audioEntry) == 0);
+}
+
+static bool weaponCopyTemplatePayloads(mod_archive_writer_t *w,
+                                       const char *archivePath,
+                                       const char *modelEntry,
+                                       const char *textureEntry,
+                                       const char *animEntry,
+                                       const char *audioEntry)
+{
+    mod_archive_t *arc = modArchiveOpen(archivePath);
+    if (!arc) return false;
+    const s32 count = modArchiveGetEntryCount(arc);
+    bool ok = true;
+    for (s32 i = 0; i < count; i++) {
+        const char *name = modArchiveGetEntryName(arc, i);
+        if (!name || !name[0]) continue;
+        if (strcmp(name, "weapon.ini") == 0 ||
+                strcmp(name, "manifest.json") == 0 ||
+                strcmp(name, "behavior.graph.json") == 0 ||
+                strcmp(name, "nested_payloads.json") == 0) {
+            continue;
+        }
+        if (weaponEntryMatchesImport(name, modelEntry, textureEntry,
+                                     animEntry, audioEntry)) {
+            continue;
+        }
+        u32 size = 0;
+        void *bytes = modArchiveExtractAlloc(arc, i, &size);
+        if (!bytes) {
+            ok = false;
+            break;
+        }
+        if (modArchiveAddFileMem(w, name, bytes, size) != MODARCHIVE_OK) {
+            free(bytes);
+            ok = false;
+            break;
+        }
+        free(bytes);
+    }
+    modArchiveClose(arc);
+    return ok;
+}
+
+static bool weaponToolSaveCustom(void)
+{
+    if (!s_WeaponEditActive) {
+        weaponSetStatus(false, "Create a template before saving");
+        return false;
+    }
+    char rawSlug[sizeof(s_WeaponEditSlug)];
+    snprintf(rawSlug, sizeof(rawSlug), "%s",
+             s_WeaponEditSlug[0] ? s_WeaponEditSlug : s_WeaponEditDisplayName);
+    weaponToolSlugify(rawSlug, s_WeaponEditSlug, sizeof(s_WeaponEditSlug));
+    if (!s_WeaponEditSlug[0]) {
+        weaponSetStatus(false, "Use a valid weapon name or slug");
+        return false;
+    }
+    snprintf(s_WeaponEditCatalogId, sizeof(s_WeaponEditCatalogId),
+             "user:%s", s_WeaponEditSlug);
+    weaponReplaceJsonStringField(s_WeaponEditGraph, sizeof(s_WeaponEditGraph),
+                                 "asset_id", s_WeaponEditCatalogId);
+    if (!s_WeaponEditGraph[0]) {
+        weaponDefaultGraph(s_WeaponEditCatalogId, s_WeaponEditGraph,
+                           sizeof(s_WeaponEditGraph));
+    }
+    {
+        char graphErr[192];
+        if (weaponGraphValidateJson(ASSET_WEAPON, s_WeaponEditGraph,
+                (u32)strlen(s_WeaponEditGraph), graphErr, sizeof(graphErr)) != 0) {
+            char msg[240];
+            snprintf(msg, sizeof(msg), "Graph validation failed: %s", graphErr);
+            weaponSetStatus(false, msg);
+            return false;
+        }
+    }
+
+    if (!fsCreateDir("mods") || !fsCreateDir("mods/Weapons")) {
+        weaponSetStatus(false, "Could not create mods/Weapons/");
+        return false;
+    }
+
+    char modDir[FS_MAXPATH];
+    snprintf(modDir, sizeof(modDir), "mods/Weapons/%s", s_WeaponEditSlug);
+    if (!fsCreateDir(modDir)) {
+        weaponSetStatus(false, "Could not create weapon mod folder");
+        return false;
+    }
+
+    char archivePath[FS_MAXPATH];
+    snprintf(archivePath, sizeof(archivePath), "%s/%s.pdweapon",
+             modDir, s_WeaponEditSlug);
+    mod_archive_writer_t *w = modArchiveBegin(archivePath);
+    if (!w) {
+        weaponSetStatus(false, "Could not create .pdweapon archive");
+        return false;
+    }
+
+    char modelEntry[FS_MAXPATH] = "";
+    char textureEntry[FS_MAXPATH] = "";
+    char animEntry[FS_MAXPATH] = "";
+    char audioEntry[FS_MAXPATH] = "";
+    bool ok = true;
+    ok = ok && weaponAddImportFile(w, "models", s_WeaponImportModelPath,
+                                   modelEntry, sizeof(modelEntry));
+    ok = ok && weaponAddImportFile(w, "textures", s_WeaponImportTexturePath,
+                                   textureEntry, sizeof(textureEntry));
+    ok = ok && weaponAddImportFile(w, "animations", s_WeaponImportAnimationPath,
+                                   animEntry, sizeof(animEntry));
+    ok = ok && weaponAddImportFile(w, "audio", s_WeaponImportAudioPath,
+                                   audioEntry, sizeof(audioEntry));
+    ok = ok && weaponCopyTemplatePayloads(w, s_WeaponEditTemplateArchive,
+                                          modelEntry, textureEntry,
+                                          animEntry, audioEntry);
+    if (!ok) {
+        modArchiveAbort(w);
+        weaponSetStatus(false, "Could not copy template/import payloads");
+        return false;
+    }
+
+    const char *modelFile = modelEntry[0] ? modelEntry : s_WeaponEditModelRef;
+    char weaponIni[2048];
+    int weaponIniLen = snprintf(weaponIni, sizeof(weaponIni),
+        "[weapon]\n"
+        "schema = pd.weapon.v1\n"
+        "catalog_id = %s\n"
+        "weapon_id = %d\n"
+        "name = %s\n"
+        "manifest = manifest.json\n"
+        "behavior_graph = behavior.graph.json\n"
+        "nested_payloads = nested_payloads.json\n"
+        "model_file = %s\n"
+        "dual_wieldable = %d\n"
+        "\n"
+        "[references]\n"
+        "template = %s\n"
+        "model_ref = %s\n"
+        "texture_ref = %s\n"
+        "animation_ref = %s\n"
+        "audio_ref = %s\n"
+        "projectile_ref = %s\n"
+        "entity_ref = %s\n",
+        s_WeaponEditCatalogId,
+        (int)s_WeaponEditWeaponId,
+        s_WeaponEditDisplayName,
+        modelFile ? modelFile : "",
+        s_WeaponEditDualWieldable ? 1 : 0,
+        s_WeaponEditTemplateId,
+        s_WeaponEditModelRef,
+        s_WeaponEditTextureRef,
+        s_WeaponEditAnimationRef,
+        s_WeaponEditAudioRef,
+        s_WeaponEditProjectileRef,
+        s_WeaponEditEntityRef);
+    if (weaponIniLen <= 0 || (size_t)weaponIniLen >= sizeof(weaponIni)) {
+        modArchiveAbort(w);
+        weaponSetStatus(false, "weapon.ini is too large");
+        return false;
+    }
+
+    char escName[192];
+    char escTemplate[128];
+    weaponJsonEscape(s_WeaponEditDisplayName, escName, sizeof(escName));
+    weaponJsonEscape(s_WeaponEditTemplateId, escTemplate, sizeof(escTemplate));
+
+    char manifest[2048];
+    int manifestLen = snprintf(manifest, sizeof(manifest),
+        "{\n"
+        "  \"schema\": \"pd.weapon.manifest.v1\",\n"
+        "  \"catalog_id\": \"%s\",\n"
+        "  \"name\": \"%s\",\n"
+        "  \"template\": \"%s\",\n"
+        "  \"refs\": {\n"
+        "    \"model\": \"%s\",\n"
+        "    \"texture\": \"%s\",\n"
+        "    \"animation\": \"%s\",\n"
+        "    \"audio\": \"%s\",\n"
+        "    \"projectile\": \"%s\",\n"
+        "    \"entity\": \"%s\"\n"
+        "  }\n"
+        "}\n",
+        s_WeaponEditCatalogId, escName, escTemplate,
+        s_WeaponEditModelRef, s_WeaponEditTextureRef,
+        s_WeaponEditAnimationRef, s_WeaponEditAudioRef,
+        s_WeaponEditProjectileRef, s_WeaponEditEntityRef);
+    if (manifestLen <= 0 || (size_t)manifestLen >= sizeof(manifest)) {
+        modArchiveAbort(w);
+        weaponSetStatus(false, "manifest.json is too large");
+        return false;
+    }
+
+    if (modArchiveAddFileMem(w, "weapon.ini", weaponIni, (u32)weaponIniLen) != MODARCHIVE_OK ||
+            modArchiveAddFileMem(w, "manifest.json", manifest, (u32)manifestLen) != MODARCHIVE_OK ||
+            modArchiveAddFileMem(w, "behavior.graph.json", s_WeaponEditGraph,
+                                 (u32)strlen(s_WeaponEditGraph)) != MODARCHIVE_OK ||
+            modArchiveAddFileMem(w, "nested_payloads.json", s_WeaponEditNested,
+                                 (u32)strlen(s_WeaponEditNested)) != MODARCHIVE_OK) {
+        modArchiveAbort(w);
+        weaponSetStatus(false, "Could not write weapon archive roots");
+        return false;
+    }
+
+    if (modArchiveFinish(w) != MODARCHIVE_OK) {
+        weaponSetStatus(false, "Could not finalize .pdweapon archive");
+        return false;
+    }
+
+    char modJsonPath[FS_MAXPATH];
+    snprintf(modJsonPath, sizeof(modJsonPath), "%s/mod.json", modDir);
+    FILE *mf = fsFileOpenWrite(modJsonPath);
+    if (!mf) {
+        weaponSetStatus(false, "Saved .pdweapon but could not write mod.json");
+        return false;
+    }
+    fprintf(mf,
+        "{\n"
+        "  \"id\": \"user.%s.weapon\",\n"
+        "  \"name\": \"%s\",\n"
+        "  \"version\": \"1.0.0\",\n"
+        "  \"description\": \"Weapon mod created with the Weapons tool.\",\n"
+        "  \"author\": \"Player\",\n"
+        "  \"tags\": [\"weapon\", \"pdweapon\", \"user\"],\n"
+        "  \"enabled\": true\n"
+        "}\n",
+        s_WeaponEditSlug, escName);
+    bool writeOk = !ferror(mf);
+    fclose(mf);
+    if (!writeOk) {
+        weaponSetStatus(false, "Saved .pdweapon but mod.json write failed");
+        return false;
+    }
+
+    char newModId[128];
+    snprintf(newModId, sizeof(newModId), "user.%s.weapon", s_WeaponEditSlug);
+    modmgrRescanDirectory();
+    s32 modCount = modmgrGetCount();
+    for (s32 i = 0; i < modCount; i++) {
+        const char *id = modmgrGetModId(i);
+        if (id && strcmp(id, newModId) == 0) {
+            modmgrSetEnabled(i, 1);
+            break;
+        }
+    }
+    modmgrSaveConfig();
+    pdguiModManagerRefreshSnapshot();
+    weaponToolRefresh();
+    strncpy(s_WeaponSelectedId, s_WeaponEditCatalogId,
+            sizeof(s_WeaponSelectedId) - 1);
+    s_WeaponSelectedId[sizeof(s_WeaponSelectedId) - 1] = '\0';
+
+    char status[192];
+    snprintf(status, sizeof(status), "Saved weapon mod: %s", archivePath);
+    weaponSetStatus(true, status);
+    return true;
+}
+
+static void weaponRenderCatalogPicker(const char *label,
+                                      asset_type_e type,
+                                      char *dst,
+                                      size_t dstSize)
+{
+    const char *preview = (dst && dst[0]) ? dst : "(none)";
+    ImGui::Text("%s", label);
+    ImGui::SetNextItemWidth(260.0f);
+    if (ImGui::BeginCombo(label, preview)) {
+        if (ImGui::Selectable("(none)", !dst || !dst[0])) {
+            if (dst && dstSize) dst[0] = '\0';
+        }
+        const s32 poolSize = assetCatalogGetPoolSize();
+        for (s32 i = 0; i < poolSize; i++) {
+            const asset_entry_t *e = assetCatalogGetByIndex(i);
+            if (!e || e->type != type) continue;
+            bool selected = dst && strcmp(dst, e->id) == 0;
+            if (ImGui::Selectable(e->id, selected)) {
+                if (dst && dstSize) {
+                    strncpy(dst, e->id, dstSize - 1);
+                    dst[dstSize - 1] = '\0';
+                }
+            }
+        }
+        ImGui::EndCombo();
+    }
+}
+
+static void weaponRenderImportRow(const char *label,
+                                  WeaponImportTarget target,
+                                  const char *filters)
+{
+    char *path = weaponImportPathMutableForTarget(target);
+    if (!path) return;
+    ImGui::Text("%s", label);
+    ImGui::SetNextItemWidth(-96.0f);
+    char inputId[64];
+    snprintf(inputId, sizeof(inputId), "##weapon_import_%d", (int)target);
+    ImGui::InputText(inputId, path, FS_MAXPATH);
+    ImGui::SameLine();
+    if (PdButton("Browse", ImVec2(86.0f, 0))) {
+        s_WeaponImportTarget = target;
+        pdguiFileBrowserOpen(label, "mods", filters);
+    }
+}
+
+static void renderWeaponTool(float contentW, float contentH, float scale)
+{
+    if (s_WeaponImportTarget != WEAPON_IMPORT_NONE && pdguiFileBrowserIsOpen()) {
+        if (pdguiFileBrowserRender()) {
+            char *dst = weaponImportPathMutableForTarget(s_WeaponImportTarget);
+            if (dst) {
+                strncpy(dst, pdguiFileBrowserGetPath(), FS_MAXPATH - 1);
+                dst[FS_MAXPATH - 1] = '\0';
+                if (s_WeaponImportTarget == WEAPON_IMPORT_GRAPH) {
+                    if (weaponReadTextFilePreview(dst, s_WeaponEditGraph,
+                                                  sizeof(s_WeaponEditGraph))) {
+                        weaponReplaceJsonStringField(s_WeaponEditGraph,
+                                                     sizeof(s_WeaponEditGraph),
+                                                     "asset_id",
+                                                     s_WeaponEditCatalogId);
+                        weaponSetStatus(true, "Imported behavior graph JSON");
+                    } else {
+                        weaponSetStatus(false, "Could not read graph JSON file");
+                    }
+                }
+            }
+            s_WeaponImportTarget = WEAPON_IMPORT_NONE;
+            pdguiFileBrowserClose();
+        }
+        return;
+    }
+
+    const float listW = contentW * 0.30f;
+    const float detailW = contentW - listW - ImGui::GetStyle().ItemSpacing.x;
+    bool haveSelection = false;
+
+    ImGui::BeginChild("##weapon_list", ImVec2(listW, contentH), true);
+    const s32 poolSize = assetCatalogGetPoolSize();
+    for (s32 i = 0; i < poolSize; i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        if (!e || e->type != ASSET_WEAPON) continue;
+        if (!haveSelection && !s_WeaponSelectedId[0]) {
+            strncpy(s_WeaponSelectedId, e->id, sizeof(s_WeaponSelectedId) - 1);
+            s_WeaponSelectedId[sizeof(s_WeaponSelectedId) - 1] = '\0';
+        }
+        haveSelection = true;
+
+        char label[CATALOG_ID_LEN + 80];
+        const char *name = e->ext.weapon.name[0] ? e->ext.weapon.name : e->id;
+        snprintf(label, sizeof(label), "%s##weapon_%d", name, (int)i);
+        bool selected = strcmp(s_WeaponSelectedId, e->id) == 0;
+        if (ImGui::Selectable(label, selected)) {
+            strncpy(s_WeaponSelectedId, e->id, sizeof(s_WeaponSelectedId) - 1);
+            s_WeaponSelectedId[sizeof(s_WeaponSelectedId) - 1] = '\0';
+            weaponToolRefresh();
+        }
+    }
+    if (!haveSelection) {
+        ImGui::TextDisabled("No weapon assets registered.");
+    }
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    ImGui::BeginChild("##weapon_detail", ImVec2(detailW, contentH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
+
+    const asset_entry_t *e = weaponSelectedEntry();
+    if (e && strcmp(s_WeaponLoadedId, e->id) != 0) {
+        weaponToolLoadSelected();
+    }
+
+    if (!e) {
+        ImGui::TextDisabled("Select a weapon.");
+        ImGui::EndChild();
+        return;
+    }
+
+    ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow());
+    ImGui::Text("%s", e->ext.weapon.name[0] ? e->ext.weapon.name : e->id);
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", e->bundled ? "Base" : "Mod");
+    ImGui::Separator();
+
+    ImGui::Text("Catalog ID: %s", e->id);
+    ImGui::Text("Weapon ID: %d", (int)e->ext.weapon.weapon_id);
+    ImGui::Text("Runtime Index: %d", (int)e->runtime_index);
+    ImGui::Text("Model: %s", e->ext.weapon.model_file[0] ? e->ext.weapon.model_file : "(catalog/runtime)");
+    ImGui::Text("Dual Wield: %s", e->ext.weapon.dual_wieldable ? "yes" : "no");
+    ImGui::Text("Archive: %s", s_WeaponArchivePath[0] ? s_WeaponArchivePath : "(not resolved)");
+
+    if (PdButton("Use as Template", ImVec2(142.0f * scale, 28.0f * scale))) {
+        weaponToolStartTemplate(e);
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s",
+                        e->bundled ? "Base weapon is read-only; templates save as a new mod."
+                                   : "Mod weapon can be cloned into a new self-contained .pdweapon.");
+
+    ImGui::PushStyleColor(ImGuiCol_Text,
+                          s_WeaponStatusOk ? ImVec4(0.55f, 0.90f, 0.68f, 0.86f)
+                                           : pdguiVec4TextWarning(220));
+    ImGui::TextWrapped("%s", s_WeaponStatus[0] ? s_WeaponStatus : "Ready");
+    ImGui::PopStyleColor();
+
+    if (ImGui::BeginTabBar("##weapon_detail_tabs")) {
+        if (ImGui::BeginTabItem("Descriptor")) {
+            ImGui::BeginChild("##weapon_ini_preview", ImVec2(0, 0), true,
+                              ImGuiWindowFlags_HorizontalScrollbar);
+            ImGui::TextUnformatted(s_WeaponIniPreview[0] ? s_WeaponIniPreview : "(weapon.ini unavailable)");
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Behavior Graph")) {
+            ImGui::BeginChild("##weapon_graph_preview", ImVec2(0, 0), true,
+                              ImGuiWindowFlags_HorizontalScrollbar);
+            ImGui::TextUnformatted(s_WeaponGraphPreview[0] ? s_WeaponGraphPreview : "(behavior.graph.json unavailable)");
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Nested Payloads")) {
+            ImGui::BeginChild("##weapon_nested_preview", ImVec2(0, 0), true,
+                              ImGuiWindowFlags_HorizontalScrollbar);
+            ImGui::TextUnformatted(s_WeaponNestedPreview[0] ? s_WeaponNestedPreview : "(nested_payloads.json unavailable)");
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Template")) {
+            if (!s_WeaponEditActive) {
+                ImGui::TextDisabled("Use the selected weapon as a template to start a new weapon mod.");
+            } else {
+                ImGui::Text("Template: %s", s_WeaponEditTemplateId);
+                ImGui::Text("Saves to: mods/Weapons/%s/%s.pdweapon",
+                            s_WeaponEditSlug[0] ? s_WeaponEditSlug : "(slug)",
+                            s_WeaponEditSlug[0] ? s_WeaponEditSlug : "(slug)");
+                ImGui::Separator();
+
+                ImGui::SetNextItemWidth(300.0f * scale);
+                ImGui::InputText("Display Name", s_WeaponEditDisplayName,
+                                 sizeof(s_WeaponEditDisplayName));
+                ImGui::SetNextItemWidth(220.0f * scale);
+                ImGui::InputText("Slug", s_WeaponEditSlug,
+                                 sizeof(s_WeaponEditSlug));
+                char catalogPreview[CATALOG_ID_LEN];
+                char slugRaw[sizeof(s_WeaponEditSlug)];
+                char slugPreview[sizeof(s_WeaponEditSlug)];
+                snprintf(slugRaw, sizeof(slugRaw), "%s", s_WeaponEditSlug);
+                weaponToolSlugify(slugRaw, slugPreview, sizeof(slugPreview));
+                snprintf(catalogPreview, sizeof(catalogPreview), "user:%s",
+                         slugPreview[0] ? slugPreview : "(invalid)");
+                ImGui::Text("Catalog ID: %s", catalogPreview);
+                ImGui::SetNextItemWidth(120.0f * scale);
+                ImGui::InputInt("Weapon ID", &s_WeaponEditWeaponId);
+                ImGui::Checkbox("Dual wieldable", &s_WeaponEditDualWieldable);
+
+                ImGui::Separator();
+                ImGui::Columns(2, "##weapon_editor_cols", false);
+                weaponRenderCatalogPicker("Model Catalog", ASSET_MODEL,
+                                          s_WeaponEditModelRef,
+                                          sizeof(s_WeaponEditModelRef));
+                weaponRenderCatalogPicker("Texture Catalog", ASSET_TEXTURE,
+                                          s_WeaponEditTextureRef,
+                                          sizeof(s_WeaponEditTextureRef));
+                weaponRenderCatalogPicker("Animation Catalog", ASSET_ANIMATION,
+                                          s_WeaponEditAnimationRef,
+                                          sizeof(s_WeaponEditAnimationRef));
+                weaponRenderCatalogPicker("Audio Catalog", ASSET_AUDIO,
+                                          s_WeaponEditAudioRef,
+                                          sizeof(s_WeaponEditAudioRef));
+                ImGui::NextColumn();
+                weaponRenderCatalogPicker("Projectile Catalog", ASSET_PROJECTILE,
+                                          s_WeaponEditProjectileRef,
+                                          sizeof(s_WeaponEditProjectileRef));
+                weaponRenderCatalogPicker("Entity Catalog", ASSET_ENTITY,
+                                          s_WeaponEditEntityRef,
+                                          sizeof(s_WeaponEditEntityRef));
+                ImGui::Columns(1);
+
+                ImGui::Separator();
+                weaponRenderImportRow("Import Model", WEAPON_IMPORT_MODEL,
+                                      ".pdmesh;.gltf;.glb;.obj");
+                weaponRenderImportRow("Import Texture", WEAPON_IMPORT_TEXTURE,
+                                      ".pdtexture;.png;.tga;.jpg;.bmp");
+                weaponRenderImportRow("Import Animation", WEAPON_IMPORT_ANIMATION,
+                                      ".pdanim");
+                weaponRenderImportRow("Import Audio", WEAPON_IMPORT_AUDIO,
+                                      ".pdsfx;.pdvoice;.pdsong;.wav;.ogg;.mp3");
+                weaponRenderImportRow("Import Graph JSON", WEAPON_IMPORT_GRAPH,
+                                      ".json");
+
+                ImGui::Separator();
+                ImGui::Text("Behavior Graph");
+                ImGui::InputTextMultiline("##weapon_edit_graph",
+                                          s_WeaponEditGraph,
+                                          sizeof(s_WeaponEditGraph),
+                                          ImVec2(-1.0f, 160.0f * scale),
+                                          ImGuiInputTextFlags_AllowTabInput);
+                ImGui::Text("Nested Payloads");
+                ImGui::InputTextMultiline("##weapon_edit_nested",
+                                          s_WeaponEditNested,
+                                          sizeof(s_WeaponEditNested),
+                                          ImVec2(-1.0f, 92.0f * scale),
+                                          ImGuiInputTextFlags_AllowTabInput);
+
+                bool canSave = s_WeaponEditDisplayName[0] &&
+                               s_WeaponEditSlug[0] &&
+                               s_WeaponEditTemplateArchive[0];
+                if (!canSave) ImGui::BeginDisabled();
+                if (PdButton("Save Weapon Mod", ImVec2(164.0f * scale, 28.0f * scale))) {
+                    weaponToolSaveCustom();
+                }
+                if (!canSave) ImGui::EndDisabled();
+            }
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+
+    ImGui::EndChild();
 }
 
 /* ========================================================================
@@ -1446,12 +2419,12 @@ static void renderModdingHub(s32 winW, s32 winH)
     {
         const float btnW = 120.0f * scale;
         const float btnH = 28.0f * scale;
-        static const int NUM_TOOLS = 9;
+        static const int NUM_TOOLS = 10;
 
         static const char *toolNames[] = {
             "Mod Manager", "INI Editor", "Scale Tool", "Mod Pack",
             "Audio Mods", "Skin Editor", "Map Import", "Menu Style",
-            "Font Mod"
+            "Font Mod", "Weapons"
         };
 
         /* ACTION_MENU_TAB_PREV/NEXT cycle hub tools.
@@ -1470,6 +2443,7 @@ static void renderModdingHub(s32 winW, s32 winH)
             else if (next == 6) importReset();
                     else if (next == 7) chromeToolReset();
                     else if (next == 8) fontToolReset();
+                    else if (next == 9) weaponToolRefresh();
             pdguiPlaySound(PDGUI_SND_SWIPE);
         }
         if (allowHubTabCycle && pdguiMenuTabNextPressed()) {
@@ -1484,6 +2458,7 @@ static void renderModdingHub(s32 winW, s32 winH)
                     else if (next == 6) importReset();
                     else if (next == 7) chromeToolReset();
                     else if (next == 8) fontToolReset();
+                    else if (next == 9) weaponToolRefresh();
             pdguiPlaySound(PDGUI_SND_SWIPE);
         }
 
@@ -1527,6 +2502,7 @@ static void renderModdingHub(s32 winW, s32 winH)
                     else if (i == 6) importReset();
                     else if (i == 7) chromeToolReset();
                     else if (i == 8) fontToolReset();
+                    else if (i == 9) weaponToolRefresh();
                 }
             }
             if (active) ImGui::PopStyleColor(2);
@@ -1557,7 +2533,8 @@ static void renderModdingHub(s32 winW, s32 winH)
         const char *childIds[] = {
             "##modhub_modmgr", "##modhub_ini", "##modhub_scale",
             "##modhub_pack", "##modhub_audio", "##modhub_skin",
-            "##modhub_import", "##modhub_nineslice", "##modhub_fontmod"
+            "##modhub_import", "##modhub_nineslice", "##modhub_fontmod",
+            "##modhub_weapons"
         };
 
         /* Priority L (2026-04-25): NavFlattened tool body. */
@@ -1584,6 +2561,8 @@ static void renderModdingHub(s32 winW, s32 winH)
                 renderChromeTool(dialogW, contentH, scale);
             } else if (s_ActiveTool == 8) {
                 renderFontTool(dialogW, contentH, scale);
+            } else if (s_ActiveTool == 9) {
+                renderWeaponTool(dialogW, contentH, scale);
             }
         }
         ImGui::EndChild();
@@ -1599,7 +2578,8 @@ static void renderModdingHub(s32 winW, s32 winH)
         "Paint custom character skins",
         "Import PD-format map files as playable arenas",
         "Create UI chrome nine-slice mods in-game",
-        "Import a .ttf/.otf font as a mod"
+        "Import a .ttf/.otf font as a mod",
+        "Browse weapon archives and graph payloads"
     };
     ImGui::TextDisabled("%s", toolDescs[s_ActiveTool]);
 
