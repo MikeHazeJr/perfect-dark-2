@@ -1147,17 +1147,34 @@
     },
     {
       "id": "c083",
-      "title": "B-316: Exception starting Combat Sim match (NEEDS LOG)",
-      "description": "Mike playtested Combat Sim and got an exception starting a match. The most recent Build/pd-client.log (May 3 04:56) is a clean swarm benchmark with NO FATAL or ACCESS_VIOLATION entries -- it does not capture this crash. Cannot root-cause without a fresh log. Hypothesis classes (per Mike's framing): catalog-related null lookup post Pass C / Pass D / Step 2 / Step 3a; Pass C segment over-read (B-307 / B-313 fixed but related class possible); chic-robot bot init regression (B-314 fixed at 62aacd74). Surface: re-run playtest with freshest binary, capture pd-client.log, attach crash signature so the matchStart -> mpStartMatch -> stage-load path can be traced.",
-      "pillar": "catalog",
-      "column": "blocked",
+      "title": "B-316: Combat Sim start crash in botJumpDecide",
+      "description": "Fresh 2026-05-21 Combat Sim start crash log captured the previously blocked B-316 failure. MatchStart selected base:arena_mp_grid with 1 player, 8 bots, Bot Jumping enabled in g_MpSetup.options=0x10200002, specific spawn weapon base:combatknife, and entered active CombatSim before crashing at [02:14.05] with ACCESS_VIOLATION PC=...+0x4be1a. Symbolication resolves the stack to botJumpDecide -> botJumpTickEval -> botTickUnpaused -> botTick -> propsTickPlayer -> lvRender -> mainTick. The faulting instruction is src/game/bot.c:3271 reading tprop->chr after tprop = &g_Vars.props[chr->aibot->attackpropnum]; the path only checks attackpropnum >= 0, not live prop-pool bounds or prop/chr backlink validity.",
+      "pillar": "physics-collision",
+      "column": "active",
       "order": 1000,
       "priority": 2,
-      "notes": "Blocked on fresh crash log. Build/pd-client.log at trifecta time was a swarm benchmark, not a CS playtest. Hand off to fresh session once Mike supplies the log.\nPriority pass 2026-05-20: classified as critical gameplay stability, but remains blocked until a fresh Combat Sim start crash log exists.",
-      "flag": "alert",
-      "flagged_at": "2026-05-20T21:24:08.752Z",
+      "notes": "Fixed in code 2026-05-21. The failure was concrete bot-jump target-prop validation, not the old catalog/manifest hypothesis: botJumpDecide and adjacent attack/follow/protect/target paths trusted stale prop indexes and prop->chr backlinks. src/game/bot.c now proves live prop-pool range, CHR/PLAYER payload type, and bidirectional chr->prop backlink before dereferencing; stale human commands clear back to Normal. Focused static coverage pins the bot backlink contract and the offline Combat Sim manifest setup path.",
+      "flag": "watch",
+      "flagged_at": "2026-05-21T11:55:00-04:00",
+      "pending_completion": {
+        "marked_at": "2026-05-21T11:55:00-04:00",
+        "marked_by": "codex-b316arch",
+        "summary": "Guarded Combat Simulator bot target prop dereferences and fixed the crash path from the fresh Grid 1-player / 8-bot log.",
+        "verify_notes": "Verified 2026-05-21 in isolated session b316arch: queued all-target build passed; focused offline Combat Simulator manifest test passed; focused bot target backlink validation test passed; combat_sim_entry smoke exited cleanly with no access violation or fatal. Manual closure should still run the exact user repro: Grid, 1 player, 8 bots, Bot Jumping enabled, Start Match.",
+        "evidence_refs": [
+          "src/game/bot.c",
+          "tests/test_scene_dispatch.cpp",
+          "context/bugs.md",
+          "context/session-log.md"
+        ],
+        "expected_artifacts": [
+          "Combat Simulator match start no longer crashes in botJumpDecide when a bot target prop is stale.",
+          "Bot attack/follow/protect/target commands reject invalid live-prop backlinks before use.",
+          "The exact Grid 1-player / 8-bot / Bot Jumping repro remains the manual playtest gate."
+        ]
+      },
       "created": "2026-05-03T00:00:00Z",
-      "updated": "2026-05-20T21:24:08.752Z"
+      "updated": "2026-05-21T11:55:00-04:00"
     },
     {
       "id": "c084",
@@ -1259,7 +1276,7 @@
       "column": "active",
       "order": 2200,
       "priority": 1,
-      "notes": "Implemented and build-verified 2026-05-21 as the foundation slice. Raw non-SDL_GameController joysticks are opened alongside standard controllers, bind capture accepts raw buttons and axes 0-5, actionmap dispatch routes raw buttons/axes through existing JOY virtual keys, glyphs show BtnN/AxisN labels for custom-class devices, and Social presence v3 carries a privacy-safe input class. This intentionally does not expose device GUID/vendor/name over presence. Future deeper work: per-device profile manifests, custom texture glyph packs, richer calibration/deadzone UI, and more than six-axis semantic binding.",
+      "notes": "Implemented and build-verified 2026-05-21 as the foundation slice. Raw non-SDL_GameController joysticks are opened alongside standard controllers, bind capture accepts raw buttons and axes 0-5, actionmap dispatch routes raw buttons/axes through existing JOY virtual keys, glyphs show BtnN/AxisN labels for custom-class devices, and Social presence v3 carries a privacy-safe input class. This intentionally does not expose device GUID/vendor/name over presence. c3819 adds the first per-device profile assignment layer; remaining deeper work is custom texture glyph packs, richer calibration/deadzone UI, automatic per-device profile activation policy, and more than six-axis semantic binding.",
       "flag": "watch",
       "flagged_at": "2026-05-21T13:40:00Z",
       "subtasks": [
@@ -1323,7 +1340,7 @@
         ],
         "expected_artifacts": [
           "Standard controllers continue to use SDL_GameController events and Xbox-style glyphs.",
-          "Raw custom/HOTAS/HOSAS/accessibility joystick buttons can be captured by Controls remap.",
+          "Raw custom/HOTAS/HOSAS/accessibility joystick buttons can be captured by Input remap.",
           "Raw axes 0-5 can be captured as synthetic stick/trigger VKs and routed through existing action actions.",
           "Custom-class glyphs show BtnN and AxisN labels instead of pretending to be A/B/X/Y.",
           "Social presence/friend rows show MKB, Controller, Custom, Accessibility, HOTAS, or HOSAS without exposing device identity."
@@ -1331,6 +1348,84 @@
       },
       "created": "2026-05-21T13:40:00Z",
       "updated": "2026-05-21T13:44:05Z"
+    },
+    {
+      "id": "c3819",
+      "title": "Input: Settings Input tab rebuild and controller profile assignment",
+      "description": "Replace the old convoluted Settings -> Controls surface with a simpler Settings -> Input page using the new actionmap architecture and existing input actions. Include named controller devices and per-device profile assignment.",
+      "pillar": "input",
+      "column": "active",
+      "order": 2250,
+      "priority": 1,
+      "notes": "Code/build verified 2026-05-21. The Settings tab now exposes Input instead of Controls. The page is organized into Profiles, Devices, Bindings, and Tuning: profiles are named slots, connected devices include SDL_GameController and raw joystick/custom devices, device nicknames/profile assignments persist through Input.ProfileNames and Input.DeviceProfiles, and profile load/save writes full player-0 actionmap snapshots to $S/input-profiles/profileN.ini. The binding editor now uses one Scheme combo and one Input combo over the existing actionmap capture table instead of nested IMC/device tabs and the visual controller mapper. Manual UI and hardware retest remains pending.",
+      "flag": "watch",
+      "flagged_at": "2026-05-21T15:20:00Z",
+      "subtasks": [
+        {
+          "id": "c3819-s1",
+          "title": "Replace Settings Controls tab with Settings Input",
+          "done": true,
+          "completed": "2026-05-21T15:20:00Z"
+        },
+        {
+          "id": "c3819-s2",
+          "title": "Simplify binding navigation to Scheme plus Input selectors",
+          "done": true,
+          "completed": "2026-05-21T15:20:00Z"
+        },
+        {
+          "id": "c3819-s3",
+          "title": "List standard and custom connected controller devices",
+          "done": true,
+          "completed": "2026-05-21T15:20:00Z"
+        },
+        {
+          "id": "c3819-s4",
+          "title": "Persist controller nicknames and assigned profile slots",
+          "done": true,
+          "completed": "2026-05-21T15:20:00Z"
+        },
+        {
+          "id": "c3819-s5",
+          "title": "Save and load real actionmap binding profiles",
+          "done": true,
+          "completed": "2026-05-21T15:20:00Z"
+        },
+        {
+          "id": "c3819-s6",
+          "title": "Keep binding capture on the existing actionmap path",
+          "done": true,
+          "completed": "2026-05-21T15:20:00Z"
+        },
+        {
+          "id": "c3819-s7",
+          "title": "Add static regression coverage and isolated verification",
+          "done": true,
+          "completed": "2026-05-21T15:20:00Z"
+        }
+      ],
+      "pending_completion": {
+        "marked_at": "2026-05-21T15:20:00Z",
+        "marked_by": "codex-inputtab-settings-rebuild",
+        "summary": "Rebuilt Settings -> Input around profiles, devices, a simplified binding table, and global tuning while retaining the actionmap as the source of truth.",
+        "verify_notes": "Verified 2026-05-21 in isolated session inputtab: client/updater build passed; pd-tests build passed; focused selectors [input][settings][static][c3819], [input][custom-controller], [input][menu_graph], and [press-hold] returned success. Manual retest should open Settings -> Input in-game, rename a connected standard controller and at least one custom/raw device if available, assign profiles, save/load a profile, rebind KBM/controller inputs, and relaunch to confirm persistence.",
+        "evidence_refs": [
+          "port/fast3d/pdgui_menu_mainmenu.cpp",
+          "port/include/input.h",
+          "port/src/input.c",
+          "port/include/actionmap.h",
+          "port/src/actionmap.cpp",
+          "tests/test_settings_input_tab_static.cpp"
+        ],
+        "expected_artifacts": [
+          "Settings shows an Input tab and no longer shows the old Controls tab.",
+          "Profiles can be named and loaded/saved as real actionmap binding snapshots.",
+          "Connected standard/custom controller devices can be named and assigned to profile slots.",
+          "Bindings remain editable through the existing actionmap capture table for Keyboard & Mouse and Controller / Custom inputs."
+        ]
+      },
+      "created": "2026-05-21T15:20:00Z",
+      "updated": "2026-05-21T15:20:00Z"
     },
     {
       "id": "c087",
@@ -2738,14 +2833,14 @@
           "title": "Add weapon template editor imports",
           "status": "active",
           "order": 3600,
-          "notes": "Active, partial 2026-05-21: the Mods Hub Weapons tab now has a Template flow that clones the selected weapon, exposes catalog pickers for model, texture, animation, audio, projectile, and entity refs, and uses the in-engine file browser for model, texture, animation, audio, and graph JSON imports. Remaining: embed selected catalog assets into the saved .pdweapon instead of storing reference-only fields where the selected asset is not already part of the template/import payload, and add projectile/entity typed-archive file import affordances."
+          "notes": "Active, partial 2026-05-21: the Mods Hub Weapons tab now has a Template flow that clones the selected weapon, exposes catalog pickers for model, texture, animation, audio, projectile, and entity refs, and uses the in-engine file browser for model, texture, animation, audio, and graph JSON imports. Remaining: embed selected catalog assets into the saved .pdweapon instead of storing reference-only fields where the selected asset is not already part of the template/import payload; this is required by the universal self-contained archive contract. Add projectile/entity typed-archive file import affordances."
         },
         {
           "id": "c3814-s22",
           "title": "Save self-contained weapon mods",
           "status": "active",
           "order": 3700,
-          "notes": "Active, partial 2026-05-21: Save Weapon Mod writes mods/Weapons/<slug>/<slug>.pdweapon with weapon.ini, manifest.json, behavior.graph.json, nested_payloads.json, copied non-root template payloads, and imported model/texture/animation/audio files; graph JSON is validated before save; mod.json is written, mods are rescanned, and the new mod is enabled. Remaining: add deeper saved-archive parity/hot-registration tests and true catalog-selected payload embedding for all referenced asset types."
+          "notes": "Active, partial 2026-05-21: Save Weapon Mod writes mods/Weapons/<slug>/<slug>.pdweapon with weapon.ini, manifest.json, behavior.graph.json, nested_payloads.json, copied non-root template payloads, and imported model/texture/animation/audio files; graph JSON is validated before save; mod.json is written, mods are rescanned, and the new mod is enabled. Remaining: add deeper saved-archive parity/hot-registration tests and true catalog-selected payload embedding for all referenced asset types. Reference-only selected assets are incomplete because catalog/runtime dedupe happens after ingestion, not by omitting authored payloads from the archive."
         },
         {
           "id": "c3814-s3",
@@ -2773,17 +2868,17 @@
       "flagged_at": "2026-05-21T00:00:00Z",
       "pending_completion": null,
       "created": "2026-05-21T00:00:00Z",
-      "updated": "2026-05-21T08:59:00-04:00"
+      "updated": "2026-05-21T11:53:29-04:00"
     },
     {
       "id": "c3812",
       "title": "Modding: repair pdxxx as self-contained asset archives",
-      "description": "Correct the typed content-unit contract: each *.pdxxx file is itself a zip-openable asset archive containing its descriptor, meshes, textures, audio, language data, and associated INI/TSV files as needed. Weapon behavior uses .pdweapon only; .pdwpn is pre-release code debt to remove. .pdmod remains only the transport wrapper for Public Mods, sharing, and online-required delivery.",
+      "description": "Correct the typed content-unit contract: each *.pdxxx file is itself a zip-openable asset archive containing its descriptor and every authored dependency needed to edit, clone, share, and load that asset, including meshes, textures, audio, language data, and associated INI/TSV files as needed. Duplicate inner assets may be deduped by catalog/runtime after ingestion for RAM efficiency, but archives must not be reference-only shells. Weapon behavior uses .pdweapon only; .pdwpn is pre-release code debt to remove. .pdmod remains only the transport wrapper for Public Mods, sharing, and online-required delivery.",
       "pillar": "modding",
-      "column": "done",
+      "column": "active",
       "order": 1000,
       "priority": 1,
-      "notes": "Completed non-weapon typed asset archive migration as of 2026-05-21. The c3812 archive contract is now implemented for base and mod content equally: each typed *.pdxxx content unit is zip-openable and carries a root descriptor plus authored source files, while .pdmod remains transport only. Completed non-weapon outputs include c3812-s1..s4, nested typed archive/VFS support, packer/examples/docs, canonical .pdcharacter, .pdhead/.pdbody/.pdarena root descriptors, .pdmesh model.obj/model.mtl, .pdsfx/.pdvoice sample.wav, .pdsong sequence.mid/sequence.tsv, .pdlang strings.tsv, .pdfont glyphs.pgm/metrics.tsv/kerning.tsv, character .pdanim header.tsv/frames.tsv, and .pdscenario rooms.obj/scenario.mtl/tiles.tsv/pads.tsv/setup.tsv/mpsetup.tsv/visual_segments.tsv. Old raw authored payloads such as geometry.bin, tiles.bin, pads.bin, setup.bin, mpsetup.bin, sample.bin, data.bin, frames.bin, and mesh byte tables are treated as stale or rejected by focused guards. Follow-up crash hardening fixed the first-launch extractor path: .pdmesh and .pdscenario now RareZip-inflate ROM payloads before preprocessing, avoid parallel preprocessor races, and .pdmesh uses the runtime model promotion order with a pre-promotion bounds guard. Verification: focused [modding][pdxxx][base][static][c3812] passed 229 assertions / 11 cases, queued all-target build passed, and boot_smoke passed from a clean smoke install. Weapon archive closure is explicitly out of scope here and remains tracked by c3814 for .pdweapon only.",
+      "notes": "Completed non-weapon typed asset archive migration as of 2026-05-21. The c3812 archive contract is now implemented for base and mod content equally: each typed *.pdxxx content unit is zip-openable and carries a root descriptor plus authored source files, while .pdmod remains transport only. Completed non-weapon outputs include c3812-s1..s4, nested typed archive/VFS support, packer/examples/docs, canonical .pdcharacter, .pdhead/.pdbody/.pdarena root descriptors, .pdmesh model.obj/model.mtl, .pdsfx/.pdvoice sample.wav, .pdsong sequence.mid/sequence.tsv, .pdlang strings.tsv, .pdfont glyphs.pgm/metrics.tsv/kerning.tsv, character .pdanim header.tsv/frames.tsv, and .pdscenario rooms.obj/scenario.mtl/tiles.tsv/pads.tsv/setup.tsv/mpsetup.tsv/visual_segments.tsv. Old raw authored payloads such as geometry.bin, tiles.bin, pads.bin, setup.bin, mpsetup.bin, sample.bin, data.bin, frames.bin, and mesh byte tables are treated as stale or rejected by focused guards. Follow-up crash hardening fixed the first-launch extractor path: .pdmesh and .pdscenario now RareZip-inflate ROM payloads before preprocessing, avoid parallel preprocessor races, and .pdmesh uses the runtime model promotion order with a pre-promotion bounds guard. B-358 follow-up fixed the archive/fallback audit misses: weapon/inventory .pdanim outputs are ZIP archives with animation.ini/manifest.json/opcodes.json, .pdmesh GDL/G_VTX decoding now exports Falcon2 OBJ geometry without no-triangle misses, FILE_GHUDPIECE has a catalog provider, local Combat Simulator prepares an MP manifest before stage change, and random bot bodies exclude SP-only body rows. Verification: focused c3812/B-358 tests passed, queued all-target build passed, and combat_sim_entry smoke reported failed=0 for ROM/segment extraction plus .pdmesh written=64 skipped=192 failed=0 and .pdanim skipped=110 failed=0 with no CATALOG.MISS, MANIFEST-SP, or fatal. Weapon archive closure is explicitly out of scope here and remains tracked by c3814 for .pdweapon only; the broader all-asset dependency-closure audit remains c3812-s8.",
       "subtasks": [
         {
           "id": "c3812-s1",
@@ -2826,13 +2921,27 @@
           "status": "done",
           "order": 6000,
           "notes": "Done 2026-05-21. Fixed the modelPromoteNodeOffsetsToPointers/modelPromoteOffsetsToPointers crash class by routing .pdmesh source bytes through RareZip inflate, model/gun preprocessing, modelPromoteTypeToPointer, and guarded offset promotion before OBJ traversal. Fixed the follow-on .pdarena/.pdscenario first-launch crash by inflating stage files before tiles/pads/setup preprocessing and running stage preprocess work serially because those preprocessors use process-global scratch state. Verified focused c3812 static tests (229 assertions / 11 cases), queued all-target build, and boot_smoke from a clean smoke install."
+        },
+        {
+          "id": "c3812-s7",
+          "title": "Repair weapon/inventory .pdanim archive emitter",
+          "status": "done",
+          "order": 7000,
+          "notes": "Done 2026-05-21 from Mike's extraction/fallback audit. Core ROM/segment extraction and typed emitter summaries had reported failed=0, but archive validation found 110 weapon/inventory .pdanim outputs were loose JSON. romextract_pdanim.c now writes zip-openable archives with animation.ini, compatibility manifest.json, and editable opcodes.json; stale loose-JSON outputs are rewritten. The same B-358 pass fixed the related audit misses: .pdmesh no-triangle output caused by GDL low-bit markers, wrong G_VTX decoding, and segment-4 vertex addressing; FILE_GHUDPIECE raw menu model provider; local Combat Simulator MP manifest ownership before stage change; and SP-only random bot body selection. Verified in b316arch by focused weapon .pdanim ZIP and .pdmesh OBJ tests, focused scene/catalog tests, all-target build, and combat_sim_entry smoke with no extraction failures, CATALOG.MISS, MANIFEST-SP late-add, or fatal."
+        },
+        {
+          "id": "c3812-s8",
+          "title": "Audit typed archives for full dependency closure",
+          "status": "active",
+          "order": 7100,
+          "notes": "Opened 2026-05-21 from Mike /goal clarification. Every typed *.pdxxx archive must embed its authored dependency closure on disk; duplicate storage is acceptable for sharing/modding, with catalog/runtime dedupe by SHA-256 and catalog identity after ingestion to limit RAM waste. Audit and fix reference-only dependencies across all asset types, not just weapons."
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-20T20:05:00Z",
       "pending_completion": null,
       "created": "2026-05-20T20:05:00Z",
-      "updated": "2026-05-21T10:13:00-04:00"
+      "updated": "2026-05-21T11:55:00-04:00"
     },
     {
       "id": "c3813",
@@ -2875,6 +2984,51 @@
           "status": "backlog",
           "order": 4000,
           "notes": "Run focused tests/smokes and record Mike playtest expectations for local Combat Sim, hosted match, client join, disconnect, reconnect, and drop-in/drop-out."
+        }
+      ]
+    },
+    {
+      "id": "c3818",
+      "title": "Dev Window live-state Git sync and release notes",
+      "description": "Track Kanban board state, Codex memory mirror, and simplified release-note text in Git so Dev Window builds/releases can sync active project state with code state.",
+      "pillar": "tooling",
+      "column": "done",
+      "order": 9000,
+      "priority": 1,
+      "notes": "Done 2026-05-21. Dev Window v2 and release.ps1 now mirror Codex MEMORY.md into tools/kanban/memories.md before sync commits, include Kanban/memory/release-note state in the commit body, and keep UNRELEASED.md as the running simplified release-note source. Dev Window Pull now fetches first and lets Mike choose the remote commit to fast-forward to.",
+      "flag": null,
+      "flagged_at": null,
+      "pending_completion": null,
+      "created": "2026-05-21T00:00:00Z",
+      "updated": "2026-05-21T00:00:00Z",
+      "subtasks": [
+        {
+          "id": "c3818-s1",
+          "title": "Mirror Codex memory into tracked project state",
+          "status": "done",
+          "order": 1000,
+          "notes": "Added shared project-state sync helper and tracked tools/kanban/memories.md as the GitHub-visible mirror of Codex MEMORY.md."
+        },
+        {
+          "id": "c3818-s2",
+          "title": "Commit live state during Dev Window build/release",
+          "status": "done",
+          "order": 2000,
+          "notes": "Dev Window build, release, and push sync commits now run the state mirror first and generate a commit body from staged files."
+        },
+        {
+          "id": "c3818-s3",
+          "title": "Choose pull target commit",
+          "status": "done",
+          "order": 3000,
+          "notes": "Pull fetches the current branch, lists remote commits not yet local, and fast-forwards to the selected commit."
+        },
+        {
+          "id": "c3818-s4",
+          "title": "Release-note source cleanup",
+          "status": "done",
+          "order": 4000,
+          "notes": "Replaced stale UNRELEASED.md content with a running simplified change list consumed by release.ps1."
         }
       ]
     }

@@ -331,3 +331,57 @@ TEST_CASE("scene transition helper: priority transition sites use shared cleanup
     REQUIRE(menutick.find("\"menutick COOPCONTINUE exit\"") != std::string::npos);
     REQUIRE(menutick.find("manifestClear(&g_ClientManifest);") == std::string::npos);
 }
+
+TEST_CASE("offline Combat Simulator starts with a predeclared MP manifest",
+          "[scene][manifest][combat-sim][static]")
+{
+    const std::string mplayer = readTextFile("src/game/mplayer/mplayer.c");
+    const std::string manifest = readTextFile("port/src/net/netmanifest.c");
+
+    REQUIRE(mplayer.find("#include \"net/netmanifest.h\"") != std::string::npos);
+
+    const size_t localBranch = mplayer.find("if (g_NetMode == NETMODE_NONE)");
+    const size_t build = mplayer.find("manifestBuildForHost(&g_ClientManifest);", localBranch);
+    const size_t mpFlag = mplayer.find("g_Vars.normmplayerisrunning = true;", build);
+    const size_t change = mplayer.find("mainChangeToStage(stagenum);", mpFlag);
+    REQUIRE(localBranch != std::string::npos);
+    REQUIRE(build != std::string::npos);
+    REQUIRE(mpFlag != std::string::npos);
+    REQUIRE(change != std::string::npos);
+    REQUIRE(localBranch < build);
+    REQUIRE(build < mpFlag);
+    REQUIRE(mpFlag < change);
+
+    REQUIRE(manifest.find("Offline Combat Simulator has no net-local client") !=
+            std::string::npos);
+    REQUIRE(manifest.find("sl->type != SLOT_PLAYER") != std::string::npos);
+    REQUIRE(manifest.find("s_manifestExpandDeps(out, be->id, slot_index)") !=
+            std::string::npos);
+    REQUIRE(manifest.find("s_manifestExpandDeps(out, he->id, slot_index)") !=
+            std::string::npos);
+}
+
+TEST_CASE("Combat Simulator bot target commands validate live prop backlinks",
+          "[combat-sim][bot][static]")
+{
+    const std::string bot = readTextFile("src/game/bot.c");
+
+    REQUIRE(bot.find("botLiveChrPropFromPropnum") != std::string::npos);
+    REQUIRE(bot.find("botLiveChrFromPropnum") != std::string::npos);
+    REQUIRE(bot.find("botLiveMpIndexFromPropnum") != std::string::npos);
+    REQUIRE(bot.find("botLiveChrPropnum") != std::string::npos);
+    REQUIRE(bot.find("botClearStaleHumanCommand") != std::string::npos);
+    REQUIRE(bot.find("prop->chr->prop != prop") != std::string::npos);
+    REQUIRE(bot.find("botLiveChrFromPropnum(chr->aibot->attackpropnum)") !=
+            std::string::npos);
+    REQUIRE(bot.find("botLiveMpIndexFromPropnum(aibot->followprotectpropnum)") !=
+            std::string::npos);
+
+    REQUIRE(bot.find("&g_Vars.props[chr->aibot->attackpropnum]") ==
+            std::string::npos);
+    REQUIRE(bot.find("g_Vars.props + botchr->target") == std::string::npos);
+    REQUIRE(bot.find("g_Vars.props + aibot->attackpropnum") ==
+            std::string::npos);
+    REQUIRE(bot.find("g_Vars.props + aibot->followprotectpropnum") ==
+            std::string::npos);
+}

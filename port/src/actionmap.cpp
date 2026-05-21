@@ -33,6 +33,7 @@
 
 #include "actionmap.h"
 #include "config.h"     /* configRegisterString */
+#include "fs.h"         /* fsCreateDir, fsFileOpenRead/Write */
 #include "system.h"     /* sysLogPrintf, LOG_NOTE, LOG_WARNING */
 #include "inputctx.h"   /* inputCtxGetTop, g_CtxGameplay — for menu axis suppression */
 #include "inputlayer.h" /* layer-declared action aperture for transition layers */
@@ -2002,11 +2003,46 @@ static void buildBindStr(s32 player, InputAction action,
     }
 }
 
+static void buildContextBindStr(InputMappingContext *ctx, s32 player, InputAction action,
+                                char *out, s32 outlen)
+{
+    if (!out || outlen <= 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (!ctx || action < 0 || action >= ACTION_COUNT || !ctx->has_mapping[action]) {
+        return;
+    }
+
+    InputMapping *m = &ctx->mappings[action];
+    s32 written = 0;
+    for (s32 ti = 0; ti < m->num_triggers; ti++) {
+        u32 vk = m->triggers[ti].vk;
+        if (vk == 0) continue;
+        if (playerForVk(vk) != player) continue;
+
+        const char *name = actionmapGetVkName(vk);
+        if (!name || name[0] == '\0') continue;
+
+        s32 curlen = (s32)strlen(out);
+        if (written > 0 && curlen + 1 < outlen) {
+            out[curlen] = ',';
+            out[curlen + 1] = '\0';
+            curlen++;
+        }
+        s32 remaining = outlen - curlen - 1;
+        if (remaining > 0) {
+            strncat(out, name, (size_t)remaining);
+            written++;
+        }
+    }
+}
+
 /** Parse a comma-separated bind string and populate triggers in imc for player p. */
 static void parseBindStr(InputMappingContext *imc, s32 player,
                          InputAction action, const char *str)
 {
-    if (!imc || !str || str[0] == '\0') return;
+    if (!imc || !str) return;
 
     char buf[BIND_STR_MAX];
     strncpy(buf, str, sizeof(buf) - 1);
@@ -2023,6 +2059,8 @@ static void parseBindStr(InputMappingContext *imc, s32 player,
         }
         m->num_triggers = write;
     }
+
+    if (str[0] == '\0') return;
 
     /* Parse and add new triggers */
     char *token = strtok(buf, ",");
@@ -2221,6 +2259,126 @@ void actionmapLoadBinds(void)
     }
 
     actionmapParseHoldOverridesFromIniStr();
+}
+
+static InputMappingContext *actionmapFindContextByName(const char *name)
+{
+    if (!name || !name[0]) {
+        return NULL;
+    }
+    for (s32 ci = 0; ci < s_NumAllImcs; ci++) {
+        if (s_AllImcs[ci]->name && !strcmp(s_AllImcs[ci]->name, name)) {
+            return s_AllImcs[ci];
+        }
+    }
+    return NULL;
+}
+
+static InputAction actionmapFindActionByName(const char *name)
+{
+    if (!name || !name[0]) {
+        return ACTION_COUNT;
+    }
+    for (s32 a = 0; a < ACTION_COUNT; a++) {
+        if (s_ActionNames[a] && !strcmp(s_ActionNames[a], name)) {
+            return (InputAction)a;
+        }
+    }
+    return ACTION_COUNT;
+}
+
+s32 actionmapSaveProfileFile(const char *relpath)
+{
+    if (!relpath || relpath[0] == '\0') {
+        return 0;
+    }
+
+    fsCreateDir("$S/input-profiles");
+    FILE *f = fsFileOpenWrite(relpath);
+    if (!f) {
+        sysLogPrintf(LOG_WARNING, "ACTIONMAP: failed to save profile '%s'", relpath);
+        return 0;
+    }
+
+    fprintf(f, "# Perfect Dark 2 input profile\n");
+    fprintf(f, "# Format: context.P0.ActionName=VK,VK\n");
+
+    char bind[BIND_STR_MAX];
+    for (s32 ci = 0; ci < s_NumAllImcs; ci++) {
+        InputMappingContext *ctx = s_AllImcs[ci];
+        if (!ctx || !ctx->name) continue;
+        for (s32 a = 0; a < ACTION_COUNT; a++) {
+            if (!ctx->has_mapping[a]) continue;
+            buildContextBindStr(ctx, 0, (InputAction)a, bind, sizeof(bind));
+            fprintf(f, "%s.P0.%s=%s\n", ctx->name, s_ActionNames[a], bind);
+        }
+    }
+
+    fclose(f);
+    sysLogPrintf(LOG_NOTE, "ACTIONMAP: saved input profile '%s'", relpath);
+    return 1;
+}
+
+s32 actionmapLoadProfileFile(const char *relpath)
+{
+    if (!relpath || relpath[0] == '\0') {
+        return 0;
+    }
+
+    FILE *f = fsFileOpenRead(relpath);
+    if (!f) {
+        sysLogPrintf(LOG_WARNING, "ACTIONMAP: failed to load profile '%s'", relpath);
+        return 0;
+    }
+
+    for (s32 ci = 0; ci < s_NumAllImcs; ci++) {
+        actionmapSetDefaults(s_AllImcs[ci], 0);
+    }
+
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        char *start = line;
+        while (*start == ' ' || *start == '\t') start++;
+        if (*start == '\0' || *start == '\n' || *start == '\r' || *start == '#') {
+            continue;
+        }
+
+        char *eq = strchr(start, '=');
+        if (!eq) {
+            continue;
+        }
+        *eq = '\0';
+        char *binds = eq + 1;
+        for (char *p = binds; *p; ++p) {
+            if (*p == '\n' || *p == '\r') {
+                *p = '\0';
+                break;
+            }
+        }
+
+        char *ctxName = start;
+        char *playerName = strchr(ctxName, '.');
+        if (!playerName) continue;
+        *playerName++ = '\0';
+        char *actionName = strchr(playerName, '.');
+        if (!actionName) continue;
+        *actionName++ = '\0';
+        if (strcmp(playerName, "P0") != 0) {
+            continue;
+        }
+
+        InputMappingContext *ctx = actionmapFindContextByName(ctxName);
+        InputAction action = actionmapFindActionByName(actionName);
+        if (!ctx || action >= ACTION_COUNT || !ctx->has_mapping[action]) {
+            continue;
+        }
+        parseBindStr(ctx, 0, action, binds);
+    }
+
+    fclose(f);
+    actionmapSaveBinds();
+    sysLogPrintf(LOG_NOTE, "ACTIONMAP: loaded input profile '%s'", relpath);
+    return 1;
 }
 
 /* ============================================================

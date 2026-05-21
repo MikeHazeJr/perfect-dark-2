@@ -8,7 +8,7 @@
  * data/<romid>/animations/<id>.pdanim.
  *
  * Companion to romextract_pdanim.c (Step 1, weapon-animation gunscript
- * opcodes -- plain JSON, category="weapon_animation"). This file
+ * opcodes -- ZIP compound, category="weapon_animation"). This file
  * handles category="character_animation" -- ZIP compound per the
  * universality-pivot-schemas.md Section 2.6 lock-down.
  *

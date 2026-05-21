@@ -154,7 +154,24 @@ typedef struct {
 	u32             next_index;
 	u32             triangle_count;
 	u32             gdl_count;
+	u32             vtx_cmd_count;
+	u32             vtx_slot_count;
+	u32             tri_cmd_count;
+	u32             tri_attempt_count;
+	u32             tri_missing_slot_count;
+	u32             vtx_bad_addr_count;
 } pdmesh_obj_export_t;
+
+typedef struct {
+	u32 triangle_count;
+	u32 gdl_count;
+	u32 vtx_cmd_count;
+	u32 vtx_slot_count;
+	u32 tri_cmd_count;
+	u32 tri_attempt_count;
+	u32 tri_missing_slot_count;
+	u32 vtx_bad_addr_count;
+} pdmesh_obj_stats_t;
 
 static s32 s_ptrInModel(const pdmesh_obj_export_t *ctx, const void *ptr,
                         size_t bytes)
@@ -167,7 +184,12 @@ static s32 s_ptrInModel(const pdmesh_obj_export_t *ctx, const void *ptr,
 static Gfx *s_resolveGdlPtr(const pdmesh_obj_export_t *ctx, Gfx *raw)
 {
 	if (!raw) return NULL;
-	uintptr_t unseg = UNSEGADDR(raw);
+	uintptr_t rawaddr = (uintptr_t)raw;
+	/* The PC model preprocessor marks rewritten display-list pointers by
+	 * setting bit 0. Mask that flag before reading commands; otherwise the
+	 * OBJ extractor walks from an odd address and silently misses triangles. */
+	rawaddr &= ~(uintptr_t)1;
+	uintptr_t unseg = UNSEGADDR(rawaddr);
 	if (s_ptrInModel(ctx, (const void *)unseg, sizeof(Gfx))) {
 		return (Gfx *)unseg;
 	}
@@ -228,7 +250,7 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 		if (cmd == (u8)G_ENDDL) break;
 
 		if (cmd == (u8)G_DL) {
-			Gfx *child = (Gfx *)(uintptr_t)w1;
+			Gfx *child = (Gfx *)(((uintptr_t)w1) & ~(uintptr_t)1);
 			if (s_exportGdlToObj(ctx, child, vbuf, numverts, depth + 1) != 0) {
 				return -1;
 			}
@@ -236,9 +258,10 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 		}
 
 		if (cmd == (u8)G_VTX) {
-			s32 n = ((w0 >> 4) & 0xf) + 1;
-			s32 v0 = (w0 & 0xf);
-			uintptr_t src = (uintptr_t)w1;
+			ctx->vtx_cmd_count++;
+			s32 n = (s32)((w0 & 0xffffu) / sizeof(Vtx));
+			s32 v0 = (s32)((w0 >> 16) & 0xf);
+			uintptr_t src = ((uintptr_t)w1) & ~(uintptr_t)1;
 			uintptr_t vstart = (uintptr_t)vbuf;
 			uintptr_t vend = vstart + (size_t)numverts * sizeof(Vtx);
 			s32 srcidx = -1;
@@ -246,36 +269,60 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 			if (src >= vstart && src < vend) {
 				srcidx = (s32)((src - vstart) / sizeof(Vtx));
 			} else {
-				u32 off = (u32)(UNSEGADDR(w1) & 0x00ffffffu);
-				if ((off % sizeof(Vtx)) == 0) srcidx = (s32)(off / sizeof(Vtx));
+				u32 seg = (u32)((src >> 24) & 0x0fu);
+				u32 off = (u32)(src & 0x00ffffffu);
+				if (seg == SPSEGMENT_MODEL_VTX) {
+					if ((off % sizeof(Vtx)) == 0) {
+						srcidx = (s32)(off / sizeof(Vtx));
+					}
+				} else {
+					if (off + sizeof(Vtx) <= ctx->size) {
+						const u8 *baseptr = ctx->base + off;
+						if ((uintptr_t)baseptr >= vstart &&
+						    (uintptr_t)baseptr < vend) {
+							srcidx = (s32)(((uintptr_t)baseptr - vstart) /
+							               sizeof(Vtx));
+						}
+					}
+				}
 			}
 
 			if (srcidx >= 0) {
 				for (s32 i = 0; i < n && (v0 + i) < 64; i++) {
 					s32 vi = srcidx + i;
-					if (vi >= 0 && vi < numverts) slots[v0 + i] = &vbuf[vi];
+					if (vi >= 0 && vi < numverts) {
+						slots[v0 + i] = &vbuf[vi];
+						ctx->vtx_slot_count++;
+					}
 				}
 				if (v0 + n > numslots) numslots = v0 + n;
+			} else {
+				ctx->vtx_bad_addr_count++;
 			}
 			continue;
 		}
 
 		if (cmd == (u8)G_TRI1) {
+			ctx->tri_cmd_count++;
 			s32 i0 = ((w1 >> 16) & 0xff) / 10;
 			s32 i1 = ((w1 >> 8)  & 0xff) / 10;
 			s32 i2 = ((w1 >> 0)  & 0xff) / 10;
 			if (i0 < numslots && i1 < numslots && i2 < numslots) {
+				ctx->tri_attempt_count++;
 				if (s_objEmitTri(ctx, slots[i0], slots[i1], slots[i2]) != 0) return -1;
+			} else {
+				ctx->tri_missing_slot_count++;
 			}
 			continue;
 		}
 
 		if (cmd == (u8)G_TRI4) {
+			ctx->tri_cmd_count++;
 			s32 idx[4][3] = {
-				{ gdl[cmdidx].tri4.x1, gdl[cmdidx].tri4.y1, gdl[cmdidx].tri4.z1 },
-				{ gdl[cmdidx].tri4.x2, gdl[cmdidx].tri4.y2, gdl[cmdidx].tri4.z2 },
-				{ gdl[cmdidx].tri4.x3, gdl[cmdidx].tri4.y3, gdl[cmdidx].tri4.z3 },
-				{ gdl[cmdidx].tri4.x4, gdl[cmdidx].tri4.y4, gdl[cmdidx].tri4.z4 },
+				{ (s32)((w1 >> 0)  & 0xf), (s32)((w1 >> 4)  & 0xf), (s32)((w0 >> 0)  & 0xf) },
+				{ (s32)((w1 >> 8)  & 0xf), (s32)((w1 >> 12) & 0xf), (s32)((w0 >> 4)  & 0xf) },
+				{ (s32)((w1 >> 16) & 0xf), (s32)((w1 >> 20) & 0xf), (s32)((w0 >> 8)  & 0xf) },
+				{ (s32)((w1 >> 24) & 0xf), (s32)((w1 >> 28) & 0xf), (s32)((w0 >> 12) & 0xf) },
 			};
 			for (s32 ti = 0; ti < 4; ti++) {
 				s32 i0 = idx[ti][0];
@@ -283,7 +330,10 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 				s32 i2 = idx[ti][2];
 				if (i0 == i1 && i1 == i2) continue;
 				if (i0 < numslots && i1 < numslots && i2 < numslots) {
+					ctx->tri_attempt_count++;
 					if (s_objEmitTri(ctx, slots[i0], slots[i1], slots[i2]) != 0) return -1;
+				} else {
+					ctx->tri_missing_slot_count++;
 				}
 			}
 		}
@@ -358,8 +408,8 @@ static s32 s_modeldefOffsetsLookPromotable(const struct modeldef *modeldef,
 }
 
 static s32 s_buildModelObj(const u8 *src, u32 src_size,
-                           pdmesh_textbuf_t *obj, u32 *out_tris,
-                           u32 *out_gdls)
+                           pdmesh_textbuf_t *obj,
+                           pdmesh_obj_stats_t *out_stats)
 {
 	if (!src || src_size < sizeof(struct modeldef)) return -1;
 
@@ -395,8 +445,16 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 		return -1;
 	}
 
-	*out_tris = ctx.triangle_count;
-	*out_gdls = ctx.gdl_count;
+	if (out_stats) {
+		out_stats->triangle_count = ctx.triangle_count;
+		out_stats->gdl_count = ctx.gdl_count;
+		out_stats->vtx_cmd_count = ctx.vtx_cmd_count;
+		out_stats->vtx_slot_count = ctx.vtx_slot_count;
+		out_stats->tri_cmd_count = ctx.tri_cmd_count;
+		out_stats->tri_attempt_count = ctx.tri_attempt_count;
+		out_stats->tri_missing_slot_count = ctx.tri_missing_slot_count;
+		out_stats->vtx_bad_addr_count = ctx.vtx_bad_addr_count;
+	}
 	free(copy);
 	return 0;
 }
@@ -590,22 +648,26 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 
 	pdmesh_textbuf_t obj_buf;
 	memset(&obj_buf, 0, sizeof(obj_buf));
-	u32 triangle_count = 0;
-	u32 gdl_count = 0;
+	pdmesh_obj_stats_t stats;
+	memset(&stats, 0, sizeof(stats));
 	if (s_buildModelObj((const u8 *)model_bytes, model_size, &obj_buf,
-	                    &triangle_count, &gdl_count) != 0 ||
-	    triangle_count == 0) {
+	                    &stats) != 0 ||
+	    stats.triangle_count == 0) {
 		sysMemFree(model_bytes);
 		s_textbufFree(&obj_buf);
 		sysLogPrintf(LOG_WARNING,
-			"romextract pdmesh: OBJ export produced no triangles for filenum=0x%04x (rel=\"%s\")",
-			(unsigned)filenum, src_rel);
-		return 0;
+			"romextract pdmesh: OBJ export produced no triangles for filenum=0x%04x (rel=\"%s\", gdls=%u vtxcmds=%u vtxslots=%u tricmds=%u triattempts=%u trimiss=%u badvtxaddr=%u)",
+			(unsigned)filenum, src_rel, (unsigned)stats.gdl_count,
+			(unsigned)stats.vtx_cmd_count, (unsigned)stats.vtx_slot_count,
+			(unsigned)stats.tri_cmd_count, (unsigned)stats.tri_attempt_count,
+			(unsigned)stats.tri_missing_slot_count,
+			(unsigned)stats.vtx_bad_addr_count);
+		return -1;
 	}
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdmesh: exported filenum=0x%04x loadtype=%u tris=%u gdls=%u",
 		(unsigned)filenum, (unsigned)loadtype,
-		(unsigned)triangle_count, (unsigned)gdl_count);
+		(unsigned)stats.triangle_count, (unsigned)stats.gdl_count);
 	sysMemFree(model_bytes);
 
 	const char mtl_buf[] =
@@ -635,8 +697,8 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"}\n",
 		catalog_id,
 		sym_for_provenance ? sym_for_provenance : "",
-		(unsigned)triangle_count,
-		(unsigned)gdl_count);
+		(unsigned)stats.triangle_count,
+		(unsigned)stats.gdl_count);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
 		s_textbufFree(&obj_buf);
 		sysLoudFailf("EXTRACT.PDMESH",
@@ -658,8 +720,8 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"display_list_count = %u\n"
 		"source_filenum_symbol = %s\n",
 		catalog_id,
-		(unsigned)triangle_count,
-		(unsigned)gdl_count,
+		(unsigned)stats.triangle_count,
+		(unsigned)stats.gdl_count,
 		sym_for_provenance ? sym_for_provenance : "");
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		s_textbufFree(&obj_buf);

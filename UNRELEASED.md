@@ -1,28 +1,27 @@
 # Unreleased Changes
 
-> Player-facing changelog for the next release. Written in plain language.
-> When a stable release is pushed, this content becomes the release notes body,
-> then this file is cleared for the next cycle.
->
-> **Base**: v0.0.7 (released 2026-03-27)
+> Running release-note source for the next GitHub release.
+> Keep bullets short, player-facing where possible, and specific to what changed.
 
-## New Features
+## Highlights
 
-*(none yet)*
+- Dev Window v2 now treats the Kanban board, Codex memory mirror, and release-note source as live project state that should commit with the code.
+- Git Pull in Dev Window v2 now fetches remote commits first and lets the operator choose the exact commit to fast-forward to.
+- Release notes now come from this running list instead of the old dedicated-server placeholder text.
+- Settings now has a simplified Input tab for profiles, connected devices, bindings, and tuning.
 
-## Improvements
+## Added
 
-- Server no longer wastes a player slot on dedicated mode — slot 0 is now available to real players
-- Server status bar now shows port only (no raw IP exposed)
-- Server log no longer shows client IP addresses — uses client ID/name instead
+- Added a tracked Codex memory mirror at `tools/kanban/memories.md` so GitHub can carry the project's active memory state alongside code and Kanban state.
+- Added shared project-state sync tooling for Dev Window v2 and the release script.
+- Added named input profile slots and per-controller profile assignment, including custom/raw controller devices.
 
-## Bug Fixes
+## Changed
 
-- B-28: Dedicated server occupied player slot 0, reducing effective capacity to 31 (fixed: slot 0 now assigned to first connecting player)
-- B-29: Raw IP visible in server GUI status bar (fixed: port only)
-- B-30: Raw IPs in server connection/disconnect log output (fixed: client ID/name instead)
+- Dev Window build, release, and push sync commits now describe the staged files and include live state paths in the commit body.
+- The release script mirrors Codex memory before release commits and warns if the notes file looks stale.
+- Replaced the old Settings Controls surface with a single actionmap-backed Input binding table.
 
-## Technical
+## Fixed
 
-- Hub slot pool API: `hubGetMaxSlots()`, `hubSetMaxSlots()`, `hubGetUsedSlots()`, `hubGetFreeSlots()`
-- Foundation for future network benchmark → dynamic player cap via `hubSetMaxSlots()`
+- Removed the outdated v0.0.7 dedicated-server release notes that were being reused for new releases.

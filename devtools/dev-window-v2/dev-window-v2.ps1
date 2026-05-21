@@ -154,6 +154,7 @@ try { [void][PD2V2.DpiUtil]::SetProcessDPIAware() } catch {}
 $script:ScriptDir           = $PSScriptRoot
 $script:ProjectRoot         = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 try { $script:ProjectRoot = [System.IO.Path]::GetFullPath($script:ProjectRoot) } catch {}
+. (Join-Path (Join-Path $script:ProjectRoot "devtools") "project-state-sync.ps1")
 $script:BuildDir            = [System.IO.Path]::GetFullPath((Join-Path $script:ProjectRoot "Build"))   # unified dir for pd + pd-server
 $script:SettingsPath        = Join-Path $script:ScriptDir "settings.json"
 $script:ReleaseCachePath    = Join-Path $script:ProjectRoot ".dev-window-release-cache.json"
@@ -1735,16 +1736,29 @@ function Start-GitSyncBeforeBuild {
     $cygpathExe = Get-MsysToolPath -ToolName "cygpath" -GitExe $gitExe
     $wslCmd = Get-Command wsl.exe -ErrorAction SilentlyContinue
     $wslExe = if ($null -ne $wslCmd) { $wslCmd.Source } else { $null }
+    $stateSyncScript = Join-Path (Join-Path $script:ProjectRoot "devtools") "project-state-sync.ps1"
 
     Add-LogSessionLine "" "#C0C8D2"
     Add-LogSessionLine (">>> git: " + $ActionLabel) "#0078A8"
 
     Start-AsyncPoolAction `
         -Script {
-            param($root, $gitExe, $commitMessage, $actionLabel, $winLock, $rmExe, $cygpathExe, $wslExe, $requirePush)
+            param($root, $gitExe, $commitMessage, $actionLabel, $winLock, $rmExe, $cygpathExe, $wslExe, $requirePush, $stateSyncScript)
 
             $logs = New-Object System.Collections.ArrayList
-            $commitBody = "Dev Window staged pending changes during $actionLabel so the requested action can continue from a clean tree. This automated sync uses the c120 commit-message format instead of bypassing the hook."
+            if (Test-Path -LiteralPath $stateSyncScript) {
+                try { . $stateSyncScript } catch {}
+            }
+            if (Get-Command Sync-ProjectMindState -ErrorAction SilentlyContinue) {
+                $syncResult = Sync-ProjectMindState -ProjectRoot $root -Quiet
+                if ($syncResult.MemoryCopied) {
+                    [void]$logs.Add(@{ Text = "state sync: mirrored Codex memory to tools/kanban/memories.md"; Color = "#0078A8" })
+                }
+                foreach ($note in $syncResult.Notes) {
+                    [void]$logs.Add(@{ Text = "state sync: $note"; Color = "#A07810" })
+                }
+            }
+            $commitBody = "Dev Window staged pending changes during $actionLabel so code, Kanban board state, Codex memory, and release-note state can move together."
             $commitRefs = "Refs: c120"
 
             $branch = "HEAD"
@@ -1831,6 +1845,9 @@ function Start-GitSyncBeforeBuild {
             $needCommit = ($LASTEXITCODE -ne 0)
             if ($needCommit) {
                 & $cleanup
+                if (Get-Command Get-ProjectStateCommitBody -ErrorAction SilentlyContinue) {
+                    $commitBody = Get-ProjectStateCommitBody -ProjectRoot $root -ActionLabel $actionLabel
+                }
                 $co = @(& $gitExe -C $root commit -m $commitMessage -m $commitBody -m $commitRefs 2>&1)
                 $commitCode = $LASTEXITCODE
                 if ($commitCode -ne 0 -and (($co | ForEach-Object { "$_" }) -join "`n") -match 'index\.lock|Unable to create') {
@@ -1895,7 +1912,7 @@ function Start-GitSyncBeforeBuild {
 
             return [PSCustomObject]@{ Ok = $true; Logs = $logs; ErrMsg = $null }
         } `
-        -Arguments @($root, $gitExe, $CommitMessage, $ActionLabel, $winLock, $rmExe, $cygpathExe, $wslExe, $RequirePush) `
+        -Arguments @($root, $gitExe, $CommitMessage, $ActionLabel, $winLock, $rmExe, $cygpathExe, $wslExe, $RequirePush, $stateSyncScript) `
         -OnComplete {
             # Plain scriptblock (NO GetNewClosure). It retains the main module's
             # $script: scope, so writes to $script:GitSyncBusy here actually clear the
@@ -1975,6 +1992,124 @@ function Start-AsyncPoolAction {
     $t.Start()
 }
 
+function Show-GitPullCommitDialog {
+    param(
+        [object[]]$Commits,
+        [string]$Branch
+    )
+
+    if (-not $Commits -or $Commits.Count -eq 0) { return $null }
+
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = "Choose commit to pull"
+    $form.Width = 980
+    $form.Height = 560
+    $form.StartPosition = "CenterScreen"
+    $form.MinimizeBox = $false
+    $form.MaximizeBox = $false
+    $form.ShowIcon = $false
+
+    $label = New-Object System.Windows.Forms.Label
+    $label.Text = "Select the newest remote commit you want to fast-forward to on $Branch."
+    $label.AutoSize = $true
+    $label.Left = 12
+    $label.Top = 12
+    $form.Controls.Add($label)
+
+    $list = New-Object System.Windows.Forms.ListBox
+    $list.Left = 12
+    $list.Top = 38
+    $list.Width = 940
+    $list.Height = 430
+    $list.DisplayMember = "Label"
+    foreach ($commit in $Commits) { [void]$list.Items.Add($commit) }
+    if ($list.Items.Count -gt 0) { $list.SelectedIndex = $list.Items.Count - 1 }
+    $form.Controls.Add($list)
+
+    $ok = New-Object System.Windows.Forms.Button
+    $ok.Text = "Pull Selected"
+    $ok.Width = 120
+    $ok.Height = 32
+    $ok.Left = 702
+    $ok.Top = 480
+    $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $form.AcceptButton = $ok
+    $form.Controls.Add($ok)
+
+    $cancel = New-Object System.Windows.Forms.Button
+    $cancel.Text = "Cancel"
+    $cancel.Width = 100
+    $cancel.Height = 32
+    $cancel.Left = 836
+    $cancel.Top = 480
+    $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $form.CancelButton = $cancel
+    $form.Controls.Add($cancel)
+
+    $result = $form.ShowDialog()
+    if ($result -ne [System.Windows.Forms.DialogResult]::OK -or $null -eq $list.SelectedItem) {
+        return $null
+    }
+    return $list.SelectedItem
+}
+
+function Finish-GitPullAction {
+    $script:GitActionBusy = $false
+    $script:GitActionLabel = ""
+    $ui["BtnPull"].IsEnabled = $true
+    $ui["BtnPush"].IsEnabled = $true
+    Refresh-VersionDisplay
+    Update-StatusBar
+}
+
+function Start-GitPullMerge {
+    param(
+        [string]$GitExe,
+        [object]$Commit
+    )
+
+    if ($null -eq $Commit) {
+        Add-LogLine "Pull cancelled." "#44586C"
+        Finish-GitPullAction
+        return
+    }
+
+    $sha = [string]$Commit.Sha
+    $short = [string]$Commit.Short
+    Add-LogLine (">>> git merge --ff-only " + $short) "#0078A8"
+
+    Start-AsyncPoolAction `
+        -Script {
+            param($root, $gitExe, $sha)
+            try {
+                $out = & $gitExe -C $root merge --ff-only $sha 2>&1
+                [PSCustomObject]@{ Code = $LASTEXITCODE; Out = @($out | ForEach-Object { "$_" }) }
+            } catch {
+                [PSCustomObject]@{ Code = -1; Out = @($_.Exception.Message) }
+            }
+        } `
+        -Arguments @($script:ProjectRoot, $GitExe, $sha) `
+        -OnComplete {
+            param($result)
+            try {
+                $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
+                if ($null -ne $r) {
+                    $code = [int]$r.Code
+                    foreach ($line in $r.Out) {
+                        $cl = if ($code -ne 0) { "#B81818" } else { "#4A5868" }
+                        Add-LogLine ("$line".TrimEnd("`r")) $cl
+                    }
+                    if ($code -eq 0) {
+                        [System.Windows.MessageBox]::Show("Pulled through selected commit.", "Git Pull", "OK", "Information") | Out-Null
+                    } else {
+                        [System.Windows.MessageBox]::Show("Pull to selected commit failed with exit code $code.`nSee Log tab for details.", "Git Pull", "OK", "Warning") | Out-Null
+                    }
+                }
+            } catch {}
+            Finish-GitPullAction
+        }
+}
+
 function Invoke-GitPull {
     if ($script:IsBuilding -or $script:IsPushing) {
         [System.Windows.MessageBox]::Show("Wait for the current build or release to finish.", "Git Pull", "OK", "Information") | Out-Null
@@ -1994,17 +2129,51 @@ function Invoke-GitPull {
     $ui["BtnPull"].IsEnabled = $false
     $ui["BtnPush"].IsEnabled = $false
     $br = Get-GitCurrentBranch -GitExe $gitExe
-    Add-LogLine ">>> git pull (branch: $br)" "#0078A8"
+    Add-LogLine ">>> git fetch for selectable pull (branch: $br)" "#0078A8"
     Clear-StaleGitIndexLock $script:ProjectRoot
 
     Start-AsyncPoolAction `
         -Script {
             param($root, $gitExe)
             try {
-                $out = & $gitExe -C $root pull 2>&1
-                [PSCustomObject]@{ Code = $LASTEXITCODE; Out = @($out | ForEach-Object { "$_" }) }
+                $logs = New-Object System.Collections.ArrayList
+                $branch = (& $gitExe -C $root rev-parse --abbrev-ref HEAD 2>$null).Trim()
+                $upstream = (& $gitExe -C $root rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>$null)
+                if (-not $upstream) { $upstream = "origin/$branch" }
+                $upstream = $upstream.Trim()
+
+                $fetchOut = & $gitExe -C $root fetch origin $branch 2>&1
+                $fetchCode = $LASTEXITCODE
+                foreach ($line in $fetchOut) { [void]$logs.Add("$line") }
+                if ($fetchCode -ne 0) {
+                    return [PSCustomObject]@{ Code = $fetchCode; Out = @($logs); Branch = $branch; Upstream = $upstream; Commits = @() }
+                }
+
+                $raw = @(& $gitExe -C $root log --date=short --pretty=format:"%H%x09%h%x09%ad%x09%s" "HEAD..$upstream" 2>&1)
+                $logCode = $LASTEXITCODE
+                if ($logCode -ne 0) {
+                    foreach ($line in $raw) { [void]$logs.Add("$line") }
+                    return [PSCustomObject]@{ Code = $logCode; Out = @($logs); Branch = $branch; Upstream = $upstream; Commits = @() }
+                }
+
+                $commits = New-Object System.Collections.ArrayList
+                foreach ($line in $raw) {
+                    $parts = "$line" -split "`t", 4
+                    if ($parts.Count -ge 4) {
+                        $label = "{0}  {1}  {2}" -f $parts[1], $parts[2], $parts[3]
+                        [void]$commits.Add([PSCustomObject]@{
+                            Sha = $parts[0]
+                            Short = $parts[1]
+                            Date = $parts[2]
+                            Subject = $parts[3]
+                            Label = $label
+                        })
+                    }
+                }
+
+                [PSCustomObject]@{ Code = 0; Out = @($logs); Branch = $branch; Upstream = $upstream; Commits = @($commits) }
             } catch {
-                [PSCustomObject]@{ Code = -1; Out = @($_.Exception.Message) }
+                [PSCustomObject]@{ Code = -1; Out = @($_.Exception.Message); Branch = ""; Upstream = ""; Commits = @() }
             }
         } `
         -Arguments @($script:ProjectRoot, $gitExe) `
@@ -2018,19 +2187,19 @@ function Invoke-GitPull {
                         $cl = if ($code -ne 0) { "#B81818" } else { "#4A5868" }
                         Add-LogLine ("$line".TrimEnd("`r")) $cl
                     }
-                    if ($code -eq 0) {
-                        [System.Windows.MessageBox]::Show("Pull completed successfully.", "Git Pull", "OK", "Information") | Out-Null
+                    if ($code -eq 0 -and $r.Commits -and $r.Commits.Count -gt 0) {
+                        Add-LogLine ("remote commits available: " + $r.Commits.Count + " from " + $r.Upstream) "#44586C"
+                        $selected = Show-GitPullCommitDialog -Commits $r.Commits -Branch $r.Branch
+                        Start-GitPullMerge -GitExe $gitExe -Commit $selected
+                        return
+                    } elseif ($code -eq 0) {
+                        [System.Windows.MessageBox]::Show("Already up to date.", "Git Pull", "OK", "Information") | Out-Null
                     } else {
-                        [System.Windows.MessageBox]::Show("Pull finished with exit code $code.`nSee Log tab for details.", "Git Pull", "OK", "Warning") | Out-Null
+                        [System.Windows.MessageBox]::Show("Fetch failed with exit code $code.`nSee Log tab for details.", "Git Pull", "OK", "Warning") | Out-Null
                     }
                 }
             } catch {}
-            $script:GitActionBusy = $false
-            $script:GitActionLabel = ""
-            $ui["BtnPull"].IsEnabled = $true
-            $ui["BtnPush"].IsEnabled = $true
-            Refresh-VersionDisplay
-            Update-StatusBar
+            Finish-GitPullAction
         }
 }
 
@@ -2055,7 +2224,7 @@ function Invoke-GitPush {
     $br = Get-GitCurrentBranch -GitExe $gitExe
     Add-LogLine ">>> git commit + push (branch: $br)" "#0078A8"
 
-    Start-GitSyncBeforeBuild -CommitMessage "Tooling - c120: Commit Dev Window push sync" -ActionLabel "commit + push" -RequirePush $true -OnComplete {
+    Start-GitSyncBeforeBuild -CommitMessage "Tooling - c120: Sync live project state before push" -ActionLabel "commit + push" -RequirePush $true -OnComplete {
             param($ok)
             $script:GitActionBusy = $false
             $script:GitActionLabel = ""
@@ -2964,7 +3133,7 @@ function Start-Build {
     $script:CurrentBuildClean = $script:ForceCleanBuild
     $script:ForceCleanBuild = $false
 
-    Start-GitSyncBeforeBuild -CommitMessage "Tooling - c120: Commit pre-build Dev Window sync" -OnComplete {
+    Start-GitSyncBeforeBuild -CommitMessage "Tooling - c120: Sync live project state before build" -OnComplete {
         # Plain scriptblock (NO GetNewClosure) so $script: refs go to the main module.
         param($ok)
         # If the user hit Stop or closed the window during git sync, bail.
@@ -3010,6 +3179,7 @@ $script:CliCardsCache        = @()           # all active+backlog cards from kan
 $script:CliSelectedCardIds   = @()           # ids of selected cards (preserved across filter)
 $script:CliClaudeExe         = $null         # resolved on first use
 $script:CliCodexExe          = $null         # resolved on first use
+$script:CliPowerShellExe     = $null         # resolved on first use
 $script:CliPreallocatedRange = "c126-c130"   # default reservation hint for spawned sessions
 $script:CliBodyText          = ""            # c127 correction: the user's substance (body slot content)
 $script:CliWrapPrefix        = ""            # c127 correction: current wrap's prefix, for body extraction
@@ -3057,6 +3227,24 @@ function Get-CliCodexExe {
         if ($cmd) { $script:CliCodexExe = $cmd.Source; return $cmd.Source }
     } catch {}
     return $null
+}
+
+function Get-CliPowerShellExe {
+    if ($script:CliPowerShellExe) { return $script:CliPowerShellExe }
+    $candidates = @(
+        "C:\Program Files\PowerShell\7\pwsh.exe",
+        (Join-Path $env:ProgramFiles "PowerShell\7\pwsh.exe"),
+        (Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe")
+    )
+    foreach ($c in $candidates) {
+        if ($c -and (Test-Path -LiteralPath $c)) { $script:CliPowerShellExe = $c; return $c }
+    }
+    try {
+        $cmd = Get-Command "pwsh.exe" -ErrorAction SilentlyContinue
+        if (-not $cmd) { $cmd = Get-Command "powershell.exe" -ErrorAction SilentlyContinue }
+        if ($cmd) { $script:CliPowerShellExe = $cmd.Source; return $cmd.Source }
+    } catch {}
+    return "powershell.exe"
 }
 
 function Get-CliKanbanState {
@@ -3628,15 +3816,26 @@ function Invoke-CliLaunchCodexAdmin {
         return
     }
 
+    $psExe = Get-CliPowerShellExe
+    $safeHistory = Join-Path $env:TEMP "pd2-codex-admin-psreadline-history.txt"
+    $startupCommand = @(
+        "`$env:TERM = 'xterm-256color'",
+        "`$env:COLORTERM = 'truecolor'",
+        "try { Import-Module PSReadLine -ErrorAction SilentlyContinue; Set-PSReadLineOption -HistorySavePath `"$safeHistory`" -ErrorAction SilentlyContinue } catch {}",
+        "Set-Location -LiteralPath `"$script:ProjectRoot`"",
+        "& `"$codexExe`""
+    ) -join "; "
+    $encodedStartupCommand = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($startupCommand))
+
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = "cmd.exe"
-        $psi.Arguments = "/K cd /d `"" + $script:ProjectRoot + "`" && `"" + $codexExe + "`""
+        $psi.FileName = $psExe
+        $psi.Arguments = "-NoLogo -NoProfile -NoExit -ExecutionPolicy Bypass -EncodedCommand " + $encodedStartupCommand
         $psi.WorkingDirectory = $script:ProjectRoot
         $psi.UseShellExecute = $true
         $psi.Verb = "runas"
         [System.Diagnostics.Process]::Start($psi) | Out-Null
-        Add-LogSessionLine ">>> CLI launch: Codex admin console requested." "#0078A8"
+        Add-LogSessionLine ">>> CLI launch: Codex admin PowerShell console requested." "#0078A8"
     } catch {
         Add-LogLine ("CLI: failed to launch Codex admin console: " + $_.Exception.Message) "#B81818"
         [System.Windows.MessageBox]::Show(
@@ -3707,7 +3906,7 @@ function Start-PushRelease {
     $script:PendingReleaseIsStable = $isStable
     $script:PendingReleaseScript   = $releaseScript
 
-    Start-GitSyncBeforeBuild -CommitMessage "Tooling - c120: Commit pre-release Dev Window sync" -OnComplete {
+    Start-GitSyncBeforeBuild -CommitMessage "Tooling - c120: Sync live project state before release" -OnComplete {
         # Plain scriptblock (NO GetNewClosure) so $script: refs go to the main module.
         param($ok)
         # If the user hit Stop or closed the window during git sync, bail.

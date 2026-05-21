@@ -199,6 +199,23 @@ s32 inputGetConnectedControllers(s32 *out);
 // returns "Invalid" on failure
 const char *inputGetConnectedControllerName(s32 id);
 
+// writes array of up to INPUT_MAX_CONNECTED_CONTROLLERS input device IDs,
+// including SDL_GameController devices and raw joystick/custom devices
+s32 inputGetConnectedInputDevices(s32 *out);
+
+// connected input device metadata for Settings -> Input
+const char *inputGetConnectedInputDeviceName(s32 id);
+const char *inputGetConnectedInputDeviceStableKey(s32 id);
+s32 inputGetConnectedInputDeviceClass(s32 id);
+
+// Settings -> Input profile metadata, registered in pd.ini by input.c
+const char *inputProfilesGetNamesIni(void);
+void inputProfilesSetNamesIni(const char *str);
+s32 inputProfilesGetActive(void);
+void inputProfilesSetActive(s32 idx);
+const char *inputProfilesGetDeviceRulesIni(void);
+void inputProfilesSetDeviceRulesIni(const char *str);
+
 // get id of the controller currently assigned to player cidx or -1 if none
 s32 inputGetAssignedControllerId(s32 cidx);
 

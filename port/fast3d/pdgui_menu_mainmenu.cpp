@@ -20,6 +20,7 @@
 #include <SDL.h>
 #include <PR/ultratypes.h>
 #include <algorithm>
+#include <float.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -284,6 +285,16 @@ void inputControllerSetSticksSwapped(s32 cidx, s32 swapped);
 const char *inputGetKeyName(s32 vk);
 void inputClearLastKey(void);
 s32 inputGetLastKey(void);
+s32 inputGetConnectedInputDevices(s32 *out);
+const char *inputGetConnectedInputDeviceName(s32 id);
+const char *inputGetConnectedInputDeviceStableKey(s32 id);
+s32 inputGetConnectedInputDeviceClass(s32 id);
+const char *inputProfilesGetNamesIni(void);
+void inputProfilesSetNamesIni(const char *str);
+s32 inputProfilesGetActive(void);
+void inputProfilesSetActive(s32 idx);
+const char *inputProfilesGetDeviceRulesIni(void);
+void inputProfilesSetDeviceRulesIni(const char *str);
 
 extern s32 g_MenuMouseControl;
 
@@ -530,7 +541,7 @@ void menuStop(void);
 static bool s_RegisteredPc = false;
 static bool s_RegisteredPause = false;
 /* S306: Interface tab inserted between Video and Audio.
- * 0=Video, 1=Interface, 2=Audio, 3=Controls, 4=Game, 5=Updates,
+ * 0=Video, 1=Interface, 2=Audio, 3=Input, 4=Game, 5=Updates,
  * 6=Debug (PD_DEV_BUILD only), 6/7=Catalog. */
 static s32 s_SettingsSubTab = 0;
 static s32 s_PrevView = -1;     /* Previous menu view, for sound on switch */
@@ -1851,9 +1862,6 @@ static const ImcTabDesc s_ImcTabs[] = {
 };
 #define NUM_IMC_TABS (sizeof(s_ImcTabs) / sizeof(s_ImcTabs[0]))
 
-/* Active outer tab (persists across opens for the lifetime of the session). */
-static s32 s_ActiveImcTab = 0;
-
 /* Format a row's display name with optional hold-threshold suffix. The
  * SCORECARD_HOLD row reads its threshold live from
  * actionmapGetEffectiveHoldMs(); ACTION_USE shows the effective hold for
@@ -2135,13 +2143,13 @@ static const BindableAction *findRowByActionAndImc(InputAction action, InputMapp
 /* Sub-tab index within Controls: 0 = Keyboard & Mouse, 1 = Controller */
 static s32 s_ControlsSubTab = 0;
 
-/* Track whether we need to reload binds on Controls tab entry */
+/* Track whether we need to reload binds on Input tab entry */
 static bool s_ControlsNeedsInit = true;
 
 /* S306: optional search filter. Empty means "show all". Case-insensitive
  * substring match on the display name. */
 static char s_BindSearch[64] = "";
-/* Controls -> Controller -> per-action hold overrides table */
+/* Input -> hold overrides table */
 static char s_HoldOvFilter[64] = "";
 
 static bool stringIContains(const char *hay, const char *needle)
@@ -3165,9 +3173,408 @@ static void renderImcTabBody(float scale, const ImcTabDesc *tab)
     }
 }
 
-static void renderSettingsControls(float scale)
+#define INPUT_UI_MAX_PROFILES 6
+#define INPUT_UI_MAX_DEVICE_RULES 16
+#define INPUT_UI_MAX_CONNECTED_DEVICES 8
+
+struct InputUiDeviceRule {
+    char key[128];
+    char alias[64];
+    s32 profile;
+};
+
+static s32 s_InputSchemeIndex = 0;
+static s32 s_InputDeviceColumn = 1;
+static char s_InputProfileNames[INPUT_UI_MAX_PROFILES][32];
+static InputUiDeviceRule s_InputDeviceRules[INPUT_UI_MAX_DEVICE_RULES];
+static s32 s_InputDeviceRuleCount = 0;
+static bool s_InputProfileStateLoaded = false;
+static char s_InputStatus[128] = "";
+
+static void inputUiCopy(char *dst, size_t dstSize, const char *src)
 {
-    /* Load binds from pd.ini when entering the Controls tab so the UI reflects
+    if (!dst || dstSize == 0) {
+        return;
+    }
+    if (!src) {
+        src = "";
+    }
+    strncpy(dst, src, dstSize - 1);
+    dst[dstSize - 1] = '\0';
+}
+
+static void inputUiSanitizeField(char *str)
+{
+    if (!str) {
+        return;
+    }
+    for (char *p = str; *p; ++p) {
+        unsigned char ch = (unsigned char)*p;
+        if (ch < 0x20 || ch >= 0x7f || ch == '|' || ch == ';' || ch == '~' || ch == '=') {
+            *p = ' ';
+        }
+    }
+}
+
+static void inputUiAppend(char *dst, size_t dstSize, const char *src)
+{
+    if (!dst || dstSize == 0 || !src) {
+        return;
+    }
+    size_t len = strlen(dst);
+    if (len >= dstSize - 1) {
+        return;
+    }
+    strncat(dst, src, dstSize - len - 1);
+}
+
+static void inputUiSetDefaultProfiles(void)
+{
+    static const char *defaults[INPUT_UI_MAX_PROFILES] = {
+        "Default", "Shooter", "Accessibility", "HOTAS/HOSAS", "MKB", "Custom",
+    };
+    for (s32 i = 0; i < INPUT_UI_MAX_PROFILES; i++) {
+        inputUiCopy(s_InputProfileNames[i], sizeof(s_InputProfileNames[i]), defaults[i]);
+    }
+}
+
+static void inputUiProfilePath(s32 profile, char *out, size_t outSize)
+{
+    if (profile < 0) profile = 0;
+    if (profile >= INPUT_UI_MAX_PROFILES) profile = INPUT_UI_MAX_PROFILES - 1;
+    snprintf(out, outSize, "$S/input-profiles/profile%d.ini", (int)profile + 1);
+}
+
+static void inputUiProfileStateSave(void)
+{
+    char names[256] = "";
+    for (s32 i = 0; i < INPUT_UI_MAX_PROFILES; i++) {
+        inputUiSanitizeField(s_InputProfileNames[i]);
+        if (s_InputProfileNames[i][0] == '\0') {
+            snprintf(s_InputProfileNames[i], sizeof(s_InputProfileNames[i]), "Profile %d", (int)i + 1);
+        }
+        if (i > 0) inputUiAppend(names, sizeof(names), "|");
+        inputUiAppend(names, sizeof(names), s_InputProfileNames[i]);
+    }
+
+    char rules[1024] = "";
+    for (s32 i = 0; i < s_InputDeviceRuleCount; i++) {
+        InputUiDeviceRule *rule = &s_InputDeviceRules[i];
+        inputUiSanitizeField(rule->key);
+        inputUiSanitizeField(rule->alias);
+        if (rule->key[0] == '\0') {
+            continue;
+        }
+        if (rule->profile < 0) rule->profile = 0;
+        if (rule->profile >= INPUT_UI_MAX_PROFILES) rule->profile = INPUT_UI_MAX_PROFILES - 1;
+        char entry[240];
+        snprintf(entry, sizeof(entry), "%s%d~%s~%s",
+                 rules[0] ? ";" : "", (int)rule->profile, rule->alias, rule->key);
+        inputUiAppend(rules, sizeof(rules), entry);
+    }
+
+    inputProfilesSetNamesIni(names);
+    inputProfilesSetDeviceRulesIni(rules);
+    configSave("pd.ini");
+}
+
+static void inputUiProfileStateLoad(void)
+{
+    if (s_InputProfileStateLoaded) {
+        return;
+    }
+
+    inputUiSetDefaultProfiles();
+    s_InputDeviceRuleCount = 0;
+
+    char names[256];
+    inputUiCopy(names, sizeof(names), inputProfilesGetNamesIni());
+    char *tok = strtok(names, "|");
+    for (s32 i = 0; tok && i < INPUT_UI_MAX_PROFILES; i++) {
+        inputUiCopy(s_InputProfileNames[i], sizeof(s_InputProfileNames[i]), tok);
+        inputUiSanitizeField(s_InputProfileNames[i]);
+        tok = strtok(NULL, "|");
+    }
+
+    char rules[1024];
+    inputUiCopy(rules, sizeof(rules), inputProfilesGetDeviceRulesIni());
+    char *entry = strtok(rules, ";");
+    while (entry && s_InputDeviceRuleCount < INPUT_UI_MAX_DEVICE_RULES) {
+        char *alias = strchr(entry, '~');
+        if (alias) {
+            *alias++ = '\0';
+            char *key = strchr(alias, '~');
+            if (key) {
+                *key++ = '\0';
+                InputUiDeviceRule *rule = &s_InputDeviceRules[s_InputDeviceRuleCount++];
+                rule->profile = atoi(entry);
+                if (rule->profile < 0) rule->profile = 0;
+                if (rule->profile >= INPUT_UI_MAX_PROFILES) rule->profile = INPUT_UI_MAX_PROFILES - 1;
+                inputUiCopy(rule->alias, sizeof(rule->alias), alias);
+                inputUiCopy(rule->key, sizeof(rule->key), key);
+                inputUiSanitizeField(rule->alias);
+                inputUiSanitizeField(rule->key);
+            }
+        }
+        entry = strtok(NULL, ";");
+    }
+
+    s_InputProfileStateLoaded = true;
+}
+
+static InputUiDeviceRule *inputUiFindDeviceRule(const char *key, const char *defaultAlias, bool create)
+{
+    inputUiProfileStateLoad();
+    if (!key || !key[0]) {
+        return NULL;
+    }
+
+    for (s32 i = 0; i < s_InputDeviceRuleCount; i++) {
+        if (!strcmp(s_InputDeviceRules[i].key, key)) {
+            return &s_InputDeviceRules[i];
+        }
+    }
+
+    if (!create || s_InputDeviceRuleCount >= INPUT_UI_MAX_DEVICE_RULES) {
+        return NULL;
+    }
+
+    InputUiDeviceRule *rule = &s_InputDeviceRules[s_InputDeviceRuleCount++];
+    inputUiCopy(rule->key, sizeof(rule->key), key);
+    inputUiCopy(rule->alias, sizeof(rule->alias), defaultAlias && defaultAlias[0] ? defaultAlias : "Controller");
+    rule->profile = inputProfilesGetActive();
+    inputUiSanitizeField(rule->key);
+    inputUiSanitizeField(rule->alias);
+    inputUiProfileStateSave();
+    return rule;
+}
+
+static bool inputUiProfileCombo(const char *label, s32 *profile)
+{
+    inputUiProfileStateLoad();
+    if (!profile) {
+        return false;
+    }
+    if (*profile < 0) *profile = 0;
+    if (*profile >= INPUT_UI_MAX_PROFILES) *profile = INPUT_UI_MAX_PROFILES - 1;
+
+    bool changed = false;
+    if (ImGui::BeginCombo(label, s_InputProfileNames[*profile])) {
+        for (s32 i = 0; i < INPUT_UI_MAX_PROFILES; i++) {
+            bool selected = (*profile == i);
+            if (ImGui::Selectable(s_InputProfileNames[i], selected)) {
+                *profile = i;
+                changed = true;
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
+static void inputUiLoadProfile(s32 profile)
+{
+    if (profile < 0) profile = 0;
+    if (profile >= INPUT_UI_MAX_PROFILES) profile = INPUT_UI_MAX_PROFILES - 1;
+    char path[96];
+    inputUiProfilePath(profile, path, sizeof(path));
+    inputProfilesSetActive(profile);
+    if (actionmapLoadProfileFile(path)) {
+        actionmapSaveBinds();
+        configSave("pd.ini");
+        snprintf(s_InputStatus, sizeof(s_InputStatus), "Loaded %s", s_InputProfileNames[profile]);
+    } else {
+        snprintf(s_InputStatus, sizeof(s_InputStatus), "No saved bindings for %s", s_InputProfileNames[profile]);
+    }
+}
+
+static void inputUiSaveProfile(s32 profile)
+{
+    if (profile < 0) profile = 0;
+    if (profile >= INPUT_UI_MAX_PROFILES) profile = INPUT_UI_MAX_PROFILES - 1;
+    char path[96];
+    inputUiProfilePath(profile, path, sizeof(path));
+    if (actionmapSaveProfileFile(path)) {
+        snprintf(s_InputStatus, sizeof(s_InputStatus), "Saved %s", s_InputProfileNames[profile]);
+    } else {
+        snprintf(s_InputStatus, sizeof(s_InputStatus), "Could not save %s", s_InputProfileNames[profile]);
+    }
+}
+
+static void renderInputProfilesSection(void)
+{
+    inputUiProfileStateLoad();
+    ImGui::SeparatorText("Profiles");
+
+    s32 active = inputProfilesGetActive();
+    if (inputUiProfileCombo("Active Profile", &active)) {
+        inputProfilesSetActive(active);
+        inputUiProfileStateSave();
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Load")) {
+        inputUiLoadProfile(inputProfilesGetActive());
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Save")) {
+        inputUiSaveProfile(inputProfilesGetActive());
+    }
+
+    if (s_InputStatus[0]) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", s_InputStatus);
+    }
+
+    if (ImGui::BeginTable("##input_profile_names", 2,
+                          ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersInnerV)) {
+        for (s32 i = 0; i < INPUT_UI_MAX_PROFILES; i++) {
+            ImGui::TableNextColumn();
+            ImGui::PushID(i);
+            char label[32];
+            snprintf(label, sizeof(label), "Profile %d", (int)i + 1);
+            ImGui::TextUnformatted(label);
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::InputText("##name", s_InputProfileNames[i], sizeof(s_InputProfileNames[i]))) {
+                inputUiSanitizeField(s_InputProfileNames[i]);
+                inputUiProfileStateSave();
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+}
+
+static void renderInputDevicesSection(void)
+{
+    inputUiProfileStateLoad();
+    ImGui::SeparatorText("Devices");
+
+    s32 ids[INPUT_UI_MAX_CONNECTED_DEVICES];
+    s32 count = inputGetConnectedInputDevices(ids);
+    if (count <= 0) {
+        ImGui::TextDisabled("No controller devices connected.");
+        return;
+    }
+    if (count > INPUT_UI_MAX_CONNECTED_DEVICES) {
+        count = INPUT_UI_MAX_CONNECTED_DEVICES;
+    }
+
+    if (ImGui::BeginTable("##input_devices", 4,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Device", ImGuiTableColumnFlags_WidthStretch, 1.6f);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 1.3f);
+        ImGui::TableSetupColumn("Profile", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, pdguiScale(74.0f));
+        ImGui::TableHeadersRow();
+
+        for (s32 i = 0; i < count; i++) {
+            const char *displayName = inputGetConnectedInputDeviceName(ids[i]);
+            const char *stableKey = inputGetConnectedInputDeviceStableKey(ids[i]);
+            InputUiDeviceRule *rule = inputUiFindDeviceRule(stableKey, displayName, true);
+            const s32 deviceClass = inputGetConnectedInputDeviceClass(ids[i]);
+
+            ImGui::PushID(i);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(displayName);
+            ImGui::TextDisabled("%s", actionmapInputClassLabel(deviceClass));
+
+            ImGui::TableNextColumn();
+            if (rule) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::InputText("##alias", rule->alias, sizeof(rule->alias))) {
+                    inputUiSanitizeField(rule->alias);
+                    inputUiProfileStateSave();
+                }
+            } else {
+                ImGui::TextDisabled("Untracked");
+            }
+
+            ImGui::TableNextColumn();
+            if (rule) {
+                s32 profile = rule->profile;
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (inputUiProfileCombo("##profile", &profile)) {
+                    rule->profile = profile;
+                    inputUiProfileStateSave();
+                }
+            }
+
+            ImGui::TableNextColumn();
+            if (rule && ImGui::Button("Use", ImVec2(-FLT_MIN, 0.0f))) {
+                inputUiLoadProfile(rule->profile);
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+}
+
+static void inputUiCancelCapture(void)
+{
+    if (!s_CaptureActive) {
+        return;
+    }
+    s_CaptureActive = 0;
+    s_CaptureImc = NULL;
+    s_CaptureName = "";
+    inputClearLastKey();
+}
+
+static void renderInputBindingsSection(float scale)
+{
+    (void)scale;
+    inputUiProfileStateLoad();
+    ImGui::SeparatorText("Bindings");
+
+    if (s_InputSchemeIndex < 0 || s_InputSchemeIndex >= (s32)NUM_IMC_TABS) {
+        s_InputSchemeIndex = 0;
+    }
+    const ImcTabDesc *tab = &s_ImcTabs[s_InputSchemeIndex];
+
+    ImGui::SetNextItemWidth(pdguiScale(240.0f));
+    if (ImGui::BeginCombo("Scheme", tab->label)) {
+        for (s32 i = 0; i < (s32)NUM_IMC_TABS; i++) {
+            bool selected = (s_InputSchemeIndex == i);
+            if (ImGui::Selectable(s_ImcTabs[i].label, selected)) {
+                if (s_InputSchemeIndex != i) {
+                    inputUiCancelCapture();
+                }
+                s_InputSchemeIndex = i;
+                tab = &s_ImcTabs[s_InputSchemeIndex];
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::SameLine();
+    const char *deviceItems[] = { "Keyboard & Mouse", "Controller / Custom" };
+    ImGui::SetNextItemWidth(pdguiScale(210.0f));
+    s_ControlsSubTab = s_InputDeviceColumn;
+    s32 beforeDevice = s_InputDeviceColumn;
+    if (PdCombo("Input", &s_InputDeviceColumn, deviceItems, 2) && beforeDevice != s_InputDeviceColumn) {
+        inputUiCancelCapture();
+    }
+    s_ControlsSubTab = s_InputDeviceColumn;
+
+    ImGui::SameLine();
+    if (ImGui::Button("Reset Defaults")) {
+        resetTabDeviceToDefaults(tab, s_InputDeviceColumn);
+    }
+
+    renderBindTable(s_InputDeviceColumn, "##input_bind_table", tab->shownGroups);
+}
+
+static void renderSettingsInput(float scale)
+{
+    /* Load binds from pd.ini when entering the Input tab so the UI reflects
      * the current saved state (not stale in-memory mappings). */
     if (s_ControlsNeedsInit) {
         actionmapLoadBinds();
@@ -3176,43 +3583,16 @@ static void renderSettingsControls(float scale)
 
     /* Process any active key capture before rendering tabs so a captured key
      * commits into the right IMC even if the user's last action was switching
-     * outer tabs. */
+     * binding filters. */
     handleCaptureInput();
 
-    if (s_ActiveImcTab < 0 || s_ActiveImcTab >= (s32)NUM_IMC_TABS) {
-        s_ActiveImcTab = 0;
-    }
-
-    /* Outer tab bar -- one per IMC scene. LB / RB cycle these via the existing
-     * pdguiDriveImGuiNav() translation of ACTION_MENU_TAB_PREV / _NEXT. */
-    if (ImGui::BeginTabBar("##controls_imc_tabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
-        for (s32 ti = 0; ti < (s32)NUM_IMC_TABS; ti++) {
-            const ImcTabDesc *tab = &s_ImcTabs[ti];
-            if (ImGui::BeginTabItem(tab->label)) {
-                /* Cancel any in-flight capture when the active outer tab
-                 * changes -- the captured row no longer belongs to the
-                 * visible tab and writing it back would land in the wrong
-                 * IMC from the user's point of view. */
-                if (s_ActiveImcTab != ti && s_CaptureActive) {
-                    s_CaptureActive = 0;
-                    s_CaptureImc    = NULL;
-                    s_CaptureName   = "";
-                    inputClearLastKey();
-                }
-                s_ActiveImcTab = ti;
-                renderImcTabBody(scale, tab);
-                ImGui::EndTabItem();
-            }
-        }
-        ImGui::EndTabBar();
-    }
-
-    /* Global tuning sections live below the outer tab bar. They affect every
-     * IMC, so collapsing-header singletons keep them out of the per-tab flow
-     * but always reachable. */
+    renderInputProfilesSection();
     ImGui::Spacing();
-    ImGui::Separator();
+    renderInputDevicesSection();
     ImGui::Spacing();
+    renderInputBindingsSection(scale);
+    ImGui::Spacing();
+    ImGui::SeparatorText("Tuning");
     renderControlsGlobalMouse();
     renderControlsGlobalSticks();
     renderControlsGlobalHolds();
@@ -4666,13 +5046,13 @@ static void renderSettingsView(float scale, float contentH)
             ImGui::EndTabItem();
         }
 
-        if (ImGui::BeginTabItem("Controls", nullptr, selFlag3)) {
+        if (ImGui::BeginTabItem("Input", nullptr, selFlag3)) {
             s_SettingsSubTab = 3;
-            ImGui::BeginChild("##settings_scroll_c", ImVec2(0, 0),
+            ImGui::BeginChild("##settings_scroll_input", ImVec2(0, 0),
                               ImGuiChildFlags_NavFlattened);
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
             if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
-            renderSettingsControls(scale);
+            renderSettingsInput(scale);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
@@ -5983,7 +6363,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
          * not on every view switch.  Previously this fired on every change
          * (including the 0 -> 2 transition that ENTERS Settings), causing a
          * second actionmapLoadBinds() reload on the frame after Settings
-         * first rendered the Controls tab.  The initial load is already
+         * first rendered the Input tab.  The initial load is already
          * triggered by the default s_ControlsNeedsInit=true at static init
          * or by the leave-side flag below. */
         if (s_PrevView == 2 && s_MenuView != 2) {
@@ -5998,11 +6378,11 @@ static s32 renderMainMenu(struct menudialog *dialog,
     if (s_PrevSubTab >= 0 && s_PrevSubTab != s_SettingsSubTab) {
         pdguiPlaySound(PDGUI_SND_FOCUS);
         s_NeedsFocus = true;  /* focus first widget when tab changes */
-        /* S197a: re-init Controls binds only when LEAVING the Controls tab.
-         * (S306 shifted Controls from 2 → 3 when the Interface tab was
+        /* S197a: re-init Input binds only when LEAVING the Input tab.
+         * (S306 shifted the old Controls tab from 2 to 3 when the Interface tab was
          * inserted, so the guard now compares against the new index.)
          * Previously fired on both leave and enter, causing a redundant
-         * reload on the frame after the user clicked the Controls tab
+         * reload on the frame after the user clicked the Input tab
          * (the enter-frame already reloaded via the default/view-change
          * flag). */
         if (s_PrevSubTab == 3 && s_SettingsSubTab != 3) {

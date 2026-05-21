@@ -472,6 +472,34 @@ TEST_CASE("base first-person hand model files populate provider handles", "[cata
 	REQUIRE(bondgun.find("catalogHandleByModelSourceFilenum(ASSET_NONE, filenum)") != std::string::npos);
 }
 
+TEST_CASE("base menu hudpiece model has a catalog provider handle", "[catalog][provider][static]")
+{
+	const std::string baseExtended = readTextFile("port/src/assetcatalog_base_extended.c");
+	const std::string menu = readTextFile("src/game/menu.c");
+
+	REQUIRE(baseExtended.find("#include \"files.h\"") != std::string::npos);
+	REQUIRE(baseExtended.find("FILE_GHUDPIECE") != std::string::npos);
+	REQUIRE(baseExtended.find("base:menu_model_hudpiece_%04x") != std::string::npos);
+	REQUIRE(baseExtended.find("e->source_filenum = fnum") != std::string::npos);
+	REQUIRE(baseExtended.find("catalogBindPrimaryFromDiskOrRom(e, e->source_filenum)") != std::string::npos);
+	REQUIRE(baseExtended.find("weapon/menu-pipeline model files") != std::string::npos);
+	REQUIRE(menu.find("MENUMODELPARAMS_SET_FILENUM(FILE_GHUDPIECE)") != std::string::npos);
+}
+
+TEST_CASE("Combat Simulator random bot bodies only draw from MP-selectable bodies",
+	"[catalog][provider][combat-sim][static]")
+{
+	const std::string matchsetup = readTextFile("port/src/net/matchsetup.c");
+
+	const size_t collect = matchsetup.find("static void ms_collect_random_body");
+	const size_t mpIndexGuard = matchsetup.find("if (e->mp_index < 0) return;", collect);
+	const size_t append = matchsetup.find("ctx->ids[ctx->count++] = e->id;", collect);
+	REQUIRE(collect != std::string::npos);
+	REQUIRE(mpIndexGuard != std::string::npos);
+	REQUIRE(append != std::string::npos);
+	REQUIRE(mpIndexGuard < append);
+}
+
 TEST_CASE("texture audio and hud file fields populate provider handles", "[catalog][provider][static]")
 {
 	const std::string scanner = readTextFile("port/src/assetcatalog_scanner.c");

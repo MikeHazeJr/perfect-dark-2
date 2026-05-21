@@ -51,6 +51,7 @@ $ErrorActionPreference = "Stop"
 
 # Project root is one level up from devtools/
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot "project-state-sync.ps1")
 
 # Tracks whether Step 5 successfully published the release. Used by Step 6
 # (Dev-release prune) so a failed publish never triggers deletion of prior
@@ -244,13 +245,15 @@ if ($SkipBuild) {
 
     # Commit any pending changes so the release tag lands on a clean commit
     Write-Host "  [pre-release] Committing any pending changes..." -ForegroundColor Gray
+    Sync-ProjectMindState -ProjectRoot $ProjectRoot | Out-Null
     $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
     $statusOut = git -C $ProjectRoot status --porcelain 2>&1
     if ($statusOut) {
         git -C $ProjectRoot add -A 2>&1 | Out-Null
+        $commitBody = Get-ProjectStateCommitBody -ProjectRoot $ProjectRoot -ActionLabel "pre-release"
         if (Invoke-ReleaseCommit `
-                -Subject "Tooling - c120: Commit pre-release changes for v$Version" `
-                -Body (Get-ReleaseCommitBody -Version $Version -Stage "pre-release") `
+                -Subject "Tooling - c120: Sync live project state for release" `
+                -Body $commitBody `
                 -AllowNoVerifyFallback:$ForceCommitNoVerify) {
             Write-Host "  [pre-release] Committed pending changes." -ForegroundColor Green
         } else {
@@ -292,13 +295,15 @@ if ($SkipBuild) {
 
     # ---- Pre-build: commit + push so the release tag lands on a clean commit ----
     Write-Host "  [pre-build] Committing any pending changes before release build..." -ForegroundColor Gray
+    Sync-ProjectMindState -ProjectRoot $ProjectRoot | Out-Null
     $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
     $statusOut = git -C $ProjectRoot status --porcelain 2>&1
     if ($statusOut) {
         git -C $ProjectRoot add -A 2>&1 | Out-Null
+        $commitBody = Get-ProjectStateCommitBody -ProjectRoot $ProjectRoot -ActionLabel "pre-build release"
         if (Invoke-ReleaseCommit `
-                -Subject "Tooling - c120: Commit pre-build changes for v$Version" `
-                -Body (Get-ReleaseCommitBody -Version $Version -Stage "pre-build") `
+                -Subject "Tooling - c120: Sync live project state for release" `
+                -Body $commitBody `
                 -AllowNoVerifyFallback:$ForceCommitNoVerify) {
             Write-Host "  [pre-build] Committed pending changes." -ForegroundColor Green
         } else {
@@ -431,6 +436,9 @@ $hasClient  = $ClientExe  -ne ""
 $hasUpdater = $UpdaterExe -ne ""
 $hasData    = $DataSource -ne ""
 $hasNotes   = Test-Path $ReleaseNotes
+if ($hasNotes -and (Test-ReleaseNotesLookStale -Path (Join-Path $ProjectRoot $ReleaseNotes))) {
+    Write-Host "  Release notes look stale. Update UNRELEASED.md before publishing if this is a real release." -ForegroundColor Yellow
+}
 
 if ($hasGh) {
     $ghPath = $(if ($ghCmd -is [string]) { $ghCmd } else { $ghCmd.Source })
@@ -815,13 +823,15 @@ if ($SkipPush -or $DryRun) {
     Write-Host "  Pushing branch '$currentBranch' ..." -ForegroundColor Gray
 
     # Index must be clean for `git pull --rebase` (staged-but-uncommitted breaks rebase).
+    Sync-ProjectMindState -ProjectRoot $ProjectRoot | Out-Null
     git add -A 2>&1 | Out-Null
     git diff --cached --quiet 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  Committing staged changes before pull --rebase..." -ForegroundColor Gray
+        $commitBody = Get-ProjectStateCommitBody -ProjectRoot $ProjectRoot -ActionLabel "release rebase"
         $okCommit = Invoke-ReleaseCommit `
-            -Subject "Tooling - c120: Commit release rebase changes for v$Version" `
-            -Body (Get-ReleaseCommitBody -Version $Version -Stage "release rebase") `
+            -Subject "Tooling - c120: Sync live project state for release" `
+            -Body $commitBody `
             -AllowNoVerifyFallback:$ForceCommitNoVerify
         if (-not $okCommit) {
             Write-Host "  ERROR: git commit failed before pull --rebase. Fix hooks or repo state, or use -ForceCommitNoVerify." -ForegroundColor Red

@@ -559,6 +559,11 @@ void actionmapLoadBinds(void);
  *  Call before configSave(). */
 void actionmapSaveBinds(void);
 
+/** Save/load a complete player-0 binding profile to a caller-owned relative path.
+ *  Settings -> Input uses `$S/input-profiles/profileN.ini` slots. */
+s32 actionmapSaveProfileFile(const char *relpath);
+s32 actionmapLoadProfileFile(const char *relpath);
+
 /* ============================================================
  * Cheat code buffer
  * ============================================================ */

@@ -2,14 +2,13 @@
  * loader_walker_anim.c -- Catalog universality pivot Step 4 + 5
  * (2026-05-03).
  *
- * Walks animation .pdanim files. The .pdanim kind is dual-shape
+ * Walks animation .pdanim files. The .pdanim kind is a ZIP compound
  * per Section 2.6:
- *   - weapon_animation: plain JSON file with gunscript opcodes (Step 5
- *     also feeds loader_pool's guncmd table via loaderPoolParseAnimationJson).
- *   - character_animation: ZIP compound (manifest.json + header.tsv /
- *     frames.tsv); the catalog row carries enough envelope info for
- *     consumers; no pool payload (chr animation byte streams live in
- *     romextract segments).
+ *   - weapon_animation: manifest.json carries gunscript opcodes for
+ *     loaderPoolParseAnimationJson; opcodes.json is the editable source.
+ *   - character_animation: manifest.json + header.tsv / frames.tsv;
+ *     the catalog row carries enough envelope info for consumers; no
+ *     pool payload (chr animation byte streams live in romextract segments).
  *
  * The walker scaffold auto-detects the container by 2-byte file magic so
  * both shapes resolve to a manifest envelope through the same callback.

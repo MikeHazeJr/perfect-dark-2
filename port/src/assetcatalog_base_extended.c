@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include "types.h"
 #include "constants.h"
+#include "files.h"
 #include "assetcatalog.h"
 #include "fs.h"          /* Phase 3 Pass B: fsFullPath probe of extracted file */
 #include "romextract.h"  /* Phase 3 Pass B: romExtractRelPathForFilenum */
@@ -968,6 +969,9 @@ s32 assetCatalogRegisterBaseGameExtended(void)
  *                       g_CartFileNums[] (FILE_GCARTRIDGE / FILE_GCARTRIFLE
  *                       / FILE_GCARTBLUE / FILE_GCARTSHELL).
  *                       Covered by this function's cartridge loop.
+ *   4. MENU HUDPIECE -- menuInit() seeds g_MenuData.hudpiece.newparams with
+ *                       FILE_GHUDPIECE, then menuRenderModel loads that raw
+ *                       filenum through catalogHandleByModelSourceFilenum.
  *
  * Pre-S484 F4 the bgun load went through assetLoadRomToAddr(filenum, ...)
  * directly. The F4 refactor (commit ecc9d880) routed the load through
@@ -1120,8 +1124,40 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 		}
 	}
 
+	/* ---- menu HUD piece model ----
+	 * The options/menu projection model is a raw filenum, not a g_ModelStates
+	 * MODEL_* entry. Register it here so the menu path stays catalog/provider
+	 * backed instead of warning and bypassing the typed asset graph. */
+	{
+		const s32 fnum = (s32)FILE_GHUDPIECE;
+		asset_data_handle_t existing =
+			catalogHandleBySourceFilenum(ASSET_MODEL, fnum);
+		if (!assetHandleIsNull(existing)) {
+			skipped_dup++;
+		} else {
+			snprintf(idbuf, sizeof(idbuf),
+				"base:menu_model_hudpiece_%04x", (u32)fnum);
+			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
+			if (!e) {
+				sysLogPrintf(LOG_ERROR,
+					"assetcatalog: failed to register menu model %s",
+					idbuf);
+			} else {
+				strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+				e->bundled = 1;
+				e->enabled = 1;
+				e->runtime_index = -(100000 + fnum);
+				e->source_filenum = fnum;
+				catalogBindPrimaryFromDiskOrRom(e, fnum);
+				e->load_state = ASSET_STATE_LOADED;
+				e->ref_count = ASSET_REF_BUNDLED;
+				registered++;
+			}
+		}
+	}
+
 	sysLogPrintf(LOG_NOTE,
-		"assetcatalog: registered %d weapon-pipeline model files (ASSET_MODEL); "
+		"assetcatalog: registered %d weapon/menu-pipeline model files (ASSET_MODEL); "
 		"skipped %d already-registered, %d zero filenums",
 		registered, skipped_dup, skipped_zero);
 	return registered;

@@ -33,6 +33,7 @@
 #include "fs.h"
 #include "system.h"
 #include "modmgr.h"
+#include "net/netmanifest.h"
 #include "mpsetups.h"
 #include "assetcatalog.h"
 #include "catalog_mgr_heads.h"  /* Catalog Gate 3 F6: random-gender pool helpers */
@@ -552,6 +553,17 @@ void mpStartMatch(void)
 
 	sysLogPrintf(LOG_NOTE, "PARTICIPANTS: %d active (%d players, %d bots)",
 		mpGetActiveParticipantCount(), mpGetActivePlayerCount(), mpGetActiveBotCount());
+
+	if (g_NetMode == NETMODE_NONE) {
+		manifestBuildForHost(&g_ClientManifest);
+		sysLogPrintf(LOG_NOTE,
+			"MATCH: local MP manifest prepared entries=%d hash=0x%08x",
+			(int)g_ClientManifest.num_entries,
+			(unsigned)g_ClientManifest.manifest_hash);
+	}
+
+	g_Vars.mplayerisrunning = true;
+	g_Vars.normmplayerisrunning = true;
 
 	titleSetNextStage(stagenum);
 	mainChangeToStage(stagenum);

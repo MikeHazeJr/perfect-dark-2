@@ -860,7 +860,7 @@ void manifestBuildForHost(match_manifest_t *out)
      * is automatic via manifestAddEntry. */
     s_manifestAppendWeaponPool(out);
 
-    /* ---- Host player (slot 0) ---- */
+    /* ---- Host/local players ---- */
     slot_index = 0;
     if (g_NetLocalClient) {
         const asset_entry_t *be = assetCatalogResolve(g_NetLocalClient->settings.body_id);
@@ -876,6 +876,30 @@ void manifestBuildForHost(match_manifest_t *out)
             }
         }
         slot_index = 1;
+    } else {
+        /* Offline Combat Simulator has no net-local client, but the
+         * match config is still the source of truth for local players.
+         * Include those player body/head assets so local matches use the
+         * same predeclared MP manifest path as hosted matches. */
+        for (i = 0; i < (s32)g_MatchConfig.numSlots && slot_index < 0xFF; i++) {
+            const struct matchslot *sl = &g_MatchConfig.slots[i];
+            if (sl->type != SLOT_PLAYER) {
+                continue;
+            }
+            {
+                const asset_entry_t *be = sl->body_id[0] ? assetCatalogResolve(sl->body_id) : NULL;
+                const asset_entry_t *he = sl->head_id[0] ? assetCatalogResolve(sl->head_id) : NULL;
+                if (be) {
+                    manifestAddEntry(out, be->id, MANIFEST_TYPE_BODY, slot_index);
+                    s_manifestExpandDeps(out, be->id, slot_index);
+                }
+                if (he) {
+                    manifestAddEntry(out, he->id, MANIFEST_TYPE_HEAD, slot_index);
+                    s_manifestExpandDeps(out, he->id, slot_index);
+                }
+            }
+            slot_index++;
+        }
     }
 
     /* ---- Bots from g_MatchConfig ---- */

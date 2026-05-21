@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include <stdint.h>
 #include "constants.h"
 #include "memsizes.h"
 #include "system.h"
@@ -1910,24 +1911,127 @@ char *botGetCommandName(s32 command)
 	return langGet(names[command]);
 }
 
+static bool botPropPtrInLivePool(struct prop *prop)
+{
+	if (!prop || !g_Vars.props || g_Vars.maxprops <= 0) {
+		return false;
+	}
+
+	const uintptr_t propsbase = (uintptr_t)g_Vars.props;
+	const uintptr_t propsend = propsbase + (uintptr_t)(sizeof(struct prop) * g_Vars.maxprops);
+	const uintptr_t propaddr = (uintptr_t)prop;
+
+	return propaddr >= propsbase && propaddr < propsend;
+}
+
+static struct prop *botLiveChrPropFromPropnum(s32 propnum)
+{
+	if (!g_Vars.props || propnum < 0 || propnum >= g_Vars.maxprops) {
+		return NULL;
+	}
+
+	struct prop *prop = &g_Vars.props[propnum];
+
+	if ((prop->type != PROPTYPE_CHR && prop->type != PROPTYPE_PLAYER)
+			|| !prop->chr || prop->chr->prop != prop) {
+		return NULL;
+	}
+
+	return prop;
+}
+
+static struct chrdata *botLiveChrFromPropnum(s32 propnum)
+{
+	struct prop *prop = botLiveChrPropFromPropnum(propnum);
+	return prop ? prop->chr : NULL;
+}
+
+static s32 botLiveMpIndexFromPropnum(s32 propnum)
+{
+	struct chrdata *chr = botLiveChrFromPropnum(propnum);
+	s32 index = mpPlayerGetIndex(chr);
+
+	if (index < 0 || index >= g_MpNumChrs) {
+		return -1;
+	}
+
+	return index;
+}
+
+static s32 botLiveChrPropnum(struct prop *prop)
+{
+	if (!botPropPtrInLivePool(prop)) {
+		return -1;
+	}
+
+	s32 propnum = (s32)(prop - g_Vars.props);
+	return botLiveChrPropFromPropnum(propnum) ? propnum : -1;
+}
+
+static void botClearStaleHumanCommand(struct aibot *aibot)
+{
+	if (!aibot) {
+		return;
+	}
+
+	aibot->command = AIBOTCMD_NORMAL;
+	aibot->attackpropnum = -1;
+	aibot->followprotectpropnum = -1;
+	aibot->followingplayernum = -1;
+	aibot->forcemainloop = true;
+}
+
 void botApplyAttack(struct chrdata *chr, struct prop *prop)
 {
+	if (!chr || !chr->aibot) {
+		return;
+	}
+
+	s32 propnum = botLiveChrPropnum(prop);
+
+	if (propnum < 0) {
+		botClearStaleHumanCommand(chr->aibot);
+		return;
+	}
+
 	chr->aibot->command = AIBOTCMD_ATTACK;
-	chr->aibot->attackpropnum = prop - g_Vars.props;
+	chr->aibot->attackpropnum = propnum;
 	chr->aibot->forcemainloop = true;
 }
 
 void botApplyFollow(struct chrdata *chr, struct prop *prop)
 {
+	if (!chr || !chr->aibot) {
+		return;
+	}
+
+	s32 propnum = botLiveChrPropnum(prop);
+
+	if (propnum < 0) {
+		botClearStaleHumanCommand(chr->aibot);
+		return;
+	}
+
 	chr->aibot->command = AIBOTCMD_FOLLOW;
-	chr->aibot->followprotectpropnum = prop - g_Vars.props;
+	chr->aibot->followprotectpropnum = propnum;
 	chr->aibot->forcemainloop = true;
 }
 
 void botApplyProtect(struct chrdata *chr, struct prop *prop)
 {
+	if (!chr || !chr->aibot) {
+		return;
+	}
+
+	s32 propnum = botLiveChrPropnum(prop);
+
+	if (propnum < 0) {
+		botClearStaleHumanCommand(chr->aibot);
+		return;
+	}
+
 	chr->aibot->command = AIBOTCMD_PROTECT;
-	chr->aibot->followprotectpropnum = prop - g_Vars.props;
+	chr->aibot->followprotectpropnum = propnum;
 	chr->aibot->forcemainloop = true;
 }
 
@@ -2013,13 +2117,19 @@ void botDisarm(struct chrdata *chr, struct prop *attackerprop)
 void botSetTarget(struct chrdata *botchr, s32 propnum)
 {
 	struct chrdata *otherchr = NULL;
-	s32 index;
+	s32 index = -1;
 
 	if (propnum >= 0) {
-		otherchr = (g_Vars.props + propnum)->chr;
-
+		otherchr = botLiveChrFromPropnum(propnum);
 		index = mpPlayerGetIndex(otherchr);
 
+		if (index < 0 || index >= g_MpNumChrs) {
+			propnum = -1;
+			otherchr = NULL;
+		}
+	}
+
+	if (propnum >= 0) {
 		botchr->aibot->targetinsight = botchr->aibot->chrsinsight[index];
 		botchr->aibot->targetlastseen60 = botchr->aibot->chrslastseen60[index];
 	} else {
@@ -2324,26 +2434,30 @@ void botChooseGeneralTarget(struct chrdata *botchr)
 
 	// Check if existing target needs to be invalidated
 	if (botchr->target != -1) {
-		struct prop *targetprop = chrGetTargetProp(botchr);
+		struct prop *targetprop = botLiveChrPropFromPropnum(botchr->target);
 
-		if (chrIsDead(targetprop->chr)) {
+		if (!targetprop) {
 			botchr->target = -1;
-		}
+		} else {
+			if (chrIsDead(targetprop->chr)) {
+				botchr->target = -1;
+			}
 
-		if (!botchr->aibot->targetinsight && botIsTargetInvisible(botchr, targetprop->chr)) {
-			botchr->target = -1;
-		}
+			if (!botchr->aibot->targetinsight && botIsTargetInvisible(botchr, targetprop->chr)) {
+				botchr->target = -1;
+			}
 
-		if (chrCompareTeams(botchr, targetprop->chr, COMPARE_FRIENDS)) {
-			botchr->target = -1;
-		}
+			if (chrCompareTeams(botchr, targetprop->chr, COMPARE_FRIENDS)) {
+				botchr->target = -1;
+			}
 
-		if (!botPassesPeaceCheck(botchr, targetprop->chr)) {
-			botchr->target = -1;
-		}
+			if (!botPassesPeaceCheck(botchr, targetprop->chr)) {
+				botchr->target = -1;
+			}
 
-		if (!botchr->aibot->targetinsight && !botPassesCowardCheck(botchr, targetprop->chr)) {
-			botchr->target = -1;
+			if (!botchr->aibot->targetinsight && !botPassesCowardCheck(botchr, targetprop->chr)) {
+				botchr->target = -1;
+			}
 		}
 	}
 
@@ -2398,7 +2512,12 @@ void botChooseGeneralTarget(struct chrdata *botchr)
 
 	// Bot has an existing target
 	// If they're still in sight, keep the target
-	playernum = mpPlayerGetIndex((g_Vars.props + botchr->target)->chr);
+	playernum = botLiveMpIndexFromPropnum(botchr->target);
+
+	if (playernum < 0) {
+		botSetTarget(botchr, -1);
+		return;
+	}
 
 	if (aibot->chrsinsight[playernum]) {
 		botSetTarget(botchr, botchr->target);
@@ -3265,11 +3384,9 @@ static bool botJumpDecide(struct chrdata *chr, s32 *out_reason, f32 *out_dy)
 	}
 
 	if (chr->aibot->attackpropnum >= 0) {
-		/* attackpropnum indexes g_Vars.props directly (see bot.c:1160
-		 * canonical pattern). */
-		struct prop *tprop = &g_Vars.props[chr->aibot->attackpropnum];
-		if (tprop && tprop->chr) {
-			const f32 dy = tprop->chr->manground - chr->manground;
+		struct chrdata *targetchr = botLiveChrFromPropnum(chr->aibot->attackpropnum);
+		if (targetchr) {
+			const f32 dy = targetchr->manground - chr->manground;
 			/* Sanity gate (Mike 2026-05-17): swarm bench bots have
 			 * chr->manground set to a -1e30 sentinel until the chr
 			 * tick reads ground; dy = target_y - sentinel yields ~1e30
@@ -3621,7 +3738,7 @@ void botTickUnpaused(struct chrdata *chr)
 			if (aibot->config->type == BOTTYPE_KAZE && chr->target != -1 && aibot->targetinsight) {
 				newaction = MA_AIBOTATTACK;
 				{
-					struct prop *kazetarget = chrGetTargetProp(chr);
+					struct prop *kazetarget = botLiveChrPropFromPropnum(chr->target);
 					aibot->attackingplayernum = (kazetarget != NULL && kazetarget->chr != NULL) ? mpPlayerGetIndex(kazetarget->chr) : -1;
 				}
 				aibot->abortattacktimer60 = -1;
@@ -3641,27 +3758,47 @@ void botTickUnpaused(struct chrdata *chr)
 				if (aibot->command == AIBOTCMD_ATTACK) {
 					// Attack the prop (player) given in attackpropnum
 					// This is a human command only
-					struct chrdata *targetchr = (g_Vars.props + aibot->attackpropnum)->chr;
+					struct chrdata *targetchr = botLiveChrFromPropnum(aibot->attackpropnum);
 
-					if (!chrIsDead(targetchr)
+					if (!targetchr) {
+						botClearStaleHumanCommand(aibot);
+					} else if (!chrIsDead(targetchr)
 							&& !botIsTargetInvisible(chr, targetchr)
 							&& botPassesCowardCheck(chr, targetchr)) {
-						newaction = MA_AIBOTATTACK;
-						aibot->attackingplayernum = mpPlayerGetIndex(targetchr);
-						aibot->abortattacktimer60 = -1;
+						s32 targetindex = mpPlayerGetIndex(targetchr);
+
+						if (targetindex >= 0 && targetindex < g_MpNumChrs) {
+							newaction = MA_AIBOTATTACK;
+							aibot->attackingplayernum = targetindex;
+							aibot->abortattacktimer60 = -1;
+						} else {
+							botClearStaleHumanCommand(aibot);
+						}
 					}
 				} else if (aibot->command == AIBOTCMD_FOLLOW) {
 					// Follow the prop (player) given in followprotectpropnum
 					// This is a human command only
-					newaction = MA_AIBOTFOLLOW;
-					aibot->canbreakfollow = true;
-					aibot->followingplayernum = mpPlayerGetIndex((g_Vars.props + aibot->followprotectpropnum)->chr);
+					s32 followindex = botLiveMpIndexFromPropnum(aibot->followprotectpropnum);
+
+					if (followindex >= 0) {
+						newaction = MA_AIBOTFOLLOW;
+						aibot->canbreakfollow = true;
+						aibot->followingplayernum = followindex;
+					} else {
+						botClearStaleHumanCommand(aibot);
+					}
 				} else if (aibot->command == AIBOTCMD_PROTECT) {
 					// Protect the prop (player) given in followprotectpropnum
 					// This is a human command only
-					newaction = MA_AIBOTFOLLOW;
-					aibot->canbreakfollow = false;
-					aibot->followingplayernum = mpPlayerGetIndex((g_Vars.props + aibot->followprotectpropnum)->chr);
+					s32 followindex = botLiveMpIndexFromPropnum(aibot->followprotectpropnum);
+
+					if (followindex >= 0) {
+						newaction = MA_AIBOTFOLLOW;
+						aibot->canbreakfollow = false;
+						aibot->followingplayernum = followindex;
+					} else {
+						botClearStaleHumanCommand(aibot);
+					}
 				} else if (aibot->command == AIBOTCMD_DEFEND) {
 					// Defend the position given in defendholdpos
 					// This is a human command only

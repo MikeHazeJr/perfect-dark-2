@@ -1983,6 +1983,7 @@ TEST_CASE("base non-weapon zip emitters include root editable descriptors",
 	};
 	const DescriptorEmitter emitters[] = {
 		{ "port/src/romextract_pdmesh.c", "model.ini" },
+		{ "port/src/romextract_pdanim.c", "animation.ini" },
 		{ "port/src/romextract_pdanim_chr.c", "animation.ini" },
 		{ "port/src/romextract_pdsfx.c", "sound.ini" },
 		{ "port/src/romextract_pdsfx.c", "voice.ini" },
@@ -2144,6 +2145,27 @@ TEST_CASE("base character animation extractor emits editable tsv payloads",
 	        std::string::npos);
 }
 
+TEST_CASE("base weapon animation extractor emits zip-openable opcode payloads",
+          "[modding][pdxxx][base][static][c3812]") {
+	const std::string anim = readFile("port/src/romextract_pdanim.c");
+	REQUIRE(!anim.empty());
+
+	REQUIRE(anim.find("s_existingArchiveHasAnimPayloads") !=
+	        std::string::npos);
+	REQUIRE(anim.find("modArchiveBegin(full)") != std::string::npos);
+	REQUIRE(anim.find("modArchiveAddFileMem(aw, \"animation.ini\"") !=
+	        std::string::npos);
+	REQUIRE(anim.find("modArchiveAddFileMem(aw, \"manifest.json\"") !=
+	        std::string::npos);
+	REQUIRE(anim.find("modArchiveAddFileMem(aw, \"opcodes.json\"") !=
+	        std::string::npos);
+	REQUIRE(anim.find("category = weapon_animation") != std::string::npos);
+	REQUIRE(anim.find("\\\"category\\\": \\\"weapon_animation\\\"") !=
+	        std::string::npos);
+	REQUIRE(anim.find("fsFileOpenWrite(relpath)") == std::string::npos);
+	REQUIRE(anim.find("emits one JSON") == std::string::npos);
+}
+
 TEST_CASE("base mesh extractor emits standard obj geometry payloads",
           "[modding][pdxxx][base][static][c3812]") {
 	const std::string mesh = readFile("port/src/romextract_pdmesh.c");
@@ -2164,9 +2186,21 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("modelPromoteTypeToPointer") != std::string::npos);
 	REQUIRE(mesh.find("modelPromoteOffsetsToPointers") != std::string::npos);
 	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_MODEL_VMA") != std::string::npos);
+	REQUIRE(mesh.find("rawaddr &= ~(uintptr_t)1") != std::string::npos);
+	REQUIRE(mesh.find("uintptr_t src = ((uintptr_t)w1) & ~(uintptr_t)1") !=
+	        std::string::npos);
 	REQUIRE(mesh.find("G_VTX") != std::string::npos);
+	REQUIRE(mesh.find("(w0 & 0xffffu) / sizeof(Vtx)") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("(w0 >> 16) & 0xf") != std::string::npos);
+	REQUIRE(mesh.find("seg == SPSEGMENT_MODEL_VTX") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("((w0 >> 4) & 0xf) + 1") == std::string::npos);
 	REQUIRE(mesh.find("G_TRI1") != std::string::npos);
 	REQUIRE(mesh.find("G_TRI4") != std::string::npos);
+	REQUIRE(mesh.find("(w1 >> 0)  & 0xf") != std::string::npos);
+	REQUIRE(mesh.find("(w0 >> 12) & 0xf") != std::string::npos);
+	REQUIRE(mesh.find("gdl[cmdidx].tri4") == std::string::npos);
 	REQUIRE(mesh.find("model.obj") != std::string::npos);
 	REQUIRE(mesh.find("model.mtl") != std::string::npos);
 	REQUIRE(mesh.find("source_format = PD_MODELDEF") != std::string::npos);
@@ -2192,4 +2226,7 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	        std::string::npos);
 	REQUIRE(mesh.find("s_buildModelObj((const u8 *)src_bytes") ==
 	        std::string::npos);
+	REQUIRE(mesh.find("OBJ export produced no triangles") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("return -1;") != std::string::npos);
 }

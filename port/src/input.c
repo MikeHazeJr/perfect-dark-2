@@ -86,6 +86,14 @@ static s32 numJoysticks = 0;
 static s32 useHIDAPI = 1;
 static s32 useRawInput = 1;
 
+#define INPUT_PROFILE_NAMES_STR_MAX 256
+#define INPUT_DEVICE_PROFILES_STR_MAX 1024
+
+static char inputProfileNamesIni[INPUT_PROFILE_NAMES_STR_MAX] =
+	"Default|Shooter|Accessibility|HOTAS/HOSAS|MKB|Custom";
+static char inputDeviceProfilesIni[INPUT_DEVICE_PROFILES_STR_MAX] = "";
+static s32 inputActiveProfile = 0;
+
 static s32 mouseEnabled = 1;
 static s32 mouseX, mouseY;
 static s32 mouseDX, mouseDY;
@@ -1091,6 +1099,189 @@ const char *inputGetConnectedControllerName(s32 id)
 	return fullName;
 }
 
+static void inputSanitizeInputDeviceString(char *str)
+{
+	if (!str) {
+		return;
+	}
+
+	for (char *p = str; *p; ++p) {
+		unsigned char ch = (unsigned char)*p;
+		if (ch < 0x20 || ch >= 0x7f || ch == '|' || ch == ';' || ch == '=') {
+			*p = ' ';
+		}
+	}
+}
+
+static void inputSanitizeConfigString(char *str)
+{
+	if (!str) {
+		return;
+	}
+
+	for (char *p = str; *p; ++p) {
+		unsigned char ch = (unsigned char)*p;
+		if (ch < 0x20 || ch >= 0x7f) {
+			*p = ' ';
+		}
+	}
+}
+
+static const char *inputDeviceDisplayNameForIndex(s32 jidx)
+{
+	const char *name = NULL;
+
+	if (jidx >= 0 && jidx < numJoysticks) {
+		if (SDL_IsGameController(jidx)) {
+			name = SDL_GameControllerNameForIndex(jidx);
+		}
+		if (!name || !name[0]) {
+			name = SDL_JoystickNameForIndex(jidx);
+		}
+	}
+
+	if (!name || !name[0]) {
+		name = "Unnamed Input Device";
+	}
+
+	return name;
+}
+
+s32 inputGetConnectedInputDevices(s32 *out)
+{
+	s32 count = 0;
+
+	for (s32 jidx = 0; jidx < numJoysticks; ++jidx) {
+		if (out && count < INPUT_MAX_CONNECTED_CONTROLLERS) {
+			out[count] = SDL_JoystickGetDeviceInstanceID(jidx);
+		}
+		++count;
+	}
+
+	return count;
+}
+
+const char *inputGetConnectedInputDeviceName(s32 id)
+{
+	static char fullName[256];
+
+	if (id < 0) {
+		return "Invalid";
+	}
+
+	const s32 jidx = inputDeviceIndexFromId((SDL_JoystickID)id);
+	if (jidx < 0) {
+		return "Invalid";
+	}
+
+	snprintf(fullName, sizeof(fullName), "%d: %s", jidx, inputDeviceDisplayNameForIndex(jidx));
+	inputSanitizeInputDeviceString(fullName);
+	return fullName;
+}
+
+const char *inputGetConnectedInputDeviceStableKey(s32 id)
+{
+	static char key[256];
+	char guid[64] = { 0 };
+
+	if (id < 0) {
+		return "invalid";
+	}
+
+	const s32 jidx = inputDeviceIndexFromId((SDL_JoystickID)id);
+	if (jidx < 0) {
+		return "invalid";
+	}
+
+	SDL_JoystickGUID deviceGuid = SDL_JoystickGetDeviceGUID(jidx);
+	SDL_JoystickGetGUIDString(deviceGuid, guid, sizeof(guid));
+	snprintf(key, sizeof(key), "%s|%s", guid, inputDeviceDisplayNameForIndex(jidx));
+	inputSanitizeInputDeviceString(key);
+	return key;
+}
+
+s32 inputGetConnectedInputDeviceClass(s32 id)
+{
+	if (id < 0) {
+		return ACTIONMAP_INPUT_CLASS_CUSTOM;
+	}
+
+	const s32 jidx = inputDeviceIndexFromId((SDL_JoystickID)id);
+	if (jidx < 0) {
+		return ACTIONMAP_INPUT_CLASS_CUSTOM;
+	}
+
+	const s32 isGameController = SDL_IsGameController(jidx) ? 1 : 0;
+	s32 axes = 0;
+	s32 buttons = 0;
+	s32 hats = 0;
+	SDL_Joystick *joy = SDL_JoystickFromInstanceID((SDL_JoystickID)id);
+
+	if (!joy) {
+		SDL_GameController *ctrl = SDL_GameControllerFromInstanceID((SDL_JoystickID)id);
+		if (ctrl) {
+			joy = SDL_GameControllerGetJoystick(ctrl);
+		}
+	}
+
+	if (joy) {
+		axes = SDL_JoystickNumAxes(joy);
+		buttons = SDL_JoystickNumButtons(joy);
+		hats = SDL_JoystickNumHats(joy);
+	}
+
+	return actionmapClassifyDeviceName(inputDeviceDisplayNameForIndex(jidx),
+		isGameController, axes, buttons, hats);
+}
+
+const char *inputProfilesGetNamesIni(void)
+{
+	return inputProfileNamesIni;
+}
+
+void inputProfilesSetNamesIni(const char *str)
+{
+	if (!str) {
+		return;
+	}
+
+	strncpy(inputProfileNamesIni, str, sizeof(inputProfileNamesIni) - 1);
+	inputProfileNamesIni[sizeof(inputProfileNamesIni) - 1] = '\0';
+	inputSanitizeConfigString(inputProfileNamesIni);
+}
+
+s32 inputProfilesGetActive(void)
+{
+	return inputActiveProfile;
+}
+
+void inputProfilesSetActive(s32 idx)
+{
+	if (idx < 0) {
+		idx = 0;
+	} else if (idx > 5) {
+		idx = 5;
+	}
+	inputActiveProfile = idx;
+}
+
+const char *inputProfilesGetDeviceRulesIni(void)
+{
+	return inputDeviceProfilesIni;
+}
+
+void inputProfilesSetDeviceRulesIni(const char *str)
+{
+	if (!str) {
+		inputDeviceProfilesIni[0] = '\0';
+		return;
+	}
+
+	strncpy(inputDeviceProfilesIni, str, sizeof(inputDeviceProfilesIni) - 1);
+	inputDeviceProfilesIni[sizeof(inputDeviceProfilesIni) - 1] = '\0';
+	inputSanitizeConfigString(inputDeviceProfilesIni);
+}
+
 s32 inputAssignController(s32 cidx, s32 id)
 {
 	if (cidx < 0 || cidx >= INPUT_MAX_CONTROLLERS) {
@@ -1503,6 +1694,9 @@ PD_CONSTRUCTOR static void inputConfigInit(void)
 	configRegisterInt("Input.FirstGamepadNum", &firstController, 0, 3);
 	configRegisterInt("Input.UseHIDAPI", &useHIDAPI, 0, 1);
 	configRegisterInt("Input.UseRawInput", &useRawInput, 0, 1);
+	configRegisterString("Input.ProfileNames", inputProfileNamesIni, sizeof(inputProfileNamesIni));
+	configRegisterInt("Input.ActiveProfile", &inputActiveProfile, 0, 5);
+	configRegisterString("Input.DeviceProfiles", inputDeviceProfilesIni, sizeof(inputDeviceProfilesIni));
 
 	char secname[] = "Input.Player1.Binds";
 	char keyname[256] = { 0 };

@@ -388,6 +388,7 @@ static void ms_collect_random_body(const asset_entry_t *e, void *userdata)
 	struct ms_random_body_ctx *ctx = (struct ms_random_body_ctx *)userdata;
 	if (ctx->count >= MS_MAX_RANDOM_POOL) return;
 	if (!e->id || !e->id[0]) return;
+	if (e->mp_index < 0) return;
 	ctx->ids[ctx->count++] = e->id;
 }
 

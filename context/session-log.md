@@ -1,5 +1,165 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-21-combat-sim-asset-architecture-fix`) - 2026-05-21 - Combat Sim start crash and extraction miss fix
+
+Mike asked to properly fix all architectural causes behind the Combat Simulator start crash, extraction misses, fallbacks, and legacy asset references.
+
+### Implemented
+
+- Fixed B-316's crash class in `src/game/bot.c`: bot attack/follow/protect/target/jump paths now prove target prop indexes are in the live prop pool and have valid `prop->chr` / `chr->prop` backlinks before dereferencing. Stale human target commands clear back to Normal instead of carrying old prop indexes into bot jump logic.
+- Fixed B-358's weapon/inventory `.pdanim` archive miss: `romextract_pdanim.c` now emits zip-openable typed archives with `animation.ini`, compatibility `manifest.json`, and editable `opcodes.json`; old loose-JSON `.pdanim` outputs are stale and rewritten.
+- Fixed the `.pdmesh` no-triangle extraction misses by aligning extractor display-list decoding with runtime: low-bit GDL/vertex markers are masked, `G_VTX` uses the runtime microcode layout, segment-4 vertices resolve from the node vertex buffer, and no-triangle exports count as failures until fixed.
+- Registered the raw menu HUD piece model filenum `0x0259` (`FILE_GHUDPIECE`) in the catalog provider path.
+- Fixed local/offline Combat Simulator manifest ownership by preparing an MP manifest before `mainChangeToStage()` and teaching host manifest build to enumerate offline player slots when there is no net-local client.
+- Filtered random bot body choices to MP-selectable body rows so SP-only bodies like `base:sp_body_108` cannot produce torn/invisible bot modeldefs.
+- Classified the remaining `pd-modern-ui` / `mod:base-ui` theme fallback in isolated smoke as a user-pref/mod install fallback, not base extraction or catalog failure.
+
+### Verification
+
+- Scoped `git diff --check` PASS for touched code, tests, context, and Kanban files.
+- Isolated `b316arch` all-target build PASS after rerun with a 300s active-build watchdog.
+- Focused tests PASS: offline Combat Simulator predeclared MP manifest, bot target backlink validation, menu HUD piece provider, MP-selectable random bot bodies, weapon `.pdanim` ZIP payloads, and `.pdmesh` OBJ extraction.
+- `combat_sim_entry` smoke PASS from isolated `b316arch`: latest log shows core ROM/segment extraction failures at zero, `.pdmesh written=64 skipped=192 failed=0`, `.pdanim skipped=110 failed=0`, no `CATALOG.MISS`, no `MANIFEST-SP: late-add`, and no access violation/fatal.
+- ZIP validation opened `base_falcon2_hi.pdmesh` with `model.ini` / `manifest.json` / `model.obj` / `model.mtl` and `base_invanim_falcon2_equip.pdanim` with `animation.ini` / `manifest.json` / `opcodes.json`.
+
+### Remaining
+
+- Manual closure gate for B-316 remains the exact user-facing repro: Combat Simulator -> Grid -> 1 player / 8 bots -> Bot Jumping enabled -> Start Match. The automated smoke covers entry/navigation and log cleanliness, not a full human playthrough of that exact match setup.
+- c3812 remains active for the broader all-asset dependency-closure audit (`c3812-s8`); the concrete extraction/fallback miss subtask `c3812-s7` is fixed.
+
+---
+
+## Session (`asset-self-contained-goal`) - 2026-05-21 - Universal asset archive self-containment
+
+Mike clarified the active asset-pipeline bar: every typed asset archive, including weapons, must be self-contained on disk for sharing and modding. Opening one archive should expose every authored dependency required to edit, clone, share, and load that asset. Extra disk duplication is accepted; catalog build/runtime load can dedupe duplicate inner assets by SHA-256 and catalog identity after ingestion to limit RAM waste.
+
+### Recorded
+
+- Added the invariant to `context/constraints.md`.
+- Updated `context/tasks.md` so c3812/c3814 stay open until reference-only dependency gaps are closed or converted to embedded dependency archives.
+- Updated `context/pillars/modding.md` to make the rule universal, not weapon-specific.
+- Updated the Kanban tracking language for c3812/c3814.
+
+### Verification
+
+- Documentation/Kanban-only change; no build required.
+
+---
+
+## Session (`inputtab-settings-rebuild`) - 2026-05-21 - Settings Input tab rebuild
+
+Mike asked to remove the old convoluted Settings input UI and rebuild it around the new input architecture, existing actions, named controllers, and assigned input profiles.
+
+### Implemented
+
+- Replaced the active Settings `Controls` tab with `Input`.
+- Reworked the active page into Profiles, Devices, Bindings, and Tuning sections.
+- Added profile-name slots and per-device nickname/profile assignment metadata through `Input.ProfileNames`, `Input.ActiveProfile`, and `Input.DeviceProfiles`.
+- Added connected-device listing for both standard SDL_GameController devices and raw joystick/custom devices, using privacy-safe class labels.
+- Added actionmap profile save/load APIs that persist full player-0 binding snapshots to `$S/input-profiles/profileN.ini`.
+- Simplified bindings to one Scheme selector and one Input selector over the existing actionmap bind table; the old nested IMC/device tab renderer and visual controller mapper are no longer called by Settings.
+- Added static coverage for the tab rename, simplified renderer, device/profile metadata, actionmap profile files, and continued actionmap capture path.
+- Added Kanban `c3819` with completed subtasks and pending manual UI/hardware retest.
+
+### Verification
+
+- Isolated `inputtab` client/updater build passed.
+- Isolated `inputtab` `pd-tests` build passed.
+- Focused selectors returned success via `pd-tests.exe`: `[input][settings][static][c3819]`, `[input][custom-controller]`, `[input][menu_graph]`, and `[press-hold]`.
+
+### Next
+
+- Mike manual retest: open Settings -> Input in-game, rename a standard controller and a custom/raw device if available, assign profiles, save/load a profile, rebind KBM/controller inputs, relaunch, and confirm persistence.
+
+---
+
+## Session (`codex-devwindow-codex-terminal-hardening`) - 2026-05-21 - Dev Window Codex admin terminal input hardening
+
+Mike reported that the Codex admin launcher opened but the terminal behaved like PowerShell input was broken: Backspace issues and Enter not submitting, with a possible bad-cache suspicion.
+
+### Investigated
+
+- Confirmed PowerShell profile file is absent, so no profile script appears to be poisoning input.
+- Confirmed PSReadLine is installed and core key handlers map Enter to `AcceptLine` and Backspace/Ctrl+h to `BackwardDeleteChar`.
+- Confirmed Windows Terminal (`wt.exe`) is not installed/discoverable, so the launcher cannot hand off to the modern terminal host yet.
+- Confirmed `codex.exe --help` works and Codex CLI is discoverable.
+
+### Implemented
+
+- Changed the Dev Window `Codex CLI Admin` launch path from elevated `cmd.exe` to elevated profileless PowerShell, preferring PowerShell 7 when available.
+- The launched console now sets `TERM=xterm-256color`, `COLORTERM=truecolor`, a temp per-process PSReadLine history path, then `Set-Location` to the project root before starting Codex.
+- Did not edit Windows registry, delete cache files, or change user profiles.
+
+### Verification
+
+- PowerShell AST parse passed for `devtools/dev-window-v2/dev-window-v2.ps1`.
+- XAML load passed and found `BtnCliLaunchCodex`.
+- Scoped `git diff --check` passed for `devtools/dev-window-v2/dev-window-v2.ps1`.
+
+---
+
+## Session (`main-checkout-2026-05-21-live-state-git-sync`) - 2026-05-21 - Dev Window live-state Git sync and release notes
+
+Mike asked to track the Kanban board and Codex memory through GitHub so active project state moves with code state, make Dev Window Pull choose a commit, and add a running simplified release-note list for task closeout.
+
+### Implemented
+
+- Added `devtools/project-state-sync.ps1` to mirror `C:\Users\mikeh\.codex\memories\MEMORY.md` into tracked `tools/kanban/memories.md`.
+- Dev Window v2 build, release, and push sync commits now run the state mirror before staging and generate a commit body listing live-state paths plus staged files.
+- `release.ps1` now uses the same state mirror before release/pre-build/rebase commits and warns if `UNRELEASED.md` still looks like stale placeholder notes.
+- Replaced stale `UNRELEASED.md` content with the running simplified change-list format consumed by GitHub releases.
+- Dev Window Pull now fetches the current branch, shows remote commits that are not local yet, and fast-forwards only to Mike's selected commit.
+- Added Kanban `c3818` for this same-session tooling work.
+
+### Verification
+
+- PowerShell AST parse passed for `devtools/dev-window-v2/dev-window-v2.ps1`, `devtools/release.ps1`, and `devtools/project-state-sync.ps1`.
+- Scoped `git diff --check` passed for touched tooling/release-note/memory files.
+- `UNRELEASED.md` no longer trips the stale-release-note detector.
+
+### Next
+
+- Future task closeout should keep `UNRELEASED.md` updated with short bullets for what changed and why, what was added, and what was upgraded or modified.
+- Dev Window Pull uses fast-forward only; divergent histories still require normal manual resolution.
+
+---
+
+## Session (`main-checkout-2026-05-21-combat-sim-start-crash-investigation`) - 2026-05-21 - Combat Sim start crash investigation
+
+Mike reported a crash right after starting a Combat Simulator match.
+
+### Findings
+
+- Located the live log at `Build/logs/game client/pd-client.log`, written 2026-05-21 10:36:32.
+- Match start selected `base:arena_mp_grid`, 1 player plus 8 bots, `g_MpSetup.options=0x10200002`, specific spawn weapon `base:combatknife`.
+- Crash occurred at `[02:14.05]` after the Grid stage loaded and active CombatSim ticked to about frame 146.
+- Crash signature: `ACCESS_VIOLATION PC=...+0x4be1a CODE=0xc0000005`.
+- Symbolicated stack: `botJumpDecide -> botJumpTickEval -> botTickUnpaused -> botTick -> propsTickPlayer -> lvRender -> mainTick`.
+- Faulting site: `src/game/bot.c:3271`, where `botJumpDecide` reads `tprop->chr` after computing `tprop = &g_Vars.props[chr->aibot->attackpropnum]`. The path checks only `attackpropnum >= 0`, not live prop-pool bounds or prop/chr backlink validity.
+
+### Context Updates
+
+- Updated `B-316` from blocked-on-log to open with the concrete bot-jump target-prop deref evidence.
+- Updated Kanban `c083` from blocked to active and changed its pillar from catalog to physics-collision / Combat Sim bot-jump stability.
+- Updated `context/tasks.md` so the critical chain no longer treats `c083` as waiting on a fresh log.
+
+### Next
+
+- Fix should prove target prop indices/backlinks before `botJumpDecide` and adjacent `AIBOTCMD_ATTACK` / follow derefs use `g_Vars.props + propnum`.
+- Add focused Combat Sim bot-jump coverage for Grid or a similar 1-player / multi-bot match start path.
+
+### Extraction Audit Addendum
+
+Mike also asked whether extraction failed, fell back, or used legacy asset references during the same run.
+
+- Core ROM extraction reported `failed=0`: `ROMEXTRACT` wrote 2011 files with 36 empty slots skipped; `ROMEXTRACT.VERIFY` verified 2011 with `failed=0`; segment extraction wrote/verified 26 with `failed=0`.
+- Typed emitter summaries also reported `failed=0` for `.pdweapon`, `.pdarena`, `.pdscenario`, `.pdsfx`, `.pdvoice`, `.pdsong`, `.pdfont`, `.pdlang`, and `.pdui`.
+- Archive validation found B-358: 110 weapon/inventory `.pdanim` files under `Build/data/ntsc-final/animations/` are plain JSON documents, not zip-openable typed asset archives with `animation.ini`. Example: `base_invanim_falcon2_equip.pdanim`.
+- The log also showed 64 `.pdmesh` OBJ no-triangle warnings, one `CATALOG.MISS` raw menu model filenum `0x0259`, 34 runtime `MANIFEST-SP: late-add` patches, and one `base:sp_body_108` torn modeldef / invisible bot body allocation warning.
+- Updated `B-358`, `context/tasks.md`, and Kanban `c3812` so the archive-contract gap remains visible.
+
+---
+
 ## Session (`main-checkout-2026-05-21-c3812-extractor-crash-hardening`) - 2026-05-21 - non-weapon asset extractor crash hardening
 
 Mike pointed at the latest `logs/game client/pd-client.log` crash after `pdweapon` extraction and called out `modelPromoteNodeOffsetsToPointers` / `modelPromoteOffsetsToPointers`.

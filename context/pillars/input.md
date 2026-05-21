@@ -149,7 +149,18 @@ Kanban `c3816` adds the first-class foundation for non-standard controllers with
 - Actionmap dispatch routes raw joystick buttons/axes through player-1 virtual keys, while standard controllers continue through the SDL_GameController path to avoid duplicate events.
 - Social presence and friend rows show only coarse input class labels, never GUID/vendor/name.
 
-Remaining deeper accessibility work: per-device profile manifests, optional custom glyph texture packs, calibration/deadzones/axis shaping, explicit multi-controller composition, and richer labels for devices beyond the first six axes.
+The next accessibility layer is tracked by c3819.
+
+`c3819` adds the first Settings-side profile layer on top of that foundation:
+
+- Settings now exposes an `Input` tab instead of the old `Controls` tab.
+- The page is organized as Profiles, Devices, Bindings, and Tuning rather than nested IMC/device tabs.
+- Standard SDL_GameController devices and raw joystick/custom devices are listed together.
+- Device nicknames and profile-slot assignments persist through `Input.ProfileNames` and `Input.DeviceProfiles`.
+- Profile slots save/load real player-0 actionmap binding snapshots under `$S/input-profiles/profileN.ini`.
+- The binding table still writes through `actionmapBind`, `actionmapSaveBinds`, and the existing capture path.
+
+Remaining deeper accessibility work: optional custom glyph texture packs, calibration/deadzones/axis shaping, explicit multi-controller composition, automatic per-device profile activation policy, and richer labels for devices beyond the first six axes.
 
 ---
 
@@ -159,7 +170,7 @@ Per [constraints.md](../constraints.md):
 
 - **Input context stack owns mouse capture.** No menu may call `SDL_SetRelativeMouseMode` or `SDL_ShowCursor` directly.
 - **Action map is the only input read mechanism in game-side code.** Raw SDL polling is reserved for the SDL event entry point and a small set of audited helpers.
-- **C-button actions retained but hidden in controller tab.** Settings -> Controls -> Controller hides the C-button group in the bind table; do not remove `ACTION_CBUTTON_*` from the actionmap or default IMC without an explicit product decision.
+- **C-button actions retained for rebinding/custom hardware.** Settings -> Input retains `ACTION_CBUTTON_*` in the actionmap binding surface so keyboard, mod, and unusual controller profiles can bind them; do not remove them from the actionmap or default IMC without an explicit product decision.
 - **Layer transition flushes must include declared shared actions** (S489, B-266). Cutscene entry is the reference implementation; any new layer or transition that owns shared actions must declare its action set and call `actionmapFlushActionSet`.
 
 ---
@@ -189,7 +200,7 @@ Per [constraints.md](../constraints.md):
 - **Combat Sim Room per-element binding sweep.** Code/build verified 2026-05-21 under c086, pending Mike playtest. Room-specific controller parity now includes X/right-click context parity for player rows and Add Bot, Start-to-Start-Match from right-panel rows, focused-panel LT/RT skipping, left-panel section walking, and Y undefined on Combat Sim per Q4. MKB Ctrl/Shift-click multi-select remains.
 - **Y-Social on allowed menu roots.** Code/build verified 2026-05-21 under c087/c088, pending Mike playtest. Main Menu and Pause Menu poll `pdguiMenuTertiaryPressed()` at the screen level, open Social through the existing menu/social ownership path, render the `ACTION_MENU_SOCIAL` glyph, and block parent B/Escape close while the Social shell owns input. Combat Sim Room remains explicitly undefined for Y per Q4.
 - **Custom/accessibility controller foundation.** Code/build verified 2026-05-21 under c3816, pending manual custom-device retest. Raw non-SDL_GameController devices now bridge into rebind capture and actionmap dispatch through existing JOY virtual keys, glyphs fall back to generic labels for custom-class devices, and Social displays privacy-safe input class.
-- **Input mapping menu rebuild.** Phase 1 design at [designs/input/input-mapping-menu-rebuild.md](../designs/input/input-mapping-menu-rebuild.md); Phase 2 implementation gated on Priority L menu pass.
+- **Settings Input tab rebuild.** Code/build verified 2026-05-21 under c3819, pending Mike UI/hardware playtest. The old Settings -> Controls tab is gone from the active UI and Settings -> Input now handles profile naming, connected-device nicknames/profile assignments, simplified Scheme/Input binding selection, and global tuning. Static coverage pins the tab rename, simplified renderer, profile metadata persistence, actionmap profile save/load, and continued actionmap capture path.
 
 ---
 

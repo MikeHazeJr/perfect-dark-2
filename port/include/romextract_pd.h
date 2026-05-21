@@ -4,13 +4,14 @@
  * Per-asset .pd* compound emitters. Walks the loader_pool pool
  * (populated by loaderWalkerLoadAll from the per-asset envelope) and writes
  * one .pdweapon ZIP compound per weapon, one .pdmesh ZIP compound per unique
- * weapon mesh, and one .pdanim JSON file per registered animation.
+ * weapon mesh, and one .pdanim ZIP compound per registered animation.
  *
  * Output paths under data/<romid>/:
  *   weapons/<id>.pdweapon    ZIP compound (weapon.ini + manifest.json +
  *                             behavior.graph.json + nested_payloads.json)
  *   meshes/<id>.pdmesh       ZIP compound (manifest.json + geometry.bin)
- *   animations/<id>.pdanim   JSON metadata document
+ *   animations/<id>.pdanim   ZIP compound (animation.ini + manifest.json +
+ *                             editable source files)
  *
  * Where <id> is the catalog ID with the colon replaced by underscore.
  * For example "base:falcon2" -> "base_falcon2.pdweapon".
@@ -59,9 +60,10 @@ s32 romExtractAllPdweapon(s32 force_rewrite);
 s32 romExtractAllPdmesh(s32 force_rewrite);
 
 /**
- * Emit one .pdanim JSON file per registered animation in the loader
- * pool.  Each file carries category="weapon_animation" per
- * universality-pivot-schemas.md Section 2.6.
+ * Emit one .pdanim ZIP compound per registered weapon animation in the
+ * loader pool.  Each archive carries category="weapon_animation" per
+ * universality-pivot-schemas.md Section 2.6 plus animation.ini,
+ * manifest.json, and opcodes.json.
  *
  * Returns: count of files newly written; -1 on infrastructure failure.
  */
@@ -150,10 +152,11 @@ s32 romExtractAllPdarena(s32 force_rewrite);
  * chr animation at data/<romid>/animations/<id>.pdanim.
  *
  * Compound layout per universality-pivot-schemas.md Section 2.6:
+ *   animation.ini     editable descriptor
  *   manifest.json     envelope + animation metadata + provenance
- *   frames.bin        contiguous header + frame bytes
- *                     (length = headerlen + numframes * bytesperframe)
- *   frames.bin.sha256 outer-file SHA-256 sidecar
+ *   header.tsv        editable header bytes
+ *   frames.tsv        editable frame rows
+ *   *.sha256          source-file SHA-256 sidecars
  *
  * Catalog IDs derive from the loaderEnumNameForAnimEnum reverse
  * lookup over k_AnimEnum (port/src/loader_enum_reverse.c). For named
