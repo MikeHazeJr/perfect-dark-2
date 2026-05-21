@@ -9,7 +9,8 @@
  * Output paths under data/<romid>/:
  *   weapons/<id>.pdweapon    ZIP compound (weapon.ini + manifest.json +
  *                             behavior.graph.json + nested_payloads.json)
- *   meshes/<id>.pdmesh       ZIP compound (manifest.json + geometry.bin)
+ *   meshes/<id>.pdmesh       ZIP compound (model.ini + manifest.json +
+ *                             model.obj + model.mtl + sha256 sidecars)
  *   animations/<id>.pdanim   ZIP compound (animation.ini + manifest.json +
  *                             editable source files)
  *
@@ -73,9 +74,11 @@ s32 romExtractAllPdanim(s32 force_rewrite);
  * Catalog universality pivot Step 2 (2026-05-03).
  *
  * Per-asset emitters for the metadata-class kinds beyond weapons:
- *   .pdhead     JSON metadata document (one per registered head)
- *   .pdbody     JSON metadata document (one per registered body)
- *   .pdarena    JSON metadata document (one per registered arena)
+ *   .pdhead     ZIP compound (one per registered head, with mesh.pdmesh)
+ *   .pdbody     ZIP compound (one per registered body, with mesh.pdmesh
+ *                and optional hand.pdmesh)
+ *   .pdarena    ZIP compound (one per registered arena, with playable
+ *                scenario dependency payloads embedded under scenario/)
  *   .pdscenario ZIP compound (one per arena's playable stage,
  *                              UNIFIED per Q-1 -- bg + tiles + pads
  *                              + setup + mpsetup + manifest in one
@@ -100,8 +103,9 @@ s32 romExtractAllPdanim(s32 force_rewrite);
  * data on the server side; loader is not active).
  * ============================================================ */
 
-/* Step 2: emit one .pdhead JSON file per registered head (152 slots,
+/* Step 2: emit one .pdhead ZIP archive per registered head (152 slots,
  * ~30-40 standalone heads expected based on per-asset envelope contents).
+ * Heads with a model filenum embed the matching .pdmesh as mesh.pdmesh.
  * Idempotent: skips files that already exist with non-zero size unless
  * force_rewrite is non-zero. Per-file failures emit
  * LOUDFAIL.EXTRACT.PDHEAD but do not abort the walk.
@@ -110,27 +114,31 @@ s32 romExtractAllPdanim(s32 force_rewrite);
  * (data dir creation, etc.). */
 s32 romExtractAllPdhead(s32 force_rewrite);
 
-/* Step 2: emit one .pdbody JSON file per registered body (152 slots,
+/* Step 2: emit one .pdbody ZIP archive per registered body (152 slots,
  * 68 expected from the in-binary baseline: 63 named bodies + 5 SP fallbacks).
- * Idempotent. Returns: count of files newly written; -1 on
- * infrastructure failure. */
+ * Bodies embed their model .pdmesh as mesh.pdmesh and first-person hand
+ * model, when present, as hand.pdmesh. Idempotent. Returns: count of files
+ * newly written; -1 on infrastructure failure. */
 s32 romExtractAllPdbody(s32 force_rewrite);
 
 /* Emit canonical .pdcharacter archives for MP character selections.
  * Each .pdcharacter is zip-openable and contains character.ini plus the
- * nested body/head archives currently used by the runtime split. This is
- * the long-form character asset unit; weapon behavior remains in the
- * separate .pdweapon lane. */
+ * nested body/head archives currently used by the runtime split; those nested
+ * archives carry their mesh dependencies. This is the long-form character
+ * asset unit; weapon behavior remains in the separate .pdweapon lane. */
 s32 romExtractAllPdcharacter(s32 force_rewrite);
 
-/* Step 2: emit one .pdarena JSON metadata file per registered arena
+/* Step 2: emit one .pdarena ZIP archive per registered arena
  * AND one .pdscenario ZIP compound per arena's playable stage.
  *
  * The .pdarena (Section 2.4) carries arena_index / slug / category /
  * stagenum / requirefeature / name_langid / load_mode and a `scenario`
- * catalog ID reference. The .pdscenario (Section 2.10) is the UNIFIED
- * ZIP per Q-1 carrying geometry / tiles / pads / setup / mpsetup
- * binaries plus a manifest.json.
+ * catalog ID reference. Playable .pdarena archives embed the readable
+ * scenario dependency payload under scenario/ so the arena archive is
+ * self-contained on disk. The standalone .pdscenario (Section 2.10) remains
+ * the lower-level typed scenario content unit and carries rooms.obj,
+ * scenario.mtl, tiles.tsv, pads.tsv, setup.tsv, mpsetup.tsv,
+ * visual_segments.tsv, descriptors, and SHA-256 sidecars.
  *
  * 47 arenas total (CATALOG_MGR_ARENA_COUNT). The CANVAS-mode arenas
  * (Solo Missions group) carry a stagenum of 0 and have no playable

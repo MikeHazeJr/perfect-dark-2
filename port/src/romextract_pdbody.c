@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
 
@@ -65,6 +66,78 @@ static s32 s_existingZipArchive(const char *relpath)
 	return is_zip;
 }
 
+static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	s32 has_entry = modArchiveFindEntry(arc, entry) >= 0;
+	modArchiveClose(arc);
+	return has_entry;
+}
+
+static void s_meshCatalogId(u16 filenum, const char *hint_suffix,
+                            char *out, size_t n)
+{
+	if (!out || n == 0) return;
+	const char *sym = loaderEnumNameForFileEnum(filenum);
+	if (!sym) {
+		snprintf(out, n, "base:rom_g_%04x", (unsigned)filenum);
+		return;
+	}
+	const char *body = sym;
+	if (strncmp(sym, "FILE_G", 6) == 0) body = sym + 6;
+	else if (strncmp(sym, "FILE_", 5) == 0) body = sym + 5;
+
+	char lowered[96];
+	size_t i;
+	for (i = 0; i + 1 < sizeof(lowered) && body[i]; i++) {
+		lowered[i] = (char)tolower((unsigned char)body[i]);
+	}
+	lowered[i] = '\0';
+
+	if (hint_suffix && hint_suffix[0]) snprintf(out, n, "base:%s_%s", lowered, hint_suffix);
+	else snprintf(out, n, "base:%s", lowered);
+}
+
+static void s_meshArchiveRelPath(u16 filenum, const char *hint_suffix,
+                                 char *out, size_t out_size)
+{
+	if (!out || out_size == 0) return;
+	out[0] = '\0';
+	if (filenum == 0) return;
+	char mesh_id[128];
+	char mesh_file[128];
+	char data_dir[FS_MAXPATH + 1];
+	s_meshCatalogId(filenum, hint_suffix, mesh_id, sizeof(mesh_id));
+	s_idToFilename(mesh_id, mesh_file, sizeof(mesh_file));
+	snprintf(out, out_size, "%s/meshes/%s.pdmesh",
+		fsDataDir(data_dir, sizeof(data_dir)), mesh_file);
+}
+
+static s32 s_addRequiredArchiveFile(mod_archive_writer_t *aw, const char *inner,
+                                    const char *relpath, const char *dst_full)
+{
+	if (!relpath || !relpath[0] || fsFileSize(relpath) <= 0) {
+		sysLoudFailf("EXTRACT.PDBODY",
+			"required dependency %s missing for \"%s\" (rel=\"%s\")",
+			inner ? inner : "(null)", dst_full ? dst_full : "(null)",
+			relpath ? relpath : "(null)");
+		return -1;
+	}
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return -1;
+	if (modArchiveAddFileDisk(aw, inner, full) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDBODY",
+			"AddFileDisk %s failed for \"%s\"", inner, dst_full);
+		return -1;
+	}
+	return 0;
+}
+
 /* Emit one zip-openable .pdbody archive. Returns 1 written, 0 skipped,
  * -1 failed. */
 static s32 s_emitOneBody(const body_authored_record_t *b,
@@ -79,15 +152,23 @@ static s32 s_emitOneBody(const body_authored_record_t *b,
 	char relpath[FS_MAXPATH];
 	snprintf(relpath, sizeof(relpath), "%s/%s.pdbody", out_dir, filename);
 
-	if (!force_rewrite && fsFileSize(relpath) > 0 && s_existingZipArchive(relpath)) {
+	if (!force_rewrite && fsFileSize(relpath) > 0 &&
+	    s_existingZipArchive(relpath) &&
+	    (b->filenum == 0 || s_existingArchiveHasEntry(relpath, "mesh.pdmesh")) &&
+	    (b->handfilenum == 0 || s_existingArchiveHasEntry(relpath, "hand.pdmesh"))) {
 		return 0;
 	}
+
+	char mesh_rel[FS_MAXPATH];
+	char hand_rel[FS_MAXPATH];
+	s_meshArchiveRelPath(b->filenum, NULL, mesh_rel, sizeof(mesh_rel));
+	s_meshArchiveRelPath(b->handfilenum, "hand", hand_rel, sizeof(hand_rel));
 
 	const char *type_str = loaderEnumNameForHeadbodyType(b->type);
 	const char *mesh_str = loaderEnumNameForFileEnum(b->filenum);
 	const char *hand_str = loaderEnumNameForFileEnum(b->handfilenum);
 
-	char manifest_buf[1200];
+	char manifest_buf[1600];
 	int manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
 		"{\n"
 		"  \"pd_kind\": \"body\",\n"
@@ -123,6 +204,10 @@ static s32 s_emitOneBody(const body_authored_record_t *b,
 	}
 	manifest_len += snprintf(manifest_buf + manifest_len,
 		sizeof(manifest_buf) - manifest_len,
+		b->filenum ? "  \"mesh_archive\": \"mesh.pdmesh\",\n"
+		           : "  \"mesh_archive\": null,\n");
+	manifest_len += snprintf(manifest_buf + manifest_len,
+		sizeof(manifest_buf) - manifest_len,
 		"  \"scale\": %.7g,\n"
 		"  \"animscale\": %.7g,\n",
 		(double)b->scale, (double)b->animscale);
@@ -130,17 +215,21 @@ static s32 s_emitOneBody(const body_authored_record_t *b,
 		if (hand_str) {
 			manifest_len += snprintf(manifest_buf + manifest_len,
 				sizeof(manifest_buf) - manifest_len,
-				"  \"hand\": \"%s\"\n", hand_str);
+				"  \"hand\": \"%s\",\n", hand_str);
 		} else {
 			manifest_len += snprintf(manifest_buf + manifest_len,
 				sizeof(manifest_buf) - manifest_len,
-				"  \"hand\": %u\n", (unsigned)b->handfilenum);
+				"  \"hand\": %u,\n", (unsigned)b->handfilenum);
 		}
 	} else {
 		manifest_len += snprintf(manifest_buf + manifest_len,
 			sizeof(manifest_buf) - manifest_len,
-			"  \"hand\": null\n");
+			"  \"hand\": null,\n");
 	}
+	manifest_len += snprintf(manifest_buf + manifest_len,
+		sizeof(manifest_buf) - manifest_len,
+		b->handfilenum ? "  \"hand_archive\": \"hand.pdmesh\"\n"
+		               : "  \"hand_archive\": null\n");
 	manifest_len += snprintf(manifest_buf + manifest_len,
 		sizeof(manifest_buf) - manifest_len, "}\n");
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
@@ -149,7 +238,7 @@ static s32 s_emitOneBody(const body_authored_record_t *b,
 		return -1;
 	}
 
-	char ini_buf[1200];
+	char ini_buf[1600];
 	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
 		"[body]\n"
 		"catalog_id = %s\n"
@@ -160,18 +249,22 @@ static s32 s_emitOneBody(const body_authored_record_t *b,
 		"type = %s\n"
 		"height = %u\n"
 		"mesh = %s\n"
+		"mesh_archive = %s\n"
 		"scale = %.7g\n"
 		"animscale = %.7g\n",
 		catalog_id, (s32)b->bodynum, (unsigned)b->ismale,
 		(unsigned)b->unk00_01, (unsigned)b->canvaryheight,
 		type_str ? type_str : "", (unsigned)b->height,
-		mesh_str ? mesh_str : "", (double)b->scale, (double)b->animscale);
+		mesh_str ? mesh_str : "", b->filenum ? "mesh.pdmesh" : "",
+		(double)b->scale, (double)b->animscale);
 	if (b->handfilenum != 0) {
 		ini_len += snprintf(ini_buf + ini_len, sizeof(ini_buf) - ini_len,
-			"hand = %s\n", hand_str ? hand_str : "");
+			"hand = %s\n"
+			"hand_archive = hand.pdmesh\n", hand_str ? hand_str : "");
 	} else {
 		ini_len += snprintf(ini_buf + ini_len, sizeof(ini_buf) - ini_len,
-			"hand = \n");
+			"hand = \n"
+			"hand_archive = \n");
 	}
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		sysLoudFailf("EXTRACT.PDBODY",
@@ -202,6 +295,16 @@ static s32 s_emitOneBody(const body_authored_record_t *b,
 	                          manifest_buf, (u32)manifest_len) != 0) {
 		sysLoudFailf("EXTRACT.PDBODY",
 			"AddFileMem manifest.json failed for \"%s\"", full);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (b->filenum != 0 &&
+	    s_addRequiredArchiveFile(aw, "mesh.pdmesh", mesh_rel, full) != 0) {
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (b->handfilenum != 0 &&
+	    s_addRequiredArchiveFile(aw, "hand.pdmesh", hand_rel, full) != 0) {
 		modArchiveAbort(aw);
 		return -1;
 	}

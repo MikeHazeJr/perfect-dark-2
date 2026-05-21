@@ -4211,6 +4211,11 @@ function Run-Tests-Process {
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true
         $psi.CreateNoWindow = $true
+        $psi.EnvironmentVariables["PATH"]         = Get-ChildProcessPathEnv
+        $psi.EnvironmentVariables["MSYSTEM"]      = "MINGW64"
+        $psi.EnvironmentVariables["MINGW_PREFIX"] = "/mingw64"
+        $psi.EnvironmentVariables["TEMP"]         = $env:TEMP
+        $psi.EnvironmentVariables["TMP"]          = $env:TMP
         $proc = New-Object System.Diagnostics.Process
         $proc.StartInfo = $psi
         [void]$proc.Start()

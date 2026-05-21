@@ -50,9 +50,13 @@ From PowerShell:
 
 ```powershell
 .\devtools\build-headless.ps1
-# Then run the binary; PowerShell needs the same MSYS2 mingw64 PATH that
-# build-env.sh sets, so easiest is to drop into bash for the run.
+.\Build\pd-tests.exe
 ```
+
+On Windows, CMake copies the matching MSYS2 `libwinpthread-1.dll` beside
+`pd-tests.exe`. Catch2/std::chrono can import `clock_gettime64` through
+MinGW's C++ runtime, and keeping the known-good DLL next to the executable
+prevents Windows from loading an older copy from PATH.
 
 Expected output on a green run:
 

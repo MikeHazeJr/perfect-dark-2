@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
 
@@ -60,6 +61,78 @@ static s32 s_existingZipArchive(const char *relpath)
 	return is_zip;
 }
 
+static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	s32 has_entry = modArchiveFindEntry(arc, entry) >= 0;
+	modArchiveClose(arc);
+	return has_entry;
+}
+
+static void s_meshCatalogId(u16 filenum, const char *hint_suffix,
+                            char *out, size_t n)
+{
+	if (!out || n == 0) return;
+	const char *sym = loaderEnumNameForFileEnum(filenum);
+	if (!sym) {
+		snprintf(out, n, "base:rom_g_%04x", (unsigned)filenum);
+		return;
+	}
+	const char *body = sym;
+	if (strncmp(sym, "FILE_G", 6) == 0) body = sym + 6;
+	else if (strncmp(sym, "FILE_", 5) == 0) body = sym + 5;
+
+	char lowered[96];
+	size_t i;
+	for (i = 0; i + 1 < sizeof(lowered) && body[i]; i++) {
+		lowered[i] = (char)tolower((unsigned char)body[i]);
+	}
+	lowered[i] = '\0';
+
+	if (hint_suffix && hint_suffix[0]) snprintf(out, n, "base:%s_%s", lowered, hint_suffix);
+	else snprintf(out, n, "base:%s", lowered);
+}
+
+static void s_meshArchiveRelPath(u16 filenum, const char *hint_suffix,
+                                 char *out, size_t out_size)
+{
+	if (!out || out_size == 0) return;
+	out[0] = '\0';
+	if (filenum == 0) return;
+	char mesh_id[128];
+	char mesh_file[128];
+	char data_dir[FS_MAXPATH + 1];
+	s_meshCatalogId(filenum, hint_suffix, mesh_id, sizeof(mesh_id));
+	s_idToFilename(mesh_id, mesh_file, sizeof(mesh_file));
+	snprintf(out, out_size, "%s/meshes/%s.pdmesh",
+		fsDataDir(data_dir, sizeof(data_dir)), mesh_file);
+}
+
+static s32 s_addRequiredArchiveFile(mod_archive_writer_t *aw, const char *inner,
+                                    const char *relpath, const char *dst_full)
+{
+	if (!relpath || !relpath[0] || fsFileSize(relpath) <= 0) {
+		sysLoudFailf("EXTRACT.PDHEAD",
+			"required dependency %s missing for \"%s\" (rel=\"%s\")",
+			inner ? inner : "(null)", dst_full ? dst_full : "(null)",
+			relpath ? relpath : "(null)");
+		return -1;
+	}
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return -1;
+	if (modArchiveAddFileDisk(aw, inner, full) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDHEAD",
+			"AddFileDisk %s failed for \"%s\"", inner, dst_full);
+		return -1;
+	}
+	return 0;
+}
+
 /* Emit one zip-openable .pdhead archive. Returns 1 written, 0 skipped,
  * -1 failed. */
 static s32 s_emitOneHead(const head_authored_record_t *h,
@@ -74,9 +147,14 @@ static s32 s_emitOneHead(const head_authored_record_t *h,
 	char relpath[FS_MAXPATH];
 	snprintf(relpath, sizeof(relpath), "%s/%s.pdhead", out_dir, filename);
 
-	if (!force_rewrite && fsFileSize(relpath) > 0 && s_existingZipArchive(relpath)) {
+	if (!force_rewrite && fsFileSize(relpath) > 0 &&
+	    s_existingZipArchive(relpath) &&
+	    (h->filenum == 0 || s_existingArchiveHasEntry(relpath, "mesh.pdmesh"))) {
 		return 0;
 	}
+
+	char mesh_rel[FS_MAXPATH];
+	s_meshArchiveRelPath(h->filenum, NULL, mesh_rel, sizeof(mesh_rel));
 
 	const char *type_str = loaderEnumNameForHeadbodyType(h->type);
 	const char *file_str = loaderEnumNameForFileEnum(h->filenum);
@@ -116,6 +194,10 @@ static s32 s_emitOneHead(const head_authored_record_t *h,
 	}
 	manifest_len += snprintf(manifest_buf + manifest_len,
 		sizeof(manifest_buf) - manifest_len,
+		h->filenum ? "  \"mesh_archive\": \"mesh.pdmesh\",\n"
+		           : "  \"mesh_archive\": null,\n");
+	manifest_len += snprintf(manifest_buf + manifest_len,
+		sizeof(manifest_buf) - manifest_len,
 		"  \"scale\": %.7g,\n"
 		"  \"animscale\": %.7g\n"
 		"}\n",
@@ -136,11 +218,13 @@ static s32 s_emitOneHead(const head_authored_record_t *h,
 		"type = %s\n"
 		"height = %u\n"
 		"mesh = %s\n"
+		"mesh_archive = %s\n"
 		"scale = %.7g\n"
 		"animscale = %.7g\n",
 		catalog_id, (s32)h->headnum, (unsigned)h->ismale,
 		(unsigned)h->unk00_01, type_str ? type_str : "",
 		(unsigned)h->height, file_str ? file_str : "",
+		h->filenum ? "mesh.pdmesh" : "",
 		(double)h->scale, (double)h->animscale);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		sysLoudFailf("EXTRACT.PDHEAD",
@@ -171,6 +255,11 @@ static s32 s_emitOneHead(const head_authored_record_t *h,
 	                          manifest_buf, (u32)manifest_len) != 0) {
 		sysLoudFailf("EXTRACT.PDHEAD",
 			"AddFileMem manifest.json failed for \"%s\"", full);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (h->filenum != 0 &&
+	    s_addRequiredArchiveFile(aw, "mesh.pdmesh", mesh_rel, full) != 0) {
 		modArchiveAbort(aw);
 		return -1;
 	}

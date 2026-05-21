@@ -2932,16 +2932,16 @@
         {
           "id": "c3812-s8",
           "title": "Audit typed archives for full dependency closure",
-          "status": "active",
+          "status": "done",
           "order": 7100,
-          "notes": "Opened 2026-05-21 from Mike /goal clarification. Every typed *.pdxxx archive must embed its authored dependency closure on disk; duplicate storage is acceptable for sharing/modding, with catalog/runtime dedupe by SHA-256 and catalog identity after ingestion to limit RAM waste. Audit and fix reference-only dependencies across all asset types, not just weapons."
+          "notes": "Done for the non-weapon target set on 2026-05-21. .pdarena now embeds its .pdscenario dependency closure under scenario/ and treats old descriptor-only arena archives as stale; Build/data/ntsc-final/chicago.zip was refreshed and opens with scenario/rooms.obj, scenario/setup.tsv, and scenario/scenario.ini. .pdhead embeds mesh.pdmesh, .pdbody embeds mesh.pdmesh plus optional hand.pdmesh, and .pdcharacter refreshes nested body/head archives with dependency_closure=embedded.v2. .pdmesh job dedupe is now by (filenum,hint), not filenum alone, so body/hand archive identities such as base_ceyespy.pdmesh and base_combathandslod_hand.pdmesh are not suppressed by weapon hi/lo mesh jobs. Generated Build/data non-weapon spot audit found 0 missing closure entries across scenario-bearing arenas, heads, bodies, and characters. Verified assetcl all-target build and assetc3 focused [modding][pdxxx][base][static][c3812] tests: 283 assertions / 12 cases. Weapon archive closure remains owned by c3814 and was not modified here."
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-20T20:05:00Z",
       "pending_completion": null,
       "created": "2026-05-20T20:05:00Z",
-      "updated": "2026-05-21T11:55:00-04:00"
+      "updated": "2026-05-21T12:34:00-04:00"
     },
     {
       "id": "c3813",

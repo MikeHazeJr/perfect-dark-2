@@ -1877,6 +1877,17 @@ TEST_CASE("base arena extractor emits zip-openable pdarena archives",
 	REQUIRE(arena.find("modArchiveBegin(full)") != std::string::npos);
 	REQUIRE(arena.find("modArchiveAddFileMem(aw, \"arena.ini\"") != std::string::npos);
 	REQUIRE(arena.find("modArchiveAddFileMem(aw, \"manifest.json\"") != std::string::npos);
+	REQUIRE(arena.find("s_copyArchiveEntriesWithPrefix") != std::string::npos);
+	REQUIRE(arena.find("\"scenario/scenario.ini\"") != std::string::npos);
+	REQUIRE(arena.find("\"scenario/rooms.obj\"") != std::string::npos);
+	REQUIRE(arena.find("scenario_root = scenario") != std::string::npos);
+	REQUIRE(arena.find("\\\"scenario_root\\\": \\\"scenario\\\"") !=
+	        std::string::npos);
+	const auto scenarioEmit = arena.find("s_emitOnePdscenario(a, c->scenarios_dir");
+	const auto arenaEmit = arena.find("s_emitOnePdarena(a, i, c->arenas_dir");
+	REQUIRE(scenarioEmit != std::string::npos);
+	REQUIRE(arenaEmit != std::string::npos);
+	REQUIRE(scenarioEmit < arenaEmit);
 	REQUIRE(arena.find("fsFileOpenWrite(relpath)") == std::string::npos);
 	REQUIRE(arena.find("Emit one .pdarena JSON") == std::string::npos);
 }
@@ -1936,6 +1947,13 @@ TEST_CASE("base character extractors emit zip-openable pdhead and pdbody archive
 	REQUIRE(head.find("modArchiveBegin(full)") != std::string::npos);
 	REQUIRE(head.find("modArchiveAddFileMem(aw, \"head.ini\"") != std::string::npos);
 	REQUIRE(head.find("modArchiveAddFileMem(aw, \"manifest.json\"") != std::string::npos);
+	REQUIRE(head.find("s_addRequiredArchiveFile(aw, \"mesh.pdmesh\"") !=
+	        std::string::npos);
+	REQUIRE(head.find("s_existingArchiveHasEntry(relpath, \"mesh.pdmesh\")") !=
+	        std::string::npos);
+	REQUIRE(head.find("mesh_archive = %s") != std::string::npos);
+	REQUIRE(head.find("\\\"mesh_archive\\\": \\\"mesh.pdmesh\\\"") !=
+	        std::string::npos);
 	REQUIRE(head.find("fsFileOpenWrite(relpath)") == std::string::npos);
 	REQUIRE(head.find("emits one .pdhead JSON file") == std::string::npos);
 
@@ -1943,6 +1961,20 @@ TEST_CASE("base character extractors emit zip-openable pdhead and pdbody archive
 	REQUIRE(body.find("modArchiveBegin(full)") != std::string::npos);
 	REQUIRE(body.find("modArchiveAddFileMem(aw, \"body.ini\"") != std::string::npos);
 	REQUIRE(body.find("modArchiveAddFileMem(aw, \"manifest.json\"") != std::string::npos);
+	REQUIRE(body.find("s_addRequiredArchiveFile(aw, \"mesh.pdmesh\"") !=
+	        std::string::npos);
+	REQUIRE(body.find("s_addRequiredArchiveFile(aw, \"hand.pdmesh\"") !=
+	        std::string::npos);
+	REQUIRE(body.find("s_existingArchiveHasEntry(relpath, \"mesh.pdmesh\")") !=
+	        std::string::npos);
+	REQUIRE(body.find("s_existingArchiveHasEntry(relpath, \"hand.pdmesh\")") !=
+	        std::string::npos);
+	REQUIRE(body.find("mesh_archive = %s") != std::string::npos);
+	REQUIRE(body.find("hand_archive = hand.pdmesh") != std::string::npos);
+	REQUIRE(body.find("\\\"mesh_archive\\\": \\\"mesh.pdmesh\\\"") !=
+	        std::string::npos);
+	REQUIRE(body.find("\\\"hand_archive\\\": \\\"hand.pdmesh\\\"") !=
+	        std::string::npos);
 	REQUIRE(body.find("fsFileOpenWrite(relpath)") == std::string::npos);
 	REQUIRE(body.find("emits one .pdbody JSON file") == std::string::npos);
 }
@@ -1963,6 +1995,16 @@ TEST_CASE("base character extractor emits canonical pdcharacter archives",
 	        std::string::npos);
 	REQUIRE(character.find("\"body.pdbody\"") != std::string::npos);
 	REQUIRE(character.find("\"head.pdhead\"") != std::string::npos);
+	REQUIRE(character.find("\\\"dependency_closure\\\": \\\"embedded.v2\\\"") !=
+	        std::string::npos);
+	REQUIRE(character.find("dependency_closure = embedded.v2") !=
+	        std::string::npos);
+	REQUIRE(character.find("s_existingArchiveEntryContains") !=
+	        std::string::npos);
+	REQUIRE(character.find("s_existingArchiveHasEntry(dst_rel, \"body.pdbody\")") !=
+	        std::string::npos);
+	REQUIRE(character.find("s_existingArchiveHasEntry(dst_rel, \"head.pdhead\")") !=
+	        std::string::npos);
 	REQUIRE(character.find("romextract pdcharacter") != std::string::npos);
 	REQUIRE(header.find("romExtractAllPdcharacter") != std::string::npos);
 	REQUIRE(main.find("romExtractAllPdcharacter(0)") != std::string::npos);
@@ -2215,6 +2257,11 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	        std::string::npos);
 	REQUIRE(mesh.find("model.obj.sha256") != std::string::npos);
 	REQUIRE(mesh.find("model.mtl.sha256") != std::string::npos);
+	REQUIRE(mesh.find("const char *wanted_hint = hint ? hint : \"\"") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("strcmp(jobs[i].hint, wanted_hint) == 0") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("unique_mesh_jobs") != std::string::npos);
 
 	REQUIRE(mesh.find("modeldef.tsv") == std::string::npos);
 	REQUIRE(mesh.find("geometry_file = geometry.bin") == std::string::npos);

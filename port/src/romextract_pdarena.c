@@ -8,7 +8,10 @@
  *      ZIP-openable typed asset archive. The archive root carries
  *      arena.ini for the modder-facing descriptor plus manifest.json for
  *      the legacy universal walker until the base walker consumes the INI
- *      path directly.
+ *      path directly. Playable arenas also embed their authored scenario
+ *      dependency closure under scenario/ so opening one .pdarena exposes
+ *      the map OBJ, pad/setup TSVs, and provenance files without chasing a
+ *      separate archive.
  *
  *   2. data/<romid>/scenarios/<scenario_id>.pdscenario
  *      ZIP compound bundling rooms.obj / tiles.tsv / pads.tsv / setup.tsv /
@@ -591,10 +594,60 @@ static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
 	return has_entry;
 }
 
+static void s_scenarioArchiveRelPath(const char *out_dir, const char *scenario_id,
+                                     char *out, size_t out_size)
+{
+	if (!out || out_size == 0) return;
+	out[0] = '\0';
+	if (!out_dir || !scenario_id || !scenario_id[0]) return;
+	char filename[128];
+	s_idToFilename(scenario_id, filename, sizeof(filename));
+	snprintf(out, out_size, "%s/%s.pdscenario", out_dir, filename);
+}
+
+static s32 s_copyArchiveEntriesWithPrefix(mod_archive_writer_t *aw,
+                                          const char *src_rel,
+                                          const char *prefix)
+{
+	if (!aw || !src_rel || !prefix || !prefix[0]) return -1;
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(src_rel, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return -1;
+
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return -1;
+	s32 count = modArchiveGetEntryCount(arc);
+	for (s32 i = 0; i < count; i++) {
+		const char *name = modArchiveGetEntryName(arc, i);
+		if (!name || !name[0]) continue;
+		char dst_name[FS_MAXPATH];
+		int n = snprintf(dst_name, sizeof(dst_name), "%s/%s", prefix, name);
+		if (n <= 0 || (size_t)n >= sizeof(dst_name)) {
+			modArchiveClose(arc);
+			return -1;
+		}
+		u32 size = 0;
+		void *bytes = modArchiveExtractAlloc(arc, i, &size);
+		if (!bytes) {
+			modArchiveClose(arc);
+			return -1;
+		}
+		s32 add = modArchiveAddFileMem(aw, dst_name, bytes, size);
+		free(bytes);
+		if (add != MODARCHIVE_OK) {
+			modArchiveClose(arc);
+			return -1;
+		}
+	}
+	modArchiveClose(arc);
+	return 0;
+}
+
 /* Emit one .pdarena ZIP-openable archive. Returns 1 written, 0 skipped,
  * -1 failed. */
 static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
-                             const char *out_dir, s32 force_rewrite)
+                             const char *out_dir, const char *scenarios_dir,
+                             s32 force_rewrite)
 {
 	const char *catalog_id = a->catalog_id;
 	if (!catalog_id || !catalog_id[0]) return 0;
@@ -605,8 +658,24 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 	char relpath[FS_MAXPATH];
 	snprintf(relpath, sizeof(relpath), "%s/%s.pdarena", out_dir, filename);
 
+	char scenario_id[96];
+	s32 stage_idx = stageGetIndex(a->stagenum);
+	if (stage_idx >= 0) {
+		s_scenarioCatalogIdFromSlug(a->slug, scenario_id, sizeof(scenario_id));
+	} else {
+		scenario_id[0] = '\0';
+	}
+
+	char scenario_rel[FS_MAXPATH];
+	s_scenarioArchiveRelPath(scenarios_dir, scenario_id,
+		scenario_rel, sizeof(scenario_rel));
+
 	if (!force_rewrite && fsFileSize(relpath) > 0 && s_existingZipArchive(relpath)) {
-		return 0;
+		if (!scenario_id[0] ||
+		    (s_existingArchiveHasEntry(relpath, "scenario/scenario.ini") &&
+		     s_existingArchiveHasEntry(relpath, "scenario/rooms.obj"))) {
+			return 0;
+		}
 	}
 
 	char full_buf[FS_MAXPATH + 1];
@@ -615,14 +684,6 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 		sysLoudFailf("EXTRACT.PDARENA",
 			"fsFullPath failed for \"%s\"", relpath);
 		return -1;
-	}
-
-	char scenario_id[96];
-	s32 stage_idx = stageGetIndex(a->stagenum);
-	if (stage_idx >= 0) {
-		s_scenarioCatalogIdFromSlug(a->slug, scenario_id, sizeof(scenario_id));
-	} else {
-		scenario_id[0] = '\0';
 	}
 
 	const char *load_mode_str = loaderEnumNameForArenaLoadMode(a->load_mode);
@@ -653,7 +714,8 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 	manifest_len += snprintf(manifest_buf + manifest_len,
 		sizeof(manifest_buf) - manifest_len,
 		scenario_id[0]
-			? "  \"scenario\": \"%s\"\n}\n"
+			? "  \"scenario\": \"%s\",\n"
+			  "  \"scenario_root\": \"scenario\"\n}\n"
 			: "  \"scenario\": null\n}\n",
 		scenario_id);
 
@@ -679,7 +741,9 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 		load_mode_str ? load_mode_str : "ARENA_LOADMODE_PLAYABLE");
 	if (scenario_id[0]) {
 		ini_len += snprintf(ini_buf + ini_len, sizeof(ini_buf) - ini_len,
-			"scenario = %s\n", scenario_id);
+			"scenario = %s\n"
+			"scenario_root = scenario\n",
+			scenario_id);
 	}
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		sysLoudFailf("EXTRACT.PDARENA",
@@ -705,6 +769,16 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 			"AddFileMem manifest.json failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		return -1;
+	}
+	if (scenario_id[0]) {
+		if (!scenario_rel[0] ||
+		    s_copyArchiveEntriesWithPrefix(aw, scenario_rel, "scenario") != 0) {
+			sysLoudFailf("EXTRACT.PDARENA",
+				"scenario dependency copy failed for \"%s\" from \"%s\"",
+				full, scenario_rel[0] ? scenario_rel : "(missing)");
+			modArchiveAbort(aw);
+			return -1;
+		}
 	}
 	if (modArchiveFinish(aw) != 0) {
 		sysLoudFailf("EXTRACT.PDARENA",
@@ -732,11 +806,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	char scenario_id[96];
 	s_scenarioCatalogIdFromSlug(a->slug, scenario_id, sizeof(scenario_id));
 
-	char filename[128];
-	s_idToFilename(scenario_id, filename, sizeof(filename));
-
 	char dst_rel[FS_MAXPATH];
-	snprintf(dst_rel, sizeof(dst_rel), "%s/%s.pdscenario", out_dir, filename);
+	s_scenarioArchiveRelPath(out_dir, scenario_id, dst_rel, sizeof(dst_rel));
 
 	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
 	    s_existingArchiveHasEntry(dst_rel, "scenario.ini") &&
@@ -1052,15 +1123,16 @@ static void s_pdarenaWork(int i, void *user)
 
 	const arena_authored_record_t *a = &g_ArenaData[i];
 
-	s32 r1 = s_emitOnePdarena(a, i, c->arenas_dir, c->force_rewrite);
-	if (r1 > 0)       SDL_AtomicAdd(&c->arenas_written, 1);
-	else if (r1 == 0) SDL_AtomicAdd(&c->arenas_skipped, 1);
-	else              SDL_AtomicAdd(&c->arenas_failed,  1);
-
 	s32 r2 = s_emitOnePdscenario(a, c->scenarios_dir, c->force_rewrite);
 	if (r2 > 0)       SDL_AtomicAdd(&c->scenarios_written, 1);
 	else if (r2 == 0) SDL_AtomicAdd(&c->scenarios_skipped, 1);
 	else              SDL_AtomicAdd(&c->scenarios_failed,  1);
+
+	s32 r1 = s_emitOnePdarena(a, i, c->arenas_dir, c->scenarios_dir,
+		c->force_rewrite);
+	if (r1 > 0)       SDL_AtomicAdd(&c->arenas_written, 1);
+	else if (r1 == 0) SDL_AtomicAdd(&c->arenas_skipped, 1);
+	else              SDL_AtomicAdd(&c->arenas_failed,  1);
 
 	int done = SDL_AtomicAdd(&c->processed, 1) + 1;
 	if ((done & 0x07) == 0 || done == c->count) {

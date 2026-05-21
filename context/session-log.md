@@ -1,5 +1,49 @@
 # Session Log (Active)
 
+## Session (`asset-closure-nonweapon`) - 2026-05-21 - Non-weapon asset archive dependency closure
+
+Mike pointed at `Build/data/ntsc-final/chicago.zip` as an arena archive that was still descriptor-only instead of self-contained.
+
+### Implemented
+
+- Made `.pdarena` emitters embed the matching `.pdscenario` contents under `scenario/`, with stale detection for old descriptor-only arena archives.
+- Made `.pdhead` and `.pdbody` embed required `.pdmesh` dependencies; bodies also embed optional `hand.pdmesh`.
+- Made `.pdcharacter` stale-detect old nested archives, refresh `body.pdbody` / `head.pdhead`, and stamp `dependency_closure = embedded.v2`.
+- Fixed `.pdmesh` work dedupe to key by `(filenum,hint)`, so body/hand mesh archive names are not suppressed by weapon hi/lo mesh jobs.
+- Refreshed generated `Build/data/ntsc-final` non-weapon archives; `chicago.zip` now opens with `scenario/rooms.obj`, `scenario/setup.tsv`, and `scenario/scenario.ini`.
+- Updated Kanban `c3812-s8`, `context/tasks.md`, and the modding pillar. Weapon archive closure remains owned by `c3814`; no `.pdweapon` extractor implementation was changed here.
+
+### Verification
+
+- Isolated `assetcl` all-target build PASS.
+- Focused `assetc3` `[modding][pdxxx][base][static][c3812]` PASS: 283 assertions / 12 cases.
+- Generated archive audit found 0 missing non-weapon closure entries across scenario-bearing arenas, heads, bodies, and characters.
+
+---
+
+## Session (`pd-tests-winpthread-runtime-fix`) - 2026-05-21 - pd-tests clock_gettime64 loader popup
+
+Mike reported automated `pd-tests.exe` launches hitting the Windows loader dialog: `clock_gettime64 could not be located`.
+
+### Implemented
+
+- Fixed B-355's second-pass root cause for direct test launches: `pd-tests.exe` still imports `clock_gettime64` from `libwinpthread-1.dll`, so CMake now copies the matching MSYS2 `libwinpthread-1.dll` beside the test binary after build.
+- Kept the canonical wrapper path: `run-pd-tests.ps1` remains the preferred focused runner.
+- Hardened remaining direct launch surfaces: Dev Window v2 Run Tests now passes the canonical MinGW/TEMP environment to the child process, and `tools/smoke-verify/run-pd-tests-smoke.ps1` dot-sources the build prelude, suppresses Windows loader dialogs, waits for redirected output flush, and handles singular Catch2 summaries.
+- Added a focused smoke static guard under `[smoke][build][static][b355]` to pin the CMake runtime-DLL copy contract.
+- Updated tests/build-tooling docs and B-355.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session b355fix -Selector "[smoke][build][static][b355]" -BuildTimeoutSeconds 180 -Clean` PASS: 5 assertions / 1 case.
+- Direct `.\.claude\session-builds\b355fix\pd-tests.exe "[smoke][build][static][b355]"` PASS with no loader popup.
+- Confirmed `.claude\session-builds\b355fix\libwinpthread-1.dll` exists beside the rebuilt test binary.
+- `.\tools\smoke-verify\run-pd-tests-smoke.ps1 -ExePath <b355fix pd-tests.exe> -Scope "[smoke][build][static][b355]" -TimeoutSeconds 60` PASS.
+- `.\devtools\build-session.ps1 -Session b355fix -Target all -BuildTimeoutSeconds 300` PASS for client/updater from the real checkout after sandbox Git ownership blocked the first sandboxed attempt.
+- PowerShell parser PASS for `run-pd-tests.ps1`, Dev Window v2, and `run-pd-tests-smoke.ps1`; scoped `git diff --check` PASS with only existing CRLF normalization warnings.
+
+---
+
 ## Session (`main-checkout-2026-05-21-combat-sim-asset-architecture-fix`) - 2026-05-21 - Combat Sim start crash and extraction miss fix
 
 Mike asked to properly fix all architectural causes behind the Combat Simulator start crash, extraction misses, fallbacks, and legacy asset references.

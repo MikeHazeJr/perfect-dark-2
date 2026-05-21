@@ -66,11 +66,50 @@ static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
 	return has_entry;
 }
 
+static s32 s_existingArchiveEntryContains(const char *relpath, const char *entry,
+	const char *needle)
+{
+	if (!needle || !needle[0]) return 1;
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+
+	s32 idx = modArchiveFindEntry(arc, entry);
+	if (idx < 0) {
+		modArchiveClose(arc);
+		return 0;
+	}
+
+	u32 size = 0;
+	void *bytes = modArchiveExtractAlloc(arc, idx, &size);
+	s32 found = 0;
+	if (bytes) {
+		const char *hay = (const char *)bytes;
+		size_t nlen = strlen(needle);
+		for (u32 i = 0; i + nlen <= size; i++) {
+			if (memcmp(hay + i, needle, nlen) == 0) {
+				found = 1;
+				break;
+			}
+		}
+		free(bytes);
+	}
+	modArchiveClose(arc);
+	return found;
+}
+
 static s32 s_addArchiveFile(mod_archive_writer_t *aw, const char *inner,
 	const char *relpath, const char *dst_full)
 {
 	if (!relpath || !relpath[0] || fsFileSize(relpath) <= 0) {
-		return 0;
+		sysLoudFailf("EXTRACT.PDCHARACTER",
+			"required dependency %s missing for \"%s\" (rel=\"%s\")",
+			inner ? inner : "(null)", dst_full ? dst_full : "(null)",
+			relpath ? relpath : "(null)");
+		return -1;
 	}
 
 	char full_buf[FS_MAXPATH + 1];
@@ -113,11 +152,6 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 	snprintf(dst_rel, sizeof(dst_rel), "%s/%s.pdcharacter",
 		out_dir, character_file);
 
-	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
-	    s_existingArchiveHasEntry(dst_rel, "character.ini")) {
-		return 0;
-	}
-
 	char body_file[128];
 	s_idToFilename(body->catalog_id, body_file, sizeof(body_file));
 
@@ -137,12 +171,22 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 			data_root, head_file);
 	}
 
+	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
+	    s_existingArchiveHasEntry(dst_rel, "character.ini") &&
+	    s_existingArchiveEntryContains(dst_rel, "character.ini",
+		    "dependency_closure = embedded.v2") &&
+	    s_existingArchiveHasEntry(dst_rel, "body.pdbody") &&
+	    (!head || s_existingArchiveHasEntry(dst_rel, "head.pdhead"))) {
+		return 0;
+	}
+
 	char manifest_buf[1024];
 	int manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
 		"{\n"
 		"  \"pd_kind\": \"character\",\n"
 		"  \"pd_schema_version\": 1,\n"
 		"  \"id\": \"%s\",\n"
+		"  \"dependency_closure\": \"embedded.v2\",\n"
 		"  \"body\": \"%s\",\n"
 		"  \"head\": %s%s%s,\n"
 		"  \"mp_body_index\": %d,\n"
@@ -165,6 +209,7 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 		"[character]\n"
 		"catalog_id = %s\n"
 		"schema = character.v1\n"
+		"dependency_closure = embedded.v2\n"
 		"body_asset = %s\n"
 		"head_asset = %s\n"
 		"bodyfile = body.pdbody\n"

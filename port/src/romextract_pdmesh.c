@@ -843,14 +843,20 @@ static s32 s_pdmeshAddWork(pdmesh_work_t *jobs, s32 *job_count, s32 cap,
                             u16 filenum, const char *hint)
 {
 	if (filenum == 0) return 0;
-	/* Dedup: linear scan; the cap is ~512 so this stays cheap. */
+	const char *wanted_hint = hint ? hint : "";
+	/* Dedup by output identity, not only filenum. Some files are both
+	 * weapon meshes and body/hand meshes, which intentionally emit separate
+	 * archive names from the same source bytes. */
 	for (s32 i = 0; i < *job_count; i++) {
-		if (jobs[i].filenum == filenum) return 0;
+		if (jobs[i].filenum == filenum &&
+		    strcmp(jobs[i].hint, wanted_hint) == 0) {
+			return 0;
+		}
 	}
 	if (*job_count >= cap) return 0;
 	jobs[*job_count].filenum = filenum;
 	jobs[*job_count].hint[0] = '\0';
-	if (hint) {
+	if (hint && hint[0]) {
 		size_t hlen = strlen(hint);
 		if (hlen >= sizeof(jobs[*job_count].hint)) {
 			hlen = sizeof(jobs[*job_count].hint) - 1;
@@ -937,7 +943,7 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 	s_SeenCount = job_count;
 
 	sysLogPrintf(LOG_NOTE,
-		"romextract pdmesh: written=%d skipped=%d failed=%d unique_filenums=%d",
+		"romextract pdmesh: written=%d skipped=%d failed=%d unique_mesh_jobs=%d",
 		written, skipped, failed, s_SeenCount);
 
 	return written;

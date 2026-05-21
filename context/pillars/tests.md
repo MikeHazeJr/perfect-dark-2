@@ -23,7 +23,7 @@ Code:
 
 ## Compile target shape
 
-`pd-tests` defines: `PD_TESTS=1`, `AVOID_UB=1`, `_LANGUAGE_C=1`, `PAL=0`, `VERSION=2`, `ROM_SIZE=32`, `PIRACYCHECKS=0`, `MATCHING=0`. Static linkage on Windows (`-Wl,-Bstatic -lwinpthread`).
+`pd-tests` defines: `PD_TESTS=1`, `AVOID_UB=1`, `_LANGUAGE_C=1`, `PAL=0`, `VERSION=2`, `ROM_SIZE=32`, `PIRACYCHECKS=0`, `MATCHING=0`. Windows links static zlib/libgcc/libstdc++ where possible and copies the matching `C:/msys64/mingw64/bin/libwinpthread-1.dll` beside `pd-tests.exe`, because the Catch2/std::chrono path can still import `clock_gettime64` through MinGW's C++ runtime.
 
 The binary is self-contained: no SDL2, no OpenGL, no ImGui, no ENet linkage. Compile time stays low; tests run in seconds when built clean.
 
@@ -116,7 +116,7 @@ Drift is a known gap: each mirror is hand-synced. Replacing with a CI-time `diff
 .\devtools\run-pd-tests.ps1 -Session <id> -ListTags -NoBuild
 ```
 
-Do not invoke `.claude/session-builds/<id>/pd-tests.exe` directly during AI verification. Use the wrapper even for focused selectors. It dot-sources the canonical build environment, keeps the MSYS2/MinGW runtime DLLs first on PATH, and sets the Windows process error mode before launching the binary so DLL/import failures do not become blocking GUI dialogs.
+Do not invoke `.claude/session-builds/<id>/pd-tests.exe` directly during AI verification. Use the wrapper even for focused selectors. It dot-sources the canonical build environment and sets the Windows process error mode before launching the binary so loader failures do not become blocking GUI dialogs. The build must also keep `libwinpthread-1.dll` beside `pd-tests.exe`; that local copy takes precedence over PATH and prevents stale `clock_gettime64` loader popups.
 
 ### Scope aliases
 

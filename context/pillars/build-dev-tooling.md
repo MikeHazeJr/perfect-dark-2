@@ -141,7 +141,7 @@ Decision flowchart in `config-pd-ini-audit.md` (file is being folded into this d
 
 ## Static linking
 
-[CMakeLists.txt:301](../../CMakeLists.txt:301) statically links SDL2 from MSYS2; [:393](../../CMakeLists.txt:393) statically links zlib; [:411](../../CMakeLists.txt:411) statically links libcurl with the full TLS chain (libssl, libcrypto, libnghttp2/3, brotli, idn2, psl, zstd). Embedded Mozilla CA bundle at [:163](../../CMakeLists.txt:163). [:830](../../CMakeLists.txt:830) confirms `opengl32.dll` is the only allowed dynamic dep.
+[CMakeLists.txt](../../CMakeLists.txt) statically links SDL2 from MSYS2, zlib, libcurl with the full TLS chain (libssl, libcrypto, libnghttp2/3, brotli, idn2, psl, zstd), libgcc, libstdc++, and winpthread for player-facing Windows executables. Embedded Mozilla CA bundle remains in the updater/client TLS path. `opengl32.dll` is the only allowed dynamic dep for release binaries. `pd-tests.exe` is a test-only exception: CMake copies the matching `C:/msys64/mingw64/bin/libwinpthread-1.dll` beside the binary so Catch2/std::chrono `clock_gettime64` imports resolve locally instead of through PATH.
 
 ---
 

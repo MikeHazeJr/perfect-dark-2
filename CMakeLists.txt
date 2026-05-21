@@ -300,6 +300,17 @@ endif()
 include_directories(SYSTEM "${SDL2_INCLUDE_DIR}")
 set(_msys_lib "C:/msys64/mingw64/lib")
 if(WIN32)
+  set(PD_WINPTHREAD_STATIC_LIB "${_msys_lib}/libwinpthread.a")
+  set(PD_WINPTHREAD_RUNTIME_DLL "C:/msys64/mingw64/bin/libwinpthread-1.dll")
+  if(NOT EXISTS "${PD_WINPTHREAD_STATIC_LIB}")
+    message(FATAL_ERROR "Missing static winpthread library: ${PD_WINPTHREAD_STATIC_LIB}")
+  endif()
+  if(NOT EXISTS "${PD_WINPTHREAD_RUNTIME_DLL}")
+    message(FATAL_ERROR "Missing winpthread runtime DLL: ${PD_WINPTHREAD_RUNTIME_DLL}")
+  endif()
+  add_compile_definitions(WINPTHREAD_STATIC=1)
+endif()
+if(WIN32)
   # Direct file check for static .a (find_library can resolve to .dll.a stubs)
   if(EXISTS "${_msys_lib}/libSDL2.a" AND EXISTS "${_msys_lib}/libSDL2main.a")
     message(STATUS "SDL2: Static linking via ${_msys_lib}/libSDL2.a")
@@ -479,7 +490,7 @@ list(APPEND LIBS "${GL_LIBRARY}")
 # Platform-specific extra libs
 if(NOT EXTRA_LIBRARIES)
   if(WIN32)
-    set(EXTRA_LIBRARIES ws2_32 winmm dbghelp iphlpapi crypt32 bcrypt wldap32 secur32 -static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+    set(EXTRA_LIBRARIES ws2_32 winmm dbghelp iphlpapi crypt32 bcrypt wldap32 secur32 -static-libgcc -static-libstdc++ -Wl,-Bstatic "${PD_WINPTHREAD_STATIC_LIB}" -Wl,-Bdynamic)
     add_definitions(-DMINIUPNP_STATICLIB)
   elseif(NINTENDO_SWITCH)
     set(EXTRA_LIBRARIES stdc++ pthread)
@@ -718,7 +729,7 @@ if(WIN32)
     gdi32 user32 shell32 ole32 uuid
     # Statically link the C++/pthread runtime so there are no DLL deps
     -static-libgcc -static-libstdc++
-    -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+    -Wl,-Bstatic "${PD_WINPTHREAD_STATIC_LIB}" -Wl,-Bdynamic)
 endif()
 
 # Additional commands for specific platforms.
@@ -736,9 +747,11 @@ endif()
 # source. The pre-Step-5 base/*.pd-base aggregate archive deploy step
 # retired alongside the legacy reader and the source archives.
 
-# Windows: no DLL copy step — all third-party libraries are statically linked.
+# Windows release binaries: no DLL copy step - third-party libraries are statically linked.
 # SDL2, zlib, libcurl (+ full TLS chain), libgcc, libstdc++, and libwinpthread
-# are all compiled into PerfectDark.exe.
+# are compiled into the player-facing Windows executables. The pd-tests
+# Catch2/std::chrono path can still import libwinpthread-1.dll through MinGW's
+# C++ runtime, so that test-only DLL is copied beside pd-tests.exe below.
 # The only runtime dependency on Windows is opengl32.dll, which is a system DLL
 # present on every Windows installation and must NOT be statically linked.
 # See context/designs/static-link-dll-elimination-2026-04-13.md for the full audit.
@@ -976,7 +989,12 @@ target_compile_options(pd-tests PRIVATE
 )
 if(WIN32)
   target_link_libraries(pd-tests PRIVATE -static-libgcc -static-libstdc++
-    -Wl,-Bstatic "${PD_ZLIB_LIB}" -lwinpthread -Wl,-Bdynamic)
+    -Wl,-Bstatic "${PD_ZLIB_LIB}" "${PD_WINPTHREAD_STATIC_LIB}" -Wl,-Bdynamic)
+  add_custom_command(TARGET pd-tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${PD_WINPTHREAD_RUNTIME_DLL}"
+      "$<TARGET_FILE_DIR:pd-tests>/libwinpthread-1.dll"
+    COMMENT "Copying pd-tests winpthread runtime DLL")
 else()
   target_link_libraries(pd-tests PRIVATE "${PD_ZLIB_LIB}")
 endif()

@@ -82,6 +82,30 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
+$DevtoolsDir = Join-Path $ProjectRoot "devtools"
+
+. (Join-Path $DevtoolsDir "_build-env-prelude.ps1")
+
+$errorModeSource = @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class PdSmokeWinErrorMode
+{
+    [DllImport("kernel32.dll")]
+    public static extern uint SetErrorMode(uint uMode);
+}
+"@
+
+if (-not ([System.Management.Automation.PSTypeName]'PdSmokeWinErrorMode').Type) {
+    Add-Type -TypeDefinition $errorModeSource
+}
+
+$SEM_FAILCRITICALERRORS = 0x0001
+$SEM_NOGPFAULTERRORBOX = 0x0002
+$SEM_NOOPENFILEERRORBOX = 0x8000
+$loaderErrorMode = $SEM_FAILCRITICALERRORS -bor $SEM_NOGPFAULTERRORBOX -bor $SEM_NOOPENFILEERRORBOX
+$previousErrorMode = [PdSmokeWinErrorMode]::SetErrorMode($loaderErrorMode)
 
 if (-not $ExePath) {
     $ExePath = Join-Path $ProjectRoot "Build\pd-tests.exe"
@@ -210,6 +234,7 @@ try {
         $exitCode = -2
     } else {
         $exitCode = $proc.ExitCode
+        $proc.WaitForExit()
     }
 
     $stdout = $stdoutTask.Result
@@ -217,6 +242,8 @@ try {
 } catch {
     Write-Fail ("Failed to launch pd-tests.exe: {0}" -f $_.Exception.Message)
     $exitCode = -3
+} finally {
+    [void][PdSmokeWinErrorMode]::SetErrorMode($previousErrorMode)
 }
 
 $elapsed = ((Get-Date) - $started).TotalSeconds
@@ -236,7 +263,7 @@ if ($VerboseAssertions) {
 # Parse Catch2 output
 # ----------------------------------------------------------------
 
-$allPassedMatch  = ($rawOutput | Select-String -Pattern '^All tests passed \((\d+) assertions in (\d+) test cases\)' | Select-Object -First 1)
+$allPassedMatch  = ($rawOutput | Select-String -Pattern '^All tests passed \((\d+) assertions in (\d+) test case(?:s)?\)' | Select-Object -First 1)
 $testCasesMatch  = ($rawOutput | Select-String -Pattern '^test cases:\s+(\d+)\s*\|\s*(\d+) passed\s*\|\s*(\d+) failed' | Select-Object -First 1)
 $assertionsMatch = ($rawOutput | Select-String -Pattern '^assertions:\s+(\d+)\s*\|\s*(\d+) passed\s*\|\s*(\d+) failed' | Select-Object -First 1)
 
