@@ -901,6 +901,102 @@ s32 modArchiveMemFindForbiddenBinPayload(const void *archiveBytes, u32 archiveSi
 		NULL, outName, outNameCap);
 }
 
+s32 modArchiveMemForEachEntry(const void *archiveBytes, u32 archiveSize,
+                              mod_archive_mem_entry_cb cb, void *user)
+{
+	const u8 *bytes = (const u8 *)archiveBytes;
+	if (!bytes || archiveSize < EOCD_MIN_SIZE || !cb) {
+		setError(MODARCHIVE_ERR_FORMAT);
+		return MODARCHIVE_ERR_FORMAT;
+	}
+
+	s64 eocdOffset = findEocdOffsetMem(bytes, archiveSize);
+	if (eocdOffset < 0) {
+		return modArchiveLastError();
+	}
+
+	const u8 *eocd = bytes + eocdOffset;
+	u16 totalEntries = readU16LE(&eocd[10]);
+	u32 cdSize       = readU32LE(&eocd[12]);
+	u32 cdOffset     = readU32LE(&eocd[16]);
+
+	if (totalEntries == 0xFFFF || cdSize == 0xFFFFFFFFu || cdOffset == 0xFFFFFFFFu) {
+		setError(MODARCHIVE_ERR_LIMIT);
+		return MODARCHIVE_ERR_LIMIT;
+	}
+	if (cdOffset > archiveSize || cdSize > archiveSize - cdOffset) {
+		setError(MODARCHIVE_ERR_FORMAT);
+		return MODARCHIVE_ERR_FORMAT;
+	}
+
+	u32 walked = 0;
+	s32 delivered = 0;
+	const u8 *cd = bytes + cdOffset;
+	while (walked + 46 <= cdSize) {
+		const u8 *p = cd + walked;
+		if (readU32LE(p) != CDH_SIG) {
+			break;
+		}
+
+		u16 flags     = readU16LE(&p[8]);
+		u16 method    = readU16LE(&p[10]);
+		u32 csize     = readU32LE(&p[20]);
+		u32 usize     = readU32LE(&p[24]);
+		u16 nameLen   = readU16LE(&p[28]);
+		u16 extraLen  = readU16LE(&p[30]);
+		u16 cmtLen    = readU16LE(&p[32]);
+		u32 lfhOffset = readU32LE(&p[42]);
+		u32 recordLen = 46u + (u32)nameLen + (u32)extraLen + (u32)cmtLen;
+		if (walked + recordLen > cdSize) {
+			break;
+		}
+
+		if ((flags & ZIP_FLAG_ENCRYPTED) ||
+		    method == 0xFFFF ||
+		    (method != COMPRESSION_STORED && method != COMPRESSION_DEFLATED) ||
+		    csize == 0xFFFFFFFFu || usize == 0xFFFFFFFFu ||
+		    lfhOffset == 0xFFFFFFFFu || lfhOffset >= archiveSize) {
+			walked += recordLen;
+			continue;
+		}
+
+		s64 dataOff = lfhDataOffsetMem(bytes, archiveSize, lfhOffset);
+		if (dataOff < 0 || (u32)dataOff + csize > archiveSize) {
+			walked += recordLen;
+			continue;
+		}
+
+		char *name = (char *)malloc((size_t)nameLen + 1);
+		if (!name) {
+			setError(MODARCHIVE_ERR_MEM);
+			return MODARCHIVE_ERR_MEM;
+		}
+		memcpy(name, &p[46], nameLen);
+		name[nameLen] = '\0';
+
+		if (sanitiseEntryName(name, nameLen)) {
+			s32 r = cb(name, usize, user);
+			delivered++;
+			free(name);
+			if (r != 0) {
+				setError(MODARCHIVE_OK);
+				return r;
+			}
+		} else {
+			free(name);
+		}
+
+		walked += recordLen;
+	}
+
+	if (delivered == 0) {
+		setError(MODARCHIVE_ERR_FORMAT);
+		return MODARCHIVE_ERR_FORMAT;
+	}
+	setError(MODARCHIVE_OK);
+	return MODARCHIVE_OK;
+}
+
 /* ---------------------------------------------------- File-level sha256 */
 
 s32 modArchiveSha256(const char *path, u8 digest[SHA256_DIGEST_SIZE])

@@ -2,13 +2,15 @@
  * assetcatalog_deps.h -- Phase 2: Catalog dependency graph
  *
  * A lightweight flat table that maps catalog entries to their constituent
- * dependencies.  When a BODY or HEAD entry is added to a manifest all
- * registered deps are automatically expanded so the full character
- * composite (custom anims, custom textures) is loaded together.
+ * dependencies.  Manifest builders call catalogDepForEach() at known owner
+ * boundaries so registered deps can be added with the owning composite or
+ * behavior chain.
  *
  * Population:
  *   - Scanner calls catalogDepRegister() for each "deps" value found in a
- *     body/head component INI file.
+ *     body/head/projectile/entity component INI file.
+ *   - Scanner calls catalogDepRegister() when a projectile declares
+ *     entity_ref / transition_entity.
  *   - Scanner also calls catalogDepRegister() in reverse when an
  *     ASSET_ANIMATION entry declares a non-empty "target_body" field, so
  *     mods only need to annotate the animation side if preferred.
@@ -17,8 +19,8 @@
  *
  * Manifest integration:
  *   - manifestBuildMission() and manifestBuild() call
- *     catalogDepForEach() after each BODY/HEAD addition and add the
- *     resolved dep entries as MANIFEST_TYPE_ANIM / MANIFEST_TYPE_TEXTURE.
+ *     catalogDepForEach() after manifest additions and add resolved dep
+ *     entries using the dep asset's manifest type.
  *   - manifestApplyDiff() is unchanged -- deps appear as ordinary entries.
  *   - manifestAddEntry() already deduplicates by net_hash (internal cache key),
  *     so a dep shared between two characters is added only once but both owners reference it.

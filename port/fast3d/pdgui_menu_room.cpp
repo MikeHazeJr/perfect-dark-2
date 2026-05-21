@@ -61,10 +61,8 @@ s32 challengeIsFeatureUnlocked(u32 feature);
  * lived here; removed after the Y-Social handler at pdguiRoomScreenRender
  * was deleted per Mike's Q4 inversion. The Y-Social rollout on
  * Main Menu and Pause Menu is tracked in kanban c087 + c088. The
- * existing per-row Y (multi-select on bot rows, line ~2100) is a
- * pre-existing per-row reuse of the same physical button and is
- * unrelated to Y-Social; flagged in binding doc Q4 reconciliation
- * for c086 follow-up to disambiguate. */
+ * c086 removed the old per-row Y multi-select reuse too, so Y remains
+ * undefined on this screen. */
 
 /* Network mode */
 #define NETMODE_NONE   0
@@ -602,19 +600,37 @@ static bool s_IsSoloMode = false;
 /* Track if we've initialized g_MatchConfig for this lobby session */
 static bool s_MatchConfigInited = false;
 
+enum RoomFocusRegion {
+    ROOM_FOCUS_NONE = 0,
+    ROOM_FOCUS_SETTINGS,
+    ROOM_FOCUS_PLAYERS,
+    ROOM_FOCUS_FOOTER,
+};
+
+enum RoomCsSection {
+    ROOM_CS_ARENA = 0,
+    ROOM_CS_SCENARIO,
+    ROOM_CS_LIMITS,
+    ROOM_CS_WEAPONS,
+    ROOM_CS_OPTIONS,
+    ROOM_CS_SECTION_COUNT,
+};
+
+static int s_RoomFocusRegion = ROOM_FOCUS_NONE;
+static int s_RoomCsFocusedSection = ROOM_CS_ARENA;
+static int s_RoomCsSectionJumpPending = 0;
+static int s_RoomCsFocusTarget = -1;
+
 /* Rule 8 (2026-05-03): pending team-jump in the player panel.
  *
  * Set by the LT/RT poll at the top of pdguiRoomScreenRender when the
- * Combat Sim tab is active; consumed by renderPlayerPanel which sets
+ * player panel owns focus; consumed by renderPlayerPanel which sets
  * keyboard focus on the first row of the target team. Direction:
  *   -1 = previous team's first player
  *   +1 = next team's first player
  *    0 = idle (no pending jump)
  *
- * The renderer clears the flag after consuming so the jump is one-shot.
- * Implementation is the v1 cut: jumps only within the player panel and
- * only when teams are enabled. Left-panel section-jump (arena -> gametype
- * -> ...) is downstream work tracked in the kanban under the same card. */
+ * The renderer clears the flag after consuming so the jump is one-shot. */
 static int s_RoomPlayerSectionJumpPending = 0;
 
 /* R-5: set true whenever the leader changes settings; cleared after CLC_ROOM_SETTINGS_UPDATE send */
@@ -1586,6 +1602,67 @@ static u8 getLeadSimType(void)
     return 2; /* Normal as default */
 }
 
+static void roomRememberFocusedRegion(int region)
+{
+    s_RoomFocusRegion = region;
+}
+
+static void roomRememberFocusedPlayerRow(void)
+{
+    roomRememberFocusedRegion(ROOM_FOCUS_PLAYERS);
+    if (pdguiMenuStartPressed()) {
+        s_StartMatchFocusPending = true;
+        pdguiPlaySound(PDGUI_SND_SWIPE);
+    }
+}
+
+static void roomCsSectionPrepareFocus(int section)
+{
+    if (s_RoomCsFocusTarget == section) {
+        ImGui::SetKeyboardFocusHere(0);
+        s_RoomCsFocusTarget = -1;
+    }
+}
+
+static void roomCsSectionTrackLastItem(int section)
+{
+    if (ImGui::IsItemFocused()) {
+        roomRememberFocusedRegion(ROOM_FOCUS_SETTINGS);
+        s_RoomCsFocusedSection = section;
+    }
+}
+
+static void roomCsHandlePendingSectionJump(void)
+{
+    if (s_RoomCsSectionJumpPending == 0) {
+        return;
+    }
+
+    int target = s_RoomCsFocusedSection + s_RoomCsSectionJumpPending;
+    if (target < 0) target = 0;
+    if (target >= ROOM_CS_SECTION_COUNT) target = ROOM_CS_SECTION_COUNT - 1;
+
+    if (target != s_RoomCsFocusedSection) {
+        s_RoomCsFocusedSection = target;
+        s_RoomCsFocusTarget = target;
+    }
+
+    s_RoomCsSectionJumpPending = 0;
+}
+
+static bool roomContextPopupRequestedForLastItem(void)
+{
+    bool requested = false;
+    if (ImGui::IsItemFocused() && pdguiMenuSecondaryPressed()) {
+        requested = true;
+        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+    }
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        requested = true;
+    }
+    return requested;
+}
+
 /* ========================================================================
  * Helper: option toggle row — renders a toggle button and updates bitmask
  * ======================================================================== */
@@ -1602,6 +1679,7 @@ static void optToggle(const char *label, u32 flag, bool leader)
         else    g_MatchConfig.options &= ~flag;
         s_RoomSettingsDirty = true;
     }
+    roomCsSectionTrackLastItem(ROOM_CS_OPTIONS);
     if (!leader) ImGui::EndDisabled();
 }
 
@@ -1616,6 +1694,7 @@ static void optToggleInverted(const char *label, u32 flag, bool leader)
         else    g_MatchConfig.options |= flag;
         s_RoomSettingsDirty = true;
     }
+    roomCsSectionTrackLastItem(ROOM_CS_OPTIONS);
     if (!leader) ImGui::EndDisabled();
 }
 
@@ -1784,11 +1863,11 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
          * Add Bot footer) anchor against a constant header height. */
         if (s_BotSelectCount > 0) {
             ImGui::TextColored(pdguiVec4TitleGlow(),
-                               "  %d selected — Ctrl/Shift/Y to multi-select, X for menu",
+                               "  %d selected - Ctrl/Shift-click to multi-select, X for menu",
                                s_BotSelectCount);
         } else {
             ImGui::TextDisabled(
-                "  Ctrl/Shift+Click or Y on a bot row to multi-select; X for menu");
+                "  Ctrl/Shift+Click on a bot row to multi-select; X for menu");
         }
     }
 
@@ -1815,6 +1894,9 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 if (sel) ImGui::SetItemDefaultFocus();
             }
             ImGui::EndCombo();
+        }
+        if (ImGui::IsItemFocused()) {
+            roomRememberFocusedPlayerRow();
         }
         if (!isLeader) ImGui::EndDisabled();
     }
@@ -2123,26 +2205,15 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             }
 
-            /* Controller: tertiary toggles multi-select on the
-             * currently-focused row; secondary opens the context
-             * menu for the current selection. Controller A (GamepadFaceDown)
-             * activates the Selectable above via the standard ImGui nav path
-             * and falls through to the same single-select branch. */
+            /* Controller: secondary opens the context menu for the current
+             * selection. Controller A activates the Selectable above via the
+             * standard ImGui nav path and falls through to the same
+             * single-select branch. Y is intentionally unbound on Room. */
             if (ImGui::IsItemFocused()) {
-                if (pdguiMenuTertiaryPressed()) {
-                    botSelectToggle(r.slotIdx);
-                    s_BotLastClickedSlot = r.slotIdx;
-                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-                }
-                if (pdguiMenuSecondaryPressed()) {
-                    if (!s_BotSelected[r.slotIdx]) botSelectSet(r.slotIdx);
-                    s_BotLastClickedSlot = r.slotIdx;
-                    ImGui::OpenPopup("##bot_ctx");
-                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-                }
+                roomRememberFocusedPlayerRow();
             }
 
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            if (roomContextPopupRequestedForLastItem()) {
                 if (!s_BotSelected[r.slotIdx]) botSelectSet(r.slotIdx);
                 s_BotLastClickedSlot = r.slotIdx;
                 ImGui::OpenPopup("##bot_ctx");
@@ -2164,7 +2235,11 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
              * Right-click or controller secondary opens "##local_ctx".
              * Content emitted later in this loop iteration after the row
              * draws (mirrors the bot_ctx pattern). */
-            if (r.isLocal && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            if (ImGui::IsItemFocused()) {
+                roomRememberFocusedPlayerRow();
+            }
+
+            if (r.isLocal && roomContextPopupRequestedForLastItem()) {
                 ImGui::OpenPopup("##local_ctx");
             }
 
@@ -2687,10 +2762,10 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 if (!canDup) ImGui::EndDisabled();
             }
 
-            /* Re-Roll Name — random name per bot, body/head untouched. Each
+            /* Random name — random name per bot, body/head untouched. Each
              * bot rolls independently so a multi-select doesn't end up with a
              * shared name. */
-            if (isLeader && ImGui::MenuItem("Re-Roll Name")) {
+            if (isLeader && ImGui::MenuItem("Random name")) {
                 for (int j = 1; j < g_MatchConfig.numSlots; j++) {
                     if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT) {
                         matchConfigRerollBotName(j);
@@ -2700,8 +2775,8 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 s_RoomSettingsDirty = true;
             }
 
-            /* Re-Roll All — random name + character (existing full re-roll). */
-            if (isLeader && ImGui::MenuItem("Re-Roll Name + Character")) {
+            /* Random name + character (existing full re-roll). */
+            if (isLeader && ImGui::MenuItem("Random name + character")) {
                 for (int j = 1; j < g_MatchConfig.numSlots; j++) {
                     if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT) {
                         matchConfigRerollBot(j);
@@ -2739,6 +2814,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
          * for the page-jump fallback (Q-C). Falls back to team 0 / row
          * 0 when no row has had focus yet (e.g. fresh panel entry). */
         if (ImGui::IsItemFocused()) {
+            roomRememberFocusedPlayerRow();
             s_FocusedTeamCached = (s32)r.team;
             s_FocusedRowCached  = ri;
         }
@@ -2774,7 +2850,43 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
         s_RoomSettingsDirty = true;
     }
+    if (ImGui::IsItemFocused()) {
+        roomRememberFocusedPlayerRow();
+    }
+    if (roomContextPopupRequestedForLastItem()) {
+        ImGui::OpenPopup("##add_bot_ctx");
+    }
     if (!canAdd) ImGui::EndDisabled();
+
+    if (ImGui::BeginPopup("##add_bot_ctx")) {
+        if (!isLeader) ImGui::BeginDisabled();
+        if (ImGui::MenuItem("Add Bot", NULL, false, canAdd)) {
+            matchConfigAddBot(0 /*BOTTYPE_NORMAL*/, 2 /*NormalSim*/, nullptr, nullptr, nullptr);
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            s_RoomSettingsDirty = true;
+        }
+        if (ImGui::MenuItem("Fill Bot Slots", NULL, false, canAdd)) {
+            while (countBots() < maxBots && g_MatchConfig.numSlots < MATCH_MAX_SLOTS) {
+                matchConfigAddBot(0 /*BOTTYPE_NORMAL*/, 2 /*NormalSim*/, nullptr, nullptr, nullptr);
+            }
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            s_RoomSettingsDirty = true;
+        }
+        const bool hasBots = (countBots() > 0);
+        if (ImGui::MenuItem("Remove All Bots", NULL, false, hasBots)) {
+            for (int j = g_MatchConfig.numSlots - 1; j >= 1; j--) {
+                if (g_MatchConfig.slots[j].type == SLOT_BOT) {
+                    matchConfigRemoveSlot(j);
+                }
+            }
+            botSelectClear();
+            s_BotLastClickedSlot = -1;
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            s_RoomSettingsDirty = true;
+        }
+        if (!isLeader) ImGui::EndDisabled();
+        ImGui::EndPopup();
+    }
 
     /* Mike directive 2026-05-17: "Change Character (Temporary)" moved
      * from this standalone button to the per-row context menu on the
@@ -2980,9 +3092,52 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     float scale = pdguiScaleFactor();
     float comboW = panelW - ImGui::GetStyle().WindowPadding.x * 2;
 
+    roomCsHandlePendingSectionJump();
+
+    /* --- Arena --- */
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Arena");
+    if (!leader) ImGui::BeginDisabled();
+    roomCsSectionPrepareFocus(ROOM_CS_ARENA);
+    ImGui::SetNextItemWidth(comboW);
+    const char *arenaLabel = (s_NumArenas > 0) ? s_Arenas[s_SelectedArena].name : "(none)";
+    if (ImGui::BeginCombo("##arena", arenaLabel)) {
+        static const char *k_SectionNames[] = {
+            "Multiplayer Arenas", "Campaign Maps", "Mod Maps"
+        };
+        for (int sec = 0; sec < ARENA_SEC_COUNT; sec++) {
+            if (s_SectionCount[sec] == 0) continue;
+            char hdr[128];
+            snprintf(hdr, sizeof(hdr), "%s (%d)", k_SectionNames[sec], s_SectionCount[sec]);
+            ImGui::TextDisabled("%s", hdr);
+            ImGui::Indent();
+            for (int ai = s_SectionStart[sec];
+                 ai < s_SectionStart[sec] + s_SectionCount[sec]; ai++) {
+                bool sel = (ai == s_SelectedArena);
+                if (ImGui::Selectable(s_Arenas[ai].name, sel)) {
+                    s_SelectedArena = ai;
+                    strncpy(g_MatchConfig.stage_id, s_Arenas[ai].id,
+                            sizeof(g_MatchConfig.stage_id) - 1);
+                    g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+                    sysLogPrintf(LOG_NOTE, "ROOM: arena selected \"%s\" id='%s'",
+                        s_Arenas[ai].name, s_Arenas[ai].id);
+                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    s_RoomSettingsDirty = true;
+                }
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::Unindent();
+        }
+        ImGui::EndCombo();
+    }
+    roomCsSectionTrackLastItem(ROOM_CS_ARENA);
+    if (!leader) ImGui::EndDisabled();
+
+    ImGui::Spacing();
+
     /* --- Scenario --- */
     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Scenario");
     if (!leader) ImGui::BeginDisabled();
+    roomCsSectionPrepareFocus(ROOM_CS_SCENARIO);
     ImGui::SetNextItemWidth(comboW);
     if (ImGui::BeginCombo("##scenario", s_ScenarioNames[g_MatchConfig.scenario])) {
         for (int si = 0; si < s_NumScenarios; si++) {
@@ -3009,44 +3164,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
         }
         ImGui::EndCombo();
     }
-    if (!leader) ImGui::EndDisabled();
-
-    ImGui::Spacing();
-
-    /* --- Arena (F-2.1: collapsible sections, alphabetized) --- */
-    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Arena");
-    if (!leader) ImGui::BeginDisabled();
-    ImGui::SetNextItemWidth(comboW);
-    const char *arenaLabel = (s_NumArenas > 0) ? s_Arenas[s_SelectedArena].name : "(none)";
-    if (ImGui::BeginCombo("##arena", arenaLabel)) {
-        static const char *k_SectionNames[] = {
-            "Multiplayer Arenas", "Campaign Maps", "Mod Maps"
-        };
-        for (int sec = 0; sec < ARENA_SEC_COUNT; sec++) {
-            if (s_SectionCount[sec] == 0) continue;
-            char hdr[128];
-            snprintf(hdr, sizeof(hdr), "%s (%d)", k_SectionNames[sec], s_SectionCount[sec]);
-            if (ImGui::TreeNodeEx(hdr, ImGuiTreeNodeFlags_DefaultOpen)) {
-                for (int ai = s_SectionStart[sec];
-                     ai < s_SectionStart[sec] + s_SectionCount[sec]; ai++) {
-                    bool sel = (ai == s_SelectedArena);
-                    if (ImGui::Selectable(s_Arenas[ai].name, sel)) {
-                        s_SelectedArena = ai;
-                        strncpy(g_MatchConfig.stage_id, s_Arenas[ai].id,
-                                sizeof(g_MatchConfig.stage_id) - 1);
-                        g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
-                        sysLogPrintf(LOG_NOTE, "ROOM: arena selected \"%s\" id='%s'",
-                            s_Arenas[ai].name, s_Arenas[ai].id);
-                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-                        s_RoomSettingsDirty = true;
-                    }
-                    if (sel) ImGui::SetItemDefaultFocus();
-                }
-                ImGui::TreePop();
-            }
-        }
-        ImGui::EndCombo();
-    }
+    roomCsSectionTrackLastItem(ROOM_CS_SCENARIO);
     if (!leader) ImGui::EndDisabled();
 
     ImGui::Spacing();
@@ -3062,12 +3180,14 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     {
         if (!leader) ImGui::BeginDisabled();
         int tl = (int)g_MatchConfig.timelimit + 1;  /* 1-based for display */
+        roomCsSectionPrepareFocus(ROOM_CS_LIMITS);
         ImGui::SetNextItemWidth(comboW * 0.6f);
         /* Priority L (2026-04-25): label LEFT via pdguiSliderInt. */
         if (pdguiSliderInt("Time (min)", &tl, 1, 61)) {
             g_MatchConfig.timelimit = (u8)(tl - 1);  /* store 0-based */
             s_RoomSettingsDirty = true;
         }
+        roomCsSectionTrackLastItem(ROOM_CS_LIMITS);
         ImGui::SameLine();
         if (g_MatchConfig.timelimit >= 60) {
             ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.5f, 1.0f), "No limit");
@@ -3088,6 +3208,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
             g_MatchConfig.scorelimit = (u8)(sl - 1);  /* store 0-based */
             s_RoomSettingsDirty = true;
         }
+        roomCsSectionTrackLastItem(ROOM_CS_LIMITS);
         ImGui::SameLine();
         if (g_MatchConfig.scorelimit >= 99) {  /* 99+1=100: show "No limit" */
             ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.5f, 1.0f), "No limit");
@@ -3099,10 +3220,11 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
 
     ImGui::Spacing();
 
-    /* --- Weapon Set (F-2.1: TreeNodeEx + alphabetized, same pattern as Arenas) --- */
+    /* --- Weapon Set (alphabetized; group headers are non-focusable text) --- */
     {
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Weapon Set");
         if (!leader) ImGui::BeginDisabled();
+        roomCsSectionPrepareFocus(ROOM_CS_WEAPONS);
         s32 numSets = func0f189058(1);
         s32 curSet  = mpGetWeaponSet();
 
@@ -3122,21 +3244,22 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
 
         char grpHdr[64];
         snprintf(grpHdr, sizeof(grpHdr), "Base Game (%d)", wcount);
-        if (ImGui::TreeNodeEx(grpHdr, ImGuiTreeNodeFlags_DefaultOpen)) {
-            for (s32 j = 0; j < wcount; j++) {
-                bool isSel = (s_WSorted[j].idx == curSet);
-                char setLabel[128];
-                snprintf(setLabel, sizeof(setLabel), "%s##ws%d", s_WSorted[j].name, s_WSorted[j].idx);
-                if (ImGui::Selectable(setLabel, isSel)) {
-                    mpSetWeaponSet(s_WSorted[j].idx);
-                    g_MatchConfig.weaponSetIndex = (s8)s_WSorted[j].idx;
-                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-                    s_RoomSettingsDirty = true;
-                }
-                if (isSel) ImGui::SetItemDefaultFocus();
+        ImGui::TextDisabled("%s", grpHdr);
+        ImGui::Indent();
+        for (s32 j = 0; j < wcount; j++) {
+            bool isSel = (s_WSorted[j].idx == curSet);
+            char setLabel[128];
+            snprintf(setLabel, sizeof(setLabel), "%s##ws%d", s_WSorted[j].name, s_WSorted[j].idx);
+            if (ImGui::Selectable(setLabel, isSel)) {
+                mpSetWeaponSet(s_WSorted[j].idx);
+                g_MatchConfig.weaponSetIndex = (s8)s_WSorted[j].idx;
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                s_RoomSettingsDirty = true;
             }
-            ImGui::TreePop();
+            roomCsSectionTrackLastItem(ROOM_CS_WEAPONS);
+            if (isSel) ImGui::SetItemDefaultFocus();
         }
+        ImGui::Unindent();
         if (!leader) ImGui::EndDisabled();
     }
 
@@ -3175,6 +3298,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
                 }
                 ImGui::EndCombo();
             }
+            roomCsSectionTrackLastItem(ROOM_CS_WEAPONS);
         }
         if (!leader) ImGui::EndDisabled();
     }
@@ -3185,6 +3309,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     /* --- Game Options --- */
     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Options");
 
+    roomCsSectionPrepareFocus(ROOM_CS_OPTIONS);
     optToggleInverted("Auto-Aim",        MPOPTION_NOAUTOAIM,         leader);
     optToggleInverted("Radar",           MPOPTION_NORADAR,           leader);
     optToggle        ("Teams",           MPOPTION_TEAMSENABLED,      leader);
@@ -3227,6 +3352,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
             }
             ImGui::EndCombo();
         }
+        roomCsSectionTrackLastItem(ROOM_CS_OPTIONS);
         if (!leader) ImGui::EndDisabled();
     }
     optToggleInverted("Player Highlight",MPOPTION_NOPLAYERHIGHLIGHT, leader);
@@ -3237,8 +3363,8 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     ImGui::Spacing();
 
     /* Priority L (2026-04-25, finish-menus pass): Handicaps now renders
-     * INLINE as a CollapsingHeader inside Match Settings rather than
-     * pushing a separate modal dialog.  Per Mike's flat-menu rule 6,
+     * INLINE inside Match Settings rather than pushing a separate modal
+     * dialog. Per Mike's flat-menu rule 6,
      * settings panels that aren't confirmations should be inline rows.
      * The slider grid is small enough to fit comfortably here.  Teams
      * and Music keep their modal pushes under the methodology rule 6
@@ -3252,36 +3378,36 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
 
         if (!leader) ImGui::BeginDisabled();
 
-        /* Player Handicaps -- inline as CollapsingHeader. */
-        if (ImGui::CollapsingHeader("Player Handicaps")) {
-            ImGui::Indent();
-            int playerSlot = 0;
-            bool anyPlayerSlot = false;
-            for (int i = 0; i < (int)g_MatchConfig.numSlots; i++) {
-                if (g_MatchConfig.slots[i].type != SLOT_PLAYER) continue;
-                anyPlayerSlot = true;
-                ImGui::PushID(playerSlot);
-                const char *pname = g_MatchConfig.slots[i].name;
-                if (!pname || !pname[0]) pname = "Player";
-                u8 h = matchGetPlayerHandicap(playerSlot);
-                int pct = ((int)h * 100) / 128;
-                char rowLabel[64];
-                snprintf(rowLabel, sizeof(rowLabel), "P%d: %s",
-                         playerSlot + 1, pname);
-                if (pdguiSliderInt(rowLabel, &pct, 0, 200, "%d%%")) {
-                    u8 raw = (u8)(((int)pct * 128) / 100);
-                    if (pct > 0 && raw == 0) raw = 1;
-                    matchSetPlayerHandicap(playerSlot, raw);
-                    s_RoomSettingsDirty = true;
-                }
-                ImGui::PopID();
-                playerSlot++;
+        /* Player Handicaps -- inline rows. Header text is not focusable. */
+        ImGui::TextDisabled("Player Handicaps");
+        ImGui::Indent();
+        int playerSlot = 0;
+        bool anyPlayerSlot = false;
+        for (int i = 0; i < (int)g_MatchConfig.numSlots; i++) {
+            if (g_MatchConfig.slots[i].type != SLOT_PLAYER) continue;
+            anyPlayerSlot = true;
+            ImGui::PushID(playerSlot);
+            const char *pname = g_MatchConfig.slots[i].name;
+            if (!pname || !pname[0]) pname = "Player";
+            u8 h = matchGetPlayerHandicap(playerSlot);
+            int pct = ((int)h * 100) / 128;
+            char rowLabel[64];
+            snprintf(rowLabel, sizeof(rowLabel), "P%d: %s",
+                     playerSlot + 1, pname);
+            if (pdguiSliderInt(rowLabel, &pct, 0, 200, "%d%%")) {
+                u8 raw = (u8)(((int)pct * 128) / 100);
+                if (pct > 0 && raw == 0) raw = 1;
+                matchSetPlayerHandicap(playerSlot, raw);
+                s_RoomSettingsDirty = true;
             }
-            if (!anyPlayerSlot) {
-                ImGui::TextDisabled("No human player slots in this match.");
-            }
-            ImGui::Unindent();
+            roomCsSectionTrackLastItem(ROOM_CS_OPTIONS);
+            ImGui::PopID();
+            playerSlot++;
         }
+        if (!anyPlayerSlot) {
+            ImGui::TextDisabled("No human player slots in this match.");
+        }
+        ImGui::Unindent();
 
         /* Team Setup keeps modal -- multi-team naming + per-slot
          * reassignment grid has its own focus model per the methodology
@@ -3291,6 +3417,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
                                     &g_MpTeamsMenuDialog);
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
+        roomCsSectionTrackLastItem(ROOM_CS_OPTIONS);
         if (!leader) ImGui::EndDisabled();
 
         /* Music selection — available to all players (personal playlist choice) */
@@ -3299,6 +3426,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
                                     &g_MpSelectTunesMenuDialog);
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
+        roomCsSectionTrackLastItem(ROOM_CS_OPTIONS);
     }
 
     /* Scenario-specific options */
@@ -3345,6 +3473,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
         s_ScenarioStatusMsg[0] = '\0';
         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
     }
+    roomCsSectionTrackLastItem(ROOM_CS_OPTIONS);
     ImGui::SameLine();
     if (ImGui::Button("Load Scenario", ImVec2(halfW, sbtnH))) {
         s_ScenarioCount = scenarioListFiles(s_ScenarioFiles, SCENARIO_MAX_LIST);
@@ -3353,6 +3482,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
         s_ScenarioStatusMsg[0] = '\0';
         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
     }
+    roomCsSectionTrackLastItem(ROOM_CS_OPTIONS);
     if (!leader) ImGui::EndDisabled();
 
     /* Status message (e.g. "Saved!" or "Loaded!") */
@@ -3828,14 +3958,14 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
      * (skip-empty-bindings), an undefined input is a no-op AND no glyph
      * hint is rendered for it.
      *
-     * Therefore: do NOT poll pdguiMenuTertiaryPressed() (Y) here, do NOT
+     * Therefore: do NOT poll pdguiMenuTertiaryPressed (Y) here, do NOT
      * call pdguiFriendsSocialOpen() from this screen. The Y-Social
      * binding lives on Main Menu (pdgui_menu_mainmenu.cpp) and Pause
      * Menu (pdgui_menu_pausemenu.cpp) screens; rollouts tracked in
      * kanban c087 (Main Menu) and c088 (Pause Menu).
      *
      * If a future spec change re-promotes Y-Social to universal, restore
-     * by polling pdguiMenuTertiaryPressed() here and gating on
+     * by polling pdguiMenuTertiaryPressed here and gating on
      * !pdguiFriendsSocialIsOpen() (idempotent re-open guard). */
 
     /* Rule 8 (2026-05-03): LT/RT skip-up / skip-down.
@@ -3843,19 +3973,26 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
      * Renamed per Mike's Q-A 2026-05-03 from SectionPrev/Next to
      * SkipUp/Down. Per Mike's Q-B (dynamic walker only): in the Combat
      * Sim Room the player panel exposes a per-row team-jump walker
-     * (consumed in renderPlayerPanel), and the left settings panel will
-     * expose a section-header walker (downstream, c086). Per Mike's Q-C
+     * (consumed in renderPlayerPanel), and the left settings panel exposes
+     * a section walker: Arena -> Scenario -> Limits -> Weapon Set ->
+     * Options. Per Mike's Q-C
      * (page-jump fallback): if the focused panel has neither groups nor
      * scroll, LT/RT is no-op; LT/RT NEVER crosses panels (D-pad does).
-     * The current implementation only handles the Combat Sim tab + the
-     * player-panel team-jump path; left-panel section-jump and page-jump
-     * fallback for flat panels is c086. */
+     * Boundary case: clamp, no wrap. */
     if (s_ActiveTab == 0) {
+        int skipDir = 0;
         if (pdguiMenuSkipUpPressed()) {
-            s_RoomPlayerSectionJumpPending = -1;
-            pdguiPlaySound(PDGUI_SND_SWIPE);
+            skipDir = -1;
         } else if (pdguiMenuSkipDownPressed()) {
-            s_RoomPlayerSectionJumpPending = +1;
+            skipDir = +1;
+        }
+        if (skipDir != 0) {
+            if (s_RoomFocusRegion == ROOM_FOCUS_PLAYERS) {
+                s_RoomPlayerSectionJumpPending = skipDir;
+            } else if (s_RoomFocusRegion == ROOM_FOCUS_SETTINGS
+                       || s_RoomFocusRegion == ROOM_FOCUS_NONE) {
+                s_RoomCsSectionJumpPending = skipDir;
+            }
             pdguiPlaySound(PDGUI_SND_SWIPE);
         }
     }
@@ -3965,6 +4102,9 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             menuGraphFireSceneOp(MENU_TYPE_ROOM, "start_match",
                                  roomGraphStartMatch, NULL);
         }
+        if (ImGui::IsItemFocused()) {
+            roomRememberFocusedRegion(ROOM_FOCUS_FOOTER);
+        }
 
         ImGui::SameLine();
 
@@ -4001,6 +4141,9 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             s_ShowLeaveConfirm = true;
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
         }
+    }
+    if (ImGui::IsItemFocused()) {
+        roomRememberFocusedRegion(ROOM_FOCUS_FOOTER);
     }
 
     /* ---- Bot settings modal ---- */
@@ -4745,6 +4888,11 @@ extern "C" void pdguiRoomScreenReset(void)
     s_CodeGenerated     = false;
     s_IsSoloMode        = false;  /* caller sets via pdguiRoomScreenSetSolo() after reset */
     s_ActiveTab         = 0;
+    s_RoomFocusRegion   = ROOM_FOCUS_NONE;
+    s_RoomCsFocusedSection = ROOM_CS_ARENA;
+    s_RoomCsSectionJumpPending = 0;
+    s_RoomCsFocusTarget = -1;
+    s_RoomPlayerSectionJumpPending = 0;
     s_CampaignMission   = 0;
     s_CampaignDiff      = DIFF_A;
     s_CounterOpMission  = 0;

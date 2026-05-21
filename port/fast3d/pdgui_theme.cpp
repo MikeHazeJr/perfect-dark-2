@@ -2719,6 +2719,48 @@ static int s_pduiBuildManifest(const struct PduiEntry *e,
     return n;
 }
 
+static int s_pduiBuildIni(const struct PduiEntry *e,
+                          uint32_t w, uint32_t h, uint32_t tga_size,
+                          char *out, size_t out_size)
+{
+    int l = 0, r = 0, t = 0, b = 0;
+    s_pduiNinesliceInsets(w, h, &l, &r, &t, &b);
+
+    int n = snprintf(out, out_size,
+        "[ui]\n"
+        "catalog_id = %s\n"
+        "texture_file = texture.tga\n"
+        "texture_name = %s\n"
+        "width = %u\n"
+        "height = %u\n"
+        "format = rgba32_top_down\n"
+        "data_size = %u\n"
+        "nineslice_left = %d\n"
+        "nineslice_right = %d\n"
+        "nineslice_top = %d\n"
+        "nineslice_bottom = %d\n"
+        "nineslice_edge_mode = stretch\n"
+        "nineslice_center_mode = stretch\n"
+        "source_index = %d\n",
+        e->catalog_id, e->file_slug,
+        (unsigned)w, (unsigned)h, (unsigned)tga_size,
+        l, r, t, b, e->tex_index);
+    if (n <= 0 || (size_t)n >= out_size) return 0;
+    return n;
+}
+
+static bool s_archiveHasEntry(const char *rel_path, const char *entry)
+{
+    char fullBuf[FS_MAXPATH + 1];
+    const char *full = fsFullPath(rel_path, fullBuf, sizeof(fullBuf));
+    if (!full || !full[0]) return false;
+    mod_archive_t *arc = modArchiveOpen(full);
+    if (!arc) return false;
+    bool found = modArchiveFindEntry(arc, entry) >= 0;
+    modArchiveClose(arc);
+    return found;
+}
+
 /* Emit one .pdui ZIP for a single canonical texture entry. Decodes from
  * ROM textureconfig, wraps in manifest + TGA + sidecar, atomically
  * writes via modArchive. Returns 1 written, 0 skipped (idempotent or
@@ -2734,7 +2776,8 @@ static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
         return -1;
     }
 
-    if (!force_rewrite && fsFileSize(rel_path) > 0) {
+    if (!force_rewrite && fsFileSize(rel_path) > 0 &&
+        s_archiveHasEntry(rel_path, "ui.ini")) {
         return 0;
     }
 
@@ -2777,6 +2820,16 @@ static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
         return -1;
     }
 
+    char ini_buf[1024];
+    int ini_len = s_pduiBuildIni(e, w, h, tga_size,
+                                 ini_buf, sizeof(ini_buf));
+    if (ini_len <= 0) {
+        sysLoudFailf("EXTRACT.PDUI",
+            "ui.ini snprintf truncated for '%s'", e->catalog_id);
+        free(tga_buf);
+        return -1;
+    }
+
     /* SHA-256 sidecar of the TGA bytes. */
     uint8_t digest[SHA256_DIGEST_SIZE];
     sha256Hash(tga_buf, (size_t)tga_size, digest);
@@ -2804,6 +2857,14 @@ static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
         return -1;
     }
 
+    if (modArchiveAddFileMem(aw, "ui.ini",
+                              ini_buf, (uint32_t)ini_len) != 0) {
+        sysLoudFailf("EXTRACT.PDUI",
+            "AddFileMem ui.ini failed for '%s'", full);
+        modArchiveAbort(aw);
+        free(tga_buf);
+        return -1;
+    }
     if (modArchiveAddFileMem(aw, "manifest.json",
                               manifest_buf, (uint32_t)manifest_len) != 0) {
         sysLoudFailf("EXTRACT.PDUI",

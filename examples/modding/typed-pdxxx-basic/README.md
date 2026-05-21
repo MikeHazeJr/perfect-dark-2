@@ -6,7 +6,7 @@ This folder is a permanent modder-facing sample set. The content units are the t
 - `bodies/tri_body.pdbody`
 - `arenas/tri_arena.pdarena`
 - `meshes/tri_mesh.pdmesh`
-- `weapons/tri_weapon.pdwpn`
+- `weapons/tri_weapon.pdweapon`
 - `animations/weapon_idle.pdanim`
 - `animations/character_skeletal.pdanim`
 - `audio/sfx/tri_click.pdsfx`

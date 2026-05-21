@@ -5502,7 +5502,7 @@ s32 loaderEnumResolveFileEnum(const char *name, s32 fallback)
 { return lookup_enum(k_FileEnum, k_FileEnum_count, name, fallback); }
 
 /* Catalog universality pivot Step 1: reverse lookup (value -> name).
- * Used by the .pdwpn / .pdanim emitters to convert pool integers
+ * Used by the .pdweapon / .pdanim emitters to convert pool integers
  * (filenums, anim ids, sfx ids, lang ids) back to human-readable
  * symbolic strings for the JSON output. Linear scan; emit is a
  * one-shot at startup. Returns NULL if no match.

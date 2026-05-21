@@ -282,6 +282,42 @@ const char *modiniTemplateForKind(const char *kind)
 			"; muzzle_z = 0.0\n";
 	}
 
+	if (strcmp(kind, "projectile") == 0) {
+		return
+			"; projectile.ini - physical projectile behavior metadata\n"
+			"[projectile]\n"
+			"; catalog_id = mod:projectile_id\n"
+			"name = New Projectile\n"
+			"model_file = model.gltf\n"
+			"behavior_graph = behavior.graph.json\n"
+			"; entity_ref = mod:deployed_entity\n"
+			"\n"
+			"[motion]\n"
+			"; launch_speed = 0\n"
+			"; gravity = 0\n"
+			"; guidance = none\n"
+			"; lifetime_ticks = 0\n"
+			"\n"
+			"[impact]\n"
+			"; on_impact = detonate\n";
+	}
+
+	if (strcmp(kind, "entity") == 0) {
+		return
+			"; entity.ini - deployed/stuck behavior archetype metadata\n"
+			"[entity]\n"
+			"; catalog_id = mod:entity_id\n"
+			"name = New Entity\n"
+			"archetype = deployed_object\n"
+			"model_file = model.gltf\n"
+			"behavior_graph = behavior.graph.json\n"
+			"\n"
+			"[behavior]\n"
+			"; owner_policy = owner_team\n"
+			"; activation = armed\n"
+			"; cleanup = owner_or_lifetime\n";
+	}
+
 	if (strcmp(kind, "head") == 0) {
 		return
 			"; head.ini - external multiplayer head metadata\n"
@@ -586,6 +622,8 @@ static asset_type_e categoryToType(const char *dirname)
 	if (strcmp(dirname, "skins") == 0)       return ASSET_SKIN;
 	if (strcmp(dirname, "bot_variants") == 0) return ASSET_BOT_VARIANT;
 	if (strcmp(dirname, "weapons") == 0)     return ASSET_WEAPON;
+	if (strcmp(dirname, "projectiles") == 0) return ASSET_PROJECTILE;
+	if (strcmp(dirname, "entities") == 0)    return ASSET_ENTITY;
 	if (strcmp(dirname, "textures") == 0)    return ASSET_TEXTURES;
 	if (strcmp(dirname, "sfx") == 0)         return ASSET_SFX;
 	if (strcmp(dirname, "music") == 0)       return ASSET_MUSIC;
@@ -618,6 +656,8 @@ static asset_type_e sectionToType(const char *section)
 	if (strcmp(section, "skin") == 0)         return ASSET_SKIN;
 	if (strcmp(section, "bot_variant") == 0)  return ASSET_BOT_VARIANT;
 	if (strcmp(section, "weapon") == 0)       return ASSET_WEAPON;
+	if (strcmp(section, "projectile") == 0)   return ASSET_PROJECTILE;
+	if (strcmp(section, "entity") == 0)       return ASSET_ENTITY;
 	if (strcmp(section, "textures") == 0)     return ASSET_TEXTURES;
 	if (strcmp(section, "sfx") == 0)          return ASSET_SFX;
 	if (strcmp(section, "music") == 0)        return ASSET_MUSIC;
@@ -664,7 +704,10 @@ static s32 pathEndsWithNoCase(const char *s, const char *suffix)
 
 static asset_type_e typedPdContentTypeForPath(const char *path)
 {
-	if (pathEndsWithNoCase(path, ".pdwpn"))      return ASSET_WEAPON;
+	if (pathEndsWithNoCase(path, ".pdweapon"))   return ASSET_WEAPON;
+	if (pathEndsWithNoCase(path, ".pdprojectile")) return ASSET_PROJECTILE;
+	if (pathEndsWithNoCase(path, ".pdentity"))   return ASSET_ENTITY;
+	if (pathEndsWithNoCase(path, ".pdcharacter")) return ASSET_CHARACTER;
 	if (pathEndsWithNoCase(path, ".pdhead"))     return ASSET_HEAD;
 	if (pathEndsWithNoCase(path, ".pdbody"))     return ASSET_BODY;
 	if (pathEndsWithNoCase(path, ".pdarena"))    return ASSET_ARENA;
@@ -682,7 +725,10 @@ static asset_type_e typedPdContentTypeForPath(const char *path)
 
 static const char *typedPdArchiveDescriptorLeaf(const char *path)
 {
-	if (pathEndsWithNoCase(path, ".pdwpn"))      return "weapon.ini";
+	if (pathEndsWithNoCase(path, ".pdweapon"))   return "weapon.ini";
+	if (pathEndsWithNoCase(path, ".pdprojectile")) return "projectile.ini";
+	if (pathEndsWithNoCase(path, ".pdentity"))   return "entity.ini";
+	if (pathEndsWithNoCase(path, ".pdcharacter")) return "character.ini";
 	if (pathEndsWithNoCase(path, ".pdhead"))     return "head.ini";
 	if (pathEndsWithNoCase(path, ".pdbody"))     return "body.ini";
 	if (pathEndsWithNoCase(path, ".pdarena"))    return "arena.ini";
@@ -1198,6 +1244,35 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.weapon.dual_wieldable = iniGetInt(ini, "dual_wieldable", 0);
 		break;
 
+	case ASSET_PROJECTILE:
+		strncpy(e->ext.projectile.name, iniGet(ini, "name", ""), sizeof(e->ext.projectile.name) - 1);
+		strncpy(e->ext.projectile.model_file, iniGet(ini, "model_file",
+			iniGet(ini, "model", "")), sizeof(e->ext.projectile.model_file) - 1);
+		strncpy(e->ext.projectile.behavior_graph, iniGet(ini, "behavior_graph",
+			iniGet(ini, "graph", "")), sizeof(e->ext.projectile.behavior_graph) - 1);
+		strncpy(e->ext.projectile.entity_ref, iniGet(ini, "entity_ref",
+			iniGet(ini, "transition_entity", "")), sizeof(e->ext.projectile.entity_ref) - 1);
+		if (e->ext.projectile.behavior_graph[0]) {
+			catalogSetPrimaryFile(e, e->ext.projectile.behavior_graph);
+		} else if (e->ext.projectile.model_file[0]) {
+			catalogSetPrimaryFile(e, e->ext.projectile.model_file);
+		}
+		break;
+
+	case ASSET_ENTITY:
+		strncpy(e->ext.entity.name, iniGet(ini, "name", ""), sizeof(e->ext.entity.name) - 1);
+		strncpy(e->ext.entity.archetype, iniGet(ini, "archetype", ""), sizeof(e->ext.entity.archetype) - 1);
+		strncpy(e->ext.entity.model_file, iniGet(ini, "model_file",
+			iniGet(ini, "model", "")), sizeof(e->ext.entity.model_file) - 1);
+		strncpy(e->ext.entity.behavior_graph, iniGet(ini, "behavior_graph",
+			iniGet(ini, "graph", "")), sizeof(e->ext.entity.behavior_graph) - 1);
+		if (e->ext.entity.behavior_graph[0]) {
+			catalogSetPrimaryFile(e, e->ext.entity.behavior_graph);
+		} else if (e->ext.entity.model_file[0]) {
+			catalogSetPrimaryFile(e, e->ext.entity.model_file);
+		}
+		break;
+
 	case ASSET_PROP:
 		e->ext.prop.prop_type = iniGetInt(ini, "prop_type", 0);
 		strncpy(e->ext.prop.name, iniGet(ini, "name", ""), sizeof(e->ext.prop.name) - 1);
@@ -1317,6 +1392,12 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 
 	if (type == ASSET_BODY || type == ASSET_HEAD) {
 		registerDependencyList(e->id, iniGet(ini, "deps", ""), e->bundled);
+	}
+	if (type == ASSET_PROJECTILE || type == ASSET_ENTITY) {
+		registerDependencyList(e->id, iniGet(ini, "deps", ""), e->bundled);
+	}
+	if (type == ASSET_PROJECTILE && e->ext.projectile.entity_ref[0]) {
+		catalogDepRegister(e->id, e->ext.projectile.entity_ref, e->bundled);
 	}
 	if (type == ASSET_ANIMATION && e->ext.anim.target_body[0]) {
 		catalogDepRegister(e->ext.anim.target_body, e->id, e->bundled);
@@ -1705,6 +1786,12 @@ s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir
 
 	total += scanExternalDescriptorPath(mod_dir, "weapons",
 		"weapon.ini", ASSET_WEAPON, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "projectiles",
+		"projectile.ini", ASSET_PROJECTILE, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "entities",
+		"entity.ini", ASSET_ENTITY, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "characters",
+		"character.ini", ASSET_CHARACTER, mod_id);
 	total += scanExternalDescriptorPath(mod_dir, "characters/heads",
 		"head.ini", ASSET_HEAD, mod_id);
 	total += scanExternalDescriptorPath(mod_dir, "characters/bodies",
@@ -1838,6 +1925,9 @@ static s32 archiveIniIsDescriptor(const char *entry_name)
 
 	const char *leaf = pathLeaf(entry_name);
 	return strcmp(leaf, "weapon.ini") == 0
+		|| strcmp(leaf, "projectile.ini") == 0
+		|| strcmp(leaf, "entity.ini") == 0
+		|| strcmp(leaf, "character.ini") == 0
 		|| strcmp(leaf, "head.ini") == 0
 		|| strcmp(leaf, "body.ini") == 0
 		|| strcmp(leaf, "arena.ini") == 0
@@ -1882,6 +1972,8 @@ static asset_type_e archiveExpectedTypeForPath(const char *entry_name)
 	}
 
 	if (strcmp(seg0, "weapons") == 0) return ASSET_WEAPON;
+	if (strcmp(seg0, "projectiles") == 0) return ASSET_PROJECTILE;
+	if (strcmp(seg0, "entities") == 0) return ASSET_ENTITY;
 	if (strcmp(seg0, "animations") == 0) return ASSET_ANIMATION;
 	if (strcmp(seg0, "audio") == 0) return ASSET_AUDIO;
 	if (strcmp(seg0, "ui") == 0) return ASSET_UI;

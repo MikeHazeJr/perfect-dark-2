@@ -109,6 +109,7 @@ Per [constraints.md](../constraints.md):
 - **Mouse capture driven by input context stack.** No menu may call `SDL_SetRelativeMouseMode` or `SDL_ShowCursor` directly.
 - **Room-settings mutations broadcast via end-of-frame dirty flag.** Leader-side mutations to shared room state set a file-static dirty flag; flush via `netSendRoomSettingsUpdate` / `netSendRoomPlaylistUpdate` at end-of-frame, gated on `g_NetMode == MPSETTINGS_NETMODE_CLIENT && lobbyIsLocalLeader()`. Do not broadcast inline (packet storm).
 - **Legacy-stack watchdog is leak-only.** B-351 split `menuPoolConsistencyCheck()` away from `menupoolReleaseAll()`: the watchdog now releases only pool slots that require a live legacy dialog, while preserving standalone pure-ImGui overlays such as Combat Simulator Room, Social Lobby, Social Shell, and the MP Pause menu. Stage transitions and explicit root closes still use `menupoolReleaseAll()`.
+- **MP post-match screen must stay top-visible.** B-356 keeps the suppressed legacy `g_MpEndscreenSavePlayerMenuDialog` from being pushed on top of the MP game-over root. The PC ImGui endscreen exit path owns config saving; the no-op Controller Pak prompt must not become the current Combat Simulator post-match dialog.
 
 ---
 
@@ -130,6 +131,7 @@ Per [constraints.md](../constraints.md):
 ## What is in flight
 
 - **Menu graph completion.** Closed for the active ImGui/controller-facing surface in c036 (2026-05-19). Remaining legacy C/runtime stack calls are not part of that controller menu lane.
+- **Combat Sim Room flow parity.** Code/build verified 2026-05-21 under c086, pending Mike playtest. Main Menu -> Combat Simulator -> Room -> Start Match and Room/Endscreen return paths remain graph-routed. Room panels and grouping headers are non-focusable where practical; focus lands on actionable contents. RS scroll continues to use the innermost-scroll target, and the Room left/right panels avoid extra nested scrollbars beyond the necessary settings/player-list scroll regions.
 - **Three deferred MENUITEM types.** [pdgui_menu_warning.cpp:1247-1258](../../port/fast3d/pdgui_menu_warning.cpp:1247) explicitly DEFERRED: `MENUITEMTYPE_LIST` (MP Pause Inventory, MP Character body/head, MP Load Settings/Preset/Player), `MENUITEMTYPE_PLAYERSTATS` (MP Pause Player Stats), `MENUITEMTYPE_RANKING` (MP Pause Player Ranking, MP Pause Team Rankings). Fallback at lines 622-629 outputs `[label]` placeholder text. The in-match inventory and ranking screens are placeholders.
 - **Action bar adoption.** Used in 19 of 31 files. Remaining 12 (`solomission`, `training`, `mpsettings` partially, `mpadvanced`, `challenges`, `logviewer`, `audiomod`, `stats`, `theme_editor`, `modmgr`, `endscreen`, `mpsetup` partially) place CTAs in scroll body. UX inconsistency.
 - **Widget helper adoption.** Used in 12 of 31 files. 19 menus still use raw ImGui widgets with default label-right.
@@ -147,7 +149,7 @@ Per [constraints.md](../constraints.md):
 
 ## Tests
 
-Coverage at `tests/`: `test_menu_stack` (9 cases), `test_menu_reachability` (6 synthetic trees), `test_menu_graph` (static source guard), `test_right_stick_scroll` (math spec), `menupool_pure.c` (pure mirror).
+Coverage at `tests/`: `test_menu_stack` (9 cases), `test_menu_reachability` (6 synthetic trees), `test_menu_graph` (static source guard, including c086 Room parity guards), `test_right_stick_scroll` (math spec), `test_nested_scroll` (innermost scroll target), `menupool_pure.c` (pure mirror).
 
 ---
 

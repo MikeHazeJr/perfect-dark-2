@@ -37,7 +37,7 @@ Both `devtools/_build-env-prelude.ps1` and `devtools/build-env.sh` set these ide
 From bash:
 
 ```bash
-source devtools/build-env.sh && ninja -C Build pd pd-server
+source devtools/build-env.sh && ninja -C Build pd pd-tests
 ```
 
 From PowerShell:

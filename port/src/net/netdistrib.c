@@ -43,6 +43,7 @@
 #include "net/netenet.h"
 #include "net/netmanifest.h"
 #include "assetcatalog.h"
+#include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
 #include "modmgr.h"
 #include "pdgui_theme_loader.h"
@@ -939,6 +940,8 @@ static asset_type_e iniFilenameToAssetType(const char *ini_name)
     if (strcmp(ini_name, "texture.ini") == 0)   return ASSET_TEXTURE;
     if (strcmp(ini_name, "skin.ini") == 0)      return ASSET_SKIN;
     if (strcmp(ini_name, "weapon.ini") == 0)    return ASSET_WEAPON;
+    if (strcmp(ini_name, "projectile.ini") == 0) return ASSET_PROJECTILE;
+    if (strcmp(ini_name, "entity.ini") == 0)    return ASSET_ENTITY;
     if (strcmp(ini_name, "head.ini") == 0)      return ASSET_HEAD;
     if (strcmp(ini_name, "body.ini") == 0)      return ASSET_BODY;
     if (strcmp(ini_name, "arena.ini") == 0)     return ASSET_ARENA;
@@ -1104,6 +1107,36 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
          * those keys are now parsed-and-ignored; the manager is the
          * single source of truth. */
         e->ext.weapon.dual_wieldable = iniGetInt(ini, "dual_wieldable", 0);
+        break;
+    case ASSET_PROJECTILE:
+        strncpy(e->ext.projectile.name, iniGet(ini, "name", ""),
+                sizeof(e->ext.projectile.name) - 1);
+        strncpy(e->ext.projectile.model_file, iniGet(ini, "model_file",
+                iniGet(ini, "model", "")), sizeof(e->ext.projectile.model_file) - 1);
+        strncpy(e->ext.projectile.behavior_graph, iniGet(ini, "behavior_graph",
+                iniGet(ini, "graph", "")), sizeof(e->ext.projectile.behavior_graph) - 1);
+        strncpy(e->ext.projectile.entity_ref, iniGet(ini, "entity_ref",
+                iniGet(ini, "transition_entity", "")), sizeof(e->ext.projectile.entity_ref) - 1);
+        if (e->ext.projectile.behavior_graph[0]) {
+            distribSetPrimaryFromFile(e, dirpath, e->ext.projectile.behavior_graph);
+        } else if (e->ext.projectile.model_file[0]) {
+            distribSetPrimaryFromFile(e, dirpath, e->ext.projectile.model_file);
+        }
+        break;
+    case ASSET_ENTITY:
+        strncpy(e->ext.entity.name, iniGet(ini, "name", ""),
+                sizeof(e->ext.entity.name) - 1);
+        strncpy(e->ext.entity.archetype, iniGet(ini, "archetype", ""),
+                sizeof(e->ext.entity.archetype) - 1);
+        strncpy(e->ext.entity.model_file, iniGet(ini, "model_file",
+                iniGet(ini, "model", "")), sizeof(e->ext.entity.model_file) - 1);
+        strncpy(e->ext.entity.behavior_graph, iniGet(ini, "behavior_graph",
+                iniGet(ini, "graph", "")), sizeof(e->ext.entity.behavior_graph) - 1);
+        if (e->ext.entity.behavior_graph[0]) {
+            distribSetPrimaryFromFile(e, dirpath, e->ext.entity.behavior_graph);
+        } else if (e->ext.entity.model_file[0]) {
+            distribSetPrimaryFromFile(e, dirpath, e->ext.entity.model_file);
+        }
         break;
     case ASSET_ANIMATION:
         e->ext.anim.anim_id = iniGetInt(ini, "anim_id", -1);
@@ -1323,7 +1356,8 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         char inipath[FS_MAXPATH];
         const char *ini_names[] = { "map.ini", "character.ini", "bot.ini", "prop.ini",
                                     "textures.ini", "texture.ini", "skin.ini",
-                                    "weapon.ini", "head.ini", "body.ini",
+                                    "weapon.ini", "projectile.ini", "entity.ini",
+                                    "head.ini", "body.ini",
                                     "arena.ini", "scenario.ini", "animation.ini",
                                     "audio.ini", "hud.ini",
                                     "sound.ini", "sfx.ini", "voice.ini", "music.ini",
@@ -1374,6 +1408,9 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                         e->bundled = 0;
                         e->model_scale = iniGetFloat(&ini, "model_scale", 1.0f);
                         populateExtFromIni(e, type, destdir, &ini);
+                        if (type == ASSET_PROJECTILE && e->ext.projectile.entity_ref[0]) {
+                            catalogDepRegister(e->id, e->ext.projectile.entity_ref, e->bundled);
+                        }
                         sysLogPrintf(LOG_NOTE, "DISTRIB: hot-registered '%s' (type=%d) from %s",
                                      slot->id, (int)type, destdir);
                         registered = 1;

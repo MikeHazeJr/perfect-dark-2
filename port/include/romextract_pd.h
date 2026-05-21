@@ -3,16 +3,17 @@
  *
  * Per-asset .pd* compound emitters. Walks the loader_pool pool
  * (populated by loaderWalkerLoadAll from the per-asset envelope) and writes
- * one .pdwpn JSON file per weapon, one .pdmesh ZIP compound per unique
+ * one .pdweapon ZIP compound per weapon, one .pdmesh ZIP compound per unique
  * weapon mesh, and one .pdanim JSON file per registered animation.
  *
  * Output paths under data/<romid>/:
- *   weapons/<id>.pdwpn       JSON metadata document
+ *   weapons/<id>.pdweapon    ZIP compound (weapon.ini + manifest.json +
+ *                             behavior.graph.json + nested_payloads.json)
  *   meshes/<id>.pdmesh       ZIP compound (manifest.json + geometry.bin)
  *   animations/<id>.pdanim   JSON metadata document
  *
  * Where <id> is the catalog ID with the colon replaced by underscore.
- * For example "base:falcon2" -> "base_falcon2.pdwpn".
+ * For example "base:falcon2" -> "base_falcon2.pdweapon".
  *
  * Boot order requirement: must run AFTER loaderPoolFinalize
  * (so loader pools are populated) AND AFTER romExtractAllFiles (so the
@@ -36,15 +37,15 @@ extern "C" {
 #endif
 
 /**
- * Emit one .pdwpn JSON file for every registered weapon (86 expected).
+ * Emit one .pdweapon ZIP archive for every registered weapon (86 expected).
  * Idempotent: skips files that already exist with non-zero size unless
- * force_rewrite is non-zero.  Per-file failures emit LOUDFAIL.EXTRACT.PDWPN
+ * force_rewrite is non-zero.  Per-file failures emit LOUDFAIL.EXTRACT.PDWEAPON
  * but do not abort the walk.
  *
  * Returns: count of files newly written; -1 on infrastructure failure
  * (data dir creation, etc.).
  */
-s32 romExtractAllPdwpn(s32 force_rewrite);
+s32 romExtractAllPdweapon(s32 force_rewrite);
 
 /**
  * Emit one .pdmesh ZIP compound for every unique weapon mesh referenced
@@ -112,6 +113,13 @@ s32 romExtractAllPdhead(s32 force_rewrite);
  * Idempotent. Returns: count of files newly written; -1 on
  * infrastructure failure. */
 s32 romExtractAllPdbody(s32 force_rewrite);
+
+/* Emit canonical .pdcharacter archives for MP character selections.
+ * Each .pdcharacter is zip-openable and contains character.ini plus the
+ * nested body/head archives currently used by the runtime split. This is
+ * the long-form character asset unit; weapon behavior remains in the
+ * separate .pdweapon lane. */
+s32 romExtractAllPdcharacter(s32 force_rewrite);
 
 /* Step 2: emit one .pdarena JSON metadata file per registered arena
  * AND one .pdscenario ZIP compound per arena's playable stage.

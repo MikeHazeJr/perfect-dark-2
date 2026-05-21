@@ -917,6 +917,7 @@ static s32 interfaceDeleteModDir(const char *dirPath)
         "theme.json", "mod.json", "audio.ini",
         "chrome.png", "chrome.tga",
         "character.ini", "skin.ini", "map.ini", "bot.ini", "weapon.ini",
+        "projectile.ini", "entity.ini",
         /* font mods can leave a .ttf sitting in the directory — we do
          * not auto-delete them because the user might want to re-use the
          * font for another theme. rmdir() will surface the failure. */
@@ -4163,6 +4164,9 @@ static const char *s_AssetTypeNames[ASSET_TYPE_COUNT] = {
     "Effect",        /* ASSET_EFFECT */
     "Model",         /* ASSET_MODEL */
     "Lang",          /* ASSET_LANG — language string bank */
+    "Bot Profile",   /* ASSET_BOT_PROFILE */
+    "Projectile",    /* ASSET_PROJECTILE */
+    "Entity",        /* ASSET_ENTITY */
 };
 
 static const char *s_LoadStateNames[] = {
@@ -4172,6 +4176,9 @@ static const char *s_LoadStateNames[] = {
 static const char *s_ManifestTypeNames[] = {
     "Body", "Head", "Stage", "Weapon", "Component", "Model", "Anim", "Texture",
     "Lang",  /* MANIFEST_TYPE_LANG = 8 */
+    "Audio", /* MANIFEST_TYPE_AUDIO = 9 */
+    "Projectile",
+    "Entity",
 };
 
 static void renderSettingsCatalog(float scale)

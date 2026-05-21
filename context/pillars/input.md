@@ -172,13 +172,14 @@ Per [constraints.md](../constraints.md):
 ## What is in flight
 
 - **Input universality Branch 2 / Cohorts 5-8.** Complete 2026-05-19 via c036. Controller is first-class across actionmap-owned system actions, fullscreen/console/debug chords, gameplay suppression gates, observer lifecycle, right-stick menu scroll, tap/hold gameplay affordances, vehicle look/handbrake/use, and the active ImGui menu graph surface.
+- **Combat Sim Room per-element binding sweep.** Code/build verified 2026-05-21 under c086, pending Mike playtest. Room-specific controller parity now includes X/right-click context parity for player rows and Add Bot, Start-to-Start-Match from right-panel rows, focused-panel LT/RT skipping, left-panel section walking, and Y undefined on Combat Sim per Q4. MKB Ctrl/Shift-click multi-select remains.
 - **Input mapping menu rebuild.** Phase 1 design at [designs/input/input-mapping-menu-rebuild.md](../designs/input/input-mapping-menu-rebuild.md); Phase 2 implementation gated on Priority L menu pass.
 
 ---
 
 ## Known gaps
 
-- **c036 is closed; remaining controller risk is live playtest breadth.** Static/build coverage pins the actionmap migrations, right-stick constants, observer lifecycle, and active ImGui menu graph surface. Mike playtest should still sanity-check common controller flows: main menu, mission start/cancel, training flows, multiplayer setup/options, cheats/modal confirms, tap/hold interact/reload, crouch/squat/crouch-jump, and vehicle look/dismount.
+- **c036/c086 are code-verified; remaining controller risk is live playtest breadth.** Static/build coverage pins the actionmap migrations, right-stick constants, observer lifecycle, active ImGui menu graph surface, and Combat Sim Room per-element binding sweep. Mike playtest should still sanity-check common controller flows: main menu, Combat Sim setup/start/return, mission start/cancel, training flows, multiplayer setup/options, cheats/modal confirms, tap/hold interact/reload, crouch/squat/crouch-jump, and vehicle look/dismount.
 - **Legacy runtime menu stack calls still exist outside the active ImGui menu surface.** The c036 closure removed direct stack calls from `port/fast3d/pdgui_menu_*.cpp`; older C menu/runtime plumbing remains out of scope unless a future card targets full legacy stack retirement.
 
 ---

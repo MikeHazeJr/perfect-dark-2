@@ -1,6 +1,6 @@
 # Build / Dev Tooling
 
-> CMake + MSYS2/MinGW + Ninja. Three targets: `pd` (game), `pd-server` (server), `pd-tests` (Catch2). Static linking; only `opengl32.dll` is dynamic. Headless build wrapper + per-session isolated builds + queued watchdog. Self-updating release pipeline with Ed25519 signing.
+> CMake + MSYS2/MinGW + Ninja. Active targets: `pd` (game), `pd-tests` (Catch2), and `pd-updater` (Updater.exe). Standalone `pd-server` / `PerfectDarkServer.exe` is removed/deprecated; listen-host inside the client is the server path. Static linking; only `opengl32.dll` is dynamic. Headless build wrapper + per-session isolated builds + queued watchdog. Self-updating release pipeline with Ed25519 signing.
 
 ---
 
@@ -33,7 +33,7 @@ Per [procedures.md](../procedures.md) and [CLAUDE.md](../../CLAUDE.md):
 From bash:
 
 ```bash
-source devtools/build-env.sh && ninja -C Build pd pd-server
+source devtools/build-env.sh && ninja -C Build pd pd-tests
 ```
 
 From PowerShell:
@@ -86,7 +86,7 @@ Push step uses `git pull --rebase`. A non-clean index makes that step fail with 
 
 Release zip contents:
 - `PerfectDark.exe` (the game)
-- `PerfectDarkServer.exe` (the dedicated server, still bundled)
+- `PerfectDarkServer.exe` is no longer built or bundled.
 - `Updater.exe` (the standalone recovery updater)
 - `cacert.pem` (Mozilla CA bundle)
 - License notices
@@ -166,7 +166,7 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 - Per-step exit-file logging; killed wrapper still leaves diagnosable artifacts.
 - ccache probe avoids hangs in sandboxed environments.
 - Per-session isolated builds eliminate shared-`Build/` race.
-- Release pipeline knows about both client and server, includes `Updater.exe`, excludes ROMs, generates source archives.
+- Release pipeline builds the client and `Updater.exe`, excludes ROMs, and generates source archives. Standalone `pd-server` is not built or shipped.
 - All scripts redirect worktree paths back to main working copy.
 - Ed25519 keypair generation automated.
 - No-BOM UTF-8 CMakeLists writer prevents the dirty-tree-after-release bug.

@@ -406,6 +406,8 @@ static const char *s_catalogPayloadKind(asset_type_e type)
     case ASSET_SKIN:      return "skin";
     case ASSET_GAMEMODE:  return "gamemode";
     case ASSET_BOT_PROFILE: return "bot-profile";
+    case ASSET_PROJECTILE: return "projectile";
+    case ASSET_ENTITY:    return "entity";
     default:              return "generic";
     }
 }
@@ -568,6 +570,8 @@ static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type)
         || type == ASSET_GAMEMODE
         || type == ASSET_SKIN
         || type == ASSET_BOT_VARIANT
+        || type == ASSET_PROJECTILE
+        || type == ASSET_ENTITY
         || type == ASSET_EFFECT;
 }
 

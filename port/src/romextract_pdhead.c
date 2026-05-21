@@ -1,8 +1,8 @@
 /**
  * romextract_pdhead.c -- Catalog universality pivot Step 2 (2026-05-03).
  *
- * Walks the loader_pool head pool and emits one .pdhead JSON file
- * per registered head at data/<romid>/heads/<id>.pdhead.
+ * Walks the loader_pool head pool and emits one zip-openable .pdhead
+ * archive per registered head at data/<romid>/heads/<id>.pdhead.
  *
  * Schema lock-down: context/designs/catalog/universality-pivot-schemas.md
  * Section 2.2 (.pdhead).
@@ -31,6 +31,7 @@
 #include "constants.h"
 #include "fs.h"
 #include "loader_enum_reverse.h"
+#include "modarchive.h"
 #include "romextract_pd.h"
 #include "system.h"
 #include "headdata_authored.h"
@@ -47,7 +48,20 @@ static void s_idToFilename(const char *id, char *out, size_t n)
 	out[i] = '\0';
 }
 
-/* Emit one .pdhead. Returns 1 written, 0 skipped, -1 failed. */
+static s32 s_existingZipArchive(const char *relpath)
+{
+	u32 size = 0;
+	void *bytes = fsFileLoad(relpath, &size);
+	if (!bytes) return 0;
+	s32 is_zip = size >= 2
+		&& ((const u8 *)bytes)[0] == 'P'
+		&& ((const u8 *)bytes)[1] == 'K';
+	sysMemFree(bytes);
+	return is_zip;
+}
+
+/* Emit one zip-openable .pdhead archive. Returns 1 written, 0 skipped,
+ * -1 failed. */
 static s32 s_emitOneHead(const head_authored_record_t *h,
                           const char *out_dir, s32 force_rewrite)
 {
@@ -60,34 +74,111 @@ static s32 s_emitOneHead(const head_authored_record_t *h,
 	char relpath[FS_MAXPATH];
 	snprintf(relpath, sizeof(relpath), "%s/%s.pdhead", out_dir, filename);
 
-	if (!force_rewrite && fsFileSize(relpath) > 0) return 0;
-
-	FILE *fp = fsFileOpenWrite(relpath);
-	if (!fp) {
-		sysLoudFailf("EXTRACT.PDHEAD",
-			"fsFileOpenWrite failed for \"%s\"", relpath);
-		return -1;
+	if (!force_rewrite && fsFileSize(relpath) > 0 && s_existingZipArchive(relpath)) {
+		return 0;
 	}
 
 	const char *type_str = loaderEnumNameForHeadbodyType(h->type);
 	const char *file_str = loaderEnumNameForFileEnum(h->filenum);
 
-	fputs("{\n", fp);
-	fputs("  \"pd_kind\": \"head\",\n", fp);
-	fputs("  \"pd_schema_version\": 1,\n", fp);
-	fprintf(fp, "  \"id\": \"%s\",\n", catalog_id);
-	fprintf(fp, "  \"headnum\": %d,\n", (s32)h->headnum);
-	fprintf(fp, "  \"ismale\": %u,\n", (unsigned)h->ismale);
-	fprintf(fp, "  \"unk00_01\": %u,\n", (unsigned)h->unk00_01);
-	if (type_str) fprintf(fp, "  \"type\": \"%s\",\n", type_str);
-	else          fprintf(fp, "  \"type\": %u,\n", (unsigned)h->type);
-	fprintf(fp, "  \"height\": %u,\n", (unsigned)h->height);
-	if (file_str) fprintf(fp, "  \"mesh\": \"%s\",\n", file_str);
-	else          fprintf(fp, "  \"mesh\": %u,\n", (unsigned)h->filenum);
-	fprintf(fp, "  \"scale\": %.7g,\n",     (double)h->scale);
-	fprintf(fp, "  \"animscale\": %.7g\n",  (double)h->animscale);
-	fputs("}\n", fp);
-	fclose(fp);
+	char manifest_buf[1024];
+	int manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
+		"{\n"
+		"  \"pd_kind\": \"head\",\n"
+		"  \"pd_schema_version\": 1,\n"
+		"  \"id\": \"%s\",\n"
+		"  \"headnum\": %d,\n"
+		"  \"ismale\": %u,\n"
+		"  \"unk00_01\": %u,\n",
+		catalog_id, (s32)h->headnum, (unsigned)h->ismale,
+		(unsigned)h->unk00_01);
+	if (type_str) {
+		manifest_len += snprintf(manifest_buf + manifest_len,
+			sizeof(manifest_buf) - manifest_len,
+			"  \"type\": \"%s\",\n", type_str);
+	} else {
+		manifest_len += snprintf(manifest_buf + manifest_len,
+			sizeof(manifest_buf) - manifest_len,
+			"  \"type\": %u,\n", (unsigned)h->type);
+	}
+	manifest_len += snprintf(manifest_buf + manifest_len,
+		sizeof(manifest_buf) - manifest_len,
+		"  \"height\": %u,\n",
+		(unsigned)h->height);
+	if (file_str) {
+		manifest_len += snprintf(manifest_buf + manifest_len,
+			sizeof(manifest_buf) - manifest_len,
+			"  \"mesh\": \"%s\",\n", file_str);
+	} else {
+		manifest_len += snprintf(manifest_buf + manifest_len,
+			sizeof(manifest_buf) - manifest_len,
+			"  \"mesh\": %u,\n", (unsigned)h->filenum);
+	}
+	manifest_len += snprintf(manifest_buf + manifest_len,
+		sizeof(manifest_buf) - manifest_len,
+		"  \"scale\": %.7g,\n"
+		"  \"animscale\": %.7g\n"
+		"}\n",
+		(double)h->scale, (double)h->animscale);
+	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
+		sysLoudFailf("EXTRACT.PDHEAD",
+			"manifest snprintf truncated for \"%s\"", catalog_id);
+		return -1;
+	}
+
+	char ini_buf[1024];
+	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
+		"[head]\n"
+		"catalog_id = %s\n"
+		"headnum = %d\n"
+		"ismale = %u\n"
+		"unk00_01 = %u\n"
+		"type = %s\n"
+		"height = %u\n"
+		"mesh = %s\n"
+		"scale = %.7g\n"
+		"animscale = %.7g\n",
+		catalog_id, (s32)h->headnum, (unsigned)h->ismale,
+		(unsigned)h->unk00_01, type_str ? type_str : "",
+		(unsigned)h->height, file_str ? file_str : "",
+		(double)h->scale, (double)h->animscale);
+	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
+		sysLoudFailf("EXTRACT.PDHEAD",
+			"head.ini snprintf truncated for \"%s\"", catalog_id);
+		return -1;
+	}
+
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) {
+		sysLoudFailf("EXTRACT.PDHEAD",
+			"fsFullPath failed for \"%s\"", relpath);
+		return -1;
+	}
+	mod_archive_writer_t *aw = modArchiveBegin(full);
+	if (!aw) {
+		sysLoudFailf("EXTRACT.PDHEAD",
+			"modArchiveBegin failed for \"%s\"", full);
+		return -1;
+	}
+	if (modArchiveAddFileMem(aw, "head.ini", ini_buf, (u32)ini_len) != 0) {
+		sysLoudFailf("EXTRACT.PDHEAD",
+			"AddFileMem head.ini failed for \"%s\"", full);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (modArchiveAddFileMem(aw, "manifest.json",
+	                          manifest_buf, (u32)manifest_len) != 0) {
+		sysLoudFailf("EXTRACT.PDHEAD",
+			"AddFileMem manifest.json failed for \"%s\"", full);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (modArchiveFinish(aw) != 0) {
+		sysLoudFailf("EXTRACT.PDHEAD",
+			"modArchiveFinish failed for \"%s\"", full);
+		return -1;
+	}
 	return 1;
 }
 

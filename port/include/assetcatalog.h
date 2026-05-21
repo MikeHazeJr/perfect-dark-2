@@ -101,6 +101,8 @@ typedef enum {
     ASSET_MODEL,               /* individual 3-D model (g_ModelStates[] entry, MODEL_* index) */
     ASSET_LANG,                /* language string bank (LANGBANK_* constant) */
     ASSET_BOT_PROFILE,         /* MP simulant profile entry (g_BotProfiles[] / mod) */
+    ASSET_PROJECTILE,          /* graph-authored physical projectile behavior asset */
+    ASSET_ENTITY,              /* graph-authored deployed/stuck behavior archetype asset */
     ASSET_TYPE_COUNT
 } asset_type_e;
 
@@ -296,6 +298,18 @@ typedef struct asset_entry {
              * (catalogManagerGetWeaponByIndex(weapon_num)->...) which
              * is the single source of truth. */
         } weapon;
+        struct {
+            char name[64];             /* human-readable display name */
+            char model_file[128];      /* visual model for the in-flight object */
+            char behavior_graph[128];  /* behavior.graph.json source path */
+            char entity_ref[CATALOG_ID_LEN]; /* optional transition target */
+        } projectile;
+        struct {
+            char name[64];             /* human-readable display name */
+            char archetype[64];        /* armed_mine, autogun, sensor, etc. */
+            char model_file[128];      /* visual model for the deployed object */
+            char behavior_graph[128];  /* behavior.graph.json source path */
+        } entity;
         struct {
             s32 anim_id;               /* animation table index */
             char name[64];             /* human-readable display name */

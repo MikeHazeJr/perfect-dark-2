@@ -2,15 +2,16 @@
  * loader_walker_mesh.c -- Step 4 (2026-05-03).
  *
  * Walks data/<romid>/meshes/*.pdmesh and registers each as ASSET_MODEL.
- * .pdmesh files are ZIP compounds carrying manifest.json + geometry.bin
- * (+ geometry.bin.sha256). The walker scaffold handles the ZIP open +
- * manifest extraction transparently; this callback only sees the manifest
- * envelope bytes.
+ * .pdmesh files are ZIP compounds carrying manifest.json plus standard
+ * model payloads such as model.obj/model.mtl. The walker scaffold handles
+ * the ZIP open + manifest extraction transparently; this callback only sees
+ * the manifest envelope bytes.
  *
  * The catalog row is the universality bridge -- consumers route
  * model loads through assetCatalogResolve(id) -> entry.runtime_index ->
- * legacy file load. .pdmesh's geometry.bin payload remains the source of
- * record on disk; the walker does not unpack it here.
+ * legacy file load or generated runtime cache. The walker does not unpack
+ * the authored model payload here; compilers/importers consume the standard
+ * source files through the mounted archive/VFS path.
  */
 
 #include <stddef.h>

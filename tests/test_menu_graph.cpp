@@ -136,11 +136,13 @@ TEST_CASE("menu action helpers replace raw confirm-modal key polling", "[input][
     REQUIRE(navHeader.find("pdguiMenuActionRepeat") != std::string::npos);
     REQUIRE(navHeader.find("pdguiMenuSecondaryPressed") != std::string::npos);
     REQUIRE(navHeader.find("pdguiMenuTertiaryPressed") != std::string::npos);
+    REQUIRE(navHeader.find("pdguiMenuStartPressed") != std::string::npos);
     REQUIRE(navHeader.find("pdguiMenuDeletePressed") != std::string::npos);
     REQUIRE(navImpl.find("actionPressed(0, action)") != std::string::npos);
     REQUIRE(navImpl.find("actionHeld(0, action)") != std::string::npos);
     REQUIRE(navImpl.find("ACTION_MENU_SECONDARY") != std::string::npos);
     REQUIRE(navImpl.find("ACTION_MENU_TERTIARY") != std::string::npos);
+    REQUIRE(navImpl.find("ACTION_PAUSE") != std::string::npos);
     REQUIRE(navImpl.find("ACTION_MENU_DELETE") != std::string::npos);
 
     const std::string menuDefaults = functionBlock(actionmap, "static void setupMenuDefaults");
@@ -308,7 +310,8 @@ TEST_CASE("menu action helpers replace secondary menu command polling", "[input]
     REQUIRE(agent.find("pdguiMenuTertiaryPressed()") != std::string::npos);
     REQUIRE(agent.find("pdguiMenuDeletePressed()") != std::string::npos);
     REQUIRE(room.find("pdguiMenuSecondaryPressed()") != std::string::npos);
-    REQUIRE(room.find("pdguiMenuTertiaryPressed()") != std::string::npos);
+    REQUIRE(room.find("pdguiMenuTertiaryPressed()") == std::string::npos);
+    REQUIRE(room.find("pdguiMenuStartPressed()") != std::string::npos);
     REQUIRE(mpsettings.find("pdguiMenuSecondaryPressed()") != std::string::npos);
 
     requireNoRawMenuCommandPolling(agent);
@@ -452,6 +455,35 @@ TEST_CASE("menu pool: watchdog preserves standalone Combat Simulator room", "[in
     REQUIRE(watchdog.find("menupoolReleaseLegacyStackLeaks()") != std::string::npos);
     REQUIRE(watchdog.find("menupoolCountActive()") == std::string::npos);
     REQUIRE(watchdog.find("menupoolReleaseAll()") == std::string::npos);
+}
+
+TEST_CASE("menu graph: MP endscreen is not hidden by legacy save-player prompt", "[input][menu_graph][mp_endscreen][static][b356]")
+{
+    const std::string ingame = readTextFile("src/game/mplayer/ingame.c");
+    const std::string mpingame = readTextFile("port/fast3d/pdgui_menu_mpingame.cpp");
+    const std::string endscreen = readTextFile("port/fast3d/pdgui_menu_endscreen.cpp");
+    const std::string bridge = readTextFile("port/fast3d/pdgui_bridge.c");
+
+    REQUIRE_FALSE(ingame.empty());
+    REQUIRE_FALSE(mpingame.empty());
+    REQUIRE_FALSE(endscreen.empty());
+    REQUIRE_FALSE(bridge.empty());
+
+    const std::string pushEndscreen = functionBlock(ingame, "mpPushEndscreenDialog");
+    REQUIRE_FALSE(pushEndscreen.empty());
+
+    REQUIRE(pushEndscreen.find("menuPushRootDialog(&g_MpEndscreenIndGameOverMenuDialog, MENUROOT_MPENDSCREEN)") != std::string::npos);
+    REQUIRE(pushEndscreen.find("menuPushRootDialog(&g_MpEndscreenTeamGameOverMenuDialog, MENUROOT_MPENDSCREEN)") != std::string::npos);
+    REQUIRE(pushEndscreen.find("OPTION_ASKEDSAVEPLAYER") != std::string::npos);
+    REQUIRE(ingame.find("g_MpEndscreenSavePlayerMenuDialog") != std::string::npos);
+    REQUIRE(pushEndscreen.find("menuPushDialog(&g_MpEndscreenSavePlayerMenuDialog)") == std::string::npos);
+    REQUIRE(pushEndscreen.find("hiding") != std::string::npos);
+    REQUIRE(pushEndscreen.find("post-match screen") != std::string::npos);
+
+    REQUIRE(mpingame.find("pdguiGameOverRender() (in pdgui_menu_pausemenu.cpp) owns the full tabbed") != std::string::npos);
+    REQUIRE(mpingame.find("pdguiHotswapRegister(&g_MpEndscreenSavePlayerMenuDialog") != std::string::npos);
+    REQUIRE(endscreen.find("pdguiEndscreenExitToRoom") != std::string::npos);
+    REQUIRE(bridge.find("configSave(\"pd.ini\")") != std::string::npos);
 }
 
 TEST_CASE("menu graph: main-menu Modding hub uses graph push op", "[input][menu_graph][mainmenu][static]")
@@ -755,6 +787,36 @@ TEST_CASE("menu graph: Room Start Match uses scene graph edge", "[input][menu_gr
     REQUIRE(render.find("matchStart()") == std::string::npos);
     REQUIRE(render.find("netLobbyRequestStartWithSims(") == std::string::npos);
     REQUIRE(render.find("netLobbyRequestStart(") == std::string::npos);
+}
+
+TEST_CASE("menu input: Combat Sim room controller parity is wired", "[input][menu_graph][room][static][c086]")
+{
+    const std::string room = readTextFile("port/fast3d/pdgui_menu_room.cpp");
+    const std::string theme = readTextFile("port/fast3d/pdgui_menu_theme_editor.cpp");
+
+    REQUIRE_FALSE(room.empty());
+    REQUIRE_FALSE(theme.empty());
+
+    REQUIRE(room.find("ROOM_CS_ARENA") != std::string::npos);
+    REQUIRE(room.find("ROOM_CS_SCENARIO") != std::string::npos);
+    REQUIRE(room.find("ROOM_CS_LIMITS") != std::string::npos);
+    REQUIRE(room.find("ROOM_CS_WEAPONS") != std::string::npos);
+    REQUIRE(room.find("ROOM_CS_OPTIONS") != std::string::npos);
+    REQUIRE(room.find("roomCsHandlePendingSectionJump()") != std::string::npos);
+    REQUIRE(room.find("s_RoomCsSectionJumpPending = skipDir") != std::string::npos);
+    REQUIRE(room.find("s_RoomPlayerSectionJumpPending = skipDir") != std::string::npos);
+    REQUIRE(room.find("s_StartMatchFocusPending = true") != std::string::npos);
+    REQUIRE(room.find("pdguiMenuStartPressed()") != std::string::npos);
+    REQUIRE(room.find("roomContextPopupRequestedForLastItem()") != std::string::npos);
+    REQUIRE(room.find("ImGui::OpenPopup(\"##local_ctx\")") != std::string::npos);
+    REQUIRE(room.find("ImGui::OpenPopup(\"##add_bot_ctx\")") != std::string::npos);
+    REQUIRE(room.find("Fill Bot Slots") != std::string::npos);
+    REQUIRE(room.find("Random name") != std::string::npos);
+    REQUIRE(room.find("Re-Roll Name") == std::string::npos);
+    REQUIRE(room.find("TreeNodeEx(") == std::string::npos);
+    REQUIRE(room.find("CollapsingHeader(") == std::string::npos);
+    REQUIRE(theme.find("ImGui::BeginChild(\"PaletteScroll\"") != std::string::npos);
+    REQUIRE(theme.find("ImGuiChildFlags_Border | ImGuiChildFlags_NavFlattened") != std::string::npos);
 }
 
 TEST_CASE("menu graph: Room Leave uses graph network edge", "[input][menu_graph][room][static]")

@@ -35,7 +35,7 @@
 /* Map struct guncmd::type to mnemonic + arg-format hint. Mirrors the
  * decoder in loader_pool.c::decodeOpcode so that round-trip parity
  * holds (Mike's Q-5 ruling: parity active during Step 1 to validate
- * the .pdwpn / .pdanim emit). */
+ * the .pdweapon / .pdanim emit). */
 typedef enum {
 	OPFMT_NONE,         /* no args (end) */
 	OPFMT_U16,          /* one u16 arg from unk02 */

@@ -146,8 +146,8 @@ set(_CACERT_SRC "${CMAKE_SOURCE_DIR}/port/src/cacert.pem")
 set(_CACERT_OUT "${CMAKE_BINARY_DIR}/port/include/cacert_blob.h")
 # Skip regeneration when output is already up-to-date. file(WRITE) always
 # overwrites and bumps mtime, so unconditional generation forced a recompile
-# of every TU including cacert_blob.h plus a full relink of pd / pd-server /
-# Updater on every cmake configure -- the dominant build-time cost since
+# of every TU including cacert_blob.h plus a full relink of pd / Updater on
+# every cmake configure -- the dominant build-time cost since
 # 2026-04-17 because dev-window-v2 reconfigures on every build.
 set(_cacert_needs_regen TRUE)
 if(EXISTS "${_CACERT_OUT}")
@@ -625,163 +625,7 @@ if(WIN32)
   target_link_options(pd PRIVATE -Wl,--stack,8388608)
 endif()
 
-# Dedicated server target -- MINIMAL source list, decoupled from game rendering.
-# Only includes: networking, system, filesystem, server GUI, and stubs.
-
-file(GLOB SRC_SERVER_MINIUPNPC "${CMAKE_SOURCE_DIR}/port/external/miniupnpc/src/*.c")
-
-set(SRC_SERVER
-  # Server entry point + comprehensive stubs for ALL game dependencies
-  ${CMAKE_SOURCE_DIR}/port/src/server_main.c
-  ${CMAKE_SOURCE_DIR}/port/src/server_stubs.c
-  ${CMAKE_SOURCE_DIR}/port/src/server_bridge.c
-  ${CMAKE_SOURCE_DIR}/port/src/net/net_server_callbacks.c
-
-  # Core networking ONLY (not netmenu.c -- that's client UI)
-  ${CMAKE_SOURCE_DIR}/port/src/net/net.c
-  ${CMAKE_SOURCE_DIR}/port/src/net/netmsg.c
-  ${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c
-  # Track 2d (c3807, 2026-05-16): GPU swarm state sync quantizer. Pure C,
-  # no GL deps -- safe to link into pd-server. The actual send path in
-  # netmsg.c is #if !defined(PD_SERVER)-guarded so pd-server never invokes
-  # the GPU readback symbol; only the decode path runs (and even that is
-  # apply-guarded). Linking this here keeps SVC_GPUSWARM_STATE dispatch
-  # in sync if a future code path ever routes a packet through pd-server.
-  ${CMAKE_SOURCE_DIR}/port/src/net/swarm_sync_quant.c
-  ${CMAKE_SOURCE_DIR}/port/src/net/netlobby.c
-  ${CMAKE_SOURCE_DIR}/port/src/net/netupnp.c
-  ${CMAKE_SOURCE_DIR}/port/src/net/netstun.c
-  ${CMAKE_SOURCE_DIR}/port/src/net/netholepunch.c
-  ${CMAKE_SOURCE_DIR}/port/src/net/netdistrib.c
-  ${CMAKE_SOURCE_DIR}/port/src/net/netmanifest.c
-  ${CMAKE_SOURCE_DIR}/port/src/net/sessioncatalog.c
-  ${CMAKE_SOURCE_DIR}/port/src/scene_transition.c
-
-  # Asset catalog -- server needs it to enumerate/serve mod components (D3R-9)
-  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog.c
-  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_base.c
-  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_base_extended.c
-  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_scanner.c
-  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_api.c
-  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_deps.c
-  ${CMAKE_SOURCE_DIR}/port/src/modarchive.c
-
-  # INV-1: pure validators backing the _Checked catalog accessor variants.
-  # assetcatalog_api.c references catalogCheckedValidate*; without this
-  # source link, pd-server fails at the linker stage.
-  ${CMAKE_SOURCE_DIR}/port/src/catalog_checked.c
-
-  # Catalog Gate 3 F1: catalog manager for character heads.
-  # assetcatalog_api.c (F2) routes catalogGetHeadX accessors through the
-  # manager, so the server build needs this link too. Manager file is
-  # PD_SERVER-aware (random-gender pickers + modeldef lazy-load gated).
-  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_heads.c
-  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_heads_pure.c
-
-  # Catalog Gate 3 Bodies F1: catalog manager for character bodies.
-  # assetcatalog_api.c (F2) routes catalogGetBodyX accessors through the
-  # manager, so the server build needs this link too. Manager file is
-  # PD_SERVER-aware (modeldef lazy-load gated).
-  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_bodies.c
-  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_bodies_pure.c
-
-  # Catalog manager for MP arenas. The pd-server build includes the
-  # manager so manager-side catalog accessors compile cleanly without
-  # the client-only loader_pool TU. Manager has no modeldef cache, no
-  # rng dependency.
-  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_arenas.c
-  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_arenas_pure.c
-
-  # BYOR completion (2026-05-03): authoring source-of-truth for the
-  # catalog kinds the server registers. The server links the head/body
-  # tables (assetcatalog_base + catalog_mgr_heads / bodies need them)
-  # and the arena table (assetcatalog_base + catalog_mgr_arenas).
-  # Weapon/anim authoring files stay client-only (server doesn't link
-  # invitems-class structs or guncmd opcodes).
-  ${CMAKE_SOURCE_DIR}/port/src/headdata_authored.c
-  ${CMAKE_SOURCE_DIR}/port/src/bodydata_authored.c
-  ${CMAKE_SOURCE_DIR}/port/src/arenadata_authored.c
-
-  # INV-4: pure helpers for matchOptionsForceBit / matchOptionsRestoreUserOriginal.
-  # matchsetup.c references them at matchStart restore; without this
-  # source link pd-server would fail.
-  ${CMAKE_SOURCE_DIR}/port/src/options_forced.c
-
-  # UPnP library
-  ${SRC_SERVER_MINIUPNPC}
-
-  # Minimal system (no pdsched, no console, no mpsetups, no romdata,
-  # no modmgr, no libultra -- all stubbed in server_stubs.c)
-  ${CMAKE_SOURCE_DIR}/port/src/system.c
-  ${CMAKE_SOURCE_DIR}/port/src/config.c
-  ${CMAKE_SOURCE_DIR}/port/src/fs.c
-  ${CMAKE_SOURCE_DIR}/port/src/utils.c
-  ${CMAKE_SOURCE_DIR}/port/src/crash.c
-  ${CMAKE_SOURCE_DIR}/port/src/crashbreadcrumb.c
-
-  # c115 (2026-05-15): smoke verify harness on the server target.
-  # Previously client-only -- the harness now compiles into pd-server so
-  # dedicated_server_boot_smoke.json (and any future server-pillar test)
-  # can opt into runtime_strategy='harness' for scripted exit + clean
-  # exit codes. Client-only deps (actionmap*, gfxGetSdlWindow) are
-  # stubbed in server_stubs.c; the action/key/mouse event paths are
-  # no-ops on the server (no input consumers), but the wait/exit/timeout
-  # path is fully functional. server_main.c calls smokeHarnessInit()
-  # after sysInit() and smokeHarnessTick() once per main-loop iteration.
-  ${CMAKE_SOURCE_DIR}/port/src/smoke_harness.c
-
-  # Server GUI (ImGui, SDL2, OpenGL -- self-contained)
-  ${CMAKE_SOURCE_DIR}/port/fast3d/server_gui.cpp
-  ${CMAKE_SOURCE_DIR}/port/fast3d/glad/glad.c
-
-  # ENet (external library)
-  ${CMAKE_SOURCE_DIR}/port/external/enet.c
-
-  # C.5: navmesh spawn fallback for SP maps used as MP arenas
-  ${CMAKE_SOURCE_DIR}/port/src/navspawn.c
-
-  # Update system (D13) -- server has its own update path + --check-update CLI
-  ${CMAKE_SOURCE_DIR}/port/src/updater.c
-  ${CMAKE_SOURCE_DIR}/port/src/sha256.c
-  ${CMAKE_SOURCE_DIR}/port/src/ed25519.c
-  ${CMAKE_SOURCE_DIR}/port/src/savemigrate.c
-
-  # SPF-1: Server Platform Foundation (hub lifecycle, room system, identity, phonetic)
-  ${CMAKE_SOURCE_DIR}/port/src/hub.c
-  ${CMAKE_SOURCE_DIR}/port/src/room.c
-  ${CMAKE_SOURCE_DIR}/port/src/identity.c
-  ${CMAKE_SOURCE_DIR}/port/src/phonetic.c
-
-  # Wave 3 Batch A: server admin + persistent bans (MASTER-C2)
-  ${CMAKE_SOURCE_DIR}/port/src/server_admin.c
-  ${CMAKE_SOURCE_DIR}/port/src/server_bans.c
-
-  # Connect code (IP:port ↔ word-based codes)
-  ${CMAKE_SOURCE_DIR}/port/src/connectcode.c
-
-  # B-12 Phase 3: participant pool (authoritative slot store). Server needs
-  # mpAddParticipantAt / mpIsParticipantActive / wire encode helpers.
-  ${CMAKE_SOURCE_DIR}/src/game/mplayer/participant.c
-)
-
-# ImGui sources for server GUI
-file(GLOB SRC_SERVER_IMGUI "${CMAKE_SOURCE_DIR}/port/fast3d/imgui/*.cpp")
-list(APPEND SRC_SERVER ${SRC_SERVER_IMGUI})
-
-if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/dist/windows/icon.rc")
-  list(APPEND SRC_SERVER "${CMAKE_SOURCE_DIR}/dist/windows/icon.rc")
-endif()
-
-set(SERVER_BIN_NAME "PerfectDarkServer")
-add_executable(pd-server ${SRC_SERVER})
-add_dependencies(pd-server pd_headers)
-target_link_libraries(pd-server ${LIBS})
-if(WIN32)
-    target_link_libraries(pd-server psapi)
-endif()
-set_target_properties(pd-server PROPERTIES OUTPUT_NAME "${SERVER_BIN_NAME}")
-# Server defines -- used by shared headers
-target_compile_definitions(pd-server PRIVATE PD_SERVER=1)
+message(STATUS "pd-server: standalone PerfectDarkServer.exe target removed; listen-host client is the shipping server path")
 
 # ---------------------------------------------------------------------------
 # logview: standalone log filter CLI tool
@@ -792,7 +636,7 @@ set_target_properties(logview PROPERTIES OUTPUT_NAME "logview")
 
 # ---------------------------------------------------------------------------
 # pd-updater: standalone Updater.exe that ships next to PerfectDark.exe.
-# If a release breaks the main client/server executables, the end user can
+# If a release breaks the main client executable, the end user can
 # still launch Updater.exe to pull and install a fixed build from GitHub
 # Releases. Self-contained Win32 GUI -- no MFC/WPF, no external deps beyond
 # libcurl (statically linked, same chain as the game).
@@ -894,7 +738,7 @@ endif()
 
 # Windows: no DLL copy step — all third-party libraries are statically linked.
 # SDL2, zlib, libcurl (+ full TLS chain), libgcc, libstdc++, and libwinpthread
-# are all compiled into PerfectDark.exe and PerfectDarkServer.exe.
+# are all compiled into PerfectDark.exe.
 # The only runtime dependency on Windows is opengl32.dll, which is a system DLL
 # present on every Windows installation and must NOT be statically linked.
 # See context/designs/static-link-dll-elimination-2026-04-13.md for the full audit.
@@ -999,6 +843,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_public_mods_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modarchive.c
+  ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
   ${CMAKE_SOURCE_DIR}/port/src/modvfs.c
   ${CMAKE_SOURCE_DIR}/port/src/sha256.c
   ${CMAKE_SOURCE_DIR}/tests/test_fast3d_blender_static.cpp

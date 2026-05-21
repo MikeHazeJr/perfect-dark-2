@@ -8,8 +8,9 @@
  *
  * Per-asset ZIP layout per universality-pivot-schemas.md Section 2.9:
  *   manifest.json     envelope + sequence metadata + provenance
- *   data.bin          raw sequence bytes sliced from sequences segment
- *   data.bin.sha256   outer-file SHA-256 sidecar
+ *   sequence.mid      standard MIDI conversion of the compressed N64 sequence
+ *   sequence.tsv      editable event listing for round-trip authoring
+ *   *.sha256          content sidecars
  *
  * Catalog ID convention: base:song_<NNNN> where NNNN is the seqtable
  * slot index in 4-digit hex (Q-4 Bucket 2). The 43 catalog-registered
@@ -34,8 +35,10 @@
  * romaddr at extract time is segment-relative (the live runtime adds
  * _sequencesSegmentRomStart); binlen is the uncompressed sequence
  * stream length, ziplen the on-disk compressed length. We slice
- * `binlen` bytes from offset `romaddr` as data.bin -- the runtime
- * decoder feeds the same slice.
+ * `binlen` bytes from offset `romaddr` as the native sequence stream. The
+ * runtime decoder feeds the same slice. The extractor inflates + header-swaps that
+ * slice, then converts the N64 compressed-MIDI event stream into files that
+ * normal tools can open.
  *
  * Server build: returns 0 immediately (sequences segment not
  * populated; nothing to extract).
@@ -44,7 +47,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <SDL.h>
+#include <PR/libaudio.h>
 #include <PR/ultratypes.h>
 
 #include "boot_pool.h"
@@ -54,11 +59,13 @@
 #include "constants.h"
 #include "fs.h"
 #include "modarchive.h"
+#include "preprocess.h"
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
 #include "sha256.h"
 #include "system.h"
+#include "lib/rzip.h"
 
 #define PDSONG_OUT_DIR "audio/music"
 
@@ -102,6 +109,526 @@ static void s_filenameSlug(const char *catalog_id, char *out, size_t out_n)
 	out[j] = '\0';
 }
 
+static s32 s_existingArchiveHasSongPayloads(const char *relpath)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	s32 ok = modArchiveFindEntry(arc, "music.ini") >= 0
+	      && modArchiveFindEntry(arc, "manifest.json") >= 0
+	      && modArchiveFindEntry(arc, "sequence.mid") >= 0
+	      && modArchiveFindEntry(arc, "sequence.tsv") >= 0;
+	modArchiveClose(arc);
+	return ok;
+}
+
+typedef struct {
+	u8  *data;
+	u32  len;
+	u32  cap;
+} pdsong_bytebuf_t;
+
+static void s_bytebufFree(pdsong_bytebuf_t *b)
+{
+	if (b->data) free(b->data);
+	memset(b, 0, sizeof(*b));
+}
+
+static s32 s_bytebufReserve(pdsong_bytebuf_t *b, u32 extra)
+{
+	if (extra > 0xffffffffu - b->len) return -1;
+	u32 need = b->len + extra;
+	if (need <= b->cap) return 0;
+	u32 cap = b->cap ? b->cap : 1024;
+	while (cap < need) {
+		if (cap > 0x80000000u) return -1;
+		cap *= 2;
+	}
+	u8 *p = (u8 *)realloc(b->data, cap);
+	if (!p) return -1;
+	b->data = p;
+	b->cap = cap;
+	return 0;
+}
+
+static s32 s_bytebufAppend(pdsong_bytebuf_t *b, const void *src, u32 n)
+{
+	if (s_bytebufReserve(b, n) != 0) return -1;
+	memcpy(b->data + b->len, src, n);
+	b->len += n;
+	return 0;
+}
+
+static s32 s_bytebufPutU8(pdsong_bytebuf_t *b, u8 v)
+{
+	return s_bytebufAppend(b, &v, 1);
+}
+
+static s32 s_bytebufPutBe16(pdsong_bytebuf_t *b, u16 v)
+{
+	u8 bytes[2] = { (u8)(v >> 8), (u8)v };
+	return s_bytebufAppend(b, bytes, sizeof(bytes));
+}
+
+static s32 s_bytebufPutBe32(pdsong_bytebuf_t *b, u32 v)
+{
+	u8 bytes[4] = {
+		(u8)(v >> 24), (u8)(v >> 16), (u8)(v >> 8), (u8)v
+	};
+	return s_bytebufAppend(b, bytes, sizeof(bytes));
+}
+
+static s32 s_bytebufPutVarLen(pdsong_bytebuf_t *b, u32 v)
+{
+	u8 tmp[5];
+	s32 n = 0;
+	tmp[n++] = (u8)(v & 0x7f);
+	while ((v >>= 7) != 0) tmp[n++] = (u8)((v & 0x7f) | 0x80);
+	while (n-- > 0) {
+		if (s_bytebufPutU8(b, tmp[n]) != 0) return -1;
+	}
+	return 0;
+}
+
+static s32 s_bytebufPrintf(pdsong_bytebuf_t *b, const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	va_list ap2;
+	va_copy(ap2, ap);
+	int need = vsnprintf(NULL, 0, fmt, ap);
+	va_end(ap);
+	if (need < 0) {
+		va_end(ap2);
+		return -1;
+	}
+	if (s_bytebufReserve(b, (u32)need + 1) != 0) {
+		va_end(ap2);
+		return -1;
+	}
+	int wrote = vsnprintf((char *)b->data + b->len, (size_t)need + 1, fmt, ap2);
+	va_end(ap2);
+	if (wrote != need) return -1;
+	b->len += (u32)need;
+	return 0;
+}
+
+typedef struct {
+	u32 tick;
+	u32 order;
+	u8  nbytes;
+	u8  bytes[6];
+} pdsong_midi_evt_t;
+
+typedef struct {
+	pdsong_midi_evt_t *items;
+	u32                count;
+	u32                cap;
+} pdsong_midi_vec_t;
+
+static void s_midiVecFree(pdsong_midi_vec_t *v)
+{
+	if (v->items) free(v->items);
+	memset(v, 0, sizeof(*v));
+}
+
+static s32 s_midiVecPush(pdsong_midi_vec_t *v, u32 tick, u32 order,
+                         const u8 *bytes, u8 nbytes)
+{
+	if (nbytes > sizeof(v->items[0].bytes)) return -1;
+	if (v->count == v->cap) {
+		u32 cap = v->cap ? v->cap * 2 : 1024;
+		pdsong_midi_evt_t *p = (pdsong_midi_evt_t *)realloc(
+			v->items, sizeof(*v->items) * cap);
+		if (!p) return -1;
+		v->items = p;
+		v->cap = cap;
+	}
+	pdsong_midi_evt_t *e = &v->items[v->count++];
+	e->tick = tick;
+	e->order = order;
+	e->nbytes = nbytes;
+	memcpy(e->bytes, bytes, nbytes);
+	return 0;
+}
+
+static int s_midiEvtCmp(const void *a, const void *b)
+{
+	const pdsong_midi_evt_t *ea = (const pdsong_midi_evt_t *)a;
+	const pdsong_midi_evt_t *eb = (const pdsong_midi_evt_t *)b;
+	if (ea->tick < eb->tick) return -1;
+	if (ea->tick > eb->tick) return 1;
+	if (ea->order < eb->order) return -1;
+	if (ea->order > eb->order) return 1;
+	return 0;
+}
+
+typedef struct {
+	const u8 *base;
+	const u8 *end;
+	const u8 *cur[16];
+	const u8 *bu_ptr[16];
+	u32       bu_len[16];
+	u32       delta[16];
+	u8        last_status[16];
+	u32       valid_tracks;
+	u32       last_ticks;
+} pdsong_seq_parser_t;
+
+typedef struct {
+	s32 type;
+	u32 tick;
+	u32 track;
+	u8  status;
+	u8  byte1;
+	u8  byte2;
+	u8  tempo[3];
+	u32 duration;
+	u32 loop_count;
+} pdsong_seq_evt_t;
+
+static s32 s_seqGetByte(pdsong_seq_parser_t *p, u32 track, u8 *out)
+{
+	u8 b;
+	if (track >= 16) return -1;
+	if (p->bu_len[track]) {
+		if (!p->bu_ptr[track] || p->bu_ptr[track] >= p->end) return -1;
+		b = *p->bu_ptr[track]++;
+		p->bu_len[track]--;
+		*out = b;
+		return 0;
+	}
+	if (!p->cur[track] || p->cur[track] >= p->end) return -1;
+	b = *p->cur[track]++;
+	if (b == AL_CMIDI_BLOCK_CODE) {
+		u8 next_byte;
+		if (p->cur[track] >= p->end) return -1;
+		next_byte = *p->cur[track]++;
+		if (next_byte != AL_CMIDI_BLOCK_CODE) {
+			u8 lo_backup;
+			u8 the_len;
+			u32 backup;
+			if (p->cur[track] + 2 > p->end) return -1;
+			lo_backup = *p->cur[track]++;
+			the_len = *p->cur[track]++;
+			backup = ((u32)next_byte << 8) | (u32)lo_backup;
+			if (p->cur[track] < p->base + backup + 4) return -1;
+			const u8 *bu = p->cur[track] - (backup + 4);
+			if (bu < p->base || bu + the_len > p->end) return -1;
+			p->bu_ptr[track] = bu;
+			p->bu_len[track] = the_len;
+			if (p->bu_len[track] == 0) return -1;
+			b = *p->bu_ptr[track]++;
+			p->bu_len[track]--;
+		}
+	}
+	*out = b;
+	return 0;
+}
+
+static s32 s_seqReadVarLen(pdsong_seq_parser_t *p, u32 track, u32 *out)
+{
+	u8 c;
+	u32 value;
+	if (s_seqGetByte(p, track, &c) != 0) return -1;
+	value = c;
+	if (value & 0x80) {
+		value &= 0x7f;
+		do {
+			if (s_seqGetByte(p, track, &c) != 0) return -1;
+			value = (value << 7) + (c & 0x7f);
+		} while (c & 0x80);
+	}
+	*out = value;
+	return 0;
+}
+
+static s32 s_seqParserInit(pdsong_seq_parser_t *p, const u8 *seq, u32 seq_len,
+                           u32 *out_division)
+{
+	if (seq_len < sizeof(ALCMidiHdr)) return -1;
+	memset(p, 0, sizeof(*p));
+	p->base = seq;
+	p->end = seq + seq_len;
+	const ALCMidiHdr *hdr = (const ALCMidiHdr *)seq;
+	if (hdr->division == 0 || hdr->division > 0x7fff) return -1;
+	*out_division = hdr->division;
+	for (u32 i = 0; i < 16; i++) {
+		u32 off = hdr->trackOffset[i];
+		if (off) {
+			if (off >= seq_len) return -1;
+			p->cur[i] = seq + off;
+			p->valid_tracks |= (1u << i);
+			if (s_seqReadVarLen(p, i, &p->delta[i]) != 0) return -1;
+		}
+	}
+	return 0;
+}
+
+static s32 s_seqNextEvent(pdsong_seq_parser_t *p, pdsong_seq_evt_t *out)
+{
+	if (!p->valid_tracks) return 0;
+
+	u32 first_track = 0;
+	u32 first_time = 0xffffffffu;
+	for (u32 i = 0; i < 16; i++) {
+		if ((p->valid_tracks >> i) & 1u) {
+			if (p->delta[i] < first_time) {
+				first_time = p->delta[i];
+				first_track = i;
+			}
+		}
+	}
+	for (u32 i = 0; i < 16; i++) {
+		if ((p->valid_tracks >> i) & 1u) p->delta[i] -= first_time;
+	}
+	p->last_ticks += first_time;
+
+	memset(out, 0, sizeof(*out));
+	out->tick = p->last_ticks;
+	out->track = first_track;
+
+	u8 status;
+	if (s_seqGetByte(p, first_track, &status) != 0) return -1;
+	if (status == AL_MIDI_Meta) {
+		u8 type;
+		if (s_seqGetByte(p, first_track, &type) != 0) return -1;
+		p->last_status[first_track] = 0;
+		if (type == AL_MIDI_META_TEMPO) {
+			out->type = AL_TEMPO_EVT;
+			out->status = status;
+			for (s32 i = 0; i < 3; i++) {
+				if (s_seqGetByte(p, first_track, &out->tempo[i]) != 0) return -1;
+			}
+		} else if (type == AL_MIDI_META_EOT) {
+			p->valid_tracks &= ~(1u << first_track);
+			out->type = p->valid_tracks ? AL_TRACK_END : AL_SEQ_END_EVT;
+		} else if (type == AL_CMIDI_LOOPSTART_CODE) {
+			u8 hi, lo;
+			if (s_seqGetByte(p, first_track, &hi) != 0) return -1;
+			if (s_seqGetByte(p, first_track, &lo) != 0) return -1;
+			out->type = AL_CSP_LOOPSTART;
+			out->loop_count = ((u32)hi << 8) | lo;
+		} else if (type == AL_CMIDI_LOOPEND_CODE) {
+			u8 tmp;
+			u32 count = 0;
+			if (s_seqGetByte(p, first_track, &tmp) != 0) return -1;
+			count = tmp;
+			for (s32 i = 0; i < 5; i++) {
+				if (s_seqGetByte(p, first_track, &tmp) != 0) return -1;
+			}
+			out->type = AL_CSP_LOOPEND;
+			out->loop_count = count;
+		} else {
+			return -1;
+		}
+	} else {
+		out->type = AL_SEQ_MIDI_EVT;
+		if (status & 0x80) {
+			out->status = (status & 0xf0) | (u8)first_track;
+			if (s_seqGetByte(p, first_track, &out->byte1) != 0) return -1;
+			p->last_status[first_track] = out->status;
+		} else {
+			if (!p->last_status[first_track]) return -1;
+			out->status = p->last_status[first_track];
+			out->byte1 = status;
+		}
+		if ((out->status & 0xf0) != AL_MIDI_ProgramChange
+				&& (out->status & 0xf0) != AL_MIDI_ChannelPressure) {
+			if (s_seqGetByte(p, first_track, &out->byte2) != 0) return -1;
+			if ((out->status & 0xf0) == AL_MIDI_NoteOn) {
+				if (s_seqReadVarLen(p, first_track, &out->duration) != 0) return -1;
+			}
+		}
+	}
+
+	if (out->type != AL_TRACK_END && out->type != AL_SEQ_END_EVT) {
+		u32 next_delta;
+		if (s_seqReadVarLen(p, first_track, &next_delta) != 0) return -1;
+		p->delta[first_track] += next_delta;
+	}
+	return 1;
+}
+
+static s32 s_buildMidiFile(const pdsong_midi_vec_t *events, u32 division,
+                           pdsong_bytebuf_t *mid)
+{
+	pdsong_bytebuf_t track;
+	memset(&track, 0, sizeof(track));
+
+	u32 last_tick = 0;
+	for (u32 i = 0; i < events->count; i++) {
+		const pdsong_midi_evt_t *e = &events->items[i];
+		if (s_bytebufPutVarLen(&track, e->tick - last_tick) != 0 ||
+		    s_bytebufAppend(&track, e->bytes, e->nbytes) != 0) {
+			s_bytebufFree(&track);
+			return -1;
+		}
+		last_tick = e->tick;
+	}
+	const u8 end_track[3] = { 0xff, 0x2f, 0x00 };
+	if (s_bytebufPutVarLen(&track, 0) != 0 ||
+	    s_bytebufAppend(&track, end_track, sizeof(end_track)) != 0) {
+		s_bytebufFree(&track);
+		return -1;
+	}
+
+	if (s_bytebufAppend(mid, "MThd", 4) != 0 ||
+	    s_bytebufPutBe32(mid, 6) != 0 ||
+	    s_bytebufPutBe16(mid, 0) != 0 ||
+	    s_bytebufPutBe16(mid, 1) != 0 ||
+	    s_bytebufPutBe16(mid, (u16)division) != 0 ||
+	    s_bytebufAppend(mid, "MTrk", 4) != 0 ||
+	    s_bytebufPutBe32(mid, track.len) != 0 ||
+	    s_bytebufAppend(mid, track.data, track.len) != 0) {
+		s_bytebufFree(&track);
+		return -1;
+	}
+
+	s_bytebufFree(&track);
+	return 0;
+}
+
+static const char *s_seqEventName(s32 type)
+{
+	switch (type) {
+	case AL_SEQ_MIDI_EVT: return "midi";
+	case AL_TEMPO_EVT: return "tempo";
+	case AL_TRACK_END: return "track_end";
+	case AL_SEQ_END_EVT: return "sequence_end";
+	case AL_CSP_LOOPSTART: return "loop_start";
+	case AL_CSP_LOOPEND: return "loop_end";
+	default: return "unknown";
+	}
+}
+
+static s32 s_exportSequence(const u8 *seq_src, u32 seq_len,
+                            pdsong_bytebuf_t *mid, pdsong_bytebuf_t *tsv,
+                            u32 *out_division, u32 *out_event_count,
+                            s32 *out_loops)
+{
+	u8 *seq = (u8 *)malloc(seq_len);
+	if (!seq) return -1;
+	memcpy(seq, seq_src, seq_len);
+	preprocessALCMidiHdr(seq, seq_len, NULL);
+
+	pdsong_seq_parser_t parser;
+	u32 division = 0;
+	if (s_seqParserInit(&parser, seq, seq_len, &division) != 0) {
+		free(seq);
+		return -1;
+	}
+
+	pdsong_midi_vec_t midi_events;
+	memset(&midi_events, 0, sizeof(midi_events));
+
+	if (s_bytebufPrintf(tsv,
+			"tick\ttrack\ttype\tstatus\tchannel\tbyte1\tbyte2\tduration\ttempo_us\tloop_count\n") != 0) {
+		free(seq);
+		return -1;
+	}
+
+	u32 order = 0;
+	u32 parsed_count = 0;
+	s32 saw_loops = 0;
+	for (;;) {
+		pdsong_seq_evt_t evt;
+		s32 r = s_seqNextEvent(&parser, &evt);
+		if (r < 0) {
+			s_midiVecFree(&midi_events);
+			free(seq);
+			return -1;
+		}
+		if (r == 0) break;
+		parsed_count++;
+		if (parsed_count > 250000) {
+			s_midiVecFree(&midi_events);
+			free(seq);
+			return -1;
+		}
+
+		u32 tempo_us = 0;
+		if (evt.type == AL_TEMPO_EVT) {
+			tempo_us = ((u32)evt.tempo[0] << 16) |
+			           ((u32)evt.tempo[1] << 8) |
+			           (u32)evt.tempo[2];
+			u8 bytes[6] = { 0xff, 0x51, 0x03, evt.tempo[0], evt.tempo[1], evt.tempo[2] };
+			if (s_midiVecPush(&midi_events, evt.tick, order++, bytes, sizeof(bytes)) != 0) {
+				s_midiVecFree(&midi_events);
+				free(seq);
+				return -1;
+			}
+		} else if (evt.type == AL_SEQ_MIDI_EVT) {
+			u8 bytes[3] = { evt.status, evt.byte1, evt.byte2 };
+			u8 nbytes = ((evt.status & 0xf0) == AL_MIDI_ProgramChange ||
+			             (evt.status & 0xf0) == AL_MIDI_ChannelPressure) ? 2 : 3;
+			if (s_midiVecPush(&midi_events, evt.tick, order++, bytes, nbytes) != 0) {
+				s_midiVecFree(&midi_events);
+				free(seq);
+				return -1;
+			}
+			if ((evt.status & 0xf0) == AL_MIDI_NoteOn) {
+				u8 off[3] = { (u8)(AL_MIDI_NoteOff | (evt.status & 0x0f)), evt.byte1, 0 };
+				if (s_midiVecPush(&midi_events, evt.tick + evt.duration, order++, off, sizeof(off)) != 0) {
+					s_midiVecFree(&midi_events);
+					free(seq);
+					return -1;
+				}
+			}
+		} else if (evt.type == AL_CSP_LOOPSTART || evt.type == AL_CSP_LOOPEND) {
+			saw_loops = 1;
+		}
+
+		if (s_bytebufPrintf(tsv,
+				"%u\t%u\t%s\t0x%02x\t%u\t%u\t%u\t%u\t%u\t%u\n",
+				(unsigned)evt.tick,
+				(unsigned)evt.track,
+				s_seqEventName(evt.type),
+				(unsigned)evt.status,
+				(unsigned)(evt.status & 0x0f),
+				(unsigned)evt.byte1,
+				(unsigned)evt.byte2,
+				(unsigned)evt.duration,
+				(unsigned)tempo_us,
+				(unsigned)evt.loop_count) != 0) {
+			s_midiVecFree(&midi_events);
+			free(seq);
+			return -1;
+		}
+
+		if (evt.type == AL_SEQ_END_EVT) break;
+	}
+
+	qsort(midi_events.items, midi_events.count, sizeof(midi_events.items[0]), s_midiEvtCmp);
+	if (s_buildMidiFile(&midi_events, division, mid) != 0) {
+		s_midiVecFree(&midi_events);
+		free(seq);
+		return -1;
+	}
+
+	*out_division = division;
+	*out_event_count = parsed_count;
+	*out_loops = saw_loops;
+	s_midiVecFree(&midi_events);
+	free(seq);
+	return 0;
+}
+
+static s32 s_addShaSidecar(mod_archive_writer_t *aw, const char *name,
+                           const u8 *data, u32 len)
+{
+	u8 digest[SHA256_DIGEST_SIZE];
+	sha256Hash(data, (size_t)len, digest);
+	char hex[SHA256_HEX_SIZE + 1];
+	sha256ToHex(digest, hex);
+	hex[SHA256_HEX_SIZE] = '\0';
+	char sidecar[SHA256_HEX_SIZE + 2];
+	snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
+	return modArchiveAddFileMem(aw, name, sidecar, (u32)strlen(sidecar));
+}
+
 /* Emit one .pdsong ZIP. Returns 1 written, 0 skipped, -1 failed. */
 static s32 s_emitOneSong(s32 slot_idx,
                          const struct seqtableentry *entry,
@@ -111,19 +638,6 @@ static s32 s_emitOneSong(s32 slot_idx,
 	if (entry->binlen == 0) {
 		/* Empty slot: zero-length sequence. Skip silently. */
 		return 0;
-	}
-
-	if ((u32)entry->romaddr + (u32)entry->binlen > seg_size) {
-		sysLoudFailf("EXTRACT.PDSONG",
-			"slot=%d range 0x%x..0x%x past segment size 0x%x "
-			"(binlen=%u ziplen=%u)",
-			slot_idx,
-			(unsigned)entry->romaddr,
-			(unsigned)entry->romaddr + entry->binlen,
-			(unsigned)seg_size,
-			(unsigned)entry->binlen,
-			(unsigned)entry->ziplen);
-		return -1;
 	}
 
 	char catalog_id[64];
@@ -136,7 +650,8 @@ static s32 s_emitOneSong(s32 slot_idx,
 	snprintf(dst_rel, sizeof(dst_rel),
 		"%s/%s.pdsong", out_dir, filename_slug);
 
-	if (!force_rewrite && fsFileSize(dst_rel) > 0) return 0;
+	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
+	    s_existingArchiveHasSongPayloads(dst_rel)) return 0;
 
 	/* Detect whether the slice is zlib-compressed (ziplen > 0 means
 	 * the runtime needs zip-decompression before play). The schema's
@@ -147,8 +662,9 @@ static s32 s_emitOneSong(s32 slot_idx,
 	 * NOTE: ziplen == 0 in practice means binlen == ziplen and the
 	 * data is uncompressed. ziplen > 0 means zlib payload.
 	 *
-	 * We expose both lengths in the manifest for round-trip parity. */
-	const char *fmt_str = (entry->ziplen > 0) ? "ALSEQ_ZIP" : "ALSEQ";
+	 * We expose both lengths in the manifest for round-trip parity, but
+	 * authored contents are the converted sequence.mid/sequence.tsv pair. */
+	const char *fmt_str = (entry->ziplen > 0) ? "N64_CMIDI_RZIP" : "N64_CMIDI";
 
 	/* The slice we extract is whichever length is on disk. PD writes
 	 * the larger of binlen and ziplen, but both should bound the
@@ -165,36 +681,136 @@ static s32 s_emitOneSong(s32 slot_idx,
 		return -1;
 	}
 
-	char manifest_buf[1024];
+	u8 *seq_bytes = NULL;
+	u32 seq_len = 0;
+	if (entry->ziplen > 0) {
+		u32 alloc_len = (u32)entry->binlen + 0x40;
+		seq_bytes = (u8 *)malloc(alloc_len);
+		if (!seq_bytes) {
+			sysLoudFailf("EXTRACT.PDSONG",
+				"malloc failed for slot=%d inflated len=%u",
+				slot_idx, (unsigned)alloc_len);
+			return -1;
+		}
+		s32 inflated = rzipInflate((void *)(seg_data + entry->romaddr), seq_bytes, NULL);
+		if (inflated <= 0 || (u32)inflated > alloc_len) {
+			free(seq_bytes);
+			sysLoudFailf("EXTRACT.PDSONG",
+				"rzip inflate failed for slot=%d ziplen=%u binlen=%u",
+				slot_idx, (unsigned)entry->ziplen, (unsigned)entry->binlen);
+			return -1;
+		}
+		seq_len = (u32)inflated;
+	} else {
+		seq_len = (u32)entry->binlen;
+		seq_bytes = (u8 *)malloc(seq_len);
+		if (!seq_bytes) {
+			sysLoudFailf("EXTRACT.PDSONG",
+				"malloc failed for slot=%d seq len=%u",
+				slot_idx, (unsigned)seq_len);
+			return -1;
+		}
+		memcpy(seq_bytes, seg_data + entry->romaddr, seq_len);
+	}
+
+	pdsong_bytebuf_t mid_buf;
+	pdsong_bytebuf_t tsv_buf;
+	memset(&mid_buf, 0, sizeof(mid_buf));
+	memset(&tsv_buf, 0, sizeof(tsv_buf));
+	u32 division = 0;
+	u32 event_count = 0;
+	s32 loops = 0;
+	if (s_exportSequence(seq_bytes, seq_len, &mid_buf, &tsv_buf,
+	                     &division, &event_count, &loops) != 0) {
+		free(seq_bytes);
+		s_bytebufFree(&mid_buf);
+		s_bytebufFree(&tsv_buf);
+		sysLoudFailf("EXTRACT.PDSONG",
+			"sequence export failed for slot=%d seq_len=%u",
+			slot_idx, (unsigned)seq_len);
+		return -1;
+	}
+	free(seq_bytes);
+
+	char manifest_buf[1200];
 	int manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
 		"{\n"
 		"  \"pd_kind\": \"song\",\n"
 		"  \"pd_schema_version\": 1,\n"
 		"  \"id\": \"%s\",\n"
-		"  \"format\": \"%s\",\n"
-		"  \"data\": \"data.bin\",\n"
-		"  \"data_size\": %u,\n"
+		"  \"source_format\": \"%s\",\n"
+		"  \"format\": \"MIDI\",\n"
+		"  \"midi\": \"sequence.mid\",\n"
+		"  \"events\": \"sequence.tsv\",\n"
+		"  \"midi_size\": %u,\n"
+		"  \"events_size\": %u,\n"
+		"  \"division\": %u,\n"
+		"  \"event_count\": %u,\n"
 		"  \"binlen\": %u,\n"
 		"  \"ziplen\": %u,\n"
-		"  \"loops\": false,\n"
+		"  \"loops\": %s,\n"
 		"  \"source_index\": %d,\n"
 		"  \"source_offset\": %u\n"
 		"}\n",
 		catalog_id, fmt_str,
-		(unsigned)slice_len,
+		(unsigned)mid_buf.len,
+		(unsigned)tsv_buf.len,
+		(unsigned)division,
+		(unsigned)event_count,
 		(unsigned)entry->binlen,
 		(unsigned)entry->ziplen,
+		loops ? "true" : "false",
 		slot_idx,
 		(unsigned)entry->romaddr);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
+		s_bytebufFree(&mid_buf);
+		s_bytebufFree(&tsv_buf);
 		sysLoudFailf("EXTRACT.PDSONG",
 			"manifest.json snprintf truncated for slot=%d", slot_idx);
+		return -1;
+	}
+
+	char ini_buf[768];
+	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
+		"[music]\n"
+		"catalog_id = %s\n"
+		"source_format = %s\n"
+		"format = MIDI\n"
+		"music_file = sequence.mid\n"
+		"midi_file = sequence.mid\n"
+		"events_file = sequence.tsv\n"
+		"midi_size = %u\n"
+		"events_size = %u\n"
+		"division = %u\n"
+		"event_count = %u\n"
+		"binlen = %u\n"
+		"ziplen = %u\n"
+		"loops = %s\n"
+		"source_index = %d\n"
+		"source_offset = %u\n",
+		catalog_id, fmt_str,
+		(unsigned)mid_buf.len,
+		(unsigned)tsv_buf.len,
+		(unsigned)division,
+		(unsigned)event_count,
+		(unsigned)entry->binlen,
+		(unsigned)entry->ziplen,
+		loops ? "true" : "false",
+		slot_idx,
+		(unsigned)entry->romaddr);
+	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
+		s_bytebufFree(&mid_buf);
+		s_bytebufFree(&tsv_buf);
+		sysLoudFailf("EXTRACT.PDSONG",
+			"music.ini snprintf truncated for slot=%d", slot_idx);
 		return -1;
 	}
 
 	char dst_full_buf[FS_MAXPATH + 1];
 	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
 	if (!dst_full || !dst_full[0]) {
+		s_bytebufFree(&mid_buf);
+		s_bytebufFree(&tsv_buf);
 		sysLoudFailf("EXTRACT.PDSONG",
 			"fsFullPath empty for \"%s\"", dst_rel);
 		return -1;
@@ -202,52 +818,74 @@ static s32 s_emitOneSong(s32 slot_idx,
 
 	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
 	if (!aw) {
+		s_bytebufFree(&mid_buf);
+		s_bytebufFree(&tsv_buf);
 		sysLoudFailf("EXTRACT.PDSONG",
 			"modArchiveBegin failed for \"%s\"", dst_full);
 		return -1;
 	}
 
+	if (modArchiveAddFileMem(aw, "music.ini", ini_buf, (u32)ini_len) != 0) {
+		sysLoudFailf("EXTRACT.PDSONG",
+			"AddFileMem music.ini failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		s_bytebufFree(&mid_buf);
+		s_bytebufFree(&tsv_buf);
+		return -1;
+	}
 	if (modArchiveAddFileMem(aw, "manifest.json",
 	                          manifest_buf, (u32)manifest_len) != 0) {
 		sysLoudFailf("EXTRACT.PDSONG",
 			"AddFileMem manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
+		s_bytebufFree(&mid_buf);
+		s_bytebufFree(&tsv_buf);
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "data.bin",
-	                          (const char *)(seg_data + entry->romaddr),
-	                          slice_len) != 0) {
+	if (modArchiveAddFileMem(aw, "sequence.mid",
+	                          (const char *)mid_buf.data,
+	                          mid_buf.len) != 0) {
 		sysLoudFailf("EXTRACT.PDSONG",
-			"AddFileMem data.bin failed for \"%s\" "
+			"AddFileMem sequence.mid failed for \"%s\" "
 			"(slot=%d len=%u)",
-			dst_full, slot_idx, (unsigned)slice_len);
+			dst_full, slot_idx, (unsigned)mid_buf.len);
 		modArchiveAbort(aw);
+		s_bytebufFree(&mid_buf);
+		s_bytebufFree(&tsv_buf);
 		return -1;
 	}
 
-	{
-		u8 digest[SHA256_DIGEST_SIZE];
-		sha256Hash(seg_data + entry->romaddr, (size_t)slice_len, digest);
-		char hex[SHA256_HEX_SIZE + 1];
-		sha256ToHex(digest, hex);
-		hex[SHA256_HEX_SIZE] = '\0';
-		char sidecar[SHA256_HEX_SIZE + 2];
-		snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-		if (modArchiveAddFileMem(aw, "data.bin.sha256",
-		                          sidecar, (u32)strlen(sidecar)) != 0) {
-			sysLogPrintf(LOG_WARNING,
-				"romextract pdsong: sidecar write failed for \"%s\" "
-				"(slot=%d)", dst_full, slot_idx);
-		}
+	if (modArchiveAddFileMem(aw, "sequence.tsv",
+	                          (const char *)tsv_buf.data,
+	                          tsv_buf.len) != 0) {
+		sysLoudFailf("EXTRACT.PDSONG",
+			"AddFileMem sequence.tsv failed for \"%s\" "
+			"(slot=%d len=%u)",
+			dst_full, slot_idx, (unsigned)tsv_buf.len);
+		modArchiveAbort(aw);
+		s_bytebufFree(&mid_buf);
+		s_bytebufFree(&tsv_buf);
+		return -1;
+	}
+
+	if (s_addShaSidecar(aw, "sequence.mid.sha256", mid_buf.data, mid_buf.len) != 0 ||
+	    s_addShaSidecar(aw, "sequence.tsv.sha256", tsv_buf.data, tsv_buf.len) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdsong: sidecar write failed for \"%s\" (slot=%d)",
+			dst_full, slot_idx);
 	}
 
 	if (modArchiveFinish(aw) != 0) {
+		s_bytebufFree(&mid_buf);
+		s_bytebufFree(&tsv_buf);
 		sysLoudFailf("EXTRACT.PDSONG",
 			"modArchiveFinish failed for \"%s\"", dst_full);
 		return -1;
 	}
 
+	s_bytebufFree(&mid_buf);
+	s_bytebufFree(&tsv_buf);
 	return 1;
 }
 

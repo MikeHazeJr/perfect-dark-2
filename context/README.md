@@ -30,7 +30,7 @@ Then load the pillar doc(s) for whatever you are touching.
 
 - **Wire protocol**: v46 (per [pillars/save-wire-format.md](pillars/save-wire-format.md) and `port/include/net/net.h:12`).
 - **Save format**: SAVE_VERSION=2, MPSETUP_VERSION=2.
-- **Build**: v0.0.175+ (per recent release tags). Build via `.\devtools\build-session.ps1 -Session <id> -Target all`.
+- **Build**: v0.0.175+ (per recent release tags). Build via `.\devtools\build-session.ps1 -Session <id> -Target all`; standalone `pd-server` is removed/deprecated, so use listen-host in the client.
 - **Active session range**: see [session-log.md](session-log.md).
 - **Critical path**: see [tasks.md](tasks.md). Post-rebuild queue: Catalog Weapons F11-F13 (retire `g_Weapons[]`), then Catalog Gate 3 migration (heads/bodies/arenas/audio + Manager + .pdbase pattern), then Input Controller Support (Branch 2 Cohorts 5-8 + menus + full controller).
 - **Long-term roadmap**: [roadmap.md](roadmap.md).
@@ -82,6 +82,8 @@ Sub-bucketed by pillar. Designs that have shipped move to `_old/designs-shipped/
 
 **Modding**
 - [designs/modding/pdmod-format.md](designs/modding/pdmod-format.md) - unified mod format spec
+- [designs/modding/weapon-behavior-graph-assets.md](designs/modding/weapon-behavior-graph-assets.md) - `.pdweapon`, `.pdprojectile`, `.pdentity` graph asset schema
+- [designs/modding/weapon-graph-runtime-cutover-plan.md](designs/modding/weapon-graph-runtime-cutover-plan.md) - runtime cutover slices for weapon graph implementation
 - [designs/modding/mod-enablement-policy.md](designs/modding/mod-enablement-policy.md)
 - [designs/modding/theme-bundle-and-per-agent-settings.md](designs/modding/theme-bundle-and-per-agent-settings.md)
 - [designs/modding/forge-level-editor.md](designs/modding/forge-level-editor.md) - Phase 0-1 shipped, future phases scoped

@@ -301,7 +301,10 @@ static s32 pathEndsWithNoCase(const char *s, const char *suffix)
 
 static asset_type_e typedPdContentTypeForPath(const char *path)
 {
-	if (pathEndsWithNoCase(path, ".pdwpn"))      return ASSET_WEAPON;
+	if (pathEndsWithNoCase(path, ".pdweapon"))   return ASSET_WEAPON;
+	if (pathEndsWithNoCase(path, ".pdprojectile")) return ASSET_PROJECTILE;
+	if (pathEndsWithNoCase(path, ".pdentity"))   return ASSET_ENTITY;
+	if (pathEndsWithNoCase(path, ".pdcharacter")) return ASSET_CHARACTER;
 	if (pathEndsWithNoCase(path, ".pdhead"))     return ASSET_HEAD;
 	if (pathEndsWithNoCase(path, ".pdbody"))     return ASSET_BODY;
 	if (pathEndsWithNoCase(path, ".pdarena"))    return ASSET_ARENA;
@@ -319,7 +322,10 @@ static asset_type_e typedPdContentTypeForPath(const char *path)
 
 static const char *typedPdArchiveDescriptorLeaf(const char *path)
 {
-	if (pathEndsWithNoCase(path, ".pdwpn"))      return "weapon.ini";
+	if (pathEndsWithNoCase(path, ".pdweapon"))   return "weapon.ini";
+	if (pathEndsWithNoCase(path, ".pdprojectile")) return "projectile.ini";
+	if (pathEndsWithNoCase(path, ".pdentity"))   return "entity.ini";
+	if (pathEndsWithNoCase(path, ".pdcharacter")) return "character.ini";
 	if (pathEndsWithNoCase(path, ".pdhead"))     return "head.ini";
 	if (pathEndsWithNoCase(path, ".pdbody"))     return "body.ini";
 	if (pathEndsWithNoCase(path, ".pdarena"))    return "arena.ini";
@@ -709,6 +715,9 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 	static const char *modelKeys[] = {
 		"model_file", "model", "geometry_file", "geometry", "file_path"
 	};
+	static const char *behaviorAssetKeys[] = {
+		"behavior_graph", "graph", "model_file", "model", "file_path"
+	};
 	static const char *arenaKeys[] = { "geometry_file", "geometry" };
 	static const char *scenarioKeys[] = {
 		"rooms_file", "rooms", "geometry_file", "geometry"
@@ -787,19 +796,27 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 
 	switch (type) {
 	case ASSET_WEAPON:
+	case ASSET_PROJECTILE:
+	case ASSET_ENTITY:
 	case ASSET_HEAD:
 	case ASSET_BODY:
 	case ASSET_MODEL:
 		if (typedArchive) {
 			s32 r = validateArchiveDescriptorSources(typedArchive,
-				archiveIniPtr, descriptorRel, modelKeys,
-				(s32)(sizeof(modelKeys) / sizeof(modelKeys[0])),
+				archiveIniPtr, descriptorRel,
+				type == ASSET_PROJECTILE || type == ASSET_ENTITY ? behaviorAssetKeys : modelKeys,
+				type == ASSET_PROJECTILE || type == ASSET_ENTITY
+					? (s32)(sizeof(behaviorAssetKeys) / sizeof(behaviorAssetKeys[0]))
+					: (s32)(sizeof(modelKeys) / sizeof(modelKeys[0])),
 				NULL, 0);
 			modArchiveClose(typedArchive);
 			return r;
 		}
 		return validateDescriptorSources(srcFolder, descriptorRel,
-			modelKeys, (s32)(sizeof(modelKeys) / sizeof(modelKeys[0])),
+			type == ASSET_PROJECTILE || type == ASSET_ENTITY ? behaviorAssetKeys : modelKeys,
+			type == ASSET_PROJECTILE || type == ASSET_ENTITY
+				? (s32)(sizeof(behaviorAssetKeys) / sizeof(behaviorAssetKeys[0]))
+				: (s32)(sizeof(modelKeys) / sizeof(modelKeys[0])),
 			NULL, 0);
 	case ASSET_ARENA:
 		if (typedArchive) {
@@ -1055,6 +1072,8 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 	}
 
 	static const char *modelKeys[] = { "model_file", "model" };
+	static const char *behaviorAssetKeys[] = { "behavior_graph", "graph", "model_file", "model", "file_path" };
+	static const char *characterKeys[] = { "bodyfile", "body_file" };
 	static const char *arenaKeys[] = { "geometry_file", "geometry" };
 	static const char *scenarioKeys[] = { "rooms_file", "rooms", "geometry_file", "geometry" };
 	static const char *animationKeys[] = { "animation_file", "file_path" };
@@ -1083,6 +1102,9 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 		} while (0)
 
 	RUN_FAMILY("weapons", "weapon.ini", "weapon", modelKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY("projectiles", "projectile.ini", "projectile", behaviorAssetKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY("entities", "entity.ini", "entity", behaviorAssetKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY("characters", "character.ini", "character", characterKeys, NULL, 0, NULL, 0);
 	RUN_FAMILY("characters/heads", "head.ini", "head", modelKeys, NULL, 0, NULL, 0);
 	RUN_FAMILY("characters/bodies", "body.ini", "body", modelKeys, NULL, 0, NULL, 0);
 	RUN_FAMILY("maps", "arena.ini", "arena", arenaKeys,

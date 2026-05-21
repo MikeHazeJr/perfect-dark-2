@@ -79,6 +79,8 @@ _Static_assert(MANIFEST_MAX_ENTRIES <= 65535, "MANIFEST_MAX_ENTRIES exceeds u16 
 #define MANIFEST_TYPE_TEXTURE    7  /**< Texture data (tex_%d catalog entry) */
 #define MANIFEST_TYPE_LANG       8  /**< Language string bank (base:lang_* catalog entry) */
 #define MANIFEST_TYPE_AUDIO      9  /**< Audio mod track (playlist entry) */
+#define MANIFEST_TYPE_PROJECTILE 10 /**< Physical projectile behavior asset */
+#define MANIFEST_TYPE_ENTITY     11 /**< Deployed/stuck behavior archetype asset */
 
 /** Client response status codes for CLC_MANIFEST_STATUS */
 #define MANIFEST_STATUS_READY       0  /**< All listed assets present; ready to load */
@@ -444,7 +446,8 @@ void manifestMPTransition(void);
  * and transitions its catalog state to ASSET_STATE_LOADED.
  *
  * asset_type: MANIFEST_TYPE_BODY, MANIFEST_TYPE_HEAD, MANIFEST_TYPE_MODEL,
- *             MANIFEST_TYPE_ANIM, or MANIFEST_TYPE_TEXTURE.
+ *             MANIFEST_TYPE_ANIM, MANIFEST_TYPE_TEXTURE,
+ *             MANIFEST_TYPE_PROJECTILE, or MANIFEST_TYPE_ENTITY.
  *
  * Returns 1 if the asset is now tracked; 0 if catalog_id is NULL/empty,
  * no SP manifest is active (MP mode or before stage load), or the asset

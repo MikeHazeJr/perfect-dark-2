@@ -953,8 +953,11 @@ void mpPushEndscreenDialog(u32 arg0, u32 playernum)
 				&& g_PlayerConfigsArray[g_MpPlayerNum].fileguid.fileid == 0
 				&& g_PlayerConfigsArray[g_MpPlayerNum].fileguid.deviceserial == 0) {
 			g_PlayerConfigsArray[g_MpPlayerNum].options |= OPTION_ASKEDSAVEPLAYER;
-			if (!g_NetMode)
-			menuPushDialog(&g_MpEndscreenSavePlayerMenuDialog);
+			/* PC port: the legacy Controller Pak save-player prompt is
+			 * intentionally suppressed by ImGui. Pushing it here makes the
+			 * no-op prompt the current MP endscreen dialog, hiding the real
+			 * post-match screen and leaving GAMEOVER pause with no visible
+			 * exit. Player config is saved by the ImGui endscreen exit path. */
 		}
 	}
 #endif

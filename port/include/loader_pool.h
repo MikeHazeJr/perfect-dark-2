@@ -7,7 +7,7 @@
 /*
  * port/include/loader_pool.h -- Catalog universality pivot Step 5
  * (2026-05-03). Heavyweight typed pool for weapon / head / body / arena
- * runtime payloads, populated from per-asset .pdwpn / .pdhead / .pdbody /
+ * runtime payloads, populated from per-asset .pdweapon / .pdhead / .pdbody /
  * .pdarena content via the universal directory walker.
  *
  * Scope split from the catalog row layer (assetcatalog) -- the catalog
@@ -82,7 +82,7 @@ const struct aibotweaponpreference *loaderPoolGetBotPref(s32 idx);
 s32         loaderPoolGetWeaponsRegistered(void);
 const char *loaderPoolGetWeaponCatalogId(s32 idx);
 
-/* Animation-pool walking accessors used by the .pdanim / .pdwpn
+/* Animation-pool walking accessors used by the .pdanim / .pdweapon
  * emitters at extraction time. */
 s32         loaderPoolGetAnimationCount(void);
 const char *loaderPoolGetAnimationName(s32 idx);

@@ -41,6 +41,11 @@ typedef struct mod_archive mod_archive_t;
 /* Opaque writer handle. */
 typedef struct mod_archive_writer mod_archive_writer_t;
 
+/** Callback used when walking entries in an in-memory zip archive. */
+typedef s32 (*mod_archive_mem_entry_cb)(const char *entryName,
+                                        u32 uncompressedSize,
+                                        void *user);
+
 /* Result codes for write operations. */
 #define MODARCHIVE_OK             0
 #define MODARCHIVE_ERR_OPEN      -1   /* fopen / fseek failed */
@@ -128,6 +133,18 @@ void *modArchiveExtractMemAlloc(const void *archiveBytes, u32 archiveSize,
  */
 s32 modArchiveMemFindForbiddenBinPayload(const void *archiveBytes, u32 archiveSize,
                                          char *outName, u32 outNameCap);
+
+/**
+ * Iterate sanitized entries inside an in-memory ZIP archive.
+ *
+ * This mirrors the trust rules used by modArchiveOpen(): unsafe names,
+ * encrypted entries, unsupported compression methods, and ZIP64 sentinel
+ * entries are skipped. The callback receives sanitized forward-slash entry
+ * names and the uncompressed byte size. Return non-zero from the callback to
+ * stop early; otherwise this returns MODARCHIVE_OK on success.
+ */
+s32 modArchiveMemForEachEntry(const void *archiveBytes, u32 archiveSize,
+                              mod_archive_mem_entry_cb cb, void *user);
 
 /**
  * Zip-level "comment" field from the EOCD record. Returns the static

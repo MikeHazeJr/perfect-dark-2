@@ -53,6 +53,7 @@ s32 pdguiMenuTabPrevPressed(void);
 s32 pdguiMenuTabNextPressed(void);
 s32 pdguiMenuSecondaryPressed(void);
 s32 pdguiMenuTertiaryPressed(void);
+s32 pdguiMenuStartPressed(void);
 s32 pdguiMenuDeletePressed(void);
 /* Rule 8 (2026-05-03): LT/RT skip-up / skip-down.
  *

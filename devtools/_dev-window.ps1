@@ -1793,23 +1793,17 @@ function Get-BuildSteps($ver, [bool]$forceClean = $false) {
 
     # Smart build: only clean if forced or if build dirs don't exist
     if ($forceClean) {
-        $cleanArgs = "/c (if exist `"" + $script:ClientBuildDir + "`" rmdir /s /q `"" + $script:ClientBuildDir + "`") & (if exist `"" + $script:ServerBuildDir + "`" rmdir /s /q `"" + $script:ServerBuildDir + "`") & exit 0"
-        [void]$steps.Add(@{Name="Cleaning build dirs"; Exe="cmd.exe"; Target="client"; Args=$cleanArgs})
+        $cleanArgs = "/c (if exist `"" + $script:ClientBuildDir + "`" rmdir /s /q `"" + $script:ClientBuildDir + "`") & exit 0"
+        [void]$steps.Add(@{Name="Cleaning build dir"; Exe="cmd.exe"; Target="client"; Args=$cleanArgs})
     }
 
     # Smart configure: skip if CMakeCache.txt exists and is newer than CMakeLists.txt
     $needClientConfigure = $forceClean -or (Test-NeedsConfigure $script:ClientBuildDir)
-    $needServerConfigure = $forceClean -or (Test-NeedsConfigure $script:ServerBuildDir)
 
     if ($needClientConfigure) {
         [void]$steps.Add(@{Name="Configure (client)"; Exe=$script:CMake; Target="client"; Args="-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"" + $script:Make + "`" -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -DCMAKE_CXX_COMPILER=`"" + $script:CXX + "`" -B `"" + $script:ClientBuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags})
     }
     [void]$steps.Add(@{Name="Build (client)";     Exe=$script:CMake; Target="client"; Args="--build `"" + $script:ClientBuildDir + "`" --target pd -- -j" + $cores + " -k"})
-
-    if ($needServerConfigure) {
-        [void]$steps.Add(@{Name="Configure (server)"; Exe=$script:CMake; Target="server"; Args="-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"" + $script:Make + "`" -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -DCMAKE_CXX_COMPILER=`"" + $script:CXX + "`" -B `"" + $script:ServerBuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags})
-    }
-    [void]$steps.Add(@{Name="Build (server)";     Exe=$script:CMake; Target="server"; Args="--build `"" + $script:ServerBuildDir + "`" --target pd-server -- -j" + $cores + " -k"})
 
     return $steps
 }
@@ -1822,7 +1816,7 @@ function Start-Build {
     $script:ClientBuildTime = 0; $script:ServerBuildTime = 0
     $script:HasBuildErrors = $false; $script:CurrentBuildTarget = "client"
     if ($null -ne $script:LblClientStatus) { $script:LblClientStatus.Text = "client: building..."; $script:LblClientStatus.ForeColor = $script:ColorBlue }
-    if ($null -ne $script:LblServerStatus) { $script:LblServerStatus.Text = "server: --"; $script:LblServerStatus.ForeColor = $script:ColorTextDim }
+    if ($null -ne $script:LblServerStatus) { $script:LblServerStatus.Text = "server: removed"; $script:LblServerStatus.ForeColor = $script:ColorTextDim }
     if ($null -ne $script:BtnBuild) { $script:BtnBuild.Enabled = $false }
     if ($null -ne $script:BtnRelease) { $script:BtnRelease.Enabled = $false }
     if ($null -ne $script:BtnCleanBuild) { $script:BtnCleanBuild.Enabled = $false }
@@ -2006,7 +2000,7 @@ function Start-PushRelease {
     $isStable = $script:ChkStable.Checked
     $kind = $(if ($isStable) { "Stable" } else { "Dev" })
     $ok  = [System.Windows.Forms.MessageBox]::Show(
-        ("Release v" + $vs + " (" + $kind + ")?`n`nThis will:`n1. Set version to " + $vs + " in CMakeLists.txt`n2. Build client + server`n3. Package and push to GitHub" + $(if ($isStable) { "`n4. Merge dev -> stable and push stable branch" } else { "" })),
+        ("Release v" + $vs + " (" + $kind + ")?`n`nThis will:`n1. Set version to " + $vs + " in CMakeLists.txt`n2. Build client + updater`n3. Package and push to GitHub" + $(if ($isStable) { "`n4. Merge dev -> stable and push stable branch" } else { "" })),
         ($kind + " Release v" + $vs),
         [System.Windows.Forms.MessageBoxButtons]::YesNo,
         [System.Windows.Forms.MessageBoxIcon]::Warning

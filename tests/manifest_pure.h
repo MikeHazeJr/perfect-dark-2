@@ -43,6 +43,8 @@ extern "C" {
 #define PDTEST_MANIFEST_TYPE_TEXTURE     7
 #define PDTEST_MANIFEST_TYPE_LANG        8
 #define PDTEST_MANIFEST_TYPE_AUDIO       9
+#define PDTEST_MANIFEST_TYPE_PROJECTILE 10
+#define PDTEST_MANIFEST_TYPE_ENTITY     11
 
 typedef struct {
     uint32_t      net_hash;

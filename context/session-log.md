@@ -1,5 +1,491 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-21-pdweapon-base-graph-emitter`) - 2026-05-21 - c3814 base `.pdweapon` graph emitter and nested payload archives
+
+Mike asked to continue to completion for `.pdweapon` according to the weapon graph plan.
+
+### Implemented
+
+- Completed Kanban `c3814-s13` and moved `c3814-s14` active next.
+- Replaced the temporary `.pdweapon` legacy-manifest graph adapter with `base_weapon_graph_v1` graph emission using named v1 modules: hitscan, auto cadence, burst, charge/release, beam tick, fired projectile spawn, thrown physical spawn, melee, specials, and devices.
+- Added per-weapon nested payload planning so fired/thrown physical behavior emits embedded `.pdprojectile` archives and deployed/stuck behavior emits embedded `.pdentity` archives under `projectiles/` and `entities/`.
+- Wrote canonical SHA-256 inventory rows into `nested_payloads.json` and embedded the generated payload archives in the parent `.pdweapon`, keeping each weapon archive self-contained.
+- Added stale-output self-heal: existing `.pdweapon` files with the old temporary graph are regenerated even without force rewrite.
+- Extended c3814 static coverage to pin graph module emission, nested projectile/entity payload archive generation, canonical SHA-256 use, and absence of the old legacy graph adapter.
+
+### Not Implemented Yet
+
+- `c3814-s14` is now active next: graph schema/module/unit/catalog validation and deterministic runtime IR compiler.
+- Runtime adapters remain later slices: held weapon behavior (`c3814-s15`), projectile behavior (`c3814-s16`), deployed entity behavior (`c3814-s17`), and parity/removal closure (`c3814-s18`).
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session wpgraph -Target tests -BuildTimeoutSeconds 180` PASS.
+- `. .\devtools\_build-env-prelude.ps1; .\.claude\session-builds\wpgraph\pd-tests.exe "[modding][pdxxx][weapon][static][c3814]" -r compact` PASS: 36 assertions / 1 test case.
+- `. .\devtools\_build-env-prelude.ps1; .\.claude\session-builds\wpgraph\pd-tests.exe "[c3814]" -r compact` PASS: 135 assertions / 5 test cases.
+- `.\devtools\build-session.ps1 -Session wpgraph -Target all -BuildTimeoutSeconds 240` PASS for the wrapper's all target.
+- Scoped `git diff --check` PASS for tracked files, untracked c3814 files had no trailing whitespace, Kanban JSON parse/order check PASS, and live `.pdwpn` grep over code/tests/examples found no matches.
+- Removed session build directory with `.\devtools\build-session.ps1 -Remove -Session wpgraph`.
+
+---
+
+## Session (`codex-csend356-postmatch`) - 2026-05-21 - Combat Sim post-match screen hidden by suppressed save prompt
+
+Mike reported that ending a Combat Simulator match appeared to head toward the post-match screen, but the screen never appeared and the game had to be force-closed.
+
+### Implemented
+
+- Traced the end-match path from `mainEndStage()` -> `mpEndMatch()` -> `menuTick()` -> `mpPushEndscreenDialog()`.
+- Confirmed the MP game-over root was pushed, then the legacy NTSC `g_MpEndscreenSavePlayerMenuDialog` could still be pushed on top for local non-network profiles without a file GUID.
+- Removed the PC push of that suppressed no-op dialog while still marking `OPTION_ASKEDSAVEPLAYER`; PC config saving remains handled by the ImGui endscreen exit path.
+- Added a static menu-graph guard proving the MP game-over root remains the visible post-match path and the suppressed save-player dialog is not pushed from `mpPushEndscreenDialog()`.
+- Recorded B-356 in the bug tracker and Kanban `c3815` as fixed-pending-playtest.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session csend356 -Selector "[input][menu_graph]" -BuildTimeoutSeconds 180` PASS: 644 assertions / 33 test cases.
+- `.\devtools\build-session.ps1 -Session csend356 -Target all -BuildTimeoutSeconds 180` PASS.
+- Removed session build directory with `.\devtools\build-session.ps1 -Remove -Session csend356`.
+
+### Remaining
+
+- Mike manual retest: Combat Simulator local match -> end match by score/time/End Match -> post-match screen appears without force close -> Return to Room / Back to Menu works.
+
+---
+
+## Session (`main-checkout-2026-05-21-weapon-graph-archive-helpers`) - 2026-05-21 - c3814 graph archive helpers and nested inventory scaffold
+
+Mike asked to continue the weapon behavior/projectile/entity behavior "not implemented" list and track the progress on Kanban.
+
+### Implemented
+
+- Completed Kanban `c3814-s12` and moved `c3814-s13` active next.
+- Added `weapon_graph_archive` shared helper APIs for `.pdweapon`, `.pdprojectile`, and `.pdentity` descriptor/text reads, root validation, derived nested projectile/entity IDs, duplicate-ID collision checks, canonical archive-content SHA-256 over sorted uncompressed entries, and nested payload inventory scanning/formatting.
+- Added sanitized in-memory archive entry iteration to `modarchive` so embedded `.pdprojectile`/`.pdentity` payloads can be hashed by canonical archive content without extracting to disk.
+- Updated the base `.pdweapon` extractor to write `nested_payloads.json`, reference it from `weapon.ini`, include it in the temporary legacy graph adapter, and treat older `.pdweapon` outputs without it as stale.
+- Added focused c3814 coverage for derived IDs, root validation, canonical digest stability across entry order, embedded archive digest parity, and nested payload inventory JSON.
+
+### Not Implemented Yet
+
+- `c3814-s13` is now active next: emit graph-shaped base `.pdweapon` archives with named v1 modules and generate first nested `.pdprojectile`/`.pdentity` base payloads for Slayer/rockets/grenades/mines/Dragon/Laptop physical behaviors.
+- Graph compiler, deterministic runtime IR execution, and runtime weapon/projectile/entity adapters remain later c3814 slices.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wpgraph -Selector "[modding][pdxxx][weapon_graph]" -BuildTimeoutSeconds 120` PASS: 65 assertions / 3 test cases.
+- `.\devtools\run-pd-tests.ps1 -Session wpgraph -Selector "[modding][pdxxx][weapon][static][c3814]" -BuildTimeoutSeconds 120` PASS: 21 assertions / 1 test case.
+- `.\devtools\run-pd-tests.ps1 -Session wpgraph -Selector "[modding][pdxxx][projectile_entity][static][c3814]" -BuildTimeoutSeconds 120` PASS: 34 assertions / 1 test case.
+- `.\devtools\run-pd-tests.ps1 -Session wpgraph -Selector "[c3814]" -NoBuild` PASS: 120 assertions / 5 test cases.
+- `.\devtools\build-session.ps1 -Session wpgraph -Target all -BuildTimeoutSeconds 120` PASS; session build removed.
+- Scoped `git diff --check` PASS; Kanban JSON parse/order check PASS (`c3814` remains first active critical; `c3814-s12` done, `c3814-s13` active); live `.pdwpn` grep found no matches.
+
+---
+
+## Session (`main-checkout-2026-05-21-nonweapon-song-archives`) - 2026-05-21 - non-weapon song archives expose MIDI/event payloads
+
+Mike asked to continue c3812 through the other non-weapon typed archive kinds while leaving weapon work to the parallel c3814 session.
+
+### Implemented
+
+- Updated the `.pdsong` base extractor so emitted archives contain standard `sequence.mid`, editable `sequence.tsv`, and SHA-256 sidecars instead of authored `data.bin`.
+- Reused the existing N64 compressed-MIDI format knowledge: RareZip sequence slices are inflated, the `ALCMidiHdr` is byte-swapped through `preprocessALCMidiHdr`, and the compressed event stream is parsed with loop markers recorded in TSV.
+- Converted MIDI channel events, tempo events, and note durations into a format-0 Standard MIDI file with synthetic note-off events so ordinary MIDI tools can open the exported music.
+- Updated `music.ini` and `manifest.json` to point at `sequence.mid`/`sequence.tsv`, retain `source_format` provenance, and treat older music archives as stale unless both files are present.
+- Updated character `.pdanim` archives to expose `header.tsv` and `frames.tsv` plus SHA-256 sidecars instead of `frames.bin`.
+- Updated `.pdmesh` archives to promote the source `PD_MODELDEF`, walk model display lists, and expose standard Wavefront `model.obj` plus `model.mtl` and SHA-256 sidecars instead of `geometry.bin` or a TSV byte table.
+- Added focused static coverage that pins `.pdsong` MIDI/event payloads, character `.pdanim` TSV payloads, and `.pdmesh` OBJ/MTL payloads while rejecting the old binary/TSV mesh archive entries.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session pdxsong -Target client -BuildTimeoutSeconds 120` PASS after inspecting the wrapper log; reran after the `.pdanim` extractor change and client compile still passed.
+- `.\devtools\build-session.ps1 -Session pdxmesh -Target client -BuildTimeoutSeconds 120` PASS after adding the real OBJ mesh exporter.
+- `.\devtools\run-pd-tests.ps1 -Session pdxmesh -Selector "[modding][pdxxx][base][static][c3812]" -BuildTimeoutSeconds 120` PASS: 183 assertions / 10 test cases.
+- `.\devtools\build-session.ps1 -Session pdxmesh -Target all -BuildTimeoutSeconds 180` PASS for the currently supported client/updater targets; standalone `pd-server` is intentionally removed per the build script.
+- Scoped `git diff --check` PASS for the song extractor, static test file, and context/Kanban paths before context updates.
+
+### Remaining
+
+- Hard non-weapon exporter gaps remain for standard map/scenario geometry and richer semantic animation channels. Mesh is now a standard OBJ export; character animation still uses editable TSV frame/header payloads.
+- Weapon archive work remains owned by c3814 and was not touched in this slice.
+
+---
+
+## Session (`main-checkout-2026-05-21-nonweapon-font-archives`) - 2026-05-21 - non-weapon font archives expose bitmap payloads
+
+Mike asked to continue c3812 through the remaining non-weapon asset archive plan while leaving weapon work to the other session.
+
+### Implemented
+
+- Updated the `.pdfont` base extractor so emitted archives contain `glyphs.pgm`, `metrics.tsv`, and `kerning.tsv` plus SHA-256 sidecars instead of authored `data.bin`.
+- Decoded the ROM font segment structure already used by `preprocessFont`: 13x13 kerning table, per-glyph metrics, CI4 glyph pixels, and PAL extra character count handling for the larger Handel Gothic faces.
+- Updated `font.ini` and `manifest.json` output to point at the bitmap atlas and TSV files, record `font_format = bitmap_ci4_atlas`, and regenerate older font archives that lack `glyphs.pgm` or `metrics.tsv`.
+- Fixed a client compile break in the non-weapon `.pdcharacter` emitter by using a literal loud-fail class string for archive-file errors.
+- Added focused static coverage that pins `.pdfont` bitmap payloads and rejects reintroducing `data.bin` for the base font archive path.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session pdxfont -Selector "[modding][pdxxx][base][static][c3812]" -BuildTimeoutSeconds 120` PASS: 124 assertions / 7 test cases.
+- `.\devtools\build-session.ps1 -Session pdxfont -Target all -BuildTimeoutSeconds 120` PASS for client and updater after inspecting the wrapper log. The earlier wrapper run returned success despite a client compile failure in `romextract_pdcharacter.c`; this was corrected and rerun cleanly.
+- Scoped `git diff --check` PASS for the non-weapon archive files and context/Kanban paths.
+
+### Remaining
+
+- Hard non-weapon exporter gaps remain for true model/map/scenario geometry, character animation, and music sequence conversion. Those still need real exporters/importers; renaming raw payloads would not meet the c3812 bar.
+- Weapon archive work remains owned by c3814 and was not touched in this slice.
+
+---
+
+## Session (`codex-menu-input-sweep`) - 2026-05-21 - Combat Sim menu/input parity sweep
+
+Mike asked for an actual-code sweep of menu/input parity with controller as a first-class citizen alongside MKB: panels should not be selectable but contents should, RS should scroll the innermost scroll, nested scrollbars should be avoided where practical, and the main-menu-to-match-start-to-main-menu flow should be traced.
+
+### Implemented
+
+- Confirmed the graph path already exists for Main Menu -> Combat Simulator -> Room, Room Start Match, Room Leave/Back to Menu, and MP endscreen return/disconnect. Existing static guards pin those graph edges and prevent renderer-local match/leave shortcuts.
+- Added `pdguiMenuStartPressed()` on top of `ACTION_PAUSE`, then wired right-panel Room focus so Start jumps focus to the Start Match button.
+- Removed Combat Sim Room's old per-row Y multi-select path so Y remains undefined on this screen per the Q4 contract; multi-select stays MKB-only via Ctrl/Shift-click.
+- Added X/right-click parity for bot rows, the local player row, and Add Bot through a shared request helper. Add Bot now has popup actions for Add Bot, Fill Bot Slots, and Remove All Bots.
+- Routed LT/RT by focused panel: player list keeps the team/page walker, while the left settings panel now walks Arena -> Scenario -> Limits -> Weapon Set -> Options without crossing panels.
+- Converted arena/weapon group headers and player handicap grouping to non-focusable text so headers/panels are not selectable while their contents remain selectable.
+- Preserved the existing right-stick innermost-scroll implementation in `pdgui_backend.cpp`; focused scroll coverage still passes.
+- Marked Kanban `c086` pending completion with manual controller retest gates instead of moving it directly to done.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session c086menu2 -Selector "[input][menu_graph]" -BuildTimeoutSeconds 180` PASS: 628 assertions / 32 test cases.
+- `.\devtools\run-pd-tests.ps1 -Session c086menu2 -Selector "[scroll],[nested-scroll]" -NoBuild` PASS: 192 assertions / 22 test cases.
+- `.\devtools\build-session.ps1 -Session c086menu2 -Target all -BuildTimeoutSeconds 180` PASS.
+- Removed session build directory with `.\devtools\build-session.ps1 -Remove -Session c086menu2`.
+
+### Remaining
+
+- Mike manual retest: controller and MKB through Solo Play -> Combat Simulator -> configure settings -> Add Bot/context actions -> Start Match -> endscreen/Back to Menu, plus RS scroll feel in the room.
+- Broader menu/social polish cards remain separate from this c086 closure gate.
+
+---
+
+## Session (`main-checkout-2026-05-21-projectile-entity-catalog-kinds`) - 2026-05-21 - projectile/entity asset kind plumbing
+
+Mike asked to continue the weapon behavior, projectile behavior, and entity behavior not-implemented list while tracking progress in Kanban.
+
+### Implemented
+
+- Added `ASSET_PROJECTILE` and `ASSET_ENTITY` as first-class catalog asset types for `.pdprojectile` and `.pdentity`.
+- Added scanner and packer recognition for `.pdprojectile` / `.pdentity`, `projectile.ini` / `entity.ini` descriptor leaves, canonical folder layouts, descriptor templates, and typed archive suffix discovery.
+- Added manifest type codes for projectile/entity assets and mapped catalog dependencies through those manifest types.
+- Added network distribution hot-registration metadata for `projectile.ini` and `entity.ini`, plus projectile `entity_ref` dependency registration.
+- Added Mod Manager / Modding Hub / catalog UI names so the new types are visible and editable as behavior assets.
+- Marked `c3814-s11` done and moved `c3814-s12` active for graph archive readers/writers, nested payload inventory, derived IDs, collision checks, and canonical SHA-256 dedupe.
+
+### Not Implemented Yet
+
+- No generated base `.pdprojectile` or `.pdentity` archives yet.
+- No production graph archive reader/writer, final nested payload ID list, graph compiler, runtime IR, projectile runtime adapter, or deployed entity runtime adapter yet.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wpentity -Selector "[modding][pdxxx][projectile_entity][static][c3814]" -BuildTimeoutSeconds 120` PASS: 34 assertions / 1 test case.
+- `.\devtools\run-pd-tests.ps1 -Session wpentity -Selector "[modding][pdxxx][weapon][static][c3814]" -BuildTimeoutSeconds 120` PASS: 15 assertions / 1 test case.
+- `.\devtools\build-session.ps1 -Session wpentity -Target all -BuildTimeoutSeconds 120` PASS.
+- Kanban JSON parse / duplicate-card check PASS; active critical order remains `c3814`, `c3812`, `c086`, `c136`, `c3813`, with `c3814-s11` done and `c3814-s12` active.
+- Scoped `git diff --check` PASS for touched c3814 code, tests, context, and Kanban files.
+- Removed session build directory with `.\devtools\build-session.ps1 -Remove -Session wpentity`.
+
+---
+
+## Session (`main-checkout-2026-05-21-nonweapon-audio-lang-archives`) - 2026-05-21 - non-weapon audio/lang archives expose editable payloads
+
+Mike directed the session to continue c3812, except for weapons. Weapon `.pdweapon` / deprecated `.pdwpn` work remains with the separate c3814 lane.
+
+### Implemented
+
+- Updated the shared `.pdsfx` / `.pdvoice` base extractor so emitted archives contain decoded mono PCM16 `sample.wav` plus `sample.wav.sha256` instead of authored `sample.bin`.
+- Added local ALADPCM and RAW16 decode-to-WAV support in [romextract_pdsfx.c](../port/src/romextract_pdsfx.c), using the preprocessed SFX control/table segments already walked by the extractor.
+- Updated `sound.ini`, `voice.ini`, and `manifest.json` output to point at `sample.wav`, record `format = WAV_PCM16`, and retain the original ROM codec as `source_format`.
+- Tightened stale archive detection so existing SFX/voice archives are reused only if they contain both the root descriptor and `sample.wav`.
+- Updated the `.pdlang` base extractor so emitted archives contain editable `strings.tsv` plus `strings.tsv.sha256` instead of `data.bin`, decoded from the ROM language offset table.
+- Updated `lang.ini` and `manifest.json` output to point at `strings.tsv`, record source byte size and string count, and regenerate older language archives that lack `strings.tsv`.
+- Added focused static coverage that pins the WAV and TSV payload paths and rejects reintroducing `sample.bin` / `data.bin` for those base archives.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session pdxaudio -Selector "[modding][pdxxx][base][static][c3812]" -BuildTimeoutSeconds 120` PASS: 106 assertions / 6 test cases.
+- `.\devtools\build-session.ps1 -Session pdxaudio -Target all -BuildTimeoutSeconds 120` PASS.
+- Scoped `git diff --check` PASS for [romextract_pdsfx.c](../port/src/romextract_pdsfx.c), [romextract_pdlang.c](../port/src/romextract_pdlang.c), and [test_mod_external_archive_static.cpp](../tests/test_mod_external_archive_static.cpp).
+
+### Remaining
+
+- Non-weapon model/map/animation/font/music archives still need the same standard-file treatment where they currently expose engine-native chunks or descriptor-only payloads.
+- Weapon graph/projectile/entity archive work remains in c3814 and was not touched by this slice.
+
+---
+
+## Session (`main-checkout-2026-05-21-pdweapon-cutover`) - 2026-05-21 - weapon archive extension cutover
+
+Mike asked to keep continuing c3814 and track progress through Kanban. This slice completed the first runtime cutover task after the plan split.
+
+### Implemented
+
+- Renamed the live base weapon emitter path to [romextract_pdweapon.c](../port/src/romextract_pdweapon.c) and wired boot extraction through `romExtractAllPdweapon`.
+- Changed the base weapon walker, scanner, packer, mod discovery suffix list, examples, and static tests to use `.pdweapon` only.
+- Base extraction now writes zip-openable `.pdweapon` archives containing `weapon.ini`, compatibility `manifest.json`, and an initial `behavior.graph.json` temporary legacy-adapter graph.
+- The emitter removes stale pre-release weapon files during extraction, but no scanner, packer, walker, example, or test accepts the old extension.
+- Updated the typed example weapon archive to `weapons/tri_weapon.pdweapon` and added `behavior.graph.json`.
+- Marked `c3814-s10` done and moved `c3814-s11` active for `.pdprojectile` and `.pdentity` catalog/manifest kinds.
+
+### Not Implemented Yet
+
+- No `.pdprojectile` or `.pdentity` catalog/manifest kind support yet.
+- No generated projectile/entity archives, final nested payload IDs, graph validator/compiler, or runtime IR adapters yet.
+
+### Verification
+
+- `rg` over `port`, `tests`, and `examples` finds no live contiguous `.pdwpn` references.
+- `.\devtools\run-pd-tests.ps1 -Session wpgraph -Selector "[modding][pdxxx][weapon][static][c3814]" -BuildTimeoutSeconds 120` PASS: 15 assertions / 1 test case.
+- `.\devtools\run-pd-tests.ps1 -Session wpgraph -Selector "[modding][pdxxx][examples][static][c3811][c3812]" -BuildTimeoutSeconds 120` PASS: 184 assertions / 1 test case.
+- `.\devtools\build-session.ps1 -Session wpgraph -Target all -BuildTimeoutSeconds 120` PASS.
+- Scoped `git diff --check` PASS for the weapon graph/code/context files touched in this slice.
+- Removed session build directory with `.\devtools\build-session.ps1 -Remove -Session wpgraph`.
+
+---
+
+## Session (`main-checkout-2026-05-21-pdcharacter-nonweapon-extractor`) - 2026-05-21 - canonical character archive extractor
+
+Mike asked to finish the remaining non-weapon typed asset extractors, keep canonical asset names such as `.pdscenario` and `.pdcharacter`, and leave weapon `.pdweapon` / deprecated `.pdwpn` work to the other session.
+
+### Implemented
+
+- Added a base-content `.pdcharacter` extractor that emits zip-openable character archives with root `character.ini`, compatibility `manifest.json`, nested `.pdbody`, and nested `.pdhead` when the base MP body has a default head.
+- Wired `.pdcharacter` through ROM extraction, scanner descriptor recognition, packer validation, and typed archive suffix allowlists.
+- Updated the asset-pipeline context to make `.pdcharacter` the top-level character asset name; `.pdhead` and `.pdbody` remain lower-level dependency/runtime compatibility archives while that runtime split exists.
+- Left weapon `.pdweapon` / `.pdwpn` files and behavior work untouched for the c3814 session.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session pdcharfmt -Selector "[modding][pdxxx][base][static][c3812]" -BuildTimeoutSeconds 120` PASS: 80 assertions / 4 test cases.
+- `.\devtools\build-session.ps1 -Session pdcharfmt -Target all -BuildTimeoutSeconds 120` PASS.
+
+---
+
+## Session (`main-checkout-2026-05-21-weapon-graph-runtime-cutover-split`) - 2026-05-21 - weapon graph runtime cutover split
+
+Mike asked to continue the weapon behavior/projectile/entity behavior plan and keep progress tracked through Kanban.
+
+### Implemented
+
+- Added [designs/modding/weapon-graph-runtime-cutover-plan.md](designs/modding/weapon-graph-runtime-cutover-plan.md) as the concrete runtime implementation split for `.pdweapon`, `.pdprojectile`, and `.pdentity`.
+- Split the remaining work into ordered slices: remove `.pdwpn` and emit `.pdweapon`, add projectile/entity catalog kinds, implement archive readers/writers and nested payload inventory, emit base graph archives, add graph validator/IR compiler, adapt held weapon behavior, adapt projectile behavior, adapt deployed entity behavior, and close parity/removal guards.
+- Marked `c3814-s9` done, moved `c3814-s10` to active, and added backlog subtasks `c3814-s11` through `c3814-s18` for the runtime/code work.
+- Updated `context/tasks.md`, `context/pillars/modding.md`, `context/README.md`, and [designs/modding/weapon-behavior-graph-assets.md](designs/modding/weapon-behavior-graph-assets.md) so live context points at the runtime cutover plan.
+
+### Not Implemented Yet
+
+- No `.pdwpn` live code removal yet.
+- No generated `.pdweapon`, `.pdprojectile`, or `.pdentity` base archives yet.
+- No catalog kind changes, graph validator/compiler, or runtime adapters yet.
+
+### Verification
+
+- `tools/kanban/state.json` JSON parse PASS.
+- Duplicate Kanban card/subtask ID check PASS.
+- Active critical ordering PASS: `c3814` remains first, followed by `c3812`, `c086`, `c136`, and `c3813`.
+- `c3814` subtask state PASS: `s9` done, `s10` active, `s11` through `s18` backlog.
+- Scoped `git diff --check` PASS for touched context/Kanban files.
+- New cutover plan ASCII/trailing-whitespace/sentinel guard PASS.
+- No build run because this is a docs/Kanban-only slice.
+
+---
+
+## Session (`main-checkout-2026-05-21-remove-standalone-pd-server`) - 2026-05-21 - remove deprecated standalone server build path
+
+Mike caught that a verification pass built `PerfectDarkServer.exe` even though standalone dedicated server is deprecated and asked to remove that functionality.
+
+### Change
+
+- Removed the exposed `pd-server` / `PerfectDarkServer.exe` CMake target and deleted its standalone source-list block from CMake.
+- Removed `server` from `devtools/build-headless.ps1` and `devtools/build-session.ps1` target choices, so routine AI verification cannot build the deprecated standalone server.
+- Updated `devtools/build-env.sh`, AGENTS.md, context build procedures, constraints, and server/build-tooling pillars to use `pd`, `pd-tests`, and `pd-updater` only.
+- Updated Dev Window release/build copy to say client/updater and listen-host only.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session noserver2 -Target all -BuildTimeoutSeconds 120` PASS.
+- The `noserver2` build output produced `PerfectDark.exe` and `Updater.exe`; no `PerfectDarkServer.exe` was produced.
+- Generated `build.ninja` contains no `pd-server` / `PerfectDarkServer` target.
+- `.\devtools\run-pd-tests.ps1 -Session noservertest2 -Selector "[modding][pdxxx][base][static][c3812]" -BuildTimeoutSeconds 120` PASS: 60 assertions / 3 test cases.
+- Scoped `git diff --check` PASS for the touched build/tooling/context files.
+
+---
+
+## Session (`main-checkout-2026-05-21-weapon-graph-module-parameters`) - 2026-05-21 - weapon/projectile/entity module parameters
+
+Mike clarified that the continuation should focus on weapon behavior plus projectile/entity behavior, not just recording the `.pdwpn` note.
+
+### Implemented
+
+- Added [designs/modding/weapon-graph-module-parameters.md](designs/modding/weapon-graph-module-parameters.md) as the named module and parameter spec for `.pdweapon`, `.pdprojectile`, and `.pdentity`.
+- Defined graph modules for held weapon behavior: trigger events, ammo gates/consumption, cooldowns, hitscan, auto cadence, burst fire, Mauler charge/release, beam tick, fired projectile spawn, thrown physical spawn, melee, remote detonator, boost/state specials, devices, and presentation.
+- Defined physical projectile modules: spawn state, motion, trajectory correction, homing, Slayer fly-by-wire, Devastator wall-hugger, sticky attach, bounce/slide, timers, impact, trails, projectile-to-entity transition, and pickup/recover.
+- Defined deployed/armed entity modules: armed explosives, proxy triggers, remote detonatables, timed detonatables, N-Bomb storm trigger, Laptop Gun autogun, sticky mission devices, owner cleanup, and interaction.
+- Updated `c3814-s8` to done and moved `c3814-s9` to active for the implementation task split.
+- Added `c3814-s10` backlog for mandatory removal of fully deprecated `.pdwpn` emitter/scanner/packer/test paths. `.pdwpn` was intermediate, never released, and must not be accepted, aliased, migrated, or supported for compatibility.
+- Updated `context/tasks.md`, `context/pillars/modding.md`, [designs/modding/weapon-behavior-graph-assets.md](designs/modding/weapon-behavior-graph-assets.md), [designs/modding/base-weapon-behavior-coverage.md](designs/modding/base-weapon-behavior-coverage.md), and the external-format design with the module spec and hard `.pdwpn` removal language.
+
+### Not Implemented Yet
+
+- No catalog/scanner/emitter/runtime code changes yet.
+- No generated `.pdweapon`, `.pdprojectile`, or `.pdentity` base archives yet.
+- No final nested payload ID list yet.
+- No `.pdwpn` removal code patch yet.
+
+### Verification
+
+- `tools/kanban/state.json` JSON parse PASS.
+- Duplicate Kanban card/subtask ID check PASS.
+- Active critical ordering PASS: `c3814` remains first.
+- `c3814` subtask state PASS: `s8` done, `s9` active, `s10` backlog.
+- Module row count PASS: 44 module rows across `.pdweapon`, `.pdprojectile`, and `.pdentity`.
+- Scoped `git diff --check` PASS for touched tracked context/Kanban files.
+- ASCII/trailing whitespace guard PASS for the new module spec and touched context docs.
+- No build run because this is a docs/Kanban-only slice.
+
+---
+
+## Session (`main-checkout-2026-05-21-nonweapon-pdxxx-base-format`) - 2026-05-21 - non-weapon base pdxxx archive format
+
+Mike asked to finish the rest of the typed-archive formatting work but explicitly not touch `.pdweapon` / `.pdwpn`, because another session is handling weapon assets more extensively.
+
+### Change
+
+- Left weapon asset code alone: no `.pdweapon` or `.pdwpn` implementation changes in this slice.
+- Converted base `.pdhead` and `.pdbody` emitters from plain JSON files with typed extensions into zip-openable typed archives containing `head.ini` / `body.ini` plus compatibility `manifest.json`.
+- Kept the earlier `.pdarena` archive fix and extended `.pdscenario` with a root `scenario.ini`.
+- Added root descriptors to the already-zip non-weapon base emitters: `.pdmesh` has `model.ini`; character `.pdanim` has `animation.ini`; `.pdsfx` has `sound.ini`; `.pdvoice` has `voice.ini`; `.pdsong` has `music.ini`; `.pdui` has `ui.ini`; `.pdfont` has `font.ini`; `.pdlang` has `lang.ini`.
+- Updated stale-output handling so descriptor-less existing zips are regenerated, not silently kept.
+- Added focused static coverage for the non-weapon base descriptor set.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session pdrestfmt -Selector "[modding][pdxxx][base][static][c3812]" -BuildTimeoutSeconds 120` PASS: 60 assertions / 3 test cases.
+- `.\devtools\build-session.ps1 -Session pdrestfmt -Target all -BuildTimeoutSeconds 120` PASS.
+- `.\devtools\build-session.ps1 -Session pdrestsrv -Target server -BuildTimeoutSeconds 120` PASS and `PerfectDarkServer.exe` confirmed present.
+- Scoped `git diff --check` PASS for the touched code/test files.
+
+### Remaining
+
+- Weapon archive cutover remains with c3814: `.pdweapon`, `.pdprojectile`, `.pdentity`, and retirement of pre-release `.pdwpn`.
+
+---
+
+## Session (`main-checkout-2026-05-21-weapon-graph-base-audit`) - 2026-05-21 - base weapon graph audit
+
+Mike asked to continue `c3814` and track progress on the Kanban card with subtasks.
+
+### Implemented
+
+- Added [designs/modding/base-weapon-behavior-coverage.md](designs/modding/base-weapon-behavior-coverage.md) as the first source-backed base weapon behavior audit.
+- Added [designs/modding/base-weapon-parameter-matrix.md](designs/modding/base-weapon-parameter-matrix.md) as the current 86-weapon function parameter matrix for graph conversion.
+- Recorded the current inventory shape from authored data, runtime structs/constants, and the local generated snapshot: 86 weapon records with current counts across shoot, auto, projectile, throw, melee, special, device, none, and null function slots.
+- Mapped current behavior families into the planned `.pdweapon`, `.pdprojectile`, and `.pdentity` ownership model, including physical projectile candidates and named runtime modules.
+- Covered the requested special cases: Slayer rockets, grenades, proxy mines, timed/remote mines, Dragon proxy behavior, thrown Laptop Gun, and deployed Laptop Gun autogun behavior.
+- Corrected the Laptop Gun runtime detail in the schema doc: current code creates an `OBJTYPE_AUTOGUN` first and then throws that entity under projectile physics; the asset graph should still present this as thrown carrier -> deployed autogun.
+- Updated Kanban `c3814` with progress subtasks: `c3814-s2` done for base behavior coverage, `c3814-s6` done for function inventory, `c3814-s7` done for projectile/entity runtime mapping, `c3814-s8` active for named module parameter gaps, and `c3814-s9` backlog for turning the audit into runtime cutover tasks.
+- Updated `context/tasks.md`, `context/pillars/modding.md`, and [designs/modding/weapon-behavior-graph-assets.md](designs/modding/weapon-behavior-graph-assets.md) so the live context reflects the audit state.
+
+### Not Implemented Yet
+
+- No catalog/scanner/packer/runtime support yet.
+- No generated `.pdweapon`, `.pdprojectile`, or `.pdentity` base archives yet.
+- No emitter cutover from `.pdwpn` to `.pdweapon` yet.
+- No final named-module parameter schema or final nested payload ID list yet.
+
+### Verification
+
+- `tools/kanban/state.json` JSON parse PASS.
+- Duplicate Kanban card/subtask ID check PASS.
+- Active critical ordering PASS: `c3814` remains first.
+- `c3814` subtask state PASS: `s2`, `s6`, and `s7` done; `s8` active; `s9` backlog.
+- Matrix row count PASS: 86 base weapon rows.
+- Scoped `git diff --check` PASS for the touched context/Kanban files.
+- ASCII/trailing whitespace guard PASS for the new docs and added session-log lines.
+- No build run because this is a docs/Kanban-only slice.
+
+---
+
+## Session (`main-checkout-2026-05-21-weapon-graph-schema`) - 2026-05-21 - weapon graph schema design
+
+Mike asked to start implementing `c3814` and to clearly separate what is implemented from what is not yet.
+
+### Implemented
+
+- Added [designs/modding/weapon-behavior-graph-assets.md](designs/modding/weapon-behavior-graph-assets.md) as the canonical schema design.
+- Defined the target asset split: `.pdweapon` owns held/inventory behavior and graph authoring; `.pdprojectile` owns launched/thrown physical flight; `.pdentity` owns deployed, stuck, armed, or turret-like state. `.pdentity` remains behavior/archetype data and does not replace `ASSET_PROP`.
+- Defined root archive files, nested dependency folders, derived nested catalog IDs, canonical payload SHA-256 sharing, graph JSON shape, typed time units, node categories, deterministic runtime IR boundary, Laptop Gun projectile-to-entity transition, cutover order, and validation gates.
+- Updated `context/README.md`, `context/tasks.md`, `context/pillars/modding.md`, and the external-format design to point at the new schema and to treat `.pdweapon` as the target extension.
+- Updated Kanban `c3814`: `s1`, `s3`, `s4`, and `s5` are done; `s2` is now the active next subtask.
+- Mike clarified that `.pdwpn` needs no back compatibility because it never shipped. The schema and Kanban now use clean cutover language: `.pdweapon` only; `.pdwpn` is pre-release code debt to remove, not an accepted input or alias.
+
+### Not Implemented Yet
+
+- No catalog enum, manifest, scanner, packer, extractor, graph compiler, or runtime IR support yet.
+- No generated `.pdweapon`, `.pdprojectile`, or `.pdentity` base archives yet.
+- No exhaustive base-game weapon-by-weapon behavior audit table yet.
+
+### Verification
+
+- `tools/kanban/state.json` JSON parse PASS.
+- `c3814` subtask state PASS: `s1`, `s3`, `s4`, and `s5` done; `s2` active.
+- Scoped `git diff --check` PASS for the touched context/Kanban files.
+- ASCII guard PASS for the new design doc.
+- Context reference check PASS for the new design link and `.pdweapon` / `.pdprojectile` / `.pdentity` terminology.
+- No build run because this is a docs/schema-only slice.
+
+---
+
+## Session (`main-checkout-2026-05-21-pdarena-base-archive-contract`) - 2026-05-21 - base arena pdxxx archive contract
+
+Mike reported that an arena `*.pdxxx` file would not open as zip and confirmed that all assets need to follow the planned typed-archive contract.
+
+### Change
+
+- Confirmed the split-brain source: permanent examples were real zip-openable typed archives, but `romextract_pdarena.c` still emitted base `.pdarena` as a plain JSON metadata file.
+- Updated the base arena extractor so each generated `.pdarena` is a zip-openable typed asset archive with root `arena.ini` for the editable descriptor and root `manifest.json` for current universal-walker compatibility.
+- Changed stale-output handling so an existing plain JSON `.pdarena` is regenerated even when the normal force-rewrite flag is off; existing zip-openable archives still skip unless forced.
+- Added focused static coverage proving the extractor uses the archive writer, includes `arena.ini` and `manifest.json`, and does not return to the old `fsFileOpenWrite(relpath)` plain-file path.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session pdarenafmt -Selector "[modding][pdxxx][base][static][c3812]" -BuildTimeoutSeconds 120` PASS.
+- `.\devtools\build-session.ps1 -Session pdarenafmt -Target all -BuildTimeoutSeconds 120` PASS for client/updater/tests.
+- `.\devtools\build-session.ps1 -Session pdarenasrv -Target server -BuildTimeoutSeconds 120` PASS and confirmed `PerfectDarkServer.exe` exists, avoiding the known B-354 false-success risk.
+
+### Remaining
+
+- This closes the concrete base arena formatting failure only. The rest of c3812 still needs the same base-output audit and repair across weapon `.pdweapon` output, `.pdhead`, `.pdbody`, weapon `.pdanim`, and any raw `manifest.json`/`.bin` shaped generated assets. The pre-release `.pdwpn` output should be removed, not supported.
+
+---
+
+## Session (`main-checkout-2026-05-21-weapon-graph-kanban`) - 2026-05-21 - weapon graph asset Kanban insertion
+
+Mike approved the docs/schema-first weapon behavior graph plan and asked for it to be added to Kanban as critical and next in queue.
+
+### Tracking
+
+- Added active critical Kanban card `c3814`, ordered above the current active critical chain, titled `Modding: design weapon behavior graph assets`.
+- Captured the locked asset direction, later tightened by Mike's no-back-compat clarification: `.pdweapon` is the only weapon behavior archive extension; `.pdwpn` is pre-release code debt to remove; `.pdprojectile` and `.pdentity` are first-class catalog asset types; `.pdentity` is behavior/archetype data rather than an `ASSET_PROP` replacement; weapons may embed/catalog nested projectile/entity assets; duplicate embedded payloads share by SHA-256 over canonical archive content; graph JSON compiles to deterministic runtime IR; the first slice is docs/schema only before runtime implementation.
+- Added subtasks for canonical schema design, base-game weapon behavior audit, archive/nested catalog layout, graph node taxonomy plus IR boundary, and migration/validation/test planning.
+- Updated `context/tasks.md` and the Modding pillar so the active queue and live modding direction point at `c3814`.
+
+### Verification
+
+- `tools/kanban/state.json` JSON parse PASS.
+- Duplicate card/subtask ID check PASS.
+- Active critical ordering PASS: `c3814`, `c3812`, `c086`, `c136`, `c3813`.
+- Scoped `git diff --check` PASS for `tools/kanban/state.json`, `context/tasks.md`, `context/pillars/modding.md`, and `context/session-log.md`.
+- No build required for this Kanban/context-only update.
+
+---
+
 ## Session (`main-checkout-2026-05-20-pdxxx-archive-repair`) - 2026-05-20 - pdxxx self-contained archive repair
 
 Mike corrected the c3811 archive contract: typed `*.pdxxx` files are not loose descriptors pointing at same-name folders. Each `.pdhead`, `.pdarena`, `.pdanim`, etc. must be a zip-openable asset archive containing its descriptor and authored source assets internally. `.pdmod` remains transport only.
@@ -17,9 +503,9 @@ Follow-up from Mike: direct `pd-tests.exe` launches commonly trigger a blocking 
 
 Scanner/runtime nested archive support is implemented. Folder mods and `.pdmod` transport archives can scan typed `*.pdxxx` archive entries directly; source paths such as `heads/tri_head.pdhead::model.gltf` resolve through the mounted VFS without extracting to the mod folder. `modVfsCanResolve`, `modVfsGetSize`, and `modVfsResolveAnyAlloc` now understand nested typed archive paths, which keeps loaders that preflight VFS paths from rewriting them into loose filesystem paths.
 
-First wording cleanup landed for examples, Modding Hub Pack copy, assetcatalog scanner comments, the external-format design, and the modding pillar. The permanent examples are real zip-openable typed archives, and the remaining old sidecar wording is preserved only in superseded-history or unrelated metadata-sidecar contexts. Mike clarified the stricter contract: a finished asset archive must carry textures/UV material references, rig or mesh linkage, animation targets, weapon model/animation/audio relationships, and any other authored dependency internally. The example set now covers every current typed family (`.pdwpn`, `.pdhead`, `.pdbody`, `.pdarena`, `.pdmesh`, `.pdanim`, `.pdsfx`, `.pdvoice`, `.pdsong`, `.pdui`, `.pdfont`, `.pdlang`, `.pdscenario`). The c3812 archive-inventory/reference tests open each archive, verify required inner files, reject authored `.bin`, and prove descriptor/GLTF/OBJ file references resolve inside the same archive. Focused c3812 all-asset tests pass (658 assertions / 3 cases), and adjacent c3809 modding tests pass (508 assertions / 13 cases). Tests target builds in isolated session `pdxxxar`; client/updater all-target build passed; dedicated server now links after adding `modarchive.c` to `pd-server` and adding server-safe modmgr stubs for the distribution rescan path. Verification exposed B-354: the build wrapper can print success after a failed server link, so server verification must inspect logs or confirm `PerfectDarkServer.exe` until that tooling bug is fixed.
+First wording cleanup landed for examples, Modding Hub Pack copy, assetcatalog scanner comments, the external-format design, and the modding pillar. The permanent examples are real zip-openable typed archives, and the remaining old sidecar wording is preserved only in superseded-history or unrelated metadata-sidecar contexts. Mike clarified the stricter contract: a finished asset archive must carry textures/UV material references, rig or mesh linkage, animation targets, weapon model/animation/audio relationships, and any other authored dependency internally. The example set covered the then-current pre-release typed families (`.pdwpn`, `.pdhead`, `.pdbody`, `.pdarena`, `.pdmesh`, `.pdanim`, `.pdsfx`, `.pdvoice`, `.pdsong`, `.pdui`, `.pdfont`, `.pdlang`, `.pdscenario`); c3814 later supersedes weapon output with `.pdweapon` only. The c3812 archive-inventory/reference tests open each archive, verify required inner files, reject authored `.bin`, and prove descriptor/GLTF/OBJ file references resolve inside the same archive. Focused c3812 all-asset tests pass (658 assertions / 3 cases), and adjacent c3809 modding tests pass (508 assertions / 13 cases). Tests target builds in isolated session `pdxxxar`; client/updater all-target build passed; dedicated server now links after adding `modarchive.c` to `pd-server` and adding server-safe modmgr stubs for the distribution rescan path. Verification exposed B-354: the build wrapper can print success after a failed server link, so server verification must inspect logs or confirm `PerfectDarkServer.exe` until that tooling bug is fixed.
 
-Follow-up clarification from Mike: `.pdwpn` weapon behavior should be stored in the project-owned authored format by modularizing the behavior already present in the game. This does not ask for a new gameplay system. The authored behavior layer needs to express event rules such as `when trigger pulled -> shoot <custom projectile> every <centiseconds>`, plus rapid/looping fire, hold-fire beams, charge-and-release, secondary modes, melee, zoom levels, reticle/overlay/zoom-camera effects, and ammo-driven presentation such as physical Needler-style slots or numeric bullet screens.
+Follow-up clarification from Mike: weapon behavior should be stored in the project-owned authored format by modularizing the behavior already present in the game. This does not ask for a new gameplay system. The authored behavior layer needs to express event rules such as `when trigger pulled -> shoot <custom projectile> every <centiseconds>`, plus rapid/looping fire, hold-fire beams, charge-and-release, secondary modes, melee, zoom levels, reticle/overlay/zoom-camera effects, and ammo-driven presentation such as physical Needler-style slots or numeric bullet screens. c3814 later locks that authored weapon extension to `.pdweapon` only.
 
 ---
 

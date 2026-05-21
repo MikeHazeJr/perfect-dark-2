@@ -8,10 +8,11 @@
  * NOT classified as voice (.pdvoice -- see romextract_pdvoice.c --
  * uses the same walker with PDAUDIO_WALK_VOICE).
  *
- * Per-asset ZIP layout per universality-pivot-schemas.md Section 2.7:
- *   manifest.json     envelope + audio metadata + provenance
- *   sample.bin        raw sample bytes sliced from sfxtbl
- *   sample.bin.sha256 outer-file SHA-256 sidecar
+ * Per-asset ZIP layout:
+ *   sound.ini / voice.ini  editable audio descriptor
+ *   manifest.json          compatibility envelope + provenance
+ *   sample.wav             decoded mono PCM16 WAV
+ *   sample.wav.sha256      outer-file SHA-256 sidecar
  *
  * Catalog ID convention (Q-4 buckets):
  *   .pdsfx    base:<lowered_sym>   when loaderEnumNameForSfxEnum
@@ -254,6 +255,194 @@ static const char *s_waveFormatString(u8 type)
 	}
 }
 
+static s16 s_clip16(s32 value)
+{
+	if (value < -32768) return -32768;
+	if (value > 32767) return 32767;
+	return (s16)value;
+}
+
+static void s_writeLe16(u8 *dst, u16 value)
+{
+	dst[0] = (u8)(value & 0xff);
+	dst[1] = (u8)((value >> 8) & 0xff);
+}
+
+static void s_writeLe32(u8 *dst, u32 value)
+{
+	dst[0] = (u8)(value & 0xff);
+	dst[1] = (u8)((value >> 8) & 0xff);
+	dst[2] = (u8)((value >> 16) & 0xff);
+	dst[3] = (u8)((value >> 24) & 0xff);
+}
+
+static s32 s_validateAdpcmBook(const u8 *ctl_data, u32 ctl_size,
+                               const ALADPCMBook *book)
+{
+	u32 book_off = s_offsetFromPointer((void *)book);
+	if (book_off == 0 || book_off + 8 > ctl_size) return 0;
+	const ALADPCMBook *resolved = (const ALADPCMBook *)(ctl_data + book_off);
+	if (resolved->order <= 0 || resolved->order > 2) return 0;
+	if (resolved->npredictors <= 0 || resolved->npredictors > 8) return 0;
+	u32 entries = (u32)resolved->order * (u32)resolved->npredictors * 8u;
+	if (book_off + 8u + entries * 2u > ctl_size) return 0;
+	return 1;
+}
+
+static const ALADPCMBook *s_resolveAdpcmBook(const u8 *ctl_data, u32 ctl_size,
+                                             const ALADPCMBook *book)
+{
+	if (!s_validateAdpcmBook(ctl_data, ctl_size, book)) return NULL;
+	return (const ALADPCMBook *)(ctl_data + s_offsetFromPointer((void *)book));
+}
+
+static void s_decodeAdpcmFrame(const u8 *frame, const ALADPCMBook *book,
+                               s16 state[16], s16 out[16])
+{
+	s32 shift = (s32)(frame[0] >> 4);
+	s32 predictor = (s32)(frame[0] & 0x0f);
+	if (predictor >= book->npredictors) predictor = 0;
+
+	const s16 (*book_tbl)[8] = (const s16 (*)[8])
+		&book->book[predictor * book->order * 8];
+	s16 tbl[2][8];
+	memset(tbl, 0, sizeof(tbl));
+	for (s32 row = 0; row < book->order && row < 2; row++) {
+		for (s32 col = 0; col < 8; col++) {
+			tbl[row][col] = book_tbl[row][col];
+		}
+	}
+
+	s16 history[32];
+	for (s32 i = 0; i < 16; i++) {
+		history[i] = state[i];
+	}
+
+	const u8 *in = frame + 1;
+	for (s32 group = 0; group < 2; group++) {
+		s16 ins[8];
+		s16 prev1 = history[15 + group * 8];
+		s16 prev2 = history[14 + group * 8];
+
+		for (s32 j = 0; j < 4; j++) {
+			s8 hi = (s8)((*in >> 4) & 0x0f);
+			s8 lo = (s8)(*in & 0x0f);
+			if (hi >= 8) hi -= 16;
+			if (lo >= 8) lo -= 16;
+			ins[j * 2] = (s16)((s32)hi * (1 << shift));
+			ins[j * 2 + 1] = (s16)((s32)lo * (1 << shift));
+			in++;
+		}
+
+		for (s32 j = 0; j < 8; j++) {
+			s32 acc = tbl[0][j] * prev2 + tbl[1][j] * prev1
+				+ ((s32)ins[j] << 11);
+			for (s32 k = 0; k < j; k++) {
+				acc += tbl[1][((j - k) - 1)] * ins[k];
+			}
+			out[group * 8 + j] = s_clip16(acc >> 11);
+		}
+
+		for (s32 j = 0; j < 8; j++) {
+			history[16 + group * 8 + j] = out[group * 8 + j];
+		}
+	}
+
+	for (s32 i = 0; i < 16; i++) {
+		state[i] = out[i];
+	}
+}
+
+static s32 s_buildWavPayload(const u8 *ctl_data, u32 ctl_size,
+                             const ALWaveTable *wt,
+                             const u8 *sample_data, u32 sample_len,
+                             s32 sample_rate,
+                             u8 **out_data, u32 *out_size,
+                             u32 *out_sample_count)
+{
+	*out_data = NULL;
+	*out_size = 0;
+	*out_sample_count = 0;
+
+	s16 *pcm = NULL;
+	u32 pcm_count = 0;
+
+	if (wt->type == AL_ADPCM_WAVE) {
+		const ALADPCMBook *book = s_resolveAdpcmBook(
+			ctl_data, ctl_size, wt->waveInfo.adpcmWave.book);
+		if (!book) return 0;
+		u32 frames = sample_len / 9u;
+		pcm_count = frames * 16u;
+		if (pcm_count == 0) return 0;
+		pcm = (s16 *)malloc((size_t)pcm_count * sizeof(s16));
+		if (!pcm) return 0;
+
+		s16 state[16];
+		memset(state, 0, sizeof(state));
+		for (u32 f = 0; f < frames; f++) {
+			s_decodeAdpcmFrame(sample_data + f * 9u, book, state,
+			                   pcm + f * 16u);
+		}
+	} else if (wt->type == AL_RAW16_WAVE) {
+		pcm_count = sample_len / 2u;
+		if (pcm_count == 0) return 0;
+		pcm = (s16 *)malloc((size_t)pcm_count * sizeof(s16));
+		if (!pcm) return 0;
+
+		for (u32 i = 0; i < pcm_count; i++) {
+			const u8 *src = sample_data + i * 2u;
+			u16 be = (u16)((u16)src[0] << 8) | src[1];
+			pcm[i] = (be & 0x8000) ? (s16)((s32)be - 65536) : (s16)be;
+		}
+	} else {
+		return 0;
+	}
+
+	u32 data_bytes = pcm_count * 2u;
+	u32 wav_size = 44u + data_bytes;
+	u8 *wav = (u8 *)malloc(wav_size);
+	if (!wav) {
+		free(pcm);
+		return 0;
+	}
+
+	memcpy(wav + 0, "RIFF", 4);
+	s_writeLe32(wav + 4, 36u + data_bytes);
+	memcpy(wav + 8, "WAVE", 4);
+	memcpy(wav + 12, "fmt ", 4);
+	s_writeLe32(wav + 16, 16);
+	s_writeLe16(wav + 20, 1);
+	s_writeLe16(wav + 22, 1);
+	s_writeLe32(wav + 24, (u32)sample_rate);
+	s_writeLe32(wav + 28, (u32)sample_rate * 2u);
+	s_writeLe16(wav + 32, 2);
+	s_writeLe16(wav + 34, 16);
+	memcpy(wav + 36, "data", 4);
+	s_writeLe32(wav + 40, data_bytes);
+
+	for (u32 i = 0; i < pcm_count; i++) {
+		s_writeLe16(wav + 44u + i * 2u, (u16)pcm[i]);
+	}
+
+	free(pcm);
+	*out_data = wav;
+	*out_size = wav_size;
+	*out_sample_count = pcm_count;
+	return 1;
+}
+
+static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	s32 has_entry = modArchiveFindEntry(arc, entry) >= 0;
+	modArchiveClose(arc);
+	return has_entry;
+}
+
 /* Emit one .pdsfx (or .pdvoice) ZIP for a given ALSound entry. Returns
  * 1 written, 0 skipped, -1 failed. */
 static s32 s_emitOneSound(s32 sfx_idx,
@@ -334,7 +523,24 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	snprintf(dst_rel, sizeof(dst_rel),
 		"%s/%s.%s", out_dir, filename_slug, kind_ext);
 
-	if (!force_rewrite && fsFileSize(dst_rel) > 0) return 0;
+	const char *descriptor_name =
+		(mode == PDAUDIO_WALK_VOICE) ? "voice.ini" : "sound.ini";
+	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
+	    s_existingArchiveHasEntry(dst_rel, descriptor_name) &&
+	    s_existingArchiveHasEntry(dst_rel, "sample.wav")) return 0;
+
+	u8 *wav_data = NULL;
+	u32 wav_size = 0;
+	u32 decoded_sample_count = 0;
+	if (!s_buildWavPayload(ctl_data, ctl_size, wt,
+	                       tbl_data + sample_off, sample_len,
+	                       sample_rate, &wav_data, &wav_size,
+	                       &decoded_sample_count)) {
+		LOUD_FAILF_RT(channel,
+			"sfx_idx=%d could not decode %s sample to WAV",
+			sfx_idx, s_waveFormatString(wt->type));
+		return -1;
+	}
 
 	/* Build manifest.json. Voice variant adds actor + transcript +
 	 * language + context placeholder fields per Section 2.8 (curation
@@ -343,6 +549,7 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	const char *pd_kind = (mode == PDAUDIO_WALK_VOICE) ? "voice" : "sfx";
 	const char *fmt_str = s_waveFormatString(wt->type);
 	const char *sym = loaderEnumNameForSfxEnum(sfx_idx);
+	const char *archive_format = "WAV_PCM16";
 
 	char manifest_buf[1536];
 	int manifest_len;
@@ -353,9 +560,12 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			"  \"pd_schema_version\": 1,\n"
 			"  \"id\": \"%s\",\n"
 			"  \"format\": \"%s\",\n"
+			"  \"source_format\": \"%s\",\n"
 			"  \"sample_rate_hz\": %d,\n"
-			"  \"data\": \"sample.bin\",\n"
+			"  \"data\": \"sample.wav\",\n"
 			"  \"data_size\": %u,\n"
+			"  \"source_data_size\": %u,\n"
+			"  \"decoded_sample_count\": %u,\n"
 			"  \"actor\": \"unknown\",\n"
 			"  \"transcript\": \"\",\n"
 			"  \"language\": \"\",\n"
@@ -371,9 +581,11 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			"  \"source_offset\": %u,\n"
 			"  \"source_symbol\": \"%s\"\n"
 			"}\n",
-			pd_kind, catalog_id, fmt_str,
+			pd_kind, catalog_id, archive_format, fmt_str,
 			sample_rate,
+			(unsigned)wav_size,
 			(unsigned)sample_len,
+			(unsigned)decoded_sample_count,
 			(unsigned)loop_start, (unsigned)loop_end, (unsigned)loop_count,
 			has_loop ? "true" : "false",
 			(unsigned)snd->samplePan,
@@ -389,9 +601,12 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			"  \"pd_schema_version\": 1,\n"
 			"  \"id\": \"%s\",\n"
 			"  \"format\": \"%s\",\n"
+			"  \"source_format\": \"%s\",\n"
 			"  \"sample_rate_hz\": %d,\n"
-			"  \"data\": \"sample.bin\",\n"
+			"  \"data\": \"sample.wav\",\n"
 			"  \"data_size\": %u,\n"
+			"  \"source_data_size\": %u,\n"
+			"  \"decoded_sample_count\": %u,\n"
 			"  \"loop_start_samples\": %u,\n"
 			"  \"loop_end_samples\": %u,\n"
 			"  \"loop_count\": %u,\n"
@@ -403,9 +618,11 @@ static s32 s_emitOneSound(s32 sfx_idx,
 			"  \"source_offset\": %u,\n"
 			"  \"source_symbol\": \"%s\"\n"
 			"}\n",
-			pd_kind, catalog_id, fmt_str,
+			pd_kind, catalog_id, archive_format, fmt_str,
 			sample_rate,
+			(unsigned)wav_size,
 			(unsigned)sample_len,
+			(unsigned)decoded_sample_count,
 			(unsigned)loop_start, (unsigned)loop_end, (unsigned)loop_count,
 			has_loop ? "true" : "false",
 			(unsigned)snd->samplePan,
@@ -418,6 +635,55 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
 		LOUD_FAILF_RT(channel,
 			"manifest.json snprintf truncated for sfx_idx=%d", sfx_idx);
+		free(wav_data);
+		return -1;
+	}
+
+	char ini_buf[1536];
+	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
+		"[%s]\n"
+		"catalog_id = %s\n"
+		"format = %s\n"
+		"source_format = %s\n"
+		"sample_rate_hz = %d\n"
+		"file_path = sample.wav\n"
+		"data_size = %u\n"
+		"source_data_size = %u\n"
+		"decoded_sample_count = %u\n"
+		"loop_start_samples = %u\n"
+		"loop_end_samples = %u\n"
+		"loop_count = %u\n"
+		"has_loop = %s\n"
+		"sample_pan = %u\n"
+		"sample_volume = %u\n"
+		"sound_flags = %u\n"
+		"source_index = %d\n"
+		"source_offset = %u\n"
+		"source_symbol = %s\n",
+		pd_kind, catalog_id, archive_format, fmt_str, sample_rate,
+		(unsigned)wav_size,
+		(unsigned)sample_len,
+		(unsigned)decoded_sample_count,
+		(unsigned)loop_start, (unsigned)loop_end, (unsigned)loop_count,
+		has_loop ? "true" : "false",
+		(unsigned)snd->samplePan,
+		(unsigned)snd->sampleVolume,
+		(unsigned)snd->flags,
+		sfx_idx,
+		(unsigned)sample_off,
+		sym ? sym : "");
+	if (mode == PDAUDIO_WALK_VOICE) {
+		ini_len += snprintf(ini_buf + ini_len, sizeof(ini_buf) - ini_len,
+			"actor = unknown\n"
+			"transcript = \n"
+			"language = \n"
+			"context = \n");
+	}
+	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
+		LOUD_FAILF_RT(channel,
+			"%s snprintf truncated for sfx_idx=%d",
+			descriptor_name, sfx_idx);
+		free(wav_data);
 		return -1;
 	}
 
@@ -425,43 +691,53 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
 	if (!dst_full || !dst_full[0]) {
 		LOUD_FAILF_RT(channel, "fsFullPath empty for \"%s\"", dst_rel);
+		free(wav_data);
 		return -1;
 	}
 
 	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
 	if (!aw) {
 		LOUD_FAILF_RT(channel, "modArchiveBegin failed for \"%s\"", dst_full);
+		free(wav_data);
 		return -1;
 	}
 
+	if (modArchiveAddFileMem(aw, descriptor_name, ini_buf, (u32)ini_len) != 0) {
+		LOUD_FAILF_RT(channel,
+			"AddFileMem %s failed for \"%s\"", descriptor_name, dst_full);
+		modArchiveAbort(aw);
+		free(wav_data);
+		return -1;
+	}
 	if (modArchiveAddFileMem(aw, "manifest.json",
 	                          manifest_buf, (u32)manifest_len) != 0) {
 		LOUD_FAILF_RT(channel,
 			"AddFileMem manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
+		free(wav_data);
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "sample.bin",
-	                          (const char *)(tbl_data + sample_off),
-	                          sample_len) != 0) {
+	if (modArchiveAddFileMem(aw, "sample.wav",
+	                          (const char *)wav_data, wav_size) != 0) {
 		LOUD_FAILF_RT(channel,
-			"AddFileMem sample.bin failed for \"%s\" (sfx_idx=%d len=%u)",
-			dst_full, sfx_idx, (unsigned)sample_len);
+			"AddFileMem sample.wav failed for \"%s\" (sfx_idx=%d len=%u)",
+			dst_full, sfx_idx, (unsigned)wav_size);
 		modArchiveAbort(aw);
+		free(wav_data);
 		return -1;
 	}
 
 	/* SHA-256 sidecar (matches .pdmesh / .pdanim_chr pattern). */
 	{
 		u8 digest[SHA256_DIGEST_SIZE];
-		sha256Hash(tbl_data + sample_off, (size_t)sample_len, digest);
+		sha256Hash(wav_data, (size_t)wav_size, digest);
 		char hex[SHA256_HEX_SIZE + 1];
 		sha256ToHex(digest, hex);
 		hex[SHA256_HEX_SIZE] = '\0';
 		char sidecar[SHA256_HEX_SIZE + 2];
 		snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-		if (modArchiveAddFileMem(aw, "sample.bin.sha256",
+		if (modArchiveAddFileMem(aw, "sample.wav.sha256",
 		                          sidecar, (u32)strlen(sidecar)) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract %s: sidecar write failed for \"%s\" "
@@ -472,9 +748,11 @@ static s32 s_emitOneSound(s32 sfx_idx,
 
 	if (modArchiveFinish(aw) != 0) {
 		LOUD_FAILF_RT(channel, "modArchiveFinish failed for \"%s\"", dst_full);
+		free(wav_data);
 		return -1;
 	}
 
+	free(wav_data);
 	return 1;
 }
 

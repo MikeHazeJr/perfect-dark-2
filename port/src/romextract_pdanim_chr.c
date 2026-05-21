@@ -22,7 +22,9 @@
  *   header bytes : entry.data .. entry.data + entry.headerlen
  *   frame data   : entry.data + entry.headerlen ..
  *                  entry.data + entry.headerlen + numframes * bytesperframe
- * Total per-anim span = headerlen + numframes * bytesperframe.
+ * Total per-anim span = headerlen + numframes * bytesperframe. The extractor
+ * emits those bytes as TSV rows so the base character animation archive stays
+ * editable/openable rather than exposing an authored frames.bin blob.
  *
  * Companion docs:
  *   context/designs/catalog/universality-pivot-schemas.md   schemas
@@ -33,6 +35,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdarg.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
 
@@ -109,6 +112,128 @@ static s32 s_buildCatalogId(s32 anim_idx, char *out, size_t out_n)
 	return 0;
 }
 
+static s32 s_existingArchiveHasAnimPayloads(const char *relpath)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	s32 ok = modArchiveFindEntry(arc, "animation.ini") >= 0
+	      && modArchiveFindEntry(arc, "manifest.json") >= 0
+	      && modArchiveFindEntry(arc, "header.tsv") >= 0
+	      && modArchiveFindEntry(arc, "frames.tsv") >= 0;
+	modArchiveClose(arc);
+	return ok;
+}
+
+typedef struct {
+	char *data;
+	u32   len;
+	u32   cap;
+} pdanim_textbuf_t;
+
+static void s_textbufFree(pdanim_textbuf_t *b)
+{
+	if (b->data) free(b->data);
+	memset(b, 0, sizeof(*b));
+}
+
+static s32 s_textbufReserve(pdanim_textbuf_t *b, u32 extra)
+{
+	if (extra > 0xffffffffu - b->len) return -1;
+	u32 need = b->len + extra + 1;
+	if (need <= b->cap) return 0;
+	u32 cap = b->cap ? b->cap : 1024;
+	while (cap < need) {
+		if (cap > 0x80000000u) return -1;
+		cap *= 2;
+	}
+	char *p = (char *)realloc(b->data, cap);
+	if (!p) return -1;
+	b->data = p;
+	b->cap = cap;
+	return 0;
+}
+
+static s32 s_textbufAppend(pdanim_textbuf_t *b, const char *s)
+{
+	u32 n = (u32)strlen(s);
+	if (s_textbufReserve(b, n) != 0) return -1;
+	memcpy(b->data + b->len, s, n);
+	b->len += n;
+	b->data[b->len] = '\0';
+	return 0;
+}
+
+static s32 s_textbufAppendf(pdanim_textbuf_t *b, const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	va_list ap2;
+	va_copy(ap2, ap);
+	int need = vsnprintf(NULL, 0, fmt, ap);
+	va_end(ap);
+	if (need < 0) {
+		va_end(ap2);
+		return -1;
+	}
+	if (s_textbufReserve(b, (u32)need) != 0) {
+		va_end(ap2);
+		return -1;
+	}
+	int wrote = vsnprintf(b->data + b->len, (size_t)need + 1, fmt, ap2);
+	va_end(ap2);
+	if (wrote != need) return -1;
+	b->len += (u32)need;
+	return 0;
+}
+
+static s32 s_buildHeaderTsv(const u8 *data, u32 header_len, pdanim_textbuf_t *out)
+{
+	if (s_textbufAppend(out, "offset\tbyte_hex\tbyte_dec\n") != 0) return -1;
+	for (u32 i = 0; i < header_len; i++) {
+		if (s_textbufAppendf(out, "%u\t%02x\t%u\n",
+		                     (unsigned)i, (unsigned)data[i],
+		                     (unsigned)data[i]) != 0) {
+			return -1;
+		}
+	}
+	return 0;
+}
+
+static s32 s_buildFramesTsv(const u8 *frames, u32 frame_count,
+                            u32 bytes_per_frame, pdanim_textbuf_t *out)
+{
+	if (s_textbufAppend(out, "frame") != 0) return -1;
+	for (u32 b = 0; b < bytes_per_frame; b++) {
+		if (s_textbufAppendf(out, "\tb%02u", (unsigned)b) != 0) return -1;
+	}
+	if (s_textbufAppend(out, "\n") != 0) return -1;
+	for (u32 f = 0; f < frame_count; f++) {
+		if (s_textbufAppendf(out, "%u", (unsigned)f) != 0) return -1;
+		const u8 *row = frames + f * bytes_per_frame;
+		for (u32 b = 0; b < bytes_per_frame; b++) {
+			if (s_textbufAppendf(out, "\t%02x", (unsigned)row[b]) != 0) return -1;
+		}
+		if (s_textbufAppend(out, "\n") != 0) return -1;
+	}
+	return 0;
+}
+
+static s32 s_addShaSidecar(mod_archive_writer_t *aw, const char *name,
+                           const void *data, u32 len)
+{
+	u8 digest[SHA256_DIGEST_SIZE];
+	sha256Hash(data, (size_t)len, digest);
+	char hex[SHA256_HEX_SIZE + 1];
+	sha256ToHex(digest, hex);
+	hex[SHA256_HEX_SIZE] = '\0';
+	char sidecar[SHA256_HEX_SIZE + 2];
+	snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
+	return modArchiveAddFileMem(aw, name, sidecar, (u32)strlen(sidecar));
+}
+
 /* Emit one .pdanim ZIP compound. Returns 1 written, 0 skipped, -1 failed. */
 static s32 s_emitOneChrAnim(s32 anim_idx,
                              const struct animtableentry *entry,
@@ -171,23 +296,43 @@ static s32 s_emitOneChrAnim(s32 anim_idx,
 	char dst_rel[FS_MAXPATH];
 	snprintf(dst_rel, sizeof(dst_rel), "%s/%s.pdanim", out_dir, filename_slug);
 
-	if (!force_rewrite && fsFileSize(dst_rel) > 0) return 0;
+	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
+	    s_existingArchiveHasAnimPayloads(dst_rel)) return 0;
+
+	pdanim_textbuf_t header_tsv;
+	pdanim_textbuf_t frames_tsv;
+	memset(&header_tsv, 0, sizeof(header_tsv));
+	memset(&frames_tsv, 0, sizeof(frames_tsv));
+	if (s_buildHeaderTsv(seg_data + entry->data,
+	                     (u32)entry->headerlen, &header_tsv) != 0 ||
+	    s_buildFramesTsv(seg_data + entry->data + entry->headerlen,
+	                     (u32)entry->numframes,
+	                     (u32)entry->bytesperframe, &frames_tsv) != 0) {
+		s_textbufFree(&header_tsv);
+		s_textbufFree(&frames_tsv);
+		sysLoudFailf("EXTRACT.PDANIM_CHR",
+			"failed to build TSV payloads for anim_idx=%d", anim_idx);
+		return -1;
+	}
 
 	/* Build manifest.json text in memory. Schema fields per Section 2.6
 	 * + provenance hints (source_offset, source_index) for the parity
 	 * check and Step 4 round-trip. */
 	const char *sym = loaderEnumNameForAnimEnum(anim_idx);
-	char manifest_buf[1024];
+	char manifest_buf[1152];
 	int manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
 		"{\n"
 		"  \"pd_kind\": \"animation\",\n"
 		"  \"pd_schema_version\": 1,\n"
 		"  \"id\": \"%s\",\n"
 		"  \"category\": \"character_animation\",\n"
-		"  \"frames\": \"frames.bin\",\n"
+		"  \"header\": \"header.tsv\",\n"
+		"  \"frames\": \"frames.tsv\",\n"
 		"  \"frame_count\": %u,\n"
 		"  \"bytes_per_frame\": %u,\n"
 		"  \"header_len\": %u,\n"
+		"  \"header_size\": %u,\n"
+		"  \"frames_size\": %u,\n"
 		"  \"framelen\": %u,\n"
 		"  \"flags\": %u,\n"
 		"  \"source_index\": %d,\n"
@@ -198,20 +343,62 @@ static s32 s_emitOneChrAnim(s32 anim_idx,
 		(unsigned)entry->numframes,
 		(unsigned)entry->bytesperframe,
 		(unsigned)entry->headerlen,
+		(unsigned)header_tsv.len,
+		(unsigned)frames_tsv.len,
 		(unsigned)entry->framelen,
 		(unsigned)entry->flags,
 		anim_idx,
 		(unsigned)entry->data,
 		sym ? sym : "");
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
+		s_textbufFree(&header_tsv);
+		s_textbufFree(&frames_tsv);
 		sysLoudFailf("EXTRACT.PDANIM_CHR",
 			"manifest.json snprintf truncated for anim_idx=%d", anim_idx);
+		return -1;
+	}
+
+	char ini_buf[1024];
+	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
+		"[animation]\n"
+		"catalog_id = %s\n"
+		"category = character_animation\n"
+		"header_file = header.tsv\n"
+		"frames_file = frames.tsv\n"
+		"frame_count = %u\n"
+		"bytes_per_frame = %u\n"
+		"header_len = %u\n"
+		"header_size = %u\n"
+		"frames_size = %u\n"
+		"framelen = %u\n"
+		"flags = %u\n"
+		"source_index = %d\n"
+		"source_offset = %u\n"
+		"source_symbol = %s\n",
+		catalog_id,
+		(unsigned)entry->numframes,
+		(unsigned)entry->bytesperframe,
+		(unsigned)entry->headerlen,
+		(unsigned)header_tsv.len,
+		(unsigned)frames_tsv.len,
+		(unsigned)entry->framelen,
+		(unsigned)entry->flags,
+		anim_idx,
+		(unsigned)entry->data,
+		sym ? sym : "");
+	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
+		s_textbufFree(&header_tsv);
+		s_textbufFree(&frames_tsv);
+		sysLoudFailf("EXTRACT.PDANIM_CHR",
+			"animation.ini snprintf truncated for anim_idx=%d", anim_idx);
 		return -1;
 	}
 
 	char dst_full_buf[FS_MAXPATH + 1];
 	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
 	if (!dst_full || !dst_full[0]) {
+		s_textbufFree(&header_tsv);
+		s_textbufFree(&frames_tsv);
 		sysLoudFailf("EXTRACT.PDANIM_CHR",
 			"fsFullPath failed for \"%s\"", dst_rel);
 		return -1;
@@ -219,57 +406,74 @@ static s32 s_emitOneChrAnim(s32 anim_idx,
 
 	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
 	if (!aw) {
+		s_textbufFree(&header_tsv);
+		s_textbufFree(&frames_tsv);
 		sysLoudFailf("EXTRACT.PDANIM_CHR",
 			"modArchiveBegin failed for \"%s\"", dst_full);
 		return -1;
 	}
 
+	if (modArchiveAddFileMem(aw, "animation.ini", ini_buf, (u32)ini_len) != 0) {
+		sysLoudFailf("EXTRACT.PDANIM_CHR",
+			"AddFileMem animation.ini failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		s_textbufFree(&header_tsv);
+		s_textbufFree(&frames_tsv);
+		return -1;
+	}
 	if (modArchiveAddFileMem(aw, "manifest.json",
 	                          manifest_buf, (u32)manifest_len) != 0) {
 		sysLoudFailf("EXTRACT.PDANIM_CHR",
 			"AddFileMem manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
+		s_textbufFree(&header_tsv);
+		s_textbufFree(&frames_tsv);
 		return -1;
 	}
 
-	/* Frame payload: contiguous bytes [data, data + anim_bytes) from
-	 * the segment buffer.  Empty-payload anims (anim_bytes == 0) still
-	 * round-trip a zero-length entry so the catalog row exists. */
-	if (modArchiveAddFileMem(aw, "frames.bin",
-	                          (const char *)(seg_data + entry->data),
-	                          anim_bytes) != 0) {
+	if (modArchiveAddFileMem(aw, "header.tsv",
+	                          header_tsv.data, header_tsv.len) != 0) {
 		sysLoudFailf("EXTRACT.PDANIM_CHR",
-			"AddFileMem frames.bin failed for \"%s\" "
+			"AddFileMem header.tsv failed for \"%s\" "
 			"(anim_idx=%d len=%u)",
-			dst_full, anim_idx, (unsigned)anim_bytes);
+			dst_full, anim_idx, (unsigned)header_tsv.len);
 		modArchiveAbort(aw);
+		s_textbufFree(&header_tsv);
+		s_textbufFree(&frames_tsv);
 		return -1;
 	}
 
-	/* SHA-256 sidecar over the frame payload (matches .pdmesh pattern). */
-	if (anim_bytes > 0) {
-		u8 digest[SHA256_DIGEST_SIZE];
-		sha256Hash(seg_data + entry->data, (size_t)anim_bytes, digest);
-		char hex[SHA256_HEX_SIZE + 1];
-		sha256ToHex(digest, hex);
-		hex[SHA256_HEX_SIZE] = '\0';
-		char sidecar[SHA256_HEX_SIZE + 2];
-		snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-		if (modArchiveAddFileMem(aw, "frames.bin.sha256",
-		                          sidecar, (u32)strlen(sidecar)) != 0) {
-			sysLogPrintf(LOG_WARNING,
-				"romextract pdanim_chr: sidecar write failed for "
-				"\"%s\" (anim_idx=%d)",
-				dst_full, anim_idx);
-		}
+	if (modArchiveAddFileMem(aw, "frames.tsv",
+	                          frames_tsv.data, frames_tsv.len) != 0) {
+		sysLoudFailf("EXTRACT.PDANIM_CHR",
+			"AddFileMem frames.tsv failed for \"%s\" "
+			"(anim_idx=%d len=%u)",
+			dst_full, anim_idx, (unsigned)frames_tsv.len);
+		modArchiveAbort(aw);
+		s_textbufFree(&header_tsv);
+		s_textbufFree(&frames_tsv);
+		return -1;
+	}
+
+	if (s_addShaSidecar(aw, "header.tsv.sha256",
+	                    header_tsv.data, header_tsv.len) != 0 ||
+	    s_addShaSidecar(aw, "frames.tsv.sha256",
+	                    frames_tsv.data, frames_tsv.len) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdanim_chr: sidecar write failed for \"%s\" "
+			"(anim_idx=%d)", dst_full, anim_idx);
 	}
 
 	if (modArchiveFinish(aw) != 0) {
+		s_textbufFree(&header_tsv);
+		s_textbufFree(&frames_tsv);
 		sysLoudFailf("EXTRACT.PDANIM_CHR",
 			"modArchiveFinish failed for \"%s\"", dst_full);
 		return -1;
 	}
 
+	s_textbufFree(&header_tsv);
+	s_textbufFree(&frames_tsv);
 	return 1;
 }
 

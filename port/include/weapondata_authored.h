@@ -10,13 +10,13 @@
  * THIS HEADER IS FOR THE RUNTIME EMITTER ONLY.
  * Engine code (gameplay, UI, networking, AI) MUST NOT include this
  * header; engine code reads weapon data through the catalog
- * (catalog_mgr_weapons) which loads the per-asset .pdwpn files
- * authored at startup by the romextract_pdwpn emitter.
+ * (catalog_mgr_weapons) which loads the per-asset .pdweapon files
+ * authored at startup by the romextract_pdweapon emitter.
  *
  * Allowed includers:
  *   - port/src/weapondata_authored.c          (the definitions)
  *   - port/src/animdata_authored.c            (cross-references invanim_*)
- *   - port/src/romextract_pdwpn.c             (the emitter)
+ *   - port/src/romextract_pdweapon.c          (the emitter)
  *   - port/src/romextract_pdmesh.c            (walks weapon hi/lo meshes)
  *
  * @see context/audits/catalog-universality-pivot-plan-2026-05-02.md
@@ -45,7 +45,7 @@ extern const char *const g_WeaponDataCatalogIds[];
 /*
  * Bot weapon preferences -- parallel to g_WeaponData by WEAPON_* index.
  * The emitter attaches g_BotPrefData[i] as the bot_pref subdoc on the
- * .pdwpn for g_WeaponData[i].
+ * .pdweapon for g_WeaponData[i].
  */
 extern struct aibotweaponpreference g_BotPrefData[];
 extern const s32 g_BotPrefDataCount;

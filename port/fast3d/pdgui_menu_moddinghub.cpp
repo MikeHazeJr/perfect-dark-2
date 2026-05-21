@@ -272,6 +272,8 @@ static const char *iniNameForType(asset_type_e t)
         case ASSET_SKIN:        return "skin.ini";
         case ASSET_BOT_VARIANT: return "bot.ini";
         case ASSET_WEAPON:      return "weapon.ini";
+        case ASSET_PROJECTILE:  return "projectile.ini";
+        case ASSET_ENTITY:      return "entity.ini";
         case ASSET_TEXTURES:    return "textures.ini";
         case ASSET_SFX:         return "sfx.ini";
         case ASSET_MUSIC:       return "music.ini";
@@ -320,7 +322,8 @@ static void iniCollectCallback(const asset_entry_t *e, void *ud)
 
 static const asset_type_e s_AllTypes[] = {
     ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
-    ASSET_WEAPON, ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
+    ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
+    ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
     ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_UI, ASSET_TOOL
 };
 static const int s_NumAllTypes = (int)(sizeof(s_AllTypes)/sizeof(s_AllTypes[0]));
@@ -995,6 +998,8 @@ static const char *packTypeShortName(asset_type_e t)
         case ASSET_SKIN:         return "Skin";
         case ASSET_BOT_VARIANT:  return "Bot";
         case ASSET_WEAPON:       return "Weapon";
+        case ASSET_PROJECTILE:   return "Projectile";
+        case ASSET_ENTITY:       return "Entity";
         case ASSET_TEXTURES:     return "Textures";
         case ASSET_SFX:          return "SFX";
         case ASSET_MUSIC:        return "Music";

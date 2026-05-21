@@ -476,7 +476,7 @@ static void bootRunCatalogWork(void *arg)
 	 * the weapon pool being populated) -> build caches. */
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_WPN);
-	(void)romExtractAllPdwpn(0);
+	(void)romExtractAllPdweapon(0);
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_MESH);
@@ -493,6 +493,10 @@ static void bootRunCatalogWork(void *arg)
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_BODY);
 	(void)romExtractAllPdbody(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_BODY);
+	(void)romExtractAllPdcharacter(0);
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_ARENA);
@@ -1028,6 +1032,8 @@ static const char *bootDebugAssetTypeName(asset_type_e type)
 	case ASSET_BODY:      return "body";
 	case ASSET_HEAD:      return "head";
 	case ASSET_WEAPON:    return "weapon";
+	case ASSET_PROJECTILE: return "projectile";
+	case ASSET_ENTITY:    return "entity";
 	case ASSET_MAP:       return "map";
 	case ASSET_ARENA:     return "arena";
 	case ASSET_CHARACTER: return "character";
@@ -1052,6 +1058,8 @@ static asset_type_e bootDebugParseAssetType(const char *s)
 	if (strcmp(s, "body") == 0) return ASSET_BODY;
 	if (strcmp(s, "head") == 0) return ASSET_HEAD;
 	if (strcmp(s, "weapon") == 0) return ASSET_WEAPON;
+	if (strcmp(s, "projectile") == 0) return ASSET_PROJECTILE;
+	if (strcmp(s, "entity") == 0) return ASSET_ENTITY;
 	if (strcmp(s, "map") == 0) return ASSET_MAP;
 	if (strcmp(s, "arena") == 0) return ASSET_ARENA;
 	if (strcmp(s, "character") == 0) return ASSET_CHARACTER;

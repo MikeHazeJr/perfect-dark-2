@@ -11,7 +11,7 @@ Make typed mod content files usable by external modders without requiring privat
 - `mod.json` is still required at archive root for mod discovery, sharing, registry-backed publication, network validation, and shell metadata.
 - Authored mod content and `.pdmod` transport payloads must not contain `.bin` files. Engine-native binary data may exist only as an internal cache generated from external source files.
 - Typed `*.pdxxx` files are the preferred content-unit format for modder organization. The cleanup target is their internals: they should expose readable standard files and grouped INI/TSV metadata instead of opaque JSON/bin payloads. `.pdmod` is the higher-level package/transport used for sharing, Public Mods, and online-required content delivery.
-- `.pdwpn` archives must carry weapon behavior in the project-owned authored format. This is a modularization of behavior the game already supports, not a new parallel gameplay system.
+- Weapon behavior moves to the `.pdweapon` graph asset schema in [weapon-behavior-graph-assets.md](weapon-behavior-graph-assets.md). `.pdwpn` is fully deprecated, was never released, and must be removed rather than accepted as input, alias, migration source, or compatibility path.
 - Folder mods and `.pdmod` archive mods must use the same component registration behavior.
 - Archive paths must keep the existing trust rules: reserved inbox folders are browse-only and never auto-mounted.
 
@@ -25,19 +25,20 @@ asset archives for transport and keeps `mod.json` at archive root.
 
 ```text
 mod.json
-weapons/<id>.pdwpn + weapons/<id>/model.gltf
-heads/<id>.pdhead + heads/<id>/model.gltf
-bodies/<id>.pdbody + bodies/<id>/model.gltf
-arenas/<id>.pdarena + arenas/<id>/geometry.obj + pads.ini + setup.ini
-scenarios/<id>.pdscenario + scenarios/<id>/rooms.obj + props.ini + objectives.ini
-meshes/<id>.pdmesh + meshes/<id>/model.gltf|geometry.obj
-audio/sfx/<id>.pdsfx + audio/sfx/<id>/sample.wav
-audio/voice/<id>.pdvoice + audio/voice/<id>/sample.wav
-audio/music/<id>.pdsong + audio/music/<id>/track.ogg|track.mp3|track.wav
-ui/<id>.pdui + ui/<id>/texture.png|texture.tga
-fonts/<id>.pdfont + fonts/<id>/font.ttf|font.otf
-lang/<id>.pdlang + lang/<id>/strings.tsv
-animations/<id>.pdanim + animations/<id>/animation.gltf
+weapons/<id>.pdweapon
+characters/<id>.pdcharacter
+heads/<id>.pdhead
+bodies/<id>.pdbody
+arenas/<id>.pdarena
+scenarios/<id>.pdscenario
+meshes/<id>.pdmesh
+audio/sfx/<id>.pdsfx
+audio/voice/<id>.pdvoice
+audio/music/<id>.pdsong
+ui/<id>.pdui
+fonts/<id>.pdfont
+lang/<id>.pdlang
+animations/<id>.pdanim
 ```
 
 Accepted alternates are deliberately narrow: `texture.tga` for UI textures, `track.mp3` or `track.wav` for music, `font.otf` for fonts, and `geometry.gltf` when a model needs hierarchy or skinning. No `.bin` alternate is valid for authored content.
@@ -47,16 +48,25 @@ The earlier canonical-folder INI layout (`characters/heads/<id>/head.ini`,
 accepted as a compatibility authoring layout, but it is no longer the preferred
 content-unit shape.
 
+For character assets, `characters/<id>.pdcharacter` is the top-level authored
+archive with root `character.ini`. Existing `heads/<id>.pdhead` and
+`bodies/<id>.pdbody` archives remain lower-level dependency/runtime
+compatibility packages while the runtime still models heads and bodies
+separately.
+
 ## Standard File Families
 
 - UI textures: `ui/<id>/ui.ini` points at `texture.png` or `texture.tga`. The runtime loads those bytes through `fsFileLoad`, so mounted archive entries and loose files use the same path.
-- Fonts: `fonts/<id>/font.ini` points at `font.ttf` or `font.otf`. Font files register as catalog UI entries and feed the existing ImGui font manager.
-- Language banks: `lang/<id>/lang.ini` points at UTF-8 `strings.tsv`. The TSV format is `index<TAB>text`, with optional comments starting with `#` or `;`; escaped `\n`, `\t`, and `\\` are decoded before the bank is packed into the runtime `langGet()` offset table.
-- Models, maps, and animations: typed `.pdhead`/`.pdbody`/`.pdmesh`/`.pdarena`/`.pdscenario`/`.pdanim` descriptors point at `model.gltf`, `animation.gltf`, `geometry.obj`, or `rooms.obj` as the authored source. The runtime cache adapter validates those standard source files through the same VFS-capable path as loose folders and archives. OBJ map/scenario sources now normalize to readable mesh JSON and activate as engine-owned collision mesh payloads. Model/head/body/weapon/prop GLTF/GLB/OBJ sources normalize to readable model JSON and activate as generated in-memory `modeldef` payloads; the old modeldef loader must never be handed a raw GLTF/OBJ file. Static/empty GLTF/GLB animation sources and skeletal translation/rotation/scale channels normalize to readable animation JSON and activate as engine `animtableentry` clip payloads; unsupported weights/interpolation fail clearly instead of falling back to raw source or `.bin`. The packed `.pdmod` fixture path now uses the production archive writer/reader plus VFS mount and reads typed content units plus sidecars without extracting them; templates allow optional `catalog_id`/`id` overrides for repeated canonical leaf names.
+- Fonts: `fonts/<id>/font.ini` points at `font.ttf` or `font.otf` for authored UI fonts. Base `.pdfont` extraction exposes the ROM bitmap font as `glyphs.pgm`, `metrics.tsv`, and `kerning.tsv` instead of `data.bin`, so the archive is inspectable/editable even when the original source is not a TTF/OTF.
+- Language banks: `lang/<id>/lang.ini` points at UTF-8 `strings.tsv`. The TSV format is `index<TAB>text`, with optional comments starting with `#` or `;`; escaped `\n`, `\t`, and `\\` are decoded before the bank is packed into the runtime `langGet()` offset table. Base `.pdlang` extraction now emits `strings.tsv` from the ROM language offset table and does not expose `data.bin` as authored content.
+- Sound effects and voice: `audio/sfx/<id>.pdsfx` and `audio/voice/<id>.pdvoice` carry `sound.ini` or `voice.ini` plus decoded mono PCM16 `sample.wav`. Base extraction keeps the original ROM codec in `source_format` metadata but does not expose `sample.bin` as authored content.
+- Music: `audio/music/<id>.pdsong` carries `music.ini`, standard `sequence.mid`, and editable `sequence.tsv` event metadata. Base extraction inflates the N64 RareZip compressed-MIDI stream and converts it rather than exposing a raw `data.bin` authored payload.
+- Models, maps, characters, and animations: typed `.pdcharacter`/`.pdhead`/`.pdbody`/`.pdmesh`/`.pdarena`/`.pdscenario`/`.pdanim` descriptors point at `model.gltf`, `animation.gltf`, `geometry.obj`, `rooms.obj`, or nested typed dependencies as the authored source. `.pdcharacter` owns the skeletal character compound at the top level; `.pdhead` and `.pdbody` remain compatibility/dependency layers while the runtime split exists. The runtime cache adapter validates those standard source files through the same VFS-capable path as loose folders and archives. OBJ map/scenario sources now normalize to readable mesh JSON and activate as engine-owned collision mesh payloads. Model/head/body/weapon/prop GLTF/GLB/OBJ sources normalize to readable model JSON and activate as generated in-memory `modeldef` payloads; the old modeldef loader must never be handed a raw GLTF/OBJ file. Static/empty GLTF/GLB animation sources and skeletal translation/rotation/scale channels normalize to readable animation JSON and activate as engine `animtableentry` clip payloads; unsupported weights/interpolation fail clearly instead of falling back to raw source or `.bin`. The packed `.pdmod` fixture path now uses the production archive writer/reader plus VFS mount and reads typed content units plus sidecars without extracting them; templates allow optional `catalog_id`/`id` overrides for repeated canonical leaf names.
+- Base model and character-animation extraction now avoids authored `.bin`: `.pdmesh` archives expose standard Wavefront `model.obj` plus `model.mtl` generated from promoted `PD_MODELDEF` display lists, while character `.pdanim` archives expose `header.tsv` and `frames.tsv`. Semantic GLTF hierarchy/material export and richer animation-channel export remain quality upgrades, but mesh closure is no longer a byte-table TSV fallback.
 
 ## Weapon Behavior
 
-`.pdwpn` must include an authored behavior document, such as `behavior.ini` or a dedicated `[behavior]` block in `weapon.ini`, that maps modder-facing events to the existing game weapon functions. The first target expression is:
+The long-term weapon archive is `.pdweapon` with root `weapon.ini` plus `behavior.graph.json`. That graph maps modder-facing events to the existing game weapon behavior modules and compiles to deterministic runtime IR. The first target expression is:
 
 ```text
 when trigger pulled -> shoot <custom projectile> every <centiseconds>
@@ -64,7 +74,7 @@ when trigger pulled -> shoot <custom projectile> every <centiseconds>
 
 The behavior format should cover the behaviors already present in the game: single shot, burst and full-auto looping fire, sustained hold-fire beams, charge-and-release shots, secondary modes, melee attacks, zoom levels, reticles, overlays, zoom-camera effects, ammo-display surfaces, and model-part state driven by ammo or reload state. It should not hardcode these as one-off exceptions. Halo-style examples are valid requirements for the modularized format: a Needler-like weapon can display remaining physical needles, animate empty slots, and refill only as many needles as inventory allows; an assault-rifle-like weapon can render the exact remaining bullet count on an in-weapon screen.
 
-The runtime implementation path should reuse the existing weapon behavior machinery, progressively factoring it into named behavior modules that `.pdwpn` can reference. Mod tools can then author or edit the project-owned behavior document without requiring raw C structs, opaque engine blobs, or a separate scripting system.
+The runtime implementation path should reuse the existing weapon behavior machinery, progressively factoring it into named behavior modules that `.pdweapon` can reference. Mod tools can then author or edit the project-owned graph without requiring raw C structs, opaque engine blobs, or a separate scripting system.
 
 ## INI Style
 

@@ -1277,7 +1277,8 @@ static int modmgrArchiveEntryIsTypedPdAssetArchive(const char *name)
 {
 	if (!name) return 0;
 	static const char *suffixes[] = {
-		".pdwpn", ".pdhead", ".pdbody", ".pdarena", ".pdmesh", ".pdanim",
+		".pdweapon", ".pdprojectile", ".pdentity", ".pdcharacter",
+		".pdhead", ".pdbody", ".pdarena", ".pdmesh", ".pdanim",
 		".pdsfx", ".pdvoice", ".pdsong", ".pdui", ".pdfont", ".pdlang",
 		".pdscenario", NULL
 	};
@@ -2408,7 +2409,8 @@ void modmgrSaveComponentState(void)
 	// Iterate all user-manageable asset types (non-bundled entries only matter)
 	static const asset_type_e types[] = {
 		ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
-		ASSET_WEAPON, ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
+		ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
+		ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
 		ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_UI, ASSET_TOOL
 	};
 	for (s32 i = 0; i < (s32)(sizeof(types) / sizeof(types[0])); i++) {

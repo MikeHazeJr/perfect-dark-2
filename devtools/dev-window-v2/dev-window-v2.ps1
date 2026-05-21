@@ -2901,8 +2901,7 @@ function Get-BuildSteps($ver, [bool]$forceClean = $false) {
         Add-LogSessionLine "CMake configure skipped (cache/version current)." "#44586C"
     }
     # Client only. Dedicated server connectivity is now in-client (listen mode);
-    # pd-server is no longer shipped and so is no longer built per BUILD/RELEASE.
-    # The cmake target is still defined for pd-tests linkage if needed.
+    # pd-server is no longer shipped and the cmake target has been removed.
     [void]$steps.Add(@{Name="Build (client: pd)"; Exe=$script:CMake; Target="client"; Args="--build `"" + $script:BuildDir + "`" --target pd --parallel " + $cores})
 
     return $steps
@@ -3616,7 +3615,7 @@ function Start-PushRelease {
     $vs = "" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch
     $isStable = $ui["ChkStable"].IsChecked
     $kind = $(if ($isStable) { "Stable" } else { "Dev" })
-    $msg = "Release v" + $vs + " (" + $kind + ")?`n`nThis will:`n1. Set version to " + $vs + " in CMakeLists.txt`n2. Build client + server`n3. Package and push to GitHub"
+    $msg = "Release v" + $vs + " (" + $kind + ")?`n`nThis will:`n1. Set version to " + $vs + " in CMakeLists.txt`n2. Build client + updater`n3. Package and push to GitHub"
     $ok = [System.Windows.MessageBox]::Show($msg, ($kind + " Release v" + $vs), "YesNo", "Warning")
     if ($ok -ne [System.Windows.MessageBoxResult]::Yes) { return }
 

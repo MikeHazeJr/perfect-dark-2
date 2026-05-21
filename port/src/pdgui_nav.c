@@ -151,6 +151,11 @@ s32 pdguiMenuTertiaryPressed(void)
     return menuActionPressed(ACTION_MENU_TERTIARY);
 }
 
+s32 pdguiMenuStartPressed(void)
+{
+    return menuActionPressed(ACTION_PAUSE);
+}
+
 s32 pdguiMenuDeletePressed(void)
 {
     return menuActionPressed(ACTION_MENU_DELETE);

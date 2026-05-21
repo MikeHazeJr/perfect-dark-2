@@ -32,7 +32,7 @@ extern "C" {
 typedef struct {
     const char *kind_str;     /* "weapon" / "head" / ... (matches pd_kind field) */
     const char *subdir;       /* "weapons", "audio/sfx", ... (under tier_dir) */
-    const char *extension;    /* ".pdwpn" / ".pdmesh" / ... (with leading dot) */
+    const char *extension;    /* ".pdweapon" / ".pdmesh" / ... (with leading dot) */
     /* When non-zero, the scaffold invokes register_fn even if the
      * catalog row already exists. Set by the four pool kinds (weapon,
      * head, body, arena) so the callback can populate the loader_pool

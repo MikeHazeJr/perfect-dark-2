@@ -5893,7 +5893,8 @@ u32 netmsgSvcCatalogInfoWrite(struct netbuf *dst)
 	 * S-9: ASSET_SKIN already present — skin mods distributed via same pipeline. */
 	static const asset_type_e s_types[] = {
 		ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
-		ASSET_WEAPON, ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
+		ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
+		ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
 		ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_UI,
 		ASSET_AUDIO,
 		ASSET_NONE  /* sentinel */

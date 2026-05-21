@@ -20,7 +20,7 @@ GitHub: https://github.com/MikeHazeJr/perfect-dark-2
 
 From bash:
 ```bash
-source devtools/build-env.sh && ninja -C Build pd pd-server
+source devtools/build-env.sh && ninja -C Build pd pd-tests
 ```
 
 From PowerShell:
@@ -185,6 +185,6 @@ The goal: if context is cleared right now, the next session picks up in under a 
 
 ## Server and hosting
 
-Build targets include **`pd`** (game client) and **`pd-server`** (`PerfectDarkServer.exe`). **Listen** mode runs the server inside the game client (`g_NetDedicated == 0`); **dedicated** is headless or server-GUI only (`g_NetDedicated == 1`, `g_NetLocalClient == NULL`). Dedicated servers skip ROM/mod checks at `CLC_AUTH` because no ROM is loaded; connect codes hide raw IPs in UI per `context/constraints.md`.
+Build targets include **`pd`** (game client), **`pd-tests`**, and **`pd-updater`**. The standalone **`pd-server` / `PerfectDarkServer.exe` target is removed/deprecated**; listen mode runs the server inside the game client (`g_NetDedicated == 0`) and is the shipping path. Connect codes hide raw IPs in UI per `context/constraints.md`.
 
 Threat model and operational notes: **`context/designs/connectivity/hosting-modes-listen-vs-dedicated.md`**. Live server pillar: **`context/pillars/server.md`** (folds in the prior `context/server-architecture.md`).

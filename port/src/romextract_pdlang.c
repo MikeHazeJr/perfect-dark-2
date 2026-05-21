@@ -6,10 +6,11 @@
  * bank-to-file mapping in src/game/lang.c and emits one .pdlang ZIP
  * compound per (bank, locale) at data/<romid>/lang/<id>.pdlang.
  *
- * Per universality-pivot-schemas.md Section 2.13:
- *   manifest.json         envelope + locale + bank metadata
- *   data.bin              raw lang file bytes (pre-preprocessLangFile)
- *   data.bin.sha256       outer-file SHA-256 sidecar
+ * Per-asset ZIP layout:
+ *   lang.ini              editable language descriptor
+ *   manifest.json         compatibility envelope + locale + bank metadata
+ *   strings.tsv           escaped index<TAB>text source table
+ *   strings.tsv.sha256    outer-file SHA-256 sidecar
  *
  * Catalog ID convention (feedback_human_readable_ids):
  *   base:lang_<bank>_<locale>   e.g. base:lang_gun_en, base:lang_propobj_en
@@ -33,11 +34,9 @@
  * cleanup (or a follow-up worktree); the catalog ID stays stable
  * across that follow-up because it includes the locale suffix.
  *
- * The byte payload is the RAW pre-preprocess file as extracted to
- * disk by Pass A (data/<romid>/files/<sanitized>.bin). The runtime
- * preprocessLangFile (port/src/preprocess/filelang.c) byte-swaps
- * the offset table and rewrites string offsets in place; the
- * Step 4 universal loader runs the same preprocess at load time.
+ * The emitted TSV is decoded from the RAW pre-preprocess file as
+ * extracted to disk by Pass A. The raw file starts with a big-endian
+ * string offset table followed by null-terminated string bytes.
  *
  * Server build (PD_SERVER): returns 0 immediately; lang banks are
  * not loaded server-side.
@@ -115,6 +114,126 @@ static s32 s_extractBankName(const char *file_sym, char *out, size_t out_n)
 	return (s32)copy_len;
 }
 
+static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	s32 has_entry = modArchiveFindEntry(arc, entry) >= 0;
+	modArchiveClose(arc);
+	return has_entry;
+}
+
+static u32 s_readBe32(const u8 *p)
+{
+	return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3];
+}
+
+static u32 s_nextNonZeroOffset(const u8 *src, u32 offset, u32 len)
+{
+	for (u32 pos = offset; pos + 4u <= len; pos += 4u) {
+		u32 value = s_readBe32(src + pos);
+		if (value != 0) return value;
+	}
+	return 0;
+}
+
+static u32 s_langStringCount(const u8 *src, u32 len)
+{
+	if (!src || len < 4) return 0;
+	u32 table_len = s_nextNonZeroOffset(src, 0, len);
+	if (table_len != 0 && table_len <= len && (table_len % 4u) == 0) {
+		return table_len / 4u;
+	}
+	return 1;
+}
+
+static u32 s_escapeTsvText(char *dst, u32 dst_cap, const u8 *src, u32 len)
+{
+	u32 w = 0;
+	for (u32 i = 0; i < len && w + 1u < dst_cap; i++) {
+		u8 ch = src[i];
+		if (ch == '\\') {
+			if (w + 2u >= dst_cap) break;
+			dst[w++] = '\\';
+			dst[w++] = '\\';
+		} else if (ch == '\n') {
+			if (w + 2u >= dst_cap) break;
+			dst[w++] = '\\';
+			dst[w++] = 'n';
+		} else if (ch == '\t') {
+			if (w + 2u >= dst_cap) break;
+			dst[w++] = '\\';
+			dst[w++] = 't';
+		} else if (ch >= 0x20 && ch < 0x7f) {
+			dst[w++] = (char)ch;
+		} else {
+			static const char hex[] = "0123456789abcdef";
+			if (w + 4u >= dst_cap) break;
+			dst[w++] = '\\';
+			dst[w++] = 'x';
+			dst[w++] = hex[(ch >> 4) & 0x0f];
+			dst[w++] = hex[ch & 0x0f];
+		}
+	}
+	if (dst_cap) dst[w] = '\0';
+	return w;
+}
+
+static s32 s_buildStringsTsv(const u8 *src, u32 src_size,
+                             char **out_text, u32 *out_size,
+                             u32 *out_count)
+{
+	*out_text = NULL;
+	*out_size = 0;
+	*out_count = 0;
+
+	u32 count = s_langStringCount(src, src_size);
+	if (count == 0 || count > 512) return 0;
+
+	u32 cap = src_size * 4u + count * 18u + 32u;
+	char *tsv = (char *)malloc(cap);
+	if (!tsv) return 0;
+	u32 w = 0;
+
+	for (u32 i = 0; i < count && w + 16u < cap; i++) {
+		u32 offset = (i * 4u + 4u <= src_size) ? s_readBe32(src + i * 4u) : 0;
+		u32 end = 0;
+		if (offset != 0 && offset < src_size) {
+			end = s_nextNonZeroOffset(src, (i + 1u) * 4u, count * 4u);
+			if (end == 0 || end > src_size) end = src_size;
+			if (end < offset) end = offset;
+			while (end > offset && src[end - 1u] == 0) end--;
+		} else {
+			offset = 0;
+			end = 0;
+		}
+
+		int n = snprintf(tsv + w, cap - w, "%u\t", (unsigned)i);
+		if (n <= 0 || (u32)n >= cap - w) {
+			free(tsv);
+			return 0;
+		}
+		w += (u32)n;
+		if (end > offset) {
+			w += s_escapeTsvText(tsv + w, cap - w, src + offset, end - offset);
+		}
+		if (w + 1u >= cap) {
+			free(tsv);
+			return 0;
+		}
+		tsv[w++] = '\n';
+	}
+	tsv[w] = '\0';
+
+	*out_text = tsv;
+	*out_size = w;
+	*out_count = count;
+	return 1;
+}
+
 /* Emit one .pdlang ZIP for (bank, locale). Returns 1 written, 0
  * skipped (file not on disk for this build), -1 failed. */
 static s32 s_emitOneLang(s32 bank, const char *locale_tag,
@@ -158,9 +277,31 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 	snprintf(dst_rel, sizeof(dst_rel),
 		"%s/%s.pdlang", out_dir, filename_slug);
 
-	if (!force_rewrite && fsFileSize(dst_rel) > 0) return 0;
+	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
+	    s_existingArchiveHasEntry(dst_rel, "lang.ini") &&
+	    s_existingArchiveHasEntry(dst_rel, "strings.tsv")) return 0;
 
 	u32 src_size = (u32)fsFileSize(src_rel);
+	u32 src_bytes_size = 0;
+	void *src_bytes = fsFileLoad(src_rel, &src_bytes_size);
+	if (!src_bytes || src_bytes_size == 0) {
+		sysLoudFailf("EXTRACT.PDLANG",
+			"fsFileLoad failed for bank=%d source \"%s\"", bank, src_rel);
+		if (src_bytes) sysMemFree(src_bytes);
+		return -1;
+	}
+
+	char *tsv_text = NULL;
+	u32 tsv_size = 0;
+	u32 string_count = 0;
+	if (!s_buildStringsTsv((const u8 *)src_bytes, src_bytes_size,
+	                       &tsv_text, &tsv_size, &string_count)) {
+		sysLoudFailf("EXTRACT.PDLANG",
+			"could not build strings.tsv for bank=%d source \"%s\"",
+			bank, src_rel);
+		sysMemFree(src_bytes);
+		return -1;
+	}
 
 	/* Stage category from bank ID range. Banks 0x01..0x25 (1..37) are
 	 * stage lang banks (level dialog); 0x26+ are system banks
@@ -180,18 +321,52 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		"  \"id\": \"%s\",\n"
 		"  \"locale\": \"%s\",\n"
 		"  \"category\": \"%s\",\n"
-		"  \"data\": \"data.bin\",\n"
+		"  \"data\": \"strings.tsv\",\n"
 		"  \"data_size\": %u,\n"
+		"  \"source_data_size\": %u,\n"
+		"  \"string_count\": %u,\n"
 		"  \"source_bank\": %d,\n"
 		"  \"source_filenum\": %u,\n"
 		"  \"source_symbol\": \"%s\"\n"
 		"}\n",
 		catalog_id, locale_tag, category,
-		(unsigned)src_size, bank, (unsigned)file_id,
+		(unsigned)tsv_size,
+		(unsigned)src_size,
+		(unsigned)string_count,
+		bank, (unsigned)file_id,
 		file_sym ? file_sym : "");
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"manifest.json snprintf truncated for bank=%d", bank);
+		free(tsv_text);
+		sysMemFree(src_bytes);
+		return -1;
+	}
+
+	char ini_buf[768];
+	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
+		"[lang]\n"
+		"catalog_id = %s\n"
+		"locale = %s\n"
+		"category = %s\n"
+		"strings_file = strings.tsv\n"
+		"data_size = %u\n"
+		"source_data_size = %u\n"
+		"string_count = %u\n"
+		"source_bank = %d\n"
+		"source_filenum = %u\n"
+		"source_symbol = %s\n",
+		catalog_id, locale_tag, category,
+		(unsigned)tsv_size,
+		(unsigned)src_size,
+		(unsigned)string_count,
+		bank, (unsigned)file_id,
+		file_sym ? file_sym : "");
+	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
+		sysLoudFailf("EXTRACT.PDLANG",
+			"lang.ini snprintf truncated for bank=%d", bank);
+		free(tsv_text);
+		sysMemFree(src_bytes);
 		return -1;
 	}
 
@@ -200,6 +375,8 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 	if (!dst_full || !dst_full[0]) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"fsFullPath empty for \"%s\"", dst_rel);
+		free(tsv_text);
+		sysMemFree(src_bytes);
 		return -1;
 	}
 
@@ -207,58 +384,63 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 	if (!aw) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"modArchiveBegin failed for \"%s\"", dst_full);
+		free(tsv_text);
+		sysMemFree(src_bytes);
 		return -1;
 	}
 
+	if (modArchiveAddFileMem(aw, "lang.ini", ini_buf, (u32)ini_len) != 0) {
+		sysLoudFailf("EXTRACT.PDLANG",
+			"AddFileMem lang.ini failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		free(tsv_text);
+		sysMemFree(src_bytes);
+		return -1;
+	}
 	if (modArchiveAddFileMem(aw, "manifest.json",
 	                          manifest_buf, (u32)manifest_len) != 0) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"AddFileMem manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
+		free(tsv_text);
+		sysMemFree(src_bytes);
 		return -1;
 	}
 
-	char src_full_buf[FS_MAXPATH + 1];
-	const char *src_full = fsFullPath(src_rel, src_full_buf, sizeof(src_full_buf));
-	if (!src_full || !src_full[0]) {
+	if (modArchiveAddFileMem(aw, "strings.tsv", tsv_text, tsv_size) != 0) {
 		sysLoudFailf("EXTRACT.PDLANG",
-			"fsFullPath empty for source \"%s\"", src_rel);
-		modArchiveAbort(aw);
-		return -1;
-	}
-	if (modArchiveAddFileDisk(aw, "data.bin", src_full) != 0) {
-		sysLoudFailf("EXTRACT.PDLANG",
-			"AddFileDisk data.bin failed for bank=%d -> \"%s\"",
+			"AddFileMem strings.tsv failed for bank=%d -> \"%s\"",
 			bank, dst_full);
 		modArchiveAbort(aw);
+		free(tsv_text);
+		sysMemFree(src_bytes);
 		return -1;
 	}
 
-	u32 src_bytes_size = 0;
-	void *src_bytes = fsFileLoad(src_rel, &src_bytes_size);
-	if (src_bytes && src_bytes_size > 0) {
-		u8 digest[SHA256_DIGEST_SIZE];
-		sha256Hash(src_bytes, (size_t)src_bytes_size, digest);
-		char hex[SHA256_HEX_SIZE + 1];
-		sha256ToHex(digest, hex);
-		hex[SHA256_HEX_SIZE] = '\0';
-		char sidecar[SHA256_HEX_SIZE + 2];
-		snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-		if (modArchiveAddFileMem(aw, "data.bin.sha256",
-		                          sidecar, (u32)strlen(sidecar)) != 0) {
-			sysLogPrintf(LOG_WARNING,
-				"romextract pdlang: sidecar write failed for \"%s\"",
-				dst_full);
-		}
+	u8 digest[SHA256_DIGEST_SIZE];
+	sha256Hash((const u8 *)tsv_text, (size_t)tsv_size, digest);
+	char hex[SHA256_HEX_SIZE + 1];
+	sha256ToHex(digest, hex);
+	hex[SHA256_HEX_SIZE] = '\0';
+	char sidecar[SHA256_HEX_SIZE + 2];
+	snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
+	if (modArchiveAddFileMem(aw, "strings.tsv.sha256",
+	                          sidecar, (u32)strlen(sidecar)) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdlang: sidecar write failed for \"%s\"",
+			dst_full);
 	}
-	if (src_bytes) sysMemFree(src_bytes);
 
 	if (modArchiveFinish(aw) != 0) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"modArchiveFinish failed for \"%s\"", dst_full);
+		free(tsv_text);
+		sysMemFree(src_bytes);
 		return -1;
 	}
 
+	free(tsv_text);
+	sysMemFree(src_bytes);
 	return 1;
 }
 

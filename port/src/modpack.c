@@ -47,6 +47,8 @@ static const char *iniFilenameForType(asset_type_e type)
         case ASSET_SKIN:         return "skin.ini";
         case ASSET_BOT_VARIANT:  return "bot.ini";
         case ASSET_WEAPON:       return "weapon.ini";
+        case ASSET_PROJECTILE:   return "projectile.ini";
+        case ASSET_ENTITY:       return "entity.ini";
         case ASSET_TEXTURES:     return "textures.ini";
         case ASSET_SFX:          return "sfx.ini";
         case ASSET_MUSIC:        return "music.ini";
@@ -63,7 +65,8 @@ static const char *iniFilenameForType(asset_type_e type)
 /* Ordered list of INI filenames tried during hot-registration */
 static const char *s_KnownIniNames[] = {
     "map.ini", "character.ini", "bot.ini", "textures.ini",
-    "skin.ini", "weapon.ini", "sfx.ini", "music.ini",
+    "skin.ini", "weapon.ini", "projectile.ini", "entity.ini",
+    "sfx.ini", "music.ini",
     "audio.ini",
     "prop.ini", "vehicle.ini", "mission.ini", "ui.ini", "tool.ini",
     NULL
@@ -90,7 +93,8 @@ static const asset_entry_t *catalogFindByIdAny(const char *id)
 {
     static const asset_type_e kTypes[] = {
         ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
-        ASSET_WEAPON, ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
+        ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
+        ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
         ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_UI, ASSET_TOOL,
         ASSET_NONE
     };

@@ -59,7 +59,7 @@ Optional fields (per kind):
 Container types:
 
 - **JSON:** the file is a single JSON document at the path. Plain text. Modders can edit in any editor.
-- **ZIP:** the file is a ZIP archive containing `manifest.json` (the JSON document holding the envelope + metadata) plus binary blobs (the byte payload, e.g. `geometry.bin` for a mesh). Reuses [port/src/modarchive.c](../../../port/src/modarchive.c) writer infrastructure.
+- **ZIP:** the file is a ZIP archive containing `manifest.json` (the JSON document holding the envelope + metadata) plus the authored source payloads for that asset, such as OBJ/MTL geometry, WAV audio, MIDI music, TSV metadata, or generated private cache inputs. Reuses [port/src/modarchive.c](../../../port/src/modarchive.c) writer infrastructure.
 
 The `pd_kind` value is authoritative; the file extension is informational. A `.pdwpn` file MUST carry `"pd_kind": "weapon"`. Mismatches LOUDFAIL at parse time (`LOUDFAIL.LOAD.SCHEMA.KIND_MISMATCH`).
 
@@ -306,20 +306,26 @@ Note: today the arena record carries `stagenum` integer directly. Under the univ
 
 ### 2.5 `pd_kind: mesh` (`.pdmesh`, ZIP compound)
 
-ZIP archive. One file per model. Replaces today's `data/<romid>/files/<name>.bin` raw byte slabs.
+ZIP archive. One file per model. Replaces the old `data/<romid>/files/<name>.bin` raw byte slabs with standard geometry output.
 
 Container layout:
 
 ```
 manifest.json            <- envelope + metadata (this file's pd_kind, id, etc.)
-geometry.bin             <- raw model bytes (was data/<romid>/files/<name>.bin)
-geometry.bin.sha256      <- digest for self-heal (existing pattern)
+model.ini                <- editable descriptor
+model.obj                <- Wavefront OBJ converted from model display lists
+model.mtl                <- material stub/references for OBJ tooling
+model.obj.sha256         <- digest for self-heal (existing pattern)
+model.mtl.sha256
 ```
 
 `manifest.json` required fields:
 
 - Envelope.
-- `geometry` (string). Filename inside the ZIP holding the byte payload. Conventionally `"geometry.bin"`.
+- `source_format` (string). Provenance of the base extractor input. Current base extraction uses `"PD_MODELDEF"`.
+- `format` (string). Standard geometry format. Current base extraction uses `"OBJ"`.
+- `geometry` (string). Filename inside the ZIP holding the standard geometry payload. Current base extraction uses `"model.obj"`.
+- `material` (string). Filename inside the ZIP holding the material payload. Current base extraction uses `"model.mtl"`.
 
 `manifest.json` optional fields:
 
@@ -337,7 +343,12 @@ Example `manifest.json`:
   "pd_schema_version": 1,
   "id": "base:falcon2_hi",
   "source_filenum_symbol": "FILE_GFALCON2",
-  "geometry": "geometry.bin"
+  "source_format": "PD_MODELDEF",
+  "format": "OBJ",
+  "geometry": "model.obj",
+  "material": "model.mtl",
+  "triangle_count": 128,
+  "display_list_count": 4
 }
 ```
 

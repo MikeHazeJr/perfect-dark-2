@@ -5,10 +5,10 @@
  * arena per Mike's Q-1 unified-scenario directive:
  *
  *   1. data/<romid>/arenas/<id>.pdarena
- *      JSON metadata document carrying arena_index / slug / category /
- *      stagenum / requirefeature / name_langid / load_mode + a
- *      `scenario` catalog ID reference to the .pdscenario below.
- *      Schema: universality-pivot-schemas.md Section 2.4.
+ *      ZIP-openable typed asset archive. The archive root carries
+ *      arena.ini for the modder-facing descriptor plus manifest.json for
+ *      the legacy universal walker until the base walker consumes the INI
+ *      path directly.
  *
  *   2. data/<romid>/scenarios/<scenario_id>.pdscenario
  *      ZIP compound bundling geometry / tiles / pads / setup / mpsetup
@@ -147,7 +147,32 @@ static s32 s_addStageBin(mod_archive_writer_t *aw, u16 filenum,
 	return 1;
 }
 
-/* Emit one .pdarena JSON. Returns 1 written, 0 skipped, -1 failed. */
+static s32 s_existingZipArchive(const char *relpath)
+{
+	u32 size = 0;
+	void *bytes = fsFileLoad(relpath, &size);
+	if (!bytes) return 0;
+	s32 is_zip = size >= 2
+		&& ((const u8 *)bytes)[0] == 'P'
+		&& ((const u8 *)bytes)[1] == 'K';
+	sysMemFree(bytes);
+	return is_zip;
+}
+
+static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	s32 has_entry = modArchiveFindEntry(arc, entry) >= 0;
+	modArchiveClose(arc);
+	return has_entry;
+}
+
+/* Emit one .pdarena ZIP-openable archive. Returns 1 written, 0 skipped,
+ * -1 failed. */
 static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
                              const char *out_dir, s32 force_rewrite)
 {
@@ -160,12 +185,15 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 	char relpath[FS_MAXPATH];
 	snprintf(relpath, sizeof(relpath), "%s/%s.pdarena", out_dir, filename);
 
-	if (!force_rewrite && fsFileSize(relpath) > 0) return 0;
+	if (!force_rewrite && fsFileSize(relpath) > 0 && s_existingZipArchive(relpath)) {
+		return 0;
+	}
 
-	FILE *fp = fsFileOpenWrite(relpath);
-	if (!fp) {
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) {
 		sysLoudFailf("EXTRACT.PDARENA",
-			"fsFileOpenWrite failed for \"%s\"", relpath);
+			"fsFullPath failed for \"%s\"", relpath);
 		return -1;
 	}
 
@@ -179,22 +207,90 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 
 	const char *load_mode_str = loaderEnumNameForArenaLoadMode(a->load_mode);
 
-	fputs("{\n", fp);
-	fputs("  \"pd_kind\": \"arena\",\n", fp);
-	fputs("  \"pd_schema_version\": 1,\n", fp);
-	fprintf(fp, "  \"id\": \"%s\",\n", catalog_id);
-	fprintf(fp, "  \"arena_index\": %d,\n", arena_index);
-	fprintf(fp, "  \"slug\": \"%s\",\n", a->slug);
-	fprintf(fp, "  \"category\": \"%s\",\n", a->category);
-	fprintf(fp, "  \"stagenum\": %d,\n", (s32)a->stagenum);
-	fprintf(fp, "  \"requirefeature\": %u,\n", (unsigned)a->requirefeature);
-	fprintf(fp, "  \"name_langid\": %d,\n", a->name_langid);
-	if (load_mode_str) fprintf(fp, "  \"load_mode\": \"%s\",\n", load_mode_str);
-	else               fprintf(fp, "  \"load_mode\": %u,\n", (unsigned)a->load_mode);
-	if (scenario_id[0]) fprintf(fp, "  \"scenario\": \"%s\"\n", scenario_id);
-	else                fputs("  \"scenario\": null\n", fp);
-	fputs("}\n", fp);
-	fclose(fp);
+	char manifest_buf[1024];
+	int manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
+		"{\n"
+		"  \"pd_kind\": \"arena\",\n"
+		"  \"pd_schema_version\": 1,\n"
+		"  \"id\": \"%s\",\n"
+		"  \"arena_index\": %d,\n"
+		"  \"slug\": \"%s\",\n"
+		"  \"category\": \"%s\",\n"
+		"  \"stagenum\": %d,\n"
+		"  \"requirefeature\": %u,\n"
+		"  \"name_langid\": %d,\n",
+		catalog_id, arena_index, a->slug, a->category, (s32)a->stagenum,
+		(unsigned)a->requirefeature, a->name_langid);
+	if (load_mode_str) {
+		manifest_len += snprintf(manifest_buf + manifest_len,
+			sizeof(manifest_buf) - manifest_len,
+			"  \"load_mode\": \"%s\",\n", load_mode_str);
+	} else {
+		manifest_len += snprintf(manifest_buf + manifest_len,
+			sizeof(manifest_buf) - manifest_len,
+			"  \"load_mode\": %u,\n", (unsigned)a->load_mode);
+	}
+	manifest_len += snprintf(manifest_buf + manifest_len,
+		sizeof(manifest_buf) - manifest_len,
+		scenario_id[0]
+			? "  \"scenario\": \"%s\"\n}\n"
+			: "  \"scenario\": null\n}\n",
+		scenario_id);
+
+	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
+		sysLoudFailf("EXTRACT.PDARENA",
+			"manifest snprintf truncated for \"%s\"", catalog_id);
+		return -1;
+	}
+
+	char ini_buf[1024];
+	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
+		"[arena]\n"
+		"catalog_id = %s\n"
+		"arena_index = %d\n"
+		"slug = %s\n"
+		"category = %s\n"
+		"stagenum = %d\n"
+		"requirefeature = %u\n"
+		"name_langid = %d\n"
+		"load_mode = %s\n",
+		catalog_id, arena_index, a->slug, a->category, (s32)a->stagenum,
+		(unsigned)a->requirefeature, a->name_langid,
+		load_mode_str ? load_mode_str : "ARENA_LOADMODE_PLAYABLE");
+	if (scenario_id[0]) {
+		ini_len += snprintf(ini_buf + ini_len, sizeof(ini_buf) - ini_len,
+			"scenario = %s\n", scenario_id);
+	}
+	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
+		sysLoudFailf("EXTRACT.PDARENA",
+			"arena.ini snprintf truncated for \"%s\"", catalog_id);
+		return -1;
+	}
+
+	mod_archive_writer_t *aw = modArchiveBegin(full);
+	if (!aw) {
+		sysLoudFailf("EXTRACT.PDARENA",
+			"modArchiveBegin failed for \"%s\"", full);
+		return -1;
+	}
+	if (modArchiveAddFileMem(aw, "arena.ini", ini_buf, (u32)ini_len) != 0) {
+		sysLoudFailf("EXTRACT.PDARENA",
+			"AddFileMem arena.ini failed for \"%s\"", full);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (modArchiveAddFileMem(aw, "manifest.json",
+	                          manifest_buf, (u32)manifest_len) != 0) {
+		sysLoudFailf("EXTRACT.PDARENA",
+			"AddFileMem manifest.json failed for \"%s\"", full);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (modArchiveFinish(aw) != 0) {
+		sysLoudFailf("EXTRACT.PDARENA",
+			"modArchiveFinish failed for \"%s\"", full);
+		return -1;
+	}
 	return 1;
 }
 
@@ -222,7 +318,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	char dst_rel[FS_MAXPATH];
 	snprintf(dst_rel, sizeof(dst_rel), "%s/%s.pdscenario", out_dir, filename);
 
-	if (!force_rewrite && fsFileSize(dst_rel) > 0) return 0;
+	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
+	    s_existingArchiveHasEntry(dst_rel, "scenario.ini")) return 0;
 
 	char dst_full_buf[FS_MAXPATH + 1];
 	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
@@ -288,6 +385,37 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		return -1;
 	}
 
+	char ini_buf[1024];
+	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
+		"[scenario]\n"
+		"catalog_id = %s\n"
+		"kind = %s\n"
+		"stagenum = %d\n"
+		"display_name = %s\n",
+		scenario_id, kind, (s32)a->stagenum, a->slug);
+	if (has_geometry > 0) ini_len += snprintf(ini_buf + ini_len,
+		sizeof(ini_buf) - ini_len, "geometry_file = geometry.bin\n");
+	if (has_tiles > 0) ini_len += snprintf(ini_buf + ini_len,
+		sizeof(ini_buf) - ini_len, "tiles_file = tiles.bin\n");
+	if (has_pads > 0) ini_len += snprintf(ini_buf + ini_len,
+		sizeof(ini_buf) - ini_len, "pads_file = pads.bin\n");
+	if (has_setup > 0) ini_len += snprintf(ini_buf + ini_len,
+		sizeof(ini_buf) - ini_len, "setup_file = setup.bin\n");
+	if (has_mpsetup > 0) ini_len += snprintf(ini_buf + ini_len,
+		sizeof(ini_buf) - ini_len, "mpsetup_file = mpsetup.bin\n");
+	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
+		sysLoudFailf("EXTRACT.PDSCENARIO",
+			"scenario.ini snprintf truncated for \"%s\"", scenario_id);
+		modArchiveAbort(aw);
+		return -1;
+	}
+
+	if (modArchiveAddFileMem(aw, "scenario.ini", ini_buf, (u32)ini_len) != 0) {
+		sysLoudFailf("EXTRACT.PDSCENARIO",
+			"AddFileMem scenario.ini failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		return -1;
+	}
 	if (modArchiveAddFileMem(aw, "manifest.json",
 	                          manifest_buf, (u32)n) != 0) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",

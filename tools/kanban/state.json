@@ -1150,11 +1150,61 @@
       "column": "active",
       "order": 2000,
       "priority": 1,
-      "notes": "Foundation landed via c084 (worktree bd87a394) + c089 follow-up Q-A/Q-B/Q-C/Q4 (this trifecta-2). Spec at context/designs/input-menu/combat-simulator-binding-doc.md.\nPriority pass 2026-05-20: promoted behind c3812 as the Input critical path card. Finish Combat Sim per-element bindings and SkipUp/SkipDown walker before lower-weight menu/social polish.",
+      "notes": "Foundation landed via c084 (worktree bd87a394) + c089 follow-up Q-A/Q-B/Q-C/Q4 (this trifecta-2). Spec at context/designs/input-menu/combat-simulator-binding-doc.md.\nPriority pass 2026-05-20: promoted behind c3812 as the Input critical path card. Finish Combat Sim per-element bindings and SkipUp/SkipDown walker before lower-weight menu/social polish.\n2026-05-21 sweep: room.cpp now removes Combat Sim Y row multi-select, adds Start-to-Start-Match via pdguiMenuStartPressed, routes X/right-click context for bot rows/local player/Add Bot through a shared request helper, adds Add Bot Fill/Remove All popup actions, routes LT/RT to the focused panel, implements the left-panel section walker Arena -> Scenario -> Limits -> Weapon Set -> Options, and makes arena/weapon/handicap group headers non-focusable text. Main menu -> Combat Simulator -> Start Match and endscreen return/leave paths remain graph-routed and statically pinned. Theme Editor NavFlattened coverage is pinned in the c086 static guard.",
       "flag": "watch",
       "flagged_at": "2026-05-20T21:24:08.752Z",
+      "pending_completion": {
+        "marked_at": "2026-05-21T04:17:20Z",
+        "marked_by": "codex-menu-input-sweep",
+        "summary": "Implemented the c086 Combat Sim Room controller parity sweep in actual code while preserving MKB parity.",
+        "verify_notes": "Verified 2026-05-21 in isolated session c086menu2: focused pd-tests [input][menu_graph] passed (628 assertions / 32 cases); focused pd-tests [scroll],[nested-scroll] passed (192 assertions / 22 cases); queued all-target build passed. Manual controller playtest should still walk Solo Play -> Combat Simulator -> configure settings -> Add Bot/context actions -> Start Match -> endscreen/Back to Menu and verify RS scroll feel in the room.",
+        "evidence_refs": [
+          "port/fast3d/pdgui_menu_room.cpp",
+          "port/include/pdgui_nav.h",
+          "port/src/pdgui_nav.c",
+          "tests/test_menu_graph.cpp",
+          "tests/test_nested_scroll.cpp",
+          "tests/test_right_stick_scroll.cpp"
+        ],
+        "expected_artifacts": [
+          "Panels and section headers are not selectable, but their contents are.",
+          "Right stick scroll continues to target the innermost scrollable region.",
+          "LT/RT skips within the focused Room panel and never crosses panels.",
+          "Controller X mirrors right-click context actions; Start jumps right-panel focus to Start Match."
+        ]
+      },
       "created": "2026-05-03T00:00:00Z",
-      "updated": "2026-05-20T21:24:08.752Z"
+      "updated": "2026-05-21T04:17:20Z"
+    },
+    {
+      "id": "c3815",
+      "title": "B-356: Combat Sim post-match screen never appears",
+      "description": "Mike reported that ending a Combat Simulator match appeared to route toward the post-match screen, but the post-match screen never appeared and the game had to be force-closed. Root cause: the MP game-over root could be hidden by the legacy NTSC Save Player dialog, which is intentionally suppressed as a no-op in the PC ImGui layer.",
+      "pillar": "input",
+      "column": "active",
+      "order": 2100,
+      "priority": 1,
+      "notes": "Fixed 2026-05-21 in the same menu/input sweep. mpPushEndscreenDialog now marks OPTION_ASKEDSAVEPLAYER but does not push g_MpEndscreenSavePlayerMenuDialog on PC, so the MP game-over root remains visible and the ImGui endscreen exit path owns config saving. Static coverage added to tests/test_menu_graph.cpp.",
+      "flag": "watch",
+      "flagged_at": "2026-05-21T04:36:59Z",
+      "pending_completion": {
+        "marked_at": "2026-05-21T04:36:59Z",
+        "marked_by": "codex-csend356-postmatch",
+        "summary": "Prevented the suppressed legacy Save Player prompt from hiding the Combat Simulator post-match screen.",
+        "verify_notes": "Verified 2026-05-21 in isolated session csend356: focused pd-tests [input][menu_graph] passed (644 assertions / 33 cases); queued all-target build passed; session build cleaned up.",
+        "evidence_refs": [
+          "src/game/mplayer/ingame.c",
+          "tests/test_menu_graph.cpp",
+          "context/bugs.md"
+        ],
+        "expected_artifacts": [
+          "Ending a local Combat Simulator match shows the post-match screen.",
+          "The game no longer needs to be force-closed after match end.",
+          "Return to Room and Back to Menu continue through the existing ImGui endscreen flow."
+        ]
+      },
+      "created": "2026-05-21T04:36:59Z",
+      "updated": "2026-05-21T04:36:59Z"
     },
     {
       "id": "c087",
@@ -2397,14 +2447,157 @@
       "updated": "2026-05-20T19:20:00Z"
     },
     {
+      "id": "c3814",
+      "title": "Modding: design weapon behavior graph assets",
+      "description": "Define the self-contained, graph-editable weapon behavior asset architecture for base game and mods, including physical projectile and entity asset types.",
+      "pillar": "modding",
+      "column": "active",
+      "order": 900,
+      "priority": 1,
+      "notes": "Created 2026-05-21 from Mike's weapon behavior graph directive. Canonical schema design landed at context/designs/modding/weapon-behavior-graph-assets.md. Base behavior audit landed at context/designs/modding/base-weapon-behavior-coverage.md and context/designs/modding/base-weapon-parameter-matrix.md. Module parameter spec landed at context/designs/modding/weapon-graph-module-parameters.md. Runtime cutover split landed at context/designs/modding/weapon-graph-runtime-cutover-plan.md. Locked direction: .pdweapon is the only weapon archive extension for this system; .pdwpn is fully deprecated, was never released, and must be removed rather than accepted as input, alias, migration source, or compatibility path; .pdprojectile and .pdentity are first-class catalog asset types; .pdentity is behavior/archetype data and does not replace ASSET_PROP; weapons may embed/catalog nested projectiles/entities so each weapon archive remains self-contained; exact duplicate embedded payloads are shared by SHA-256 over canonical archive content; behavior is authored as graph JSON and compiled to deterministic runtime IR; base assets regenerate through the boot/self-heal path. Implemented so far: archive layouts, nested catalog ID rule, canonical payload digest rule, node categories, IR boundary, Laptop Gun projectile-to-entity split, validation gates, current 86-weapon function inventory, first 86-weapon parameter matrix, named weapon/projectile/entity graph modules, runtime mapping for Slayer rockets, grenades, proxy mines, mines, Dragon proxy behavior, thrown Laptop Gun, deployed Laptop Gun autogun behavior, first .pdprojectile/.pdentity candidate list, concrete runtime implementation slices, live .pdweapon emitter/scanner/walker/packer/example/test cutover, first-class .pdprojectile/.pdentity catalog/manifest metadata plumbing, shared weapon graph archive helper APIs, derived nested ID/collision checks, canonical archive-content SHA-256 helpers, nested payload inventory scanning/formatting, base .pdweapon nested_payloads.json scaffolding, graph-shaped base_weapon_graph_v1 emission, embedded .pdprojectile/.pdentity payload archive generation, canonical nested payload inventory writing, and stale temporary legacy graph self-heal. Active next: add graph validator and deterministic runtime IR compiler.",
+      "subtasks": [
+        {
+          "id": "c3814-s1",
+          "title": "Write canonical schema design",
+          "status": "done",
+          "order": 1000,
+          "notes": "Done 2026-05-21: context/designs/modding/weapon-behavior-graph-assets.md defines .pdweapon, .pdprojectile, and .pdentity archive/schema boundaries before runtime implementation."
+        },
+        {
+          "id": "c3814-s2",
+          "title": "Audit base-game weapon behavior coverage",
+          "status": "done",
+          "order": 2000,
+          "notes": "Done 2026-05-21: context/designs/modding/base-weapon-behavior-coverage.md covers source inventory, runtime ownership, behavior families, and payload/module candidates; context/designs/modding/base-weapon-parameter-matrix.md records the current 86-weapon parameter matrix. Final authored names move to c3814-s8."
+        },
+        {
+          "id": "c3814-s6",
+          "title": "Inventory current base weapon function coverage",
+          "status": "done",
+          "order": 2100,
+          "notes": "Done 2026-05-21: inspected authored weapon data, current local generated snapshot, function structs, and constants; recorded 86 weapon records and per-function counts in context/designs/modding/base-weapon-behavior-coverage.md."
+        },
+        {
+          "id": "c3814-s7",
+          "title": "Map physical projectile and entity runtime ownership",
+          "status": "done",
+          "order": 2200,
+          "notes": "Done 2026-05-21: documented fired projectiles, thrown physical objects, proxy/remote/timed mines, Dragon proxy behavior, thrown Laptop Gun, deployed Laptop Gun autogun behavior, and first .pdprojectile/.pdentity payload candidates."
+        },
+        {
+          "id": "c3814-s8",
+          "title": "Close named module parameter gaps",
+          "status": "done",
+          "order": 2300,
+          "notes": "Done 2026-05-21: context/designs/modding/weapon-graph-module-parameters.md defines named .pdweapon, .pdprojectile, and .pdentity modules/parameters for Mauler charge, Slayer fly-by-wire, homing steering, Devastator wall-hugger, proxy trigger policy, remote mine detonation, Laptop autogun, ammo/presentation graph nodes, and device/special actions."
+        },
+        {
+          "id": "c3814-s9",
+          "title": "Translate audit into runtime cutover tasks",
+          "status": "done",
+          "order": 2400,
+          "notes": "Done 2026-05-21: context/designs/modding/weapon-graph-runtime-cutover-plan.md translates the schema, audit, matrix, and module spec into runtime slices for .pdweapon removal/emission, catalog kinds, archive readers/writers, graph emission, compiler IR, weapon runtime adapter, projectile runtime adapter, entity runtime adapter, and parity closure."
+        },
+        {
+          "id": "c3814-s10",
+          "title": "Remove fully deprecated .pdwpn paths",
+          "status": "done",
+          "order": 2500,
+          "notes": "Done 2026-05-21: renamed the base weapon emitter to romextract_pdweapon, switched boot extraction/walker/scanner/packer/mod discovery/tests/examples to .pdweapon only, emitted zip-openable .pdweapon archives with weapon.ini, manifest.json, and behavior.graph.json, deleted stale pre-release outputs during extraction, and added static coverage proving live scanner/packer/walker paths do not accept the old extension."
+        },
+        {
+          "id": "c3814-s11",
+          "title": "Add projectile/entity catalog kinds",
+          "status": "done",
+          "order": 2600,
+          "notes": "Done 2026-05-21: added ASSET_PROJECTILE and ASSET_ENTITY, .pdprojectile/.pdentity scanner and packer descriptor recognition, projectile.ini/entity.ini templates, manifest type codes, catalog-info distribution visibility, network hot-registration metadata, mod UI listing/editing support, projectile entity_ref dependency registration, and static coverage. .pdentity remains behavior/archetype metadata, not an ASSET_PROP replacement."
+        },
+        {
+          "id": "c3814-s12",
+          "title": "Implement graph archive readers and nested payload inventory",
+          "status": "done",
+          "order": 2700,
+          "notes": "Done 2026-05-21: added port/include/weapon_graph_archive.h and port/src/weapon_graph_archive.c for descriptor/text reads, root validation, derived nested projectile/entity IDs, duplicate-ID collision checks, canonical archive-content SHA-256 over sorted uncompressed entries, nested payload inventory scans, and nested_payloads.json formatting. Base .pdweapon extraction now writes nested_payloads.json and references it from weapon.ini and the temporary legacy graph adapter. modarchive exposes sanitized in-memory entry iteration for embedded archive hashing. Generated base .pdprojectile/.pdentity payloads move to c3814-s13."
+        },
+        {
+          "id": "c3814-s13",
+          "title": "Emit base weapon graph archives",
+          "status": "done",
+          "order": 2800,
+          "notes": "Done 2026-05-21: .pdweapon emitter writes base_weapon_graph_v1 action graphs with named v1 modules, plans nested projectile/entity refs per weapon function, emits embedded .pdprojectile/.pdentity payload archives, records canonical SHA-256 inventory entries in nested_payloads.json, embeds the payload archives under projectiles/ and entities/, and self-heals stale temporary legacy graph archives. Verification: focused [modding][pdxxx][weapon][static][c3814] passed, focused [c3814] passed, scoped diff check passed, live .pdwpn grep over code/tests/examples is clean, and queued all-target build session wpgraph passed."
+        },
+        {
+          "id": "c3814-s14",
+          "title": "Add graph validator and deterministic IR compiler",
+          "status": "active",
+          "order": 2900,
+          "notes": "Active next: validate graph schema, pins, modules, units, catalog references, and cycles; compile graph JSON to deterministic runtime IR with stable opcodes, parameter blocks, and dependency digests."
+        },
+        {
+          "id": "c3814-s15",
+          "title": "Adapt held weapon behavior to graph IR",
+          "status": "backlog",
+          "order": 3000,
+          "notes": "Drive non-physical held-weapon modules from compiled IR first: ammo gates/consume, cooldown, hitscan, auto cadence, burst, charge/release, beam tick, melee, specials, devices, presentation, reticles, overlays, zoom, and model visibility."
+        },
+        {
+          "id": "c3814-s16",
+          "title": "Adapt projectile behavior to graph IR",
+          "status": "backlog",
+          "order": 3100,
+          "notes": "Drive fired/thrown physical behavior from .pdprojectile IR: powered rockets, homing, Slayer fly-by-wire, Devastator wall-hugger, grenades, N-Bombs, bolts, knives, mines, and thrown Laptop carrier behavior."
+        },
+        {
+          "id": "c3814-s17",
+          "title": "Adapt deployed entity behavior to graph IR",
+          "status": "backlog",
+          "order": 3200,
+          "notes": "Drive deployed/armed behavior from .pdentity IR: armed explosives, proxy triggers, remote/timed detonatables, N-Bomb storm, Laptop autogun, sticky mission devices, owner cleanup, and pickup/recover interaction."
+        },
+        {
+          "id": "c3814-s18",
+          "title": "Close parity tests and removal guards",
+          "status": "backlog",
+          "order": 3300,
+          "notes": "Add static/runtime parity coverage across weapon, projectile, and entity families, hard-guard against live .pdwpn reintroduction, and track any temporary adapters with owner/removal conditions."
+        },
+        {
+          "id": "c3814-s3",
+          "title": "Define archive layouts and nested catalog rules",
+          "status": "done",
+          "order": 9000,
+          "notes": "Done 2026-05-21: schema doc specifies .pdweapon/.pdprojectile/.pdentity archive layouts, derived nested catalog IDs, and SHA-256 payload dedupe over canonical archive content."
+        },
+        {
+          "id": "c3814-s4",
+          "title": "Define graph node taxonomy and IR boundary",
+          "status": "done",
+          "order": 9100,
+          "notes": "Done 2026-05-21: schema doc defines v1 node categories, graph JSON shape, typed time units, compiler responsibilities, and deterministic runtime IR boundary."
+        },
+        {
+          "id": "c3814-s5",
+          "title": "Define cutover phases, validation, and tests",
+          "status": "done",
+          "order": 9200,
+          "notes": "Done 2026-05-21: schema doc lists the .pdweapon-only cutover order, removal of pre-release .pdwpn code paths, base-asset regeneration path, validation gates, and focused static/runtime tests. No .pdwpn back compatibility is required because no release shipped it."
+        }
+      ],
+      "flag": "star",
+      "flagged_at": "2026-05-21T00:00:00Z",
+      "pending_completion": null,
+      "created": "2026-05-21T00:00:00Z",
+      "updated": "2026-05-21T01:15:00-04:00"
+    },
+    {
       "id": "c3812",
       "title": "Modding: repair pdxxx as self-contained asset archives",
-      "description": "Correct the typed content-unit contract: each *.pdxxx file is itself a zip-openable asset archive containing its descriptor, meshes, textures, audio, language data, and associated INI/TSV files as needed. .pdwpn also carries existing weapon behavior modularized into our authored format. .pdmod remains only the transport wrapper for Public Mods, sharing, and online-required delivery.",
+      "description": "Correct the typed content-unit contract: each *.pdxxx file is itself a zip-openable asset archive containing its descriptor, meshes, textures, audio, language data, and associated INI/TSV files as needed. Weapon behavior uses .pdweapon only; .pdwpn is pre-release code debt to remove. .pdmod remains only the transport wrapper for Public Mods, sharing, and online-required delivery.",
       "pillar": "modding",
       "column": "active",
       "order": 1000,
       "priority": 1,
-      "notes": "Active 2026-05-20. Mike corrected c3811: typed *.pdxxx files must not be loose descriptors with sidecar folders. The intended asset unit is a self-contained ZIP archive with the typed extension; changing .pdhead/.pdarena/.pdanim/etc. to .zip should expose everything needed to edit or clone that asset. No authored .bin payloads. Runtime may use readable generated cache, but source-of-truth authored files stay inside the typed archive. .pdmod remains networking/Public Mods/online transport only. Memory review mem-002 is marked adjust, and a durable Codex memory note was added under extensions/ad_hoc/notes.\nPriority pass 2026-05-20: first critical path slot. Finish the self-contained typed *.pdxxx archive repair before advancing broader input/collision/stability work.\nWeapon behavior clarification: .pdwpn should store existing game weapon behavior modularized into the project-owned authored format, including trigger-pulled fire cadence, custom projectiles, looping fire, hold beams, charge/release, secondary modes, melee, zoom, reticle/overlay/camera effects, and ammo-driven model or screen state.",
+      "notes": "Active 2026-05-20. Mike corrected c3811: typed *.pdxxx files must not be loose descriptors with sidecar folders. The intended asset unit is a self-contained ZIP archive with the typed extension; changing .pdhead/.pdarena/.pdanim/etc. to .zip should expose everything needed to edit or clone that asset. No authored .bin payloads. Runtime may use readable generated cache, but source-of-truth authored files stay inside the typed archive. .pdmod remains networking/Public Mods/online transport only. Memory review mem-002 is marked adjust, and a durable Codex memory note was added under extensions/ad_hoc/notes.\nPriority pass 2026-05-20: first critical path slot. Finish the self-contained typed *.pdxxx archive repair before advancing broader input/collision/stability work.\nWeapon behavior correction 2026-05-21: .pdweapon is the only weapon behavior archive extension. .pdwpn is a pre-release implementation name to remove, not an accepted extension, alias, or compatibility path.\nNon-weapon extractor update 2026-05-21: canonical .pdcharacter archives now emit with character.ini plus nested .pdbody/.pdhead dependency archives; scanner, packer, and typed archive suffix recognition accept .pdcharacter. Weapon .pdweapon/.pdwpn work remains in c3814.\nNon-weapon audio extractor update 2026-05-21: base .pdsfx and .pdvoice archives now write decoded mono PCM16 sample.wav plus sample.wav.sha256, descriptors/manifests point at sample.wav with source_format provenance, and old descriptor-only/sample.bin archives are stale unless sample.wav is present. Weapon .pdweapon/.pdwpn work remains in c3814.\nNon-weapon language extractor update 2026-05-21: base .pdlang archives now decode raw ROM language offset tables into editable strings.tsv plus strings.tsv.sha256, descriptors/manifests point at strings.tsv, and old data.bin-only language archives are stale unless strings.tsv is present.\nNon-weapon font extractor update 2026-05-21: base .pdfont archives now decode ROM bitmap fonts into glyphs.pgm, metrics.tsv, and kerning.tsv plus SHA-256 sidecars; descriptors/manifests point at those files, and old data.bin-only font archives are stale.\nNon-weapon song extractor update 2026-05-21: base .pdsong archives now inflate N64 RareZip compressed-MIDI sequences and emit standard sequence.mid plus editable sequence.tsv with SHA-256 sidecars; descriptors/manifests point at those files, and old data.bin-only music archives are stale.\nNon-weapon animation/mesh extractor update 2026-05-21: character .pdanim archives now emit header.tsv and frames.tsv instead of frames.bin. .pdmesh archives now promote PD_MODELDEF, walk model display lists, and emit standard Wavefront model.obj plus model.mtl and SHA-256 sidecars instead of geometry.bin or a TSV byte table. Weapon .pdweapon/.pdwpn work remains in c3814.",
       "subtasks": [
         {
           "id": "c3812-s1",
@@ -2439,14 +2632,14 @@
           "title": "Compatibility and validation",
           "status": "active",
           "order": 5000,
-          "notes": "Active 2026-05-20. Focused c3809/c3811/c3812 tests pass, tests target builds, zip-openable typed examples are verified, and c3812 archive-inventory/reference coverage now opens every current typed family (.pdwpn, .pdhead, .pdbody, .pdarena, .pdmesh, .pdanim, .pdsfx, .pdvoice, .pdsong, .pdui, .pdfont, .pdlang, .pdscenario) to verify required inner authored files, no authored .bin, and descriptor/GLTF/OBJ references resolving inside the same archive. Nested archive VFS preflight/resolve is covered, client/updater all-target build passed, and dedicated server now links after adding the missing archive source/stubs. Mike clarified the stricter full-asset bar: model textures/UV material references, rig or mesh linkage, animation targets, weapon model/animation/audio relationships, and all authored dependencies must live inside the asset archive. Follow-up: .pdwpn behavior is not new mechanics; it is existing weapon behavior modularized into authored data. The file/dependency archive gate is now passing; remaining closure is runtime/playtest compatibility if Mike wants it before advancing."
+          "notes": "Active 2026-05-20. Focused c3809/c3811/c3812 tests pass, tests target builds, zip-openable typed examples are verified, and c3812 archive-inventory/reference coverage verifies required inner authored files, no authored .bin, and descriptor/GLTF/OBJ references resolving inside each archive. Nested archive VFS preflight/resolve is covered, client/updater all-target build passed, and dedicated server now links after adding the missing archive source/stubs. Mike clarified the stricter full-asset bar: model textures/UV material references, rig or mesh linkage, animation targets, weapon model/animation/audio relationships, and all authored dependencies must live inside the asset archive. Follow-up correction 2026-05-21: weapon behavior belongs in .pdweapon only; .pdwpn support should not be implemented. Non-weapon extractor update 2026-05-21: .pdcharacter emitter/scanner/packer support is wired and focused c3812 static coverage passes; .pdhead/.pdbody are dependency/runtime compatibility archives under the character asset. The file/dependency archive gate is now passing; remaining closure is runtime/playtest sanity if Mike wants it before advancing. Audio closure slice 2026-05-21: focused [modding][pdxxx][base][static][c3812] passes with WAV payload guards, and all-target isolated build passes in session pdxaudio. Language closure slice 2026-05-21: focused [modding][pdxxx][base][static][c3812] now passes 106 assertions / 6 cases with TSV language guards, and all-target isolated build passes in session pdxaudio. Font closure slice 2026-05-21: focused [modding][pdxxx][base][static][c3812] now passes 124 assertions / 7 cases with bitmap-font guards, scoped diff check passes, and all-target isolated build in session pdxfont passes for client/updater after correcting the pdcharacter compile break. Song/animation/mesh closure slice 2026-05-21: .pdsong now writes sequence.mid and sequence.tsv instead of data.bin, character .pdanim writes header.tsv and frames.tsv instead of frames.bin, and .pdmesh now writes standard model.obj plus model.mtl instead of geometry.bin or TSV fallback; client build passes in session pdxmesh, and focused [modding][pdxxx][base][static][c3812] passes 183 assertions / 10 cases."
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-20T20:05:00Z",
       "pending_completion": null,
       "created": "2026-05-20T20:05:00Z",
-      "updated": "2026-05-20T21:55:00Z"
+      "updated": "2026-05-21T01:10:00-04:00"
     },
     {
       "id": "c3813",

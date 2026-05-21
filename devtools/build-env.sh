@@ -2,7 +2,7 @@
 # build-env.sh -- Source this before running ninja directly from bash.
 # Sets TEMP/TMP to a writable directory and adds MinGW64 to PATH (idempotent).
 #
-# Usage: source devtools/build-env.sh && ninja -C Build pd pd-server
+# Usage: source devtools/build-env.sh && ninja -C Build pd pd-tests
 #
 # Do not rediscover TEMP or PATH manually. Do not invent alternatives.
 # This is the canonical bash-side build environment for Perfect Dark 2.

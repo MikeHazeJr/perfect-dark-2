@@ -419,9 +419,8 @@ u32 manifestComputeHash(match_manifest_t *m)
 /* =========================================================================
  * Phase 2: Dependency-graph expansion helpers
  *
- * When a BODY or HEAD catalog entry is added to a manifest, all deps
- * registered under that entry's catalog ID are automatically included
- * as MANIFEST_TYPE_ANIM or MANIFEST_TYPE_TEXTURE entries.
+ * When a manifest builder expands a catalog entry, deps registered under
+ * that entry's catalog ID are included with the dep asset's manifest type.
  *
  * Base-game (bundled) entries have no registered deps; catalogDepForEach()
  * is a no-op for them.  manifestAddEntry() deduplicates by net_hash so a
@@ -438,6 +437,8 @@ static u8 s_assetTypeToManifestType(asset_type_e atype)
     switch (atype) {
     case ASSET_ANIMATION: return MANIFEST_TYPE_ANIM;
     case ASSET_TEXTURE:   return MANIFEST_TYPE_TEXTURE;
+    case ASSET_PROJECTILE: return MANIFEST_TYPE_PROJECTILE;
+    case ASSET_ENTITY:    return MANIFEST_TYPE_ENTITY;
     default:              return MANIFEST_TYPE_COMPONENT;
     }
 }
@@ -454,6 +455,8 @@ static asset_type_e s_manifestCatalogAssetType(u8 manifest_type)
     case MANIFEST_TYPE_TEXTURE:   return ASSET_TEXTURE;
     case MANIFEST_TYPE_LANG:      return ASSET_LANG;
     case MANIFEST_TYPE_AUDIO:     return ASSET_AUDIO;
+    case MANIFEST_TYPE_PROJECTILE: return ASSET_PROJECTILE;
+    case MANIFEST_TYPE_ENTITY:    return ASSET_ENTITY;
     case MANIFEST_TYPE_COMPONENT: return ASSET_NONE;
     default:                      return ASSET_NONE;
     }

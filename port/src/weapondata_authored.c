@@ -4,8 +4,8 @@
  * AUTHORED EXTRACTOR SOURCE-OF-TRUTH for weapon metadata.
  *
  * This file is the runtime emitter's only source of weapon DATA. The
- * romextract_pdwpn.c emitter walks g_WeaponData[] at startup and writes
- * one .pdwpn JSON file per weapon to data/<romid>/weapons/. The catalog
+ * romextract_pdweapon.c emitter walks g_WeaponData[] at startup and writes
+ * one .pdweapon archive per weapon to data/<romid>/weapons/. The catalog
  * walker then loads those files; engine code reads ONLY from the catalog
  * via catalog_mgr_weapons (never from g_WeaponData[] directly).
  *
@@ -29,9 +29,9 @@
  * src/game/botinv.c).
  *
  * Engine-API constraint: nothing in src/ or port/ outside the emitter
- * (port/src/romextract_pdwpn.c) and its catalog_id slug helpers may
+ * (port/src/romextract_pdweapon.c) and its catalog_id slug helpers may
  * include weapondata_authored.h. Catalog manager pool reads route through
- * the .pdwpn files written by the emitter.
+ * the .pdweapon files written by the emitter.
  *
  * @see context/audits/catalog-universality-pivot-plan-2026-05-02.md
  *      "BYOR completion SHIPPED" section.
@@ -5830,7 +5830,7 @@ struct weapon *g_WeaponData[] = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Public iteration surface for the runtime emitter (romextract_pdwpn)  */
+/* Public iteration surface for the runtime emitter (romextract_pdweapon)  */
 /* ------------------------------------------------------------------ */
 
 /* Count is computed from the array at compile time. */
@@ -5937,7 +5937,7 @@ const char *const g_WeaponDataCatalogIds[] = {
  * Bot weapon preferences -- ported from src/game/botinv.c
  * g_AibotWeaponPreferences[] (S484 F13 retirement). Indexed by
  * WEAPON_* enum (same indexing as g_WeaponData). The runtime emitter
- * attaches bp[i] as the bot_pref subdoc on the corresponding .pdwpn.
+ * attaches bp[i] as the bot_pref subdoc on the corresponding .pdweapon.
  */
 struct aibotweaponpreference g_BotPrefData[] = {
 	/*0x00*/ { 0,   0,   0,   0,   0, 0, BOTDISTCFG_DEFAULT,        BOTDISTCFG_DEFAULT,        0,             0,   0,  0,  0, 0 }, /* WEAPON_NONE */

@@ -1,7 +1,7 @@
 /*
  * port/src/loader_pool.c -- Catalog universality pivot Step 5
  * (2026-05-03). Heavyweight typed pool for weapon / head / body / arena
- * runtime payloads, populated from per-asset .pdwpn / .pdhead / .pdbody /
+ * runtime payloads, populated from per-asset .pdweapon / .pdhead / .pdbody /
  * .pdarena content delivered by the universal directory walker.
  *
  * Pre-Step-5 history (retired): this TU previously parsed an aggregate
@@ -106,7 +106,7 @@ typedef struct {
 static struct weapon                  s_Weapons[CATALOG_MGR_WEAPON_COUNT];
 static struct aibotweaponpreference   s_BotPrefs[CATALOG_MGR_WEAPON_COUNT];
 /* Per-weapon catalog ID captured from the per-asset envelope `id` field.
- * Used by the .pdwpn emitter when round-tripping the pool back to disk. */
+ * Used by the .pdweapon emitter when round-tripping the pool back to disk. */
 static char                           s_WeaponCatalogIds[CATALOG_MGR_WEAPON_COUNT][64];
 static struct guncmd                  s_Guncmds[POOL_GUNCMDS];
 static struct gunviscmd               s_Gunviscmds[POOL_GUNVISCMDS];
@@ -245,7 +245,7 @@ s32 loaderPoolGetAnimationOpcodes(s32 idx, const struct guncmd **out_cmds,
 }
 
 /* Resolve a guncmd* pointer back to the animation name it belongs to.
- * Used by the .pdwpn emitter to convert struct weapon's anim pointers
+ * Used by the .pdweapon emitter to convert struct weapon's anim pointers
  * (equip_animation, unequip_animation, etc.) to symbolic catalog IDs.
  * Returns the name (not a copy) on success, or NULL if the pointer
  * does not match any registered animation start. */
@@ -265,7 +265,7 @@ static struct guncmd *resolveAnimByName(const char *name)
 {
 	if (name == NULL) return NULL;
 	/* B-329 (2026-05-16): tolerate a leading "<ns>:" namespace prefix on
-	 * the caller's name in case a future .pdwpn emitter ships catalog-ID
+	 * the caller's name in case a future .pdweapon emitter ships catalog-ID
 	 * form. Pool storage is bare (parseAnimation strips), so compare the
 	 * bare part of the inbound name. */
 	const char *bare = name;
@@ -831,11 +831,11 @@ static void parseAnimation(jstream_t *s)
 		pool_anim_entry_t *e = &s_Animations[s_AnimationsUsed++];
 		/* B-329 (2026-05-16): the .pdanim emitter writes the catalog ID
 		 * with a namespace prefix (e.g. "base:invanim_falcon2_equip"),
-		 * but the .pdwpn emitter writes anim refs as the bare symbol
+		 * but the .pdweapon emitter writes anim refs as the bare symbol
 		 * (e.g. "invanim_falcon2_equip") via g_AnimData[].name. The local
 		 * pool name table is the lookup that resolveAnimByName uses for
 		 * weapon equip/unequip/pritosec/sectopri/fire/reload references;
-		 * it must store the bare symbol so the .pdwpn refs resolve.
+		 * it must store the bare symbol so the .pdweapon refs resolve.
 		 * Strip any leading "<ns>:" prefix before storing. Asset-catalog
 		 * identity is unaffected -- that lives in the asset_entry_t row
 		 * registered by loaderWalkerScanAnimations, not in this pool. */
@@ -1876,7 +1876,7 @@ static void parseArena(jstream_t *s)
 
 /* Drive a parse over `json` (NUL-terminated) using the per-record
  * parser supplied by the caller. The walker scaffold passes plain
- * .pdwpn JSON or the manifest.json extracted from a .pdhead /
+ * .pdweapon manifest.json or the manifest.json extracted from a .pdhead /
  * .pdbody / .pdarena ZIP -- both shapes carry the per-record fields
  * at the top level, so the same parser handles them. Returns 1 on
  * success (parser reached an end-of-record), 0 if the JSON could not
@@ -2135,5 +2135,4 @@ s32 loaderPoolGetArenasRegistered(void)
 {
 	return s_ArenasRegistered;
 }
-
 

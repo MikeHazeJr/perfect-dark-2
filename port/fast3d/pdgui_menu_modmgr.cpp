@@ -177,6 +177,8 @@ static const char *typeName(asset_type_e t)
         case ASSET_SKIN:        return "Skins";
         case ASSET_BOT_VARIANT: return "Bot Variants";
         case ASSET_WEAPON:      return "Weapons";
+        case ASSET_PROJECTILE:  return "Projectiles";
+        case ASSET_ENTITY:      return "Entities";
         case ASSET_TEXTURES:    return "Texture Packs";
         case ASSET_SFX:         return "Sound Effects";
         case ASSET_MUSIC:       return "Music";
@@ -201,6 +203,8 @@ static const char *iniNameForType(asset_type_e t)
         case ASSET_SKIN:        return "skin.ini";
         case ASSET_BOT_VARIANT: return "bot.ini";
         case ASSET_WEAPON:      return "weapon.ini";
+        case ASSET_PROJECTILE:  return "projectile.ini";
+        case ASSET_ENTITY:      return "entity.ini";
         case ASSET_TEXTURES:    return "textures.ini";
         case ASSET_SFX:         return "sfx.ini";
         case ASSET_MUSIC:       return "music.ini";
@@ -269,7 +273,8 @@ static void populateCallback(const asset_entry_t *entry, void *userdata)
 
 static const asset_type_e s_AllTypes[] = {
     ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
-    ASSET_WEAPON, ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
+    ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
+    ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
     ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_UI, ASSET_TOOL,
     ASSET_ARENA, ASSET_BODY, ASSET_HEAD
 };
@@ -618,7 +623,8 @@ static void renderByCategoryTab(float scale)
     /* All user-manageable types (non-base) */
     static const asset_type_e userTypes[] = {
         ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
-        ASSET_WEAPON, ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
+        ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
+        ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
         ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_UI, ASSET_TOOL
     };
     static const int numUserTypes = (int)(sizeof(userTypes) / sizeof(userTypes[0]));

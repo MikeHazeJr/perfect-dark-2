@@ -54,7 +54,7 @@ s32 assetCatalogRegisterBaseGameExtended(void);
  * bgun load path's catalog lookup resolves them.
  *
  * Must be called AFTER loaderPoolFinalize flips the weapon pool active
- * (i.e., after the universal walker has parsed the .pdwpn envelopes
+ * (i.e., after the universal walker has parsed the .pdweapon envelopes
  * into loader_pool). Idempotent and dedupe-safe (skips
  * any filenum already present as ASSET_MODEL).
  *
@@ -111,11 +111,14 @@ s32 assetCatalogScanComponents(const char *modsdir);
  *
  * Preferred authored content is zip-openable typed .pd* asset archives
  * (heads/foo.pdhead::head.ini + model.gltf, arenas/bar.pdarena::arena.ini
- * + geometry.obj, animations/baz.pdanim::animation.ini + source files).
+ * + geometry.obj, projectiles/rocket.pdprojectile::projectile.ini +
+ * behavior.graph.json, entities/mine.pdentity::entity.ini +
+ * behavior.graph.json, animations/baz.pdanim::animation.ini + source files).
  * The earlier canonical folder layout (weapons/<id>/weapon.ini,
- * characters/heads/<id>/head.ini, maps/<id>/arena.ini, ...) remains accepted
- * for compatibility. .pdmod transport archives use the same scanner contract
- * without extracting files into the mods folder.
+ * projectiles/<id>/projectile.ini, entities/<id>/entity.ini,
+ * characters/heads/<id>/head.ini, maps/<id>/arena.ini, ...) remains
+ * accepted for compatibility. .pdmod transport archives use the same scanner
+ * contract without extracting files into the mods folder.
  */
 s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir);
 
@@ -125,7 +128,8 @@ s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir
  * This is the archive-side equivalent of assetCatalogScanComponents(): it
  * accepts old _components category/id INI entries, typed .pd* INI descriptor
  * entries, and the compatibility external-folder layout
- * (weapons/<id>/weapon.ini, audio/sfx/<id>/sound.ini,
+ * (weapons/<id>/weapon.ini, projectiles/<id>/projectile.ini,
+ * entities/<id>/entity.ini, audio/sfx/<id>/sound.ini,
  * characters/heads/<id>/head.ini, etc.). Paths registered from archive
  * descriptors are kept archive-relative so fsFileLoad can satisfy them
  * through modVFS.

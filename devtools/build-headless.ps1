@@ -9,7 +9,8 @@
     Uses Ninja generator, unified Build/ directory, ccache, and mold linker.
 
 .PARAMETER Target
-    What to build: client, server, tests, or all (default: all)
+    What to build: client, updater, tests, or all (default: all).
+    The standalone pd-server target was removed; listen-host is the shipping server path.
 
 .PARAMETER Clean
     Remove the build directory before configuring (clean build).
@@ -36,7 +37,6 @@
 .EXAMPLE
     .\build-headless.ps1
     .\build-headless.ps1 -Target client -Clean
-    .\build-headless.ps1 -Target server -Verbose
     .\build-headless.ps1 -Target tests
     .\build-headless.ps1 -AutoCommit
     powershell -File build-headless.ps1 -Target all -Clean
@@ -45,7 +45,7 @@
 #>
 
 param(
-    [ValidateSet("client", "server", "updater", "tests", "all")]
+    [ValidateSet("client", "updater", "tests", "all")]
     [string]$Target = "all",
 
     # Version override in "X.Y.Z" format. If omitted, reads VERSION_SEM_* from CMakeLists.txt
@@ -91,7 +91,7 @@ if ($ProjectDir -match [regex]::Escape('.claude\worktrees\')) {
     Write-Warning "Worktree path detected -- redirecting build to main working copy: $ProjectDir"
 }
 
-# Unified build directory (client + server share one dir -- no double-compile)
+# Unified build directory for client/updater/tests.
 if ($OutputDir -ne "") {
     if ([System.IO.Path]::IsPathRooted($OutputDir)) {
         $BuildDir = $OutputDir
@@ -864,7 +864,7 @@ if (-not (Test-Path $devKeyPath)) {
 }
 
 # ============================================================================
-# CMake Configure (unified Build/ dir for both pd and pd-server)
+# CMake Configure
 # ============================================================================
 
 $configArgs = "-G $Generator -DCMAKE_C_COMPILER=`"$CC`" -DCMAKE_CXX_COMPILER=`"$CXX`" -DCMAKE_C_COMPILER_FORCED=TRUE -DCMAKE_CXX_COMPILER_FORCED=TRUE -DPD_PYTHON_EXECUTABLE=`"$PythonExe`" -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY $CcacheLauncher -B `"$BuildDir`" -S `"$ProjectDir`"$vFlags$gitFlag"
@@ -887,14 +887,13 @@ if (-not $configOk) {
 
 $targets = switch ($Target) {
     "client"  { @("client") }
-    "server"  { @("server") }
     "updater" { @("updater") }
     "tests"   { @("tests") }
     "all"     { @("client", "updater") }
 }
 
-$cmakeTargetMap = @{ "client" = "pd"; "server" = "pd-server"; "updater" = "pd-updater"; "tests" = "pd-tests" }
-$exeNameMap     = @{ "client" = "PerfectDark.exe"; "server" = "PerfectDarkServer.exe"; "updater" = "Updater.exe"; "tests" = "pd-tests.exe" }
+$cmakeTargetMap = @{ "client" = "pd"; "updater" = "pd-updater"; "tests" = "pd-tests" }
+$exeNameMap     = @{ "client" = "PerfectDark.exe"; "updater" = "Updater.exe"; "tests" = "pd-tests.exe" }
 
 $results  = @{}
 $anyFail  = $false

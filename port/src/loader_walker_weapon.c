@@ -2,8 +2,8 @@
  * loader_walker_weapon.c -- Catalog universality pivot Step 4 + 5
  * (2026-05-03).
  *
- * Walks data/<romid>/weapons/*.pdwpn. Each .pdwpn is plain JSON; the
- * envelope carries weapon_id at top level. Step 5: also feeds the
+ * Walks data/<romid>/weapons/*.pdweapon. Each archive carries
+ * manifest.json with weapon_id at top level. Step 5: also feeds the
  * heavyweight loader_pool payload (struct weapon, weaponfunc_*, ammos,
  * aim/noise/recoil settings, gunviscmds, partvis, bot_pref) by handing
  * the manifest bytes to loaderPoolParseWeaponJson.
@@ -53,7 +53,7 @@ void loaderWalkerScanWeapons(const char *tier_dir,
                               loader_walker_kind_result_t *out)
 {
     static const loader_walker_kind_desc_t desc = {
-        "weapon", "weapons", ".pdwpn", /* always_invoke: */ 1,
+        "weapon", "weapons", ".pdweapon", /* always_invoke: */ 1,
     };
     loaderWalkerScanKind(tier_dir, &desc, s_register, out);
 }
