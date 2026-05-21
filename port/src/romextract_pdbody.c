@@ -364,6 +364,15 @@ s32 romExtractAllPdbody(s32 force_rewrite)
 		return -1;
 	}
 
+	if (romExtractPdFastCacheCanSkip("pdbody", bodies_dir,
+			".pdbody", force_rewrite)) {
+		bootProgressUpdate(g_BodyDataCount, g_BodyDataCount);
+		sysLogPrintf(LOG_NOTE,
+			"romextract pdbody: written=0 skipped=%d failed=0 total=%d (fast-cache)",
+			g_BodyDataCount, g_BodyDataCount);
+		return 0;
+	}
+
 	pdbody_fanout_ctx_t bctx;
 	memset(&bctx, 0, sizeof(bctx));
 	bctx.bodies_dir    = bodies_dir;
@@ -385,6 +394,10 @@ s32 romExtractAllPdbody(s32 force_rewrite)
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdbody: written=%d skipped=%d failed=%d total=%d",
 		written, skipped, failed, g_BodyDataCount);
+
+	if (failed == 0) {
+		romExtractPdFastCacheWrite("pdbody", bodies_dir, ".pdbody");
+	}
 
 	return written;
 }

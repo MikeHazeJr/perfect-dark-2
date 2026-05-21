@@ -656,7 +656,7 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
          * the Escape edge before the renderer's IsKeyPressed runs. The
          * Escape AddKeyEvent pair remains as a back-compat fallback for
          * renderers that haven't been migrated to the new API. */
-        if (hovered && ImGui::IsWindowFocused()
+        if (hovered && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
                 && ImGui::IsMouseClicked(ImGuiMouseButton_Left, false)) {
             s32 frame = ImGui::GetFrameCount();
             if (s_CloseClickConsumedFrame != frame) {

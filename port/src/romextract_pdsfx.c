@@ -933,6 +933,20 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 		return -1;
 	}
 
+	{
+		const char *ext = (mode == PDAUDIO_WALK_VOICE) ? ".pdvoice" : ".pdsfx";
+		if (romExtractPdFastCacheCanSkip(kind_label, out_dir,
+				ext, force_rewrite)) {
+			bootProgressUpdate(sound_count, sound_count);
+			sysLogPrintf(LOG_NOTE,
+				"romextract %s: written=0 skipped=%d failed=0 "
+				"sound_count=%d sample_rate=%d (out=%s, fast-cache)",
+				kind_label, sound_count, sound_count,
+				sample_rate, out_dir);
+			return 0;
+		}
+	}
+
 	/* Voice bitset cache: 1 byte per leaf SFX index. We size on
 	 * sound_count which the SFX bank reports; the russ table can never
 	 * point past it. */
@@ -985,6 +999,11 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 		"sound_count=%d sample_rate=%d (out=%s)",
 		kind_label, written, skipped, failed, sound_count,
 		sample_rate, out_dir);
+
+	if (failed == 0) {
+		const char *ext = (mode == PDAUDIO_WALK_VOICE) ? ".pdvoice" : ".pdsfx";
+		romExtractPdFastCacheWrite(kind_label, out_dir, ext);
+	}
 
 	return written;
 }

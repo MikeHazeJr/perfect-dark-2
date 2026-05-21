@@ -3223,9 +3223,9 @@ void playerStartCutscene2(void)
 	/* Cohort 4 (2026-04-27, input universality): push LAYER_CUTSCENE
 	 * via the Scene Manager BEFORE the tickmode flip so the on_push
 	 * hook flushes gameplay state plus the cutscene action set while
-	 * input state is still observable. Combined with the K.6 actionPressed
-	 * (edge) skip detection in playerTickCutscene, this makes the
-	 * Mission 1 obj 2 cutscene flash structurally impossible. */
+	 * input state is still observable. Combined with the hold-to-skip
+	 * gate in playerTickCutscene, this makes the Mission 1 obj 2 cutscene
+	 * flash structurally impossible. */
 	sceneFire(SCENE_EVENT_CUTSCENE_START, NULL);
 
 	playerSetTickMode(TICKMODE_CUTSCENE);
@@ -3325,7 +3325,8 @@ void playerTickCutscene(bool arg0)
 	f32 fovy;
 	s32 endframe;
 	s32 playeridx = g_Vars.currentplayernum; /* M0.2: action map player */
-	s32 anybutton;  /* M0.2: replaces joyGetButtons bitmask */
+	s32 skiphold;  /* M0.2: replaces joyGetButtons bitmask */
+	InputAction skipaction = ACTION_SKIP_CUTSCENE;
 	s32 cancelorpause; /* M0.2: B_BUTTON | START_BUTTON test */
 #if PAL
 	u8 stack3[0x2c];
@@ -3339,31 +3340,38 @@ void playerTickCutscene(bool arg0)
 	f32 sp54[4];
 	struct playercutscenestate *cutscene = playerCurrentCutsceneState();
 
-	/* Cohort 4 (2026-04-27, K.6): edge-only skip detection. The K.6
-	 * belt-and-braces fix for the Mission 1 obj 2 cutscene flash:
-	 * actionPressed (rising edge) instead of actionHeld (level). A
-	 * key held across the menu-accept-then-stage-load transition
-	 * cannot register as a skip because there is no fresh keydown
-	 * during the cutscene. ACTION_SKIP_CUTSCENE is the dedicated
-	 * action (g_ImcCutscene IMC, K.2); the legacy USE/CANCEL/FIRE/
-	 * PAUSE/RELOAD/WEAPON_NEXT bindings remain as press-to-skip
-	 * fallbacks so existing muscle memory still works. The 30-frame
-	 * gate downstream provides a second line of defense even if a
-	 * fresh press happens immediately. */
+	/* Cutscene skip is a deliberate hold, not a tap. The cutscene layer
+	 * flushes stale pre-cutscene input on push, and this threshold keeps
+	 * incidental presses from skipping the opening camera before the player
+	 * sees what is happening. */
 	if (arg0) {
-		anybutton = actionPressed(playeridx, ACTION_SKIP_CUTSCENE)
-			|| actionPressed(playeridx, ACTION_USE)
-			|| actionPressed(playeridx, ACTION_CANCEL_USE)
-			|| actionPressed(playeridx, ACTION_FIRE_PRIMARY)
-			|| actionPressed(playeridx, ACTION_FIRE_SECONDARY)
-			|| actionPressed(playeridx, ACTION_PAUSE)
-			|| actionPressed(playeridx, ACTION_FIRE_MODE)
-			|| actionPressed(playeridx, ACTION_RELOAD)
-			|| actionPressed(playeridx, ACTION_WEAPON_NEXT);
-		cancelorpause = actionPressed(playeridx, ACTION_CANCEL_USE)
-			|| actionPressed(playeridx, ACTION_PAUSE);
+		const InputAction skipactions[] = {
+			ACTION_SKIP_CUTSCENE,
+			ACTION_USE,
+			ACTION_CANCEL_USE,
+			ACTION_FIRE_PRIMARY,
+			ACTION_FIRE_SECONDARY,
+			ACTION_PAUSE,
+			ACTION_FIRE_MODE,
+			ACTION_RELOAD,
+			ACTION_WEAPON_NEXT,
+		};
+		s32 i;
+		skiphold = 0;
+
+		for (i = 0; i < ARRAYCOUNT(skipactions); i++) {
+			if (actionHeldForMs(playeridx, skipactions[i], ACTION_SKIP_CUTSCENE_HOLD_THRESHOLD_MS)
+					&& !actionHoldConsumed(playeridx, skipactions[i])) {
+				skiphold = 1;
+				skipaction = skipactions[i];
+				break;
+			}
+		}
+
+		cancelorpause = actionHeldForMs(playeridx, ACTION_CANCEL_USE, ACTION_SKIP_CUTSCENE_HOLD_THRESHOLD_MS)
+			|| actionHeldForMs(playeridx, ACTION_PAUSE, ACTION_SKIP_CUTSCENE_HOLD_THRESHOLD_MS);
 	} else {
-		anybutton = 0;
+		skiphold = 0;
 		cancelorpause = 0;
 	}
 
@@ -3481,15 +3489,10 @@ void playerTickCutscene(bool arg0)
 		cutscene->curtotalframe60f += g_Vars.lvupdate60freal;
 	}
 
-	/* Action map: Escape → ACTION_PAUSE (no parallel raw path) */
-	if (arg0 && actionPressed(0, ACTION_PAUSE)) {
-		anybutton = 1;
-		cancelorpause = 1;
-	}
-
 #if VERSION >= VERSION_NTSC_1_0
 	/* M0.2: replaced buttons bitmask tests with action map booleans */
-	if (cutscene->curtotalframe60f > 30 && anybutton) {
+	if (cutscene->curtotalframe60f > 30 && skiphold) {
+		actionConsumeHold(playeridx, skipaction);
 		if (g_NetMode == NETMODE_CLIENT) {
 			playerSendCutsceneSkipRequest(playeridx);
 		} else {
@@ -3506,7 +3509,8 @@ void playerTickCutscene(bool arg0)
 	}
 #else
 	if (cutscene->curtotalframe60f > 30) {
-		if (anybutton) {
+		if (skiphold) {
+			actionConsumeHold(playeridx, skipaction);
 			if (g_NetMode == NETMODE_CLIENT) {
 				playerSendCutsceneSkipRequest(playeridx);
 			} else {

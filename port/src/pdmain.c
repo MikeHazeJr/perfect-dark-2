@@ -719,6 +719,14 @@ void mainTick(void)
 		(void)bootLaunchScenarioTick();
 	}
 
+	/* B-360: --launch-mp-room plus --debug-auto-start-match one-shot.
+	 * Runs after the boot CI stage has initialized so matchStart sees
+	 * the same MP runtime state as the Room Start Match button path. */
+	{
+		extern s32 bootLaunchMpMatchTick(void);
+		(void)bootLaunchMpMatchTick();
+	}
+
 	/* c115 (2026-05-13): --debug-mount-bike one-shot. Walks
 	 * g_Vars.activeprops once the load black-frame is over, mounts
 	 * player 0 on the first OBJTYPE_HOVERBIKE, then clears its latch.

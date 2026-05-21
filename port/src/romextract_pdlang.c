@@ -505,6 +505,16 @@ s32 romExtractAllPdlang(s32 force_rewrite)
 	 * follow-up's IDs don't collide with these. */
 	const char *locale_tag = "en";
 
+	if (romExtractPdFastCacheCanSkip("pdlang", lang_dir,
+			".pdlang", force_rewrite)) {
+		bootProgressUpdate(PDLANG_BANK_MAX, PDLANG_BANK_MAX);
+		sysLogPrintf(LOG_NOTE,
+			"romextract pdlang: written=0 skipped=%d failed=0 "
+			"banks=%d locale=%s (out=%s, fast-cache)",
+			PDLANG_BANK_MAX, PDLANG_BANK_MAX, locale_tag, lang_dir);
+		return 0;
+	}
+
 	pdlang_fanout_ctx_t lctx;
 	memset(&lctx, 0, sizeof(lctx));
 	lctx.locale_tag    = locale_tag;
@@ -528,6 +538,10 @@ s32 romExtractAllPdlang(s32 force_rewrite)
 		"romextract pdlang: written=%d skipped=%d failed=%d "
 		"banks=%d locale=%s (out=%s)",
 		written, skipped, failed, PDLANG_BANK_MAX, locale_tag, lang_dir);
+
+	if (failed == 0) {
+		romExtractPdFastCacheWrite("pdlang", lang_dir, ".pdlang");
+	}
 
 	return written;
 #endif

@@ -532,6 +532,16 @@ s32 romExtractAllPdfont(s32 force_rewrite)
 		return -1;
 	}
 
+	if (romExtractPdFastCacheCanSkip("pdfont", fonts_dir,
+			".pdfont", force_rewrite)) {
+		bootProgressUpdate((s32)K_FONT_FACE_COUNT, (s32)K_FONT_FACE_COUNT);
+		sysLogPrintf(LOG_NOTE,
+			"romextract pdfont: written=0 skipped=%zu failed=0 "
+			"total=%zu (out=%s, fast-cache)",
+			K_FONT_FACE_COUNT, K_FONT_FACE_COUNT, fonts_dir);
+		return 0;
+	}
+
 	pdfont_fanout_ctx_t fctx;
 	memset(&fctx, 0, sizeof(fctx));
 	fctx.fonts_dir     = fonts_dir;
@@ -554,6 +564,10 @@ s32 romExtractAllPdfont(s32 force_rewrite)
 		"romextract pdfont: written=%d skipped=%d failed=%d "
 		"total=%zu (out=%s)",
 		written, skipped, failed, K_FONT_FACE_COUNT, fonts_dir);
+
+	if (failed == 0) {
+		romExtractPdFastCacheWrite("pdfont", fonts_dir, ".pdfont");
+	}
 
 	return written;
 #endif

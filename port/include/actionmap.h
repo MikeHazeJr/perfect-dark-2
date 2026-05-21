@@ -35,6 +35,7 @@ extern "C" {
  *    (< 1 ms), e.g. corrupt save — keeps bondmove/UI from dividing by zero.
  *  Normal gameplay uses `actionmapGetEffectiveHoldMs(ACTION_USE)` / per-action overrides, not this macro. */
 #define ACTION_USE_HOLD_THRESHOLD_MS 300
+#define ACTION_SKIP_CUTSCENE_HOLD_THRESHOLD_MS 650
 
 /* ============================================================
  * Capacities
@@ -185,14 +186,11 @@ typedef enum InputAction {
 
     /* ---- Cutscene skip (Cohort 4, 2026-04-27, K.2 + K.6) ----
      * Bound on g_ImcCutscene only (the thin per-K.2 IMC). Used by
-     * playerTickCutscene's skip detection alongside the legacy
-     * actionPressed checks for USE / CANCEL_USE / FIRE_PRIMARY /
-     * FIRE_SECONDARY / FIRE_MODE / RELOAD / WEAPON_NEXT / PAUSE.
-     * The K.6 belt-and-braces fix for the Mission 1 obj 2 cutscene
-     * flash uses actionPressed (edge), not actionHeld (level), so
-     * a key held across the menu-accept-then-stage-load transition
-     * cannot register as a skip. Exempt from gameplay-only
-     * classification. */
+     * playerTickCutscene's hold-to-skip detection alongside the legacy
+     * USE / CANCEL_USE / FIRE_PRIMARY / FIRE_SECONDARY / FIRE_MODE /
+     * RELOAD / WEAPON_NEXT / PAUSE fallbacks. The cutscene layer flushes
+     * stale pre-cutscene input, then skip requires a deliberate hold.
+     * Exempt from gameplay-only classification. */
     ACTION_SKIP_CUTSCENE,        /* = 72 dedicated cutscene-skip action */
 
     /* ---- Menu secondary commands (2026-04-28) ----

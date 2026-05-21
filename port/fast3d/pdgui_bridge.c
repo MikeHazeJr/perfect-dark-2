@@ -32,6 +32,7 @@
 #include "game/training.h"
 #include "game/lv.h"           /* B-176: lvSetPaused for endscreen unpause */
 #include "game/bondgun.h"
+#include "game/player.h"
 #include "game/game_0b0fd0.h"
 #include "files.h"
 #include "modmgr.h"
@@ -1915,6 +1916,13 @@ s32 pdguiCiIntroBlocksInteractPrompt(void)
         return 1;
     }
 
+    /* 2026-05-21: all cutscenes suppress gameplay interaction prompts.
+     * The only contextual prompt allowed here is the separate cutscene
+     * hold-to-skip overlay. */
+    if (g_Vars.tickmode == TICKMODE_CUTSCENE || playerAnyInCutscene()) {
+        return 1;
+    }
+
     if (g_Vars.stagenum != STAGE_CITRAINING) {
         return 0;
     }
@@ -1927,6 +1935,25 @@ s32 pdguiCiIntroBlocksInteractPrompt(void)
     if (g_Vars.lvframenum <= 30) {
         return 1;
     }
+    return 0;
+}
+
+s32 pdguiCutsceneSkipPromptShouldRender(void)
+{
+    if (g_Vars.currentplayer
+            && g_Vars.currentplayer->pausemode != PAUSEMODE_UNPAUSED) {
+        return 0;
+    }
+
+    return (g_Vars.tickmode == TICKMODE_CUTSCENE || playerAnyInCutscene()) ? 1 : 0;
+}
+
+s32 pdguiCutsceneSkipPromptPlayer(void)
+{
+    if (g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS) {
+        return g_Vars.currentplayernum;
+    }
+
     return 0;
 }
 
@@ -2074,6 +2101,27 @@ s32 pdguiActiveMenuRadialGetLocalPlayerCount(void)
 /**
  * Read-only legacy menu stack dump for F9 diagnostics (does not touch input ctx).
  */
+static const char *pdguiDebugResolveLegacyDialogTitle(const struct menudialogdef *dialogdef)
+{
+    if (!dialogdef) {
+        return "?";
+    }
+
+    if (dialogdef->flags & MENUDIALOGFLAG_LITERAL_TEXT) {
+        return dialogdef->title ? (const char *)dialogdef->title : "";
+    }
+
+    if (dialogdef->title == 0) {
+        return "";
+    }
+
+    if (dialogdef->title < 0x5a00) {
+        return langGet(dialogdef->title);
+    }
+
+    return "<dynamic title>";
+}
+
 void pdguiDebugFormatLegacyMenuInfo(char *buf, size_t bufSz)
 {
     if (!buf || bufSz < 32) {
@@ -2088,7 +2136,7 @@ void pdguiDebugFormatLegacyMenuInfo(char *buf, size_t bufSz)
     snprintf(buf, bufSz, "Player %d: numdialogs=%d depth=%d curdialog=%p\n",
              (int)p, (int)m->numdialogs, (int)m->depth, (void *)m->curdialog);
     if (m->curdialog && m->curdialog->definition) {
-        char *t = menuResolveDialogTitle(m->curdialog->definition);
+        const char *t = pdguiDebugResolveLegacyDialogTitle(m->curdialog->definition);
         size_t len = strlen(buf);
         if (t && len + 2 < bufSz) {
             snprintf(buf + len, bufSz - len, "Current title: %s\n", t);
@@ -2114,7 +2162,7 @@ void pdguiDebugFormatLegacyMenuInfo(char *buf, size_t bufSz)
             if (len + 160 >= bufSz) {
                 break;
             }
-            char *tt = menuResolveDialogTitle(d->definition);
+            const char *tt = pdguiDebugResolveLegacyDialogTitle(d->definition);
             snprintf(buf + len, bufSz - len, "  sibling[%d]: %s\n", (int)s, tt ? tt : "?");
             len = strlen(buf);
         }

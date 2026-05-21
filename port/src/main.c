@@ -131,8 +131,8 @@ extern s32 g_StageNum;
  *       Skips boot animation and lands at the title screen with
  *       the main menu auto-opened.  Behaviour: boots through
  *       STAGE_CITRAINING (same path --skip-intro takes) but arms
- *       g_PostExitMainMenuView so the main menu pops on the first
- *       in-CI frame.  --skip-intro is left untouched.
+ *       g_PostExitMainMenuView so the main menu pops after the CI
+ *       camera intro finishes.  --skip-intro is left untouched.
  *
  *   --launch-scenario <empty_map|swarm_cpu|swarm_gpu>
  *       After catalog init, calls testScenarioLaunch(...) for the
@@ -150,6 +150,8 @@ extern s32 g_StageNum;
  *       matchConfigAddBot * bot_count) so the Room screen renders
  *       with everything ready to launch.  Routes the boot through
  *       STAGE_CITRAINING with the Combat Sim room overlay auto-opened.
+ *       With --debug-auto-start-match, arms a deferred direct match start
+ *       for deterministic match-start smoke coverage after CI setup exists.
  *
  *   --debug-mount-bike
  *       Post-setupCreateProps hook: walks g_Vars.activeprops on the
@@ -232,6 +234,7 @@ static s32         g_BootLaunchMpBotCount = 0;
  * UI checkboxes. Both consumed on first frame where the relevant
  * surface exists. */
 static bool        g_BootDebugAutoStartMatch = false;
+static s32         g_BootLaunchMpMatchPending = 0;
 static u32         g_BootDebugMpOptions   = 0;
 static bool        g_BootDebugMpOptionsSet = false;
 /* Mike directive 2026-05-18 follow-up: override the swarm bench's
@@ -804,6 +807,16 @@ static void bootApplyLaunchMpRoom(void)
 		g_BootLaunchMpArena,
 		g_BootLaunchMpScenario ? g_BootLaunchMpScenario : "(default)",
 		g_BootLaunchMpBotCount);
+
+	if (g_BootDebugAutoStartMatch) {
+		g_BootDebugAutoStartMatch = false;
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-auto-start-match consumed");
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --launch-mp-room direct match start armed");
+		g_BootLaunchMpMatchPending = 1;
+		g_PostExitMainMenuView = -1;
+	}
 }
 
 /* Mike directive 2026-05-18: --debug-mp-options seed. Applied after
@@ -1244,6 +1257,29 @@ s32 bootLaunchScenarioTick(void)
 			"BOOT: --launch-scenario deferred dispatch failed; falling back to default boot stage");
 	}
 	g_BootLaunchScenarioPending = 0;
+	return 1;
+}
+
+/* Called once per frame from pdmain.c's mainTick when --launch-mp-room
+ * is paired with --debug-auto-start-match. Defers matchStart until the
+ * CI boot stage is live, mirroring the launch-scenario gate so MP init
+ * and player setup exist before the match transition begins. */
+s32 bootLaunchMpMatchTick(void)
+{
+	if (!g_BootLaunchMpMatchPending) {
+		return 0;
+	}
+	if (g_Vars.stagenum != STAGE_CITRAINING || g_Vars.lvframenum < 4) {
+		return 0;
+	}
+
+	g_BootLaunchMpMatchPending = 0;
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --launch-mp-room direct match start");
+	if (matchStart() != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --launch-mp-room direct match start failed");
+	}
 	return 1;
 }
 
@@ -1844,8 +1880,8 @@ int main(int argc, const char **argv)
 	/* c115 --main-menu: corrected --skip-intro semantics.  Boot through
 	 * STAGE_CITRAINING (same path --skip-intro takes), then arm the
 	 * post-exit main menu auto-pop so the player lands at the main menu
-	 * on the first in-CI frame.  Distinct from --skip-intro (which
-	 * drops the player into CI free-roam with no menu).  See
+	 * after the CI camera intro finishes.  Distinct from --skip-intro
+	 * (which drops the player into CI free-roam with no menu).  See
 	 * smoke-verify-dispatch-findings-2026-05-13.md S-5. */
 	if (g_BootMainMenu && g_StageNum == STAGE_TITLE) {
 		g_StageNum = STAGE_CITRAINING;

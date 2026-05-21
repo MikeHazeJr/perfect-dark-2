@@ -172,10 +172,13 @@ TEST_CASE("menu action helpers replace raw confirm-modal key polling", "[input][
 
     const std::string confirm = functionBlock(layout, "s32 pdguiRenderConfirmModal");
     const std::string actionBar = functionBlock(layout, "s32 pdguiActionBarButton");
+    const std::string style = readTextFile("port/fast3d/pdgui_style.cpp");
+    const std::string chrome = functionBlock(style, "pdguiDrawPdDialog");
     REQUIRE(confirm.find("pdguiMenuAcceptPressed()") != std::string::npos);
     REQUIRE(confirm.find("pdguiMenuCancelPressed()") != std::string::npos);
     requireNoRawMenuShortcutPolling(confirm);
     REQUIRE(actionBar.find("pdguiMenuAcceptPressed()") != std::string::npos);
+    REQUIRE(chrome.find("ImGuiFocusedFlags_RootAndChildWindows") != std::string::npos);
 }
 
 TEST_CASE("menu action helpers replace priority navigation and tab polling", "[input][menu_action][static]")
@@ -942,6 +945,8 @@ TEST_CASE("menu graph: solo endscreen scene transitions use graph edges", "[inpu
     REQUIRE(render.find("pdguiEndscreenNextMission()") == std::string::npos);
     REQUIRE(render.find("pdguiEndscreenStartMission()") == std::string::npos);
     REQUIRE(render.find("pdguiEndscreenExitToMainMenu()") == std::string::npos);
+    REQUIRE(render.find("bool wantSoloMainMenuConfirm") != std::string::npos);
+    REQUIRE(findAll(render, "ImGui::OpenPopup(sfmmPopupId)").size() == 1);
 }
 
 TEST_CASE("menu graph: MP endscreen exits use graph edges", "[input][menu_graph][endscreen][static]")
@@ -976,6 +981,10 @@ TEST_CASE("menu graph: MP endscreen exits use graph edges", "[input][menu_graph]
     REQUIRE(render.find("pdguiEndscreenExitToMainMenu()") == std::string::npos);
     REQUIRE(render.find("pdguiSetInRoom(1)") == std::string::npos);
     REQUIRE(render.find("pdguiSoloRoomReturn()") == std::string::npos);
+    REQUIRE(render.find("bool wantDisconnectConfirm") != std::string::npos);
+    REQUIRE(render.find("bool wantQuitConfirm") != std::string::npos);
+    REQUIRE(findAll(render, "ImGui::OpenPopup(mpDisconnectPopupId)").size() == 1);
+    REQUIRE(findAll(render, "ImGui::OpenPopup(mpQuitPopupId)").size() == 1);
 }
 
 TEST_CASE("menu graph: Agent Select load create and back use graph helpers", "[input][menu_graph][agent][static]")
@@ -1342,4 +1351,56 @@ TEST_CASE("menu graph: c036 ImGui menu surface has no raw stack calls", "[input]
         REQUIRE(source.find("menuPushDialog(") == std::string::npos);
         REQUIRE(source.find("menuPopDialog(") == std::string::npos);
     }
+}
+
+TEST_CASE("menu diagnostics overlay does not execute legacy dynamic title callbacks", "[menus][debug][static][b359]")
+{
+    const std::string bridge = readTextFile("port/fast3d/pdgui_bridge.c");
+    const std::string mainmenu = readTextFile("src/game/mainmenu.c");
+
+    REQUIRE_FALSE(bridge.empty());
+    REQUIRE_FALSE(mainmenu.empty());
+
+    const std::string debugFormatter = functionBlock(bridge, "pdguiDebugFormatLegacyMenuInfo");
+    const std::string debugResolver = functionBlock(bridge, "pdguiDebugResolveLegacyDialogTitle");
+    const std::string pauseTitle = functionBlock(mainmenu, "soloMenuTitlePauseStatus");
+
+    REQUIRE_FALSE(debugFormatter.empty());
+    REQUIRE_FALSE(debugResolver.empty());
+    REQUIRE_FALSE(pauseTitle.empty());
+
+    REQUIRE(debugFormatter.find("menuResolveDialogTitle(") == std::string::npos);
+    REQUIRE(debugFormatter.find("pdguiDebugResolveLegacyDialogTitle(") != std::string::npos);
+    REQUIRE(debugResolver.find("\"<dynamic title>\"") != std::string::npos);
+    REQUIRE(debugResolver.find("return handler(") == std::string::npos);
+    REQUIRE(pauseTitle.find("!curdialog || !curdialog->definition") != std::string::npos);
+}
+
+TEST_CASE("main menu entries wait for the CI camera before opening input", "[input][menu_graph][mainmenu][static]")
+{
+    const std::string menutick = readTextFile("src/game/menutick.c");
+
+    REQUIRE_FALSE(menutick.empty());
+
+    const std::string ready = functionBlock(menutick, "ciReadyForMenuOpen");
+    const std::string hold = functionBlock(menutick, "ciHoldMenuOpenUntilCameraReady");
+    const std::string tick = functionBlock(menutick, "menuTick");
+
+    REQUIRE_FALSE(ready.empty());
+    REQUIRE_FALSE(hold.empty());
+    REQUIRE_FALSE(tick.empty());
+
+    REQUIRE(ready.find("g_Vars.stagenum != STAGE_CITRAINING") != std::string::npos);
+    REQUIRE(ready.find("g_Vars.lvframenum < 4") != std::string::npos);
+    REQUIRE(ready.find("g_Vars.tickmode == TICKMODE_CUTSCENE") != std::string::npos);
+    REQUIRE(ready.find("!playerCurrentCutsceneInProgress()") != std::string::npos);
+    REQUIRE(ready.find("playerEndCutscene()") != std::string::npos);
+    REQUIRE(hold.find("g_PlayersWithControl[0] = false") != std::string::npos);
+
+    REQUIRE(tick.find("var80087260 > 0") != std::string::npos);
+    REQUIRE(tick.find("g_PostExitMainMenuView >= 0") != std::string::npos);
+    REQUIRE(tick.find("g_FileState == FILESTATE_UNSELECTED") != std::string::npos);
+    REQUIRE(findAll(tick, "ciReadyForMenuOpen()").size() >= 3);
+    REQUIRE(findAll(tick, "ciHoldMenuOpenUntilCameraReady()").size() >= 2);
+    REQUIRE(tick.find("g_Vars.lvframenum > 300") == std::string::npos);
 }

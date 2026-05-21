@@ -1,6 +1,6 @@
 /* Boot Overlay (Engine Phase 2)
  *
- * Plain bottom progress bar plus phase + status label drawn directly via
+ * Centered progress modal plus phase + status label drawn directly via
  * ImGui DrawList primitives.  Reads boot_progress.h state each frame and
  * runs in a tight pump loop on the main thread while the boot worker
  * does catalog / extract / verify work.
@@ -100,40 +100,48 @@ void drawOverlay(float screenW, float screenH)
                           IM_COL32(0, 8, 20, 255));
     }
 
-    /* Bar geometry: full-width with 48 px margin, 14 px tall, 64 px above
-     * the bottom edge.  Sits below the labels. */
-    const float barMargin   = 48.0f;
-    const float barHeight   = 14.0f;
-    const float barBottomPad = 64.0f;
-    const float barX        = barMargin;
-    const float barW        = screenW - 2.0f * barMargin;
-    const float barY        = screenH - barBottomPad - barHeight;
-
     ImDrawList *fg = ImGui::GetForegroundDrawList();
 
+    const float panelW = (screenW < 760.0f) ? screenW - 48.0f : 640.0f;
+    const float panelH = 148.0f;
+    const float panelX = (screenW - panelW) * 0.5f;
+    const float panelY = (screenH - panelH) * 0.5f - screenH * 0.04f;
+    const float padX = 28.0f;
+    const float barH = 16.0f;
+    const float barX = panelX + padX;
+    const float barW = panelW - padX * 2.0f;
+    const float barY = panelY + 88.0f;
+
+    fg->AddRectFilled(ImVec2(panelX, panelY),
+                      ImVec2(panelX + panelW, panelY + panelH),
+                      IM_COL32(0, 18, 38, 236), 8.0f);
+    fg->AddRect(ImVec2(panelX, panelY),
+                ImVec2(panelX + panelW, panelY + panelH),
+                colBarBorder, 8.0f, 0, 1.0f);
+
     /* Track */
-    fg->AddRectFilled(ImVec2(barX, barY), ImVec2(barX + barW, barY + barHeight),
-                      colBarTrack);
+    fg->AddRectFilled(ImVec2(barX, barY), ImVec2(barX + barW, barY + barH),
+                      colBarTrack, 4.0f);
 
     /* Fill */
     float fillW = barW * s_DisplayedProgress;
     if (fillW < 0.0f) fillW = 0.0f;
     if (fillW > barW) fillW = barW;
     if (fillW > 0.0f) {
-        fg->AddRectFilled(ImVec2(barX, barY), ImVec2(barX + fillW, barY + barHeight),
-                          colBarFill);
+        fg->AddRectFilled(ImVec2(barX, barY), ImVec2(barX + fillW, barY + barH),
+                          colBarFill, 4.0f);
     }
 
     /* Border (1px outline) */
-    fg->AddRect(ImVec2(barX, barY), ImVec2(barX + barW, barY + barHeight),
-                colBarBorder, 0.0f, 0, 1.0f);
+    fg->AddRect(ImVec2(barX, barY), ImVec2(barX + barW, barY + barH),
+                colBarBorder, 4.0f, 0, 1.0f);
 
-    /* Phase label: above the bar, left aligned to the bar.  Falls back
+    /* Phase label: top of the modal, left aligned to the bar. Falls back
      * to "Loading..." until the worker reports its first phase. */
     const char *phaseLabel =
         snap.phase_label[0] ? snap.phase_label : "Loading...";
 
-    /* Status label: under the bar, left aligned.  Empty when the phase
+    /* Status label: above the bar, left aligned.  Empty when the phase
      * isn't iterated.  When iterated, append "(N / M)". */
     char statusBuf[BOOT_PROGRESS_LABEL_LEN + 64];
     if (snap.current_total > 0) {
@@ -159,11 +167,11 @@ void drawOverlay(float screenW, float screenH)
     const float fontSizePhase = 22.0f;
     const float fontSizeStatus = 16.0f;
 
-    ImVec2 phasePos(barX, barY - fontSizePhase - 8.0f);
+    ImVec2 phasePos(barX, panelY + 22.0f);
     fg->AddText(font, fontSizePhase, phasePos, colTextMain, phaseLabel);
 
     if (statusBuf[0]) {
-        ImVec2 statusPos(barX, barY + barHeight + 6.0f);
+        ImVec2 statusPos(barX, barY - fontSizeStatus - 10.0f);
         fg->AddText(font, fontSizeStatus, statusPos, colTextDim, statusBuf);
     }
 
@@ -172,7 +180,7 @@ void drawOverlay(float screenW, float screenH)
     snprintf(pctBuf, sizeof(pctBuf), "%d%%",
              (int)(s_DisplayedProgress * 100.0f + 0.5f));
     ImVec2 pctSize = font->CalcTextSizeA(fontSizePhase, FLT_MAX, 0.0f, pctBuf);
-    ImVec2 pctPos(barX + barW - pctSize.x, barY - fontSizePhase - 8.0f);
+    ImVec2 pctPos(barX + barW - pctSize.x, panelY + 22.0f);
     fg->AddText(font, fontSizePhase, pctPos, colTextMain, pctBuf);
 }
 

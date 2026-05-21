@@ -6,9 +6,9 @@
  *   - belt: LAYER_CUTSCENE's on_push hook clears every gameplay-only
  *           action state, then clears the cutscene action set including
  *           ACTION_USE / ACTION_MENU_ACCEPT before the cutscene tick begins.
- *   - braces: K.6 actionPressed (edge) skip detection -- even if a stale
- *             state reaches the tick path, no skip fires without a fresh
- *             keydown during the cutscene.
+ *   - braces: cutscene skip is a hold threshold -- even if a stale
+ *             state reaches the tick path, no skip fires without a deliberate
+ *             held skip action during the cutscene.
  *
  * Also asserts that scene CUTSCENE_START / CUTSCENE_END round-trip
  * leaves the layer stack in a clean state suitable for the next
@@ -20,7 +20,7 @@
  * @SYNC port/src/inputlayer.c (onCutscenePush hook)
  * @SYNC port/src/actionmap.cpp (actionmapFlushGameplayState,
  *       actionmapFlushActionSet)
- * @SYNC src/game/player.c:2944 (K.6 actionPressed switch)
+ * @SYNC src/game/player.c (cutscene hold-to-skip gate)
  * @SYNC src/game/player.c:2835 (sceneFire CUTSCENE_START hook)
  *
  * Logging channel reserved for runtime diagnostics: CUTSCENE.LAYER.*
@@ -129,12 +129,10 @@ TEST_CASE("cutscene flash fix: belt -- on_push hook clears gameplay-only state",
     REQUIRE(ampGetState(0, AMP_ACTION_MENU_DOWN)->held == 1);
 }
 
-TEST_CASE("cutscene flash fix: braces -- actionPressed reads 0 for held-since-before state", "[cutscene][bug][flash][braces]")
+TEST_CASE("cutscene flash fix: braces -- stale held state is cleared before hold-to-skip", "[cutscene][bug][flash][braces]")
 {
-    /* The K.6 invariant: actionPressed is the rising-edge query. A
-     * key held since before the cutscene started has its pressed
-     * flag cleared at the end of the press frame; subsequent frames
-     * see pressed = 0 even though held = 1. */
+    /* Stale input held since before the cutscene started has no usable
+     * skip edge or hold state after the cutscene layer flush. */
     resetAll();
 
     /* Press USE on the menu accept frame. */
@@ -152,15 +150,14 @@ TEST_CASE("cutscene flash fix: braces -- actionPressed reads 0 for held-since-be
     REQUIRE(st->pressed == 0);
 
     /* Stage swap, cutscene starts. The transition flush clears USE
-     * entirely, and the braces still ensure actionPressed reads 0. */
+     * entirely before hold-to-skip can observe it. */
     simulateCutsceneStartWithFlushHook();
     REQUIRE(st->held    == 0);
     REQUIRE(st->pressed == 0);
 
-    /* Throughout the cutscene, actionPressed remains 0. No skip can
-     * fire from a stale press. */
+    /* Throughout the cutscene, no stale press remains. */
     for (int frame = 0; frame < 100; frame++) {
-        REQUIRE(st->pressed == 0); /* this is what actionPressed reads */
+        REQUIRE(st->pressed == 0);
     }
 }
 
@@ -173,10 +170,9 @@ TEST_CASE("cutscene flash fix: bug invariant -- the Mission 1 obj 2 repro", "[cu
      *   4. playerStartCutscene -> playerStartCutscene2 fires
      *      sceneFire(CUTSCENE_START), pushing LAYER_CUTSCENE; the
      *      on_push hook clears gameplay-only and cutscene action-set state.
-     *   5. playerTickCutscene polls actionPressed (K.6) for skip
-     *      detection. ACTION_USE is no longer held and pressed = 0.
-     *   6. The 30-frame gate is moot (it gated against actionHeld;
-     *      under K.6 it gates against actionPressed which is 0 anyway).
+     *   5. playerTickCutscene polls hold-to-skip. ACTION_USE is no
+     *      longer held and pressed = 0.
+     *   6. The 30-frame gate is moot because the held state is gone.
      *   7. Cutscene plays its full duration. No flash. */
     resetAll();
 
@@ -192,7 +188,7 @@ TEST_CASE("cutscene flash fix: bug invariant -- the Mission 1 obj 2 repro", "[cu
     simulateCutsceneStartWithFlushHook();
     REQUIRE(ilpTopType() == ILP_LAYER_CUTSCENE);
 
-    /* Step 5-6: K.6 invariant. The would-be skip checks all read 0. */
+    /* Step 5-6: the would-be skip checks all read 0. */
     REQUIRE(ampGetState(0, AMP_ACTION_USE)->held               == 0);
     REQUIRE(ampGetState(0, AMP_ACTION_USE)->pressed            == 0);
     REQUIRE(ampGetState(0, AMP_ACTION_FIRE_PRIMARY)->pressed   == 0);
@@ -205,11 +201,11 @@ TEST_CASE("cutscene flash fix: bug invariant -- the Mission 1 obj 2 repro", "[cu
     REQUIRE(ilpTopType() == ILP_LAYER_GAMEPLAY);
 }
 
-TEST_CASE("cutscene: skip via fresh press DOES register", "[cutscene][skip][positive]")
+TEST_CASE("cutscene: fresh skip press arms hold state for skip", "[cutscene][skip][positive]")
 {
-    /* Inverse of the bug invariant: a player who actually wants to
-     * skip the cutscene presses a fresh keydown during it. That
-     * registers as actionPressed = 1, anybutton = 1, skip fires. */
+    /* A player who wants to skip the cutscene presses a fresh keydown
+     * during it. That arms the held state; production skip now waits for
+     * the hold threshold rather than firing on this edge alone. */
     resetAll();
     spFire(SP_SCENE_EVENT_STAGE_READY, nullptr);
     simulateCutsceneStartWithFlushHook();
@@ -217,10 +213,8 @@ TEST_CASE("cutscene: skip via fresh press DOES register", "[cutscene][skip][posi
     /* Mid-cutscene, player presses Space (ACTION_SKIP_CUTSCENE). */
     ampSetPressed(0, AMP_ACTION_SKIP_CUTSCENE);
 
-    /* The skip-relevant flag must read 1 in the frame the press
-     * happens. Any rising-edge fresh press during the cutscene
-     * window registers. */
     REQUIRE(ampGetState(0, AMP_ACTION_SKIP_CUTSCENE)->pressed == 1);
+    REQUIRE(ampGetState(0, AMP_ACTION_SKIP_CUTSCENE)->held == 1);
 }
 
 TEST_CASE("cutscene: round-trip cleans up handles for the next cutscene", "[cutscene][lifecycle]")
@@ -336,6 +330,45 @@ TEST_CASE("cutscene lifecycle wiring: central paths all fire scene events", "[cu
 
     REQUIRE(cmake.find("src/lib/main.c") == std::string::npos);
     REQUIRE(cmake.find("port/src/pdmain.c") == std::string::npos);
+}
+
+TEST_CASE("cutscene skip uses hold prompt and suppresses interact prompts", "[cutscene][skip][prompt][static]")
+{
+    const std::string actionmapHeader = readTextFile("port/include/actionmap.h");
+    const std::string player = readTextFile("src/game/player.c");
+    const std::string backend = readTextFile("port/fast3d/pdgui_backend.cpp");
+    const std::string prompt = readTextFile("port/fast3d/pdgui_cutscene_prompt.cpp");
+    const std::string bridge = readTextFile("port/fast3d/pdgui_bridge.c");
+    const std::string glyphs = readTextFile("port/fast3d/pdgui_glyphs.cpp");
+
+    REQUIRE_FALSE(actionmapHeader.empty());
+    REQUIRE_FALSE(player.empty());
+    REQUIRE_FALSE(backend.empty());
+    REQUIRE_FALSE(prompt.empty());
+    REQUIRE_FALSE(bridge.empty());
+    REQUIRE_FALSE(glyphs.empty());
+
+    const std::string tick = functionBlock(player, "playerTickCutscene");
+    const std::string interactSuppress = functionBlock(bridge, "pdguiCiIntroBlocksInteractPrompt");
+
+    REQUIRE_FALSE(tick.empty());
+    REQUIRE_FALSE(interactSuppress.empty());
+
+    REQUIRE(actionmapHeader.find("ACTION_SKIP_CUTSCENE_HOLD_THRESHOLD_MS") != std::string::npos);
+    REQUIRE(tick.find("ACTION_SKIP_CUTSCENE") != std::string::npos);
+    REQUIRE(tick.find("actionHeldForMs(playeridx, skipactions[i], ACTION_SKIP_CUTSCENE_HOLD_THRESHOLD_MS)") != std::string::npos);
+    REQUIRE(tick.find("actionConsumeHold(playeridx, skipaction)") != std::string::npos);
+    REQUIRE(tick.find("actionPressed(playeridx, ACTION_SKIP_CUTSCENE)") == std::string::npos);
+
+    REQUIRE(prompt.find("pdguiDrawActionPromptCenteredWithHold(action") != std::string::npos);
+    REQUIRE(prompt.find("\"Skip\"") != std::string::npos);
+    REQUIRE(prompt.find("actionHoldProgress(player, action, ACTION_SKIP_CUTSCENE_HOLD_THRESHOLD_MS)") != std::string::npos);
+    REQUIRE(backend.find("pdguiCutsceneSkipPromptShouldRender()") != std::string::npos);
+    REQUIRE(backend.find("pdguiCutsceneSkipPromptRender((s32)winW, (s32)winH)") != std::string::npos);
+    REQUIRE(glyphs.find("&g_ImcCutscene") != std::string::npos);
+
+    REQUIRE(interactSuppress.find("g_Vars.tickmode == TICKMODE_CUTSCENE") != std::string::npos);
+    REQUIRE(interactSuppress.find("playerAnyInCutscene()") != std::string::npos);
 }
 
 TEST_CASE("cutscene state migration: migrated gameplay paths use player accessors", "[cutscene][static][state]")

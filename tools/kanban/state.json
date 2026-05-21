@@ -1177,6 +1177,75 @@
       "updated": "2026-05-21T11:55:00-04:00"
     },
     {
+      "id": "c3820",
+      "title": "B-360: Combat Sim Chicago match-start exception",
+      "description": "Mike reported an exception starting a match and pointed to the build-folder log. The current crash log was Build/logs/game client/pd-client.log; symbolication resolved PC=...+0x16f305 to setupCreateProps() during MATCHSTART into base:arena_chicago with 1 player and 12 bots. Root cause: the SP-in-MP lift/door overlay trusted an invalid auxiliary SP setup props pointer and walked outside the loaded setup blob.",
+      "pillar": "engine",
+      "column": "active",
+      "order": 1005,
+      "priority": 2,
+      "notes": "Fixed in code 2026-05-21. setup.c now validates auxiliary setup props against the loaded blob, bounds the SP overlay command walk, restores the MP props pointer on all paths, and skips the overlay with a warning when invalid. Added combat_sim_chicago_match_start smoke; --launch-mp-room plus --debug-auto-start-match now defers direct matchStart until CI setup is live so the smoke uses the initialized MP path.",
+      "flag": "watch",
+      "flagged_at": "2026-05-21T14:05:00-04:00",
+      "pending_completion": {
+        "marked_at": "2026-05-21T14:05:00-04:00",
+        "marked_by": "codex-b360-chicago",
+        "summary": "Guarded the SP-in-MP setup overlay against invalid auxiliary props data and added an exact Chicago 12-bot match-start smoke.",
+        "verify_notes": "Verified 2026-05-21 in isolated session b359setup: focused [setup][combat-sim][static] passed, queued all-target build passed, exact combat_sim_chicago_match_start smoke passed with MATCHSTART into base:arena_chicago and no access violation. Manual closure should still start the same Combat Simulator match from the UI.",
+        "evidence_refs": [
+          "src/game/setup.c",
+          "port/src/main.c",
+          "port/src/pdmain.c",
+          "tests/test_catalog_provider_static.cpp",
+          "tools/smoke-verify/tests/combat_sim_chicago_match_start.json",
+          "context/bugs.md",
+          "context/session-log.md"
+        ],
+        "expected_artifacts": [
+          "Combat Simulator Chicago match start with 12 bots no longer throws an access violation in setupCreateProps.",
+          "Invalid auxiliary SP setup props are skipped with a SETUP.LIFT warning instead of being dereferenced.",
+          "The exact UI start path remains the manual playtest gate."
+        ]
+      },
+      "created": "2026-05-21T14:05:00-04:00",
+      "updated": "2026-05-21T14:05:00-04:00"
+    },
+    {
+      "id": "c3821",
+      "title": "Main Menu waits for CI camera before input",
+      "description": "When loading into the Main Menu on the Carrington Institute map, the CI camera animation should finish before the actual menu opens and accepts input. This must cover cold file-select boot, --main-menu / post-mission returns via g_PostExitMainMenuView, and Combat Simulator match-end returns via var80087260.",
+      "pillar": "input",
+      "column": "active",
+      "order": 1006,
+      "priority": 2,
+      "notes": "Code/build verified 2026-05-21. menutick.c now uses a shared CI readiness gate for Main Menu/File Select auto-open: STAGE_CITRAINING, lvframenum >= 4, and the camera cutscene no longer in progress; a stale completed cutscene latch is finished before opening. While waiting, the queued menu stays pending and g_PlayersWithControl[0] remains false.",
+      "flag": "watch",
+      "flagged_at": "2026-05-21T15:10:00-04:00",
+      "pending_completion": {
+        "marked_at": "2026-05-21T15:25:00-04:00",
+        "marked_by": "codex-main-menu-ci-camera",
+        "summary": "Gated all Main Menu/File Select auto-open paths on CI camera completion before menu input is enabled.",
+        "verify_notes": "Verified 2026-05-21 in isolated session cimenu: scoped diff check passed, focused [input][menu_graph][mainmenu] passed with 73 assertions / 6 cases, adjacent [input][menu_graph] passed with 684 assertions / 35 cases, and queued all-target build passed. Manual closure should retest cold boot, mission end/exit to Main Menu, and Combat Simulator match end/return.",
+        "evidence_refs": [
+          "src/game/menutick.c",
+          "tests/test_menu_graph.cpp",
+          "port/src/main.c",
+          "context/tasks.md",
+          "context/session-log.md",
+          "context/pillars/menus.md",
+          "context/pillars/input.md",
+          "UNRELEASED.md"
+        ],
+        "expected_artifacts": [
+          "Cold Main Menu/File Select boot shows the Carrington Institute camera before opening the menu.",
+          "Mission end or Exit to Main Menu returns wait for the CI camera before menu input is enabled.",
+          "Combat Simulator match-end return waits for the CI camera before the room/menu opens."
+        ]
+      },
+      "created": "2026-05-21T15:10:00-04:00",
+      "updated": "2026-05-21T15:25:00-04:00"
+    },
+    {
       "id": "c084",
       "title": "B-317: Wire universal grammar v2 into Combat Sim (foundation pass)",
       "description": "Foundation pass for the v2 grammar in Combat Sim Room. Rule 10 skip-empty-bindings lifted into grammar doc. ACTION_MENU_CONTEXT (X) + ACTION_MENU_SOCIAL (Y) aliases added per Q3. ACTION_MENU_SECTION_PREV/NEXT enums + LT/RT + Home/End bindings on g_ImcMenu and g_ImcPauseMenu. pdguiMenuSectionPrevPressed/NextPressed helpers exposed in pdgui_nav. Wired in Combat Sim Room: Y opens social overlay (idempotent), LT/RT arms s_RoomPlayerSectionJumpPending which renderPlayerPanel consumes via SetKeyboardFocusHere on next/prev team's first row (no-wrap boundary). Q1 (LB/RB tab cycle) was already conformant via pdguiMenuTabPrevPressed/NextPressed at room.cpp:3666. Per-element CS bindings tracked in c086.",
@@ -1240,33 +1309,37 @@
     },
     {
       "id": "c3815",
-      "title": "B-356: Combat Sim post-match screen never appears",
-      "description": "Mike reported that ending a Combat Simulator match appeared to route toward the post-match screen, but the post-match screen never appeared and the game had to be force-closed. Root cause: the MP game-over root could be hidden by the legacy NTSC Save Player dialog, which is intentionally suppressed as a no-op in the PC ImGui layer.",
+      "title": "B-356: Combat Sim post-match screen visible and interactive",
+      "description": "Mike reported that ending a Combat Simulator match appeared to route toward the post-match screen, but the post-match screen never appeared and the game had to be force-closed. Follow-up: the post-match window became visible but X did not close it and Quit/Disconnect buttons looked inert. Root causes: the MP game-over root could be hidden by the suppressed legacy NTSC Save Player dialog, then the visible endscreen opened confirm popups from the action-bar child scope while rendering them from the parent endscreen scope.",
       "pillar": "input",
       "column": "active",
       "order": 2100,
       "priority": 1,
-      "notes": "Fixed 2026-05-21 in the same menu/input sweep. mpPushEndscreenDialog now marks OPTION_ASKEDSAVEPLAYER but does not push g_MpEndscreenSavePlayerMenuDialog on PC, so the MP game-over root remains visible and the ImGui endscreen exit path owns config saving. Static coverage added to tests/test_menu_graph.cpp.",
+      "notes": "Fixed 2026-05-21 in the same menu/input sweep. mpPushEndscreenDialog now marks OPTION_ASKEDSAVEPLAYER but does not push g_MpEndscreenSavePlayerMenuDialog on PC, so the MP game-over root remains visible and the ImGui endscreen exit path owns config saving. Second pass: MP and solo endscreen confirm popups now open from the parent endscreen scope after the action-bar child closes, and the custom title X accepts root/child focus so it still works after focus lands in the content/action children. Static coverage added to tests/test_menu_graph.cpp.",
       "flag": "watch",
       "flagged_at": "2026-05-21T04:36:59Z",
       "pending_completion": {
         "marked_at": "2026-05-21T04:36:59Z",
         "marked_by": "codex-csend356-postmatch",
-        "summary": "Prevented the suppressed legacy Save Player prompt from hiding the Combat Simulator post-match screen.",
-        "verify_notes": "Verified 2026-05-21 in isolated session csend356: focused pd-tests [input][menu_graph] passed (644 assertions / 33 cases); queued all-target build passed; session build cleaned up.",
+        "summary": "Prevented the suppressed legacy Save Player prompt from hiding the Combat Simulator post-match screen, then fixed the visible endscreen X/button confirm routing.",
+        "verify_notes": "Verified 2026-05-21 first pass in isolated session csend356: focused pd-tests [input][menu_graph] passed (644 assertions / 33 cases); queued all-target build passed. Second pass in isolated session csendclick: focused [input][menu_graph] passed (668 assertions / 34 cases); queued all-target build passed; scoped diff check passed.",
         "evidence_refs": [
           "src/game/mplayer/ingame.c",
+          "port/fast3d/pdgui_menu_endscreen.cpp",
+          "port/fast3d/pdgui_style.cpp",
           "tests/test_menu_graph.cpp",
           "context/bugs.md"
         ],
         "expected_artifacts": [
           "Ending a local Combat Simulator match shows the post-match screen.",
           "The game no longer needs to be force-closed after match end.",
-          "Return to Room and Back to Menu continue through the existing ImGui endscreen flow."
+          "Title X opens the Quit/Disconnect confirm on the visible post-match screen.",
+          "Quit/Disconnect confirm buttons respond to clicks.",
+          "Play Again / Return to Room continues through the existing ImGui endscreen flow."
         ]
       },
       "created": "2026-05-21T04:36:59Z",
-      "updated": "2026-05-21T04:36:59Z"
+      "updated": "2026-05-21T12:58:00Z"
     },
     {
       "id": "c3816",
@@ -2875,10 +2948,10 @@
       "title": "Modding: repair pdxxx as self-contained asset archives",
       "description": "Correct the typed content-unit contract: each *.pdxxx file is itself a zip-openable asset archive containing its descriptor and every authored dependency needed to edit, clone, share, and load that asset, including meshes, textures, audio, language data, and associated INI/TSV files as needed. Duplicate inner assets may be deduped by catalog/runtime after ingestion for RAM efficiency, but archives must not be reference-only shells. Weapon behavior uses .pdweapon only; .pdwpn is pre-release code debt to remove. .pdmod remains only the transport wrapper for Public Mods, sharing, and online-required delivery.",
       "pillar": "modding",
-      "column": "active",
+      "column": "done",
       "order": 1000,
       "priority": 1,
-      "notes": "Completed non-weapon typed asset archive migration as of 2026-05-21. The c3812 archive contract is now implemented for base and mod content equally: each typed *.pdxxx content unit is zip-openable and carries a root descriptor plus authored source files, while .pdmod remains transport only. Completed non-weapon outputs include c3812-s1..s4, nested typed archive/VFS support, packer/examples/docs, canonical .pdcharacter, .pdhead/.pdbody/.pdarena root descriptors, .pdmesh model.obj/model.mtl, .pdsfx/.pdvoice sample.wav, .pdsong sequence.mid/sequence.tsv, .pdlang strings.tsv, .pdfont glyphs.pgm/metrics.tsv/kerning.tsv, character .pdanim header.tsv/frames.tsv, and .pdscenario rooms.obj/scenario.mtl/tiles.tsv/pads.tsv/setup.tsv/mpsetup.tsv/visual_segments.tsv. Old raw authored payloads such as geometry.bin, tiles.bin, pads.bin, setup.bin, mpsetup.bin, sample.bin, data.bin, frames.bin, and mesh byte tables are treated as stale or rejected by focused guards. Follow-up crash hardening fixed the first-launch extractor path: .pdmesh and .pdscenario now RareZip-inflate ROM payloads before preprocessing, avoid parallel preprocessor races, and .pdmesh uses the runtime model promotion order with a pre-promotion bounds guard. B-358 follow-up fixed the archive/fallback audit misses: weapon/inventory .pdanim outputs are ZIP archives with animation.ini/manifest.json/opcodes.json, .pdmesh GDL/G_VTX decoding now exports Falcon2 OBJ geometry without no-triangle misses, FILE_GHUDPIECE has a catalog provider, local Combat Simulator prepares an MP manifest before stage change, and random bot bodies exclude SP-only body rows. Verification: focused c3812/B-358 tests passed, queued all-target build passed, and combat_sim_entry smoke reported failed=0 for ROM/segment extraction plus .pdmesh written=64 skipped=192 failed=0 and .pdanim skipped=110 failed=0 with no CATALOG.MISS, MANIFEST-SP, or fatal. Weapon archive closure is explicitly out of scope here and remains tracked by c3814 for .pdweapon only; the broader all-asset dependency-closure audit remains c3812-s8.",
+      "notes": "Completed for the non-weapon typed asset target set as of 2026-05-21. The c3812 archive contract is implemented for base and mod content equally: each non-weapon *.pdxxx content unit is zip-openable and carries a root descriptor plus authored source files, while .pdmod remains transport only. Completed outputs include nested typed archive/VFS support, packer/examples/docs, canonical .pdcharacter, .pdhead/.pdbody/.pdarena root descriptors, embedded .pdscenario closure under .pdarena, .pdmesh model.obj/model.mtl, .pdsfx/.pdvoice sample.wav, .pdsong sequence.mid/sequence.tsv, .pdlang strings.tsv, .pdfont glyphs.pgm/metrics.tsv/kerning.tsv, character and weapon/inventory .pdanim readable archives, and .pdscenario rooms.obj/scenario.mtl/tiles.tsv/pads.tsv/setup.tsv/mpsetup.tsv/visual_segments.tsv. The map authoring payload is now full BG visual display-list export rather than the old neutral glTF placeholder: .pdscenario emits visual/scene.obj, visual/scene.mtl, visual/materials.tsv, visual/export_version.txt, and decoded visual/textures/*.tga from BG C0/G_NOOP material commands, G_VTX, G_TRI1, G_TRI4, and textureslist/texturesdata. MTL paths are Blender-relative (textures/...), while TSV/descriptor paths remain archive-rooted (visual/textures/...). Old archives missing the visual export marker are stale and regenerate. Verified on clean boot: base_arena_chicago.pdarena embeds scenario/visual/scene.obj, scene.mtl, materials.tsv, export_version.txt, and 98 TGA textures; standalone base_scenario_chicago.pdscenario has the same visual payload. Verification also passed focused c3812/B-358 static tests, focused c3809 packer/scanner tests, queued all-target builds, and boot_smoke. Incomplete by explicit scope split: .pdweapon weapon archive behavior/dependency closure remains tracked by c3814 only; no pdweapon/pdwpn work was done in this pass.",
       "subtasks": [
         {
           "id": "c3812-s1",
@@ -2935,13 +3008,20 @@
           "status": "done",
           "order": 7100,
           "notes": "Done for the non-weapon target set on 2026-05-21. .pdarena now embeds its .pdscenario dependency closure under scenario/ and treats old descriptor-only arena archives as stale; Build/data/ntsc-final/chicago.zip was refreshed and opens with scenario/rooms.obj, scenario/setup.tsv, and scenario/scenario.ini. .pdhead embeds mesh.pdmesh, .pdbody embeds mesh.pdmesh plus optional hand.pdmesh, and .pdcharacter refreshes nested body/head archives with dependency_closure=embedded.v2. .pdmesh job dedupe is now by (filenum,hint), not filenum alone, so body/hand archive identities such as base_ceyespy.pdmesh and base_combathandslod_hand.pdmesh are not suppressed by weapon hi/lo mesh jobs. Generated Build/data non-weapon spot audit found 0 missing closure entries across scenario-bearing arenas, heads, bodies, and characters. Verified assetcl all-target build and assetc3 focused [modding][pdxxx][base][static][c3812] tests: 283 assertions / 12 cases. Weapon archive closure remains owned by c3814 and was not modified here."
+        },
+        {
+          "id": "c3812-s9",
+          "title": "Blender-openable map scene payload",
+          "status": "done",
+          "order": 7200,
+          "notes": "Done 2026-05-21. The previous neutral glTF/map_material placeholder was replaced with the proper BG visual display-list exporter. .pdscenario now embeds visual/scene.obj, visual/scene.mtl, visual/materials.tsv, visual/export_version.txt, and decoded visual/textures/*.tga from BG C0/G_NOOP material commands, G_VTX, G_TRI1, G_TRI4, and textureslist/texturesdata. .pdarena embeds the same payload under scenario/. MTL map_Kd paths are Blender-relative (textures/...), while scenario.ini/manifest.json/TSV paths stay archive-rooted. Stale checks require visual/export_version.txt so older placeholder archives regenerate. Verified focused [modding][pdxxx][base][static][c3812] passed 311 assertions / 12 cases, focused [modding][pdmod][static][c3809] passed 520 assertions / 13 cases, queued bgvis all-target build passed, boot_smoke passed, and clean extracted Chicago archives contain scene.obj, scene.mtl, materials.tsv, export_version.txt, and 98 TGA textures in both embedded .pdarena and standalone .pdscenario forms. Weapons remain c3814-owned and were not changed."
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-20T20:05:00Z",
       "pending_completion": null,
       "created": "2026-05-20T20:05:00Z",
-      "updated": "2026-05-21T12:34:00-04:00"
+      "updated": "2026-05-21T14:32:00-04:00"
     },
     {
       "id": "c3813",

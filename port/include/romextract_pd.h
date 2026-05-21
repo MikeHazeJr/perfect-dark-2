@@ -400,6 +400,19 @@ s32 romExtractAllPdlang(s32 force_rewrite);
  * trigger. -1 reserved for infrastructure failure (data dir creation). */
 s32 romExtractAllPdui(s32 force_rewrite);
 
+/* Fast cached-boot guard shared by typed base-asset emitters.
+ *
+ * The per-asset emitters still own the authoritative stale/archive validation.
+ * After a successful run, they write a small stamp containing the directory
+ * fingerprint for the current extractor schema. On the next boot this lets the
+ * emitter skip the whole family after a cheap directory scan when no asset file
+ * was added, removed, resized, or rewritten.
+ */
+s32 romExtractPdFastCacheCanSkip(const char *kind, const char *abs_dir,
+                                 const char *ext, s32 force_rewrite);
+void romExtractPdFastCacheWrite(const char *kind, const char *abs_dir,
+                                const char *ext);
+
 #ifdef __cplusplus
 }
 #endif

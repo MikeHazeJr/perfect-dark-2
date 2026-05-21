@@ -2875,8 +2875,8 @@ static void setupCombatSimDefaults(s32 player)
 
 /* Cohort 4 (2026-04-27, K.2): Cutscene IMC default bindings. Bound
  * only on g_ImcCutscene; the IMC is activated/deactivated on
- * LAYER_CUTSCENE push/pop. SKIP fires via actionPressed (K.6 edge),
- * so a held-since-menu state cannot register as a skip. */
+ * LAYER_CUTSCENE push/pop. SKIP is consumed as a hold, so incidental
+ * taps and held-since-menu state cannot skip the camera. */
 static void setupCutsceneDefaults(s32 player)
 {
     InputMappingContext *imc = &g_ImcCutscene;

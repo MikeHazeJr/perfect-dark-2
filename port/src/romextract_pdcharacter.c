@@ -321,6 +321,15 @@ s32 romExtractAllPdcharacter(s32 force_rewrite)
 		return -1;
 	}
 
+	if (romExtractPdFastCacheCanSkip("pdcharacter", characters_dir,
+			".pdcharacter", force_rewrite)) {
+		bootProgressUpdate(PDCHARACTER_MP_BODY_COUNT, PDCHARACTER_MP_BODY_COUNT);
+		sysLogPrintf(LOG_NOTE,
+			"romextract pdcharacter: written=0 skipped=%d failed=0 total=%d (fast-cache)",
+			PDCHARACTER_MP_BODY_COUNT, PDCHARACTER_MP_BODY_COUNT);
+		return 0;
+	}
+
 	pdcharacter_fanout_ctx_t ctx;
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.characters_dir = characters_dir;
@@ -342,6 +351,10 @@ s32 romExtractAllPdcharacter(s32 force_rewrite)
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdcharacter: written=%d skipped=%d failed=%d total=%d",
 		written, skipped, failed, PDCHARACTER_MP_BODY_COUNT);
+
+	if (failed == 0) {
+		romExtractPdFastCacheWrite("pdcharacter", characters_dir, ".pdcharacter");
+	}
 
 	return written;
 }

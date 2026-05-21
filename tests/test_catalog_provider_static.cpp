@@ -500,6 +500,19 @@ TEST_CASE("Combat Simulator random bot bodies only draw from MP-selectable bodie
 	REQUIRE(mpIndexGuard < append);
 }
 
+TEST_CASE("SP-in-MP setup overlay bounds-checks auxiliary setup props",
+	"[setup][combat-sim][static]")
+{
+	const std::string setup = readTextFile("src/game/setup.c");
+
+	REQUIRE(setup.find("setupResolvePropsInLoadedSetup") != std::string::npos);
+	REQUIRE(setup.find("assetLoadGetLoadedSize(spStage.setup_handle)") != std::string::npos);
+	REQUIRE(setup.find("invalid SP setup props") != std::string::npos);
+	REQUIRE(setup.find("nextobj > spSetupEnd") != std::string::npos);
+	REQUIRE(setup.find("SP setup ended before OBJTYPE_END") != std::string::npos);
+	REQUIRE(setup.find("g_StageSetup.props = savedMpProps") != std::string::npos);
+}
+
 TEST_CASE("texture audio and hud file fields populate provider handles", "[catalog][provider][static]")
 {
 	const std::string scanner = readTextFile("port/src/assetcatalog_scanner.c");

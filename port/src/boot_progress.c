@@ -15,6 +15,12 @@
  * them at shutdown, so the next boot's bar paces from the previous
  * boot's actual timings instead of the hand-calibrated defaults.
  *
+ * 2026-05-21 polish: in-code duration estimates let the overlay flow inside
+ * phases that do not expose a reliable item count, and item-count phases are
+ * cross-checked against wall-clock timing instead of only filling by list
+ * position.  Keep these estimates out of pd.ini: the config registry is close
+ * to its current 512-entry cap.
+ *
  * Telemetry: when Boot.Telemetry pd.ini flag is non-zero, the boot
  * timing breakdown is logged at MarkComplete.  Default off.
  */
@@ -103,6 +109,33 @@ static float s_PhaseWeights[BOOT_PHASE_COUNT] = {
     0.00f   /* READY           */
 };
 
+/* Wall-clock estimates per phase.  These are intentionally not config-backed
+ * because configRegister* is capped at 512 entries in the current port. */
+static float s_PhaseExpectedMs[BOOT_PHASE_COUNT] = {
+    750.0f,  /* EXTRACT_FILES   */
+    150.0f,  /* VERIFY_FILES    */
+    25.0f,   /* EXTRACT_SEGS    */
+    80.0f,   /* VERIFY_SEGS     */
+    20.0f,   /* RELEASE_ROM     */
+    250.0f,  /* CATALOG_INIT    */
+    650.0f,  /* WALKER          */
+    40.0f,   /* EMIT_WPN        */
+    80.0f,   /* EMIT_MESH       */
+    35.0f,   /* EMIT_ANIM       */
+    30.0f,   /* EMIT_HEAD       */
+    40.0f,   /* EMIT_BODY       */
+    80.0f,   /* EMIT_ARENA      */
+    120.0f,  /* EMIT_ANIMCHR    */
+    250.0f,  /* EMIT_SFX        */
+    35.0f,   /* EMIT_VOICE      */
+    30.0f,   /* EMIT_SONG       */
+    20.0f,   /* EMIT_FONT       */
+    20.0f,   /* EMIT_LANG       */
+    10.0f,   /* EMIT_UI         */
+    100.0f,  /* BUILD_CACHES    */
+    0.0f     /* READY           */
+};
+
 /* Engine Phase 5: per-phase timing capture for weight self-tuning +
  * telemetry.  s_PhaseStartMs[i] is non-zero between bootProgressBeginPhase
  * and bootProgressEndPhase for phase i; s_PhaseElapsedMs[i] is the
@@ -174,10 +207,25 @@ static float s_computeOverall_locked(void)
 
     if (s_State.in_phase) {
         const float w = s_PhaseWeights[s_State.current_phase];
-        if (s_State.current_total > 0 && w > 0.0f) {
-            float frac = (float)s_State.current_value / (float)s_State.current_total;
-            if (frac < 0.0f) frac = 0.0f;
-            if (frac > 1.0f) frac = 1.0f;
+        if (w > 0.0f) {
+            float frac = 0.0f;
+            if (s_State.current_total > 0) {
+                frac = (float)s_State.current_value / (float)s_State.current_total;
+                if (frac < 0.0f) frac = 0.0f;
+                if (frac > 1.0f) frac = 1.0f;
+            }
+            if (s_State.current_phase >= 0 &&
+                s_State.current_phase < BOOT_PHASE_COUNT &&
+                s_PhaseStartMs[s_State.current_phase] != 0 &&
+                s_PhaseExpectedMs[s_State.current_phase] > 1.0f) {
+                u64 now = (u64)SDL_GetTicks();
+                u64 elapsed = (now > s_PhaseStartMs[s_State.current_phase])
+                    ? now - s_PhaseStartMs[s_State.current_phase] : 0;
+                float timeFrac = (float)elapsed / s_PhaseExpectedMs[s_State.current_phase];
+                if (timeFrac < 0.0f) timeFrac = 0.0f;
+                if (timeFrac > 0.985f) timeFrac = 0.985f;
+                if (timeFrac > frac) frac = timeFrac;
+            }
             overall += w * frac;
         }
     }

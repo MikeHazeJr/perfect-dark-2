@@ -15,6 +15,7 @@
 - Added a tracked Codex memory mirror at `tools/kanban/memories.md` so GitHub can carry the project's active memory state alongside code and Kanban state.
 - Added shared project-state sync tooling for Dev Window v2 and the release script.
 - Added named input profile slots and per-controller profile assignment, including custom/raw controller devices.
+- Added Blender-ready map visual exports inside scenario/arena archives, including OBJ/MTL scenes, decoded TGA wall/floor textures, and material TSV ledgers.
 
 ## Changed
 
@@ -25,3 +26,5 @@
 ## Fixed
 
 - Removed the outdated v0.0.7 dedicated-server release notes that were being reused for new releases.
+- Fixed Combat Simulator post-match endscreen X and Quit/Disconnect confirmation clicks so the visible results screen can be exited normally.
+- Fixed Main Menu entry timing so the Carrington Institute camera intro finishes before the menu opens and accepts input.

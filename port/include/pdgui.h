@@ -100,6 +100,8 @@ void pdguiRequestFontAtlasRebuild(void);
 
 /* Carrington Institute opening fly-in: suppress gameplay-only overlays. */
 s32 pdguiCiIntroBlocksInteractPrompt(void);
+s32 pdguiCutsceneSkipPromptShouldRender(void);
+s32 pdguiCutsceneSkipPromptPlayer(void);
 
 /* Null-safe langGet wrapper. Returns langGet(textid) or "" if NULL.
  * Use this everywhere a langGet result goes to ImGui to prevent 0xc0000005. */

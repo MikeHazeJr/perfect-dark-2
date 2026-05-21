@@ -319,6 +319,15 @@ s32 romExtractAllPdhead(s32 force_rewrite)
 		return -1;
 	}
 
+	if (romExtractPdFastCacheCanSkip("pdhead", heads_dir,
+			".pdhead", force_rewrite)) {
+		bootProgressUpdate(g_HeadDataCount, g_HeadDataCount);
+		sysLogPrintf(LOG_NOTE,
+			"romextract pdhead: written=0 skipped=%d failed=0 total=%d (fast-cache)",
+			g_HeadDataCount, g_HeadDataCount);
+		return 0;
+	}
+
 	pdhead_fanout_ctx_t hctx;
 	memset(&hctx, 0, sizeof(hctx));
 	hctx.heads_dir     = heads_dir;
@@ -340,6 +349,10 @@ s32 romExtractAllPdhead(s32 force_rewrite)
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdhead: written=%d skipped=%d failed=%d total=%d",
 		written, skipped, failed, g_HeadDataCount);
+
+	if (failed == 0) {
+		romExtractPdFastCacheWrite("pdhead", heads_dir, ".pdhead");
+	}
 
 	return written;
 }

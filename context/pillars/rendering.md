@@ -83,6 +83,7 @@ Per [audits/codebase-architecture-rating-2026-04-27.md](../audits/codebase-archi
 - Theme system with bundle support, mod-supplied themes, mod UI texture overrides, 5 procedural title bar styles.
 - ImGui v1.91.8 integration with custom backend; PD-authentic styling.
 - Lobby portrait baking pipeline (charpreview FBO, S352).
+- BG visual display-list extraction for map authoring (c3812-s9, 2026-05-21): `.pdscenario` archives export `visual/scene.obj`, `visual/scene.mtl`, `visual/materials.tsv`, and decoded `visual/textures/*.tga` by walking BG `G_VTX` / `G_TRI1` / `G_TRI4` display lists, C0/G_NOOP material commands, and `textureslist` / `texturesdata`. This is an offline asset-authoring export; runtime rendering still uses the fast3d translator.
 - Discord Rich Presence (D7, shipped S348).
 - Foreground drawlist primitives for toasts, glyphs, achievement banners.
 

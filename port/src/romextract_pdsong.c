@@ -990,6 +990,16 @@ s32 romExtractAllPdsong(s32 force_rewrite)
 		return -1;
 	}
 
+	if (romExtractPdFastCacheCanSkip("pdsong", out_dir,
+			".pdsong", force_rewrite)) {
+		bootProgressUpdate((s32)count, (s32)count);
+		sysLogPrintf(LOG_NOTE,
+			"romextract pdsong: written=0 skipped=%u failed=0 "
+			"total=%u (out=%s, fast-cache)",
+			(unsigned)count, (unsigned)count, out_dir);
+		return 0;
+	}
+
 	pdsong_fanout_ctx_t sctx;
 	memset(&sctx, 0, sizeof(sctx));
 	sctx.table         = table;
@@ -1015,6 +1025,10 @@ s32 romExtractAllPdsong(s32 force_rewrite)
 		"romextract pdsong: written=%d skipped=%d failed=%d "
 		"total=%u (out=%s)",
 		written, skipped, failed, (unsigned)count, out_dir);
+
+	if (failed == 0) {
+		romExtractPdFastCacheWrite("pdsong", out_dir, ".pdsong");
+	}
 
 	return written;
 }

@@ -732,6 +732,8 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
     /* During input debounce, suppress button activations so the A press
      * that skipped the cutscene doesn't immediately trigger a button. */
     bool inputSuppressed = (s_SoloEndscreenDebounce > 0);
+    const char *sfmmPopupId = "Return to Main Menu?##es_solo_mm";
+    bool wantSoloMainMenuConfirm = false;
 
     if (pdguiBeginActionBar("##es_solo_ab")) {
         float availW = ImGui::GetContentRegionAvail().x;
@@ -781,14 +783,11 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
                                   ImVec4(0.55f, 0.15f, 0.15f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,
                                   ImVec4(0.75f, 0.2f, 0.2f, 1.0f));
-            const char *sfmmPopupId = "Return to Main Menu?##es_solo_mm";
             if (pdguiActionBarButton("Main Menu", 0,
                                       ImGui::GetContentRegionAvail().x)
                     && !inputSuppressed
                     && !ImGui::IsPopupOpen(sfmmPopupId)) {
-                ImGui::OpenPopup(sfmmPopupId);
-                s_SoloFailedMainMenuOpenFrame = (s32)ImGui::GetFrameCount();
-                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+                wantSoloMainMenuConfirm = true;
             }
             ImGui::PopStyleColor(3);
         }
@@ -801,20 +800,23 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
      * Esc here so it routes to the modal only; completed runs still have
      * Esc as the quick exit (non-destructive in that branch). */
     if (!inputSuppressed) {
-        const char *sfmmPopupId = "Return to Main Menu?##es_solo_mm";
         bool confirmOpen = ImGui::IsPopupOpen(sfmmPopupId);
         if (!confirmOpen &&
             (pdguiConsumeTitleClose() ||
              pdguiMenuCancelPressed())) {
             if (!completed) {
-                ImGui::OpenPopup(sfmmPopupId);
-                s_SoloFailedMainMenuOpenFrame = (s32)ImGui::GetFrameCount();
-                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+                wantSoloMainMenuConfirm = true;
             } else {
                 menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "main_menu",
                     endscreenGraphExitToMainMenu, NULL);
             }
         }
+    }
+
+    if (wantSoloMainMenuConfirm && !ImGui::IsPopupOpen(sfmmPopupId)) {
+        ImGui::OpenPopup(sfmmPopupId);
+        s_SoloFailedMainMenuOpenFrame = (s32)ImGui::GetFrameCount();
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
     }
 
     /* M-6-B: Solo failed-mission Main Menu confirm (destructive = discards
@@ -1332,6 +1334,8 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
 
     const char *mpDisconnectPopupId = "Disconnect?##es_mp_disc";
     const char *mpQuitPopupId       = "Quit Game?##es_mp_quit";
+    bool wantDisconnectConfirm = false;
+    bool wantQuitConfirm = false;
 
     if (pdguiBeginActionBar("##es_mp_ab")) {
         float availW = ImGui::GetContentRegionAvail().x;
@@ -1352,9 +1356,7 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
                                       ImGui::GetContentRegionAvail().x)
                     && !inputSuppressed
                     && !ImGui::IsPopupOpen(mpDisconnectPopupId)) {
-                ImGui::OpenPopup(mpDisconnectPopupId);
-                s_MpDisconnectOpenFrame = (s32)ImGui::GetFrameCount();
-                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+                wantDisconnectConfirm = true;
             }
             ImGui::PopStyleColor(3);
         } else {
@@ -1372,9 +1374,7 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
                                       ImGui::GetContentRegionAvail().x)
                     && !inputSuppressed
                     && !ImGui::IsPopupOpen(mpQuitPopupId)) {
-                ImGui::OpenPopup(mpQuitPopupId);
-                s_MpQuitOpenFrame = (s32)ImGui::GetFrameCount();
-                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+                wantQuitConfirm = true;
             }
             ImGui::PopStyleColor(3);
         }
@@ -1393,14 +1393,21 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
             (pdguiConsumeTitleClose() ||
              pdguiMenuCancelPressed())) {
             if (networked) {
-                ImGui::OpenPopup(mpDisconnectPopupId);
-                s_MpDisconnectOpenFrame = (s32)ImGui::GetFrameCount();
+                wantDisconnectConfirm = true;
             } else {
-                ImGui::OpenPopup(mpQuitPopupId);
-                s_MpQuitOpenFrame = (s32)ImGui::GetFrameCount();
+                wantQuitConfirm = true;
             }
-            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
         }
+    }
+
+    if (wantDisconnectConfirm && !ImGui::IsPopupOpen(mpDisconnectPopupId)) {
+        ImGui::OpenPopup(mpDisconnectPopupId);
+        s_MpDisconnectOpenFrame = (s32)ImGui::GetFrameCount();
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+    } else if (wantQuitConfirm && !ImGui::IsPopupOpen(mpQuitPopupId)) {
+        ImGui::OpenPopup(mpQuitPopupId);
+        s_MpQuitOpenFrame = (s32)ImGui::GetFrameCount();
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
     }
 
     /* M-6-B: render both confirm modals — only one can be open at a time. */

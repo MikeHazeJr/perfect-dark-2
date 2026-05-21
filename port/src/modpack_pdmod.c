@@ -730,10 +730,15 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 		"strings_file", "strings", "strings_tsv", "file_path"
 	};
 	static const char *mapOptionalKeys[] = {
-		"pads_file", "setup_file", "collision_file"
+		"pads_file", "setup_file", "collision_file", "material_file",
+		"texture_file", "texture_manifest_file", "blender_scene_file",
+		"visual_scene_file", "visual_material_file", "visual_materials_file"
 	};
 	static const char *scenarioOptionalKeys[] = {
-		"props_file", "objectives_file", "pads_file", "setup_file"
+		"props_file", "objectives_file", "tiles_file", "pads_file",
+		"setup_file", "mpsetup_file", "material_file", "texture_file",
+		"texture_manifest_file", "blender_scene_file", "visual_scene_file",
+		"visual_material_file", "visual_materials_file", "visual_source_file"
 	};
 
 	char descriptorAbs[FS_MAXPATH + 1];
@@ -1081,8 +1086,17 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 	static const char *uiKeys[] = { "texture_file", "file_path", "texture" };
 	static const char *fontKeys[] = { "font_file", "file_path", "font" };
 	static const char *langKeys[] = { "strings_file", "strings", "strings_tsv", "file_path" };
-	static const char *mapOptionalKeys[] = { "pads_file", "setup_file", "collision_file" };
-	static const char *scenarioOptionalKeys[] = { "props_file", "objectives_file", "pads_file", "setup_file" };
+	static const char *mapOptionalKeys[] = {
+		"pads_file", "setup_file", "collision_file", "material_file",
+		"texture_file", "texture_manifest_file", "blender_scene_file",
+		"visual_scene_file", "visual_material_file", "visual_materials_file"
+	};
+	static const char *scenarioOptionalKeys[] = {
+		"props_file", "objectives_file", "tiles_file", "pads_file",
+		"setup_file", "mpsetup_file", "material_file", "texture_file",
+		"texture_manifest_file", "blender_scene_file", "visual_scene_file",
+		"visual_material_file", "visual_materials_file", "visual_source_file"
+	};
 
 	static const modpack_sidecar_rule_t mapSidecars[] = {
 		{ "pads.ini",  "pads.ini" },

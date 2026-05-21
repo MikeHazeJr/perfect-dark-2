@@ -917,6 +917,16 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 		}
 	}
 
+	if (romExtractPdFastCacheCanSkip("pdmesh", meshes_dir,
+			".pdmesh", force_rewrite)) {
+		bootProgressUpdate(job_count, job_count);
+		s_SeenCount = job_count;
+		sysLogPrintf(LOG_NOTE,
+			"romextract pdmesh: written=0 skipped=%d failed=0 unique_mesh_jobs=%d (fast-cache)",
+			job_count, s_SeenCount);
+		return 0;
+	}
+
 	/* Phase 2: emit the per-mesh work. */
 	pdmesh_fanout_ctx_t mctx;
 	memset(&mctx, 0, sizeof(mctx));
@@ -945,6 +955,10 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdmesh: written=%d skipped=%d failed=%d unique_mesh_jobs=%d",
 		written, skipped, failed, s_SeenCount);
+
+	if (failed == 0) {
+		romExtractPdFastCacheWrite("pdmesh", meshes_dir, ".pdmesh");
+	}
 
 	return written;
 }

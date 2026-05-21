@@ -1,0 +1,13 @@
+{
+  "Name": "combat_sim_entry",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 61.4704558,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 6,
+  "AssertionsMet": 6,
+  "Failures": []
+}

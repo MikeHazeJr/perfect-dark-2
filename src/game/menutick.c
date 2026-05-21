@@ -60,6 +60,30 @@ u8 var80062944 = 0;
 u8 var80062948 = 0;
 u8 var8006294c = 0;
 
+static bool ciReadyForMenuOpen(void)
+{
+	if (g_Vars.stagenum != STAGE_CITRAINING || g_Vars.lvframenum < 4) {
+		return false;
+	}
+
+	if (g_Vars.tickmode == TICKMODE_CUTSCENE && !playerCurrentCutsceneInProgress()) {
+		playerEndCutscene();
+	}
+
+	return g_Vars.tickmode != TICKMODE_CUTSCENE;
+}
+
+static void ciHoldMenuOpenUntilCameraReady(void)
+{
+	if (g_Vars.stagenum == STAGE_CITRAINING) {
+		viBlack(false);
+	} else {
+		viBlack(true);
+	}
+
+	g_PlayersWithControl[0] = false;
+}
+
 const char var7f1a85b0[] = "lvup: %d\n";
 const char var7f1a85bc[] = "file id %x-%x";
 const char var7f1a85cc[] = " ticking: ";
@@ -248,14 +272,13 @@ void menuTick(void)
 
 	// Check if returning from a multiplayer match
 	if (var80087260 > 0) {
-		if (g_Vars.lvframenum >= 4) {
-			if (g_Vars.stagenum == STAGE_CITRAINING) {
-				viBlack(false);
-				g_MpNumJoined = 0;
+		if (ciReadyForMenuOpen()) {
+			viBlack(false);
+			g_MpNumJoined = 0;
 
-				if (g_Vars.usingadvsetup) {
-					g_Vars.mpsetupmenu = MPSETUPMENU_ADVSETUP;
-				} else {
+			if (g_Vars.usingadvsetup) {
+				g_Vars.mpsetupmenu = MPSETUPMENU_ADVSETUP;
+			} else {
 				if (g_NetMode) {
 					g_Vars.mpsetupmenu = MPSETUPMENU_ADVSETUP;
 					/* Single local slot in net mode (slot 0). */
@@ -263,56 +286,55 @@ void menuTick(void)
 						mpRemoveParticipant(_p);
 					}
 					mpAddParticipantAt(0, PARTICIPANT_LOCAL, 0, 0, 0);
-				} else
-				g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
+				} else {
+					g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
 				}
+			}
 
-				const s32 maxplayers = g_NetMode ? 1 : MAX_LOCAL_PLAYERS;
-				for (i = 0; i < maxplayers; i++) {
-					g_Vars.waitingtojoin[i] = false;
+			const s32 maxplayers = g_NetMode ? 1 : MAX_LOCAL_PLAYERS;
+			for (i = 0; i < maxplayers; i++) {
+				g_Vars.waitingtojoin[i] = false;
 
-					if (mpIsParticipantActive(i)) {
-						g_MpPlayerNum = i;
+				if (mpIsParticipantActive(i)) {
+					g_MpPlayerNum = i;
 
-						if (g_Vars.mpsetupmenu == MPSETUPMENU_ADVSETUP) {
-							g_MpNumJoined++;
-							func0f17fcb0(true);
-						} else if (g_MpNumJoined == 0) {
-							g_MpNumJoined++;
+					if (g_Vars.mpsetupmenu == MPSETUPMENU_ADVSETUP) {
+						g_MpNumJoined++;
+						func0f17fcb0(true);
+					} else if (g_MpNumJoined == 0) {
+						g_MpNumJoined++;
 
-							menuPushRootDialog(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
-							/* Rematch path: preserve match config across the
-							 * post-match -> CITRAINING reload -> CS Room push.
-							 * Cold-path entry into Combat Simulator (Main Menu
-							 * -> "Combat Simulator") runs through a separate
-							 * code path that uses pdguiSoloRoomOpen() to reset.
-							 * Mike's directive 2026-05-17: rematch must preserve
-							 * settings end-to-end. */
-							pdguiSoloRoomReturn(); /* PC port: ImGui room screen renders on top */
-						} else {
-							g_Vars.waitingtojoin[i] = true;
-							if (g_NetMode == NETMODE_CLIENT) {
-								// autodump client into waiting screen while host is changing settings
-								extern struct menudialogdef g_NetJoiningDialog;
-								menuPushDialog(&g_NetJoiningDialog);
-							}
+						menuPushRootDialog(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
+						/* Rematch path: preserve match config across the
+						 * post-match -> CITRAINING reload -> CS Room push.
+						 * Cold-path entry into Combat Simulator (Main Menu
+						 * -> "Combat Simulator") runs through a separate
+						 * code path that uses pdguiSoloRoomOpen() to reset.
+						 * Mike's directive 2026-05-17: rematch must preserve
+						 * settings end-to-end. */
+						pdguiSoloRoomReturn(); /* PC port: ImGui room screen renders on top */
+					} else {
+						g_Vars.waitingtojoin[i] = true;
+						if (g_NetMode == NETMODE_CLIENT) {
+							// autodump client into waiting screen while host is changing settings
+							extern struct menudialogdef g_NetJoiningDialog;
+							menuPushDialog(&g_NetJoiningDialog);
 						}
 					}
 				}
+			}
 
-				g_MpPlayerNum = 0;
+			g_MpPlayerNum = 0;
 
-				if (mpGetActivePlayerCount() > 0) {
-					sndStart(var80095200, SFX_EXPLOSION_8098, 0, -1, -1, -1, -1, -1);
+			if (mpGetActivePlayerCount() > 0) {
+				sndStart(var80095200, SFX_EXPLOSION_8098, 0, -1, -1, -1, -1, -1);
 
-					playerPause(MENUROOT_MPSETUP);
-				}
+				playerPause(MENUROOT_MPSETUP);
 			}
 
 			var80087260 = 0;
 		} else {
-			viBlack(true);
-			g_PlayersWithControl[0] = false;
+			ciHoldMenuOpenUntilCameraReady();
 		}
 	}
 
@@ -334,49 +356,29 @@ void menuTick(void)
 	 * different cleanup branches.
 	 *
 	 * One-shot: cleared on consumption so a subsequent re-entry to CI from
-	 * any path doesn't accidentally re-open the Main Menu. Same lvframenum
-	 * >= 4 + STAGE_CITRAINING gates as the Combat Sim block to ride out
-	 * the post-load black frame and ensure the chr is alive before pause. */
-	if (g_PostExitMainMenuView >= 0
-			&& var80087260 == 0
-			&& g_Vars.lvframenum >= 4
-			&& g_Vars.stagenum == STAGE_CITRAINING) {
-		extern void pdguiMainMenuOpenAtView(s32 view, const char *reason);
-		const s32 view = g_PostExitMainMenuView;
-		g_PostExitMainMenuView = -1; /* one-shot, clear before push so a
-		                                push-side reentrance doesn't loop. */
-		viBlack(false);
-		pdguiMainMenuOpenAtView(view, "post-exit");
-		sndStart(var80095200, SFX_EXPLOSION_8098, 0, -1, -1, -1, -1, -1);
-		playerPause(MENUROOT_MAINMENU);
+	 * any path doesn't accidentally re-open the Main Menu. The CI camera gate
+	 * lets the map intro finish before menu input owns the controller. */
+	if (g_PostExitMainMenuView >= 0 && var80087260 == 0) {
+		if (ciReadyForMenuOpen()) {
+			extern void pdguiMainMenuOpenAtView(s32 view, const char *reason);
+			const s32 view = g_PostExitMainMenuView;
+			g_PostExitMainMenuView = -1; /* one-shot, clear before push so a
+			                                push-side reentrance doesn't loop. */
+			viBlack(false);
+			pdguiMainMenuOpenAtView(view, "post-exit");
+			sndStart(var80095200, SFX_EXPLOSION_8098, 0, -1, -1, -1, -1, -1);
+			playerPause(MENUROOT_MAINMENU);
+		} else {
+			ciHoldMenuOpenUntilCameraReady();
+		}
 	}
 
 	// If a game file hasn't been selected (ie. just powered on),
 	// force the file select menu open.
-	//
-	// The cutscene gate (tickmode != TICKMODE_CUTSCENE) makes the menu
-	// wait for the CI intro fly-in to finish in the normal title-sequence
-	// flow. But when --skip-intro / pd.ini SkipIntro=1 bypasses the title
-	// sequence and jumps straight to STAGE_CITRAINING, the AI script's
-	// intro cutscene starts but never ends -- the title-sequence
-	// machinery that would have advanced it is absent. Result: the user
-	// sees a stuck CI cutscene (which renders as dark / black on many
-	// setups because the CI fly-in camera passes through interior
-	// geometry) and the file-select menu never auto-opens. Pressing a
-	// key gets them out manually, but that defeats the "boot to menu"
-	// UX.
-	//
-	// Fix (2026-05-13): add a watchdog. If lvframenum > 300 (5 seconds)
-	// and the cutscene hasn't ended, force-open the file menu anyway.
-	// Normal title-sequence flow ends the CI cutscene well within 5s,
-	// so this only kicks in on the SkipIntro deadlock path.
 	if (g_FileState == FILESTATE_UNSELECTED && g_Vars.stagenum == STAGE_CITRAINING) {
 		g_PlayersWithControl[0] = false;
 
-		const s32 cutscene_watchdog_ready =
-			(g_Vars.tickmode != TICKMODE_CUTSCENE) || (g_Vars.lvframenum > 300);
-
-		if (g_Vars.lvframenum > 30 && cutscene_watchdog_ready) {
+		if (g_Vars.lvframenum > 30 && ciReadyForMenuOpen()) {
 			g_Menus[0].openinhibit = 0;
 			g_Menus[1].openinhibit = 0;
 			g_Menus[2].openinhibit = 0;

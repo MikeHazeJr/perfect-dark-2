@@ -1,0 +1,50 @@
+{
+  "scenario_name": "combat_sim_chicago_match_start",
+  "description": "Seed Chicago Combat with 12 bots, then auto-start the match through the debug launch path. Pins the B-360 crash path: MATCHSTART into base:arena_chicago followed by setupCreateProps SP-in-MP overlay.",
+  "tags": ["menu", "input", "combatsim", "match-start", "stability"],
+  "paths_of_interest": [
+    "src/game/setup.c",
+    "port/src/net/matchsetup.c",
+    "port/fast3d/pdgui_menu_room.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--launch-mp-room",
+    "base:arena_chicago",
+    "base:combat",
+    "12",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot, seed Combat Simulator config, and fire direct debug match start" },
+    { "at_ms": 80000, "type": "exit", "comment": "leave enough time for matchStart, Chicago stage load, setupCreateProps, and a few gameplay frames" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=combat_sim_chicago_match_start",
+      "BOOT: --launch-mp-room arena='base:arena_chicago'",
+      "BOOT: --debug-auto-start-match consumed",
+      "BOOT: --launch-mp-room direct match start armed",
+      "BOOT: --launch-mp-room direct match start",
+      "MATCHSTART\\.DIAG: entry stage_id='base:arena_chicago'",
+      "MATCHSTART\\.DIAG: post-mpStartMatch returned",
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x1d",
+      "SETUP: prop iteration done",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "bodyAllocateModel returned NULL"
+    ],
+    "required_counts": []
+  }
+}

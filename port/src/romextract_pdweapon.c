@@ -1731,6 +1731,15 @@ s32 romExtractAllPdweapon(s32 force_rewrite)
 		return -1;
 	}
 
+	if (romExtractPdFastCacheCanSkip("pdweapon", weapons_dir,
+			".pdweapon", force_rewrite)) {
+		bootProgressUpdate(g_WeaponDataCount, g_WeaponDataCount);
+		sysLogPrintf(LOG_NOTE,
+			"romextract pdweapon: written=0 skipped=%d failed=0 total=%d (fast-cache)",
+			g_WeaponDataCount, g_WeaponDataCount);
+		return 0;
+	}
+
 	pdweapon_fanout_ctx_t wctx;
 	memset(&wctx, 0, sizeof(wctx));
 	wctx.weapons_dir   = weapons_dir;
@@ -1752,6 +1761,10 @@ s32 romExtractAllPdweapon(s32 force_rewrite)
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdweapon: written=%d skipped=%d failed=%d total=%d",
 		written, skipped, failed, g_WeaponDataCount);
+
+	if (failed == 0) {
+		romExtractPdFastCacheWrite("pdweapon", weapons_dir, ".pdweapon");
+	}
 
 	return written;
 }

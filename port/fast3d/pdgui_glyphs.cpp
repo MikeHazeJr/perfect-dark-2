@@ -98,6 +98,7 @@ static InputMappingContext *const kAllImcs[] = {
 	&g_ImcMenu,
 	&g_ImcObserver,
 	&g_ImcVehicle,
+	&g_ImcCutscene,
 	&g_ImcGameplay,
 };
 static const int kNumImcs = (int)(sizeof(kAllImcs) / sizeof(kAllImcs[0]));

@@ -193,6 +193,15 @@ bool archiveHasEntry(mod_archive_t *archive, const std::string &entryPath) {
 	return archive && modArchiveFindEntry(archive, entryPath.c_str()) >= 0;
 }
 
+std::string entryRelativePath(const std::string &baseEntry,
+                              const std::string &relative) {
+	const size_t slash = baseEntry.find_last_of('/');
+	if (slash == std::string::npos) {
+		return relative;
+	}
+	return baseEntry.substr(0, slash + 1) + relative;
+}
+
 void requireIniPathRefsResolve(mod_archive_t *archive,
                                const char *archiveRel,
                                const char *descriptorEntry,
@@ -240,7 +249,8 @@ void requireGltfUrisResolve(mod_archive_t *archive,
 		}
 		REQUIRE(uri.find("..") == std::string::npos);
 		REQUIRE(uri.find(':') == std::string::npos);
-		REQUIRE(archiveHasEntry(archive, uri));
+		REQUIRE((archiveHasEntry(archive, uri) ||
+			archiveHasEntry(archive, entryRelativePath(gltfEntry, uri))));
 	}
 }
 
@@ -333,6 +343,12 @@ TEST_CASE("folder to pdmod packer validates layout and generates INI templates",
 	REQUIRE(packer.find("weapons\", \"weapon.ini\", \"weapon\"") != std::string::npos);
 	REQUIRE(packer.find("characters/heads\", \"head.ini\", \"head\"") != std::string::npos);
 	REQUIRE(packer.find("maps\", \"arena.ini\", \"arena\"") != std::string::npos);
+	REQUIRE(packer.find("\"blender_scene_file\"") != std::string::npos);
+	REQUIRE(packer.find("\"visual_scene_file\"") != std::string::npos);
+	REQUIRE(packer.find("\"visual_material_file\"") != std::string::npos);
+	REQUIRE(packer.find("\"visual_materials_file\"") != std::string::npos);
+	REQUIRE(packer.find("\"texture_manifest_file\"") != std::string::npos);
+	REQUIRE(packer.find("\"visual_source_file\"") != std::string::npos);
 	REQUIRE(packer.find("audio/music\", \"music.ini\", \"music\"") != std::string::npos);
 	REQUIRE(packer.find("animations/character\", \"animation.ini\", \"animation\"") != std::string::npos);
 	REQUIRE(packer.find("references missing source file") != std::string::npos);
@@ -376,6 +392,12 @@ TEST_CASE("archive mods scan INI descriptors through the shared catalog scanner"
 	REQUIRE(scanner.find("qualifyTypedArchiveSourcePaths(&ini, entry_name)") != std::string::npos);
 	REQUIRE(scanner.find("qualifyArchiveIniPaths") != std::string::npos);
 	REQUIRE(scanner.find("iniGet(ini, \"catalog_id\", iniGet(ini, \"id\"") != std::string::npos);
+	REQUIRE(scanner.find("\"blender_scene_file\"") != std::string::npos);
+	REQUIRE(scanner.find("\"visual_scene_file\"") != std::string::npos);
+	REQUIRE(scanner.find("\"visual_material_file\"") != std::string::npos);
+	REQUIRE(scanner.find("\"visual_materials_file\"") != std::string::npos);
+	REQUIRE(scanner.find("\"texture_manifest_file\"") != std::string::npos);
+	REQUIRE(scanner.find("\"visual_source_file\"") != std::string::npos);
 
 	std::string modmgr = readFile("port/src/modmgr.c");
 	const auto mount = modmgr.find("modVfsMount(mod->id, mod->archive_handle)");
@@ -1880,6 +1902,11 @@ TEST_CASE("base arena extractor emits zip-openable pdarena archives",
 	REQUIRE(arena.find("s_copyArchiveEntriesWithPrefix") != std::string::npos);
 	REQUIRE(arena.find("\"scenario/scenario.ini\"") != std::string::npos);
 	REQUIRE(arena.find("\"scenario/rooms.obj\"") != std::string::npos);
+	REQUIRE(arena.find("\"scenario/visual/scene.obj\"") != std::string::npos);
+	REQUIRE(arena.find("\"scenario/visual/scene.mtl\"") != std::string::npos);
+	REQUIRE(arena.find("\"scenario/visual/materials.tsv\"") != std::string::npos);
+	REQUIRE(arena.find("\"scenario/visual/export_version.txt\"") !=
+	        std::string::npos);
 	REQUIRE(arena.find("scenario_root = scenario") != std::string::npos);
 	REQUIRE(arena.find("\\\"scenario_root\\\": \\\"scenario\\\"") !=
 	        std::string::npos);
@@ -1910,6 +1937,39 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	        std::string::npos);
 	REQUIRE(arena.find("rooms.obj") != std::string::npos);
 	REQUIRE(arena.find("scenario.mtl") != std::string::npos);
+	REQUIRE(arena.find("s_buildBgVisualExports") != std::string::npos);
+	REQUIRE(arena.find("preprocessBgSection1") != std::string::npos);
+	REQUIRE(arena.find("preprocessBgRoom") != std::string::npos);
+	REQUIRE(arena.find("G_NOOP") != std::string::npos);
+	REQUIRE(arena.find("G_TRI1") != std::string::npos);
+	REQUIRE(arena.find("G_TRI4") != std::string::npos);
+	REQUIRE(arena.find("texInflateZlib") != std::string::npos);
+	REQUIRE(arena.find("texInflateNonZlib") != std::string::npos);
+	REQUIRE(arena.find("visual/scene.obj") != std::string::npos);
+	REQUIRE(arena.find("visual/scene.mtl") != std::string::npos);
+	REQUIRE(arena.find("visual/materials.tsv") != std::string::npos);
+	REQUIRE(arena.find("visual/export_version.txt") != std::string::npos);
+	REQUIRE(arena.find("visual/textures/tex_%04x.tga") != std::string::npos);
+	REQUIRE(arena.find("bg_visual_obj_mtl_tga_v2") != std::string::npos);
+	REQUIRE(arena.find("mat_%03u_tex_%04x") != std::string::npos);
+	REQUIRE(arena.find("texture_inventory_%04x") != std::string::npos);
+	REQUIRE(arena.find("strncmp(mtl_texture_path, \"visual/\", 7)") !=
+	        std::string::npos);
+	REQUIRE(arena.find("blender_scene_file = visual/scene.obj") !=
+	        std::string::npos);
+	REQUIRE(arena.find("visual_scene_file = visual/scene.obj") !=
+	        std::string::npos);
+	REQUIRE(arena.find("visual_material_file = visual/scene.mtl") !=
+	        std::string::npos);
+	REQUIRE(arena.find("texture_manifest_file = visual/materials.tsv") !=
+	        std::string::npos);
+	REQUIRE(arena.find("visual_format = OBJ+MTL+TGA") != std::string::npos);
+	REQUIRE(arena.find("visual_export_version = bg_visual_obj_mtl_tga_v2") !=
+	        std::string::npos);
+	REQUIRE(arena.find("\\\"visual_format\\\": \\\"OBJ+MTL+TGA\\\"") !=
+	        std::string::npos);
+	REQUIRE(arena.find("\\\"visual_export_version\\\": \\\"bg_visual_obj_mtl_tga_v2\\\"") !=
+	        std::string::npos);
 	REQUIRE(arena.find("tiles.tsv") != std::string::npos);
 	REQUIRE(arena.find("pads.tsv") != std::string::npos);
 	REQUIRE(arena.find("setup.tsv") != std::string::npos);
@@ -1919,11 +1979,26 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("geometry_format = OBJ") != std::string::npos);
 	REQUIRE(arena.find("s_existingArchiveHasEntry(dst_rel, \"rooms.obj\")") !=
 	        std::string::npos);
+	REQUIRE(arena.find("s_existingArchiveHasEntry(dst_rel, \"visual/scene.obj\")") !=
+	        std::string::npos);
+	REQUIRE(arena.find("s_existingArchiveHasEntry(dst_rel, \"visual/export_version.txt\")") !=
+	        std::string::npos);
 	REQUIRE(arena.find("modArchiveAddFileMem(aw, \"rooms.obj\"") !=
 	        std::string::npos);
+	REQUIRE(arena.find("modArchiveAddFileMem(aw, \"visual/export_version.txt\"") !=
+	        std::string::npos);
+	REQUIRE(arena.find("modArchiveAddFileMem(aw, \"visual/scene.obj\"") !=
+	        std::string::npos);
 	REQUIRE(arena.find("rooms.obj.sha256") != std::string::npos);
+	REQUIRE(arena.find("visual/export_version.txt.sha256") != std::string::npos);
+	REQUIRE(arena.find("visual/scene.obj.sha256") != std::string::npos);
+	REQUIRE(arena.find("visual/scene.mtl.sha256") != std::string::npos);
+	REQUIRE(arena.find("visual/materials.tsv.sha256") != std::string::npos);
 	REQUIRE(arena.find("tiles.tsv.sha256") != std::string::npos);
 	REQUIRE(arena.find("pads.tsv.sha256") != std::string::npos);
+	REQUIRE(arena.find("map_material.png") == std::string::npos);
+	REQUIRE(arena.find("data:application/octet-stream;base64,") ==
+	        std::string::npos);
 
 	REQUIRE(arena.find("geometry_file = geometry.bin") == std::string::npos);
 	REQUIRE(arena.find("\\\"geometry\\\": \\\"geometry.bin\\\"") ==

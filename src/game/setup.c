@@ -429,6 +429,37 @@ s32 setupCountCommandType(u32 type)
 	return count;
 }
 
+static bool setupResolvePropsInLoadedSetup(struct stagesetup *setup, s32 loadedsize, u32 **props)
+{
+	uintptr_t base;
+	uintptr_t end;
+	uintptr_t rawprops;
+	uintptr_t propsaddr;
+
+	if (!setup || !props || loadedsize <= (s32)sizeof(*setup)) {
+		return false;
+	}
+
+	base = (uintptr_t)setup;
+	end = base + (uintptr_t)loadedsize;
+	rawprops = (uintptr_t)setup->props;
+
+	if (rawprops >= base && rawprops < end) {
+		propsaddr = rawprops;
+	} else if (rawprops < (uintptr_t)loadedsize) {
+		propsaddr = base + rawprops;
+	} else {
+		return false;
+	}
+
+	if (propsaddr < base + sizeof(*setup) || propsaddr + sizeof(u32) > end || (propsaddr & 3) != 0) {
+		return false;
+	}
+
+	*props = (u32 *)propsaddr;
+	return true;
+}
+
 void setupCreateObject(struct defaultobj *obj, s32 cmdindex)
 {
 	f32 f0;
@@ -2623,21 +2654,50 @@ void setupCreateProps(s32 stagenum)
 					struct stagesetup *spSetupHdr = (struct stagesetup *)assetLoadToNew(
 							spStage.setup_handle, FILELOADMETHOD_DEFAULT, LOADTYPE_SETUP);
 					if (spSetupHdr) {
-						u32 *spProps = (u32 *)((uintptr_t)spSetupHdr + (uintptr_t)spSetupHdr->props);
+						s32 spSetupSize = assetLoadGetLoadedSize(spStage.setup_handle);
+						u32 *spProps = NULL;
 						u32 *savedMpProps = g_StageSetup.props;
-						/* Repoint g_StageSetup.props to the SP blob so that
-						 * setupGetCmdByIndex (used by the lift door-link
-						 * logic) resolves SP-internal cross-references
-						 * correctly. Restored at end of this block. */
-						g_StageSetup.props = spProps;
 
 						s32 spIndex = 0;
 						s32 spLifts = 0;
 						s32 spEscaSteps = 0;
-						obj = (struct defaultobj *)spProps;
 
-						while (obj->type != OBJTYPE_END) {
-							if (obj->type == OBJTYPE_LIFT && withobjs) {
+						if (!setupResolvePropsInLoadedSetup(spSetupHdr, spSetupSize, &spProps)) {
+							sysLogPrintf(LOG_WARNING,
+								"SETUP.LIFT: SP-in-MP stagenum=0x%02x -- invalid SP setup props (size=%d raw=%p)",
+								(u32)stagenum, spSetupSize, (void *)spSetupHdr->props);
+							g_StageSetup.props = savedMpProps;
+						} else {
+							/* Repoint g_StageSetup.props to the SP blob so that
+							 * setupGetCmdByIndex (used by the lift door-link
+							 * logic) resolves SP-internal cross-references
+							 * correctly. Restored at end of this block. */
+							g_StageSetup.props = spProps;
+							obj = (struct defaultobj *)spProps;
+
+							uintptr_t spSetupBase = (uintptr_t)spSetupHdr;
+							uintptr_t spSetupEnd = spSetupBase + (uintptr_t)spSetupSize;
+							s32 spGuard = 0;
+
+							while ((uintptr_t)obj + sizeof(u32) <= spSetupEnd && obj->type != OBJTYPE_END) {
+								u32 cmdlen = setupGetCmdLength((u32 *)obj);
+								uintptr_t nextobj = (uintptr_t)((u32 *)obj + cmdlen);
+
+								if (cmdlen == 0 || nextobj <= (uintptr_t)obj || nextobj > spSetupEnd) {
+									sysLogPrintf(LOG_WARNING,
+										"SETUP.LIFT: SP-in-MP stagenum=0x%02x -- invalid SP setup command type=%d index=%d len=%u",
+										(u32)stagenum, (s32)obj->type, spIndex, cmdlen);
+									break;
+								}
+
+								if (++spGuard > 2048) {
+									sysLogPrintf(LOG_WARNING,
+										"SETUP.LIFT: SP-in-MP stagenum=0x%02x -- SP setup command guard tripped",
+										(u32)stagenum);
+									break;
+								}
+
+								if (obj->type == OBJTYPE_LIFT && withobjs) {
 								/* SP authors did not set OBJFLAG2_EXCLUDE_*
 								 * bits for MP, so the diffflag filter is a
 								 * no-op here -- include unconditionally. */
@@ -2734,9 +2794,15 @@ void setupCreateProps(s32 stagenum)
 								}
 								spEscaSteps++;
 							}
-							obj = (struct defaultobj *)((u32 *)obj + setupGetCmdLength((u32 *)obj));
-							spIndex++;
-						}
+								obj = (struct defaultobj *)nextobj;
+								spIndex++;
+							}
+
+							if ((uintptr_t)obj + sizeof(u32) > spSetupEnd) {
+								sysLogPrintf(LOG_WARNING,
+									"SETUP.LIFT: SP-in-MP stagenum=0x%02x -- SP setup ended before OBJTYPE_END",
+									(u32)stagenum);
+							}
 
 						/* Restore the MP props pointer for the rest of
 						 * setupCreateProps (spawn-pool computation,
@@ -2747,6 +2813,7 @@ void setupCreateProps(s32 stagenum)
 						sysLogPrintf(LOG_NOTE,
 							"SETUP.LIFT: SP-in-MP stagenum=0x%02x lifts=%d escasteps=%d",
 							(u32)stagenum, spLifts, spEscaSteps);
+						}
 					} else {
 						sysLogPrintf(LOG_WARNING,
 							"SETUP.LIFT: SP-in-MP stagenum=0x%02x -- failed to load SP setup blob",

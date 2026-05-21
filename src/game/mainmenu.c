@@ -4611,7 +4611,13 @@ MenuDialogHandlerResult soloMenuDialogPauseStatus(s32 operation, struct menudial
 
 char *soloMenuTitlePauseStatus(struct menudialogdef *dialogdef)
 {
-	if (dialogdef != g_Menus[g_MpPlayerNum].curdialog->definition) {
+	struct menudialog *curdialog = NULL;
+
+	if (g_MpPlayerNum >= 0 && g_MpPlayerNum < MAX_PLAYERS) {
+		curdialog = g_Menus[g_MpPlayerNum].curdialog;
+	}
+
+	if (!curdialog || !curdialog->definition || dialogdef != curdialog->definition) {
 		return langGet(L_OPTIONS_172); // "Status"
 	}
 

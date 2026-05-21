@@ -13,24 +13,92 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - Asset Pipeline, typed pdxxx, .pdmod, c3812, memory-rebuild.md, base-game assets, mod assets, self-contained asset archives
 
+## Task 2: Verify and expand self-contained typed archive coverage across every current asset family, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-20T21-25-27-TDyP-pdxxx_archive_repair_all_asset_families.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\20\rollout-2026-05-20T17-25-27-019e4747-7bb7-7111-9c33-66edcee213f3.jsonl, updated_at=2026-05-20T23:43:26+00:00, thread_id=019e4747-7bb7-7111-9c33-66edcee213f3, expanded examples and dependency-closure tests for all current typed families)
+
+### keywords
+
+- c3812, typed-pdxxx-basic, self-contained archive, dependency closure, assetcatalog_scanner, model_file, hand_model_file, geometry_file, strings_tsv, c3809
+
 ## User preferences
 
 - when project memory or docs describe the archive system, the user corrected: "it isn’t really the Mod Pipeline ... it is the Asset pipeline, and is intended to treat all asstes, base game or mod, natively and equally" -> use Asset Pipeline language and make base/mod parity explicit [Task 1]
 - when the user explicitly asks to rebuild project memory from a source file "verbatim", treat that file as the source of truth instead of merging older memories back in [Task 1]
+- when the user said "Each asset should serve as a fully self contained archive" -> default acceptance should be archive self-containment, not just descriptor presence [Task 2]
+- when the user said "Run until all asset types pass their appropriate file and dependency file test" -> keep iterating until every family passes a dependency-aware gate [Task 2]
+- when the user asked "List the asset types and the General file contents in each assert archive type" -> final reporting should be inventory-style and contents-specific [Task 2]
 
 ## Reusable knowledge
 
-- All game content should be saved per asset as the relevant typed `*.pdxxx` file, and each `.pdwpn`, `.pdhead`, `.pdbody`, `.pdarena`, `.pdmesh`, `.pdanim`, `.pdsfx`, `.pdvoice`, `.pdsong`, `.pdui`, `.pdfont`, `.pdlang`, and similar typed file is a self-contained archive for that asset [Task 1]
+- All game content should be saved per asset as the relevant typed `*.pdxxx` file, and each `.pdhead`, `.pdbody`, `.pdarena`, `.pdmesh`, `.pdanim`, `.pdsfx`, `.pdvoice`, `.pdsong`, `.pdui`, `.pdfont`, `.pdlang`, `.pdscenario`, and similar typed file is a self-contained archive for that asset [Task 1][Task 2]
 - Base-game assets and mod assets should be treated natively and equally by the asset pipeline; mods are not a second-class or separate content model [Task 1]
 - Changing a typed asset archive extension to `.zip` should expose the descriptor plus the authored source files needed to edit or clone that asset; authored files should stay modern and readable rather than opaque blobs [Task 1]
 - The engine should use those files natively at the game-facing boundary. If native use requires conversion in either direction, build the two-way conversion pipeline rather than shipping opaque authored blobs [Task 1]
 - `.pdmod` is transport only for Public Mods, sharing, and online-required delivery. It is not the primary authoring surface [Task 1]
 - The active repair card for the current typed-archive contract is `c3812`, and the priority chain treats asset-pipeline repair as the front of the ship-critical path [Task 1]
+- The archive gate is stronger than "file exists": tests should validate both required files and intra-archive dependency closure for descriptor paths, GLTF `uri`, OBJ `mtllib`, and MTL texture refs [Task 2]
+- The scanner’s source-path keys are the contract surface for internal references: `model_file`, `hand_model_file`, `geometry_file`, `pads_file`, `setup_file`, `rooms_file`, `props_file`, `objectives_file`, `animation_file`, `texture_file`, `font_file`, `strings_file`, `strings_tsv`, `file_path`, and related keys in `assetcatalog_scanner` [Task 2]
+- The current `typed-pdxxx-basic` examples cover every current non-weapon family plus the older `tri_weapon.pdwpn` fixture that existed during `c3812`; newer weapon-specific archive direction now lives in the `PD2 Weapon Graph Asset Archives` block because the weapon lane moved to `.pdweapon` [Task 2]
 
 ## Failures and how to do differently
 
 - Do not let a secondary generated `memory_summary.md` preserve stale pre-rebuild topics after a source-of-truth memory replacement; rewrite and verify both memory artifacts [Task 1]
 - If a background process appears to rewrite the active memory copy, rewrite the intended source again and verify by task-group count and key corrected rules before treating the rebuild as finished [Task 1]
+- A minimal "descriptor + one source file" check was insufficient once the user clarified the fully self-contained requirement [Task 2]
+- If archive fixtures mix older simple OBJ faces with newer UV-indexed faces, make the shared assertion accept both forms instead of forcing one legacy fixture shape everywhere [Task 2]
+- A sandboxed wrapper run that cannot find `pd-tests.exe` is not trustworthy verification for this lane; rerun from the real checkout/build output before treating the archive gate as passing [Task 2]
+
+# Task Group: PD2 Weapon Graph Asset Archives
+scope: Weapon-specific authored archive contracts, graph emission, nested payload packaging, and Kanban sprint handoff for weapon behavior data.
+applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for PD2 weapon-archive authoring, extractor/output, and card-handoff work when `.pdweapon`, nested payloads, or weapon behavior modularization are in scope.
+
+## Task 1: Clarify weapon behavior modularization as authored asset data instead of new gameplay design, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T00-18-27-pZ9s-pdwpn_weapon_behavior_modularization.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\20\rollout-2026-05-20T20-18-27-019e47e5-ddbf-72a1-8cf5-a2fe1c8d8276.jsonl, updated_at=2026-05-21T00:22:30+00:00, thread_id=019e47e5-ddbf-72a1-8cf5-a2fe1c8d8276, earlier clarification before the `.pdweapon` cutover)
+
+### keywords
+
+- weapon behavior, modularize existing behavior, authored asset format, c3812, trigger pulled, hold fire, charge release, zoom, reticle, ammo display
+
+## Task 2: Emit base `.pdweapon` graph archives with embedded payloads and convert the card into a CLI sprint ledger, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T00-39-23-o7K9-pdweapon_base_graph_and_kanban_sprint_update.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\20\rollout-2026-05-20T20-39-23-019e47f9-0958-7f33-b2c2-099b71f53b99.jsonl, updated_at=2026-05-21T05:23:35+00:00, thread_id=019e47f9-0958-7f33-b2c2-099b71f53b99, superseding weapon archive direction with `.pdweapon` and sprint-ready `c3814` board state)
+
+### keywords
+
+- pdweapon, pdprojectile, pdentity, base_weapon_graph_v1, nested_payloads.json, c3814, romextract_pdweapon, no .pdwpn, CLI sprint, state.json
+
+## User preferences
+
+- when the user said "All the behavior exists in the game already, we just need to modularize it and use it from our own asset files" -> treat weapon-behavior requests as modularization/export of existing behavior, not a request to invent new mechanics [Task 1]
+- when behavior examples include "when trigger pulled", rapid fire, hold fire, charge/release, secondary modes, melee, zoom levels, reticle / overlay / zoom camera effects, and ammo-display behavior -> preserve those examples as required coverage when updating the weapon authored-data contract [Task 1]
+- when the user asked to "Update the Kanban card with completed vs incomplete work, and I will use CLI to sprint us to completion" -> structure weapon-lane board updates as a sprint ledger with completed work first and remaining order explicit [Task 2]
+- when the weapon-graph lane says weapons should embed/catalog nested projectile/entity assets so each weapon archive stays self-contained -> default to self-contained weapon archives rather than split payload delivery [Task 2]
+
+## Reusable knowledge
+
+- The earlier weapon-behavior clarification was about authored asset modularization, not a separate gameplay system: the target behavior layer should represent trigger-pulled cadence in centiseconds, custom projectile selection, looping/rapid fire, hold-fire beams, charge-and-release, secondary modes, melee, zoom, reticles, overlays, zoom-camera effects, and ammo-driven presentation [Task 1]
+- The newer `c3814` lane supersedes the older weapon-extension direction: `.pdweapon` is the active weapon behavior archive extension, `.pdwpn` is deprecated/unsupported in this lane, and live code/tests/examples were verified clean of `.pdwpn` matches [Task 2]
+- `romextract_pdweapon.c` now emits `base_weapon_graph_v1` instead of the temporary legacy-manifest graph, with named modules for hitscan, auto cadence, burst, charge/release, beam tick, fired projectile, thrown physical, melee, specials, and devices [Task 2]
+- Physical weapon behavior now emits embedded `.pdprojectile` and `.pdentity` archives under `projectiles/` and `entities/`, with `nested_payloads.json` recording canonical SHA-256 inventory rows [Task 2]
+- `weapon_graph_archive` centralizes descriptor/text reads, root validation, derived nested IDs, duplicate-ID collision checks, canonical archive-content SHA-256, and nested payload inventory formatting [Task 2]
+- The `.pdweapon` root archive contract is `weapon.ini`, `manifest.json`, `behavior.graph.json`, and `nested_payloads.json` [Task 2]
+- `tools/kanban/state.json` now treats `c3814` as a sprint-ready execution surface: `c3814-s13` done, `c3814-s14` active, `c3814-s15..s18` backlog, with lockouts preserved for no `.pdwpn` and self-contained nested payloads [Task 2]
+
+## Failures and how to do differently
+
+- Avoid interpreting behavior requests as permission to invent a parallel gameplay system; the user explicitly corrected that framing [Task 1]
+- Keep weapon-contract updates additive and scoped to the active archive lane instead of broad unrelated refactors when the repo already has many concurrent changes [Task 1]
+- A temp-path resolution failure in the payload planner must roll back the planned slot and decrement the count instead of leaving a half-filled payload entry [Task 2]
+- The first graph pass was too adapter-centric; replace temporary compatibility layers with graph-shaped emission once the target contract is known [Task 2]
+- If the first Kanban rewrite is too historical, recast it into a completed-vs-incomplete CLI ledger after reading the exact live card block instead of patching by assumption [Task 2]
 
 # Task Group: PD2 F6 Debug Completion Semantics
 scope: F6 debug hotkey behavior in Campaign and Combat Simulator, plus adjacent credits-routing debug entry points.

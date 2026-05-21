@@ -46,6 +46,7 @@
 /* Forge level editor (F0+) */
 #include "pdgui_forge.h"
 #include "pdgui_interact_prompt.h"
+#include "pdgui_cutscene_prompt.h"
 
 /* F8 in-game menu hot-swap */
 #include "pdgui_hotswap.h"
@@ -163,10 +164,11 @@ static bool pdguiAnyStandardOverlayReason(
     bool pauseActive,
     bool hubActive,
     bool interactPrompt,
+    bool cutscenePrompt,
     bool devGameplayHud)
 {
     if (debugOverlayActive || menuStackDiag || networkActive || pauseActive || hubActive || interactPrompt
-            || devGameplayHud) {
+            || cutscenePrompt || devGameplayHud) {
         return true;
     }
     /* 2026-04-23 B-232 v2: CRT scanlines are a global post-process that must
@@ -685,6 +687,7 @@ void pdguiNewFrame(void)
         && !pdguiIsActive()
         && !pdguiCiIntroBlocksInteractPrompt()
         && !forgeIsFreefly();
+    bool cutscenePrompt = (pdguiCutsceneSkipPromptShouldRender() != 0);
 #if defined(PD_DEV_BUILD)
     bool devGameplayHud =
             (botGetUpdatesDisabled() != 0) || (playerDevInvincibilityHudActive() != 0);
@@ -709,7 +712,7 @@ void pdguiNewFrame(void)
     }
     if (!pdguiAnyStandardOverlayReason(
              debugOverlayActive, menuStackDiag, networkActive, pauseActive, hubActive, interactPrompt,
-             devGameplayHud)
+             cutscenePrompt, devGameplayHud)
         && !mpLiveMatchHud
         && !friendsActive
         && !pdguiHotswapHasQueued() && !pdguiHotswapWasActive()) {
@@ -825,6 +828,7 @@ void pdguiRender(void)
         && !pdguiIsActive()
         && !pdguiCiIntroBlocksInteractPrompt()
         && !forgeIsFreefly();
+    bool cutscenePrompt = (pdguiCutsceneSkipPromptShouldRender() != 0);
 #if defined(PD_DEV_BUILD)
     bool devGameplayHud =
             (botGetUpdatesDisabled() != 0) || (playerDevInvincibilityHudActive() != 0);
@@ -843,7 +847,7 @@ void pdguiRender(void)
     }
     if (!pdguiAnyStandardOverlayReason(
              debugOverlayActive, menuStackDiag, networkActive, pauseActive, hubActive, interactPrompt,
-             devGameplayHud)
+             cutscenePrompt, devGameplayHud)
         && !mpLiveMatchHud
         && !s_ConsoleVisible && !hotswapQueued && !hotswapWasActive && !updateActive
         && !friendsActive) {
@@ -1077,6 +1081,11 @@ void pdguiRender(void)
      * renderer.  Draws on the foreground draw list so cutscene letterbox
      * bars do not occlude subtitles. */
     pdguiSubtitlesRender((s32)winW, (s32)winH);
+
+    /* Cutscene skip prompt: contextual hold glyph with radial progress.
+     * This is the only gameplay-style prompt that may render during
+     * cutscenes; interact prompts stay suppressed below. */
+    pdguiCutsceneSkipPromptRender((s32)winW, (s32)winH);
 
     /* S311: contextual interact prompt ("[E] Pick up", "[E] Open" etc).
      * No-op when no interact target is tracked.  Drawn above the HUD so the
