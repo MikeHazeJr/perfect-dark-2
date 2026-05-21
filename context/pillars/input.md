@@ -137,7 +137,19 @@ Crouch-jump: `ACTION_JUMP` latches `g_BondCrouchJumpActive[pi]`; a fresh `ACTION
 
 ## Glyph system
 
-`port/include/pdgui_glyphs.h` + `port/fast3d/pdgui_glyphs.cpp` resolve any `InputAction` to its current primary VK through the active IMC stack, produce short labels ("E", "Space", "LMB", "A", "LB", "D-Up"), and render `[KEY] Label` pills on the foreground drawlist. Auto-detects KBM vs gamepad via `actionmapGetLastDevice()` with 500ms debounce. Used by interact prompts and Glyph-aware UI surfaces.
+`port/include/pdgui_glyphs.h` + `port/fast3d/pdgui_glyphs.cpp` resolve any `InputAction` to its current primary VK through the active IMC stack, produce short labels ("E", "Space", "LMB", "A", "LB", "D-Up"), and render `[KEY] Label` pills on the foreground drawlist. Auto-detects KBM vs gamepad via `actionmapGetLastDevice()` with 500ms debounce. For non-standard controller classes, glyphs use generic `BtnN` / `AxisN+/-` labels instead of pretending a HOTAS, homemade HID, or accessibility device is an Xbox-style controller. Used by interact prompts and Glyph-aware UI surfaces.
+
+## Custom / accessibility controller foundation
+
+Kanban `c3816` adds the first-class foundation for non-standard controllers without exposing raw hardware identity:
+
+- `ACTIONMAP_INPUT_CLASS_*` categories distinguish MKB, Controller, Custom, Accessibility, HOTAS, HOSAS, and Mixed as privacy-safe UI/presence metadata.
+- SDL raw joystick devices that are not `SDL_GameController` are opened beside normal controllers.
+- Bind capture accepts raw joystick buttons and axes 0-5, mapping them into the existing JOY virtual-key range so remapping, action dispatch, and hold/tap semantics remain one system.
+- Actionmap dispatch routes raw joystick buttons/axes through player-1 virtual keys, while standard controllers continue through the SDL_GameController path to avoid duplicate events.
+- Social presence and friend rows show only coarse input class labels, never GUID/vendor/name.
+
+Remaining deeper accessibility work: per-device profile manifests, optional custom glyph texture packs, calibration/deadzones/axis shaping, explicit multi-controller composition, and richer labels for devices beyond the first six axes.
 
 ---
 
@@ -176,6 +188,7 @@ Per [constraints.md](../constraints.md):
 - **Input universality Branch 2 / Cohorts 5-8.** Complete 2026-05-19 via c036. Controller is first-class across actionmap-owned system actions, fullscreen/console/debug chords, gameplay suppression gates, observer lifecycle, right-stick menu scroll, tap/hold gameplay affordances, vehicle look/handbrake/use, and the active ImGui menu graph surface.
 - **Combat Sim Room per-element binding sweep.** Code/build verified 2026-05-21 under c086, pending Mike playtest. Room-specific controller parity now includes X/right-click context parity for player rows and Add Bot, Start-to-Start-Match from right-panel rows, focused-panel LT/RT skipping, left-panel section walking, and Y undefined on Combat Sim per Q4. MKB Ctrl/Shift-click multi-select remains.
 - **Y-Social on allowed menu roots.** Code/build verified 2026-05-21 under c087/c088, pending Mike playtest. Main Menu and Pause Menu poll `pdguiMenuTertiaryPressed()` at the screen level, open Social through the existing menu/social ownership path, render the `ACTION_MENU_SOCIAL` glyph, and block parent B/Escape close while the Social shell owns input. Combat Sim Room remains explicitly undefined for Y per Q4.
+- **Custom/accessibility controller foundation.** Code/build verified 2026-05-21 under c3816, pending manual custom-device retest. Raw non-SDL_GameController devices now bridge into rebind capture and actionmap dispatch through existing JOY virtual keys, glyphs fall back to generic labels for custom-class devices, and Social displays privacy-safe input class.
 - **Input mapping menu rebuild.** Phase 1 design at [designs/input/input-mapping-menu-rebuild.md](../designs/input/input-mapping-menu-rebuild.md); Phase 2 implementation gated on Priority L menu pass.
 
 ---

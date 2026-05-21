@@ -524,6 +524,22 @@ u32 actionHoldPressStartMs(s32 player, InputAction action);
  *  500ms debounce prevents flicker on transitions. */
 s32 actionmapGetLastDevice(void);
 
+#define ACTIONMAP_INPUT_CLASS_MKB           0
+#define ACTIONMAP_INPUT_CLASS_CONTROLLER    1
+#define ACTIONMAP_INPUT_CLASS_CUSTOM        2
+#define ACTIONMAP_INPUT_CLASS_ACCESSIBILITY 3
+#define ACTIONMAP_INPUT_CLASS_HOTAS         4
+#define ACTIONMAP_INPUT_CLASS_HOSAS         5
+#define ACTIONMAP_INPUT_CLASS_MIXED         6
+
+/** Richer privacy-safe device class for glyphs and Social presence.
+ *  This is a category, not raw hardware identity; do not expose GUID/vendor
+ *  values through player-facing UI or presence. */
+s32 actionmapGetLastInputClass(void);
+const char *actionmapInputClassLabel(s32 input_class);
+s32 actionmapClassifyDeviceName(const char *name, s32 is_game_controller,
+                                s32 axis_count, s32 button_count, s32 hat_count);
+
 /* ============================================================
  * Bind management
  * ============================================================ */

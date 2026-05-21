@@ -1,5 +1,63 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-21-c3812-extractor-crash-hardening`) - 2026-05-21 - non-weapon asset extractor crash hardening
+
+Mike pointed at the latest `logs/game client/pd-client.log` crash after `pdweapon` extraction and called out `modelPromoteNodeOffsetsToPointers` / `modelPromoteOffsetsToPointers`.
+
+### Implemented
+
+- Filed B-357 and updated Kanban `c3812` with a completed first-launch extraction crash-hardening subtask.
+- Fixed `.pdmesh` OBJ extraction to follow the runtime model load order: RareZip inflate, model/gun preprocessing, `modelPromoteTypeToPointer`, guarded `modelPromoteOffsetsToPointers`, then OBJ traversal.
+- Added pre-promotion bounds checks so raw/compressed/torn bytes are rejected before `modelPromoteNodeOffsetsToPointers` walks the node tree.
+- Masked low-bit display-list flags before reading promoted Gfx command memory.
+- Fixed `.pdarena` / `.pdscenario` stage payload extraction to RareZip-inflate before tiles/pads/setup preprocessing.
+- Kept `.pdmesh` and `.pdarena` preprocessor-dependent emission serial because those preprocessors share process-global marker/GBI scratch state.
+- Left weapon archive work untouched; c3814 remains the `.pdweapon` owner.
+
+### Verification
+
+- Scoped `git diff --check` PASS.
+- `.\devtools\run-pd-tests.ps1 -Session meshprom -Selector "[modding][pdxxx][base][static][c3812]" -BuildTimeoutSeconds 180` PASS: 229 assertions / 11 test cases.
+- `.\devtools\build-session.ps1 -Session meshprom -Target all -BuildTimeoutSeconds 180` PASS.
+- `.\tools\smoke-verify\run.ps1 -Test boot_smoke -SourceBinary ".\.claude\session-builds\meshprom\PerfectDark.exe" -Timeout 130` PASS from a clean smoke install; extraction reached `.pdmesh`, `.pdscenario`, the universal walker, and normal boot without the `modelPromote*` crash.
+
+### Remaining
+
+- Several gun/hand modeldefs export no triangles today; this is logged as skipped `.pdmesh` OBJ output rather than a crash. Weapon-specific archive behavior remains out of scope for this session and belongs to c3814.
+
+---
+
+## Session (`main-checkout-2026-05-21-c3816-custom-controller-foundation`) - 2026-05-21 - custom/accessibility controller foundation
+
+Mike asked to create a Kanban card with subtasks and work it fully through for custom/accessibility controller support, including remappable inputs, custom glyph needs, HOTAS/HOSAS/homemade controller support, and Social-visible controller type.
+
+### Implemented
+
+- Created Kanban `c3816` with seven completed implementation subtasks and a pending-completion manual hardware gate.
+- Added privacy-safe `ACTIONMAP_INPUT_CLASS_*` categories and public actionmap APIs for last input class, labels, and device-name classification.
+- Opened non-SDL_GameController raw joysticks beside standard controllers and closed them on device removal/shutdown.
+- Added raw joystick button and axis capture to Controls remapping while filtering out standard controller duplicates.
+- Routed raw joystick buttons and axes 0-5 through the existing JOY virtual-key/actionmap path so controller parity stays in one system.
+- Added generic `BtnN` / `AxisN+/-` glyph fallback labels for custom-class devices, while standard controllers keep Xbox-style labels.
+- Bumped presence to v3 and added privacy-safe input-class broadcast/display in Social status and friend rows.
+- Added static regression coverage in `tests/test_custom_controller_static.cpp`.
+
+### Verification
+
+- `python -m json.tool tools\kanban\state.json` PASS.
+- Scoped `git diff --check` PASS.
+- `.\devtools\run-pd-tests.ps1 -Session c3816custom -Selector "[input][custom-controller]" -BuildTimeoutSeconds 300` PASS: 44 assertions / 4 test cases.
+- `.\devtools\run-pd-tests.ps1 -Session c3816custom -Selector "[input][menu_graph]" -BuildTimeoutSeconds 300` PASS: 662 assertions / 34 test cases.
+- `.\devtools\build-session.ps1 -Session c3816custom -Target all -BuildTimeoutSeconds 300` PASS: client and updater linked.
+- `.\devtools\run-pd-tests.ps1 -Session c3816hold -Selector "[press-hold]" -BuildTimeoutSeconds 300` PASS: 47 assertions / 13 test cases.
+
+### Remaining
+
+- Manual retest with real custom/HOTAS/HOSAS/accessibility hardware.
+- Future follow-up, not part of c3816 foundation: per-device profile manifests, custom texture glyph packs, calibration/deadzones/axis shaping, explicit multi-controller composition, and richer multi-axis semantics.
+
+---
+
 ## Session (`main-checkout-2026-05-21-weapon-template-save`) - 2026-05-21 - c3814 weapon template/save UI
 
 Mike asked to continue the weapon migration through the Mods menu Weapon tab and keep Kanban progress accurate.

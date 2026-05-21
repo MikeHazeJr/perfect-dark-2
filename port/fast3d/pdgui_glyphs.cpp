@@ -245,6 +245,26 @@ static void vkShortLabel(u32 vk, char *out, s32 outlen)
 		u32 pad = off / (u32)PDG_INPUT_MAX_CONTROLLER_BUTTONS;
 		u32 btn = off % (u32)PDG_INPUT_MAX_CONTROLLER_BUTTONS;
 
+		const s32 inputClass = actionmapGetLastInputClass();
+		if (inputClass != ACTIONMAP_INPUT_CLASS_CONTROLLER &&
+		    inputClass != ACTIONMAP_INPUT_CLASS_MKB) {
+			switch ((int)btn) {
+			case 22: snprintf(out, outlen, "Axis1-"); return;
+			case 23: snprintf(out, outlen, "Axis1+"); return;
+			case 24: snprintf(out, outlen, "Axis2-"); return;
+			case 25: snprintf(out, outlen, "Axis2+"); return;
+			case 26: snprintf(out, outlen, "Axis3-"); return;
+			case 27: snprintf(out, outlen, "Axis3+"); return;
+			case 28: snprintf(out, outlen, "Axis4-"); return;
+			case 29: snprintf(out, outlen, "Axis4+"); return;
+			case 30: snprintf(out, outlen, "Axis5+"); return;
+			case 31: snprintf(out, outlen, "Axis6+"); return;
+			default:
+				snprintf(out, outlen, "Btn%u", (unsigned)(btn + 1));
+				return;
+			}
+		}
+
 		if (pad == 0) {
 			switch ((int)btn) {
 			case  0: snprintf(out, outlen, "A");     return;

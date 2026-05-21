@@ -1252,6 +1252,87 @@
       "updated": "2026-05-21T04:36:59Z"
     },
     {
+      "id": "c3816",
+      "title": "Input: custom/accessibility controller class + glyph/social foundation",
+      "description": "Controller remains a first-class citizen, but custom devices need a privacy-safe path that does not pretend every non-MKB device is an Xbox-style gamepad. Add foundational support for SDL raw joystick devices such as HOTAS/HOSAS, homemade HID controllers, adaptive/accessibility devices, and button boxes through the existing action map/rebind pipeline. Surface only coarse input class metadata in glyphs and Social presence.",
+      "pillar": "input",
+      "column": "active",
+      "order": 2200,
+      "priority": 1,
+      "notes": "Implemented and build-verified 2026-05-21 as the foundation slice. Raw non-SDL_GameController joysticks are opened alongside standard controllers, bind capture accepts raw buttons and axes 0-5, actionmap dispatch routes raw buttons/axes through existing JOY virtual keys, glyphs show BtnN/AxisN labels for custom-class devices, and Social presence v3 carries a privacy-safe input class. This intentionally does not expose device GUID/vendor/name over presence. Future deeper work: per-device profile manifests, custom texture glyph packs, richer calibration/deadzone UI, and more than six-axis semantic binding.",
+      "flag": "watch",
+      "flagged_at": "2026-05-21T13:40:00Z",
+      "subtasks": [
+        {
+          "id": "c3816-s1",
+          "title": "Define privacy-safe input classes and public actionmap APIs",
+          "done": true,
+          "completed": "2026-05-21T13:40:00Z"
+        },
+        {
+          "id": "c3816-s2",
+          "title": "Open and close raw SDL joystick devices beside standard controllers",
+          "done": true,
+          "completed": "2026-05-21T13:40:00Z"
+        },
+        {
+          "id": "c3816-s3",
+          "title": "Route raw joystick button/axis capture through existing rebind VKs",
+          "done": true,
+          "completed": "2026-05-21T13:40:00Z"
+        },
+        {
+          "id": "c3816-s4",
+          "title": "Dispatch raw joystick buttons/axes through actionmap player-1 virtual keys",
+          "done": true,
+          "completed": "2026-05-21T13:40:00Z"
+        },
+        {
+          "id": "c3816-s5",
+          "title": "Render custom/accessibility glyph fallback labels instead of hard-coded Xbox labels",
+          "done": true,
+          "completed": "2026-05-21T13:40:00Z"
+        },
+        {
+          "id": "c3816-s6",
+          "title": "Broadcast and display privacy-safe input class in Social presence",
+          "done": true,
+          "completed": "2026-05-21T13:40:00Z"
+        },
+        {
+          "id": "c3816-s7",
+          "title": "Add static regression coverage and isolated build verification",
+          "done": true,
+          "completed": "2026-05-21T13:40:00Z"
+        }
+      ],
+      "pending_completion": {
+        "marked_at": "2026-05-21T13:40:00Z",
+        "marked_by": "codex-c3816-custom-controller-foundation",
+        "summary": "Implemented the custom/accessibility controller foundation across input capture, actionmap dispatch, dynamic glyph labels, and Social input-class display.",
+        "verify_notes": "Verified 2026-05-21 in isolated sessions c3816custom/c3816hold: focused pd-tests [input][custom-controller] passed (44 assertions / 4 cases); adjacent [input][menu_graph] passed (662 assertions / 34 cases); [press-hold] passed (47 assertions / 13 cases); queued all-target build passed with client and updater linked. Manual hardware retest should use at least one non-SDL_GameController device, ideally HOTAS/HOSAS or an accessibility/custom HID.",
+        "evidence_refs": [
+          "port/include/actionmap.h",
+          "port/src/actionmap.cpp",
+          "port/src/input.c",
+          "port/fast3d/pdgui_glyphs.cpp",
+          "port/include/presence.h",
+          "port/src/presence.c",
+          "port/fast3d/pdgui_friends.cpp",
+          "tests/test_custom_controller_static.cpp"
+        ],
+        "expected_artifacts": [
+          "Standard controllers continue to use SDL_GameController events and Xbox-style glyphs.",
+          "Raw custom/HOTAS/HOSAS/accessibility joystick buttons can be captured by Controls remap.",
+          "Raw axes 0-5 can be captured as synthetic stick/trigger VKs and routed through existing action actions.",
+          "Custom-class glyphs show BtnN and AxisN labels instead of pretending to be A/B/X/Y.",
+          "Social presence/friend rows show MKB, Controller, Custom, Accessibility, HOTAS, or HOSAS without exposing device identity."
+        ]
+      },
+      "created": "2026-05-21T13:40:00Z",
+      "updated": "2026-05-21T13:44:05Z"
+    },
+    {
       "id": "c087",
       "title": "Y-Social binding + glyph + Online-status docking on Main Menu",
       "description": "Per Mike Q4 (2026-05-03), Y-Social is restricted to Main Menu and Pause Menu only. Bind ACTION_MENU_TERTIARY (Y) at the screen level in pdgui_menu_mainmenu.cpp render entry: poll pdguiMenuTertiaryPressed(), guard with !pdguiFriendsSocialIsOpen(), call pdguiFriendsSocialOpen(). Render the social glyph in the upper-right corner via the new pdguiSocialGlyph() helper, docked to the bottom edge of the Online status indicator (Online status placement defined in mainmenu render; glyph y = status_y + status_height). The shared pdguiSocialGlyph helper lives in port/fast3d/pdgui_glyphs.cpp or a new pdgui_chrome.cpp; the helper takes the (x, y) anchor + scale and renders the [Y] Social pill in PD-themed style.",
@@ -2702,7 +2783,7 @@
       "column": "done",
       "order": 1000,
       "priority": 1,
-      "notes": "Completed non-weapon typed asset archive migration as of 2026-05-21. The c3812 archive contract is now implemented for base and mod content equally: each typed *.pdxxx content unit is zip-openable and carries a root descriptor plus authored source files, while .pdmod remains transport only. Completed non-weapon outputs include c3812-s1..s4, nested typed archive/VFS support, packer/examples/docs, canonical .pdcharacter, .pdhead/.pdbody/.pdarena root descriptors, .pdmesh model.obj/model.mtl, .pdsfx/.pdvoice sample.wav, .pdsong sequence.mid/sequence.tsv, .pdlang strings.tsv, .pdfont glyphs.pgm/metrics.tsv/kerning.tsv, character .pdanim header.tsv/frames.tsv, and .pdscenario rooms.obj/scenario.mtl/tiles.tsv/pads.tsv/setup.tsv/mpsetup.tsv/visual_segments.tsv. Old raw authored payloads such as geometry.bin, tiles.bin, pads.bin, setup.bin, mpsetup.bin, sample.bin, data.bin, frames.bin, and mesh byte tables are treated as stale or rejected by focused guards. Verification: pdxasset client build passed and focused [modding][pdxxx][base][static][c3812] passed 212 assertions / 11 cases. Weapon archive closure is explicitly out of scope here and remains tracked by c3814 for .pdweapon only.",
+      "notes": "Completed non-weapon typed asset archive migration as of 2026-05-21. The c3812 archive contract is now implemented for base and mod content equally: each typed *.pdxxx content unit is zip-openable and carries a root descriptor plus authored source files, while .pdmod remains transport only. Completed non-weapon outputs include c3812-s1..s4, nested typed archive/VFS support, packer/examples/docs, canonical .pdcharacter, .pdhead/.pdbody/.pdarena root descriptors, .pdmesh model.obj/model.mtl, .pdsfx/.pdvoice sample.wav, .pdsong sequence.mid/sequence.tsv, .pdlang strings.tsv, .pdfont glyphs.pgm/metrics.tsv/kerning.tsv, character .pdanim header.tsv/frames.tsv, and .pdscenario rooms.obj/scenario.mtl/tiles.tsv/pads.tsv/setup.tsv/mpsetup.tsv/visual_segments.tsv. Old raw authored payloads such as geometry.bin, tiles.bin, pads.bin, setup.bin, mpsetup.bin, sample.bin, data.bin, frames.bin, and mesh byte tables are treated as stale or rejected by focused guards. Follow-up crash hardening fixed the first-launch extractor path: .pdmesh and .pdscenario now RareZip-inflate ROM payloads before preprocessing, avoid parallel preprocessor races, and .pdmesh uses the runtime model promotion order with a pre-promotion bounds guard. Verification: focused [modding][pdxxx][base][static][c3812] passed 229 assertions / 11 cases, queued all-target build passed, and boot_smoke passed from a clean smoke install. Weapon archive closure is explicitly out of scope here and remains tracked by c3814 for .pdweapon only.",
       "subtasks": [
         {
           "id": "c3812-s1",
@@ -2738,13 +2819,20 @@
           "status": "done",
           "order": 5000,
           "notes": "Done 2026-05-21. Completed non-weapon compatibility and validation after the scenario/map payload pass: .pdscenario now exports rooms.obj, scenario.mtl, tiles.tsv, pads.tsv, setup.tsv, mpsetup.tsv, and visual_segments.tsv with SHA-256 sidecars instead of copying opaque stage internals. Existing .pdscenario archives without rooms.obj are stale. Focused c3812 static coverage now pins 11 non-weapon archive cases and rejects raw scenario .bin payload names. Verified with pdxasset client build and [modding][pdxxx][base][static][c3812] 212 assertions / 11 cases. Weapon assets remain excluded and owned by c3814."
+        },
+        {
+          "id": "c3812-s6",
+          "title": "First-launch extraction crash hardening",
+          "status": "done",
+          "order": 6000,
+          "notes": "Done 2026-05-21. Fixed the modelPromoteNodeOffsetsToPointers/modelPromoteOffsetsToPointers crash class by routing .pdmesh source bytes through RareZip inflate, model/gun preprocessing, modelPromoteTypeToPointer, and guarded offset promotion before OBJ traversal. Fixed the follow-on .pdarena/.pdscenario first-launch crash by inflating stage files before tiles/pads/setup preprocessing and running stage preprocess work serially because those preprocessors use process-global scratch state. Verified focused c3812 static tests (229 assertions / 11 cases), queued all-target build, and boot_smoke from a clean smoke install."
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-20T20:05:00Z",
       "pending_completion": null,
       "created": "2026-05-20T20:05:00Z",
-      "updated": "2026-05-21T08:12:00-04:00"
+      "updated": "2026-05-21T10:13:00-04:00"
     },
     {
       "id": "c3813",

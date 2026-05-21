@@ -59,6 +59,8 @@ typedef struct presence_peer_s {
 	u32              cached_ipv4;     /* host order; 0 if unknown */
 	u16              cached_port;
 	u16              proto_version;   /* peer's NET_PROTOCOL_VER */
+	u8               input_class;     /* ACTIONMAP_INPUT_CLASS_*; privacy-safe category */
+	u8               _pad[3];
 	char             status_blurb[64];/* "Mission: Pelagic" / "CS: Felicity" / etc. */
 } presence_peer_t;
 

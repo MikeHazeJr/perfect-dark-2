@@ -1,6 +1,6 @@
 # Connectivity / Online
 
-> ENet UDP transport. Server-authoritative wire protocol at v46. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v2). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
+> ENet UDP transport. Server-authoritative wire protocol at v48. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v3). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
 
 ---
 
@@ -84,7 +84,7 @@ Escalation chain:
 
 ## Presence
 
-[port/src/presence.c](../../port/src/presence.c). Always-on UDP socket port 27105. 184-byte frames signed Ed25519 over first 120 bytes plus domain string `"pd-presence-v2"` (lines 64-70). v2 added pubkey + signature on 2026-04-25.
+[port/src/presence.c](../../port/src/presence.c). Always-on UDP socket port 27105. 184-byte frames signed Ed25519 over first 120 bytes plus domain string `"pd-presence-v3"` (lines 64-70). v2 added pubkey + signature on 2026-04-25; v3 added the privacy-safe input class byte on 2026-05-21.
 
 Ping interval 30s, online window 60s. Friends pinged via social friend list iteration. **No external presence service**; no lobby browser, no HTTPS matchmaking.
 
@@ -99,6 +99,10 @@ Ping interval 30s, online window 60s. Friends pinged via social friend list iter
 `socialRebindToActiveAgent(const char *agent_name)` hashes `(pubkey || agent_name)` so each save slot on the same install produces a distinct 32-bit handle + 4-word connect code. `agent_name` must be the save-slot name (e.g. "MikeHazeJr", "allen") from `prefsAgentLoad`, NOT the identity profile name from `identityGetActiveProfile()->name` (which is always "Agent" because the ed25519 keypair is per-device). Two players on the same install can load different agent profiles and broadcast independent join targets.
 
 Connect-code UI surfaces (`pdguiFriendsStatusIndicatorRender` top-right pill) early-return on `!presenceIsAgentLoaded()` so the code is hidden through Agent Select.
+
+### Input class presence
+
+Presence v3 uses byte 19 of the signed frame for a coarse `ACTIONMAP_INPUT_CLASS_*` category. Social UI can show MKB, Controller, Custom, Accessibility, HOTAS, or HOSAS for connected friends without exposing raw device GUIDs, vendor IDs, product names, or per-device identity. This is UI/social metadata only; gameplay input authority remains local to each client and still flows through the action map.
 
 ---
 
@@ -153,7 +157,7 @@ This static-test discipline catches the "trust client byte before validating" cl
 
 Per [constraints.md](../constraints.md):
 
-- **ENet protocol version v46** must match across clients.
+- **ENet protocol version v48** must match across clients.
 - **Server is not a player.** Dedicated server sets `g_NetLocalClient = NULL` and `g_NetNumClients = 0` at startup; slot 0 free for real players. All paths that dereference `g_NetLocalClient` must NULL-guard.
 - **No raw IP in any UI surface.** Connect codes only.
 - **Connect code byte order** is host-order, not network-order.

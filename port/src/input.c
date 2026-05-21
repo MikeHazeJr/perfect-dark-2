@@ -37,6 +37,8 @@
 #define CURSOR_HIDE_TIME 3000000 // us
 
 static SDL_GameController *pads[INPUT_MAX_CONTROLLERS];
+static SDL_Joystick *rawJoysticks[INPUT_MAX_CONNECTED_CONTROLLERS];
+static SDL_JoystickID rawJoystickIds[INPUT_MAX_CONNECTED_CONTROLLERS];
 
 #define CONTROLLERCFG_DEFAULT { \
 	.rumbleOn = 0, \
@@ -272,8 +274,56 @@ static inline void inputCloseAllControllers(void)
 			pads[cidx] = NULL;
 		}
 	}
+	for (s32 i = 0; i < INPUT_MAX_CONNECTED_CONTROLLERS; ++i) {
+		if (rawJoysticks[i]) {
+			SDL_JoystickClose(rawJoysticks[i]);
+			rawJoysticks[i] = NULL;
+			rawJoystickIds[i] = -1;
+		}
+	}
 
 	connectedMask = 1; // always report first controller as connected
+}
+
+static inline s32 inputRawJoystickIndexFromId(SDL_JoystickID jid)
+{
+	for (s32 i = 0; i < INPUT_MAX_CONNECTED_CONTROLLERS; ++i) {
+		if (rawJoysticks[i] && rawJoystickIds[i] == jid) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+static inline void inputOpenRawJoystick(s32 jidx)
+{
+	if (jidx < 0 || jidx >= SDL_NumJoysticks()) return;
+	if (SDL_IsGameController(jidx)) return;
+
+	SDL_JoystickID jid = SDL_JoystickGetDeviceInstanceID(jidx);
+	if (inputRawJoystickIndexFromId(jid) >= 0) return;
+
+	for (s32 i = 0; i < INPUT_MAX_CONNECTED_CONTROLLERS; ++i) {
+		if (!rawJoysticks[i]) {
+			rawJoysticks[i] = SDL_JoystickOpen(jidx);
+			if (rawJoysticks[i]) {
+				rawJoystickIds[i] = SDL_JoystickInstanceID(rawJoysticks[i]);
+				sysLogPrintf(LOG_NOTE, "input: opened custom joystick '%d: (%s)' (id %d)",
+					jidx, SDL_JoystickName(rawJoysticks[i]), rawJoystickIds[i]);
+			}
+			return;
+		}
+	}
+}
+
+static inline void inputCloseRawJoystick(SDL_JoystickID jid)
+{
+	const s32 idx = inputRawJoystickIndexFromId(jid);
+	if (idx < 0) return;
+	sysLogPrintf(LOG_NOTE, "input: closed custom joystick id %d", jid);
+	SDL_JoystickClose(rawJoysticks[idx]);
+	rawJoysticks[idx] = NULL;
+	rawJoystickIds[idx] = -1;
 }
 
 static inline s32 inputTryController(const s32 cidx, const s32 jidx)
@@ -321,6 +371,8 @@ static inline void inputInitAllControllers(void)
 					break;
 				}
 			}
+		} else if (!SDL_IsGameController(jidx)) {
+			inputOpenRawJoystick(jidx);
 		}
 	}
 
@@ -356,8 +408,13 @@ static int inputEventFilter(void *data, SDL_Event *event)
 		}
 
 		case SDL_JOYDEVICEADDED:
+			numJoysticks = SDL_NumJoysticks(); // joystick count has changed
+			inputOpenRawJoystick(event->jdevice.which);
+			break;
+
 		case SDL_JOYDEVICEREMOVED:
 			numJoysticks = SDL_NumJoysticks(); // joystick count has changed
+			inputCloseRawJoystick(event->jdevice.which);
 			break;
 
 		case SDL_MOUSEWHEEL:
@@ -425,6 +482,45 @@ static int inputEventFilter(void *data, SDL_Event *event)
 							lastKey += idx * INPUT_MAX_CONTROLLER_BUTTONS;
 						}
 					}
+				}
+			}
+			break;
+
+		case SDL_JOYBUTTONDOWN:
+			if (SDL_GameControllerFromInstanceID(event->jbutton.which)) {
+				break;
+			}
+			if (!lastKey && event->jbutton.button < INPUT_MAX_CONTROLLER_BUTTONS) {
+				lastKey = VK_JOY1_BEGIN + event->jbutton.button;
+			}
+			break;
+
+		case SDL_JOYAXISMOTION:
+			if (SDL_GameControllerFromInstanceID(event->jaxis.which)) {
+				break;
+			}
+			if (!lastKey && (event->jaxis.value > TRIG_THRESHOLD || event->jaxis.value < -TRIG_THRESHOLD)) {
+				switch (event->jaxis.axis) {
+				case 0:
+					lastKey = (event->jaxis.value < 0) ? VK_JOY1_LSTICK_LEFT : VK_JOY1_LSTICK_RIGHT;
+					break;
+				case 1:
+					lastKey = (event->jaxis.value < 0) ? VK_JOY1_LSTICK_UP : VK_JOY1_LSTICK_DOWN;
+					break;
+				case 2:
+					lastKey = (event->jaxis.value < 0) ? VK_JOY1_RSTICK_LEFT : VK_JOY1_RSTICK_RIGHT;
+					break;
+				case 3:
+					lastKey = (event->jaxis.value < 0) ? VK_JOY1_RSTICK_UP : VK_JOY1_RSTICK_DOWN;
+					break;
+				case 4:
+					if (event->jaxis.value > TRIG_THRESHOLD) lastKey = VK_JOY1_LTRIG;
+					break;
+				case 5:
+					if (event->jaxis.value > TRIG_THRESHOLD) lastKey = VK_JOY1_RTRIG;
+					break;
+				default:
+					break;
 				}
 			}
 			break;

@@ -61,6 +61,7 @@
 #include "system.h"
 #include "game/stagetable.h"
 #include "arenadata_authored.h"
+#include "lib/rzip.h"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -210,23 +211,49 @@ static s32 s_loadStageFilePreprocessed(u16 filenum, u32 loadtype,
 	s32 loaded = s_loadStageFileRaw(filenum, &raw, &raw_size);
 	if (loaded <= 0) return loaded;
 
-	u32 cap = romdataFileGetEstimatedSize(raw_size, loadtype);
-	if (cap < raw_size) cap = raw_size;
+	u32 inflated_size = raw_size;
+	if (raw_size >= 5 && rzipIs1173(raw)) {
+		inflated_size = ALIGN16((raw[2] << 16) | (raw[3] << 8) | raw[4]);
+	}
+
+	u32 cap = romdataFileGetEstimatedSize(inflated_size, loadtype);
+	if (cap < inflated_size) cap = inflated_size;
 	u8 *work = sysMemZeroAlloc(cap);
 	if (!work) {
 		sysMemFree(raw);
 		return -1;
 	}
-	memcpy(work, raw, raw_size);
-	sysMemFree(raw);
 
-	u32 new_size = raw_size;
+	if (raw_size >= 5 && rzipIs1173(raw)) {
+		u8 scratch[5 * 1024];
+		s32 result = rzipInflate(raw, work, scratch);
+		sysMemFree(raw);
+		if (result <= 0) {
+			sysMemFree(work);
+			return -1;
+		}
+		inflated_size = ALIGN16((u32)result);
+	} else {
+		memcpy(work, raw, raw_size);
+		sysMemFree(raw);
+	}
+
+	u32 new_size = inflated_size;
+	sysLogPrintf(LOG_NOTE,
+		"romextract pdarena: preprocessing filenum=0x%04x loadtype=%u raw_size=%u inflated_size=%u",
+		(unsigned)filenum, (unsigned)loadtype, (unsigned)raw_size,
+		(unsigned)inflated_size);
 	if (loadtype == LOADTYPE_TILES) {
-		(void)preprocessTilesFile(work, raw_size, &new_size);
+		(void)preprocessTilesFile(work, inflated_size, &new_size);
 	} else if (loadtype == LOADTYPE_PADS) {
-		(void)preprocessPadsFile(work, raw_size, &new_size);
+		(void)preprocessPadsFile(work, inflated_size, &new_size);
 	} else if (loadtype == LOADTYPE_SETUP) {
-		(void)preprocessSetupFile(work, raw_size, &new_size);
+		(void)preprocessSetupFile(work, inflated_size, &new_size);
+	}
+
+	if (new_size == 0 || new_size > cap) {
+		sysMemFree(work);
+		return -1;
 	}
 
 	*out_data = work;
@@ -1085,8 +1112,12 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 	SDL_AtomicSet(&actx.scenarios_failed,  0);
 	SDL_AtomicSet(&actx.processed,         0);
 
+	/* Stage preprocessors share process-global scratch state; emit
+	 * scenarios in order rather than running preprocess work in parallel. */
 	bootProgressUpdate(0, g_ArenaDataCount);
-	bootPoolForRangeBlocking(0, g_ArenaDataCount, s_pdarenaWork, &actx);
+	for (s32 i = 0; i < g_ArenaDataCount; i++) {
+		s_pdarenaWork(i, &actx);
+	}
 	bootProgressUpdate(g_ArenaDataCount, g_ArenaDataCount);
 
 	s32 arenas_written    = SDL_AtomicGet(&actx.arenas_written);

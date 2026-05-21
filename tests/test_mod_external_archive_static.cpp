@@ -1889,8 +1889,14 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("s_buildTilesExports") != std::string::npos);
 	REQUIRE(arena.find("s_buildPadsTsv") != std::string::npos);
 	REQUIRE(arena.find("s_buildWordsTsv") != std::string::npos);
+	REQUIRE(arena.find("#include \"lib/rzip.h\"") != std::string::npos);
+	REQUIRE(arena.find("rzipIs1173") != std::string::npos);
+	REQUIRE(arena.find("rzipInflate") != std::string::npos);
 	REQUIRE(arena.find("preprocessTilesFile") != std::string::npos);
 	REQUIRE(arena.find("preprocessPadsFile") != std::string::npos);
+	REQUIRE(arena.find("preprocessSetupFile") != std::string::npos);
+	REQUIRE(arena.find("Stage preprocessors share process-global scratch state") !=
+	        std::string::npos);
 	REQUIRE(arena.find("rooms.obj") != std::string::npos);
 	REQUIRE(arena.find("scenario.mtl") != std::string::npos);
 	REQUIRE(arena.find("tiles.tsv") != std::string::npos);
@@ -2145,7 +2151,19 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 
 	REQUIRE(mesh.find("s_buildModelObj") != std::string::npos);
 	REQUIRE(mesh.find("s_exportGdlToObj") != std::string::npos);
+	REQUIRE(mesh.find("#include \"preprocess.h\"") != std::string::npos);
+	REQUIRE(mesh.find("#include \"game/modeldef.h\"") != std::string::npos);
+	REQUIRE(mesh.find("#include \"lib/rzip.h\"") != std::string::npos);
+	REQUIRE(mesh.find("s_loadSourceModelPreprocessed") != std::string::npos);
+	REQUIRE(mesh.find("rzipIs1173") != std::string::npos);
+	REQUIRE(mesh.find("rzipInflate") != std::string::npos);
+	REQUIRE(mesh.find("preprocessModelFile") != std::string::npos);
+	REQUIRE(mesh.find("preprocessGunFile") != std::string::npos);
+	REQUIRE(mesh.find("s_modeldefOffsetsLookPromotable") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("modelPromoteTypeToPointer") != std::string::npos);
 	REQUIRE(mesh.find("modelPromoteOffsetsToPointers") != std::string::npos);
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_MODEL_VMA") != std::string::npos);
 	REQUIRE(mesh.find("G_VTX") != std::string::npos);
 	REQUIRE(mesh.find("G_TRI1") != std::string::npos);
 	REQUIRE(mesh.find("G_TRI4") != std::string::npos);
@@ -2171,5 +2189,7 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("modArchiveAddFileDisk(aw, \"geometry.bin\"") ==
 	        std::string::npos);
 	REQUIRE(mesh.find("modArchiveAddFileMem(aw, \"geometry.bin\"") ==
+	        std::string::npos);
+	REQUIRE(mesh.find("s_buildModelObj((const u8 *)src_bytes") ==
 	        std::string::npos);
 }

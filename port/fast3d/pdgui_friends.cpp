@@ -308,11 +308,14 @@ extern "C" void pdguiFriendsStatusIndicatorRender(s32 winW, s32 winH)
 	const char *agent = socialMyAgentName();
 	const char *code  = socialMyConnectCode();
 
-	char label[160];
+	char label[192];
 	if (vis == SOCIAL_VIS_APPEAR_OFFLINE) {
-		snprintf(label, sizeof(label), "%s | Appear Offline | %s", agent, code);
+		snprintf(label, sizeof(label), "%s | Appear Offline | %s | %s",
+		         agent, actionmapInputClassLabel(actionmapGetLastInputClass()), code);
 	} else {
-		snprintf(label, sizeof(label), "%s | %s | %s", agent, stateLabel(pstate), code);
+		snprintf(label, sizeof(label), "%s | %s | %s | %s",
+		         agent, stateLabel(pstate),
+		         actionmapInputClassLabel(actionmapGetLastInputClass()), code);
 	}
 
 	ImGuiIO &io = ImGui::GetIO();
@@ -490,7 +493,7 @@ static void renderFriendRow(s32 idx, const social_friend_t *f)
 
 	ImGui::PushID(idx);
 	const float scale = pdguiScale(1.0f);
-	const float cardH = peer && peer->status_blurb[0] ? 164.0f * scale : 146.0f * scale;
+	const float cardH = peer && peer->status_blurb[0] ? 182.0f * scale : 164.0f * scale;
 	ImGui::BeginChild("##friend_card", ImVec2(0, cardH),
 	                  ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened,
 	                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -510,6 +513,9 @@ static void renderFriendRow(s32 idx, const social_friend_t *f)
 		char seen[24];
 		formatLastSeen(peer ? peer->last_pong_ms : 0, seen, sizeof(seen));
 		ImGui::TextDisabled("seen %s", seen);
+	}
+	if (peer && pstate != PRESENCE_OFFLINE) {
+		ImGui::TextDisabled("Input: %s", actionmapInputClassLabel(peer->input_class));
 	}
 	ImGui::Unindent(18.0f * scale);
 

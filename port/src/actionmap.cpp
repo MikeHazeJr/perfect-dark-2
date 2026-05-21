@@ -27,6 +27,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
+#include <ctype.h>
 #include <string.h> /* strtok */
 #include <PR/ultratypes.h>
 
@@ -473,6 +474,8 @@ static s32 s_StickHeld[ACTIONMAP_MAX_PLAYERS][10];
 /* Device detection */
 static s32 s_RawDevice  = ACTIONMAP_DEVICE_KBM;
 static s32 s_LastDevice = ACTIONMAP_DEVICE_KBM;
+static s32 s_RawInputClass  = ACTIONMAP_INPUT_CLASS_MKB;
+static s32 s_LastInputClass = ACTIONMAP_INPUT_CLASS_MKB;
 static u32 s_DeviceChangeTime = 0;
 
 /* Cheat code rolling buffer */
@@ -563,6 +566,111 @@ static void cheatRecord(InputAction action)
 }
 
 static s32 actionLayerAllows(InputAction a);
+
+static s32 containsWordI(const char *text, const char *needle)
+{
+    if (!text || !needle || !needle[0]) {
+        return 0;
+    }
+    const size_t nlen = strlen(needle);
+    for (const char *p = text; *p; p++) {
+        size_t i = 0;
+        while (i < nlen && p[i]) {
+            unsigned char a = (unsigned char)p[i];
+            unsigned char b = (unsigned char)needle[i];
+            if ((char)tolower(a) != (char)tolower(b)) {
+                break;
+            }
+            i++;
+        }
+        if (i == nlen) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+s32 actionmapClassifyDeviceName(const char *name, s32 is_game_controller,
+                                s32 axis_count, s32 button_count, s32 hat_count)
+{
+    if (containsWordI(name, "adaptive") ||
+        containsWordI(name, "accessibility") ||
+        containsWordI(name, "accessible") ||
+        containsWordI(name, "switch interface") ||
+        containsWordI(name, "sip") ||
+        containsWordI(name, "puff")) {
+        return ACTIONMAP_INPUT_CLASS_ACCESSIBILITY;
+    }
+    if (containsWordI(name, "hosas") ||
+        containsWordI(name, "dual stick") ||
+        containsWordI(name, "dual-stick")) {
+        return ACTIONMAP_INPUT_CLASS_HOSAS;
+    }
+    if (containsWordI(name, "hotas") ||
+        containsWordI(name, "flight") ||
+        containsWordI(name, "throttle") ||
+        containsWordI(name, "rudder") ||
+        containsWordI(name, "pedal") ||
+        containsWordI(name, "joystick")) {
+        return ACTIONMAP_INPUT_CLASS_HOTAS;
+    }
+    if (containsWordI(name, "arduino") ||
+        containsWordI(name, "teensy") ||
+        containsWordI(name, "custom") ||
+        containsWordI(name, "button box") ||
+        containsWordI(name, "buttonbox") ||
+        containsWordI(name, "hid")) {
+        return ACTIONMAP_INPUT_CLASS_CUSTOM;
+    }
+    if (is_game_controller) {
+        return ACTIONMAP_INPUT_CLASS_CONTROLLER;
+    }
+    if (axis_count > 2 || hat_count > 0 || button_count > 12) {
+        return ACTIONMAP_INPUT_CLASS_CUSTOM;
+    }
+    return ACTIONMAP_INPUT_CLASS_CONTROLLER;
+}
+
+const char *actionmapInputClassLabel(s32 input_class)
+{
+    switch (input_class) {
+    case ACTIONMAP_INPUT_CLASS_MKB:           return "MKB";
+    case ACTIONMAP_INPUT_CLASS_CONTROLLER:    return "Controller";
+    case ACTIONMAP_INPUT_CLASS_CUSTOM:        return "Custom";
+    case ACTIONMAP_INPUT_CLASS_ACCESSIBILITY: return "Accessibility";
+    case ACTIONMAP_INPUT_CLASS_HOTAS:         return "HOTAS";
+    case ACTIONMAP_INPUT_CLASS_HOSAS:         return "HOSAS";
+    case ACTIONMAP_INPUT_CLASS_MIXED:         return "Mixed";
+    default:                                  return "Unknown";
+    }
+}
+
+static s32 classifyControllerInstance(SDL_JoystickID jid)
+{
+    SDL_GameController *ctrl = SDL_GameControllerFromInstanceID(jid);
+    if (!ctrl) {
+        return ACTIONMAP_INPUT_CLASS_CONTROLLER;
+    }
+    const char *name = SDL_GameControllerName(ctrl);
+    SDL_Joystick *joy = SDL_GameControllerGetJoystick(ctrl);
+    const s32 axes = joy ? SDL_JoystickNumAxes(joy) : 0;
+    const s32 buttons = joy ? SDL_JoystickNumButtons(joy) : 0;
+    const s32 hats = joy ? SDL_JoystickNumHats(joy) : 0;
+    return actionmapClassifyDeviceName(name, 1, axes, buttons, hats);
+}
+
+static s32 classifyJoystickInstance(SDL_JoystickID jid)
+{
+    SDL_Joystick *joy = SDL_JoystickFromInstanceID(jid);
+    if (!joy) {
+        return ACTIONMAP_INPUT_CLASS_CUSTOM;
+    }
+    const char *name = SDL_JoystickName(joy);
+    return actionmapClassifyDeviceName(name, 0,
+        SDL_JoystickNumAxes(joy),
+        SDL_JoystickNumButtons(joy),
+        SDL_JoystickNumHats(joy));
+}
 
 /* ============================================================
  * Helpers: fire a digital VK event into action states
@@ -736,12 +844,13 @@ static u32 s_KeyDownChordVk[SDL_NUM_SCANCODES];
  * Helpers: device detection update
  * ============================================================ */
 
-static void updateDevice(s32 new_raw)
+static void updateDevice(s32 new_raw, s32 input_class)
 {
-    if (new_raw == s_RawDevice) {
+    if (new_raw == s_RawDevice && input_class == s_RawInputClass) {
         return;
     }
     s_RawDevice = new_raw;
+    s_RawInputClass = input_class;
     s_DeviceChangeTime = SDL_GetTicks();
 }
 
@@ -968,7 +1077,7 @@ void actionmapDispatch(const SDL_Event *ev)
     /* ---- Keyboard ---- */
     case SDL_KEYDOWN:
         if (ev->key.repeat) break;
-        updateDevice(ACTIONMAP_DEVICE_KBM);
+        updateDevice(ACTIONMAP_DEVICE_KBM, ACTIONMAP_INPUT_CLASS_MKB);
         if (ev->key.keysym.scancode >= 0 && ev->key.keysym.scancode < SDL_NUM_SCANCODES) {
             u32 chord_vk = chordVkForKeysym(&ev->key.keysym);
             s_KeyDownChordVk[ev->key.keysym.scancode] = chord_vk;
@@ -978,7 +1087,7 @@ void actionmapDispatch(const SDL_Event *ev)
 
     case SDL_KEYUP:
         if (ev->key.repeat) break;
-        updateDevice(ACTIONMAP_DEVICE_KBM);
+        updateDevice(ACTIONMAP_DEVICE_KBM, ACTIONMAP_INPUT_CLASS_MKB);
         if (ev->key.keysym.scancode >= 0 && ev->key.keysym.scancode < SDL_NUM_SCANCODES) {
             u32 chord_vk = s_KeyDownChordVk[ev->key.keysym.scancode];
             s_KeyDownChordVk[ev->key.keysym.scancode] = 0;
@@ -988,14 +1097,14 @@ void actionmapDispatch(const SDL_Event *ev)
 
     /* ---- Mouse buttons ---- */
     case SDL_MOUSEBUTTONDOWN:
-        updateDevice(ACTIONMAP_DEVICE_KBM);
+        updateDevice(ACTIONMAP_DEVICE_KBM, ACTIONMAP_INPUT_CLASS_MKB);
         if (ev->button.button >= 1 && ev->button.button <= 5) {
             fireVk(VK_MOUSE_BEGIN + (ev->button.button - 1), 1);
         }
         break;
 
     case SDL_MOUSEBUTTONUP:
-        updateDevice(ACTIONMAP_DEVICE_KBM);
+        updateDevice(ACTIONMAP_DEVICE_KBM, ACTIONMAP_INPUT_CLASS_MKB);
         if (ev->button.button >= 1 && ev->button.button <= 5) {
             fireVk(VK_MOUSE_BEGIN + (ev->button.button - 1), 0);
         }
@@ -1003,7 +1112,7 @@ void actionmapDispatch(const SDL_Event *ev)
 
     /* ---- Mouse wheel (momentary press, released next frame via EndFrame) ---- */
     case SDL_MOUSEWHEEL:
-        updateDevice(ACTIONMAP_DEVICE_KBM);
+        updateDevice(ACTIONMAP_DEVICE_KBM, ACTIONMAP_INPUT_CLASS_MKB);
         if (ev->wheel.y > 0) {
             fireVk(VK_MOUSE_WHEEL_UP, 1);
         } else if (ev->wheel.y < 0) {
@@ -1013,7 +1122,7 @@ void actionmapDispatch(const SDL_Event *ev)
 
     /* ---- Mouse motion ---- */
     case SDL_MOUSEMOTION:
-        updateDevice(ACTIONMAP_DEVICE_KBM);
+        updateDevice(ACTIONMAP_DEVICE_KBM, ACTIONMAP_INPUT_CLASS_MKB);
         break;
 
     /* ---- Gamepad buttons ---- */
@@ -1022,7 +1131,7 @@ void actionmapDispatch(const SDL_Event *ev)
         SDL_GameController *ctrl = SDL_GameControllerFromInstanceID(ev->cbutton.which);
         s32 player = ctrl ? SDL_GameControllerGetPlayerIndex(ctrl) : 0;
         if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) player = 0;
-        updateDevice(ACTIONMAP_DEVICE_GAMEPAD);
+        updateDevice(ACTIONMAP_DEVICE_GAMEPAD, classifyControllerInstance(ev->cbutton.which));
         u32 vk = JOY_BTN(player, (u32)ev->cbutton.button);
         if (sysLogGetVerbose()) {
             sysLogPrintf(LOG_NOTE, "DIAG btn: SDL btn=%d player=%d vk=%u %s ctrl=%p",
@@ -1045,7 +1154,7 @@ void actionmapDispatch(const SDL_Event *ev)
 
         /* Only count as gamepad input if axis moves meaningfully */
         if (val > 4000 || val < -4000) {
-            updateDevice(ACTIONMAP_DEVICE_GAMEPAD);
+            updateDevice(ACTIONMAP_DEVICE_GAMEPAD, classifyControllerInstance(ev->caxis.which));
         }
 
         switch (axis) {
@@ -1086,12 +1195,54 @@ void actionmapDispatch(const SDL_Event *ev)
     /* ---- Joystick (non-SDL_GameController devices) ---- */
     case SDL_JOYBUTTONDOWN:
     case SDL_JOYBUTTONUP:
-        updateDevice(ACTIONMAP_DEVICE_GAMEPAD);
+        if (SDL_GameControllerFromInstanceID(ev->jbutton.which)) {
+            break;
+        }
+        updateDevice(ACTIONMAP_DEVICE_GAMEPAD, classifyJoystickInstance(ev->jbutton.which));
+        if (ev->jbutton.button < INPUT_MAX_CONTROLLER_BUTTONS) {
+            fireVk(JOY_BTN(0, (u32)ev->jbutton.button),
+                   (ev->type == SDL_JOYBUTTONDOWN) ? 1 : 0);
+        }
         break;
 
     case SDL_JOYAXISMOTION:
+        if (SDL_GameControllerFromInstanceID(ev->jaxis.which)) {
+            break;
+        }
         if (ev->jaxis.value > 4000 || ev->jaxis.value < -4000) {
-            updateDevice(ACTIONMAP_DEVICE_GAMEPAD);
+            updateDevice(ACTIONMAP_DEVICE_GAMEPAD, classifyJoystickInstance(ev->jaxis.which));
+        }
+        switch (ev->jaxis.axis) {
+        case 0:
+            handleAxisDigital(0, ev->jaxis.value, 0, 1,
+                              JOY_BTN(0, JOFS_LSTICK_LEFT),
+                              JOY_BTN(0, JOFS_LSTICK_RIGHT));
+            break;
+        case 1:
+            handleAxisDigital(0, ev->jaxis.value, 2, 3,
+                              JOY_BTN(0, JOFS_LSTICK_UP),
+                              JOY_BTN(0, JOFS_LSTICK_DOWN));
+            break;
+        case 2:
+            handleAxisDigital(0, ev->jaxis.value, 4, 5,
+                              JOY_BTN(0, JOFS_RSTICK_LEFT),
+                              JOY_BTN(0, JOFS_RSTICK_RIGHT));
+            break;
+        case 3:
+            handleAxisDigital(0, ev->jaxis.value, 6, 7,
+                              JOY_BTN(0, JOFS_RSTICK_UP),
+                              JOY_BTN(0, JOFS_RSTICK_DOWN));
+            break;
+        case 4:
+            handleTriggerDigital(0, ev->jaxis.value, 8,
+                                 JOY_BTN(0, JOFS_LTRIG));
+            break;
+        case 5:
+            handleTriggerDigital(0, ev->jaxis.value, 9,
+                                 JOY_BTN(0, JOFS_RTRIG));
+            break;
+        default:
+            break;
         }
         break;
 
@@ -1346,11 +1497,12 @@ void actionmapEndFrame(void)
     }
 
     /* Debounce: promote raw device to stable last device after timeout */
-    if (s_RawDevice != s_LastDevice) {
+    if (s_RawDevice != s_LastDevice || s_RawInputClass != s_LastInputClass) {
         u32 now     = SDL_GetTicks();
         u32 elapsed = now - s_DeviceChangeTime;
         if (elapsed >= ACTIONMAP_DEVICE_DEBOUNCE_MS) {
             s_LastDevice = s_RawDevice;
+            s_LastInputClass = s_RawInputClass;
         }
     }
 
@@ -1777,6 +1929,11 @@ u32 actionHoldPressStartMs(s32 player, InputAction action)
 s32 actionmapGetLastDevice(void)
 {
     return s_LastDevice;
+}
+
+s32 actionmapGetLastInputClass(void)
+{
+    return s_LastInputClass;
 }
 
 /* ============================================================
@@ -2956,6 +3113,8 @@ void actionmapInit(void)
     s_CheatCount        = 0;
     s_RawDevice         = ACTIONMAP_DEVICE_KBM;
     s_LastDevice        = ACTIONMAP_DEVICE_KBM;
+    s_RawInputClass     = ACTIONMAP_INPUT_CLASS_MKB;
+    s_LastInputClass    = ACTIONMAP_INPUT_CLASS_MKB;
     s_DeviceChangeTime  = 0;
 
     /* Zero all IMC mapping slots */

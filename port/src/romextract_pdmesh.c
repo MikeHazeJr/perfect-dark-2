@@ -41,16 +41,20 @@
 #include "romextract_pd.h"
 #include "sha256.h"
 #include "system.h"
+#include "preprocess.h"
 #include "weapondata_authored.h"
 #include "headdata_authored.h"
 #include "bodydata_authored.h"
+#include "game/modeldef.h"
 #include "lib/model.h"
+#include "lib/rzip.h"
 
 /* Track filenums already emitted to avoid duplicate work when multiple
  * weapons / heads / bodies share a mesh. Cap covers ~86 weapons * 2
  * (hi + lo) + 84 head meshes + 68 body meshes + 68 hand meshes plus
  * dedup headroom. */
 #define ROMEXTRACT_PDMESH_SEEN_CAP 512
+#define ROMEXTRACT_PDMESH_MODEL_VMA 0x05000000u
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
 
@@ -163,8 +167,11 @@ static s32 s_ptrInModel(const pdmesh_obj_export_t *ctx, const void *ptr,
 static Gfx *s_resolveGdlPtr(const pdmesh_obj_export_t *ctx, Gfx *raw)
 {
 	if (!raw) return NULL;
-	if (s_ptrInModel(ctx, raw, sizeof(Gfx))) return raw;
-	u32 off = (u32)(UNSEGADDR(raw) & 0x00ffffffu);
+	uintptr_t unseg = UNSEGADDR(raw);
+	if (s_ptrInModel(ctx, (const void *)unseg, sizeof(Gfx))) {
+		return (Gfx *)unseg;
+	}
+	u32 off = (u32)(unseg & 0x00ffffffu);
 	if (off + sizeof(Gfx) <= ctx->size) return (Gfx *)(ctx->base + off);
 	return NULL;
 }
@@ -313,6 +320,43 @@ static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node)
 	return 0;
 }
 
+static s32 s_vmaOffsetInModel(uintptr_t ptr, u32 size, size_t bytes)
+{
+	if (!ptr) return 1;
+	uintptr_t unseg = UNSEGADDR(ptr);
+	if ((unseg & 0xff000000u) != ROMEXTRACT_PDMESH_MODEL_VMA) return 0;
+	u32 off = (u32)(unseg & 0x00ffffffu);
+	return off + bytes >= off && off + bytes <= size;
+}
+
+static s32 s_modeldefOffsetsLookPromotable(const struct modeldef *modeldef,
+                                           u32 size)
+{
+	if (!modeldef || !modeldef->rootnode) return 0;
+	if (modeldef->numparts < 0 || modeldef->numparts > 500) return 0;
+	if (!s_vmaOffsetInModel((uintptr_t)modeldef->rootnode, size,
+	                        sizeof(struct modelnode))) {
+		return 0;
+	}
+	if (modeldef->numparts > 0) {
+		size_t part_bytes = (size_t)modeldef->numparts *
+			(sizeof(uintptr_t) + sizeof(s16));
+		if (!s_vmaOffsetInModel((uintptr_t)modeldef->parts, size,
+		                        part_bytes)) {
+			return 0;
+		}
+	}
+	if (modeldef->numtexconfigs > 0) {
+		size_t tex_bytes = (size_t)modeldef->numtexconfigs *
+			sizeof(struct textureconfig);
+		if (!s_vmaOffsetInModel((uintptr_t)modeldef->texconfigs, size,
+		                        tex_bytes)) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
 static s32 s_buildModelObj(const u8 *src, u32 src_size,
                            pdmesh_textbuf_t *obj, u32 *out_tris,
                            u32 *out_gdls)
@@ -324,7 +368,13 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 	memcpy(copy, src, src_size);
 
 	struct modeldef *modeldef = (struct modeldef *)copy;
-	modelPromoteOffsetsToPointers(modeldef, 0x5000000, (uintptr_t)modeldef);
+	if (!s_modeldefOffsetsLookPromotable(modeldef, src_size)) {
+		free(copy);
+		return -1;
+	}
+	modelPromoteTypeToPointer(modeldef);
+	modelPromoteOffsetsToPointers(modeldef, ROMEXTRACT_PDMESH_MODEL_VMA,
+	                              (uintptr_t)modeldef);
 
 	if (s_textbufAppend(obj,
 			"# Perfect Dark 2 base model export\n"
@@ -402,6 +452,83 @@ static s32 s_resolveSourceBinPath(u16 filenum, char *out_rel, s32 out_n)
 	return romExtractRelPathForFilenum((s32)filenum, out_rel, out_n);
 }
 
+static u32 s_loadTypeForMeshFilenum(u16 filenum, const char *hint_suffix)
+{
+	const char *sym = loaderEnumNameForFileEnum(filenum);
+	if ((hint_suffix && (!strcmp(hint_suffix, "hi") ||
+	                     !strcmp(hint_suffix, "lo"))) ||
+	    (sym && strncmp(sym, "FILE_G", 6) == 0)) {
+		return LOADTYPE_GUN;
+	}
+	return LOADTYPE_MODEL;
+}
+
+static s32 s_loadSourceModelPreprocessed(u16 filenum, const char *src_rel,
+                                         const char *hint_suffix,
+                                         u8 **out_data, u32 *out_size,
+                                         u32 *out_loadtype)
+{
+	if (out_data) *out_data = NULL;
+	if (out_size) *out_size = 0;
+	if (out_loadtype) *out_loadtype = LOADTYPE_MODEL;
+
+	u32 raw_size = 0;
+	u8 *raw = (u8 *)fsFileLoad(src_rel, &raw_size);
+	if (!raw || raw_size == 0) {
+		if (raw) sysMemFree(raw);
+		return 0;
+	}
+
+	u32 loadtype = s_loadTypeForMeshFilenum(filenum, hint_suffix);
+	u32 inflated_size = raw_size;
+	if (raw_size >= 5 && rzipIs1173(raw)) {
+		inflated_size = ALIGN16((raw[2] << 16) | (raw[3] << 8) | raw[4]);
+	}
+
+	u32 cap = romdataFileGetEstimatedSize(inflated_size, loadtype);
+	if (cap < inflated_size) cap = inflated_size;
+	u8 *work = sysMemZeroAlloc(cap);
+	if (!work) {
+		sysMemFree(raw);
+		return -1;
+	}
+
+	if (raw_size >= 5 && rzipIs1173(raw)) {
+		u8 scratch[5 * 1024];
+		s32 result = rzipInflate(raw, work, scratch);
+		sysMemFree(raw);
+		if (result <= 0) {
+			sysMemFree(work);
+			return -1;
+		}
+		inflated_size = ALIGN16((u32)result);
+	} else {
+		memcpy(work, raw, raw_size);
+		sysMemFree(raw);
+	}
+
+	u32 new_size = inflated_size;
+	sysLogPrintf(LOG_NOTE,
+		"romextract pdmesh: preprocessing filenum=0x%04x loadtype=%u raw_size=%u inflated_size=%u",
+		(unsigned)filenum, (unsigned)loadtype, (unsigned)raw_size,
+		(unsigned)inflated_size);
+	if (loadtype == LOADTYPE_GUN) {
+		(void)preprocessGunFile(work, inflated_size, &new_size);
+	} else {
+		(void)preprocessModelFile(work, inflated_size, &new_size);
+	}
+
+	if (new_size == 0 || new_size > cap) {
+		sysMemFree(work);
+		return -1;
+	}
+
+	if (out_data) *out_data = work;
+	if (out_size) *out_size = new_size;
+	if (out_loadtype) *out_loadtype = loadtype;
+	return 1;
+}
+
 /* Emit one .pdmesh compound. Returns 1 written, 0 skipped, -1 failed.
  *
  * Engine Phase 4: dedup is now done UPSTREAM by the collect-phase in
@@ -448,31 +575,38 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
 	    s_existingArchiveHasEntry(dst_rel, "model.obj")) return 0;
 
-	u32 src_size = 0;
-	void *src_bytes = fsFileLoad(src_rel, &src_size);
-	if (!src_bytes || src_size == 0) {
-		if (src_bytes) sysMemFree(src_bytes);
+	u8 *model_bytes = NULL;
+	u32 model_size = 0;
+	u32 loadtype = LOADTYPE_MODEL;
+	s32 loaded = s_loadSourceModelPreprocessed(filenum, src_rel, hint_suffix,
+	                                           &model_bytes, &model_size,
+	                                           &loadtype);
+	if (loaded <= 0) {
 		sysLogPrintf(LOG_NOTE,
-			"romextract pdmesh: source bytes unavailable for filenum=0x%04x (rel=\"%s\")",
+			"romextract pdmesh: source model unavailable for filenum=0x%04x (rel=\"%s\")",
 			(unsigned)filenum, src_rel);
-		return 0;
+		return loaded < 0 ? -1 : 0;
 	}
 
 	pdmesh_textbuf_t obj_buf;
 	memset(&obj_buf, 0, sizeof(obj_buf));
 	u32 triangle_count = 0;
 	u32 gdl_count = 0;
-	if (s_buildModelObj((const u8 *)src_bytes, src_size, &obj_buf,
+	if (s_buildModelObj((const u8 *)model_bytes, model_size, &obj_buf,
 	                    &triangle_count, &gdl_count) != 0 ||
 	    triangle_count == 0) {
-		sysMemFree(src_bytes);
+		sysMemFree(model_bytes);
 		s_textbufFree(&obj_buf);
 		sysLogPrintf(LOG_WARNING,
 			"romextract pdmesh: OBJ export produced no triangles for filenum=0x%04x (rel=\"%s\")",
 			(unsigned)filenum, src_rel);
 		return 0;
 	}
-	sysMemFree(src_bytes);
+	sysLogPrintf(LOG_NOTE,
+		"romextract pdmesh: exported filenum=0x%04x loadtype=%u tris=%u gdls=%u",
+		(unsigned)filenum, (unsigned)loadtype,
+		(unsigned)triangle_count, (unsigned)gdl_count);
+	sysMemFree(model_bytes);
 
 	const char mtl_buf[] =
 		"newmtl pd_default\n"
@@ -602,11 +736,12 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 
 /* Engine Phase 4: collect-then-emit pattern.  Phase 1 walks the
  * authoring tables single-threaded, dedups by filenum into a work
- * queue.  Phase 2 fans the unique (filenum, hint) tuples across the
- * boot pool.
+ * queue.  Phase 2 emits the unique (filenum, hint) tuples after
+ * preprocessing each ROM model into the PC modeldef layout.
  *
- * Dedup happens upstream so each worker writes a unique slug; ZIP
- * writes are independent and thread-safe. */
+ * The model preprocessor uses process-global marker/GBI scratch state,
+ * so keep the emission loop single-threaded rather than fanning this
+ * pass out through the boot pool. */
 
 typedef struct {
 	u16  filenum;
@@ -714,7 +849,7 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 		}
 	}
 
-	/* Phase 2: fan out the per-mesh emit work. */
+	/* Phase 2: emit the per-mesh work. */
 	pdmesh_fanout_ctx_t mctx;
 	memset(&mctx, 0, sizeof(mctx));
 	mctx.jobs          = jobs;
@@ -727,7 +862,9 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 	SDL_AtomicSet(&mctx.processed, 0);
 
 	bootProgressUpdate(0, job_count);
-	bootPoolForRangeBlocking(0, job_count, s_pdmeshWork, &mctx);
+	for (s32 i = 0; i < job_count; i++) {
+		s_pdmeshWork(i, &mctx);
+	}
 	bootProgressUpdate(job_count, job_count);
 
 	s32 written = SDL_AtomicGet(&mctx.written);
