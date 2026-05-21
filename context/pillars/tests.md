@@ -1,6 +1,6 @@
 # Tests
 
-> Catch2 v2 single-header. `pd-tests` CMake target alongside `pd` and `pd-server`. Self-contained: no SDL, no GL, no ImGui, no ENet. Pure-C mirrors keep the test binary globals-free. Static source-text checks pin architectural invariants. Per-session isolated build wrapper + scope aliases for targeted runs.
+> Catch2 v2 single-header. `pd-tests` CMake target alongside `pd` and `pd-updater`; standalone `pd-server` / `PerfectDarkServer.exe` is removed. Self-contained: no SDL, no GL, no ImGui, no ENet. Pure-C mirrors keep the test binary globals-free. Static source-text checks pin architectural invariants. Per-session isolated build wrapper + scope aliases for targeted runs.
 
 ---
 
@@ -157,26 +157,26 @@ Per-binary smoke fixtures that exercise the production exes end-to-end. Distinct
 - **modding** -- `mod_load_smoke.json` + 500-byte `test_smoke_skin.pdmod` fixture. Asserts modmgr scan / parse / discovery + SHA-256 surface for a `.pdmod` staged into `<install>/mods/`. Commit `a9e531b5`.
 - **physics-collision** -- `physics_capsule_basic_smoke.json` uses `--debug-spawn-at 637.0,360.0,923.0,16` (canonical CITRAINING spawn point). Chain-of-evidence (no AV + bgunTickGameplay >= 30 ticks) because `src/lib/capsule.c` has zero `sysLogPrintf` sites today. Commit `a12327a7` (depends on harness extensions `fc9645aa`).
 - **save-wire-format** -- `save_init_smoke.json` + v2 `agent_smoke.json` fixture. Booted with `--portable` so `saveDir = install dir`. Asserts `SAVEMIGRATE: Initialized ...` + `SAVE: initialized -- save dir:`. Deeper `saveLoadAgent` path deferred (Agent Select UI nav not yet harnessable). Commit `9a3f306e`.
-- **connectivity** -- `listen_host_init_smoke.json` omits `--no-net`, pins ENet init + P2P.LAN UDP 27101 bind + PRESENCE UDP 27105 bind + presence-initialised. Path-pinned firewall allow rule covers the binds. Commit `605faf3f`.
+- **connectivity** -- `listen_host_init_smoke.json` omits `--no-net`, pins ENet init + P2P.LAN UDP 27101 bind + PRESENCE UDP 27105 bind + presence-initialised. `listen_host_peer_smoke.json` uses the runner's multi-process `processes` array to start a listen host and a loopback client in one install directory, waits for the host bind barrier, and asserts the ENet auth handshake reaches `CLC_AUTH` / client-slot assignment. Path-pinned firewall allow rule covers the binds. Commit `605faf3f`; c3813 statically guards the peer fixture, runner orchestration, clean-install timing budget, and early `--host` log routing.
 - **tests** (meta) -- `run-pd-tests-smoke.ps1` wraps the `pd-tests` Catch2 binary with an allowlist of 6 carry-over TEST_CASE names (`test_uichrome_paths_pin`, `test_pdbase_retired_audit`, `test_catalog_provider_static`) and soft-guards the pre-existing teardown segfault exit `0xC0000005`. Commit `367f6c16`.
-- **server** -- `dedicated_server_boot_smoke.json` exercises `--headless --port 27200 --maxclients 4` boot of `PerfectDarkServer.exe`. Pins 8 bring-up markers (NET / HUB / BANS / ADMIN / SERVER x4) plus positive forbidden of `CLC_AUTH: ROM hash check fired` (dedicated invariant from `pillars/server.md`). Uses `runtime_strategy: "timeout-kill"` because `SRC_SERVER` does not link `smoke_harness.c` today. Commit `1b581d4d`.
+- **server** -- The former `dedicated_server_boot_smoke.json` path is historical after the standalone `pd-server` target was removed. Current server-path coverage should focus on in-client listen-host initialization and match/lobby lifecycle smokes.
 - **input (stage-verify propagation)** -- `mp_room_flow.json`, `swarm_cpu_smoke.json`, `swarm_gpu_smoke.json` got the `LOAD: lv.c entering stage load sequence for stagenum=0xNN` + `TICK: lvTick enter tick=N stagenum=0xNN` triplet pattern that `mission_intro_flow` introduced. mp_room stays at CITRAINING 0x26; swarm tests transition to Felicity 0x43. Commit `24117635` (also adds the 1000 ms `New-SmokeSharedInstall` settle delay).
 
 ### Harness extensions delivered this phase
 
 - `fixtures: [{src, dst}]` array in test JSON, copied by `Copy-SmokeFixtures` after install seed and before binary launch. Pre-stages `.pdmod`, agent JSON, or any other file under the install root.
 - `--debug-spawn-at x,y,z,room` boot-flag (port/src/main.c `bootApplyDebugSpawnAt` + `port/src/pdmain.c` mainTick wiring of `bootDebugSpawnAtTick`). Latches at boot, fires once at frame >= 4 via `chrMoveToPos(force=true)`. Deterministic player positioning without depending on AI-script triggers. Commit `fc9645aa`.
-- `target: "pd" | "pd-server"` field in test JSON, switching the install harness between `PerfectDark.exe` and `PerfectDarkServer.exe` (skips ROM seed for pd-server; switches log path to `pd-server.log`; switches firewall rule display name).
-- `runtime_strategy: "harness" | "timeout-kill"` field. `harness` (default for pd target) injects `--smoke <test.json>`, parses the scripted-exit sentinel, gates on exit code 0. `timeout-kill` (default for pd-server target) waits `timeout_seconds` then kills the process; assertions are log-only; non-zero exit code accepted. Both commits `1b581d4d`.
+- Historical `target: "pd-server"` and `runtime_strategy: "timeout-kill"` support existed for the removed standalone server smoke. Current smoke work should target `pd` listen-host paths unless the dedicated-server track is explicitly reopened.
+- `runtime_strategy: "harness"` remains the normal scripted-exit path for `pd` smoke fixtures.
 - `New-SmokeSharedInstall` settle delay: module-scope counter; first call exempt, subsequent calls sleep 1000 ms before wipe / seed to absorb the prior `PerfectDark.exe` atexit log flush race. Commit `24117635`.
 
 ### Known gaps in the smoke gate
 
 - **Cross-session install lock missing.** The settle delay is intra-session only; concurrent `run.ps1` invocations across two Claude sessions can still race on `.claude/smoke-verify-install/`. Future hardening: `.claude/smoke-verify-install/.lock` file lock.
-- **`smoke_harness.c` not linked into `pd-server`.** Server tests cannot use the scripted-exit `harness` strategy yet. CMake change to add `port/src/smoke_harness.c` to `SRC_SERVER` is the follow-up; existing pd-server JSON would then opt into `runtime_strategy: harness` without runner changes.
+- **Retired pd-server smoke docs still exist in older audits/designs.** The standalone `pd-server` target is removed; do not revive `SRC_SERVER` or `dedicated_server_boot_smoke.json` as routine coverage unless the dedicated-server track is explicitly reopened.
 - **`capsule.c` has zero `sysLogPrintf` sites.** Physics-collision smoke coverage is chain-of-evidence (no AV + tick count) rather than capsule-sweep-direct. Instrumenting `capsuleSweep` entry / `cdTestVolume` early-out unlocks a real `wall_jump_capsule_smoke` sibling.
 - **Save-pillar deeper paths not exercised.** `saveLoadAgent` requires scripted Agent Select UI nav (blocked by post-Combat-Sim crash class in `mp_room_flow`'s deeper Room sub-screens); `saveLoadSystem` is not auto-called at boot; v1->v2 migration lives in `mpsetupfileLoadWad` only.
-- **`--host` log-path quirk in connectivity.** `--host` re-routes the log to `pd-host.log`; the runner's `Get-SmokeLogPath` is hardcoded to `pd-client.log`. Listen-host steady-state coverage requires either reconciling the log path or a two-process driver.
+- **Deeper peer-flow smoke coverage.** The runner now supports two-process listen-host/client coverage through the `processes` array and separate `pd-host.log` / `pd-client.log` handling, including early host logs emitted before normal `sysInit()`. Existing coverage proves stack init and ENet auth on loopback; future smoke work should extend that same harness into room settings mutation, countdown cancel, match end, killfeed, and Return to Room assertions.
 
 ---
 

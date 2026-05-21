@@ -643,6 +643,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
         </select>
         <input class="filter-sel" id="memory-review-search" placeholder="Search" oninput="renderMemoryReviewTab()">
         <button class="btn btn-ghost btn-sm" onclick="loadMemoryReview()">Refresh</button>
+        <button class="btn btn-primary btn-sm" onclick="applyMemoryReviewMarkup()">Apply markup</button>
       </div>
     </div>
     <div class="memory-summary" id="memory-review-summary"></div>
@@ -2057,7 +2058,8 @@ function renderMemoryReviewTab() {
     `<span class="memory-pill"><strong>${counts.unreviewed || 0}</strong> unreviewed</span>`,
     `<span class="memory-pill"><strong>${counts.keep || 0}</strong> keep</span>`,
     `<span class="memory-pill"><strong>${counts.adjust || 0}</strong> adjust</span>`,
-    `<span class="memory-pill"><strong>${counts.remove || 0}</strong> remove</span>`
+    `<span class="memory-pill"><strong>${counts.remove || 0}</strong> remove</span>`,
+    `<span class="memory-pill" title="${escapeHtml(memoryReviewData.source_path || '')}">source: ${escapeHtml((memoryReviewData.source_path || '').split(/[\\\\/]/).pop() || 'memories.md')}</span>`
   ].join('');
 
   const search = (searchEl ? searchEl.value : '').trim().toLowerCase();
@@ -2094,7 +2096,8 @@ function buildMemoryReviewRow(item) {
   titleWrap.appendChild(title);
   const meta = document.createElement('div');
   meta.className = 'memory-meta';
-  meta.textContent = `${item.id || ''} | MEMORY.md:${item.line_start || '?'}-${item.line_end || '?'}`;
+  const changed = item.source_changed ? ' | source changed since markup' : '';
+  meta.textContent = `${item.id || ''} | memories.md:${item.line_start || '?'}-${item.line_end || '?'}${changed}`;
   titleWrap.appendChild(meta);
   head.appendChild(titleWrap);
 
@@ -2126,7 +2129,7 @@ function buildMemoryReviewRow(item) {
 
   const note = document.createElement('textarea');
   note.className = 'memory-note';
-  note.placeholder = 'Adjustment note';
+  note.placeholder = 'Adjustment note, or paste a full replacement block starting with # Task Group:';
   note.value = item.adjustment_note || '';
   note.oninput = () => scheduleMemoryReviewNoteSave(item.id, note.value);
   row.appendChild(note);
@@ -2183,6 +2186,30 @@ function scheduleMemoryReviewNoteSave(itemId, note) {
     patchMemoryReviewItem(itemId, {adjustment_note: note}, false);
     delete memoryReviewNoteTimers[itemId];
   }, 500);
+}
+
+async function applyMemoryReviewMarkup() {
+  if (!confirm('Apply deterministic memory markup now? Remove deletes marked memory blocks. Adjust replaces only when the note is a full # Task Group block.')) return;
+  setSaveStatus('saving', 'applying memory markup...');
+  try {
+    const r = await fetch('/api/memory-review/apply', {method: 'POST'});
+    const j = await r.json();
+    if (!r.ok) {
+      alert('Memory apply failed: ' + (j.error || r.statusText));
+      setSaveStatus('', 'apply failed');
+      return;
+    }
+    const applied = (j.applied || []).length;
+    const skipped = (j.skipped || []).length;
+    setSaveStatus('saved', `memory apply: ${applied} applied, ${skipped} skipped`);
+    if (skipped) {
+      alert(`${skipped} adjust entries were skipped because their notes were not full replacement blocks.`);
+    }
+    await loadMemoryReview();
+    setTimeout(() => setSaveStatus('', ''), 2500);
+  } catch (e) {
+    setSaveStatus('', 'apply failed');
+  }
 }
 
 function refreshReadyBanner() {
@@ -2648,6 +2675,7 @@ function buildBugRow(bug) {
     actions.appendChild(mkIconBtn(statusShort(next), '', 'Flip status to ' + next, e => { e.stopPropagation(); flipBugStatus(bug.id, next); }));
   }
   actions.appendChild(mkIconBtn('Link', '', 'Link or edit linked smoke-verify test', e => { e.stopPropagation(); linkBugTest(bug.id, bug.linked_test); }));
+  actions.appendChild(mkIconBtn('Del', 'danger', 'Delete bug permanently', e => { e.stopPropagation(); deleteBug(bug.id); }));
   row.appendChild(actions);
 
   const detail = document.createElement('div'); detail.className = 'row-detail';
@@ -2724,6 +2752,18 @@ async function linkBugTest(bid, current) {
   if (path === null) return;
   await fetch('/api/bugs/update', {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({bug_id: bid, patch: {linked_test: path || null}})});
+  await loadBugs();
+}
+
+async function deleteBug(bid) {
+  if (!confirm('Permanently delete bug ' + bid + '?')) return;
+  const r = await fetch('/api/bugs/delete', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({bug_id: bid})});
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    alert('Delete failed: ' + (j.error || r.statusText));
+    return;
+  }
   await loadBugs();
 }
 

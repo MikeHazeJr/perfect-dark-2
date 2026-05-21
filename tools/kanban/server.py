@@ -7,8 +7,10 @@ Serves the dev-window UI at / and provides these API endpoints:
   /api/cards/:id          PATCH                kanban card partial update (flag + flagged_at, etc.)
   /api/parked             GET  POST            parked.json (tools/kanban/parked.json)
   /api/bugs               GET  POST            bug state (tools/bugs/state.json)
+  /api/bugs/delete        POST                 hard-delete a bug from tools/bugs/state.json
   /api/briefing           GET                  daily-flow briefing (tools/kanban/daily-briefing.json)
-  /api/memory-review      GET  POST            memory review state (tools/kanban/memory-review.json)
+  /api/memory-review      GET  POST            dynamic memory review rows + review markup
+  /api/memory-review/apply POST                apply deterministic review markup to memories.md
   /api/memory-review/:id  PATCH                update one memory review item status/note
 
   /api/park               POST                 park a kanban card by id + resume condition
@@ -47,8 +49,10 @@ that window the clock resets and the server stays up.
 """
 
 import json
+import hashlib
 import os
 import pathlib
+import re
 import sys
 import threading
 import time
@@ -63,6 +67,11 @@ PARKED_PATH = BASE / "parked.json"
 BUGS_PATH = REPO_ROOT / "tools" / "bugs" / "state.json"
 BRIEFING_PATH = BASE / "daily-briefing.json"
 MEMORY_REVIEW_PATH = BASE / "memory-review.json"
+TRACKED_MEMORY_PATH = BASE / "memories.md"
+CODEX_MEMORY_PATH = pathlib.Path(os.environ.get(
+    "KANBAN_MEMORY_SOURCE",
+    str(pathlib.Path.home() / ".codex" / "memories" / "MEMORY.md"),
+))
 INDEX_PATH = BASE / "index.html"
 
 IDLE_TIMEOUT_S = max(1, int(os.environ.get("KANBAN_IDLE_TIMEOUT_S", "15")))
@@ -146,17 +155,35 @@ def write_json_atomic(path: pathlib.Path, body: bytes) -> str:
 
 def _default_memory_review():
     return {
-        "schema_version": 1,
-        "semantic_version": "1.0.0",
-        "source_path": r"C:\Users\mikeh\.codex\memories\MEMORY.md",
-        "source_generated_from": "Task Group sections in MEMORY.md",
+        "schema_version": 2,
+        "semantic_version": "2.0.0",
+        "source_path": str(_memory_source_path()),
+        "source_generated_from": "Task Group sections in live memories.md",
         "generated_at": None,
         "review_statuses": ["unreviewed", "keep", "adjust", "remove"],
         "review_items": [],
     }
 
 
-def _load_memory_review():
+def _memory_source_path():
+    for candidate in (CODEX_MEMORY_PATH, TRACKED_MEMORY_PATH):
+        if candidate.exists():
+            return candidate
+    return TRACKED_MEMORY_PATH
+
+
+def _memory_review_title_id(title):
+    slug = re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")
+    slug = slug[:48].strip("-") or "memory"
+    digest = hashlib.sha1((title or slug).encode("utf-8")).hexdigest()[:10]
+    return f"mem-{slug}-{digest}"
+
+
+def _memory_text_sha(text):
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+
+def _load_memory_review_markup():
     if not MEMORY_REVIEW_PATH.exists():
         return _default_memory_review()
     data = json.loads(read_text(MEMORY_REVIEW_PATH))
@@ -165,8 +192,128 @@ def _load_memory_review():
     return data
 
 
+def _review_overlay_maps(data):
+    by_id = {}
+    by_title = {}
+    for item in data.get("review_items", []):
+        if item.get("id"):
+            by_id[item["id"]] = item
+        if item.get("title"):
+            by_title[item["title"]] = item
+    return by_id, by_title
+
+
+def _parse_memory_review_items(source_path):
+    if not source_path.exists():
+        return []
+    text = source_path.read_text(encoding="utf-8-sig")
+    lines = text.splitlines()
+    starts = []
+    for idx, line in enumerate(lines):
+        if re.match(r"^#{1,2}\s+Task Group:\s+", line):
+            starts.append(idx)
+    items = []
+    for pos, start in enumerate(starts):
+        end = starts[pos + 1] if pos + 1 < len(starts) else len(lines)
+        while end > start and not lines[end - 1].strip():
+            end -= 1
+        block_lines = lines[start:end]
+        if not block_lines:
+            continue
+        title = re.sub(r"^#{1,2}\s+Task Group:\s*", "", block_lines[0]).strip()
+        source_text = "\n".join(block_lines).rstrip() + "\n"
+        source_hash = _memory_text_sha(source_text)
+        scope = ""
+        keywords = []
+        in_keywords = False
+        for raw in block_lines[1:]:
+            line = raw.strip()
+            if line.startswith("scope:"):
+                scope = line[len("scope:"):].strip()
+            if line.lower() == "### keywords":
+                in_keywords = True
+                continue
+            if in_keywords:
+                if line.startswith("### ") or line.startswith("## ") or line.startswith("# "):
+                    in_keywords = False
+                    continue
+                if line.startswith("- "):
+                    keywords.extend([p.strip(" `") for p in line[2:].split(",") if p.strip()])
+                elif not line:
+                    in_keywords = False
+        items.append({
+            "id": _memory_review_title_id(title),
+            "title": title,
+            "source_path": str(source_path),
+            "line_start": start + 1,
+            "line_end": end,
+            "status": "unreviewed",
+            "adjustment_note": "",
+            "source_text": source_text,
+            "source_hash": source_hash,
+            "scope": scope,
+            "keywords": keywords,
+            "review_applied": False,
+            "rebuild_ready": True,
+        })
+    return items
+
+
+def _load_memory_review():
+    markup = _load_memory_review_markup()
+    source_path = _memory_source_path()
+    items = _parse_memory_review_items(source_path)
+    by_id, by_title = _review_overlay_maps(markup)
+    for item in items:
+        overlay = by_id.get(item["id"]) or by_title.get(item["title"]) or {}
+        for key in ("status", "adjustment_note", "reviewed_at", "updated_at", "review_applied", "review_applied_at"):
+            if key in overlay:
+                item[key] = overlay.get(key)
+        item["source_changed"] = bool(overlay.get("source_hash") and overlay.get("source_hash") != item.get("source_hash"))
+    data = {
+        "schema_version": 2,
+        "semantic_version": "2.0.0",
+        "source_path": str(source_path),
+        "source_generated_from": "Parsed live # Task Group sections from memories.md",
+        "tracked_mirror_path": str(TRACKED_MEMORY_PATH),
+        "markup_path": str(MEMORY_REVIEW_PATH),
+        "generated_at": _utcnow_iso(),
+        "review_statuses": markup.get("review_statuses", ["unreviewed", "keep", "adjust", "remove"]),
+        "review_items": items,
+    }
+    return data
+
+
+def _memory_review_markup_payload(data):
+    return {
+        "schema_version": 2,
+        "semantic_version": "2.0.0",
+        "source_path": data.get("source_path") or str(_memory_source_path()),
+        "source_generated_from": "Review markup overlay for live memories.md",
+        "generated_at": _utcnow_iso(),
+        "review_statuses": data.get("review_statuses", ["unreviewed", "keep", "adjust", "remove"]),
+        "review_items": [
+            {
+                "id": item.get("id"),
+                "title": item.get("title", ""),
+                "source_hash": item.get("source_hash"),
+                "status": item.get("status") or "unreviewed",
+                "adjustment_note": item.get("adjustment_note") or "",
+                "reviewed_at": item.get("reviewed_at"),
+                "updated_at": item.get("updated_at"),
+                "review_applied": bool(item.get("review_applied")),
+                "review_applied_at": item.get("review_applied_at"),
+            }
+            for item in data.get("review_items", [])
+            if (item.get("status") and item.get("status") != "unreviewed")
+            or item.get("adjustment_note")
+            or item.get("review_applied")
+        ],
+    }
+
+
 def _save_memory_review_atomic(data):
-    serialized = json.dumps(data, indent=2, ensure_ascii=True)
+    serialized = json.dumps(_memory_review_markup_payload(data), indent=2, ensure_ascii=True)
     tmp = MEMORY_REVIEW_PATH.with_suffix(MEMORY_REVIEW_PATH.suffix + ".tmp")
     tmp.write_text(serialized, encoding="utf-8")
     os.replace(tmp, MEMORY_REVIEW_PATH)
@@ -189,6 +336,80 @@ def _find_memory_review_item(data, item_id):
         if item.get("id") == item_id:
             return item
     return None
+
+
+def _memory_adjustment_replacement(note):
+    text = (note or "").strip()
+    if re.match(r"^#{1,2}\s+Task Group:\s+", text):
+        return text.rstrip() + "\n"
+    fenced = re.search(r"```(?:memory|markdown|md)?\s*\n(#{1,2}\s+Task Group:.*?\n)```", text, re.S)
+    if fenced:
+        return fenced.group(1).rstrip() + "\n"
+    return None
+
+
+def _write_memory_source_text(source_path, text):
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    with source_path.open("w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    if source_path.resolve() != TRACKED_MEMORY_PATH.resolve():
+        TRACKED_MEMORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with TRACKED_MEMORY_PATH.open("w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+
+
+def _apply_memory_review_markup():
+    data = _load_memory_review()
+    source_path = pathlib.Path(data["source_path"])
+    if not source_path.exists():
+        raise FileNotFoundError(f"memory source not found: {source_path}")
+    text = source_path.read_text(encoding="utf-8-sig")
+    lines = text.splitlines(keepends=True)
+    applied = []
+    skipped = []
+    changed = False
+    candidates = [
+        item for item in data.get("review_items", [])
+        if item.get("status") in ("remove", "adjust") and not item.get("review_applied")
+    ]
+    for item in sorted(candidates, key=lambda x: x.get("line_start") or 0, reverse=True):
+        start = max(0, int(item.get("line_start") or 1) - 1)
+        end = max(start, int(item.get("line_end") or start))
+        status = item.get("status")
+        if status == "remove":
+            del lines[start:end]
+            applied.append({"id": item.get("id"), "title": item.get("title"), "action": "remove"})
+            item["review_applied"] = True
+            item["review_applied_at"] = _utcnow_iso()
+            changed = True
+        elif status == "adjust":
+            replacement = _memory_adjustment_replacement(item.get("adjustment_note"))
+            if replacement is None:
+                skipped.append({
+                    "id": item.get("id"),
+                    "title": item.get("title"),
+                    "reason": "adjustment note is not a full replacement block starting with '# Task Group:'",
+                })
+                continue
+            lines[start:end] = [replacement]
+            applied.append({"id": item.get("id"), "title": item.get("title"), "action": "replace"})
+            item["review_applied"] = True
+            item["review_applied_at"] = _utcnow_iso()
+            changed = True
+    if changed:
+        new_text = "".join(lines)
+        if new_text and not new_text.endswith("\n"):
+            new_text += "\n"
+        _write_memory_source_text(source_path, new_text)
+    _save_memory_review_atomic(data)
+    return {
+        "ok": True,
+        "changed": changed,
+        "applied": applied,
+        "skipped": skipped,
+        "source_path": str(source_path),
+        "tracked_mirror_path": str(TRACKED_MEMORY_PATH),
+    }
 
 
 # ---------- decision-request mechanism helpers (c121) ----------
@@ -515,8 +736,15 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/memory-review":
                 data = json.loads(self.read_body() or b"{}")
                 written = _save_memory_review_atomic(data)
-                print(f"[kanban] memory-review.json written ({len(written)} bytes)")
+                print(f"[kanban] memory-review markup written ({len(written)} bytes)")
                 self.reply_json(200, {"ok": True, "summary": _memory_review_summary(data)})
+                return
+
+            if self.path == "/api/memory-review/apply":
+                self.read_body()
+                result = _apply_memory_review_markup()
+                print(f"[kanban] memory review apply: {len(result.get('applied', []))} applied, {len(result.get('skipped', []))} skipped")
+                self.reply_json(200, result)
                 return
 
             if self.path == "/api/park":
@@ -639,6 +867,22 @@ class Handler(BaseHTTPRequestHandler):
                 new_bug.setdefault("related_bugs", [])
                 new_bug.setdefault("filed_date", __import__("datetime").date.today().isoformat())
                 bugs.setdefault("bugs", []).append(new_bug)
+                pe.save_json_atomic(BUGS_PATH, bugs)
+                self.reply_json(200, {"ok": True})
+                return
+
+            if self.path == "/api/bugs/delete":
+                payload = json.loads(self.read_body() or b"{}")
+                bid = payload.get("bug_id")
+                if not bid:
+                    self.reply_json(400, {"error": "bug_id required"})
+                    return
+                bugs = pe.load_json(BUGS_PATH)
+                before = len(bugs.get("bugs", []))
+                bugs["bugs"] = [bug for bug in bugs.get("bugs", []) if bug.get("id") != bid]
+                if len(bugs["bugs"]) == before:
+                    self.reply_json(404, {"error": "bug not found"})
+                    return
                 pe.save_json_atomic(BUGS_PATH, bugs)
                 self.reply_json(200, {"ok": True})
                 return

@@ -345,6 +345,18 @@ s32 currentPlayerGetDeviceState(s32 weaponnum)
 	}
 
 	for (i = 0; i < ARRAYCOUNT(weapon->functions); i++) {
+		const weapon_graph_held_function_t *graph =
+			weaponGraphRuntimeGetHeldFunctionForGameplay(weaponnum, i);
+
+		if (graph && (graph->function_type_id & 0xff) == INVENTORYFUNCTYPE_DEVICE &&
+				graph->has_device) {
+			if ((g_Vars.currentplayer->devicesactive & graph->device) == 0) {
+				return DEVICESTATE_INACTIVE;
+			}
+
+			return DEVICESTATE_ACTIVE;
+		}
+
 		if (weapon->functions[i]) {
 			struct weaponfunc_device *devicefunc = weapon->functions[i];
 
@@ -371,6 +383,24 @@ void currentPlayerSetDeviceActive(s32 weaponnum, bool active)
 	}
 
 	for (i = 0; i < ARRAYCOUNT(weapon->functions); i++) {
+		const weapon_graph_held_function_t *graph =
+			weaponGraphRuntimeGetHeldFunctionForGameplay(weaponnum, i);
+
+		if (graph && (graph->function_type_id & 0xff) == INVENTORYFUNCTYPE_DEVICE &&
+				graph->has_device) {
+			if (active) {
+				if (graph->device & (DEVICE_NIGHTVISION | DEVICE_XRAYSCANNER | DEVICE_EYESPY | DEVICE_IRSCANNER)) {
+					g_Vars.currentplayer->devicesactive &= ~(DEVICE_NIGHTVISION | DEVICE_XRAYSCANNER | DEVICE_EYESPY | DEVICE_IRSCANNER);
+				}
+
+				g_Vars.currentplayer->devicesactive |= graph->device;
+				return;
+			}
+
+			g_Vars.currentplayer->devicesactive &= ~graph->device;
+			return;
+		}
+
 		if (weapon->functions[i]) {
 			struct weaponfunc_device *devicefunc = weapon->functions[i];
 
@@ -651,9 +681,17 @@ s8 weaponGetNumTicksPerShot(u32 weaponnum, u32 funcindex)
 
 u32 currentPlayerGetSight(void)
 {
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(
+			g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponnum,
+			g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc);
 	struct weaponfunc *func = weaponGetFunctionById(
 			g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponnum,
 			g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc);
+
+	if (graph && (graph->function_type_id & 0xff) == INVENTORYFUNCTYPE_MELEE) {
+		return SIGHT_NONE;
+	}
 
 	if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_MELEE) {
 		return SIGHT_NONE;

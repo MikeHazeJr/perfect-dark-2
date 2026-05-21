@@ -621,7 +621,10 @@ s32 menuGraphFirePop(menu_type_t source, const char *edge_id)
             "MENU.GRAPH.FIRE source=%s edge=%s trigger=%d dest=%s ok=1",
             menupoolTypeName(source), edge_id, (int)edge->trigger,
             menuGraphDestKindName(edge->kind));
+        /* Root close has two owners: the pool/input context and the
+         * legacy root dialog that keeps queuing the ImGui renderer. */
         menupoolReleaseAll();
+        menuClose();
         return 0;
     }
 
@@ -667,7 +670,10 @@ s32 menuGraphFirePopOp(menu_type_t source,
         if (edge->kind == MENU_GRAPH_DEST_POP_TO_PARENT) {
             menuPopDialog();
         } else if (edge->kind == MENU_GRAPH_DEST_POP_TO_ROOT) {
+            /* Root close has two owners: the pool/input context and the
+             * legacy root dialog that keeps queuing the ImGui renderer. */
             menupoolReleaseAll();
+            menuClose();
         }
     }
 

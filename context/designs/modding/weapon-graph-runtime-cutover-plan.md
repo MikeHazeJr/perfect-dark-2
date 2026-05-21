@@ -134,7 +134,7 @@ Landed:
 ### Slice 6: held-weapon runtime adapter
 
 Kanban: `c3814-s15`.
-Status: active, partial 2026-05-21.
+Status: expanded held/player/AI adapter landed 2026-05-21; remaining closure moves through projectile/entity/presentation parity slices.
 
 Scope:
 
@@ -153,7 +153,10 @@ Landed so far:
 - `.pdweapon` walker compiles/registers held IR from each weapon archive after the legacy pool payload is parsed.
 - Shared gameplay accessors read graph-backed damage, impact force, fire-slot duration, numeric shoot sound, penetration, function flags, and max_rpm cadence when the Debug Settings graph runtime toggle is enabled.
 - Direct held shooting helpers read graph-backed burst flags, ammo slot, spin-up/spin-down, muzzle flash flag, initial/max RPM, and ammo consumption when the toggle is enabled.
-- Legacy behavior remains the default fallback and still owns direct firing state-machine callsites.
+- Runtime adapter coverage now also captures symbolic SFX names, function type ids, recoil/recovery fields, throw activation/recovery, projectile/entity refs, projectile model refs, projectile scale/speed/distance/timer/reflect/sound fields, melee range, special function/recovery/sound, and device ids.
+- Player held paths read graph-backed recoil/recovery, trigger dispatch type, throw/special/device state, fired/thrown projectile spawn parameters, sight/auto-aim type, and device toggles when the Debug Settings graph runtime toggle is enabled.
+- The AI projectile launcher reads graph-backed projectile model, speed, distance, timer, flags, reflect angle, and launch sound for rocket/grenade/bolt launcher behavior.
+- Legacy behavior remains the default fallback. Deeper `.pdprojectile` motion/guidance/impact IR, `.pdentity` armed/deployed behavior IR, presentation graph modules, saved custom weapon hot-register parity, and parity smokes remain in the later slices.
 
 ### Slice 7: projectile runtime adapter
 
@@ -204,7 +207,7 @@ Exit gates:
 
 ## First Active Code Task
 
-Continue with `c3814-s15`: adapt held weapon behavior to compiled graph IR for non-physical modules first, using the Debug Settings runtime toggle as the gameplay callsite gate while legacy behavior remains the default fallback.
+Continue with `c3814-s16` and `c3814-s17`: move projectile motion/guidance/impact behavior and armed/deployed entity behavior from graph metadata into runtime IR execution, then close presentation/hot-register parity under `c3814-s18`/`c3814-s19` while legacy behavior remains the default fallback.
 
 ## Sentinel
 

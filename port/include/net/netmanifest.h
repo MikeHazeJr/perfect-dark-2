@@ -312,10 +312,8 @@ extern match_manifest_t g_CurrentLoadedManifest;
  * Queries the catalog for all assets required by stagenum:
  *   - Stage entry (bg, tiles, pads, setup) via catalogResolveStage()
  *   - SP player character body/head (Joanna: body_0 / head_0)
- *
- * TODO SA-6: extend to include character bodies/heads from the stage spawn
- * list once setup file data is available pre-load.
- * TODO SA-6: add prop models used by the stage.
+ *   - Setup/intro/AI-script body, head, model, weapon, prop, and outfit refs
+ *     discovered by the post-setup SA-6 scanners in netmanifest.c
  *
  * Calls manifestComputeHash() before returning.
  */

@@ -19,6 +19,7 @@
 #include "lib/collision.h"
 #include "data.h"
 #include "types.h"
+#include "weapon_graph_runtime.h"
 
 s32 botactGetAmmoTypeByFunction(s32 weaponnum, s32 funcnum)
 {
@@ -427,7 +428,13 @@ s32 botactGetShootInterval60(s32 weaponnum, s32 funcnum)
 {
 	s32 stack[2];
 	s32 result = 1;
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(weaponnum, funcnum);
 	struct weapon *weapon = weaponFindById(weaponnum);
+
+	if (graph && graph->has_recoil_anim_unk24 && graph->has_recoil_anim_unk25) {
+		return graph->recoil_anim_unk24 + graph->recoil_anim_unk25;
+	}
 
 	if (weapon) {
 		struct weaponfunc *func = weapon->functions[funcnum];

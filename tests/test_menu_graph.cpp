@@ -575,6 +575,7 @@ TEST_CASE("menu graph: main-menu close uses pop graph edge", "[input][menu_graph
     REQUIRE(popOp.find("if (rc == 0)") != std::string::npos);
     REQUIRE(popOp.find("menuPopDialog();") != std::string::npos);
     REQUIRE(popOp.find("menupoolReleaseAll();") != std::string::npos);
+    REQUIRE(popOp.find("menuClose();") != std::string::npos);
 }
 
 TEST_CASE("menu graph: priority nodes and dialog-push firing substrate exist", "[input][menu_graph][static]")

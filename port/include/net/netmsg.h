@@ -137,8 +137,8 @@
  * the client's room view is authoritative after the SVC_STAGE_END
  * roundtrip. No payload; the source netclient identifies which client to
  * resync. Server path: netmsgClcLobbyResyncRead -> emit SVC_ROOM_ASSIGN
- * with the client's existing room_id (or 0xFF for lounge), then call the
- * existing settings/playlist broadcast helpers. */
+ * with the client's existing room_id (or 0xFF for lounge), then replay the
+ * current room settings and playlist payloads. */
 #define CLC_LOBBY_RESYNC          0x18 // client->server: re-broadcast my room + settings
 
 u32 netmsgClcLobbyResyncWrite(struct netbuf *dst);

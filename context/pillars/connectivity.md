@@ -1,6 +1,6 @@
 # Connectivity / Online
 
-> ENet UDP transport. Server-authoritative wire protocol at v48. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v3). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
+> ENet UDP transport. Server-authoritative wire protocol at v49. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v3). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
 
 ---
 
@@ -27,7 +27,7 @@ Code:
 
 ## Wire protocol
 
-`NET_PROTOCOL_VER 48` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The header carries an in-source changelog from v27 through v48. The version is pinned by [tests/test_versions.cpp:46](../../tests/test_versions.cpp:46) (`g_TestExpectedNetProtocolVer`) which reads the live header.
+`NET_PROTOCOL_VER 49` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The header carries an in-source changelog from v27 through v49. The version is pinned by [tests/test_versions.cpp:46](../../tests/test_versions.cpp:46) (`g_TestExpectedNetProtocolVer`) which reads the live header.
 
 Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1560](../../port/src/net/net.c:1560) `enet_peer_disconnect(peer, DISCONNECT_VERSION)`) and at the presence-channel proto check ([port/src/group_session.c:212](../../port/src/group_session.c:212)).
 
@@ -35,6 +35,7 @@ Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1
 
 | Bump | What changed |
 |------|--------------|
+| **v49 (2026-05-17)** | `CLC_LOBBY_RESYNC 0x18` lets a client request authoritative `SVC_ROOM_ASSIGN`, `SVC_ROOM_SETTINGS`, and `SVC_ROOM_PLAYLIST` after match end so post-match room return does not rely on stale client state. |
 | **v48 (c3807 Track 2d, 2026-05-16)** | `SVC_GPUSWARM_STATE 0x6c` -- listen-host-only Mode B broadcasts the GPU swarm state texture to all peers at 10 Hz; 20-byte packed_bot quantization (pos/vel s16 cm, surface_up s8 ratio, AI ints exact); 4 chunks of 1024 bots over the unreliable channel at SWARM_GPU_MAX = 4096. Receiver dequantizes via `swarmGpuApplyRemoteState` and skips local compute on `g_NetMode == NETMODE_CLIENT`. v1 limitations tracked in B-333. |
 | v47 (c3738 Slice 3, 2026-05-14) | Skedar surface-normal locomotion MP sync -- `chr->surface_up` over the wire so remote clients tilt bots correctly along wall/ceiling surfaces |
 | **v46 (S507/S511, 2026-04-28)** | Mandatory SHA-256 digest on `SVC_DISTRIB_BEGIN`; cutscene network semantics (`SVC_CUTSCENE active+player_mask`, `CLC_CUTSCENE_SKIP 0x17`) |
@@ -52,12 +53,14 @@ Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1
 | v30 | Weapon identity uses catalog session refs (u16) |
 | v27 | All `net_hash` removed from wire |
 
+2026-05-21 c3813 follow-through: the live `CLC_LOBBY_RESYNC` handler now replays `SVC_ROOM_ASSIGN`, `SVC_ROOM_SETTINGS`, and `SVC_ROOM_PLAYLIST` directly, listen-host local return-to-room satisfies the resync locally instead of broadcasting a client opcode to peers, and failed active match-prep distribution now sends `MANIFEST_STATUS_DECLINE` instead of re-requesting the same failed assets. c3813 also live-verifies the two-process listen-host/client loopback smoke, gives that fixture enough clean-install budget for typed-archive validation/extraction, routes early `--host` logs to `pd-host.log`, and pins disconnect/reconnect/drop-in/drop-out guards: preserve-before-reset, room-leave-before-reset, mid-game fresh-join rejection, cookie reconnect, score restore, stage-start replay, and full chr/prop/score resync scheduling.
+
 **No integer asset identity may appear on the wire.** Weapons and models use catalog session u16 refs; scenario uses catalog ID string. (Constraint, since 2026-04-02.)
 
 ### Listen vs dedicated mode
 
 - **Listen host** (`g_NetDedicated == 0`): server runs inside the game client process; local player occupies a slot. Current shipping target per S486.
-- **Dedicated** (`g_NetDedicated == 1`, `g_NetLocalClient == NULL`): standalone `PerfectDarkServer.exe`; no local player; ROM/mod check skipped at `CLC_AUTH`. Buildable as tooling/regression coverage; in-client work has priority per [constraints.md](../constraints.md) S486.
+- **Dedicated** (`g_NetDedicated == 1`, `g_NetLocalClient == NULL`): historical/deferred runtime mode only. The standalone `PerfectDarkServer.exe` / `pd-server` build target is removed; do not use it for routine verification. Remaining `g_NetDedicated` guards protect old code paths and future broker work, while in-client listen-host is the shipping path per [constraints.md](../constraints.md) S486.
 
 `netmsg.c:721` checks `g_NetDedicated` for ROM/mod skip. Bot authority at `netmsg.c:7298`. Listen-only server tick at `netmsg.c:7242`.
 
@@ -157,7 +160,7 @@ This static-test discipline catches the "trust client byte before validating" cl
 
 Per [constraints.md](../constraints.md):
 
-- **ENet protocol version v48** must match across clients.
+- **ENet protocol version v49** must match across clients.
 - **Server is not a player.** Dedicated server sets `g_NetLocalClient = NULL` and `g_NetNumClients = 0` at startup; slot 0 free for real players. All paths that dereference `g_NetLocalClient` must NULL-guard.
 - **No raw IP in any UI surface.** Connect codes only.
 - **Connect code byte order** is host-order, not network-order.
@@ -185,7 +188,7 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 - Protocol buffer is safe (overread, overwrite, malformed strings, error-sticky).
 - Static tests verify parse-before-commit ordering on every sensitive handler.
 - Connect codes hide raw IPs; static tests gatekeep UI regression.
-- Dedicated server skips ROM/mod check at `g_NetDedicated` boundary.
+- Historical `g_NetDedicated` paths skip ROM/mod check at that boundary; the standalone build target is no longer active.
 - Voice gated on optional dependency with graceful no-op.
 - Presence Ed25519 signed; v2 pubkey-bound.
 - TURN selects by measured kbps from `groupSessionUpdateKbps`.
@@ -207,6 +210,8 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 - **TURN has no public fallback.** [p2p_turn.c:211-213](../../port/src/net/p2p_turn.c:211) reports "no relay available" when `s_Cands` is empty. Brand-new server with no players in group session fails at tier 5.
 - **netholepunch parallel to tier machine.** Two systems overlap. The handoff from `p2pPairGetEndpoint` to `enet_host_connect` is not visible in surveyed files. Unify.
 - **Voice silent without `HAVE_OPUS`.** [voice.c:16-19](../../port/src/voice.c:16) documents the manual `pacman -S` step. Build script does not check or auto-set the flag. Detect Opus via CMake `find_package` and auto-set.
+
+These NAT/ICE/TURN/UPnP gaps remain real connectivity backlog, but they are tracked by the existing networking cards (`c054`, `c055`, `c057`, `c058`, `c059`, `c060`) rather than by the closed c3813 gameplay-stability card.
 
 ---
 

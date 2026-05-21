@@ -926,6 +926,35 @@ void netDistribClientHandleChunk(const char *catalog_id, u16 chunk_idx,
     (void)compression;  /* stored in slot for future use; we detect below from END */
 }
 
+static void netDistribClientDeclineActiveManifest(const char *reason)
+{
+    if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) {
+        return;
+    }
+
+    if (g_NetLocalClient->state != CLSTATE_PREPARING) {
+        return;
+    }
+
+    if (g_ClientManifest.num_entries == 0) {
+        return;
+    }
+
+    sysLogPrintf(LOG_WARNING,
+                 "DISTRIB: declining active match manifest after transfer failure (%s)",
+                 reason ? reason : "unknown");
+
+    netbufStartWrite(&g_NetMsgRel);
+    netmsgClcManifestStatusWrite(&g_NetMsgRel, g_ClientManifest.manifest_hash,
+                                 MANIFEST_STATUS_DECLINE, NULL, 0);
+    if (!g_NetMsgRel.error) {
+        netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
+        g_NetLocalClient->state = CLSTATE_LOBBY;
+    } else {
+        netbufStartWrite(&g_NetMsgRel);
+    }
+}
+
 /* H-2: Map an INI filename ("map.ini", "character.ini", ...) to the asset_type_e
  * that the scanner would register locally. Keeps wire-delivered mods type-resolvable
  * on arrival so the typed catalog resolvers work before the next refresh tick. */
@@ -1256,6 +1285,7 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
 void netDistribClientHandleEnd(const char *catalog_id, u8 success)
 {
     if (!s_Initialized) return;
+    s32 slot_completed = 0;
 
     /* v27: find slot by catalog ID string. */
     distrib_recv_slot_t *slot = NULL;
@@ -1440,6 +1470,7 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         }
 
         s_ClientStatus.received_count++;
+        slot_completed = 1;
         if (!slot->temporary) {
             modmgrRescanDirectory();
             sysLogPrintf(LOG_NOTE,
@@ -1451,6 +1482,10 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
     free(raw);
 
 done:
+    if (!slot_completed) {
+        s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
+    }
+
     free(slot->compressed_buf);
     memset(slot, 0, sizeof(*slot));
 
@@ -1461,14 +1496,23 @@ done:
     }
 
     if (!any_active) {
-        s_ClientStatus.state = (s_ClientStatus.received_count > 0)
-                               ? DISTRIB_CSTATE_DONE : DISTRIB_CSTATE_ERROR;
-        sysLogPrintf(LOG_NOTE, "DISTRIB: all transfers complete (%d received)",
-                     s_ClientStatus.received_count);
-        /* Phase D→E bridge: re-check manifest now that transfers are done.
-         * This sends CLC_MANIFEST_STATUS(READY) to the server so the
-         * ready gate can count this client. */
-        manifestCheck(&g_ClientManifest);
+        if (s_ClientStatus.state == DISTRIB_CSTATE_ERROR ||
+            s_ClientStatus.received_count < s_ClientStatus.missing_count) {
+            s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
+            sysLogPrintf(LOG_WARNING,
+                         "DISTRIB: transfer set failed (%d/%d received)",
+                         s_ClientStatus.received_count,
+                         s_ClientStatus.missing_count);
+            netDistribClientDeclineActiveManifest("distribution failed");
+        } else {
+            s_ClientStatus.state = DISTRIB_CSTATE_DONE;
+            sysLogPrintf(LOG_NOTE, "DISTRIB: all transfers complete (%d received)",
+                         s_ClientStatus.received_count);
+            /* Phase D→E bridge: re-check manifest now that transfers are done.
+             * This sends CLC_MANIFEST_STATUS(READY) to the server so the
+             * ready gate can count this client. */
+            manifestCheck(&g_ClientManifest);
+        }
     }
 }
 

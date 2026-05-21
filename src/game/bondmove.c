@@ -18,6 +18,7 @@
 #include "game/game_0b0fd0.h"
 #include "game/tex.h"
 #include "game/camera.h"
+#include "game/inv.h"
 #include "game/player.h"
 #include "game/bondcutscene.h"
 #include "game/bondhead.h"
@@ -47,6 +48,7 @@
 #include "utils.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "weapon_graph_runtime.h"
 
 #define BUTTON_JUMP CONT_4000
 
@@ -161,6 +163,86 @@ static void bgunProcessQuickDetonate(struct movedata *data, u32 c1buttons, u32 c
 		g_Vars.currentplayer->invdowntime = -2;
 		g_Vars.currentplayer->usedowntime = -2;
 	}
+}
+
+static s32 bmoveGetPressedWeaponSlotIndex(s32 playeridx)
+{
+	if (actionPressed(playeridx, ACTION_WEAPON_1)) {
+		return 0;
+	}
+	if (actionPressed(playeridx, ACTION_WEAPON_2)) {
+		return 1;
+	}
+	if (actionPressed(playeridx, ACTION_WEAPON_3)) {
+		return 2;
+	}
+	if (actionPressed(playeridx, ACTION_WEAPON_4)) {
+		return 3;
+	}
+	if (actionPressed(playeridx, ACTION_WEAPON_5)) {
+		return 4;
+	}
+	if (actionPressed(playeridx, ACTION_WEAPON_6)) {
+		return 5;
+	}
+
+	return -1;
+}
+
+static bool bmoveSelectInventoryWeaponIndex(s32 invindex)
+{
+	s32 weaponnum;
+	s32 state;
+
+	if (g_Vars.tickmode == TICKMODE_CUTSCENE || g_Vars.lvframenum < 10) {
+		return false;
+	}
+
+	if (invindex < 0 || invindex >= invGetCount()) {
+		return false;
+	}
+
+	weaponnum = invGetWeaponNumByIndex(invindex);
+
+	if (!weaponnum) {
+		return false;
+	}
+
+	state = currentPlayerGetDeviceState(weaponnum);
+
+	if (state != DEVICESTATE_UNEQUIPPED) {
+		currentPlayerSetDeviceActive(weaponnum, state == DEVICESTATE_INACTIVE);
+		return true;
+	}
+
+	invSetCurrentIndex(invindex);
+
+	if (invHasDoubleWeaponIncAllGuns(weaponnum, weaponnum)) {
+		if (bgunGetWeaponNum(HAND_RIGHT) != weaponnum) {
+			bgunEquipWeapon2(HAND_RIGHT, weaponnum);
+		}
+
+		if (bgunGetWeaponNum(HAND_LEFT) != weaponnum) {
+			bgunEquipWeapon2(HAND_LEFT, weaponnum);
+		}
+	} else {
+		if (bgunGetWeaponNum(HAND_RIGHT) != weaponnum) {
+			bgunEquipWeapon2(HAND_RIGHT, weaponnum);
+		}
+
+		if (weaponnum == WEAPON_REMOTEMINE) {
+			bgunEquipWeapon2(HAND_LEFT, weaponnum);
+		} else if (bgunGetWeaponNum(HAND_LEFT) != WEAPON_NONE) {
+			bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
+		}
+	}
+
+	return true;
+}
+
+static bool bmoveHandleDirectWeaponSelect(s32 playeridx)
+{
+	return bmoveSelectInventoryWeaponIndex(bmoveGetPressedWeaponSlotIndex(playeridx));
 }
 
 static void bgunProcessInputAltButton(struct movedata *data, s8 contpad, s32 i)
@@ -418,7 +500,21 @@ bool bmoveIsAutoAimYEnabled(void)
 
 bool bmoveIsAutoAimYEnabledForCurrentWeapon(void)
 {
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(
+			g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponnum,
+			g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc);
 	struct weaponfunc *func = currentPlayerGetWeaponFunction(0);
+
+	if (graph) {
+		if (graph->flags & FUNCFLAG_NOAUTOAIM) {
+			return false;
+		}
+
+		if ((graph->function_type_id & 0xff) == INVENTORYFUNCTYPE_MELEE) {
+			return true;
+		}
+	}
 
 	if (func) {
 		if (func->flags & FUNCFLAG_NOAUTOAIM) {
@@ -476,7 +572,21 @@ bool bmoveIsAutoAimXEnabled(void)
 
 bool bmoveIsAutoAimXEnabledForCurrentWeapon(void)
 {
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(
+			g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponnum,
+			g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc);
 	struct weaponfunc *func = currentPlayerGetWeaponFunction(0);
+
+	if (graph) {
+		if (graph->flags & FUNCFLAG_NOAUTOAIM) {
+			return false;
+		}
+
+		if ((graph->function_type_id & 0xff) == INVENTORYFUNCTYPE_MELEE) {
+			return true;
+		}
+	}
 
 	if (func) {
 		if (func->flags & FUNCFLAG_NOAUTOAIM) {
@@ -1606,12 +1716,19 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 							for (i = 0; i < numsamples; i++) {
 								if (controlmode == CONTROLMODE_PC) {
 									/* M0.2: collapsed sub-frame to per-frame */
-									if ((c1allowedbuttons & BUTTON_WPNFORWARD) && actionWasTap((s32)contpad1, ACTION_WEAPON_NEXT, BOND_TAP_HOLD_THRESH_MS)) {
-										movedata.weaponforwardoffset++;
-										g_Vars.currentplayer->invdowntime = -1;
-									} else if ((c1allowedbuttons & BUTTON_WPNBACK) && actionPressed((s32)contpad1, ACTION_DPAD_LEFT)) {
-										movedata.weaponbackoffset++;
-										g_Vars.currentplayer->invdowntime = -1;
+									if (i == 0) {
+										if (bmoveHandleDirectWeaponSelect((s32)contpad1)) {
+											g_Vars.currentplayer->invdowntime = -1;
+										} else if ((c1allowedbuttons & BUTTON_WPNFORWARD)
+												&& actionWasTap((s32)contpad1, ACTION_WEAPON_NEXT, BOND_TAP_HOLD_THRESH_MS)) {
+											movedata.weaponforwardoffset++;
+											g_Vars.currentplayer->invdowntime = -1;
+										} else if ((c1allowedbuttons & BUTTON_WPNBACK)
+												&& (actionPressed((s32)contpad1, ACTION_WEAPON_PREV)
+													|| actionPressed((s32)contpad1, ACTION_DPAD_LEFT))) {
+											movedata.weaponbackoffset++;
+											g_Vars.currentplayer->invdowntime = -1;
+										}
 									}
 									continue;
 								}
@@ -2088,12 +2205,19 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 							for (i = 0; i < numsamples; i++) {
 								if (controlmode == CONTROLMODE_PC) {
 									/* M0.2: collapsed sub-frame to per-frame — uses synthesized c1buttonsthisframe */
-									if (c1buttonsthisframe & (c1allowedbuttons & BUTTON_WPNFORWARD)) {
-										movedata.weaponforwardoffset++;
-										g_Vars.currentplayer->invdowntime = -1;
-									} else if (c1buttonsthisframe & (c1allowedbuttons & BUTTON_WPNBACK)) {
-										movedata.weaponbackoffset++;
-										g_Vars.currentplayer->invdowntime = -1;
+									if (i == 0) {
+										if (bmoveHandleDirectWeaponSelect((s32)contpad1)) {
+											g_Vars.currentplayer->invdowntime = -1;
+										} else if ((c1allowedbuttons & BUTTON_WPNFORWARD)
+												&& actionWasTap((s32)contpad1, ACTION_WEAPON_NEXT, BOND_TAP_HOLD_THRESH_MS)) {
+											movedata.weaponforwardoffset++;
+											g_Vars.currentplayer->invdowntime = -1;
+										} else if ((c1allowedbuttons & BUTTON_WPNBACK)
+												&& (actionPressed((s32)contpad1, ACTION_WEAPON_PREV)
+													|| (c1buttonsthisframe & (c1allowedbuttons & BUTTON_WPNBACK)))) {
+											movedata.weaponbackoffset++;
+											g_Vars.currentplayer->invdowntime = -1;
+										}
 									}
 									continue;
 								}

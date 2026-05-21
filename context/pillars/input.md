@@ -124,10 +124,11 @@ Single buttons can carry both a tap action and a hold action. The canonical patt
 Live bindings using this pattern:
 
 - `ACTION_USE`: tap = X_BUTTON (reload); hold = A_BUTTON (interact) + consume. Tap and double-tap must not synthesize A_BUTTON or call `bmoveHandleActivate()`.
-- `ACTION_WEAPON_NEXT`: tap = Y_BUTTON cycle; hold = BUTTON_RADIAL wheel-open.
+- `ACTION_WEAPON_NEXT`: tap = Y_BUTTON / Q / mouse-wheel-down / RB cycle; hold = Y_BUTTON or Q opens BUTTON_RADIAL. Mouse wheel remains momentary and cannot hold.
+- `ACTION_WEAPON_PREV`: mouse-wheel-up / LB cycle backward through the same PC gameplay consumer.
 - `ACTION_CROUCH`: drives the existing `CROUCHPOS_{STAND, DUCK, SQUAT}` state machine directly (STAND tap → DUCK, DUCK tap → STAND, any hold → SQUAT, SQUAT tap → DUCK, ACTION_JUMP press → STAND).
 
-Natural-stop cases stay consumer-owned. The input primitive does not need a separate ammo-empty, door-open, full-charge, beam, overheat, or cooldown primitive; those consumers use the same threshold/consume APIs and decide when their own interaction or weapon behavior has naturally stopped. Future weapon-specific adoption is tracked under Kanban `c3814-s15`.
+Natural-stop cases stay consumer-owned. The input primitive does not need a separate ammo-empty, door-open, full-charge, beam, overheat, or cooldown primitive; those consumers use the same threshold/consume APIs and decide when their own interaction or weapon behavior has naturally stopped. Remaining projectile/entity and presentation behavior adoption is tracked under Kanban `c3814-s16`, `c3814-s17`, and `c3814-s19`.
 
 The hold-ring visual (`pdguiDrawHoldProgressRingAroundBox`) decays the smoothed value toward 0 on every `pdguiInteractPromptRender` early-return (menu open, CI intro, prop label NULL) so a re-entry doesn't flash from a stale value.
 

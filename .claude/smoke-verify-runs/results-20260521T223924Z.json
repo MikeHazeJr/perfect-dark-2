@@ -1,0 +1,82 @@
+{
+  "Name": "listen_host_peer_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": 1,
+  "ElapsedSeconds": 19.3897434,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 27,
+  "AssertionsMet": 13,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SMOKE: scenario=listen_host_peer_smoke"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "BOOT: --listen-bind armed: port=27200"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "BOOT: --connect-host armed: addr='127.0.0.1:27200'"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "BOOT: --listen-bind consumed: port=27200 .*result=OK rc=0"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "BOOT: --connect-host consumed: addr='127.0.0.1:27200' result=OK rc=0"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "NET: created server on port 27200"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "NET: connecting to 127\\.0\\.0\\.1:27200"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "NET: incoming connection"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "NET: connected to server, sending CLC_AUTH"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "NET: client slot \\d+ assigned to peer"
+    },
+    {
+      "Kind": "required_count_out_of_range",
+      "Pattern": "NET: created server on port 27200",
+      "Count": 0,
+      "Min": 1,
+      "Max": 1
+    },
+    {
+      "Kind": "required_count_out_of_range",
+      "Pattern": "NET: incoming connection",
+      "Count": 0,
+      "Min": 1,
+      "Max": -1
+    },
+    {
+      "Kind": "required_count_out_of_range",
+      "Pattern": "NET: connected to server, sending CLC_AUTH",
+      "Count": 0,
+      "Min": 1,
+      "Max": 1
+    },
+    {
+      "Kind": "required_count_out_of_range",
+      "Pattern": "SMOKE: result=scripted_exit",
+      "Count": 0,
+      "Min": 1,
+      "Max": -1
+    }
+  ]
+}

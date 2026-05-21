@@ -36,8 +36,22 @@
 
 #include "catch.hpp"
 
+#include <fstream>
+#include <sstream>
+#include <string>
+
 extern "C" {
 #include "bondgun_cache.h"
+}
+
+static std::string readBondgunSource(void)
+{
+	std::ifstream file("src/game/bondgun.c", std::ios::binary);
+	REQUIRE(file.good());
+
+	std::ostringstream contents;
+	contents << file.rdbuf();
+	return contents.str();
 }
 
 TEST_CASE("bgunMatrixCacheIsStale: identity case (cache matches live)",
@@ -132,4 +146,22 @@ TEST_CASE("bgunMatrixCacheIsStale: full anim-progress sweep",
 		}
 	}
 	REQUIRE(flipped == true);
+}
+
+TEST_CASE("Falcon laser sight is hidden during weapon change", "[bondgun][laser][static]") {
+	const std::string source = readBondgunSource();
+
+	REQUIRE(source.find("bgunShouldRenderLasersight") != std::string::npos);
+	REQUIRE(source.find("bgunCullLasersightsBeforeRender") != std::string::npos);
+	REQUIRE(source.find("hand->state == HANDSTATE_CHANGEGUN") != std::string::npos);
+	REQUIRE(source.find("bgunShouldRenderLasersight(hand)") != std::string::npos);
+	REQUIRE(source.find("bgunCullLasersightsBeforeRender();") != std::string::npos);
+	REQUIRE(source.find("lasersightFree(handnum);") != std::string::npos);
+}
+
+TEST_CASE("Falcon laser sight matrix lookup is bounded", "[bondgun][laser][static]") {
+	const std::string source = readBondgunSource();
+
+	REQUIRE(source.find("modelFindNodeMtxIndex(node, 0)") != std::string::npos);
+	REQUIRE(source.find("mtxindex < 0 || mtxindex >= modeldef->nummatrices") != std::string::npos);
 }

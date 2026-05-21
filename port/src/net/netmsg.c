@@ -4675,10 +4675,10 @@ u32 netmsgClcCutsceneSkipRead(struct netbuf *src, struct netclient *srccl)
  * Fired by a client after returning from a match (post-SVC_STAGE_END) so the
  * client's local room view is brought back in sync with the server's
  * authoritative state. The server responds with SVC_ROOM_ASSIGN carrying the
- * client's current room_id (0xFF for lounge); the client's existing
- * lobbyUpdate path then refreshes the roster + settings UI from server-driven
- * state on subsequent ticks. No payload either direction; the source
- * netclient identifies whose room to resync.
+ * client's current room_id (0xFF for lounge), then replays the current
+ * SVC_ROOM_SETTINGS and SVC_ROOM_PLAYLIST when the client is still in a room.
+ * No payload either direction; the source netclient identifies whose room to
+ * resync.
  * ========================================================================
  */
 
@@ -4686,6 +4686,117 @@ u32 netmsgClcLobbyResyncWrite(struct netbuf *dst)
 {
 	netbufWriteU8(dst, CLC_LOBBY_RESYNC);
 	return dst->error;
+}
+
+static u8 netmsgCountCurrentRoomBots(void)
+{
+	u8 numBots = 0;
+
+	for (s32 i = 1; i < g_MatchConfig.numSlots && i < MATCH_MAX_SLOTS; i++) {
+		if (g_MatchConfig.slots[i].type == SLOT_BOT && numBots < MAX_BOTS) {
+			numBots++;
+		}
+	}
+
+	return numBots;
+}
+
+static void netmsgBuildCurrentPlaylistString(char *pl, size_t plsize)
+{
+	s32 pos = 0;
+
+	if (!pl || plsize == 0) {
+		return;
+	}
+
+	pl[0] = '\0';
+
+	s32 n = audioGetModPlaylistCount();
+	if (n > AUDIO_MAX_PLAYLIST) {
+		n = AUDIO_MAX_PLAYLIST;
+	}
+
+	for (s32 i = 0; i < n; i++) {
+		const char *id = audioGetModPlaylistEntry(i);
+		if (!id || !id[0]) {
+			continue;
+		}
+		if (pos > 0 && pos < (s32)plsize - 1) {
+			pl[pos++] = ';';
+		}
+		s32 left = (s32)plsize - pos - 1;
+		if (left <= 0) {
+			break;
+		}
+		s32 len = (s32)strlen(id);
+		if (len > left) {
+			len = left;
+		}
+		memcpy(pl + pos, id, (size_t)len);
+		pos += len;
+	}
+
+	pl[pos] = '\0';
+}
+
+static void netmsgSendLobbyResyncRoomState(struct netclient *dstcl, u8 room_id)
+{
+	if (!dstcl || !dstcl->peer) {
+		sysLogPrintf(LOG_NOTE,
+			"NET: CLC_LOBBY_RESYNC room replay skipped for local/unbound client");
+		return;
+	}
+
+	struct netbuf assignBuf;
+	u8 assignData[8];
+
+	assignBuf.data = assignData;
+	assignBuf.size = sizeof(assignData);
+	netbufStartWrite(&assignBuf);
+	netmsgSvcRoomAssignWrite(&assignBuf, room_id);
+	if (assignBuf.error) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: CLC_LOBBY_RESYNC assignment encode failed for client=%u",
+			dstcl ? dstcl->id : NET_NULL_CLIENT);
+		return;
+	}
+	netSend(dstcl, &assignBuf, true, NETCHAN_DEFAULT);
+
+	if (room_id == 0xFF) {
+		return;
+	}
+
+	const u8 numBots = netmsgCountCurrentRoomBots();
+	const u8 wpnIdx = (g_MatchConfig.weaponSetIndex >= 0)
+		? (u8)g_MatchConfig.weaponSetIndex : 0xFF;
+
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgSvcRoomSettingsWrite(&g_NetMsgRel, numBots,
+		g_MatchConfig.timelimit, g_MatchConfig.scorelimit,
+		g_MatchConfig.teamscorelimit, g_MatchConfig.options,
+		g_MatchConfig.scenario, wpnIdx, g_MatchConfig.stage_id);
+	if (g_NetMsgRel.error) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: CLC_LOBBY_RESYNC settings encode failed for client=%u",
+			dstcl ? dstcl->id : NET_NULL_CLIENT);
+		netbufStartWrite(&g_NetMsgRel);
+		return;
+	}
+	netSend(dstcl, &g_NetMsgRel, true, NETCHAN_CONTROL);
+
+	char pl[AUDIO_MAX_PLAYLIST * 65];
+	netmsgBuildCurrentPlaylistString(pl, sizeof(pl));
+
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgSvcRoomPlaylistWrite(&g_NetMsgRel, pl);
+	if (g_NetMsgRel.error) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: CLC_LOBBY_RESYNC playlist encode failed for client=%u",
+			dstcl ? dstcl->id : NET_NULL_CLIENT);
+		netbufStartWrite(&g_NetMsgRel);
+		return;
+	}
+	netSend(dstcl, &g_NetMsgRel, true, NETCHAN_CONTROL);
 }
 
 u32 netmsgClcLobbyResyncRead(struct netbuf *src, struct netclient *srccl)
@@ -4706,16 +4817,10 @@ u32 netmsgClcLobbyResyncRead(struct netbuf *src, struct netclient *srccl)
 
 	const u8 room_id = srccl->room_id;
 	sysLogPrintf(LOG_NOTE,
-		"NET: CLC_LOBBY_RESYNC from client=%u, replaying SVC_ROOM_ASSIGN room=%u",
+		"NET: CLC_LOBBY_RESYNC from client=%u, replaying room state room=%u",
 		srccl->id, (unsigned)room_id);
 
-	struct netbuf assignBuf;
-	u8 assignData[8];
-	assignBuf.data = assignData;
-	assignBuf.size = sizeof(assignData);
-	netbufStartWrite(&assignBuf);
-	netmsgSvcRoomAssignWrite(&assignBuf, room_id);
-	netSend(srccl, &assignBuf, true, NETCHAN_DEFAULT);
+	netmsgSendLobbyResyncRoomState(srccl, room_id);
 
 	/* Also re-mark the room list dirty so the lobby UI gets fresh data.
 	 * netRoomListFlush coalesces the broadcast at end-of-frame. */
@@ -4731,6 +4836,14 @@ void netSendLobbyResync(void)
 	if (g_NetMode == NETMODE_NONE || g_NetLocalClient == NULL) {
 		return;
 	}
+
+	if (g_NetMode == NETMODE_SERVER && !g_NetDedicated) {
+		netRoomListMarkDirty();
+		sysLogPrintf(LOG_NOTE,
+			"NET: CLC_LOBBY_RESYNC satisfied locally for listen host");
+		return;
+	}
+
 	netbufStartWrite(&g_NetMsgRel);
 	netmsgClcLobbyResyncWrite(&g_NetMsgRel);
 	if (g_NetMsgRel.error) {
@@ -8077,10 +8190,7 @@ void netSendRoomSettingsUpdate(void)
 {
 	if (!g_NetLocalClient) return;
 
-	u8 numBots = 0;
-	for (s32 i = 1; i < g_MatchConfig.numSlots; i++) {
-		if (g_MatchConfig.slots[i].type == SLOT_BOT) numBots++;
-	}
+	u8 numBots = netmsgCountCurrentRoomBots();
 	u8 wpnIdx = (g_MatchConfig.weaponSetIndex >= 0)
 	            ? (u8)g_MatchConfig.weaponSetIndex : 0xFF;
 
@@ -8100,6 +8210,7 @@ void netSendRoomSettingsUpdate(void)
 	if (g_NetMode == NETMODE_SERVER && !g_NetDedicated) {
 		struct netbuf rb;
 		netbufStartReadData(&rb, g_NetLocalClient->out.data, g_NetLocalClient->out.wp);
+		(void)netbufReadU8(&rb);
 		netmsgClcRoomSettingsUpdateRead(&rb, g_NetLocalClient);
 		netbufStartWrite(&g_NetLocalClient->out);
 	}
@@ -8109,23 +8220,8 @@ void netSendRoomPlaylistUpdate(void)
 {
 	if (!g_NetLocalClient) return;
 
-	/* Serialize current playlist to semicolon-delimited string. */
 	char pl[AUDIO_MAX_PLAYLIST * 65];
-	s32  pos = 0;
-	pl[0] = '\0';
-	s32 n = audioGetModPlaylistCount();
-	for (s32 i = 0; i < n; i++) {
-		const char *id = audioGetModPlaylistEntry(i);
-		if (!id || !id[0]) continue;
-		if (pos > 0 && pos < (s32)sizeof(pl) - 1) pl[pos++] = ';';
-		s32 left = (s32)sizeof(pl) - pos - 1;
-		if (left <= 0) break;
-		s32 len = (s32)strlen(id);
-		if (len > left) len = left;
-		memcpy(pl + pos, id, (size_t)len);
-		pos += len;
-	}
-	pl[pos] = '\0';
+	netmsgBuildCurrentPlaylistString(pl, sizeof(pl));
 
 	netbufStartWrite(&g_NetLocalClient->out);
 	netmsgClcRoomPlaylistUpdateWrite(&g_NetLocalClient->out, pl);
@@ -8138,6 +8234,7 @@ void netSendRoomPlaylistUpdate(void)
 	if (g_NetMode == NETMODE_SERVER && !g_NetDedicated) {
 		struct netbuf rb;
 		netbufStartReadData(&rb, g_NetLocalClient->out.data, g_NetLocalClient->out.wp);
+		(void)netbufReadU8(&rb);
 		netmsgClcRoomPlaylistUpdateRead(&rb, g_NetLocalClient);
 		netbufStartWrite(&g_NetLocalClient->out);
 	}

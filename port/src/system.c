@@ -282,6 +282,20 @@ static inline void sysLogSetPath(const char *dir, const char *fname)
 	}
 }
 
+static void sysLogSetDefaultPath(void)
+{
+	extern s32 g_NetDedicated;
+	extern s32 g_NetHostLatch;
+
+	if (g_NetDedicated || sysArgCheck("--dedicated")) {
+		sysLogSetPath(LOG_CLIENT_DIR, "pd-server.log");
+	} else if (g_NetHostLatch || sysArgCheck("--host")) {
+		sysLogSetPath(LOG_CLIENT_DIR, "pd-host.log");
+	} else {
+		sysLogSetPath(LOG_CLIENT_DIR, "pd-client.log");
+	}
+}
+
 s32 g_AppQuitting = 0;
 
 void sysInitArgs(s32 argc, const char **argv)
@@ -298,19 +312,11 @@ void sysInit(void)
 	 * Name the log file based on mode for clarity.
 	 * Check both the variable (set by server_main.c directly) AND the
 	 * CLI flag (set by main.c from --dedicated/--host args) so that
-	 * both the standalone server and the client-launched dedicated mode
+ * both the standalone server and the client-launched dedicated mode
 	 * get the correct log filename. */
 	{
-		extern s32 g_NetDedicated;
-		extern s32 g_NetHostLatch;
 		if (!sysLogIsOpen()) {
-			if (g_NetDedicated || sysArgCheck("--dedicated")) {
-				sysLogSetPath(LOG_CLIENT_DIR, "pd-server.log");
-			} else if (g_NetHostLatch || sysArgCheck("--host")) {
-				sysLogSetPath(LOG_CLIENT_DIR, "pd-host.log");
-			} else {
-				sysLogSetPath(LOG_CLIENT_DIR, "pd-client.log");
-			}
+			sysLogSetDefaultPath();
 		}
 	}
 
@@ -475,7 +481,7 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 	va_end(ap);
 
 	if (logPath[0] == '\0') {
-		sysLogSetPath(LOG_CLIENT_DIR, "pd-client.log");
+		sysLogSetDefaultPath();
 	}
 
 	const char *pfx = (lvl < (s32)(sizeof(prefix) / sizeof(prefix[0]))) ? prefix[lvl] : "";

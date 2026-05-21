@@ -44,6 +44,39 @@ std::string function_block(const std::string &text, const char *signature)
     return {};
 }
 
+std::string function_definition_block(const std::string &text, const char *signature)
+{
+    size_t search = 0;
+
+    while (true) {
+        const size_t begin = text.find(signature, search);
+        REQUIRE(begin != std::string::npos);
+
+        const size_t brace = text.find('{', begin);
+        REQUIRE(brace != std::string::npos);
+
+        const size_t semi = text.find(';', begin);
+        if (semi != std::string::npos && semi < brace) {
+            search = semi + 1;
+            continue;
+        }
+
+        size_t depth = 0;
+        for (size_t pos = brace; pos < text.size(); pos++) {
+            if (text[pos] == '{') {
+                depth++;
+            } else if (text[pos] == '}') {
+                depth--;
+                if (depth == 0) {
+                    return text.substr(begin, pos - begin + 1);
+                }
+            }
+        }
+
+        FAIL("function definition block not closed");
+    }
+}
+
 } /* anon */
 
 TEST_CASE("net lifecycle: CLC_LOBBY_START authorizes before reading payload",
@@ -581,4 +614,462 @@ TEST_CASE("net room playlist: rebroadcast buffer is rebuilt per recipient",
     REQUIRE(start < write);
     REQUIRE(write < encode_guard);
     REQUIRE(encode_guard < send);
+}
+
+TEST_CASE("net lifecycle: v49 lobby resync replays assignment settings and playlist",
+          "[net][lifecycle][room][static][c3813]")
+{
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string read = function_block(netmsg, "u32 netmsgClcLobbyResyncRead");
+    const std::string send = function_block(netmsg, "static void netmsgSendLobbyResyncRoomState");
+
+    const size_t source_guard = read.find("if (src->error || !srccl)");
+    const size_t state_gate = read.find("srccl->state < CLSTATE_LOBBY", source_guard);
+    const size_t room_id = read.find("const u8 room_id = srccl->room_id", state_gate);
+    const size_t replay = read.find("netmsgSendLobbyResyncRoomState(srccl, room_id)", room_id);
+    const size_t dirty = read.find("netRoomListMarkDirty();", replay);
+
+    REQUIRE(source_guard != std::string::npos);
+    REQUIRE(state_gate != std::string::npos);
+    REQUIRE(room_id != std::string::npos);
+    REQUIRE(replay != std::string::npos);
+    REQUIRE(dirty != std::string::npos);
+
+    REQUIRE(source_guard < state_gate);
+    REQUIRE(state_gate < room_id);
+    REQUIRE(room_id < replay);
+    REQUIRE(replay < dirty);
+
+    const size_t assign = send.find("netmsgSvcRoomAssignWrite(&assignBuf, room_id)");
+    const size_t peer_guard = send.find("!dstcl || !dstcl->peer");
+    const size_t default_chan = send.find("NETCHAN_DEFAULT", assign);
+    const size_t lounge_gate = send.find("if (room_id == 0xFF)", default_chan);
+    const size_t bot_count = send.find("netmsgCountCurrentRoomBots()", lounge_gate);
+    const size_t settings = send.find("netmsgSvcRoomSettingsWrite(&g_NetMsgRel", bot_count);
+    const size_t settings_chan = send.find("NETCHAN_CONTROL", settings);
+    const size_t playlist_string = send.find("netmsgBuildCurrentPlaylistString(pl, sizeof(pl))", settings_chan);
+    const size_t playlist = send.find("netmsgSvcRoomPlaylistWrite(&g_NetMsgRel, pl)", playlist_string);
+    const size_t playlist_chan = send.find("NETCHAN_CONTROL", playlist);
+
+    REQUIRE(peer_guard != std::string::npos);
+    REQUIRE(assign != std::string::npos);
+    REQUIRE(default_chan != std::string::npos);
+    REQUIRE(lounge_gate != std::string::npos);
+    REQUIRE(bot_count != std::string::npos);
+    REQUIRE(settings != std::string::npos);
+    REQUIRE(settings_chan != std::string::npos);
+    REQUIRE(playlist_string != std::string::npos);
+    REQUIRE(playlist != std::string::npos);
+    REQUIRE(playlist_chan != std::string::npos);
+
+    REQUIRE(peer_guard < assign);
+    REQUIRE(assign < default_chan);
+    REQUIRE(default_chan < lounge_gate);
+    REQUIRE(lounge_gate < bot_count);
+    REQUIRE(bot_count < settings);
+    REQUIRE(settings < settings_chan);
+    REQUIRE(settings_chan < playlist_string);
+    REQUIRE(playlist_string < playlist);
+    REQUIRE(playlist < playlist_chan);
+}
+
+TEST_CASE("net lifecycle: listen host return-to-room does not broadcast a client resync opcode",
+          "[net][lifecycle][room][static][c3813]")
+{
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string send = function_block(netmsg, "void netSendLobbyResync");
+
+    const size_t listen_gate = send.find("g_NetMode == NETMODE_SERVER && !g_NetDedicated");
+    const size_t dirty = send.find("netRoomListMarkDirty();", listen_gate);
+    const size_t local_log = send.find("satisfied locally for listen host", dirty);
+    const size_t local_return = send.find("return;", local_log);
+    const size_t write_clc = send.find("netmsgClcLobbyResyncWrite(&g_NetMsgRel)", local_return);
+    const size_t network_send = send.find("netSend(NULL, &g_NetMsgRel", local_return);
+
+    REQUIRE(listen_gate != std::string::npos);
+    REQUIRE(dirty != std::string::npos);
+    REQUIRE(local_log != std::string::npos);
+    REQUIRE(local_return != std::string::npos);
+    REQUIRE(write_clc != std::string::npos);
+    REQUIRE(network_send != std::string::npos);
+
+    REQUIRE(listen_gate < dirty);
+    REQUIRE(dirty < local_log);
+    REQUIRE(local_log < local_return);
+    REQUIRE(local_return < write_clc);
+    REQUIRE(local_return < network_send);
+}
+
+TEST_CASE("net room settings: listen host local loop consumes the client opcode first",
+          "[net][room][static][c3813]")
+{
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+
+    const std::string settings = function_block(netmsg, "void netSendRoomSettingsUpdate");
+    const size_t settings_listen = settings.find("g_NetMode == NETMODE_SERVER && !g_NetDedicated");
+    const size_t settings_read = settings.find("netbufStartReadData(&rb", settings_listen);
+    const size_t settings_opcode = settings.find("netbufReadU8(&rb)", settings_read);
+    const size_t settings_handler = settings.find("netmsgClcRoomSettingsUpdateRead(&rb, g_NetLocalClient)", settings_opcode);
+
+    REQUIRE(settings_listen != std::string::npos);
+    REQUIRE(settings_read != std::string::npos);
+    REQUIRE(settings_opcode != std::string::npos);
+    REQUIRE(settings_handler != std::string::npos);
+
+    REQUIRE(settings_listen < settings_read);
+    REQUIRE(settings_read < settings_opcode);
+    REQUIRE(settings_opcode < settings_handler);
+
+    const std::string playlist = function_block(netmsg, "void netSendRoomPlaylistUpdate");
+    const size_t playlist_listen = playlist.find("g_NetMode == NETMODE_SERVER && !g_NetDedicated");
+    const size_t playlist_read = playlist.find("netbufStartReadData(&rb", playlist_listen);
+    const size_t playlist_opcode = playlist.find("netbufReadU8(&rb)", playlist_read);
+    const size_t playlist_handler = playlist.find("netmsgClcRoomPlaylistUpdateRead(&rb, g_NetLocalClient)", playlist_opcode);
+
+    REQUIRE(playlist_listen != std::string::npos);
+    REQUIRE(playlist_read != std::string::npos);
+    REQUIRE(playlist_opcode != std::string::npos);
+    REQUIRE(playlist_handler != std::string::npos);
+
+    REQUIRE(playlist_listen < playlist_read);
+    REQUIRE(playlist_read < playlist_opcode);
+    REQUIRE(playlist_opcode < playlist_handler);
+}
+
+TEST_CASE("net lifecycle: room leave aborts ready gate before destroying an empty room",
+          "[net][lifecycle][room][static][c3813]")
+{
+    const std::string room = read_text_file("port/src/room.c");
+    const std::string leave = function_block(room, "void roomLeave");
+
+    const size_t found_gate = leave.find("if (found < 0) return");
+    const size_t decrement = leave.find("room->client_count--", found_gate);
+    const size_t client_abort = leave.find("netReadyGateOnClientLeft(clientId)", decrement);
+    const size_t empty_gate = leave.find("room->client_count == 0 && room->id != 0", client_abort);
+    const size_t room_abort = leave.find("netReadyGateAbortForRoom(room->id, \"Room closed\")", empty_gate);
+    const size_t destroy = leave.find("roomDestroy(room)", room_abort);
+
+    REQUIRE(found_gate != std::string::npos);
+    REQUIRE(decrement != std::string::npos);
+    REQUIRE(client_abort != std::string::npos);
+    REQUIRE(empty_gate != std::string::npos);
+    REQUIRE(room_abort != std::string::npos);
+    REQUIRE(destroy != std::string::npos);
+
+    REQUIRE(found_gate < decrement);
+    REQUIRE(decrement < client_abort);
+    REQUIRE(client_abort < empty_gate);
+    REQUIRE(empty_gate < room_abort);
+    REQUIRE(room_abort < destroy);
+}
+
+TEST_CASE("net lifecycle: endscreen continue preserves connected room and requests resync",
+          "[net][lifecycle][room][static][c3813]")
+{
+    const std::string endscreen = read_text_file("port/fast3d/pdgui_menu_endscreen.cpp");
+    const std::string read = function_block(endscreen, "static s32 endscreenGraphMpContinue");
+
+    const size_t network_gate = read.find("g_NetMode != ES_NETMODE_NONE");
+    const size_t exit_room = read.find("pdguiEndscreenExitToRoom();", network_gate);
+    const size_t in_room = read.find("pdguiSetInRoom(1);", exit_room);
+    const size_t resync = read.find("netSendLobbyResync();", in_room);
+    const size_t local_exit = read.find("pdguiEndscreenExitToMainMenu();", resync);
+    const size_t solo_return = read.find("pdguiSoloRoomReturn();", local_exit);
+
+    REQUIRE(network_gate != std::string::npos);
+    REQUIRE(exit_room != std::string::npos);
+    REQUIRE(in_room != std::string::npos);
+    REQUIRE(resync != std::string::npos);
+    REQUIRE(local_exit != std::string::npos);
+    REQUIRE(solo_return != std::string::npos);
+
+    REQUIRE(network_gate < exit_room);
+    REQUIRE(exit_room < in_room);
+    REQUIRE(in_room < resync);
+    REQUIRE(resync < local_exit);
+    REQUIRE(local_exit < solo_return);
+}
+
+TEST_CASE("net lifecycle: ready gate cancel only aborts an active preparing countdown",
+          "[net][lifecycle][ready-gate][static][c3813]")
+{
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string cancel = function_block(netmsg, "s32 netReadyGateCancelByLocalClient");
+    const std::string abort = function_definition_block(netmsg, "static void readyGateAbort");
+
+    const size_t mode_gate = cancel.find("g_NetMode != NETMODE_SERVER");
+    const size_t null_gate = cancel.find("if (!srccl)", mode_gate);
+    const size_t countdown_gate = cancel.find("!s_ReadyGate.active || !s_ReadyGate.countdown_active", null_gate);
+    const size_t state_gate = cancel.find("srccl->state != CLSTATE_PREPARING", countdown_gate);
+    const size_t abort_call = cancel.find("readyGateAbort(srccl->settings.name[0]", state_gate);
+
+    REQUIRE(mode_gate != std::string::npos);
+    REQUIRE(null_gate != std::string::npos);
+    REQUIRE(countdown_gate != std::string::npos);
+    REQUIRE(state_gate != std::string::npos);
+    REQUIRE(abort_call != std::string::npos);
+
+    REQUIRE(mode_gate < null_gate);
+    REQUIRE(null_gate < countdown_gate);
+    REQUIRE(countdown_gate < state_gate);
+    REQUIRE(state_gate < abort_call);
+
+    const size_t active_clear = abort.find("s_ReadyGate.active           = 0");
+    const size_t countdown_clear = abort.find("s_ReadyGate.countdown_active = 0", active_clear);
+    const size_t expected_clear = abort.find("s_ReadyGate.expected_mask    = 0", countdown_clear);
+    const size_t preparing_loop = abort.find("g_NetClients[i].state == CLSTATE_PREPARING", expected_clear);
+    const size_t lobby_state = abort.find("g_NetClients[i].state = CLSTATE_LOBBY", preparing_loop);
+    const size_t room_lobby = abort.find("roomTransition(room, ROOM_STATE_LOBBY)", lobby_state);
+    const size_t cancel_write = abort.find("netmsgSvcMatchCancelledWrite(&g_NetMsgRel", room_lobby);
+    const size_t cancel_send = abort.find("netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL)", cancel_write);
+
+    REQUIRE(active_clear != std::string::npos);
+    REQUIRE(countdown_clear != std::string::npos);
+    REQUIRE(expected_clear != std::string::npos);
+    REQUIRE(preparing_loop != std::string::npos);
+    REQUIRE(lobby_state != std::string::npos);
+    REQUIRE(room_lobby != std::string::npos);
+    REQUIRE(cancel_write != std::string::npos);
+    REQUIRE(cancel_send != std::string::npos);
+
+    REQUIRE(active_clear < countdown_clear);
+    REQUIRE(countdown_clear < expected_clear);
+    REQUIRE(expected_clear < preparing_loop);
+    REQUIRE(preparing_loop < lobby_state);
+    REQUIRE(lobby_state < room_lobby);
+    REQUIRE(room_lobby < cancel_write);
+    REQUIRE(cancel_write < cancel_send);
+}
+
+TEST_CASE("net manifest distribution: failed active transfer declines instead of rechecking forever",
+          "[net][manifest][static][c3813]")
+{
+    const std::string distrib = read_text_file("port/src/net/netdistrib.c");
+    const std::string decline = function_block(distrib, "static void netDistribClientDeclineActiveManifest");
+    const std::string end = function_block(distrib, "void netDistribClientHandleEnd");
+
+    const size_t client_gate = decline.find("g_NetMode != NETMODE_CLIENT || !g_NetLocalClient");
+    const size_t preparing_gate = decline.find("g_NetLocalClient->state != CLSTATE_PREPARING", client_gate);
+    const size_t manifest_gate = decline.find("g_ClientManifest.num_entries == 0", preparing_gate);
+    const size_t decline_write = decline.find("MANIFEST_STATUS_DECLINE", manifest_gate);
+    const size_t decline_send = decline.find("netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL)", decline_write);
+    const size_t local_lobby = decline.find("g_NetLocalClient->state = CLSTATE_LOBBY", decline_send);
+
+    REQUIRE(client_gate != std::string::npos);
+    REQUIRE(preparing_gate != std::string::npos);
+    REQUIRE(manifest_gate != std::string::npos);
+    REQUIRE(decline_write != std::string::npos);
+    REQUIRE(decline_send != std::string::npos);
+    REQUIRE(local_lobby != std::string::npos);
+
+    REQUIRE(client_gate < preparing_gate);
+    REQUIRE(preparing_gate < manifest_gate);
+    REQUIRE(manifest_gate < decline_write);
+    REQUIRE(decline_write < decline_send);
+    REQUIRE(decline_send < local_lobby);
+
+    const size_t completed_init = end.find("s32 slot_completed = 0");
+    const size_t failure = end.find("if (!success)", completed_init);
+    const size_t failure_done = end.find("goto done;", failure);
+    const size_t received = end.find("s_ClientStatus.received_count++", failure_done);
+    const size_t completed = end.find("slot_completed = 1", received);
+    const size_t done_label = end.find("done:", completed);
+    const size_t completed_guard = end.find("if (!slot_completed)", done_label);
+    const size_t error_state = end.find("DISTRIB_CSTATE_ERROR", completed_guard);
+    const size_t received_check = end.find("s_ClientStatus.received_count < s_ClientStatus.missing_count", error_state);
+    const size_t decline_call = end.find("netDistribClientDeclineActiveManifest", received_check);
+    const size_t manifest_recheck = end.find("manifestCheck(&g_ClientManifest)", decline_call);
+
+    REQUIRE(completed_init != std::string::npos);
+    REQUIRE(failure != std::string::npos);
+    REQUIRE(failure_done != std::string::npos);
+    REQUIRE(received != std::string::npos);
+    REQUIRE(completed != std::string::npos);
+    REQUIRE(done_label != std::string::npos);
+    REQUIRE(completed_guard != std::string::npos);
+    REQUIRE(error_state != std::string::npos);
+    REQUIRE(received_check != std::string::npos);
+    REQUIRE(decline_call != std::string::npos);
+    REQUIRE(manifest_recheck != std::string::npos);
+
+    REQUIRE(completed_init < failure);
+    REQUIRE(failure < failure_done);
+    REQUIRE(failure_done < received);
+    REQUIRE(received < completed);
+    REQUIRE(completed < done_label);
+    REQUIRE(done_label < completed_guard);
+    REQUIRE(completed_guard < error_state);
+    REQUIRE(error_state < received_check);
+    REQUIRE(received_check < decline_call);
+    REQUIRE(decline_call < manifest_recheck);
+}
+
+TEST_CASE("net lifecycle: c3813 listen-host smoke fixtures cover live peer setup",
+          "[net][lifecycle][smoke][static][c3813]")
+{
+    const std::string peer = read_text_file("tools/smoke-verify/tests/listen_host_peer_smoke.json");
+    const std::string init = read_text_file("tools/smoke-verify/tests/listen_host_init_smoke.json");
+    const std::string runner = read_text_file("tools/smoke-verify/run.ps1");
+    const std::string system = read_text_file("port/src/system.c");
+
+    REQUIRE(peer.find("\"scenario_name\": \"listen_host_peer_smoke\"") != std::string::npos);
+    REQUIRE(peer.find("\"processes\"") != std::string::npos);
+    REQUIRE(peer.find("\"--listen-bind\"") != std::string::npos);
+    REQUIRE(peer.find("\"--connect-host\"") != std::string::npos);
+    REQUIRE(peer.find("\"wait_for\": \"NET: created server on port 27200\"") != std::string::npos);
+    REQUIRE(peer.find("\"wait_timeout_seconds\": 75") != std::string::npos);
+    REQUIRE(peer.find("\"timeout_seconds\": 120") != std::string::npos);
+    REQUIRE(peer.find("\"at_ms\": 90000") != std::string::npos);
+    REQUIRE(peer.find("NET: incoming connection") != std::string::npos);
+    REQUIRE(peer.find("NET: connected to server, sending CLC_AUTH") != std::string::npos);
+    REQUIRE(peer.find("NET: client slot \\\\d+ assigned to peer") != std::string::npos);
+    REQUIRE(peer.find("\"BOOT: --no-net set; netInit\\\\(\\\\) skipped\"") != std::string::npos);
+    REQUIRE(peer.find("\"--no-net\"") == std::string::npos);
+
+    REQUIRE(init.find("\"scenario_name\": \"listen_host_init_smoke\"") != std::string::npos);
+    REQUIRE(init.find("P2P\\\\.NAT: layer initialised") != std::string::npos);
+    REQUIRE(init.find("P2P\\\\.LAN: listener bound on UDP 27101") != std::string::npos);
+    REQUIRE(init.find("PRESENCE: socket bound on UDP 27105") != std::string::npos);
+    REQUIRE(init.find("\"--no-net\"") == std::string::npos);
+
+    const size_t multi = runner.find("function Invoke-SmokeTestMultiProcess");
+    const size_t process_array = runner.find("$def.processes", multi);
+    const size_t aggregate = runner.find("$aggLogPath", process_array);
+    const size_t append_logs = runner.find("$aggBody.Append($content)", aggregate);
+    const size_t assertions = runner.find("Invoke-SmokeAssertions -LogPath $aggLogPath", append_logs);
+    REQUIRE(multi != std::string::npos);
+    REQUIRE(process_array != std::string::npos);
+    REQUIRE(aggregate != std::string::npos);
+    REQUIRE(append_logs != std::string::npos);
+    REQUIRE(assertions != std::string::npos);
+    REQUIRE(multi < process_array);
+    REQUIRE(process_array < aggregate);
+    REQUIRE(aggregate < append_logs);
+    REQUIRE(append_logs < assertions);
+
+    const std::string default_log = function_block(system, "static void sysLogSetDefaultPath");
+    const std::string log_printf = function_block(system, "void sysLogPrintf");
+    REQUIRE(default_log.find("sysArgCheck(\"--host\")") != std::string::npos);
+    REQUIRE(default_log.find("sysLogSetPath(LOG_CLIENT_DIR, \"pd-host.log\")") != std::string::npos);
+
+    const size_t lazy_path = log_printf.find("if (logPath[0] == '\\0')");
+    const size_t default_call = log_printf.find("sysLogSetDefaultPath()", lazy_path);
+    REQUIRE(lazy_path != std::string::npos);
+    REQUIRE(default_call != std::string::npos);
+    REQUIRE(lazy_path < default_call);
+}
+
+TEST_CASE("net lifecycle: reconnect and drop-in gates preserve slots before reset",
+          "[net][lifecycle][reconnect][static][c3813]")
+{
+    const std::string net = read_text_file("port/src/net/net.c");
+    const std::string connect = function_block(net, "static void netServerEvConnect");
+    const std::string disconnect = function_block(net, "static void netServerEvDisconnect");
+
+    const size_t ingame_gate = connect.find("const bool ingame =");
+    const size_t no_preserved = connect.find("ingame && g_NetNumPreserved == 0", ingame_gate);
+    const size_t late_disconnect = connect.find("DISCONNECT_LATE", no_preserved);
+    const size_t reset = connect.find("netClientReset(cl)", late_disconnect);
+    const size_t auth_state = connect.find("cl->state = CLSTATE_AUTH", reset);
+    const size_t absent_flag = connect.find("cl->flags = ingame ? CLFLAG_ABSENT : 0", auth_state);
+
+    REQUIRE(ingame_gate != std::string::npos);
+    REQUIRE(no_preserved != std::string::npos);
+    REQUIRE(late_disconnect != std::string::npos);
+    REQUIRE(reset != std::string::npos);
+    REQUIRE(auth_state != std::string::npos);
+    REQUIRE(absent_flag != std::string::npos);
+
+    REQUIRE(ingame_gate < no_preserved);
+    REQUIRE(no_preserved < late_disconnect);
+    REQUIRE(late_disconnect < reset);
+    REQUIRE(reset < auth_state);
+    REQUIRE(auth_state < absent_flag);
+
+    const size_t preserve_gate = disconnect.find("cl->state >= CLSTATE_GAME && cl->settings.name[0]");
+    const size_t preserve = disconnect.find("netServerPreservePlayer(cl)", preserve_gate);
+    const size_t kill = disconnect.find("playerDie(true)", preserve);
+    const size_t room_gate = disconnect.find("if (cl->room_id != 0xFF)", kill);
+    const size_t room_leave = disconnect.find("roomLeave(room, cl->id)", room_gate);
+    const size_t client_reset = disconnect.find("netClientReset(cl)", room_leave);
+    const size_t room_broadcast = disconnect.find("netBroadcastRoomList()", client_reset);
+
+    REQUIRE(preserve_gate != std::string::npos);
+    REQUIRE(preserve != std::string::npos);
+    REQUIRE(kill != std::string::npos);
+    REQUIRE(room_gate != std::string::npos);
+    REQUIRE(room_leave != std::string::npos);
+    REQUIRE(client_reset != std::string::npos);
+    REQUIRE(room_broadcast != std::string::npos);
+
+    REQUIRE(preserve_gate < preserve);
+    REQUIRE(preserve < kill);
+    REQUIRE(kill < room_gate);
+    REQUIRE(room_gate < room_leave);
+    REQUIRE(room_leave < client_reset);
+    REQUIRE(client_reset < room_broadcast);
+}
+
+TEST_CASE("net lifecycle: reconnect restores score identity and schedules full state resync",
+          "[net][lifecycle][reconnect][static][c3813]")
+{
+    const std::string net = read_text_file("port/src/net/net.c");
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string restore = function_block(net, "void netServerRestorePreserved");
+    const std::string auth = function_block(netmsg, "u32 netmsgClcAuthRead");
+
+    const size_t score_cfg = restore.find("struct mpchrconfig *mpchr");
+    const size_t kills = restore.find("memcpy(mpchr->killcounts", score_cfg);
+    const size_t deaths = restore.find("mpchr->numdeaths = pp->numdeaths", kills);
+    const size_t points = restore.find("mpchr->numpoints = pp->numpoints", deaths);
+    const size_t client_link = restore.find("cl->config->client = cl", points);
+    const size_t game_state = restore.find("cl->state = CLSTATE_GAME", client_link);
+    const size_t one_use = restore.find("pp->active = false", game_state);
+
+    REQUIRE(score_cfg != std::string::npos);
+    REQUIRE(kills != std::string::npos);
+    REQUIRE(deaths != std::string::npos);
+    REQUIRE(points != std::string::npos);
+    REQUIRE(client_link != std::string::npos);
+    REQUIRE(game_state != std::string::npos);
+    REQUIRE(one_use != std::string::npos);
+
+    REQUIRE(score_cfg < kills);
+    REQUIRE(kills < deaths);
+    REQUIRE(deaths < points);
+    REQUIRE(points < client_link);
+    REQUIRE(client_link < game_state);
+    REQUIRE(game_state < one_use);
+
+    const size_t ingame = auth.find("const bool ingame");
+    const size_t zero_cookie = auth.find("bool cookieZero = true", ingame);
+    const size_t cookie_lookup = auth.find("netServerFindPreservedByCookie(name, suppliedCookie)", zero_cookie);
+    const size_t late_join_reject = auth.find("mid-game join without cookie", cookie_lookup);
+    const size_t restore_call = auth.find("netServerRestorePreserved(srccl, pp)", late_join_reject);
+    const size_t clear_absent = auth.find("srccl->flags &= ~CLFLAG_ABSENT", restore_call);
+    const size_t stage_start = auth.find("netmsgSvcStageStartWrite(&srccl->out)", clear_absent);
+    const size_t chr_resync = auth.find("NET_RESYNC_FLAG_CHRS", stage_start);
+    const size_t prop_resync = auth.find("NET_RESYNC_FLAG_PROPS", chr_resync);
+    const size_t score_resync = auth.find("NET_RESYNC_FLAG_SCORES", prop_resync);
+
+    REQUIRE(ingame != std::string::npos);
+    REQUIRE(zero_cookie != std::string::npos);
+    REQUIRE(cookie_lookup != std::string::npos);
+    REQUIRE(late_join_reject != std::string::npos);
+    REQUIRE(restore_call != std::string::npos);
+    REQUIRE(clear_absent != std::string::npos);
+    REQUIRE(stage_start != std::string::npos);
+    REQUIRE(chr_resync != std::string::npos);
+    REQUIRE(prop_resync != std::string::npos);
+    REQUIRE(score_resync != std::string::npos);
+
+    REQUIRE(ingame < zero_cookie);
+    REQUIRE(zero_cookie < cookie_lookup);
+    REQUIRE(cookie_lookup < late_join_reject);
+    REQUIRE(late_join_reject < restore_call);
+    REQUIRE(restore_call < clear_absent);
+    REQUIRE(clear_absent < stage_start);
+    REQUIRE(stage_start < chr_resync);
+    REQUIRE(chr_resync < prop_resync);
+    REQUIRE(prop_resync < score_resync);
 }

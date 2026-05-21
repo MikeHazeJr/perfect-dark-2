@@ -231,8 +231,8 @@ static s32 endscreenGraphMpContinue(void *userdata)
     if (g_NetMode != ES_NETMODE_NONE) {
         /* Networked MP: keep lobby + roster state alive across the
          * SVC_STAGE_END roundtrip, then ask the server to re-broadcast
-         * SVC_ROOM_ASSIGN (and SVC_ROOM_LIST) so the client view is back
-         * in sync with the server's authoritative room state.
+         * SVC_ROOM_ASSIGN plus room settings and playlist state so the client
+         * view is back in sync with the server's authoritative room state.
          * Mike's directive 2026-05-17: "MP games should return to
          * connected lobby, synced etc." */
         pdguiEndscreenExitToRoom();

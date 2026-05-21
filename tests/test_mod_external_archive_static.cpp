@@ -21,6 +21,7 @@
 #include <vector>
 
 extern "C" {
+#include "constants.h"
 #include "modarchive.h"
 #include "modvfs.h"
 #include "weapon_graph_archive.h"
@@ -1095,9 +1096,17 @@ TEST_CASE("weapon graph runtime registers held weapon IR for gameplay gate",
 		"        \"ammo_slot\": 0,\n"
 		"        \"flags\": 64,\n"
 		"        \"damage\": 7.5,\n"
+		"        \"spread\": 1.25,\n"
+		"        \"recoil_anim_unk24\": 2,\n"
+		"        \"recoil_anim_unk25\": 3,\n"
+		"        \"recoil_anim_unk26\": 4,\n"
+		"        \"recoil_anim_unk27\": 5,\n"
+		"        \"recoildist\": 6.5,\n"
+		"        \"recoilangle\": 7.5,\n"
+		"        \"slidemax\": 8.5,\n"
 		"        \"impactforce\": 2.25,\n"
 		"        \"duration_ticks60\": 5,\n"
-		"        \"shootsound\": 1234,\n"
+		"        \"shootsound\": \"SFX_804D\",\n"
 		"        \"penetration\": 3\n"
 		"      }\n"
 		"    },\n"
@@ -1139,14 +1148,31 @@ TEST_CASE("weapon graph runtime registers held weapon IR for gameplay gate",
 	REQUIRE(primary != nullptr);
 	REQUIRE(secondary != nullptr);
 	REQUIRE(primary->opcode == WEAPON_GRAPH_OP_FIRE_HITSCAN);
+	REQUIRE(primary->function_type_id == INVENTORYFUNCTYPE_SHOOT_SINGLE);
 	REQUIRE(primary->has_damage == 1);
 	REQUIRE(primary->damage == Approx(7.5f));
+	REQUIRE(primary->has_spread == 1);
+	REQUIRE(primary->spread == Approx(1.25f));
+	REQUIRE(primary->has_recoil_anim_unk24 == 1);
+	REQUIRE(primary->recoil_anim_unk24 == 2);
+	REQUIRE(primary->has_recoil_anim_unk25 == 1);
+	REQUIRE(primary->recoil_anim_unk25 == 3);
+	REQUIRE(primary->has_recoil_anim_unk26 == 1);
+	REQUIRE(primary->recoil_anim_unk26 == 4);
+	REQUIRE(primary->has_recoil_anim_unk27 == 1);
+	REQUIRE(primary->recoil_anim_unk27 == 5);
+	REQUIRE(primary->has_recoildist == 1);
+	REQUIRE(primary->recoildist == Approx(6.5f));
+	REQUIRE(primary->has_recoilangle == 1);
+	REQUIRE(primary->recoilangle == Approx(7.5f));
+	REQUIRE(primary->has_slidemax == 1);
+	REQUIRE(primary->slidemax == Approx(8.5f));
 	REQUIRE(primary->has_impactforce == 1);
 	REQUIRE(primary->impactforce == Approx(2.25f));
 	REQUIRE(primary->has_duration_ticks60 == 1);
 	REQUIRE(primary->duration_ticks60 == 5);
 	REQUIRE(primary->has_shootsound == 1);
-	REQUIRE(primary->shootsound == 1234);
+	REQUIRE(primary->shootsound == SFX_804D);
 	REQUIRE(primary->has_penetration == 1);
 	REQUIRE(primary->penetration == 3);
 	REQUIRE(primary->flags == 64);
@@ -1164,6 +1190,171 @@ TEST_CASE("weapon graph runtime registers held weapon IR for gameplay gate",
 	weaponGraphRuntimeClearAll();
 }
 
+TEST_CASE("weapon graph runtime captures projectile and entity adapter payloads",
+          "[modding][pdxxx][weapon_graph][runtime][projectile][entity][c3814]") {
+	const std::string graph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_projectile_weapon\",\n"
+		"  \"graph_id\": \"projectile_runtime_test_v1\",\n"
+		"  \"nodes\": [\n"
+		"    {\n"
+		"      \"id\": \"primary_action\",\n"
+		"      \"kind\": \"spawn.fired_projectile\",\n"
+		"      \"params\": {\n"
+		"        \"mode\": \"primary\",\n"
+		"        \"function_type\": \"shoot_projectile\",\n"
+		"        \"ammo_slot\": 0,\n"
+		"        \"flags\": 134217728,\n"
+		"        \"projectile_ref\": \"base:dyrocket_projectile\",\n"
+		"        \"projectile_model_ref\": \"MODEL_dyrocket\",\n"
+		"        \"scale\": 1.5,\n"
+		"        \"speed\": 300,\n"
+		"        \"travel_distance\": 900,\n"
+		"        \"timer_ticks60\": 120,\n"
+		"        \"reflect_angle\": 0.75,\n"
+		"        \"soundnum\": \"SFX_LAUNCH_ROCKET_8053\"\n"
+		"      }\n"
+		"    },\n"
+		"    {\n"
+		"      \"id\": \"secondary_action\",\n"
+		"      \"kind\": \"spawn.thrown_physical\",\n"
+		"      \"params\": {\n"
+		"        \"mode\": \"secondary\",\n"
+		"        \"function_type\": \"throw\",\n"
+		"        \"ammo_slot\": 1,\n"
+		"        \"payload_ref\": \"base:laptop_autogun\",\n"
+		"        \"entity_ref\": \"base:laptop_autogun\",\n"
+		"        \"projectile_model_ref\": \"MODEL_autogun\",\n"
+		"        \"activation_time_ticks60\": 90,\n"
+		"        \"recovery_time_ticks60\": 45,\n"
+		"        \"damage\": 12.5\n"
+		"      }\n"
+		"    }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [\n"
+		"    { \"name\": \"primary\", \"node\": \"primary_action\" },\n"
+		"    { \"name\": \"secondary\", \"node\": \"secondary_action\" }\n"
+		"  ]\n"
+		"}\n";
+
+	weapon_graph_ir_t ir;
+	char err[256] = {};
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+		static_cast<u32>(graph.size()), &ir, err, sizeof(err)) == 0);
+
+	weaponGraphRuntimeClearAll();
+	weaponGraphRuntimeSetEnabled(1);
+	REQUIRE(weaponGraphRuntimeRegisterHeldIr(8, &ir, err, sizeof(err)) == 0);
+
+	const weapon_graph_held_function_t *primary =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(8, 0);
+	const weapon_graph_held_function_t *secondary =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(8, 1);
+	REQUIRE(primary != nullptr);
+	REQUIRE(secondary != nullptr);
+	REQUIRE(primary->opcode == WEAPON_GRAPH_OP_SPAWN_FIRED_PROJECTILE);
+	REQUIRE(primary->function_type_id == INVENTORYFUNCTYPE_SHOOT_PROJECTILE);
+	REQUIRE(primary->has_projectile_modelnum == 1);
+	REQUIRE(primary->projectile_modelnum == MODEL_CHRDYROCKETMIS);
+	REQUIRE(std::string(primary->projectile_ref) == "base:dyrocket_projectile");
+	REQUIRE(primary->has_scale == 1);
+	REQUIRE(primary->scale == Approx(1.5f));
+	REQUIRE(primary->has_speed == 1);
+	REQUIRE(primary->speed == Approx(300.0f));
+	REQUIRE(primary->has_travel_distance == 1);
+	REQUIRE(primary->travel_distance == 900);
+	REQUIRE(primary->has_timer_ticks60 == 1);
+	REQUIRE(primary->timer_ticks60 == 120);
+	REQUIRE(primary->has_reflect_angle == 1);
+	REQUIRE(primary->reflect_angle == Approx(0.75f));
+	REQUIRE(primary->has_soundnum == 1);
+	REQUIRE(primary->soundnum == SFX_LAUNCH_ROCKET_8053);
+	REQUIRE(secondary->opcode == WEAPON_GRAPH_OP_SPAWN_THROWN_PHYSICAL);
+	REQUIRE(secondary->function_type_id == INVENTORYFUNCTYPE_THROW);
+	REQUIRE(secondary->has_projectile_modelnum == 1);
+	REQUIRE(secondary->projectile_modelnum == MODEL_CHRAUTOGUN);
+	REQUIRE(std::string(secondary->payload_ref) == "base:laptop_autogun");
+	REQUIRE(std::string(secondary->entity_ref) == "base:laptop_autogun");
+	REQUIRE(secondary->has_activation_time_ticks60 == 1);
+	REQUIRE(secondary->activation_time_ticks60 == 90);
+	REQUIRE(secondary->has_recovery_time_ticks60 == 1);
+	REQUIRE(secondary->recovery_time_ticks60 == 45);
+
+	weaponGraphRuntimeSetEnabled(0);
+	weaponGraphRuntimeClearAll();
+}
+
+TEST_CASE("weapon graph runtime captures special and device adapter payloads",
+          "[modding][pdxxx][weapon_graph][runtime][special][device][c3814]") {
+	const std::string graph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_device_weapon\",\n"
+		"  \"graph_id\": \"special_device_runtime_test_v1\",\n"
+		"  \"nodes\": [\n"
+		"    {\n"
+		"      \"id\": \"primary_action\",\n"
+		"      \"kind\": \"special.remote_detonator\",\n"
+		"      \"params\": {\n"
+		"        \"mode\": \"primary\",\n"
+		"        \"function_type\": \"special\",\n"
+		"        \"ammo_slot\": 0,\n"
+		"        \"specialfunc\": 5,\n"
+		"        \"recovery_time_ticks60\": 30,\n"
+		"        \"soundnum\": \"SFX_LAUNCH_ROCKET_8053\"\n"
+		"      }\n"
+		"    },\n"
+		"    {\n"
+		"      \"id\": \"secondary_action\",\n"
+		"      \"kind\": \"device.activate\",\n"
+		"      \"params\": {\n"
+		"        \"mode\": \"secondary\",\n"
+		"        \"function_type\": \"device\",\n"
+		"        \"device\": 64\n"
+		"      }\n"
+		"    }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [\n"
+		"    { \"name\": \"primary\", \"node\": \"primary_action\" },\n"
+		"    { \"name\": \"secondary\", \"node\": \"secondary_action\" }\n"
+		"  ]\n"
+		"}\n";
+
+	weapon_graph_ir_t ir;
+	char err[256] = {};
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+		static_cast<u32>(graph.size()), &ir, err, sizeof(err)) == 0);
+
+	weaponGraphRuntimeClearAll();
+	weaponGraphRuntimeSetEnabled(1);
+	REQUIRE(weaponGraphRuntimeRegisterHeldIr(9, &ir, err, sizeof(err)) == 0);
+
+	const weapon_graph_held_function_t *primary =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(9, 0);
+	const weapon_graph_held_function_t *secondary =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(9, 1);
+	REQUIRE(primary != nullptr);
+	REQUIRE(secondary != nullptr);
+	REQUIRE(primary->opcode == WEAPON_GRAPH_OP_SPECIAL_REMOTE_DETONATOR);
+	REQUIRE(primary->function_type_id == INVENTORYFUNCTYPE_SPECIAL);
+	REQUIRE(primary->has_specialfunc == 1);
+	REQUIRE(primary->specialfunc == HANDATTACKTYPE_DETONATE);
+	REQUIRE(primary->has_recovery_time_ticks60 == 1);
+	REQUIRE(primary->recovery_time_ticks60 == 30);
+	REQUIRE(primary->has_soundnum == 1);
+	REQUIRE(primary->soundnum == SFX_LAUNCH_ROCKET_8053);
+	REQUIRE(secondary->opcode == WEAPON_GRAPH_OP_DEVICE_ACTIVATE);
+	REQUIRE(secondary->function_type_id == INVENTORYFUNCTYPE_DEVICE);
+	REQUIRE(secondary->has_device == 1);
+	REQUIRE(secondary->device == DEVICE_CLOAKDEVICE);
+
+	weaponGraphRuntimeSetEnabled(0);
+	weaponGraphRuntimeClearAll();
+}
+
 TEST_CASE("held weapon graph adapter is wired into runtime callsites",
           "[modding][pdxxx][weapon_graph][runtime][static][c3814]") {
 	const std::string walker = readFile("port/src/loader_walker_weapon.c");
@@ -1175,12 +1366,48 @@ TEST_CASE("held weapon graph adapter is wired into runtime callsites",
 	REQUIRE(accessors.find("weaponGraphRuntimeGetHeldFunctionForGameplay") != std::string::npos);
 	REQUIRE(accessors.find("gsetGetDamage") != std::string::npos);
 	REQUIRE(accessors.find("weaponGetNumTicksPerShot") != std::string::npos);
+	REQUIRE(accessors.find("graph->function_type_id") != std::string::npos);
+	REQUIRE(accessors.find("graph->has_device") != std::string::npos);
 
 	const std::string bondgun = readFile("src/game/bondgun.c");
 	REQUIRE(bondgun.find("weapon_graph_runtime.h") != std::string::npos);
-	REQUIRE(bondgun.find("weaponGraphRuntimeGetHeldFunctionForGameplay(hand->gset.weaponnum") != std::string::npos);
+	REQUIRE(bondgun.find("bgunGetHeldGraph") != std::string::npos);
 	REQUIRE(bondgun.find("graph->has_max_rpm") != std::string::npos);
-	REQUIRE(bondgun.find("ammoindex = (graph && graph->ammo_slot >= 0)") != std::string::npos);
+	REQUIRE(bondgun.find("bgunGetAmmoIndexFromGraph") != std::string::npos);
+	REQUIRE(bondgun.find("graph->has_recovery_time_ticks60") != std::string::npos);
+	REQUIRE(bondgun.find("graph->has_projectile_modelnum") != std::string::npos);
+
+	const std::string bondmove = readFile("src/game/bondmove.c");
+	REQUIRE(bondmove.find("weapon_graph_runtime.h") != std::string::npos);
+	REQUIRE(bondmove.find("graph->function_type_id") != std::string::npos);
+
+	const std::string botact = readFile("src/game/botact.c");
+	REQUIRE(botact.find("weapon_graph_runtime.h") != std::string::npos);
+	REQUIRE(botact.find("graph->recoil_anim_unk24 + graph->recoil_anim_unk25") != std::string::npos);
+
+	const std::string chraction = readFile("src/game/chraction.c");
+	REQUIRE(chraction.find("weapon_graph_runtime.h") != std::string::npos);
+	REQUIRE(chraction.find("graph->has_projectile_modelnum") != std::string::npos);
+}
+
+TEST_CASE("PC weapon switching and function HUD consume action-map state",
+          "[input][weapon][static][c3814]") {
+	const std::string actionmap = readFile("port/src/actionmap.cpp");
+	REQUIRE(actionmap.find("ACTION_WEAPON_NEXT,    VKL_Q") != std::string::npos);
+	REQUIRE(actionmap.find("st->up_time_ms") != std::string::npos);
+	REQUIRE(actionmap.find("hold_vis_grace_until_ms") != std::string::npos);
+
+	const std::string bondmove = readFile("src/game/bondmove.c");
+	REQUIRE(bondmove.find("bmoveHandleDirectWeaponSelect") != std::string::npos);
+	REQUIRE(bondmove.find("ACTION_WEAPON_6") != std::string::npos);
+	REQUIRE(bondmove.find("ACTION_WEAPON_PREV") != std::string::npos);
+	REQUIRE(bondmove.find("actionWasTap((s32)contpad1, ACTION_WEAPON_NEXT") != std::string::npos);
+	REQUIRE(bondmove.find("bmoveSelectInventoryWeaponIndex") != std::string::npos);
+
+	const std::string bondgun = readFile("src/game/bondgun.c");
+	REQUIRE(bondgun.find("ctrl->curfnstr = 0") != std::string::npos);
+	REQUIRE(bondgun.find("if (ctrl->curfnstr != func->name)") != std::string::npos);
+	REQUIRE(bondgun.find("ctrl->curfnstr != func->name && ctrl->fnfader > 128") == std::string::npos);
 }
 
 TEST_CASE("public mods share folder mods as validated pdmod archives",

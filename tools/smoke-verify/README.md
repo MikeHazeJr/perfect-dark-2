@@ -5,10 +5,12 @@ parse stdout for required + forbidden patterns. The harness lives in
 `port/src/smoke_harness.c`; the runner is `tools/smoke-verify/run.ps1`; the
 tests are JSON files in `tools/smoke-verify/tests/`.
 
-Each test launches one client process, drives it through a scripted input
-sequence at scheduled millisecond offsets, and exits when the scenario hits
-its end-of-script marker or the timeout fires. The runner then re-reads the
-log file and checks the test's `assertions` block.
+Most tests launch one client process, drive it through a scripted input
+sequence at scheduled millisecond offsets, and exit when the scenario hits
+its end-of-script marker or the timeout fires. A test can also declare a
+`processes` array for coordinated multi-process coverage, such as the
+listen-host/client loopback smoke. The runner then re-reads one log or the
+concatenated process logs and checks the test's `assertions` block.
 
 ## Lifecycle
 
@@ -50,8 +52,15 @@ Top-level keys consumed by the harness:
 | `timeout_seconds`    | no       | Hard ceiling; default 90 s |
 | `install_state`      | no       | Runner-side hint (`"clean"`, `"upgraded"`) |
 | `boot_args`          | no       | Extra argv appended to the launch command |
+| `processes`          | no       | Multi-process launch definitions; each entry can set `name`, `log_file`, `boot_args`, `wait_for`, and `wait_timeout_seconds` |
 | `input_sequence`     | yes      | Ordered list of events (see below) |
 | `assertions`         | no       | Runner-side; not consumed by the harness |
+
+When `processes` is present, the runner seeds one install directory, launches
+each process in order, waits for any `wait_for` barrier before starting the
+next process, and evaluates assertions against the concatenated logs. This is
+the path used by `listen_host_peer_smoke` to prove a listen host can bind and a
+client can complete the ENet auth handshake on loopback.
 
 ### Event types
 

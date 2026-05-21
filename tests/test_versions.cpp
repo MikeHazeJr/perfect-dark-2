@@ -18,9 +18,8 @@
  *   "Save format (MPSETUP_VERSION 1 -> 2): WAD save/load roundtrip +
  *    v1 -> v2 migration"
  *
- * Bumped 2026-04-28 to NET_PROTOCOL_VER 46 for the mandatory SHA-256
- * digest appended to SVC_DISTRIB_BEGIN and the cutscene mask/skip wire
- * cleanup. MPSETUP_VERSION unchanged.
+ * Bumped 2026-05-17 to NET_PROTOCOL_VER 49 for CLC_LOBBY_RESYNC after
+ * match end. MPSETUP_VERSION unchanged.
  */
 
 #include "catch.hpp"
@@ -54,15 +53,12 @@ TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written ag
      * verifying the bump is intentional, update g_TestExpectedNetProtocolVer
      * to match and re-run.
      *
-     * As of 2026-05-16 the live value is 48. Track 2d (c3807) GPU swarm
-     * state network sync: SVC_GPUSWARM_STATE (0x6c) carries the listen-host's
-     * RGBA32F state-texture readback, quantized to 20 bytes/bot and chunked
-     * to <= 1024 bots per packet. Throttled to 10 Hz on the unreliable
-     * channel. Listen-host only (mode B); dedicated servers do not originate.
-     * v47 (2026-05-01) added the SVC_NPC_MOVE / SVC_CHR_MOVE / CLC_BOT_MOVE
-     * trailing 12-byte surface_up vec3. v46 (SVC_DISTRIB_BEGIN SHA-256
-     * digest, cutscene mask) and prior bumps remain documented in
-     * port/include/net/net.h. MPSETUP_VERSION stays at 2. */
+     * As of 2026-05-17 the live value is 49. v49 adds CLC_LOBBY_RESYNC
+     * so post-match room return can ask the server to replay SVC_ROOM_ASSIGN,
+     * SVC_ROOM_SETTINGS, and SVC_ROOM_PLAYLIST. v48 added GPU swarm state
+     * sync; v47 added surface_up locomotion sync; v46 added SVC_DISTRIB_BEGIN
+     * SHA-256 digest and cutscene mask/skip authority. Prior bumps remain
+     * documented in port/include/net/net.h. MPSETUP_VERSION stays at 2. */
     REQUIRE(g_TestLiveNetProtocolVer == g_TestExpectedNetProtocolVer);
 }
 

@@ -1,5 +1,191 @@
 # Session Log (Active)
 
+## Session (`netmatch-sweep-c3813`) - 2026-05-21 - networking and match-flow sweep
+
+Mike asked to run the new large-change sweep against networking and match flow so there are no gaps, stubs, or disconnects.
+
+### Implemented
+
+- Added [audits/networking-match-flow-sweep-2026-05-21.md](audits/networking-match-flow-sweep-2026-05-21.md) as the c3813 sweep matrix.
+- Corrected live source-of-truth drift: `context/README.md`, `context/constraints.md`, `context/pillars/connectivity.md`, `context/pillars/save-wire-format.md`, `tests/test_versions.cpp`, and `tests/README.md` now describe `NET_PROTOCOL_VER 49` as current.
+- Corrected live test docs around the removed standalone `pd-server` target: routine coverage is `pd`, `pd-tests`, and `pd-updater`, with server-path work focused on in-client listen-host.
+- Removed stale SA-6 TODO wording from `port/include/net/netmanifest.h`; the live implementation now covers setup/intro/AI-script body, head, model, weapon, prop, and outfit refs through the post-setup scanners.
+- Updated `context/tasks.md` and Kanban `c3813` with the completed flow inventory and the remaining sprint order.
+- Completed c3813-s5 return-to-room resync follow-through: `CLC_LOBBY_RESYNC` now replays `SVC_ROOM_ASSIGN`, `SVC_ROOM_SETTINGS`, and `SVC_ROOM_PLAYLIST` for room clients; lounge clients receive only the lounge assignment.
+- Fixed the listen-host local return/settings path: `netSendLobbyResync()` now satisfies the host locally instead of broadcasting a client opcode to peers, and listen-host settings/playlist local loops consume the CLC opcode before invoking the server handlers.
+- Added c3813 static guards for v49 room-state replay, listen-host local resync, settings/playlist local-loop opcode consumption, ready-gate room-leave abort order, and MP endscreen return-to-room resync.
+- Completed c3813-s6 ready-gate/manifest failure follow-through: active match-prep distribution failure now sets distribution ERROR, sends `MANIFEST_STATUS_DECLINE`, and returns the local client to `CLSTATE_LOBBY` instead of re-running `manifestCheck` and re-requesting the same failed transfer.
+- Added c3813 static guards for ready-gate cancel gating, `readyGateAbort` state reset plus `SVC_MATCH_CANCELLED` broadcast, and failed active distribution decline-before-recheck behavior.
+- Completed c3813-s7 peer-smoke and reconnect/drop-in/drop-out closure: `listen_host_peer_smoke` now budgets for clean-install typed-archive validation/extraction before the host bind, early `--host` logging routes to `pd-host.log` before normal `sysInit()`, and static guards pin the peer fixture, runner aggregation, disconnect preservation, room leave before reset, mid-game fresh-join rejection, cookie reconnect, score restore, stage-start replay, and full chr/prop/score resync scheduling.
+- Moved non-c3813 follow-ups to their owning cards instead of leaving the gameplay-stability card open indefinitely: NAT/ICE/TURN/UPnP work stays with the existing networking backlog, the dead legacy manifest serializer stays c064-owned, and custom `.pdprojectile` / `.pdentity` runtime parity stays c3814-owned.
+
+### Findings
+
+- Runtime evidence exists for v49 lobby resync, room assignment/settings/playlist sync, manifest/status distribution, ready-gate launch/abort, MP manifest teardown, score/killfeed sync, prop/projectile/bot/NPC/GPU swarm wires, and match-end return-to-room flow.
+- c3813 is now closed around verified gameplay-stability gates. Future deeper two-peer smokes for room settings mutation, countdown cancel, killfeed, and Return to Room can expand the harness, but they are not unresolved blockers for this card.
+
+### Verification
+
+- `git diff --check` passed for the touched sweep/context/test/comment files.
+- `tools/kanban/state.json` parses via `ConvertFrom-Json`.
+- Stale live v46/v48 guidance scan returned no matches in the touched live context/test docs.
+- Focused `.\devtools\run-pd-tests.ps1 -Session netsweep -Selector "[versions]" -BuildTimeoutSeconds 180` passed: 9 assertions / 4 cases.
+- Focused `.\devtools\run-pd-tests.ps1 -Session c3813v49 -Selector "[net][lifecycle][room][static][c3813]" -BuildTimeoutSeconds 240` passed: 75 assertions / 4 cases.
+- Focused `.\devtools\run-pd-tests.ps1 -Session c3813v49 -Selector "[c3813]" -BuildTimeoutSeconds 240` passed: 94 assertions / 5 cases.
+- `.\devtools\build-session.ps1 -Session c3813v49 -Target all -BuildTimeoutSeconds 300` passed.
+- Focused `.\devtools\run-pd-tests.ps1 -Session c3813gate -Selector "[c3813]" -BuildTimeoutSeconds 240` passed: 162 assertions / 7 cases.
+- `.\devtools\build-session.ps1 -Session c3813gate -Target all -BuildTimeoutSeconds 300` passed.
+- Focused `.\devtools\run-pd-tests.ps1 -Session c3813close -Selector "[c3813]" -BuildTimeoutSeconds 240` passed after c3813-s7: 269 assertions / 10 cases.
+- `.\devtools\build-session.ps1 -Session c3813smoke -Target client -BuildTimeoutSeconds 300` passed for the fresh smoke binary.
+- `.\tools\smoke-verify\run.ps1 -Test listen_host_peer_smoke -SourceBinary .claude\session-builds\c3813smoke\PerfectDark.exe` passed on loopback with the updated clean-install timing and host-log routing.
+- `.\devtools\build-session.ps1 -Session c3813final -Target all -BuildTimeoutSeconds 300` passed.
+- Removed isolated session builds `netsweep`, `c3813v49`, `c3813gate`, `c3813close`, `c3813smoke`, and `c3813final`.
+
+---
+
+## Session (`pd2-large-change-sweep-skill`) - 2026-05-21 - large-change sweep skill
+
+Mike asked to turn the networking/match-flow sweep process into a reusable skill for future large changes.
+
+### Implemented
+
+- Added `.agents/skills/pd2-large-change-sweep/SKILL.md`.
+- The skill requires the normal context-manager start first, then adds a source-of-truth sweep across runtime code, tests, context docs, Kanban state, release notes, and user-facing flow.
+- The networking/match-flow checklist explicitly covers connect-code entry, NAT/listen-host path, social lobby/room, settings sync, manifest distribution, ready gate, stage load, live gameplay sync, match end, lobby return, disconnect/reconnect, and drop-in/drop-out.
+- The closeout shape now requires corrected drift, runtime evidence, ordered remaining gaps, updated tracking surfaces, and verification status.
+
+### Verification
+
+- Manual frontmatter/placeholder check passed for the new skill file.
+- `git diff --check -- .agents/skills/pd2-large-change-sweep/SKILL.md context/session-log.md` passed.
+- The skill-creator validator could not run in this environment because the local Python lacks the `yaml` dependency.
+
+---
+
+## Session (`wpinput-b363`) - 2026-05-21 - MKB weapon switching and function HUD text
+
+Mike reported incorrect weapon-function display text, occasional apparent secondary-function behavior such as Falcon 2 melee when primary should still be active, and no obvious mouse/keyboard way to switch weapons in Campaign.
+
+### Implemented
+
+- Fixed the HUD weapon-function label cache in `bgunDrawHud()`: weapon name changes now reset function label state, and the function label updates immediately when the active function changes instead of waiting for the fader threshold.
+- Added Q as the hold-capable keyboard binding for `ACTION_WEAPON_NEXT`, so Q tap cycles and Q hold opens the weapon wheel.
+- Fixed mouse-wheel momentary release timing so wheel-down can satisfy `actionWasTap()` for next-weapon cycling.
+- Updated both PC weapon-switch consumers to use action-map state directly for next/previous switching, including `ACTION_WEAPON_PREV`.
+- Added direct number-key inventory selection for `ACTION_WEAPON_1` through `ACTION_WEAPON_6`, matching active-menu equip/device-toggle behavior.
+- Added focused static coverage for the PC weapon input and function-HUD regression, and logged B-363.
+
+### Verification
+
+- `git diff --check -- port/src/actionmap.cpp src/game/bondmove.c src/game/bondgun.c tests/test_mod_external_archive_static.cpp` PASS.
+- `.\devtools\run-pd-tests.ps1 -Session wpinput -Selector "[input][weapon][static][c3814]" -BuildTimeoutSeconds 240` PASS: 14 assertions / 1 case.
+- `.\devtools\build-session.ps1 -Session wpinput -Target all -BuildTimeoutSeconds 300` PASS.
+- Removed isolated session build `wpinput`.
+
+### Next
+
+- Mike manual retest: Campaign with multiple weapons/gadgets should support Q tap/hold, wheel next/previous, and number-key direct selection; function display text should match the current weapon/function.
+
+---
+
+## Session (`falcon-laser-b362`) - 2026-05-21 - Falcon 2 mission-start viewmodel stretch
+
+Mike reported that starting a mission with the Falcon 2 points the gun down while geometry stretches to the center of the screen, possibly a bone/root issue.
+
+### Implemented
+
+- Traced the visible shape to the Falcon 2 laser-sight beam path rather than the weapon skeleton: the equip/change state can point the muzzle downward while the beam still targets the crosshair.
+- Added `bgunShouldRenderLasersight()` so Falcon laser beams are freed/hidden while the hand is in `HANDSTATE_CHANGEGUN`.
+- Added a pre-render laser-sight cull so stale prior-frame beams are freed before `lasersightRenderBeam()` submits geometry.
+- Hardened `bgunUpdateLasersight()` so missing laser-sight parts, null model/allocation inputs, and invalid `modelFindNodeMtxIndex()` results free the beam instead of reading invalid first-person weapon matrices.
+- Added focused static coverage in `tests/test_bondgun_cache.cpp`.
+- Logged B-362 in the bug ledger, added a pending playtest task note, and updated `UNRELEASED.md`.
+
+### Verification
+
+- `git diff --check` passed for the touched files.
+- `.\devtools\run-pd-tests.ps1 -Session falconlaser -Selector "[bondgun][laser][static]" -BuildTimeoutSeconds 180` passed: 10 assertions / 2 cases.
+- `.\devtools\build-session.ps1 -Session falconlaser -Target all -BuildTimeoutSeconds 240` passed.
+
+### Next
+
+- Mike manual retest: start a mission with Falcon 2 and confirm no stretched beam/geometry during the equip animation.
+
+---
+
+## Session (`menu-root-close-b361`) - 2026-05-21 - Main Menu root close exits cleanly
+
+Mike reported that menus could not be exited with the title X, and that Escape played the cancel sound twice while leaving the menu open.
+
+### Implemented
+
+- Fixed the graph `POP_ROOT` path so root closes tear down both ownership layers: `menupoolReleaseAll()` releases menu pool/input context state, then `menuClose()` clears the legacy root dialog that was re-queuing the ImGui Main Menu on the next frame.
+- Added static menu-graph coverage pinning `menuClose()` inside `menuGraphFirePopOp()` for root-pop edges.
+- Added B-361 to the bug ledger and Kanban `c3826` with pending completion for Mike's manual retest.
+- Updated the menu pillar and running release notes with the root-close invariant/fix.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session menuclose -Selector "[input][menu_graph]" -BuildTimeoutSeconds 300` passed: 685 assertions / 35 cases.
+- `.\devtools\build-session.ps1 -Session menuclose -Target all -BuildTimeoutSeconds 300` passed for client/updater.
+
+### Next
+
+- Mike manual retest: Main Menu Escape and title X should each close once to CI free-roam, with no duplicate cancel sound and no menu reappearing on the next frame.
+
+---
+
+## Session (`codex-weapon-graph-runtime-adapter`) - 2026-05-21 - Weapon behavior graph runtime adapter expansion
+
+Mike asked to complete the weapon behavior work using the relevant memory/Kanban context for weapon graphs.
+
+### Implemented
+
+- Expanded `weapon_graph_runtime` held IR with function type ids, symbolic SFX resolution, recoil/recovery, projectile refs/model refs, projectile spawn values, throw activation/recovery, melee range, special function/recovery/sound, and device ids.
+- Wired graph-backed held/player callsites behind the Debug Settings Weapon Graph Runtime toggle: recoil/recovery, trigger dispatch, throw/special/device handling, fired/thrown projectile spawn parameters, sight selection, auto-aim checks, and device active state.
+- Wired the AI projectile launcher so bots/NPCs read graph-backed projectile model, speed, distance, timer, flags, reflect angle, and launch sound.
+- Added focused runtime/static coverage for extended held, projectile/entity, special/device, and callsite wiring.
+- Added the enum resolver source to `pd-tests` so graph runtime symbolic SFX names are testable.
+
+### Verification
+
+- Focused weapon-graph tests passed: `.\devtools\run-pd-tests.ps1 -Session wgraph -Selector "[modding][pdxxx][weapon_graph]" -NoBuild` reported 250 assertions in 12 test cases.
+- Queued isolated all-target build passed in session `wgraph`: client and updater compiled successfully.
+
+### Next
+
+- Continue c3814 through deeper `.pdprojectile` motion/guidance/impact IR, `.pdentity` armed/deployed behavior IR, saved custom weapon hot-register parity, presentation graph modules, and final parity smokes.
+
+---
+
+## Session (`codex-memory-review-automation`) - 2026-05-21 - Kanban memory review and Codex morning flow
+
+Mike asked to clear the stale Kanban bug rows, make Memory Review dynamic against the real memory file, and replace the old Claude daily flow with Codex automations.
+
+### Implemented
+
+- Cleared stale Bug Tracker rows `B-318` through `B-326` from `tools/bugs/state.json`.
+- Added a Bug Tracker hard-delete path: `POST /api/bugs/delete` in `tools/kanban/server.py` and a `Del` action on bug rows in `tools/kanban/index.html`.
+- Reworked `Memory Review` so `GET /api/memory-review` parses live `# Task Group:` entries from the actual Codex memory source (`C:\Users\mikeh\.codex\memories\MEMORY.md`, mirrored at `tools/kanban/memories.md`) instead of trusting the stale static review JSON as source data.
+- Converted `tools/kanban/memory-review.json` into a review-markup overlay only: status, notes, source hash, and applied markers are preserved by stable task-group ids.
+- Added `POST /api/memory-review/apply` plus the UI `Apply markup` button. Deterministic behavior is intentionally conservative: `Remove` deletes the live task-group block, while `Adjust` replaces only when the adjustment note contains a full replacement block starting with `# Task Group:`.
+- Created active Codex app automations: `pd2-daily-flow` runs daily at 5:00 AM, and `pd2-architecture-review` runs daily at 6:00 AM.
+- Added Kanban tracking card `c3825` with pending completion so Mike can browser-smoke the Bug Tracker and Memory Review tabs.
+
+### Verification
+
+- `python -m py_compile tools\kanban\server.py` passed.
+- Dynamic memory parser returns 19 live memory groups from `C:\Users\mikeh\.codex\memories\MEMORY.md`.
+- `tools/bugs/state.json` now reports 0 active bugs.
+- `tools/kanban/state.json` parses as JSON after preserving the existing `c3824` card and adding `c3825`.
+
+### Next
+
+- Mike browser retest: open Kanban, confirm Bug Tracker is empty, Memory Review lists the 19 live memory groups, status/note saves persist, and Apply markup behavior is clear.
+- The 5:00 AM and 6:00 AM Codex automations should produce tomorrow morning's daily-flow and architecture-review outputs.
+
+---
+
 ## Session (`pdweapon-self-contained-closure`) - 2026-05-21 - Weapon archives embed authored dependencies
 
 Mike expanded the same self-contained archive bar to weapons: opening one `.pdweapon` must expose authored payloads needed to edit, clone, share, and load it. `.pdwpn` remains unsupported/deprecated.

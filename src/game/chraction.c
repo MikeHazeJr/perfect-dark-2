@@ -58,6 +58,7 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "weapon_graph_runtime.h"
 #include "crashbreadcrumb.h"
 #include "net/net.h"
 #include "net/netmsg.h"
@@ -10260,6 +10261,18 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 						Mtxf yrotmtx;
 						struct weapon *weapondef = weaponFindById(gset.weaponnum);
 						struct weaponfunc_shootprojectile *func = weapondef->functions[gset.weaponfunc];
+						const weapon_graph_held_function_t *graph =
+							weaponGraphRuntimeGetHeldFunctionForGameplay(gset.weaponnum, gset.weaponfunc);
+						u32 funcflags = graph ? graph->flags : func->base.base.flags;
+						s32 projectilemodelnum = graph && graph->has_projectile_modelnum ?
+							graph->projectile_modelnum : func->projectilemodelnum;
+						f32 projectilespeed = graph && graph->has_speed ? graph->speed : func->speed;
+						s32 traveldist = graph && graph->has_travel_distance ?
+							graph->travel_distance : func->traveldist;
+						s32 timer60 = graph && graph->has_timer_ticks60 ? graph->timer_ticks60 : func->timer60;
+						f32 reflectangle = graph && graph->has_reflect_angle ?
+							graph->reflect_angle : func->reflectangle;
+						s32 soundnum = graph && graph->has_soundnum ? graph->soundnum : func->soundnum;
 
 						// Handle creating the projectile
 						if (gset.weaponnum == WEAPON_ROCKETLAUNCHER
@@ -10267,39 +10280,39 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 								|| gset.weaponnum == WEAPON_SLAYER) {
 							s32 rocketweaponnum = WEAPON_ROCKET;
 
-							if (func->base.base.flags & FUNCFLAG_HOMINGROCKET) {
+							if (funcflags & FUNCFLAG_HOMINGROCKET) {
 								rocketweaponnum = WEAPON_HOMINGROCKET;
 							}
 
-							projectileobj = weaponCreateProjectileFromWeaponNum(func->projectilemodelnum, rocketweaponnum, chr);
+							projectileobj = weaponCreateProjectileFromWeaponNum(projectilemodelnum, rocketweaponnum, chr);
 						} else if (gset.weaponnum == WEAPON_CROSSBOW) {
-							projectileobj = weaponCreateProjectileFromWeaponNum(func->projectilemodelnum, WEAPON_BOLT, chr);
+							projectileobj = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_BOLT, chr);
 
 							if (projectileobj) {
 								projectileobj->gunfunc = gset.weaponfunc;
 							}
 						} else if (gset.weaponnum == WEAPON_DEVASTATOR) {
-							projectileobj = weaponCreateProjectileFromWeaponNum(func->projectilemodelnum, WEAPON_GRENADEROUND, chr);
+							projectileobj = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_GRENADEROUND, chr);
 
 							if (projectileobj) {
 								projectileobj->gunfunc = gset.weaponfunc;
 							}
 						} else if (gset.weaponnum == WEAPON_SUPERDRAGON) {
-							projectileobj = weaponCreateProjectileFromWeaponNum(func->projectilemodelnum, WEAPON_GRENADEROUND, chr);
+							projectileobj = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_GRENADEROUND, chr);
 
 							if (projectileobj) {
 								projectileobj->gunfunc = FUNC_2;
 							}
 						} else {
 							// Unreachable
-							projectileobj = weaponCreateProjectileFromGset(func->projectilemodelnum, &gset, g_Vars.currentplayer->prop->chr);
+							projectileobj = weaponCreateProjectileFromGset(projectilemodelnum, &gset, g_Vars.currentplayer->prop->chr);
 						}
 
 						if (projectileobj) {
 							f32 spcc;
 
-							sp168 = func->speed * (1.0f / 0.6f) / 60.0f;
-							spcc = func->traveldist * (1.0f / 0.6f);
+							sp168 = projectilespeed * (1.0f / 0.6f) / 60.0f;
+							spcc = traveldist * (1.0f / 0.6f);
 
 							// AI bots are a bit smarter than solo chrs
 							// with regard to how they aim their projectiles
@@ -10379,7 +10392,7 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 							sp16c.y = sp15c.f[1] * g_Vars.lvupdate60freal + vector.f[1] * spcc;
 							sp16c.z = sp15c.f[2] * g_Vars.lvupdate60freal + vector.f[2] * spcc;
 
-							projectileobj->timer240 = func->timer60;
+							projectileobj->timer240 = timer60;
 
 							if (projectileobj->timer240 != -1) {
 #if PAL
@@ -10392,9 +10405,9 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 							bgun0f09ebcc(&projectileobj->base, &gunpos, gunrooms, &projectilemtx, &sp16c, &identmtx, chrprop, &gunpos);
 
 							if (projectileobj->base.hidden & OBJHFLAG_PROJECTILE) {
-								if (func->base.base.flags & FUNCFLAG_PROJECTILE_LIGHTWEIGHT) {
+								if (funcflags & FUNCFLAG_PROJECTILE_LIGHTWEIGHT) {
 									projectileobj->base.projectile->flags |= PROJECTILEFLAG_LIGHTWEIGHT;
-								} else if (func->base.base.flags & FUNCFLAG_PROJECTILE_POWERED) {
+								} else if (funcflags & FUNCFLAG_PROJECTILE_POWERED) {
 									projectileobj->base.projectile->flags |= PROJECTILEFLAG_POWERED;
 								}
 
@@ -10403,14 +10416,14 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 								projectileobj->base.projectile->unk018 = sp15c.z;
 
 								projectileobj->base.projectile->pickuptimer240 = TICKS(240);
-								projectileobj->base.projectile->unk08c = func->reflectangle;
+								projectileobj->base.projectile->unk08c = reflectangle;
 								projectileobj->base.projectile->unk098 = func->unk50 * (1.0f / 0.6f);
 
 								projectileobj->base.projectile->targetprop = chrGetTargetProp(chr);
 
 								// Play sound
-								if (func->soundnum > 0) {
-									psCreate(NULL, projectileobj->base.prop, func->soundnum, -1,
+								if (soundnum > 0) {
+									psCreate(NULL, projectileobj->base.prop, soundnum, -1,
 											-1, 0, 0, PSTYPE_NONE, NULL, -1, NULL, -1, -1, -1, -1);
 								}
 							}

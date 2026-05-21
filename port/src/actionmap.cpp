@@ -1508,6 +1508,7 @@ void actionmapEndFrame(void)
     }
 
     /* Clear edge signals and auto-release mouse wheel (momentary) */
+    u32 now = SDL_GetTicks();
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
         for (s32 a = 0; a < ACTION_COUNT; a++) {
             ActionState *st = &s_State[p][a];
@@ -1521,9 +1522,11 @@ void actionmapEndFrame(void)
         for (s32 wi = 0; wi < s_NumWheelActions; wi++) {
             ActionState *st = &s_State[p][s_WheelActions[wi]];
             if (st->held) {
-                st->held     = 0;
-                st->released = 1;
-                st->value    = 0.0f;
+                st->held                  = 0;
+                st->released              = 1;
+                st->value                 = 0.0f;
+                st->up_time_ms            = now;
+                st->hold_vis_grace_until_ms = now + 100;
             }
         }
     }
@@ -2723,6 +2726,7 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_USE,            VKL_F);
         addBind(imc, ACTION_USE,            JOY_BTN(0, JBTN_X));
         addBind(imc, ACTION_WEAPON_NEXT,    JOY_BTN(0, JBTN_Y)); /* next weapon */
+        addBind(imc, ACTION_WEAPON_NEXT,    VKL_Q); /* tap cycles; hold opens the weapon wheel */
         addBind(imc, ACTION_CANCEL_USE,     VK_MOUSE_MIDDLE);
         addBind(imc, ACTION_CANCEL_USE,     JOY_BTN(0, JBTN_RSTICK)); /* R3 — cancel/drop/FarSight (B is crouch) */
         addBind(imc, ACTION_CROUCH,         VK_LCTRL);

@@ -12,6 +12,8 @@
 #include <string.h>
 
 #include "config.h"
+#include "constants.h"
+#include "loader_enum_reverse.h"
 #include "platform.h"
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
@@ -997,6 +999,111 @@ static s32 heldParamString(const weapon_graph_ir_t *ir,
 	return 1;
 }
 
+static s32 heldFunctionTypeId(const char *function_type)
+{
+	if (!function_type || !function_type[0]) return INVENTORYFUNCTYPE_NONE;
+	if (strcmp(function_type, "none") == 0) return INVENTORYFUNCTYPE_NONE;
+	if (strcmp(function_type, "shoot_single") == 0) return INVENTORYFUNCTYPE_SHOOT_SINGLE;
+	if (strcmp(function_type, "shoot_automatic") == 0) return INVENTORYFUNCTYPE_SHOOT_AUTOMATIC;
+	if (strcmp(function_type, "shoot_projectile") == 0) return INVENTORYFUNCTYPE_SHOOT_PROJECTILE;
+	if (strcmp(function_type, "throw") == 0) return INVENTORYFUNCTYPE_THROW;
+	if (strcmp(function_type, "melee") == 0) return INVENTORYFUNCTYPE_MELEE;
+	if (strcmp(function_type, "special") == 0) return INVENTORYFUNCTYPE_SPECIAL;
+	if (strcmp(function_type, "device") == 0) return INVENTORYFUNCTYPE_DEVICE;
+	return INVENTORYFUNCTYPE_NONE;
+}
+
+static s32 heldParseHexSuffix(const char *value, s32 *out)
+{
+	const char *end;
+	const char *start;
+	char buf[16];
+	size_t len;
+	char *parse_end = NULL;
+	long parsed;
+
+	if (!value || !value[0] || !out) return 0;
+	end = value + strlen(value);
+	start = end;
+	while (start > value && isxdigit((unsigned char)*(start - 1))) {
+		start--;
+	}
+	if (start == end || (start > value && *(start - 1) != '_')) {
+		return 0;
+	}
+	len = (size_t)(end - start);
+	if (len == 0 || len >= sizeof(buf)) return 0;
+	memcpy(buf, start, len);
+	buf[len] = '\0';
+	parsed = strtol(buf, &parse_end, 16);
+	if (!parse_end || *parse_end != '\0') return 0;
+	*out = (s32)parsed;
+	return 1;
+}
+
+static s32 heldResolveSfxParam(const weapon_graph_ir_t *ir,
+                               const weapon_graph_ir_node_t *node,
+                               const char *key, s32 *out)
+{
+	const weapon_graph_ir_param_t *p = heldParam(ir, node, key);
+	s32 resolved;
+	char *end = NULL;
+	long parsed;
+
+	if (!p || !out) return 0;
+	if (heldParamInt(ir, node, key, out)) return 1;
+	if (p->type != WEAPON_GRAPH_PARAM_STRING || !p->value[0]) return 0;
+
+	resolved = loaderEnumResolveSfxEnum(p->value, -1);
+	if (resolved >= 0) {
+		*out = resolved;
+		return 1;
+	}
+
+	parsed = strtol(p->value, &end, 0);
+	if (end && *end == '\0') {
+		*out = (s32)parsed;
+		return 1;
+	}
+
+	return heldParseHexSuffix(p->value, out);
+}
+
+static s32 heldResolveProjectileModelRef(const char *ref, s32 *out)
+{
+	const char *hex;
+	char *end = NULL;
+	long parsed;
+
+	if (!ref || !out) return 0;
+	if (strcmp(ref, "MODEL_dyrocket") == 0) { *out = MODEL_CHRDYROCKETMIS; return 1; }
+	if (strcmp(ref, "MODEL_skrocket") == 0) { *out = MODEL_CHRSKROCKETMIS; return 1; }
+	if (strcmp(ref, "MODEL_crossbow_bolt") == 0) { *out = MODEL_CHRCROSSBOLT; return 1; }
+	if (strcmp(ref, "MODEL_devastator_grenade") == 0) { *out = MODEL_CHRDEVGRENADE; return 1; }
+	if (strcmp(ref, "MODEL_dragon_grenade") == 0) { *out = MODEL_CHRDRAGGRENADE; return 1; }
+	if (strcmp(ref, "MODEL_knife") == 0) { *out = MODEL_CHRKNIFE; return 1; }
+	if (strcmp(ref, "MODEL_bug") == 0) { *out = MODEL_CHRBUG; return 1; }
+	if (strcmp(ref, "MODEL_target_amplifier") == 0) { *out = MODEL_TARGETAMP; return 1; }
+	if (strcmp(ref, "MODEL_autogun") == 0) { *out = MODEL_CHRAUTOGUN; return 1; }
+	if (strcmp(ref, "MODEL_dragon") == 0) { *out = MODEL_CHRDRAGON; return 1; }
+	if (strcmp(ref, "MODEL_grenade") == 0) { *out = MODEL_CHRGRENADE; return 1; }
+	if (strcmp(ref, "MODEL_nbomb") == 0) { *out = MODEL_CHRNBOMB; return 1; }
+	if (strcmp(ref, "MODEL_timed_mine") == 0) { *out = MODEL_CHRTIMEDMINE; return 1; }
+	if (strcmp(ref, "MODEL_proximity_mine") == 0) { *out = MODEL_CHRPROXIMITYMINE; return 1; }
+	if (strcmp(ref, "MODEL_remote_mine") == 0) { *out = MODEL_CHRREMOTEMINE; return 1; }
+	if (strcmp(ref, "MODEL_ecm_mine") == 0) { *out = MODEL_CHRECMMINE; return 1; }
+
+	if (!startsWith(ref, "MODEL_")) return 0;
+	hex = ref + 6;
+	if (!isxdigit((unsigned char)hex[0])) return 0;
+	parsed = strtol(hex, &end, 16);
+	if (end && *end == '\0') {
+		*out = (s32)parsed;
+		return 1;
+	}
+	return 0;
+}
+
 static s32 heldModeToFuncIndex(const char *mode)
 {
 	if (!mode) return -1;
@@ -1048,12 +1155,52 @@ static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
 	}
 	heldParamString(ir, node, "function_type", out->function_type,
 		sizeof(out->function_type));
+	out->function_type_id = heldFunctionTypeId(out->function_type);
+	out->has_function_type_id = out->function_type[0] ? 1 : 0;
+	heldParamString(ir, node, "trigger_policy", out->trigger_policy,
+		sizeof(out->trigger_policy));
 
 	if (heldParamInt(ir, node, "ammo_slot", &v)) out->ammo_slot = v;
 	if (heldParamU32(ir, node, "flags", &uv)) out->flags = uv;
+	if (heldParamInt(ir, node, "burst_count", &v)) {
+		out->has_burst_count = 1;
+		out->burst_count = v;
+	}
 	if (heldParamFloat(ir, node, "damage", &f)) {
 		out->has_damage = 1;
 		out->damage = f;
+	}
+	if (heldParamFloat(ir, node, "spread", &f)) {
+		out->has_spread = 1;
+		out->spread = f;
+	}
+	if (heldParamInt(ir, node, "recoil_anim_unk24", &v)) {
+		out->has_recoil_anim_unk24 = 1;
+		out->recoil_anim_unk24 = v;
+	}
+	if (heldParamInt(ir, node, "recoil_anim_unk25", &v)) {
+		out->has_recoil_anim_unk25 = 1;
+		out->recoil_anim_unk25 = v;
+	}
+	if (heldParamInt(ir, node, "recoil_anim_unk26", &v)) {
+		out->has_recoil_anim_unk26 = 1;
+		out->recoil_anim_unk26 = v;
+	}
+	if (heldParamInt(ir, node, "recoil_anim_unk27", &v)) {
+		out->has_recoil_anim_unk27 = 1;
+		out->recoil_anim_unk27 = v;
+	}
+	if (heldParamFloat(ir, node, "recoildist", &f)) {
+		out->has_recoildist = 1;
+		out->recoildist = f;
+	}
+	if (heldParamFloat(ir, node, "recoilangle", &f)) {
+		out->has_recoilangle = 1;
+		out->recoilangle = f;
+	}
+	if (heldParamFloat(ir, node, "slidemax", &f)) {
+		out->has_slidemax = 1;
+		out->slidemax = f;
 	}
 	if (heldParamFloat(ir, node, "impactforce", &f)) {
 		out->has_impactforce = 1;
@@ -1065,7 +1212,7 @@ static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
 		if (v > 255) v = 255;
 		out->duration_ticks60 = (u8)v;
 	}
-	if (heldParamInt(ir, node, "shootsound", &v)) {
+	if (heldResolveSfxParam(ir, node, "shootsound", &v)) {
 		out->has_shootsound = 1;
 		if (v < 0) v = 0;
 		if (v > 65535) v = 65535;
@@ -1096,6 +1243,62 @@ static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
 	if (heldParamInt(ir, node, "recoverytime_ticks60", &v)) {
 		out->has_recoverytime_ticks60 = 1;
 		out->recoverytime_ticks60 = v;
+	}
+	heldParamString(ir, node, "projectile_ref",
+		out->projectile_ref, sizeof(out->projectile_ref));
+	heldParamString(ir, node, "entity_ref",
+		out->entity_ref, sizeof(out->entity_ref));
+	heldParamString(ir, node, "payload_ref",
+		out->payload_ref, sizeof(out->payload_ref));
+	if (heldParamString(ir, node, "projectile_model_ref",
+			out->projectile_model_ref, sizeof(out->projectile_model_ref)) &&
+			heldResolveProjectileModelRef(out->projectile_model_ref, &v)) {
+		out->has_projectile_modelnum = 1;
+		out->projectile_modelnum = v;
+	}
+	if (heldParamFloat(ir, node, "scale", &f)) {
+		out->has_scale = 1;
+		out->scale = f;
+	}
+	if (heldParamFloat(ir, node, "speed", &f)) {
+		out->has_speed = 1;
+		out->speed = f;
+	}
+	if (heldParamInt(ir, node, "travel_distance", &v)) {
+		out->has_travel_distance = 1;
+		out->travel_distance = v;
+	}
+	if (heldParamInt(ir, node, "timer_ticks60", &v)) {
+		out->has_timer_ticks60 = 1;
+		out->timer_ticks60 = v;
+	}
+	if (heldParamFloat(ir, node, "reflect_angle", &f)) {
+		out->has_reflect_angle = 1;
+		out->reflect_angle = f;
+	}
+	if (heldResolveSfxParam(ir, node, "soundnum", &v)) {
+		out->has_soundnum = 1;
+		out->soundnum = v;
+	}
+	if (heldParamInt(ir, node, "activation_time_ticks60", &v)) {
+		out->has_activation_time_ticks60 = 1;
+		out->activation_time_ticks60 = v;
+	}
+	if (heldParamInt(ir, node, "recovery_time_ticks60", &v)) {
+		out->has_recovery_time_ticks60 = 1;
+		out->recovery_time_ticks60 = v;
+	}
+	if (heldParamFloat(ir, node, "range", &f)) {
+		out->has_range = 1;
+		out->range = f;
+	}
+	if (heldParamInt(ir, node, "specialfunc", &v)) {
+		out->has_specialfunc = 1;
+		out->specialfunc = v;
+	}
+	if (heldParamU32(ir, node, "device", &uv)) {
+		out->has_device = 1;
+		out->device = uv;
 	}
 }
 

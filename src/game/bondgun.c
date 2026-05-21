@@ -1783,16 +1783,40 @@ s32 bgunTickIncChangeFunc(struct handweaponinfo *info, s32 handnum, struct hand 
 	return 0;
 }
 
+static const weapon_graph_held_function_t *bgunGetHeldGraph(struct gset *gset)
+{
+	return weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum,
+		gset->weaponfunc);
+}
+
+static s32 bgunGetFunctionTypeFromGraph(struct weaponfunc *func,
+		const weapon_graph_held_function_t *graph)
+{
+	if (graph && graph->has_function_type_id) {
+		return graph->function_type_id;
+	}
+	return func ? func->type : INVENTORYFUNCTYPE_NONE;
+}
+
+static s32 bgunGetAmmoIndexFromGraph(struct weaponfunc *func,
+		const weapon_graph_held_function_t *graph)
+{
+	if (graph && graph->ammo_slot >= 0) {
+		return graph->ammo_slot;
+	}
+	return func ? func->ammoindex : -1;
+}
+
 s32 bgun0f09a3f8(struct hand *hand, struct weaponfunc *func)
 {
 	bool burst = false;
 	bool smallburst = false;
 	struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
-	const weapon_graph_held_function_t *graph =
-		weaponGraphRuntimeGetHeldFunctionForGameplay(hand->gset.weaponnum, hand->gset.weaponfunc);
+	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
 	u32 funcflags = graph ? graph->flags : func->flags;
-	s32 ammoindex = (graph && graph->ammo_slot >= 0) ? graph->ammo_slot : func->ammoindex;
-	bool legacyauto = (func->type & 0xff00) == 0x100;
+	s32 ammoindex = bgunGetAmmoIndexFromGraph(func, graph);
+	s32 functype = bgunGetFunctionTypeFromGraph(func, graph);
+	bool legacyauto = (functype & 0xff00) == 0x100;
 	bool isauto = (graph && graph->has_max_rpm) ? true : legacyauto;
 	s32 turretaccel = 0;
 	s32 turretdecel = 0;
@@ -1924,11 +1948,11 @@ s32 bgun0f09a3f8(struct hand *hand, struct weaponfunc *func)
 void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, struct weaponfunc *func)
 {
 	bool usesammo = true;
-	const weapon_graph_held_function_t *graph =
-		weaponGraphRuntimeGetHeldFunctionForGameplay(hand->gset.weaponnum, hand->gset.weaponfunc);
+	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
 	u32 funcflags = graph ? graph->flags : func->flags;
-	s32 ammoindex = (graph && graph->ammo_slot >= 0) ? graph->ammo_slot : func->ammoindex;
-	bool legacyauto = (func->type & 0xff00) == 0x100;
+	s32 ammoindex = bgunGetAmmoIndexFromGraph(func, graph);
+	s32 functype = bgunGetFunctionTypeFromGraph(func, graph);
+	bool legacyauto = (functype & 0xff00) == 0x100;
 	bool isauto = (graph && graph->has_max_rpm) ? true : legacyauto;
 
 	static u32 rontime = 2;
@@ -1982,8 +2006,8 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 		hand->flashon = false;
 	} else {
 		if (g_BgunGeMuzzleFlashes) {
-			if ((!isauto && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT)
-					|| func->type == INVENTORYFUNCTYPE_SHOOT_SINGLE
+			if ((!isauto && (functype & 0xff) == INVENTORYFUNCTYPE_SHOOT)
+					|| functype == INVENTORYFUNCTYPE_SHOOT_SINGLE
 					|| (hand->shotstotake & 1)) {
 				hand->flashon = true;
 			}
@@ -2013,7 +2037,7 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 			}
 		}
 
-		switch (func->type & 0xff00) {
+		switch (functype & 0xff00) {
 		case 0:
 		case 0x100:
 			hand->attacktype = HANDATTACKTYPE_SHOOT;
@@ -2102,13 +2126,14 @@ bool bgun0f09aba4(struct hand *hand, struct handweaponinfo *info, s32 handnum, s
 	f32 recoilangle;
 	f32 mult2;
 	u32 stack;
+	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
 
 #if PAL
-	unk24 = func->unk24;
-	unk25 = func->unk25;
-	unk26 = func->unk26;
-	unk27 = func->unk27;
-	recoverytime60 = func->recoverytime60;
+	unk24 = graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : func->unk24;
+	unk25 = graph && graph->has_recoil_anim_unk25 ? graph->recoil_anim_unk25 : func->unk25;
+	unk26 = graph && graph->has_recoil_anim_unk26 ? graph->recoil_anim_unk26 : func->unk26;
+	unk27 = graph && graph->has_recoil_anim_unk27 ? graph->recoil_anim_unk27 : func->unk27;
+	recoverytime60 = graph && graph->has_recoverytime_ticks60 ? graph->recoverytime_ticks60 : func->recoverytime60;
 	weapondef = info->definition;
 
 	if (unk24 >= 4) {
@@ -2133,20 +2158,20 @@ bool bgun0f09aba4(struct hand *hand, struct handweaponinfo *info, s32 handnum, s
 
 	sum = unk24 + unk25;
 #elif VERSION >= VERSION_JPN_FINAL
-	unk24 = func->unk24;
-	unk25 = func->unk25;
-	unk26 = func->unk26;
-	unk27 = func->unk27;
-	recoverytime60 = func->recoverytime60;
+	unk24 = graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : func->unk24;
+	unk25 = graph && graph->has_recoil_anim_unk25 ? graph->recoil_anim_unk25 : func->unk25;
+	unk26 = graph && graph->has_recoil_anim_unk26 ? graph->recoil_anim_unk26 : func->unk26;
+	unk27 = graph && graph->has_recoil_anim_unk27 ? graph->recoil_anim_unk27 : func->unk27;
+	recoverytime60 = graph && graph->has_recoverytime_ticks60 ? graph->recoverytime_ticks60 : func->recoverytime60;
 	weapondef = info->definition;
 	sum = unk24 + unk25;
 #else
-	unk24 = func->unk24;
-	unk25 = func->unk25;
+	unk24 = graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : func->unk24;
+	unk25 = graph && graph->has_recoil_anim_unk25 ? graph->recoil_anim_unk25 : func->unk25;
 	sum = unk24 + unk25;
-	unk26 = func->unk26;
-	unk27 = func->unk27;
-	recoverytime60 = func->recoverytime60;
+	unk26 = graph && graph->has_recoil_anim_unk26 ? graph->recoil_anim_unk26 : func->unk26;
+	unk27 = graph && graph->has_recoil_anim_unk27 ? graph->recoil_anim_unk27 : func->unk27;
+	recoverytime60 = graph && graph->has_recoverytime_ticks60 ? graph->recoverytime_ticks60 : func->recoverytime60;
 	weapondef = info->definition;
 #endif
 
@@ -2198,8 +2223,8 @@ bool bgun0f09aba4(struct hand *hand, struct handweaponinfo *info, s32 handnum, s
 		}
 
 		if (frames < sum && (hand->stateflags & HANDSTATEFLAG_00000040) == 0) {
-			recoildist = func->recoildist;
-			recoilangle = func->recoilangle;
+			recoildist = graph && graph->has_recoildist ? graph->recoildist : func->recoildist;
+			recoilangle = graph && graph->has_recoilangle ? graph->recoilangle : func->recoilangle;
 
 			if ((hand->stateflags & HANDSTATEFLAG_00000080) == 0) {
 				hand->stateflags |= HANDSTATEFLAG_00000080;
@@ -2348,14 +2373,26 @@ bool bgunTickIncAttackingShoot(struct handweaponinfo *info, s32 handnum, struct 
 bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 {
 	struct weaponfunc_throw *func = (struct weaponfunc_throw *) gsetGetWeaponFunction(&hand->gset);
+	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
+	u32 funcflags;
+	s32 ammoindex;
+	s32 activationtime60;
+	s32 recoverytime60;
 
 	if (func == NULL) {
 		return true;
 	}
 
+	funcflags = graph ? graph->flags : func->base.flags;
+	ammoindex = bgunGetAmmoIndexFromGraph(&func->base, graph);
+	activationtime60 = graph && graph->has_activation_time_ticks60 ?
+		graph->activation_time_ticks60 : func->activatetime60;
+	recoverytime60 = graph && graph->has_recovery_time_ticks60 ?
+		graph->recovery_time_ticks60 : func->recoverytime60;
+
 	if (hand->stateminor == HANDSTATEMINOR_ATTACK_THROW_0) {
 		if (hand->statecycles == 0) {
-			if (func->base.flags & FUNCFLAG_DISCARDWEAPON) {
+			if (funcflags & FUNCFLAG_DISCARDWEAPON) {
 				invRemoveItemByNum(hand->gset.weaponnum);
 				g_Vars.currentplayer->gunctrl.throwing = true;
 #if VERSION >= VERSION_NTSC_1_0
@@ -2390,13 +2427,15 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 	if (hand->stateminor == HANDSTATEMINOR_ATTACK_THROW_1) {
 		hand->firing = true;
 		hand->attacktype = HANDATTACKTYPE_THROWPROJECTILE;
-		hand->loadedammo[func->base.ammoindex]--;
+		if (ammoindex >= 0) {
+			hand->loadedammo[ammoindex]--;
+		}
 		hand->stateminor = HANDSTATEMINOR_ATTACK_THROW_2;
 		return false;
 	}
 
 	if (hand->stateminor == HANDSTATEMINOR_ATTACK_THROW_2) {
-		if (hand->stateframes > TICKS(func->recoverytime60)) {
+		if (hand->stateframes > TICKS(recoverytime60)) {
 			return true;
 		}
 
@@ -2416,7 +2455,7 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 	if (hand->stateminor == HANDSTATEMINOR_ATTACK_THROW_GRENADEWAIT) {
 		bgunResetAnim(hand);
 
-		if (hand->stateframes > TICKS(func->activatetime60 + 240)) {
+		if (hand->stateframes > TICKS(activationtime60 + 240)) {
 			return true;
 		}
 
@@ -2428,10 +2467,12 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 	// If held a grenade too long, force throw it and enter the wait state
 	if (hand->gset.weaponnum == WEAPON_GRENADE
 			&& hand->gset.weaponfunc == FUNC_PRIMARY
-			&& hand->primetimer60 > TICKS(func->activatetime60)) {
+			&& hand->primetimer60 > TICKS(activationtime60)) {
 		hand->firing = true;
 		hand->attacktype = HANDATTACKTYPE_THROWPROJECTILE;
-		hand->loadedammo[func->base.ammoindex]--;
+		if (ammoindex >= 0) {
+			hand->loadedammo[ammoindex]--;
+		}
 		hand->stateminor = HANDSTATEMINOR_ATTACK_THROW_GRENADEWAIT;
 
 		return false;
@@ -2460,10 +2501,14 @@ u32 var80070130 = 0x00000000;
 bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 {
 	struct weaponfunc *func = gsetGetWeaponFunction(&hand->gset);
+	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
+	s32 ammoindex;
 
 	if (func == NULL) {
 		return true;
 	}
+
+	ammoindex = bgunGetAmmoIndexFromGraph(func, graph);
 
 	if (hand->gset.weaponnum == WEAPON_REAPER) {
 		if (hand->statecycles == 0) {
@@ -2523,11 +2568,11 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 		hand->firing = true;
 		hand->attacktype = HANDATTACKTYPE_MELEE;
 
-		if (hand->gset.weaponnum == WEAPON_TRANQUILIZER && func->ammoindex >= 0) {
-			if (hand->loadedammo[func->ammoindex] > bgunGetMinClipQty(WEAPON_TRANQUILIZER, FUNC_SECONDARY)) {
-				hand->loadedammo[func->ammoindex] -= bgunGetMinClipQty(WEAPON_TRANQUILIZER, FUNC_SECONDARY);
+		if (hand->gset.weaponnum == WEAPON_TRANQUILIZER && ammoindex >= 0) {
+			if (hand->loadedammo[ammoindex] > bgunGetMinClipQty(WEAPON_TRANQUILIZER, FUNC_SECONDARY)) {
+				hand->loadedammo[ammoindex] -= bgunGetMinClipQty(WEAPON_TRANQUILIZER, FUNC_SECONDARY);
 			} else {
-				hand->loadedammo[func->ammoindex] = 0;
+				hand->loadedammo[ammoindex] = 0;
 			}
 		}
 
@@ -2568,10 +2613,19 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 bool bgunTickIncAttackingSpecial(struct hand *hand)
 {
 	struct weaponfunc_special *func = (struct weaponfunc_special *) gsetGetWeaponFunction(&hand->gset);
+	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
+	s32 specialfunc;
+	s32 ammoindex;
+	s32 recoverytime60;
 
 	if (!func) {
 		return true;
 	}
+
+	specialfunc = graph && graph->has_specialfunc ? graph->specialfunc : func->specialfunc;
+	ammoindex = bgunGetAmmoIndexFromGraph(&func->base, graph);
+	recoverytime60 = graph && graph->has_recovery_time_ticks60 ?
+		graph->recovery_time_ticks60 : func->recoverytime60;
 
 	if (hand->stateminor == HANDSTATEMINOR_ATTACK_SPECIAL_START) {
 		hand->stateminor = HANDSTATEMINOR_ATTACK_SPECIAL_EXECUTE;
@@ -2579,10 +2633,10 @@ bool bgunTickIncAttackingSpecial(struct hand *hand)
 
 	if (hand->stateminor == HANDSTATEMINOR_ATTACK_SPECIAL_EXECUTE) {
 		hand->firing = true;
-		hand->attacktype = func->specialfunc;
+		hand->attacktype = specialfunc;
 
-		if (func->base.ammoindex >= 0) {
-			hand->loadedammo[func->base.ammoindex]--;
+		if (ammoindex >= 0) {
+			hand->loadedammo[ammoindex]--;
 		}
 
 		hand->stateminor = HANDSTATEMINOR_ATTACK_SPECIAL_RECOVER;
@@ -2590,7 +2644,7 @@ bool bgunTickIncAttackingSpecial(struct hand *hand)
 	}
 
 	if (hand->stateminor == HANDSTATEMINOR_ATTACK_SPECIAL_RECOVER) {
-		if (hand->stateframes > TICKS(func->recoverytime60)) {
+		if (hand->stateframes > TICKS(recoverytime60)) {
 			return true;
 		}
 
@@ -2764,13 +2818,16 @@ s32 bgunTickIncAttack(struct handweaponinfo *info, s32 handnum, struct hand *han
 	struct weaponfunc *func = NULL;
 	bool finished = true;
 	u32 stack2;
+	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
+	s32 functype;
 
 	if (info->definition) {
 		func = gsetGetWeaponFunction(&hand->gset);
 	}
 
 	if (func != NULL) {
-		switch (func->type & 0xff) {
+		functype = bgunGetFunctionTypeFromGraph(func, graph);
+		switch (functype & 0xff) {
 		case INVENTORYFUNCTYPE_SHOOT:
 			finished = bgunTickIncAttackingShoot(info, handnum, hand);
 			break;
@@ -4867,6 +4924,9 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 	struct autogunobj *autogun;
 	Mtxf mtx;
 	s32 playernum;
+	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(gset);
+	s32 projectilemodelnum;
+	s32 activatetime60;
 
 	if (weapon == NULL) {
 		return false;
@@ -4879,6 +4939,11 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 		return false;
 	}
 
+	projectilemodelnum = graph && graph->has_projectile_modelnum ?
+		graph->projectile_modelnum : func->projectilemodelnum;
+	activatetime60 = graph && graph->has_activation_time_ticks60 ?
+		graph->activation_time_ticks60 : func->activatetime60;
+
 	if (gset->weaponnum == WEAPON_COMBATKNIFE) {
 		guRotateF(mtx.m, 90.0f / (RANDOMFRAC() + 12.1f),
 				arg4->m[1][0], arg4->m[1][1], arg4->m[1][2]);
@@ -4887,19 +4952,19 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 	}
 
 	if (gset->weaponnum == WEAPON_LAPTOPGUN) {
-		autogun = laptopDeploy(func->projectilemodelnum, gset, chr);
+		autogun = laptopDeploy(projectilemodelnum, gset, chr);
 
 		if (autogun != NULL) {
 			obj = &autogun->base;
 		}
 	} else {
-		weaponobj = weaponCreateProjectileFromGset(func->projectilemodelnum, gset, chr);
+		weaponobj = weaponCreateProjectileFromGset(projectilemodelnum, gset, chr);
 
 		if (weaponobj != NULL) {
 			obj = &weaponobj->base;
 
 			// Note this timer is converted to 240 time immediately below
-			weaponobj->timer240 = func->activatetime60;
+			weaponobj->timer240 = activatetime60;
 
 			if (weaponobj->timer240 >= 2) {
 				weaponobj->timer240 = TICKS(weaponobj->timer240 * 4);
@@ -4909,10 +4974,10 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 				propSetDangerous(weaponobj->base.prop);
 			}
 
-			if (func->projectilemodelnum == MODEL_CHRREMOTEMINE
-					|| func->projectilemodelnum == MODEL_CHRTIMEDMINE
-					|| func->projectilemodelnum == MODEL_CHRPROXIMITYMINE
-					|| func->projectilemodelnum == MODEL_CHRECMMINE) {
+			if (projectilemodelnum == MODEL_CHRREMOTEMINE
+					|| projectilemodelnum == MODEL_CHRTIMEDMINE
+					|| projectilemodelnum == MODEL_CHRPROXIMITYMINE
+					|| projectilemodelnum == MODEL_CHRECMMINE) {
 				weaponobj->base.flags3 |= OBJFLAG3_00000008;
 			}
 		}
@@ -5202,13 +5267,16 @@ void bgunCreateHeldRocket(s32 handnum, struct weaponfunc_shootprojectile *func)
 {
 	struct hand *hand = &g_Vars.currentplayer->hands[handnum];
 	struct weaponobj *obj;
+	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
+	s32 projectilemodelnum = graph && graph->has_projectile_modelnum ?
+		graph->projectile_modelnum : func->projectilemodelnum;
 
 	if (hand->rocket == NULL) {
 #if VERSION >= VERSION_NTSC_1_0
 		hand->firedrocket = false;
 #endif
 
-		obj = weaponCreateProjectileFromWeaponNum(func->projectilemodelnum, WEAPON_ROCKET, g_Vars.currentplayer->prop->chr);
+		obj = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_ROCKET, g_Vars.currentplayer->prop->chr);
 
 		if (obj != NULL) {
 			hand->rocket = obj;
@@ -5262,6 +5330,15 @@ void bgunCreateFiredProjectile(s32 handnum)
 	f32 spe4[4];
 	f32 spd4[4];
 	f32 spc4[4];
+	const weapon_graph_held_function_t *graph;
+	u32 funcflags;
+	s32 projectilemodelnum;
+	f32 projectilescale;
+	f32 projectilespeed;
+	s32 traveldist;
+	s32 timer60;
+	f32 reflectangle;
+	s32 soundnum;
 
 	if (g_NetMode == NETMODE_CLIENT) {
 		return;
@@ -5280,6 +5357,18 @@ void bgunCreateFiredProjectile(s32 handnum)
 
 		if (tmp && tmp->type == INVENTORYFUNCTYPE_SHOOT_PROJECTILE) {
 			funcdef = (struct weaponfunc_shootprojectile *)tmp;
+			graph = bgunGetHeldGraph(&hand->gset);
+			funcflags = graph ? graph->flags : funcdef->base.base.flags;
+			projectilemodelnum = graph && graph->has_projectile_modelnum ?
+				graph->projectile_modelnum : funcdef->projectilemodelnum;
+			projectilescale = graph && graph->has_scale ? graph->scale : funcdef->scale;
+			projectilespeed = graph && graph->has_speed ? graph->speed : funcdef->speed;
+			traveldist = graph && graph->has_travel_distance ?
+				graph->travel_distance : funcdef->traveldist;
+			timer60 = graph && graph->has_timer_ticks60 ? graph->timer_ticks60 : funcdef->timer60;
+			reflectangle = graph && graph->has_reflect_angle ?
+				graph->reflect_angle : funcdef->reflectangle;
+			soundnum = graph && graph->has_soundnum ? graph->soundnum : funcdef->soundnum;
 
 			mtx4LoadIdentity(&sp270);
 			bgunCalculatePlayerShotSpread(&gunpos, &gundir, handnum, true);
@@ -5295,8 +5384,8 @@ void bgunCreateFiredProjectile(s32 handnum)
 				spawnpos.z += 50.0f * gundir.z;
 			}
 
-			sp260 = funcdef->speed * 1.6666666f / 60.0f;
-			sp25c = funcdef->traveldist * 1.6666666f;
+			sp260 = projectilespeed * 1.6666666f / 60.0f;
+			sp25c = traveldist * 1.6666666f;
 
 			if (gsetHasFunctionFlags(&hand->gset, FUNCFLAG_CALCULATETRAJECTORY)) {
 				propFindAimingAt(HAND_RIGHT, false, FINDPROPCONTEXT_QUERY);
@@ -5346,7 +5435,7 @@ void bgunCreateFiredProjectile(s32 handnum)
 			sp264.y = sp250.f[1] * g_Vars.lvupdate60freal + gundir.f[1] * sp25c;
 			sp264.z = sp250.f[2] * g_Vars.lvupdate60freal + gundir.f[2] * sp25c;
 
-			if ((funcdef->base.base.flags & FUNCFLAG_FLYBYWIRE) == 0 && g_Vars.lvupdate240 > 0) {
+			if ((funcflags & FUNCFLAG_FLYBYWIRE) == 0 && g_Vars.lvupdate240 > 0) {
 				sp264.x += (playerprop->pos.x - prevpos->x + extrapos->x) / g_Vars.lvupdate60freal;
 				sp264.y += (playerprop->pos.y - prevpos->y + extrapos->y) / g_Vars.lvupdate60freal;
 				sp264.z += (playerprop->pos.z - prevpos->z + extrapos->z) / g_Vars.lvupdate60freal;
@@ -5367,38 +5456,38 @@ void bgunCreateFiredProjectile(s32 handnum)
 				weapon->base.flags &= ~OBJFLAG_HELDROCKET;
 #endif
 
-				if (funcdef->base.base.flags & FUNCFLAG_HOMINGROCKET) {
+				if (funcflags & FUNCFLAG_HOMINGROCKET) {
 					weapon->weaponnum = WEAPON_HOMINGROCKET;
 				}
 			} else if (hand->gset.weaponnum == WEAPON_ROCKETLAUNCHER || hand->gset.weaponnum == WEAPON_SLAYER) {
 				u32 stack;
 				s32 weaponnum = WEAPON_ROCKET;
 
-				if (funcdef->base.base.flags & FUNCFLAG_HOMINGROCKET) {
+				if (funcflags & FUNCFLAG_HOMINGROCKET) {
 					weaponnum = WEAPON_HOMINGROCKET;
 				}
 
-				weapon = weaponCreateProjectileFromWeaponNum(funcdef->projectilemodelnum, weaponnum, g_Vars.currentplayer->prop->chr);
+				weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, weaponnum, g_Vars.currentplayer->prop->chr);
 			} else if (hand->gset.weaponnum == WEAPON_CROSSBOW) {
-				weapon = weaponCreateProjectileFromWeaponNum(funcdef->projectilemodelnum, WEAPON_BOLT, g_Vars.currentplayer->prop->chr);
+				weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_BOLT, g_Vars.currentplayer->prop->chr);
 
 				if (weapon) {
 					weapon->gunfunc = hand->gset.weaponfunc;
 				}
 			} else if (hand->gset.weaponnum == WEAPON_DEVASTATOR) {
-				weapon = weaponCreateProjectileFromWeaponNum(funcdef->projectilemodelnum, WEAPON_GRENADEROUND, g_Vars.currentplayer->prop->chr);
+				weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_GRENADEROUND, g_Vars.currentplayer->prop->chr);
 
 				if (weapon) {
 					weapon->gunfunc = hand->gset.weaponfunc;
 				}
 			} else if (hand->gset.weaponnum == WEAPON_SUPERDRAGON) {
-				weapon = weaponCreateProjectileFromWeaponNum(funcdef->projectilemodelnum, WEAPON_GRENADEROUND, g_Vars.currentplayer->prop->chr);
+				weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_GRENADEROUND, g_Vars.currentplayer->prop->chr);
 
 				if (weapon) {
 					weapon->gunfunc = FUNC_2;
 				}
 			} else {
-				weapon = weaponCreateProjectileFromGset(funcdef->projectilemodelnum, &hand->gset, g_Vars.currentplayer->prop->chr);
+				weapon = weaponCreateProjectileFromGset(projectilemodelnum, &hand->gset, g_Vars.currentplayer->prop->chr);
 			}
 
 			if (weapon) {
@@ -5409,7 +5498,7 @@ void bgunCreateFiredProjectile(s32 handnum)
 				struct coord sp60;
 
 				if (weapon->base.model && weapon->base.model->definition) {
-					weapon->timer240 = funcdef->timer60;
+					weapon->timer240 = timer60;
 
 					if (weapon->timer240 != -1) {
 						weapon->timer240 = TICKS(weapon->timer240 * 4);
@@ -5421,19 +5510,19 @@ void bgunCreateFiredProjectile(s32 handnum)
 					bgun0f09ed2c(&weapon->base, &spawnpos, &sp210, &sp264, &sp270);
 
 					if (weapon->base.hidden & OBJHFLAG_PROJECTILE) {
-						if (funcdef->base.base.flags & FUNCFLAG_PROJECTILE_LIGHTWEIGHT) {
+						if (funcflags & FUNCFLAG_PROJECTILE_LIGHTWEIGHT) {
 							weapon->base.projectile->flags |= PROJECTILEFLAG_LIGHTWEIGHT;
-						} else if (funcdef->base.base.flags & FUNCFLAG_PROJECTILE_POWERED) {
+						} else if (funcflags & FUNCFLAG_PROJECTILE_POWERED) {
 							weapon->base.projectile->flags |= PROJECTILEFLAG_POWERED;
 						}
 
 						weapon->base.projectile->targetprop = g_Vars.currentplayer->trackedprops[0].prop;
 
-						if (funcdef->scale != 1.0f) {
-							weapon->base.model->scale *= funcdef->scale;
+						if (projectilescale != 1.0f) {
+							weapon->base.model->scale *= projectilescale;
 
 							mtx3ToMtx4(weapon->base.realrot, &sp78);
-							mtx00015f04(funcdef->scale, &sp78);
+							mtx00015f04(projectilescale, &sp78);
 							mtx4ToMtx3(&sp78, weapon->base.realrot);
 						}
 
@@ -5444,14 +5533,14 @@ void bgunCreateFiredProjectile(s32 handnum)
 						weapon->base.projectile->unk014 = sp250.y;
 						weapon->base.projectile->unk018 = sp250.z;
 						weapon->base.projectile->pickuptimer240 = TICKS(240);
-						weapon->base.projectile->unk08c = funcdef->reflectangle;
+						weapon->base.projectile->unk08c = reflectangle;
 						weapon->base.projectile->unk098 = funcdef->unk50 * 1.6666666f;
 
-						if (funcdef->soundnum > 0) {
-							psCreate(NULL, weapon->base.prop, funcdef->soundnum, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
+						if (soundnum > 0) {
+							psCreate(NULL, weapon->base.prop, soundnum, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
 						}
 
-						if (funcdef->base.base.flags & FUNCFLAG_FLYBYWIRE) {
+						if (funcflags & FUNCFLAG_FLYBYWIRE) {
 							playerLaunchSlayerRocket(weapon);
 						}
 
@@ -5489,7 +5578,7 @@ void bgunCreateFiredProjectile(s32 handnum)
 				struct coord sp6c;
 				struct coord sp60;
 
-				weapon->timer240 = funcdef->timer60;
+				weapon->timer240 = timer60;
 
 				if (weapon->timer240 != -1) {
 					weapon->timer240 = TICKS(weapon->timer240 * 4);
@@ -5501,19 +5590,19 @@ void bgunCreateFiredProjectile(s32 handnum)
 				bgun0f09ed2c(&weapon->base, &spawnpos, &sp210, &sp264, &sp270);
 
 				if (weapon->base.hidden & OBJHFLAG_PROJECTILE) {
-					if (funcdef->base.base.flags & FUNCFLAG_PROJECTILE_LIGHTWEIGHT) {
+					if (funcflags & FUNCFLAG_PROJECTILE_LIGHTWEIGHT) {
 						weapon->base.projectile->flags |= PROJECTILEFLAG_LIGHTWEIGHT;
-					} else if (funcdef->base.base.flags & FUNCFLAG_PROJECTILE_POWERED) {
+					} else if (funcflags & FUNCFLAG_PROJECTILE_POWERED) {
 						weapon->base.projectile->flags |= PROJECTILEFLAG_POWERED;
 					}
 
 					weapon->base.projectile->targetprop = g_Vars.currentplayer->trackedprops[0].prop;
 
-					if (funcdef->scale != 1.0f) {
-						weapon->base.model->scale *= funcdef->scale;
+					if (projectilescale != 1.0f) {
+						weapon->base.model->scale *= projectilescale;
 
 						mtx3ToMtx4(weapon->base.realrot, &sp78);
-						mtx00015f04(funcdef->scale, &sp78);
+						mtx00015f04(projectilescale, &sp78);
 						mtx4ToMtx3(&sp78, weapon->base.realrot);
 					}
 
@@ -5524,14 +5613,14 @@ void bgunCreateFiredProjectile(s32 handnum)
 					weapon->base.projectile->unk014 = sp250.y;
 					weapon->base.projectile->unk018 = sp250.z;
 					weapon->base.projectile->pickuptimer240 = TICKS(240);
-					weapon->base.projectile->unk08c = funcdef->reflectangle;
+					weapon->base.projectile->unk08c = reflectangle;
 					weapon->base.projectile->unk098 = funcdef->unk50 * 1.6666666f;
 
-					if (funcdef->soundnum > 0) {
-						psCreate(NULL, weapon->base.prop, funcdef->soundnum, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
+					if (soundnum > 0) {
+						psCreate(NULL, weapon->base.prop, soundnum, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
 					}
 
-					if (funcdef->base.base.flags & FUNCFLAG_FLYBYWIRE) {
+					if (funcflags & FUNCFLAG_FLYBYWIRE) {
 						playerLaunchSlayerRocket(weapon);
 					}
 
@@ -7449,6 +7538,36 @@ void bgunUpdateSmoke(struct hand *hand, s32 handnum, s32 weaponnum, struct weapo
 /**
  * Update the red beam and dot (used by the Falcon 2 and its variants).
  */
+static bool bgunShouldRenderLasersight(struct hand *hand)
+{
+	if (hand == NULL || !hand->visible) {
+		return false;
+	}
+
+	if (hand->state == HANDSTATE_CHANGEGUN) {
+		return false;
+	}
+
+	return true;
+}
+
+static void bgunCullLasersightsBeforeRender(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	s32 i;
+
+	for (i = 0; i < 2; i++) {
+		struct hand *hand = &player->hands[i];
+		s32 weaponnum = hand->gset.weaponnum;
+
+		if (!bgunShouldRenderLasersight(hand)
+				|| weaponnum < WEAPON_FALCON2
+				|| weaponnum > WEAPON_FALCON2_SCOPE) {
+			lasersightFree(i);
+		}
+	}
+}
+
 void bgunUpdateLasersight(struct hand *hand, struct modeldef *modeldef, s32 handnum, u8 *allocation)
 {
 	struct modelnode *node;
@@ -7463,10 +7582,20 @@ void bgunUpdateLasersight(struct hand *hand, struct modeldef *modeldef, s32 hand
 	struct coord sp30;
 	bool busy;
 
+	if (modeldef == NULL || allocation == NULL) {
+		lasersightFree(handnum);
+		return;
+	}
+
 	node = modelGetPart(modeldef, MODELPART_GUN_LASERSIGHT);
 
 	if (node) {
 		mtxindex = modelFindNodeMtxIndex(node, 0);
+
+		if (mtxindex < 0 || mtxindex >= modeldef->nummatrices) {
+			lasersightFree(handnum);
+			return;
+		}
 
 		beamnear.x = ((Mtxf *)((uintptr_t)allocation + mtxindex * sizeof(Mtxf)))->m[3][0];
 		beamnear.y = ((Mtxf *)((uintptr_t)allocation + mtxindex * sizeof(Mtxf)))->m[3][1];
@@ -7543,6 +7672,8 @@ void bgunUpdateLasersight(struct hand *hand, struct modeldef *modeldef, s32 hand
 
 			lasersightSetDot(handnum, &dotpos, &dotrot);
 		}
+	} else {
+		lasersightFree(handnum);
 	}
 }
 
@@ -8831,7 +8962,7 @@ void bgun0f0a5550(s32 handnum)
 		bgunTickEject(hand, modeldef, isdetonator);
 	}
 
-	if (PLAYERCOUNT() == 1 && hand->visible
+	if (PLAYERCOUNT() == 1 && bgunShouldRenderLasersight(hand)
 			&& weaponnum >= WEAPON_FALCON2 && weaponnum <= WEAPON_FALCON2_SCOPE) {
 		bgunUpdateLasersight(hand, modeldef, handnum, mtxallocation);
 	} else {
@@ -11751,6 +11882,7 @@ void bgunRender(Gfx **gdlptr)
 	}
 
 	if (PLAYERCOUNT() == 1) {
+		bgunCullLasersightsBeforeRender();
 		gdl = lasersightRenderBeam(gdl);
 	}
 
@@ -13747,6 +13879,8 @@ Gfx *bgunDrawHud(Gfx *gdl)
 		if (ctrl->curgunstr != nameid) {
 			ctrl->guntypetimer = 0;
 			ctrl->curgunstr = nameid;
+			ctrl->fnstrtimer = 0;
+			ctrl->curfnstr = 0;
 		}
 
 		if (ctrl->guntypetimer < 255) {
@@ -13801,7 +13935,7 @@ Gfx *bgunDrawHud(Gfx *gdl)
 
 			colour = 0xff5555ff;
 
-			if ((ctrl->curfnstr != func->name && ctrl->fnfader > 128) || ctrl->curfnstr == 0) {
+			if (ctrl->curfnstr != func->name) {
 				ctrl->fnstrtimer = 0;
 				ctrl->curfnstr = func->name;
 			}
