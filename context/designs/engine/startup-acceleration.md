@@ -8,6 +8,27 @@
 
 ---
 
+## 2026-05-21 follow-up: cached typed-asset families + centered progress modal
+
+The live boot pipeline has moved beyond the original Phase 5 plan: the overlay exists, the boot thread pool exists, parallel verify exists, and progress weights are already persisted through `Boot.Weight.*`. The 2026-05-21 follow-up targets the newer typed asset archive emitters that made cached launches spend time reopening or validating archive families that had not changed.
+
+Implemented follow-up:
+
+- Typed asset output directories now receive `.pdextract-cache` stamps after successful full validation. The stamp records a schema id, asset kind, file count, total bytes, and latest mtime.
+- On later launches, major asset families skip the whole emitter when the stamp fingerprint still matches the live directory. This keeps the authoritative per-archive stale validation path intact whenever the stamp is missing, stale, or schema-bumped.
+- Fast-cache coverage currently includes `.pdweapon`, `.pdmesh`, `.pdhead`, `.pdbody`, `.pdcharacter`, `.pdarena`/`.pdscenario`, `.pdsfx`, `.pdvoice`, `.pdsong`, `.pdfont`, and `.pdlang`.
+- `.pdanim` intentionally stays on the existing per-archive stale path because weapon/inventory animation archives and character animation archives share the same `.pdanim` directory/extension, so a generic directory fingerprint would mix distinct emitter ownership.
+- The boot overlay is now a centered modal-style progress panel with phase/percent text, a status label above the bar, and a wider progress track.
+- Progress interpolation now blends item completion with conservative in-code wall-clock phase estimates so long phases continue moving smoothly. The estimates are not registered in `pd.ini`; the config registry is close to its 512-entry cap, so only the existing `Boot.Weight.*` tuning remains config-backed.
+
+Verification snapshot:
+
+- Isolated `bootfast` all-target build passed.
+- Clean `boot_smoke` passed and generated cache stamps.
+- Existing-install `boot_smoke` passed with cached families skipped from 1.49s to 1.62s, `LOADER.UNIVERSAL.SUMMARY` at 1.85s, and `BOOT_OVERLAY: dismissed (visible for 1.51s)`.
+
+---
+
 ## Why this exists
 
 Mike's ask, 2026-05-03 14:32 ET: "See what we can do about speeding up our startup (and display something on screen when catalog work is happening to show progress (maybe a load bar at the bottom and status label). Any reason we can't multi-thread the process?"

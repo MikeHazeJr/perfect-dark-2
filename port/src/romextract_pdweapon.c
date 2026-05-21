@@ -23,6 +23,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+#include <stdint.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
 
@@ -39,6 +41,10 @@
 #include "weapon_graph_archive.h"
 #include "weapondata_authored.h"
 #include "animdata_authored.h"
+
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v2"
+#define PDWEAPON_MAX_ANIM_DEPS 128
+#define PDWEAPON_MAX_AUDIO_DEPS 128
 
 /* Convert a catalog ID like "base:falcon2" to a filename slug
  * "base_falcon2". Caller buffer must hold at least 64 bytes. */
@@ -61,6 +67,37 @@ static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
 	if (!arc) return 0;
 	s32 found = (modArchiveFindEntry(arc, entry) >= 0);
 	modArchiveClose(arc);
+	return found;
+}
+
+static s32 s_existingArchiveEntryContains(const char *relpath,
+                                          const char *entry,
+                                          const char *needle)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0] || !needle) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	s32 idx = modArchiveFindEntry(arc, entry);
+	if (idx < 0) {
+		modArchiveClose(arc);
+		return 0;
+	}
+	u32 size = 0;
+	char *bytes = (char *)modArchiveExtractAlloc(arc, idx, &size);
+	modArchiveClose(arc);
+	if (!bytes) return 0;
+	char *text = (char *)malloc((size_t)size + 1);
+	if (!text) {
+		free(bytes);
+		return 0;
+	}
+	memcpy(text, bytes, size);
+	text[size] = '\0';
+	free(bytes);
+	s32 found = strstr(text, needle) != NULL;
+	free(text);
 	return found;
 }
 
@@ -88,6 +125,8 @@ static s32 s_existingWeaponArchiveComplete(const char *relpath)
 	       s_existingArchiveHasEntry(relpath, "manifest.json") &&
 	       s_existingArchiveHasEntry(relpath, "behavior.graph.json") &&
 	       s_existingArchiveHasEntry(relpath, WEAPON_GRAPH_ARCHIVE_NESTED_PAYLOADS_ENTRY) &&
+	       s_existingArchiveEntryContains(relpath, "weapon.ini",
+		"dependency_closure = " PDWEAPON_DEPENDENCY_CLOSURE_MARKER) &&
 	       s_existingWeaponArchiveGraphCurrent(relpath);
 }
 
@@ -205,6 +244,355 @@ static void jw_field_anim_ref(jw_t *w, const char *key,
 {
 	const char *name = s_animNameForCmds(cmds);
 	jw_field_str(w, key, name, last);
+}
+
+typedef struct {
+	const struct guncmd *cmds[PDWEAPON_MAX_ANIM_DEPS];
+	const char *names[PDWEAPON_MAX_ANIM_DEPS];
+	s32 count;
+} pdweapon_anim_deps_t;
+
+typedef struct {
+	s32 sfx[PDWEAPON_MAX_AUDIO_DEPS];
+	s32 count;
+} pdweapon_audio_deps_t;
+
+static s32 s_countGuncmdsBounded(const struct guncmd *cmds)
+{
+	s32 n = 0;
+	if (!cmds) return 0;
+	while (n < 4096) {
+		n++;
+		if (cmds[n - 1].type == GUNCMD_END) break;
+	}
+	return n;
+}
+
+static void s_addAudioDep(pdweapon_audio_deps_t *deps, s32 sfx)
+{
+	if (!deps || sfx <= 0) return;
+	for (s32 i = 0; i < deps->count; i++) {
+		if (deps->sfx[i] == sfx) return;
+	}
+	if (deps->count < PDWEAPON_MAX_AUDIO_DEPS) {
+		deps->sfx[deps->count++] = sfx;
+	}
+}
+
+static void s_collectAnimDepsFromCmds(pdweapon_anim_deps_t *anim_deps,
+                                      pdweapon_audio_deps_t *audio_deps,
+                                      const struct guncmd *cmds)
+{
+	if (!anim_deps || !cmds) return;
+	for (s32 i = 0; i < anim_deps->count; i++) {
+		if (anim_deps->cmds[i] == cmds) return;
+	}
+
+	const char *name = s_animNameForCmds(cmds);
+	if (name && anim_deps->count < PDWEAPON_MAX_ANIM_DEPS) {
+		anim_deps->cmds[anim_deps->count] = cmds;
+		anim_deps->names[anim_deps->count] = name;
+		anim_deps->count++;
+	}
+
+	s32 cmd_count = s_countGuncmdsBounded(cmds);
+	for (s32 i = 0; i < cmd_count; i++) {
+		const struct guncmd *cmd = &cmds[i];
+		if (cmd->type == GUNCMD_PLAYSOUND) {
+			s_addAudioDep(audio_deps, (s32)cmd->unk04);
+		} else if (cmd->type == GUNCMD_INCLUDE ||
+				cmd->type == GUNCMD_RANDOM) {
+			s_collectAnimDepsFromCmds(anim_deps, audio_deps,
+				(const struct guncmd *)(intptr_t)cmd->unk04);
+		}
+		if (cmd->type == GUNCMD_END) break;
+	}
+}
+
+static void s_collectWeaponFuncDeps(const struct weaponfunc *f,
+                                    pdweapon_anim_deps_t *anim_deps,
+                                    pdweapon_audio_deps_t *audio_deps)
+{
+	if (!f) return;
+	s_collectAnimDepsFromCmds(anim_deps, audio_deps, f->fire_animation);
+	switch (f->type) {
+	case INVENTORYFUNCTYPE_SHOOT_SINGLE:
+	case INVENTORYFUNCTYPE_SHOOT_AUTOMATIC:
+	case INVENTORYFUNCTYPE_SHOOT_PROJECTILE: {
+		const struct weaponfunc_shoot *sh = (const struct weaponfunc_shoot *)f;
+		s_addAudioDep(audio_deps, sh->shootsound);
+		if (f->type == INVENTORYFUNCTYPE_SHOOT_PROJECTILE) {
+			const struct weaponfunc_shootprojectile *sp =
+				(const struct weaponfunc_shootprojectile *)f;
+			s_addAudioDep(audio_deps, sp->soundnum);
+		}
+		break;
+	}
+	case INVENTORYFUNCTYPE_SPECIAL: {
+		const struct weaponfunc_special *sx =
+			(const struct weaponfunc_special *)f;
+		s_addAudioDep(audio_deps, sx->soundnum);
+		break;
+	}
+	default:
+		break;
+	}
+}
+
+static void s_collectWeaponDependencies(const struct weapon *wpn,
+                                        pdweapon_anim_deps_t *anim_deps,
+                                        pdweapon_audio_deps_t *audio_deps)
+{
+	memset(anim_deps, 0, sizeof(*anim_deps));
+	memset(audio_deps, 0, sizeof(*audio_deps));
+	if (!wpn) return;
+	s_collectAnimDepsFromCmds(anim_deps, audio_deps, wpn->equip_animation);
+	s_collectAnimDepsFromCmds(anim_deps, audio_deps, wpn->unequip_animation);
+	s_collectAnimDepsFromCmds(anim_deps, audio_deps, wpn->pritosec_animation);
+	s_collectAnimDepsFromCmds(anim_deps, audio_deps, wpn->sectopri_animation);
+	for (s32 i = 0; i < 2; i++) {
+		s_collectWeaponFuncDeps((const struct weaponfunc *)wpn->functions[i],
+			anim_deps, audio_deps);
+		if (wpn->ammos[i]) {
+			s_collectAnimDepsFromCmds(anim_deps, audio_deps,
+				wpn->ammos[i]->reload_animation);
+		}
+	}
+}
+
+static void s_synthMeshCatalogId(u16 filenum, const char *hint_suffix,
+                                 char *out, size_t n)
+{
+	const char *sym = loaderEnumNameForFileEnum(filenum);
+	if (!sym) {
+		snprintf(out, n, "base:rom_g_%04x", (unsigned)filenum);
+		return;
+	}
+	const char *body = sym;
+	if (strncmp(sym, "FILE_G", 6) == 0) body = sym + 6;
+	else if (strncmp(sym, "FILE_", 5) == 0) body = sym + 5;
+
+	char lowered[96];
+	size_t i;
+	for (i = 0; i + 1 < sizeof(lowered) && body[i]; i++) {
+		lowered[i] = (char)tolower((unsigned char)body[i]);
+	}
+	lowered[i] = '\0';
+
+	if (hint_suffix && hint_suffix[0]) {
+		snprintf(out, n, "base:%s_%s", lowered, hint_suffix);
+	} else {
+		snprintf(out, n, "base:%s", lowered);
+	}
+}
+
+static s32 s_meshRelForFilenum(u16 filenum, const char *hint,
+                               char *out, size_t out_n)
+{
+	if (!out || out_n == 0) return 0;
+	out[0] = '\0';
+	if (filenum == 0) return 0;
+	char catalog_id[128];
+	char slug[128];
+	s_synthMeshCatalogId(filenum, hint, catalog_id, sizeof(catalog_id));
+	s_idToFilename(catalog_id, slug, sizeof(slug));
+	char rel[FS_MAXPATH];
+	snprintf(rel, sizeof(rel), "meshes/%s.pdmesh", slug);
+	fsDataPathFor(rel, out, out_n);
+	return out[0] ? 1 : 0;
+}
+
+static s32 s_meshRelForModelnum(s32 modelnum, char *out, size_t out_n)
+{
+	if (!out || out_n == 0) return 0;
+	out[0] = '\0';
+	if (modelnum < 0 || modelnum >= NUM_MODELS) return 0;
+	u16 filenum = g_ModelStates[modelnum].fileid;
+	return s_meshRelForFilenum(filenum, NULL, out, out_n);
+}
+
+static s32 s_addArchiveFileDiskRel(mod_archive_writer_t *aw,
+                                   const char *entry,
+                                   const char *src_rel,
+                                   const char *context)
+{
+	if (!aw || !entry || !entry[0] || !src_rel || !src_rel[0]) return -1;
+	if (fsFileSize(src_rel) <= 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdweapon: missing dependency %s for %s (rel=\"%s\")",
+			entry, context ? context : "", src_rel);
+		return -1;
+	}
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(src_rel, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return -1;
+	return modArchiveAddFileDisk(aw, entry, full) == 0 ? 0 : -1;
+}
+
+static s32 s_addWeaponMeshDependency(mod_archive_writer_t *aw,
+                                     const char *catalog_id,
+                                     u16 filenum,
+                                     const char *hint,
+                                     const char *entry)
+{
+	if (filenum == 0) return 0;
+	char src_rel[FS_MAXPATH];
+	if (!s_meshRelForFilenum(filenum, hint, src_rel, sizeof(src_rel))) return -1;
+	return s_addArchiveFileDiskRel(aw, entry, src_rel, catalog_id);
+}
+
+static s32 s_addProjectileModelDependency(mod_archive_writer_t *aw,
+                                          const char *catalog_id,
+                                          s32 modelnum,
+                                          const char *entry)
+{
+	char src_rel[FS_MAXPATH];
+	if (!s_meshRelForModelnum(modelnum, src_rel, sizeof(src_rel))) return 0;
+	return s_addArchiveFileDiskRel(aw, entry, src_rel, catalog_id);
+}
+
+static void s_lowerSfxSymbolForWeapon(const char *src, char *out, size_t out_n)
+{
+	if (out_n == 0) return;
+	out[0] = '\0';
+	if (!src) return;
+	const char *p = src;
+	if (strncmp(p, "SFX_", 4) == 0 || strncmp(p, "sfx_", 4) == 0) p += 4;
+	size_t i;
+	for (i = 0; p[i] && i + 1 < out_n; i++) {
+		out[i] = (char)tolower((unsigned char)p[i]);
+	}
+	out[i] = '\0';
+}
+
+static void s_sfxCatalogIdForWeapon(s32 sfx_idx, char *out, size_t out_n)
+{
+	const char *sym = loaderEnumNameForSfxEnum(sfx_idx);
+	if (sym && sym[0]) {
+		char lowered[96];
+		s_lowerSfxSymbolForWeapon(sym, lowered, sizeof(lowered));
+		if (lowered[0]) {
+			snprintf(out, out_n, "base:sfx_%s", lowered);
+			return;
+		}
+	}
+	snprintf(out, out_n, "base:sfx_%04x", (unsigned)sfx_idx);
+}
+
+static s32 s_audioRelForSfx(s32 sfx_idx, char *out, size_t out_n,
+                            char *out_ext, size_t ext_n)
+{
+	if (!out || out_n == 0) return 0;
+	out[0] = '\0';
+	if (out_ext && ext_n) out_ext[0] = '\0';
+	if (sfx_idx <= 0) return 0;
+
+	char catalog_id[128];
+	char slug[128];
+	char rel[FS_MAXPATH];
+	s_sfxCatalogIdForWeapon(sfx_idx, catalog_id, sizeof(catalog_id));
+	s_idToFilename(catalog_id, slug, sizeof(slug));
+	snprintf(rel, sizeof(rel), "audio/sfx/%s.pdsfx", slug);
+	fsDataPathFor(rel, out, out_n);
+	if (fsFileSize(out) > 0) {
+		if (out_ext && ext_n) snprintf(out_ext, ext_n, ".pdsfx");
+		return 1;
+	}
+
+	snprintf(catalog_id, sizeof(catalog_id), "base:voice_%04x", (unsigned)sfx_idx);
+	s_idToFilename(catalog_id, slug, sizeof(slug));
+	snprintf(rel, sizeof(rel), "audio/voice/%s.pdvoice", slug);
+	fsDataPathFor(rel, out, out_n);
+	if (fsFileSize(out) > 0) {
+		if (out_ext && ext_n) snprintf(out_ext, ext_n, ".pdvoice");
+		return 1;
+	}
+
+	out[0] = '\0';
+	return 0;
+}
+
+static s32 s_addWeaponAnimationDependency(mod_archive_writer_t *aw,
+                                          const char *catalog_id,
+                                          const char *anim_name)
+{
+	if (!anim_name || !anim_name[0]) return 0;
+	char rel[FS_MAXPATH];
+	char src_rel[FS_MAXPATH];
+	snprintf(rel, sizeof(rel), "animations/base_%s.pdanim", anim_name);
+	fsDataPathFor(rel, src_rel, sizeof(src_rel));
+	char entry[FS_MAXPATH];
+	snprintf(entry, sizeof(entry), "animations/%s.pdanim", anim_name);
+	return s_addArchiveFileDiskRel(aw, entry, src_rel, catalog_id);
+}
+
+static s32 s_addWeaponAudioDependency(mod_archive_writer_t *aw,
+                                      const char *catalog_id,
+                                      s32 sfx_idx)
+{
+	char src_rel[FS_MAXPATH];
+	char ext[16];
+	if (!s_audioRelForSfx(sfx_idx, src_rel, sizeof(src_rel), ext, sizeof(ext))) {
+		return 0;
+	}
+	char id[128];
+	char slug[128];
+	s_sfxCatalogIdForWeapon(sfx_idx, id, sizeof(id));
+	if (strcmp(ext, ".pdvoice") == 0) {
+		snprintf(id, sizeof(id), "base:voice_%04x", (unsigned)sfx_idx);
+	}
+	s_idToFilename(id, slug, sizeof(slug));
+	char entry[FS_MAXPATH];
+	snprintf(entry, sizeof(entry), "audio/%s%s", slug, ext);
+	return s_addArchiveFileDiskRel(aw, entry, src_rel, catalog_id);
+}
+
+static s32 s_addDependencyManifests(mod_archive_writer_t *aw,
+                                    const pdweapon_anim_deps_t *anim_deps,
+                                    const pdweapon_audio_deps_t *audio_deps)
+{
+	char anim_manifest[8192];
+	size_t len = 0;
+	len += snprintf(anim_manifest + len, sizeof(anim_manifest) - len,
+		"name\tarchive_entry\tcatalog_id\n");
+	for (s32 i = 0; i < anim_deps->count && len < sizeof(anim_manifest); i++) {
+		const char *name = anim_deps->names[i] ? anim_deps->names[i] : "";
+		len += snprintf(anim_manifest + len, sizeof(anim_manifest) - len,
+			"%s\tanimations/%s.pdanim\tbase:%s\n", name, name, name);
+	}
+	if (len >= sizeof(anim_manifest) ||
+			modArchiveAddFileMem(aw, "animations_manifest.tsv",
+				anim_manifest, (u32)strlen(anim_manifest)) != 0) {
+		return -1;
+	}
+
+	char audio_manifest[8192];
+	len = 0;
+	len += snprintf(audio_manifest + len, sizeof(audio_manifest) - len,
+		"sfx_index\tarchive_entry\n");
+	for (s32 i = 0; i < audio_deps->count && len < sizeof(audio_manifest); i++) {
+		char src_rel[FS_MAXPATH];
+		char ext[16];
+		if (!s_audioRelForSfx(audio_deps->sfx[i], src_rel, sizeof(src_rel),
+				ext, sizeof(ext))) {
+			continue;
+		}
+		char id[128];
+		char slug[128];
+		s_sfxCatalogIdForWeapon(audio_deps->sfx[i], id, sizeof(id));
+		if (strcmp(ext, ".pdvoice") == 0) {
+			snprintf(id, sizeof(id), "base:voice_%04x", (unsigned)audio_deps->sfx[i]);
+		}
+		s_idToFilename(id, slug, sizeof(slug));
+		len += snprintf(audio_manifest + len, sizeof(audio_manifest) - len,
+			"%d\taudio/%s%s\n", audio_deps->sfx[i], slug, ext);
+	}
+	if (len >= sizeof(audio_manifest) ||
+			modArchiveAddFileMem(aw, "audio_manifest.tsv",
+				audio_manifest, (u32)strlen(audio_manifest)) != 0) {
+		return -1;
+	}
+	return 0;
 }
 
 static void jw_open_object(jw_t *w, const char *key)
@@ -965,13 +1353,14 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		damage = tw->damage;
 	}
 
-	char projectile_ini[768];
+	char projectile_ini[1024];
 	int ini_len = snprintf(projectile_ini, sizeof(projectile_ini),
 		"[projectile]\n"
 		"schema = pd.projectile.v1\n"
 		"catalog_id = %s\n"
 		"name = %s\n"
 		"model_ref = %s\n"
+		"model_archive = models/visual.pdmesh\n"
 		"behavior_graph = behavior.graph.json\n"
 		"%s%s%s",
 		p->catalog_id,
@@ -994,6 +1383,7 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		"      \"kind\": \"projectile.spawn_state\",\n"
 		"      \"params\": {\n"
 		"        \"model_ref\": \"%s\",\n"
+		"        \"model_archive\": \"models/visual.pdmesh\",\n"
 		"        \"source_mode\": \"%s\",\n"
 		"        \"source_function_type\": \"%s\",\n"
 		"        \"scale\": %.7g,\n"
@@ -1060,6 +1450,11 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		modArchiveAbort(aw);
 		return -1;
 	}
+	if (s_addProjectileModelDependency(aw, p->catalog_id,
+			p->projectile_modelnum, "models/visual.pdmesh") != 0) {
+		modArchiveAbort(aw);
+		return -1;
+	}
 	return modArchiveFinish(aw) == 0 ? 0 : -1;
 }
 
@@ -1079,7 +1474,7 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 		recoverytime60 = tw->recoverytime60;
 	}
 
-	char entity_ini[768];
+	char entity_ini[1024];
 	int ini_len = snprintf(entity_ini, sizeof(entity_ini),
 		"[entity]\n"
 		"schema = pd.entity.v1\n"
@@ -1087,6 +1482,7 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 		"name = %s\n"
 		"archetype = %s\n"
 		"model_ref = %s\n"
+		"model_archive = models/visual.pdmesh\n"
 		"behavior_graph = behavior.graph.json\n",
 		p->catalog_id,
 		p->local_slug,
@@ -1114,6 +1510,7 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 		"      \"params\": {\n"
 		"        \"archetype\": \"%s\",\n"
 		"        \"model_ref\": \"%s\",\n"
+		"        \"model_archive\": \"models/visual.pdmesh\",\n"
 		"        \"source_mode\": \"%s\",\n"
 		"        \"activation_time60\": %d,\n"
 		"        \"recovery_time60\": %d,\n"
@@ -1141,6 +1538,11 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 	if (!aw) return -1;
 	if (modArchiveAddFileMem(aw, "entity.ini", entity_ini, (u32)ini_len) != 0 ||
 			modArchiveAddFileMem(aw, "behavior.graph.json", graph, (u32)graph_len) != 0) {
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (s_addProjectileModelDependency(aw, p->catalog_id,
+			p->projectile_modelnum, "models/visual.pdmesh") != 0) {
 		modArchiveAbort(aw);
 		return -1;
 	}
@@ -1417,6 +1819,10 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 		if (sz > 0 && s_existingWeaponArchiveComplete(relpath)) return 0;
 	}
 
+	pdweapon_anim_deps_t anim_deps;
+	pdweapon_audio_deps_t audio_deps;
+	s_collectWeaponDependencies(wpn, &anim_deps, &audio_deps);
+
 	char manifest_tmp_relpath[FS_MAXPATH];
 	snprintf(manifest_tmp_relpath, sizeof(manifest_tmp_relpath),
 		"%s/%s.pdweapon.manifest.tmp", out_dir, filename);
@@ -1443,6 +1849,18 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 
 	jw_field_file_or_int(&w, "hi_model", wpn->hi_model, 0);
 	jw_field_file_or_int(&w, "lo_model", wpn->lo_model, 0);
+	jw_field_str(&w, "dependency_closure",
+		PDWEAPON_DEPENDENCY_CLOSURE_MARKER, 0);
+	jw_open_object(&w, "embedded_archives");
+	jw_field_str(&w, "hi_model", wpn->hi_model ? "models/held_hi.pdmesh" : NULL, 0);
+	jw_field_str(&w, "lo_model", wpn->lo_model ? "models/held_lo.pdmesh" : NULL, 0);
+	jw_field_str(&w, "animations_manifest", "animations_manifest.tsv", 0);
+	jw_field_str(&w, "audio_manifest", "audio_manifest.tsv", 1);
+	jw_close_object(&w, 0);
+	jw_open_object(&w, "dependency_counts");
+	jw_field_int(&w, "animations", anim_deps.count, 0);
+	jw_field_int(&w, "audio", audio_deps.count, 1);
+	jw_close_object(&w, 0);
 
 	jw_field_anim_ref(&w, "equip_animation",   wpn->equip_animation, 0);
 	jw_field_anim_ref(&w, "unequip_animation", wpn->unequip_animation, 0);
@@ -1496,6 +1914,7 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 	int weapon_ini_len = snprintf(weapon_ini, sizeof(weapon_ini),
 		"[weapon]\n"
 		"schema = pd.weapon.v1\n"
+		"dependency_closure = " PDWEAPON_DEPENDENCY_CLOSURE_MARKER "\n"
 		"catalog_id = %s\n"
 		"weapon_id = %d\n"
 		"manifest = manifest.json\n"
@@ -1647,6 +2066,53 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 			modArchiveAbort(aw);
 			return -1;
 		}
+	}
+	if (s_addWeaponMeshDependency(aw, catalog_id, wpn->hi_model, "hi",
+			"models/held_hi.pdmesh") != 0 ||
+			s_addWeaponMeshDependency(aw, catalog_id, wpn->lo_model, "lo",
+			"models/held_lo.pdmesh") != 0) {
+		sysMemFree(graph_bytes);
+		sysMemFree(manifest_bytes);
+		s_payloadPlanCleanup(&payload_plan);
+		sysLoudFailf("EXTRACT.PDWEAPON",
+			"held model dependency embed failed for \"%s\"", catalog_id);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	for (s32 i = 0; i < anim_deps.count; i++) {
+		if (s_addWeaponAnimationDependency(aw, catalog_id,
+				anim_deps.names[i]) != 0) {
+			sysMemFree(graph_bytes);
+			sysMemFree(manifest_bytes);
+			s_payloadPlanCleanup(&payload_plan);
+			sysLoudFailf("EXTRACT.PDWEAPON",
+				"animation dependency embed failed for \"%s\" (%s)",
+				catalog_id, anim_deps.names[i] ? anim_deps.names[i] : "");
+			modArchiveAbort(aw);
+			return -1;
+		}
+	}
+	for (s32 i = 0; i < audio_deps.count; i++) {
+		if (s_addWeaponAudioDependency(aw, catalog_id,
+				audio_deps.sfx[i]) != 0) {
+			sysMemFree(graph_bytes);
+			sysMemFree(manifest_bytes);
+			s_payloadPlanCleanup(&payload_plan);
+			sysLoudFailf("EXTRACT.PDWEAPON",
+				"audio dependency embed failed for \"%s\" (sfx=%d)",
+				catalog_id, audio_deps.sfx[i]);
+			modArchiveAbort(aw);
+			return -1;
+		}
+	}
+	if (s_addDependencyManifests(aw, &anim_deps, &audio_deps) != 0) {
+		sysMemFree(graph_bytes);
+		sysMemFree(manifest_bytes);
+		s_payloadPlanCleanup(&payload_plan);
+		sysLoudFailf("EXTRACT.PDWEAPON",
+			"dependency manifest embed failed for \"%s\"", catalog_id);
+		modArchiveAbort(aw);
+		return -1;
 	}
 	sysMemFree(graph_bytes);
 	sysMemFree(manifest_bytes);

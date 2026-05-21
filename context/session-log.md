@@ -1,5 +1,81 @@
 # Session Log (Active)
 
+## Session (`pdweapon-self-contained-closure`) - 2026-05-21 - Weapon archives embed authored dependencies
+
+Mike expanded the same self-contained archive bar to weapons: opening one `.pdweapon` must expose authored payloads needed to edit, clone, share, and load it. `.pdwpn` remains unsupported/deprecated.
+
+### Implemented
+
+- Base `.pdweapon` extraction now marks `dependency_closure = embedded.v2` and treats older archives without that marker as stale.
+- Base weapon archives now embed held hi/lo `.pdmesh` payloads, collected weapon `.pdanim` archives, collected audio `.pdsfx`/`.pdvoice` archives when present, and `animations_manifest.tsv` / `audio_manifest.tsv`.
+- Generated nested `.pdprojectile` / `.pdentity` archives now carry their visual `models/visual.pdmesh` payload and record `model_archive = models/visual.pdmesh`.
+- Startup extraction now emits `.pdmesh`, `.pdanim`, `.pdsfx`, `.pdvoice`, and `.pdsong` before `.pdweapon`, so dependency archives exist before weapon closure runs.
+- The Modding Hub weapon editor now imports `.pdprojectile` and `.pdentity` files, embeds selected catalog payloads for model/texture/animation/audio/projectile/entity refs, writes embedded archive paths into `weapon.ini` / `manifest.json`, and fails save rather than producing a reference-only `.pdweapon`.
+- Kanban `c3814` now marks `c3814-s21` and the self-contained archive/export portion of `c3814-s22` done. Remaining c3814 work is runtime behavior parity/adapters: held weapon callsites, projectile IR adapter, entity IR adapter, graph toggle rollout, and parity/removal guards.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session pdweapon-closure -Target all -BuildTimeoutSeconds 240` passed.
+- `.\devtools\run-pd-tests.ps1 -Session pdweapon-closure -Selector "[c3814]"` passed: 267 assertions / 12 cases.
+
+### Next
+
+- Continue c3814 runtime parity work under `c3814-s15` through `c3814-s19`. Archive packaging is no longer the blocker.
+
+---
+
+## Session (`boot-asset-fast-cache-progress-ui`) - 2026-05-21 - Startup extraction skips cached asset families
+
+Mike asked to reduce the initial asset extraction/conversion load-screen time and move the load bar into a more accurate, centered progress UI.
+
+### Implemented
+
+- Added a `.pdextract-cache` stamp for typed asset output directories. The stamp records schema, kind, file count, total bytes, and latest mtime; later boots skip the full family when the fingerprint still matches.
+- Wired the fast-cache skip into `.pdweapon`, `.pdmesh`, `.pdhead`, `.pdbody`, `.pdcharacter`, `.pdarena`/`.pdscenario`, `.pdsfx`, `.pdvoice`, `.pdsong`, `.pdfont`, and `.pdlang` emitters.
+- Left `.pdanim` on the existing per-archive stale-validation path because weapon/inventory animations and character animations share the same `.pdanim` directory/extension.
+- Reworked the boot overlay from a bottom bar into a centered modal-style progress panel with phase/percent text, status label above the bar, and a wider visual progress track.
+- Smoothed boot progress by blending item progress with conservative wall-clock phase estimates so long phases keep moving instead of stalling between list positions.
+
+### Verification
+
+- Scoped `git diff --check` over touched startup/extractor files passed.
+- `.\devtools\build-session.ps1 -Session bootfast -Target all -BuildTimeoutSeconds 300` passed.
+- Clean `boot_smoke` passed and generated the first cache stamps.
+- Existing-install `boot_smoke` passed and showed fast-cache skips for the major asset families. Cached boot evidence: asset catalog at 1.49s, fast-cache family skips from 1.49s to 1.62s, `LOADER.UNIVERSAL.SUMMARY` at 1.85s, and `BOOT_OVERLAY: dismissed (visible for 1.51s)`.
+
+### Next
+
+- Mike visual retest: confirm the centered startup progress modal placement, label readability, and perceived smoothness on a normal player-facing launch.
+- Future optimization: `.pdanim` can get a safer split cache once weapon/inventory and character animation archives no longer share an indistinguishable directory/extension scan.
+
+---
+
+## Session (`cutscene-hold-skip-prompt`) - 2026-05-21 - Cutscene input owns prompts
+
+Mike clarified that the Main Menu camera rule is part of the broader cutscene contract: cutscenes before, during, and after missions should own input, suppress gameplay prompts, and be skippable by holding a button with contextual radial progress.
+
+### Implemented
+
+- Changed `playerTickCutscene()` skip from fresh-press to hold-to-skip with `ACTION_SKIP_CUTSCENE_HOLD_THRESHOLD_MS`.
+- Preserved the legacy skip-action fallbacks (`ACTION_USE`, cancel, fire, pause, reload, weapon next) as held actions, so the player can hold the button they pressed during the cutscene.
+- Added a cutscene skip prompt overlay that appears only while a skip-related action is held or briefly unfilling, draws the bound glyph, and uses the existing radial hold ring around the glyph.
+- Added `g_ImcCutscene` to glyph resolution so the prompt shows the cutscene-specific binding first.
+- Broadened interact-prompt suppression from CI intro only to all active cutscenes, so gameplay prompts such as "Open door" do not display during mission intro/mid/outro cutscenes.
+- Added static coverage for hold-to-skip, cutscene prompt rendering, and cutscene interact-prompt suppression.
+
+### Verification
+
+- Scoped `git diff --check` over touched cutscene/input files passed.
+- `.\devtools\run-pd-tests.ps1 -Session cutprompt -Selector "[cutscene]" -BuildTimeoutSeconds 300` passed: 378 assertions / 17 cases.
+- `.\devtools\run-pd-tests.ps1 -Session cutprompt -Selector "[input][menu_graph]" -BuildTimeoutSeconds 300` passed: 684 assertions / 35 cases.
+- `.\devtools\build-session.ps1 -Session cutprompt -Target all -BuildTimeoutSeconds 300` passed for the isolated all-target build; removed the `cutprompt` session build directory afterward.
+
+### Next
+
+- Mike manual retest: mission intro, mid-mission, mission outro, and CI Main Menu camera cutscenes should suppress interact prompts, show only the Hold [glyph] Skip prompt when a skip button is held, fill/unfill the ring, and skip only after the hold threshold.
+
+---
+
 ## Session (`bgvis-scenario-visual-export`) - 2026-05-21 - BG visual map export for Blender
 
 Mike asked to finish the real map authoring payload rather than the earlier placeholder: full BG visual display-list material decode with original wall/floor textures recovered, leaving weapons out of this pass.

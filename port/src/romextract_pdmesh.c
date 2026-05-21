@@ -868,6 +868,30 @@ static s32 s_pdmeshAddWork(pdmesh_work_t *jobs, s32 *job_count, s32 cap,
 	return 1;
 }
 
+static void s_pdmeshAddModelnumWork(pdmesh_work_t *jobs, s32 *job_count,
+                                    s32 cap, s32 modelnum)
+{
+	if (modelnum < 0 || modelnum >= NUM_MODELS) return;
+	u16 filenum = g_ModelStates[modelnum].fileid;
+	s_pdmeshAddWork(jobs, job_count, cap, filenum, NULL);
+}
+
+static void s_pdmeshAddWeaponFuncPayloadWork(pdmesh_work_t *jobs,
+                                             s32 *job_count, s32 cap,
+                                             const struct weaponfunc *f)
+{
+	if (!f) return;
+	if (f->type == INVENTORYFUNCTYPE_SHOOT_PROJECTILE) {
+		const struct weaponfunc_shootprojectile *sp =
+			(const struct weaponfunc_shootprojectile *)f;
+		s_pdmeshAddModelnumWork(jobs, job_count, cap, sp->projectilemodelnum);
+	} else if (f->type == INVENTORYFUNCTYPE_THROW) {
+		const struct weaponfunc_throw *tw =
+			(const struct weaponfunc_throw *)f;
+		s_pdmeshAddModelnumWork(jobs, job_count, cap, tw->projectilemodelnum);
+	}
+}
+
 s32 romExtractAllPdmesh(s32 force_rewrite)
 {
 	/* BYOR completion (2026-05-03): walks weapon hi/lo + head mesh +
@@ -903,6 +927,12 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 		                wpn->hi_model, "hi");
 		s_pdmeshAddWork(jobs, &job_count, ROMEXTRACT_PDMESH_SEEN_CAP,
 		                wpn->lo_model, "lo");
+		s_pdmeshAddWeaponFuncPayloadWork(jobs, &job_count,
+			ROMEXTRACT_PDMESH_SEEN_CAP,
+			(const struct weaponfunc *)wpn->functions[0]);
+		s_pdmeshAddWeaponFuncPayloadWork(jobs, &job_count,
+			ROMEXTRACT_PDMESH_SEEN_CAP,
+			(const struct weaponfunc *)wpn->functions[1]);
 	}
 	for (s32 i = 0; i < g_HeadDataCount; i++) {
 		s_pdmeshAddWork(jobs, &job_count, ROMEXTRACT_PDMESH_SEEN_CAP,

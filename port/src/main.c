@@ -478,16 +478,28 @@ static void bootRunCatalogWork(void *arg)
 	 * Order is now: emit -> walk -> register weapon model files (depends on
 	 * the weapon pool being populated) -> build caches. */
 
-	bootProgressBeginPhase(BOOT_PHASE_EMIT_WPN);
-	(void)romExtractAllPdweapon(0);
-	bootProgressEndPhase();
-
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_MESH);
 	(void)romExtractAllPdmesh(0);
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_ANIM);
 	(void)romExtractAllPdanim(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_SFX);
+	(void)romExtractAllPdsfx(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_VOICE);
+	(void)romExtractAllPdvoice(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_SONG);
+	(void)romExtractAllPdsong(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_WPN);
+	(void)romExtractAllPdweapon(0);
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_HEAD);
@@ -508,18 +520,6 @@ static void bootRunCatalogWork(void *arg)
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_ANIMCHR);
 	(void)romExtractAllPdanimChr(0);
-	bootProgressEndPhase();
-
-	bootProgressBeginPhase(BOOT_PHASE_EMIT_SFX);
-	(void)romExtractAllPdsfx(0);
-	bootProgressEndPhase();
-
-	bootProgressBeginPhase(BOOT_PHASE_EMIT_VOICE);
-	(void)romExtractAllPdvoice(0);
-	bootProgressEndPhase();
-
-	bootProgressBeginPhase(BOOT_PHASE_EMIT_SONG);
-	(void)romExtractAllPdsong(0);
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_FONT);

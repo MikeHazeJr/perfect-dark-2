@@ -1246,6 +1246,81 @@
       "updated": "2026-05-21T15:25:00-04:00"
     },
     {
+      "id": "c3822",
+      "title": "Cutscenes use hold-to-skip prompt and suppress interact glyphs",
+      "description": "Cutscenes before, during, and after missions should own input, suppress gameplay prompts such as Open door, and show only a contextual hold-to-skip glyph with radial fill/unfill when the player holds a skip-related button.",
+      "pillar": "input",
+      "column": "active",
+      "order": 1007,
+      "priority": 2,
+      "notes": "Code/build verified 2026-05-21. Cutscene skip now uses ACTION_SKIP_CUTSCENE_HOLD_THRESHOLD_MS plus held skip-action fallbacks; pdgui_cutscene_prompt renders Hold [glyph] Skip with radial progress; interact prompts are suppressed during all active cutscenes.",
+      "flag": "watch",
+      "flagged_at": "2026-05-21T15:55:00-04:00",
+      "pending_completion": {
+        "marked_at": "2026-05-21T15:55:00-04:00",
+        "marked_by": "codex-cutscene-hold-skip",
+        "summary": "Moved cutscene skip to hold semantics with contextual radial glyph prompt and suppressed gameplay interact prompts during cutscenes.",
+        "verify_notes": "Verified 2026-05-21 in isolated session cutprompt: scoped diff check passed, focused [cutscene] passed with 378 assertions / 17 cases, adjacent [input][menu_graph] passed with 684 assertions / 35 cases, and queued all-target build passed. Manual closure should retest mission intro, mid-mission, mission outro, and CI Main Menu camera cutscenes.",
+        "evidence_refs": [
+          "src/game/player.c",
+          "port/include/actionmap.h",
+          "port/src/actionmap.cpp",
+          "port/fast3d/pdgui_cutscene_prompt.cpp",
+          "port/include/pdgui_cutscene_prompt.h",
+          "port/fast3d/pdgui_bridge.c",
+          "port/fast3d/pdgui_backend.cpp",
+          "port/fast3d/pdgui_glyphs.cpp",
+          "tests/test_cutscene_layer.cpp",
+          "context/tasks.md",
+          "context/session-log.md",
+          "context/pillars/input.md",
+          "UNRELEASED.md"
+        ],
+        "expected_artifacts": [
+          "Cutscenes do not skip on a tap; a held skip-related button is required.",
+          "While a skip button is held, the UI shows Hold [glyph] Skip with radial fill/unfill progress.",
+          "Gameplay interact prompts such as Open door are hidden during all active cutscenes."
+        ]
+      },
+      "created": "2026-05-21T15:55:00-04:00",
+      "updated": "2026-05-21T15:55:00-04:00"
+    },
+    {
+      "id": "c3823",
+      "title": "Startup extraction fast-cache and centered progress modal",
+      "description": "Reduce player-facing startup asset extraction/conversion time by validating generated typed asset families before re-running expensive emitters, and make the load screen a centered modal-style progress panel with a status label above the bar and smoother timing-based progress.",
+      "pillar": "engine",
+      "column": "active",
+      "order": 1008,
+      "priority": 2,
+      "notes": "Code/build/smoke verified 2026-05-21. Added .pdextract-cache directory stamps for major typed asset families; later boots skip .pdweapon, .pdmesh, .pdhead, .pdbody, .pdcharacter, .pdarena/.pdscenario, .pdsfx, .pdvoice, .pdsong, .pdfont, and .pdlang when the fingerprint is unchanged. .pdanim intentionally remains on per-archive validation because weapon/inventory and character animation archives share one .pdanim directory/extension. Boot overlay now renders as a centered progress panel, and progress blends item counts with conservative phase timing estimates for smoother movement.",
+      "flag": "watch",
+      "flagged_at": "2026-05-21T16:10:00-04:00",
+      "pending_completion": {
+        "marked_at": "2026-05-21T16:10:00-04:00",
+        "marked_by": "codex-boot-fast-cache",
+        "summary": "Added per-family typed asset fast-cache stamps and reworked the boot progress UI into a centered, smoother modal panel.",
+        "verify_notes": "Verified 2026-05-21 in isolated session bootfast: scoped diff check passed, queued all-target build passed, clean boot_smoke passed and generated cache stamps, and existing-install boot_smoke passed with fast-cache family skips, LOADER.UNIVERSAL.SUMMARY at 1.85s, and BOOT_OVERLAY dismissed after 1.51s. Manual closure should visually retest the startup modal placement and perceived progress smoothness.",
+        "evidence_refs": [
+          "port/src/romextract_pd_cache.c",
+          "port/include/romextract_pd.h",
+          "port/src/boot_progress.c",
+          "port/fast3d/pdgui_bootoverlay.cpp",
+          "context/designs/engine/startup-acceleration.md",
+          "context/tasks.md",
+          "context/session-log.md",
+          "UNRELEASED.md"
+        ],
+        "expected_artifacts": [
+          "Cached launches skip unchanged typed asset families instead of reopening every archive in those families.",
+          "The boot load bar appears as a centered progress modal with the status label above the bar.",
+          "The percent and bar continue moving during long phases instead of advancing only at list boundaries."
+        ]
+      },
+      "created": "2026-05-21T16:10:00-04:00",
+      "updated": "2026-05-21T16:10:00-04:00"
+    },
+    {
       "id": "c084",
       "title": "B-317: Wire universal grammar v2 into Combat Sim (foundation pass)",
       "description": "Foundation pass for the v2 grammar in Combat Sim Room. Rule 10 skip-empty-bindings lifted into grammar doc. ACTION_MENU_CONTEXT (X) + ACTION_MENU_SOCIAL (Y) aliases added per Q3. ACTION_MENU_SECTION_PREV/NEXT enums + LT/RT + Home/End bindings on g_ImcMenu and g_ImcPauseMenu. pdguiMenuSectionPrevPressed/NextPressed helpers exposed in pdgui_nav. Wired in Combat Sim Room: Y opens social overlay (idempotent), LT/RT arms s_RoomPlayerSectionJumpPending which renderPlayerPanel consumes via SetKeyboardFocusHere on next/prev team's first row (no-wrap boundary). Q1 (LB/RB tab cycle) was already conformant via pdguiMenuTabPrevPressed/NextPressed at room.cpp:3666. Per-element CS bindings tracked in c086.",
@@ -2780,7 +2855,7 @@
       "column": "active",
       "order": 900,
       "priority": 1,
-      "notes": "Sprint status 2026-05-21. COMPLETED: c3814-s1..s14 and c3814-s20 are done. This includes canonical .pdweapon/.pdprojectile/.pdentity schema/design, base weapon behavior audit, 86-weapon parameter matrix, named graph modules, runtime cutover plan, .pdweapon-only live cutover with .pdwpn removed from code/tests/examples, first-class .pdprojectile/.pdentity catalog/scanner/packer/manifest/UI metadata, weapon_graph_archive helper APIs, derived nested ID/collision checks, canonical archive-content SHA-256, nested_payloads.json scan/format, base .pdweapon base_weapon_graph_v1 emission, embedded .pdprojectile/.pdentity payload archives under projectiles/ and entities/, canonical nested payload inventory rows, stale temporary legacy graph self-heal, graph schema/module/unit/catalog/cycle validation, deterministic runtime IR compilation with stable opcode IDs and sorted parameter blocks, source/IR SHA-256 digests, Debug Settings UI/config storage for the graph runtime toggle, Mods Hub Weapons browser tab, focused c3814 tests, and wpir all-target build verification. PARTIAL: c3814-s15 registers held weapon IR and feeds graph-backed shared gameplay accessors plus first direct held shooting helpers behind the Debug Settings toggle. c3814-s21/s22 now expose a Weapons tab Template flow: selected weapons can be cloned, catalog refs can be selected for model/texture/animation/audio/projectile/entity, model/texture/animation/audio/graph files can be imported with the in-engine file browser, edited graph JSON is save-validated, and a new .pdweapon archive is written under mods/Weapons/<slug>/ with copied template payloads, imported files, mod.json, rescan, and enable. INCOMPLETE / CLI SPRINT ORDER: c3814-s15 ACTIVE - finish remaining direct held-weapon firing callsites for cooldown, trigger state, full hitscan execution, charge/release, beam, melee, specials, devices, presentation, reticles, overlays, zoom, and model visibility; c3814-s16 - projectile IR adapter for rockets, homing, Slayer fly-by-wire, Devastator wall-hugger, grenades, N-Bombs, bolts, knives, mines, and thrown Laptop carrier; c3814-s17 - entity IR adapter for armed explosives, proxy/remote/timed detonatables, N-Bomb storm, Laptop autogun, sticky devices, owner cleanup, and pickup/recover; c3814-s18 - parity tests and removal guards; c3814-s19 - complete gameplay callsite gating for the existing Debug > Settings toggle while legacy behavior remains default; c3814-s21 - finish true embedding of selected catalog assets instead of reference-only fields, plus projectile/entity file import affordances; c3814-s22 - add stronger saved-archive parity/hot-register coverage for custom weapon mods. LOCKED: .pdwpn remains unsupported because it was never released; .pdentity is behavior/archetype data, not an ASSET_PROP replacement; weapons stay self-contained by embedding/cataloging nested projectile/entity assets.",
+      "notes": "Sprint status 2026-05-21. COMPLETED: c3814-s1..s14, c3814-s20, c3814-s21, and c3814-s22's self-contained archive save/export slice are done. This includes canonical .pdweapon/.pdprojectile/.pdentity schema/design, base weapon behavior audit, 86-weapon parameter matrix, named graph modules, runtime cutover plan, .pdweapon-only live cutover with .pdwpn removed from code/tests/examples, first-class .pdprojectile/.pdentity catalog/scanner/packer/manifest/UI metadata, weapon_graph_archive helper APIs, derived nested ID/collision checks, canonical archive-content SHA-256, nested_payloads.json scan/format, base .pdweapon base_weapon_graph_v1 emission, embedded .pdprojectile/.pdentity payload archives under projectiles/ and entities/, canonical nested payload inventory rows, stale temporary legacy graph self-heal, graph schema/module/unit/catalog/cycle validation, deterministic runtime IR compilation with stable opcode IDs and sorted parameter blocks, source/IR SHA-256 digests, Debug Settings UI/config storage for the graph runtime toggle, Mods Hub Weapons browser tab, base .pdweapon authored dependency closure with held hi/lo .pdmesh, animation archives, audio archives/manifests, nested projectile/entity visual .pdmesh payloads, weapon editor projectile/entity imports, selected catalog asset embedding, dependency_closure=embedded.v2, focused c3814 tests, and isolated all-target build verification. PARTIAL: c3814-s15 registers held weapon IR and feeds graph-backed shared gameplay accessors plus first direct held shooting helpers behind the Debug Settings toggle. c3814-s21/s22 now expose a Weapons tab Template flow: selected weapons can be cloned, catalog refs can be selected for model/texture/animation/audio/projectile/entity, model/texture/animation/audio/projectile/entity/graph files can be imported with the in-engine file browser, edited graph JSON is save-validated, and a new self-contained .pdweapon archive is written under mods/Weapons/<slug>/ with copied template payloads, imported files, embedded catalog-selected payloads, mod.json, rescan, and enable. INCOMPLETE / CLI SPRINT ORDER: c3814-s15 ACTIVE - finish remaining direct held-weapon firing callsites for cooldown, trigger state, full hitscan execution, charge/release, beam, melee, specials, devices, presentation, reticles, overlays, zoom, and model visibility; c3814-s16 - projectile IR adapter for rockets, homing, Slayer fly-by-wire, Devastator wall-hugger, grenades, N-Bombs, bolts, knives, mines, and thrown Laptop carrier; c3814-s17 - entity IR adapter for armed explosives, proxy/remote/timed detonatables, N-Bomb storm, Laptop autogun, sticky devices, owner cleanup, and pickup/recover; c3814-s18 - parity tests and removal guards, including deeper saved custom weapon hot-register/runtime parity; c3814-s19 - complete gameplay callsite gating for the existing Debug > Settings toggle while legacy behavior remains default. LOCKED: .pdwpn remains unsupported because it was never released; .pdentity is behavior/archetype data, not an ASSET_PROP replacement; weapons stay self-contained by embedding/cataloging nested projectile/entity assets.",
       "subtasks": [
         {
           "id": "c3814-s1",
@@ -2904,16 +2979,16 @@
         {
           "id": "c3814-s21",
           "title": "Add weapon template editor imports",
-          "status": "active",
+          "status": "done",
           "order": 3600,
-          "notes": "Active, partial 2026-05-21: the Mods Hub Weapons tab now has a Template flow that clones the selected weapon, exposes catalog pickers for model, texture, animation, audio, projectile, and entity refs, and uses the in-engine file browser for model, texture, animation, audio, and graph JSON imports. Remaining: embed selected catalog assets into the saved .pdweapon instead of storing reference-only fields where the selected asset is not already part of the template/import payload; this is required by the universal self-contained archive contract. Add projectile/entity typed-archive file import affordances."
+          "notes": "Done 2026-05-21: the Mods Hub Weapons tab Template flow clones selected weapons, exposes catalog pickers for model, texture, animation, audio, projectile, and entity refs, and uses the in-engine file browser for model, texture, animation, audio, projectile, entity, and graph JSON imports. Selected catalog payloads are embedded into the saved .pdweapon when they are not already supplied by the copied template or explicit import payload."
         },
         {
           "id": "c3814-s22",
           "title": "Save self-contained weapon mods",
-          "status": "active",
+          "status": "done",
           "order": 3700,
-          "notes": "Active, partial 2026-05-21: Save Weapon Mod writes mods/Weapons/<slug>/<slug>.pdweapon with weapon.ini, manifest.json, behavior.graph.json, nested_payloads.json, copied non-root template payloads, and imported model/texture/animation/audio files; graph JSON is validated before save; mod.json is written, mods are rescanned, and the new mod is enabled. Remaining: add deeper saved-archive parity/hot-registration tests and true catalog-selected payload embedding for all referenced asset types. Reference-only selected assets are incomplete because catalog/runtime dedupe happens after ingestion, not by omitting authored payloads from the archive."
+          "notes": "Done 2026-05-21: Save Weapon Mod writes mods/Weapons/<slug>/<slug>.pdweapon with weapon.ini, manifest.json, behavior.graph.json, nested_payloads.json, dependency_closure=embedded.v2, copied non-root template payloads, imported model/texture/animation/audio/projectile/entity files, and embedded catalog-selected payload archives. The save fails instead of producing a reference-only archive when a selected catalog payload cannot be resolved and embedded. Graph JSON is validated before save; mod.json is written, mods are rescanned, and the new mod is enabled. Deeper saved custom weapon hot-register/runtime parity remains under c3814-s18."
         },
         {
           "id": "c3814-s3",
@@ -2951,7 +3026,7 @@
       "column": "done",
       "order": 1000,
       "priority": 1,
-      "notes": "Completed for the non-weapon typed asset target set as of 2026-05-21. The c3812 archive contract is implemented for base and mod content equally: each non-weapon *.pdxxx content unit is zip-openable and carries a root descriptor plus authored source files, while .pdmod remains transport only. Completed outputs include nested typed archive/VFS support, packer/examples/docs, canonical .pdcharacter, .pdhead/.pdbody/.pdarena root descriptors, embedded .pdscenario closure under .pdarena, .pdmesh model.obj/model.mtl, .pdsfx/.pdvoice sample.wav, .pdsong sequence.mid/sequence.tsv, .pdlang strings.tsv, .pdfont glyphs.pgm/metrics.tsv/kerning.tsv, character and weapon/inventory .pdanim readable archives, and .pdscenario rooms.obj/scenario.mtl/tiles.tsv/pads.tsv/setup.tsv/mpsetup.tsv/visual_segments.tsv. The map authoring payload is now full BG visual display-list export rather than the old neutral glTF placeholder: .pdscenario emits visual/scene.obj, visual/scene.mtl, visual/materials.tsv, visual/export_version.txt, and decoded visual/textures/*.tga from BG C0/G_NOOP material commands, G_VTX, G_TRI1, G_TRI4, and textureslist/texturesdata. MTL paths are Blender-relative (textures/...), while TSV/descriptor paths remain archive-rooted (visual/textures/...). Old archives missing the visual export marker are stale and regenerate. Verified on clean boot: base_arena_chicago.pdarena embeds scenario/visual/scene.obj, scene.mtl, materials.tsv, export_version.txt, and 98 TGA textures; standalone base_scenario_chicago.pdscenario has the same visual payload. Verification also passed focused c3812/B-358 static tests, focused c3809 packer/scanner tests, queued all-target builds, and boot_smoke. Incomplete by explicit scope split: .pdweapon weapon archive behavior/dependency closure remains tracked by c3814 only; no pdweapon/pdwpn work was done in this pass.",
+      "notes": "Completed for the non-weapon typed asset target set as of 2026-05-21. The c3812 archive contract is implemented for base and mod content equally: each non-weapon *.pdxxx content unit is zip-openable and carries a root descriptor plus authored source files, while .pdmod remains transport only. Completed outputs include nested typed archive/VFS support, packer/examples/docs, canonical .pdcharacter, .pdhead/.pdbody/.pdarena root descriptors, embedded .pdscenario closure under .pdarena, .pdmesh model.obj/model.mtl, .pdsfx/.pdvoice sample.wav, .pdsong sequence.mid/sequence.tsv, .pdlang strings.tsv, .pdfont glyphs.pgm/metrics.tsv/kerning.tsv, character and weapon/inventory .pdanim readable archives, and .pdscenario rooms.obj/scenario.mtl/tiles.tsv/pads.tsv/setup.tsv/mpsetup.tsv/visual_segments.tsv. The map authoring payload is now full BG visual display-list export rather than the old neutral glTF placeholder: .pdscenario emits visual/scene.obj, visual/scene.mtl, visual/materials.tsv, visual/export_version.txt, and decoded visual/textures/*.tga from BG C0/G_NOOP material commands, G_VTX, G_TRI1, G_TRI4, and textureslist/texturesdata. MTL paths are Blender-relative (textures/...), while TSV/descriptor paths remain archive-rooted (visual/textures/...). Old archives missing the visual export marker are stale and regenerate. Verified on clean boot: base_arena_chicago.pdarena embeds scenario/visual/scene.obj, scene.mtl, materials.tsv, export_version.txt, and 98 TGA textures; standalone base_scenario_chicago.pdscenario has the same visual payload. Verification also passed focused c3812/B-358 static tests, focused c3809 packer/scanner tests, queued all-target builds, and boot_smoke. Weapon archive behavior/dependency closure is handled by c3814 separately; no pdweapon/pdwpn work was done in this c3812 pass.",
       "subtasks": [
         {
           "id": "c3812-s1",
@@ -3007,7 +3082,7 @@
           "title": "Audit typed archives for full dependency closure",
           "status": "done",
           "order": 7100,
-          "notes": "Done for the non-weapon target set on 2026-05-21. .pdarena now embeds its .pdscenario dependency closure under scenario/ and treats old descriptor-only arena archives as stale; Build/data/ntsc-final/chicago.zip was refreshed and opens with scenario/rooms.obj, scenario/setup.tsv, and scenario/scenario.ini. .pdhead embeds mesh.pdmesh, .pdbody embeds mesh.pdmesh plus optional hand.pdmesh, and .pdcharacter refreshes nested body/head archives with dependency_closure=embedded.v2. .pdmesh job dedupe is now by (filenum,hint), not filenum alone, so body/hand archive identities such as base_ceyespy.pdmesh and base_combathandslod_hand.pdmesh are not suppressed by weapon hi/lo mesh jobs. Generated Build/data non-weapon spot audit found 0 missing closure entries across scenario-bearing arenas, heads, bodies, and characters. Verified assetcl all-target build and assetc3 focused [modding][pdxxx][base][static][c3812] tests: 283 assertions / 12 cases. Weapon archive closure remains owned by c3814 and was not modified here."
+          "notes": "Done for the non-weapon target set on 2026-05-21. .pdarena now embeds its .pdscenario dependency closure under scenario/ and treats old descriptor-only arena archives as stale; Build/data/ntsc-final/chicago.zip was refreshed and opens with scenario/rooms.obj, scenario/setup.tsv, and scenario/scenario.ini. .pdhead embeds mesh.pdmesh, .pdbody embeds mesh.pdmesh plus optional hand.pdmesh, and .pdcharacter refreshes nested body/head archives with dependency_closure=embedded.v2. .pdmesh job dedupe is now by (filenum,hint), not filenum alone, so body/hand archive identities such as base_ceyespy.pdmesh and base_combathandslod_hand.pdmesh are not suppressed by weapon hi/lo mesh jobs. Generated Build/data non-weapon spot audit found 0 missing closure entries across scenario-bearing arenas, heads, bodies, and characters. Verified assetcl all-target build and assetc3 focused [modding][pdxxx][base][static][c3812] tests: 283 assertions / 12 cases. Weapon archive closure is handled by c3814 separately and was not modified in this c3812 pass."
         },
         {
           "id": "c3812-s9",

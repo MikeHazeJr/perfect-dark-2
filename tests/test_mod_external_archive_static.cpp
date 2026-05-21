@@ -686,8 +686,38 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	REQUIRE(extractor.find("device.activate") != std::string::npos);
 	REQUIRE(extractor.find("projectile.ini") != std::string::npos);
 	REQUIRE(extractor.find("entity.ini") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v2\"") != std::string::npos);
+	REQUIRE(extractor.find("dependency_closure = \" PDWEAPON_DEPENDENCY_CLOSURE_MARKER") != std::string::npos);
+	REQUIRE(extractor.find("models/held_hi.pdmesh") != std::string::npos);
+	REQUIRE(extractor.find("models/held_lo.pdmesh") != std::string::npos);
+	REQUIRE(extractor.find("animations_manifest.tsv") != std::string::npos);
+	REQUIRE(extractor.find("audio_manifest.tsv") != std::string::npos);
+	REQUIRE(extractor.find("model_archive = models/visual.pdmesh") != std::string::npos);
+	REQUIRE(extractor.find("s_addWeaponMeshDependency") != std::string::npos);
+	REQUIRE(extractor.find("s_addWeaponAnimationDependency") != std::string::npos);
+	REQUIRE(extractor.find("s_addWeaponAudioDependency") != std::string::npos);
+	REQUIRE(extractor.find("s_addProjectileModelDependency") != std::string::npos);
+	REQUIRE(extractor.find("s_existingArchiveEntryContains") != std::string::npos);
 	REQUIRE(extractor.find("weaponGraphArchiveCanonicalSha256File") != std::string::npos);
 	REQUIRE(extractor.find("modArchiveAddFileDisk(aw, p->archive_entry") != std::string::npos);
+
+	const std::string main = readFile("port/src/main.c");
+	const auto meshEmit = main.find("romExtractAllPdmesh(0)");
+	const auto animEmit = main.find("romExtractAllPdanim(0)");
+	const auto sfxEmit = main.find("romExtractAllPdsfx(0)");
+	const auto weaponEmit = main.find("romExtractAllPdweapon(0)");
+	REQUIRE(meshEmit != std::string::npos);
+	REQUIRE(animEmit != std::string::npos);
+	REQUIRE(sfxEmit != std::string::npos);
+	REQUIRE(weaponEmit != std::string::npos);
+	REQUIRE(meshEmit < weaponEmit);
+	REQUIRE(animEmit < weaponEmit);
+	REQUIRE(sfxEmit < weaponEmit);
+
+	const std::string mesh = readFile("port/src/romextract_pdmesh.c");
+	REQUIRE(mesh.find("s_pdmeshAddWeaponFuncPayloadWork") != std::string::npos);
+	REQUIRE(mesh.find("sp->projectilemodelnum") != std::string::npos);
+	REQUIRE(mesh.find("tw->projectilemodelnum") != std::string::npos);
 }
 
 TEST_CASE("projectile and entity asset kinds are catalog and manifest visible",
@@ -1882,6 +1912,15 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("modArchiveBegin(archivePath)") != std::string::npos);
 	REQUIRE(hub.find("weaponCopyTemplatePayloads") != std::string::npos);
 	REQUIRE(hub.find("modArchiveAddFileDisk") != std::string::npos);
+	REQUIRE(hub.find("weaponAddCatalogAssetArchive") != std::string::npos);
+	REQUIRE(hub.find("weaponAddArchiveRefPayload") != std::string::npos);
+	REQUIRE(hub.find("WEAPON_IMPORT_PROJECTILE") != std::string::npos);
+	REQUIRE(hub.find("WEAPON_IMPORT_ENTITY") != std::string::npos);
+	REQUIRE(hub.find("Import Projectile") != std::string::npos);
+	REQUIRE(hub.find("Import Entity") != std::string::npos);
+	REQUIRE(hub.find("dependency_closure = embedded.v2") != std::string::npos);
+	REQUIRE(hub.find("projectile_archive = %s") != std::string::npos);
+	REQUIRE(hub.find("entity_archive = %s") != std::string::npos);
 	REQUIRE(hub.find("weaponGraphValidateJson") != std::string::npos);
 	REQUIRE(hub.find("mods/Weapons/%s") != std::string::npos);
 	REQUIRE(hub.find("pdguiFileBrowserOpen(label, \"mods\", filters)") !=

@@ -286,6 +286,8 @@ enum WeaponImportTarget {
     WEAPON_IMPORT_TEXTURE,
     WEAPON_IMPORT_ANIMATION,
     WEAPON_IMPORT_AUDIO,
+    WEAPON_IMPORT_PROJECTILE,
+    WEAPON_IMPORT_ENTITY,
     WEAPON_IMPORT_GRAPH,
 };
 
@@ -307,6 +309,8 @@ static char s_WeaponImportModelPath[FS_MAXPATH] = "";
 static char s_WeaponImportTexturePath[FS_MAXPATH] = "";
 static char s_WeaponImportAnimationPath[FS_MAXPATH] = "";
 static char s_WeaponImportAudioPath[FS_MAXPATH] = "";
+static char s_WeaponImportProjectilePath[FS_MAXPATH] = "";
+static char s_WeaponImportEntityPath[FS_MAXPATH] = "";
 static char s_WeaponImportGraphPath[FS_MAXPATH] = "";
 static char s_WeaponEditGraph[HUB_WEAPON_TEXT_PREVIEW_LEN] = "";
 static char s_WeaponEditNested[4096] = "";
@@ -736,6 +740,8 @@ static char *weaponImportPathMutableForTarget(WeaponImportTarget target)
         case WEAPON_IMPORT_TEXTURE:   return s_WeaponImportTexturePath;
         case WEAPON_IMPORT_ANIMATION: return s_WeaponImportAnimationPath;
         case WEAPON_IMPORT_AUDIO:     return s_WeaponImportAudioPath;
+        case WEAPON_IMPORT_PROJECTILE:return s_WeaponImportProjectilePath;
+        case WEAPON_IMPORT_ENTITY:    return s_WeaponImportEntityPath;
         case WEAPON_IMPORT_GRAPH:     return s_WeaponImportGraphPath;
         default:                      return NULL;
     }
@@ -871,6 +877,8 @@ static void weaponToolStartTemplate(const asset_entry_t *e)
     memset(s_WeaponImportTexturePath, 0, sizeof(s_WeaponImportTexturePath));
     memset(s_WeaponImportAnimationPath, 0, sizeof(s_WeaponImportAnimationPath));
     memset(s_WeaponImportAudioPath, 0, sizeof(s_WeaponImportAudioPath));
+    memset(s_WeaponImportProjectilePath, 0, sizeof(s_WeaponImportProjectilePath));
+    memset(s_WeaponImportEntityPath, 0, sizeof(s_WeaponImportEntityPath));
     memset(s_WeaponImportGraphPath, 0, sizeof(s_WeaponImportGraphPath));
 
     strncpy(s_WeaponEditTemplateId, e->id, sizeof(s_WeaponEditTemplateId) - 1);
@@ -941,16 +949,201 @@ static bool weaponAddImportFile(mod_archive_writer_t *w,
     return true;
 }
 
+static const char *weaponExtForCatalogType(asset_type_e type)
+{
+    switch (type) {
+        case ASSET_MODEL:      return ".pdmesh";
+        case ASSET_ANIMATION:  return ".pdanim";
+        case ASSET_PROJECTILE: return ".pdprojectile";
+        case ASSET_ENTITY:     return ".pdentity";
+        default:               return "";
+    }
+}
+
+static const char *weaponExtFromRef(const char *srcRef)
+{
+    if (!srcRef || !srcRef[0]) return "";
+    const char *sep = strstr(srcRef, "::");
+    const char *name = sep ? sep + 2 : weaponPathLeaf(srcRef);
+    const char *dot = strrchr(name, '.');
+    return dot ? dot : "";
+}
+
+static bool weaponArchiveRefPayloadSource(const char *srcRef,
+                                          char *archiveOut, size_t archiveOutSize,
+                                          char *entryOut, size_t entryOutSize)
+{
+    if (!srcRef || !archiveOut || !entryOut ||
+            archiveOutSize == 0 || entryOutSize == 0) return false;
+    archiveOut[0] = '\0';
+    entryOut[0] = '\0';
+    const char *sep = strstr(srcRef, "::");
+    if (!sep || sep == srcRef || !sep[2]) return false;
+    size_t archiveLen = (size_t)(sep - srcRef);
+    if (archiveLen >= archiveOutSize) archiveLen = archiveOutSize - 1;
+    memcpy(archiveOut, srcRef, archiveLen);
+    archiveOut[archiveLen] = '\0';
+    strncpy(entryOut, sep + 2, entryOutSize - 1);
+    entryOut[entryOutSize - 1] = '\0';
+    return archiveOut[0] && entryOut[0];
+}
+
+static bool weaponAddArchiveRefPayload(mod_archive_writer_t *w,
+                                       const char *entry,
+                                       const char *srcRef)
+{
+    if (!w || !entry || !entry[0] || !srcRef || !srcRef[0]) return false;
+    char archiveRef[FS_MAXPATH];
+    char nestedEntry[FS_MAXPATH];
+    if (weaponArchiveRefPayloadSource(srcRef, archiveRef, sizeof(archiveRef),
+            nestedEntry, sizeof(nestedEntry))) {
+        char archiveFull[FS_MAXPATH + 1];
+        const char *archivePath = archiveRef;
+        if (!hubPathIsAbsolute(archiveRef)) {
+            archivePath = fsFullPath(archiveRef, archiveFull, sizeof(archiveFull));
+        }
+        mod_archive_t *arc = modArchiveOpen(archivePath);
+        if (!arc) return false;
+        s32 idx = modArchiveFindEntry(arc, nestedEntry);
+        if (idx < 0) {
+            modArchiveClose(arc);
+            return false;
+        }
+        u32 size = 0;
+        void *bytes = modArchiveExtractAlloc(arc, idx, &size);
+        modArchiveClose(arc);
+        if (!bytes) return false;
+        bool ok = modArchiveAddFileMem(w, entry, bytes, size) == MODARCHIVE_OK;
+        free(bytes);
+        return ok;
+    }
+
+    char full[FS_MAXPATH + 1];
+    const char *srcPath = srcRef;
+    if (!hubPathIsAbsolute(srcRef)) {
+        srcPath = fsFullPath(srcRef, full, sizeof(full));
+    }
+    return srcPath && srcPath[0] &&
+           modArchiveAddFileDisk(w, entry, srcPath) == MODARCHIVE_OK;
+}
+
+static bool weaponResolveDataArchiveForCatalog(asset_type_e type,
+                                               const asset_entry_t *e,
+                                               const char *catalogId,
+                                               char *out, size_t outSize)
+{
+    if (!out || outSize == 0 || !catalogId || !catalogId[0]) return false;
+    out[0] = '\0';
+    char slug[128];
+    char rel[FS_MAXPATH];
+    weaponIdToFilename(catalogId, slug, sizeof(slug));
+
+    if (type == ASSET_MODEL) {
+        snprintf(rel, sizeof(rel), "meshes/%s.pdmesh", slug);
+    } else if (type == ASSET_ANIMATION) {
+        snprintf(rel, sizeof(rel), "animations/%s.pdanim", slug);
+    } else if (type == ASSET_AUDIO && e) {
+        const char *folder = "sfx";
+        const char *ext = ".pdsfx";
+        if (e->ext.audio.category == AUDIO_CAT_VOICE) {
+            folder = "voice";
+            ext = ".pdvoice";
+        } else if (e->ext.audio.category == AUDIO_CAT_MUSIC) {
+            folder = "music";
+            ext = ".pdsong";
+        }
+        snprintf(rel, sizeof(rel), "audio/%s/%s%s", folder, slug, ext);
+    } else {
+        return false;
+    }
+    fsDataPathFor(rel, out, outSize);
+    return out[0] && fsFileSize(out) > 0;
+}
+
+static bool weaponResolveCatalogPayloadSource(asset_type_e type,
+                                              const char *catalogId,
+                                              char *out, size_t outSize)
+{
+    if (!out || outSize == 0) return false;
+    out[0] = '\0';
+    if (!catalogId || !catalogId[0]) return false;
+    const asset_entry_t *e = assetCatalogResolve(catalogId);
+    if (!e) return false;
+
+    const char *direct = NULL;
+    if (type == ASSET_TEXTURE) {
+        direct = e->ext.texture.file_path;
+    } else if (type == ASSET_AUDIO) {
+        direct = e->ext.audio.file_path;
+    }
+    if (direct && direct[0]) {
+        strncpy(out, direct, outSize - 1);
+        out[outSize - 1] = '\0';
+        return true;
+    }
+
+    const char *expectedExt = weaponExtForCatalogType(type);
+    if (expectedExt[0] && strstr(e->dirpath, expectedExt)) {
+        strncpy(out, e->dirpath, outSize - 1);
+        out[outSize - 1] = '\0';
+        return true;
+    }
+    if (type == ASSET_TEXTURE && e->dirpath[0]) {
+        const char *ext = weaponExtFromRef(e->dirpath);
+        if (ext && ext[0]) {
+            strncpy(out, e->dirpath, outSize - 1);
+            out[outSize - 1] = '\0';
+            return true;
+        }
+    }
+    return weaponResolveDataArchiveForCatalog(type, e, catalogId, out, outSize);
+}
+
+static bool weaponAddCatalogAssetArchive(mod_archive_writer_t *w,
+                                         asset_type_e type,
+                                         const char *catalogId,
+                                         const char *folder,
+                                         char *outEntry,
+                                         size_t outEntrySize)
+{
+    if (outEntry && outEntrySize) outEntry[0] = '\0';
+    if (!catalogId || !catalogId[0]) return true;
+    if (!strchr(catalogId, ':')) return true;
+    char srcRef[FS_MAXPATH];
+    if (!weaponResolveCatalogPayloadSource(type, catalogId,
+            srcRef, sizeof(srcRef))) {
+        return false;
+    }
+    const char *ext = weaponExtForCatalogType(type);
+    if (!ext[0]) ext = weaponExtFromRef(srcRef);
+    if (!ext || !ext[0]) return false;
+
+    char slug[128];
+    weaponIdToFilename(catalogId, slug, sizeof(slug));
+    char entry[FS_MAXPATH];
+    snprintf(entry, sizeof(entry), "%s/catalog_%s%s", folder, slug, ext);
+    if (!weaponAddArchiveRefPayload(w, entry, srcRef)) return false;
+    if (outEntry && outEntrySize) {
+        strncpy(outEntry, entry, outEntrySize - 1);
+        outEntry[outEntrySize - 1] = '\0';
+    }
+    return true;
+}
+
 static bool weaponEntryMatchesImport(const char *entry,
                                      const char *modelEntry,
                                      const char *textureEntry,
                                      const char *animEntry,
-                                     const char *audioEntry)
+                                     const char *audioEntry,
+                                     const char *projectileEntry,
+                                     const char *entityEntry)
 {
     return (modelEntry && modelEntry[0] && strcmp(entry, modelEntry) == 0) ||
            (textureEntry && textureEntry[0] && strcmp(entry, textureEntry) == 0) ||
            (animEntry && animEntry[0] && strcmp(entry, animEntry) == 0) ||
-           (audioEntry && audioEntry[0] && strcmp(entry, audioEntry) == 0);
+           (audioEntry && audioEntry[0] && strcmp(entry, audioEntry) == 0) ||
+           (projectileEntry && projectileEntry[0] && strcmp(entry, projectileEntry) == 0) ||
+           (entityEntry && entityEntry[0] && strcmp(entry, entityEntry) == 0);
 }
 
 static bool weaponCopyTemplatePayloads(mod_archive_writer_t *w,
@@ -958,7 +1151,9 @@ static bool weaponCopyTemplatePayloads(mod_archive_writer_t *w,
                                        const char *modelEntry,
                                        const char *textureEntry,
                                        const char *animEntry,
-                                       const char *audioEntry)
+                                       const char *audioEntry,
+                                       const char *projectileEntry,
+                                       const char *entityEntry)
 {
     mod_archive_t *arc = modArchiveOpen(archivePath);
     if (!arc) return false;
@@ -974,7 +1169,8 @@ static bool weaponCopyTemplatePayloads(mod_archive_writer_t *w,
             continue;
         }
         if (weaponEntryMatchesImport(name, modelEntry, textureEntry,
-                                     animEntry, audioEntry)) {
+                                     animEntry, audioEntry,
+                                     projectileEntry, entityEntry)) {
             continue;
         }
         u32 size = 0;
@@ -1052,6 +1248,14 @@ static bool weaponToolSaveCustom(void)
     char textureEntry[FS_MAXPATH] = "";
     char animEntry[FS_MAXPATH] = "";
     char audioEntry[FS_MAXPATH] = "";
+    char projectileEntry[FS_MAXPATH] = "";
+    char entityEntry[FS_MAXPATH] = "";
+    char modelCatalogEntry[FS_MAXPATH] = "";
+    char textureCatalogEntry[FS_MAXPATH] = "";
+    char animCatalogEntry[FS_MAXPATH] = "";
+    char audioCatalogEntry[FS_MAXPATH] = "";
+    char projectileCatalogEntry[FS_MAXPATH] = "";
+    char entityCatalogEntry[FS_MAXPATH] = "";
     bool ok = true;
     ok = ok && weaponAddImportFile(w, "models", s_WeaponImportModelPath,
                                    modelEntry, sizeof(modelEntry));
@@ -1061,20 +1265,69 @@ static bool weaponToolSaveCustom(void)
                                    animEntry, sizeof(animEntry));
     ok = ok && weaponAddImportFile(w, "audio", s_WeaponImportAudioPath,
                                    audioEntry, sizeof(audioEntry));
+    ok = ok && weaponAddImportFile(w, "projectiles", s_WeaponImportProjectilePath,
+                                   projectileEntry, sizeof(projectileEntry));
+    ok = ok && weaponAddImportFile(w, "entities", s_WeaponImportEntityPath,
+                                   entityEntry, sizeof(entityEntry));
     ok = ok && weaponCopyTemplatePayloads(w, s_WeaponEditTemplateArchive,
                                           modelEntry, textureEntry,
-                                          animEntry, audioEntry);
+                                          animEntry, audioEntry,
+                                          projectileEntry, entityEntry);
+    if (ok && !modelEntry[0]) {
+        ok = weaponAddCatalogAssetArchive(w, ASSET_MODEL, s_WeaponEditModelRef,
+                                          "models", modelCatalogEntry,
+                                          sizeof(modelCatalogEntry));
+    }
+    if (ok && !textureEntry[0]) {
+        ok = weaponAddCatalogAssetArchive(w, ASSET_TEXTURE, s_WeaponEditTextureRef,
+                                          "textures", textureCatalogEntry,
+                                          sizeof(textureCatalogEntry));
+    }
+    if (ok && !animEntry[0]) {
+        ok = weaponAddCatalogAssetArchive(w, ASSET_ANIMATION,
+                                          s_WeaponEditAnimationRef,
+                                          "animations", animCatalogEntry,
+                                          sizeof(animCatalogEntry));
+    }
+    if (ok && !audioEntry[0]) {
+        ok = weaponAddCatalogAssetArchive(w, ASSET_AUDIO, s_WeaponEditAudioRef,
+                                          "audio", audioCatalogEntry,
+                                          sizeof(audioCatalogEntry));
+    }
+    if (ok && !projectileEntry[0]) {
+        ok = weaponAddCatalogAssetArchive(w, ASSET_PROJECTILE,
+                                          s_WeaponEditProjectileRef,
+                                          "projectiles", projectileCatalogEntry,
+                                          sizeof(projectileCatalogEntry));
+    }
+    if (ok && !entityEntry[0]) {
+        ok = weaponAddCatalogAssetArchive(w, ASSET_ENTITY, s_WeaponEditEntityRef,
+                                          "entities", entityCatalogEntry,
+                                          sizeof(entityCatalogEntry));
+    }
     if (!ok) {
         modArchiveAbort(w);
-        weaponSetStatus(false, "Could not copy template/import payloads");
+        weaponSetStatus(false, "Could not embed all selected weapon payloads");
         return false;
     }
 
-    const char *modelFile = modelEntry[0] ? modelEntry : s_WeaponEditModelRef;
-    char weaponIni[2048];
+    const char *modelFile = modelEntry[0] ? modelEntry :
+        (modelCatalogEntry[0] ? modelCatalogEntry : s_WeaponEditModelRef);
+    const char *textureFile = textureEntry[0] ? textureEntry :
+        (textureCatalogEntry[0] ? textureCatalogEntry : "");
+    const char *animFile = animEntry[0] ? animEntry :
+        (animCatalogEntry[0] ? animCatalogEntry : "");
+    const char *audioFile = audioEntry[0] ? audioEntry :
+        (audioCatalogEntry[0] ? audioCatalogEntry : "");
+    const char *projectileFile = projectileEntry[0] ? projectileEntry :
+        (projectileCatalogEntry[0] ? projectileCatalogEntry : "");
+    const char *entityFile = entityEntry[0] ? entityEntry :
+        (entityCatalogEntry[0] ? entityCatalogEntry : "");
+    char weaponIni[4096];
     int weaponIniLen = snprintf(weaponIni, sizeof(weaponIni),
         "[weapon]\n"
         "schema = pd.weapon.v1\n"
+        "dependency_closure = embedded.v2\n"
         "catalog_id = %s\n"
         "weapon_id = %d\n"
         "name = %s\n"
@@ -1091,7 +1344,13 @@ static bool weaponToolSaveCustom(void)
         "animation_ref = %s\n"
         "audio_ref = %s\n"
         "projectile_ref = %s\n"
-        "entity_ref = %s\n",
+        "entity_ref = %s\n"
+        "model_archive = %s\n"
+        "texture_archive = %s\n"
+        "animation_archive = %s\n"
+        "audio_archive = %s\n"
+        "projectile_archive = %s\n"
+        "entity_archive = %s\n",
         s_WeaponEditCatalogId,
         (int)s_WeaponEditWeaponId,
         s_WeaponEditDisplayName,
@@ -1103,7 +1362,13 @@ static bool weaponToolSaveCustom(void)
         s_WeaponEditAnimationRef,
         s_WeaponEditAudioRef,
         s_WeaponEditProjectileRef,
-        s_WeaponEditEntityRef);
+        s_WeaponEditEntityRef,
+        modelFile ? modelFile : "",
+        textureFile ? textureFile : "",
+        animFile ? animFile : "",
+        audioFile ? audioFile : "",
+        projectileFile ? projectileFile : "",
+        entityFile ? entityFile : "");
     if (weaponIniLen <= 0 || (size_t)weaponIniLen >= sizeof(weaponIni)) {
         modArchiveAbort(w);
         weaponSetStatus(false, "weapon.ini is too large");
@@ -1115,14 +1380,23 @@ static bool weaponToolSaveCustom(void)
     weaponJsonEscape(s_WeaponEditDisplayName, escName, sizeof(escName));
     weaponJsonEscape(s_WeaponEditTemplateId, escTemplate, sizeof(escTemplate));
 
-    char manifest[2048];
+    char manifest[4096];
     int manifestLen = snprintf(manifest, sizeof(manifest),
         "{\n"
         "  \"schema\": \"pd.weapon.manifest.v1\",\n"
         "  \"catalog_id\": \"%s\",\n"
         "  \"name\": \"%s\",\n"
         "  \"template\": \"%s\",\n"
+        "  \"dependency_closure\": \"embedded.v2\",\n"
         "  \"refs\": {\n"
+        "    \"model\": \"%s\",\n"
+        "    \"texture\": \"%s\",\n"
+        "    \"animation\": \"%s\",\n"
+        "    \"audio\": \"%s\",\n"
+        "    \"projectile\": \"%s\",\n"
+        "    \"entity\": \"%s\"\n"
+        "  },\n"
+        "  \"embedded\": {\n"
         "    \"model\": \"%s\",\n"
         "    \"texture\": \"%s\",\n"
         "    \"animation\": \"%s\",\n"
@@ -1134,7 +1408,13 @@ static bool weaponToolSaveCustom(void)
         s_WeaponEditCatalogId, escName, escTemplate,
         s_WeaponEditModelRef, s_WeaponEditTextureRef,
         s_WeaponEditAnimationRef, s_WeaponEditAudioRef,
-        s_WeaponEditProjectileRef, s_WeaponEditEntityRef);
+        s_WeaponEditProjectileRef, s_WeaponEditEntityRef,
+        modelFile ? modelFile : "",
+        textureFile ? textureFile : "",
+        animFile ? animFile : "",
+        audioFile ? audioFile : "",
+        projectileFile ? projectileFile : "",
+        entityFile ? entityFile : "");
     if (manifestLen <= 0 || (size_t)manifestLen >= sizeof(manifest)) {
         modArchiveAbort(w);
         weaponSetStatus(false, "manifest.json is too large");
@@ -1435,6 +1715,10 @@ static void renderWeaponTool(float contentW, float contentH, float scale)
                                       ".pdanim");
                 weaponRenderImportRow("Import Audio", WEAPON_IMPORT_AUDIO,
                                       ".pdsfx;.pdvoice;.pdsong;.wav;.ogg;.mp3");
+                weaponRenderImportRow("Import Projectile", WEAPON_IMPORT_PROJECTILE,
+                                      ".pdprojectile");
+                weaponRenderImportRow("Import Entity", WEAPON_IMPORT_ENTITY,
+                                      ".pdentity");
                 weaponRenderImportRow("Import Graph JSON", WEAPON_IMPORT_GRAPH,
                                       ".json");
 
