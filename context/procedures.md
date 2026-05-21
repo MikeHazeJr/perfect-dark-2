@@ -19,7 +19,7 @@ Every code change must be build-verified before being reported as complete.
 - Reuse the same session id only inside the same active session. Parallel sessions must use different ids; the wrapper holds a lock and fails fast on accidental reuse.
 - Cleanup: `.\devtools\build-session.ps1 -Remove -Session <short-session-id>` when done. `-List` to inspect old directories. `-RemoveAll` only when no session build is running.
 
-For test-only verification, use `.\devtools\run-pd-tests.ps1 -Session <id> [-Scope <alias>|-Selector <selector>]`. See [pillars/tests.md](pillars/tests.md) for the alias list.
+For test-only verification, use `.\devtools\run-pd-tests.ps1 -Session <id> [-Scope <alias>|-Selector <selector>]`. See [pillars/tests.md](pillars/tests.md) for the alias list. Do not launch `.claude/session-builds/<id>/pd-tests.exe` directly: direct launches can inherit the wrong DLL search path and trigger blocking Windows loader popups such as `clock_gettime64` entry-point dialogs. The wrapper sets the canonical runtime PATH and suppresses loader dialog boxes so failures return through the console.
 
 ---
 

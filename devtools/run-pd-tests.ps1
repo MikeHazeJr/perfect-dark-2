@@ -70,6 +70,29 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent $ScriptDir
 $SessionBuildRoot = Join-Path $ProjectDir ".claude\session-builds"
 $BuildSession = Join-Path $ScriptDir "build-session.ps1"
+
+. (Join-Path $ScriptDir "_build-env-prelude.ps1")
+
+$errorModeSource = @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class PdWinErrorMode
+{
+    [DllImport("kernel32.dll")]
+    public static extern uint SetErrorMode(uint uMode);
+}
+"@
+
+if (-not ([System.Management.Automation.PSTypeName]'PdWinErrorMode').Type) {
+    Add-Type -TypeDefinition $errorModeSource
+}
+
+$SEM_FAILCRITICALERRORS = 0x0001
+$SEM_NOGPFAULTERRORBOX = 0x0002
+$SEM_NOOPENFILEERRORBOX = 0x8000
+$loaderErrorMode = $SEM_FAILCRITICALERRORS -bor $SEM_NOGPFAULTERRORBOX -bor $SEM_NOOPENFILEERRORBOX
+$previousErrorMode = [PdWinErrorMode]::SetErrorMode($loaderErrorMode)
 $ScopeSelectors = [ordered]@{
     "catalog" = "[catalog]"
     "catalog-provider" = "[catalog][provider][static]"
@@ -122,7 +145,7 @@ if ($Session -eq "") {
     throw "Specify -Session <id>, or use -ListScopes."
 }
 
-$listModes = @($ListTags.IsPresent, $ListTests.IsPresent) | Where-Object { $_ }
+$listModes = @(@($ListTags.IsPresent, $ListTests.IsPresent) | Where-Object { $_ })
 if ($listModes.Count -gt 1) {
     throw "Choose only one of -ListTags or -ListTests."
 }
@@ -158,8 +181,9 @@ if (-not (Test-Path -LiteralPath $testsExe)) {
 }
 
 $mingwBin = "C:\msys64\mingw64\bin"
-if (Test-Path -LiteralPath $mingwBin) {
-    $env:PATH = "$mingwBin;$env:PATH"
+$runtimeDll = Join-Path $mingwBin "libwinpthread-1.dll"
+if (-not (Test-Path -LiteralPath $runtimeDll)) {
+    throw "Missing MinGW runtime DLL: $runtimeDll"
 }
 
 $testArgs = @()
@@ -187,6 +211,7 @@ try {
     $testExit = $LASTEXITCODE
 } finally {
     Pop-Location
+    [void][PdWinErrorMode]::SetErrorMode($previousErrorMode)
 }
 
 Write-Host ""

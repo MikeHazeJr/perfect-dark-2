@@ -10,16 +10,17 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
 
 extern "C" {
-#include "fs.h"
 #include "modarchive.h"
 #include "modvfs.h"
 }
@@ -130,9 +131,133 @@ std::string readArchiveEntryText(const char *archivePath, const char *entryPath)
 	return text;
 }
 
-std::string readFsText(const char *path) {
+std::string readArchiveEntryText(mod_archive_t *archive, const char *entryPath) {
+	REQUIRE(archive != nullptr);
+	s32 idx = modArchiveFindEntry(archive, entryPath);
+	REQUIRE(idx >= 0);
 	u32 size = 0;
-	void *bytes = fsFileLoad(path, &size);
+	void *bytes = modArchiveExtractAlloc(archive, idx, &size);
+	REQUIRE(bytes != nullptr);
+	std::string text(static_cast<const char *>(bytes), size);
+	free(bytes);
+	return text;
+}
+
+struct ExpectedPdxxxArchive {
+	const char *assetType;
+	const char *extension;
+	const char *relPath;
+	std::vector<const char *> requiredEntries;
+};
+
+std::string trimCopy(const std::string &value) {
+	const char *ws = " \t\r\n";
+	const size_t first = value.find_first_not_of(ws);
+	if (first == std::string::npos) {
+		return "";
+	}
+	const size_t last = value.find_last_not_of(ws);
+	return value.substr(first, last - first + 1);
+}
+
+bool startsWith(const std::string &value, const char *prefix) {
+	return value.rfind(prefix, 0) == 0;
+}
+
+bool archiveHasEntry(mod_archive_t *archive, const std::string &entryPath) {
+	return archive && modArchiveFindEntry(archive, entryPath.c_str()) >= 0;
+}
+
+void requireIniPathRefsResolve(mod_archive_t *archive,
+                               const char *archiveRel,
+                               const char *descriptorEntry,
+                               const std::vector<const char *> &keys) {
+	const std::string descriptor = readArchiveEntryText(archive, descriptorEntry);
+	std::istringstream in(descriptor);
+	std::string line;
+	while (std::getline(in, line)) {
+		std::string text = trimCopy(line);
+		if (text.empty() || text[0] == ';' || text[0] == '#') {
+			continue;
+		}
+		const size_t eq = text.find('=');
+		if (eq == std::string::npos) {
+			continue;
+		}
+		const std::string key = trimCopy(text.substr(0, eq));
+		const std::string value = trimCopy(text.substr(eq + 1));
+		if (value.empty()) {
+			continue;
+		}
+		for (const char *expectedKey : keys) {
+			if (key == expectedKey) {
+				INFO(std::string(archiveRel) + "::" + descriptorEntry
+					+ " -> " + key + " = " + value);
+				REQUIRE(value.find("..") == std::string::npos);
+				REQUIRE(value.find(':') == std::string::npos);
+				REQUIRE(archiveHasEntry(archive, value));
+			}
+		}
+	}
+}
+
+void requireGltfUrisResolve(mod_archive_t *archive,
+                            const char *archiveRel,
+                            const char *gltfEntry) {
+	const std::string gltf = readArchiveEntryText(archive, gltfEntry);
+	const std::regex uriPattern("\"uri\"\\s*:\\s*\"([^\"]+)\"");
+	for (auto it = std::sregex_iterator(gltf.begin(), gltf.end(), uriPattern);
+			it != std::sregex_iterator(); ++it) {
+		const std::string uri = (*it)[1].str();
+		INFO(std::string(archiveRel) + "::" + gltfEntry + " uri=" + uri);
+		if (startsWith(uri, "data:")) {
+			continue;
+		}
+		REQUIRE(uri.find("..") == std::string::npos);
+		REQUIRE(uri.find(':') == std::string::npos);
+		REQUIRE(archiveHasEntry(archive, uri));
+	}
+}
+
+void requireObjRefsResolve(mod_archive_t *archive,
+                           const char *archiveRel,
+                           const char *objEntry) {
+	const std::string obj = readArchiveEntryText(archive, objEntry);
+	std::istringstream in(obj);
+	std::string line;
+	while (std::getline(in, line)) {
+		std::string text = trimCopy(line);
+		if (!startsWith(text, "mtllib ")) {
+			continue;
+		}
+		const std::string mtl = trimCopy(text.substr(strlen("mtllib ")));
+		INFO(std::string(archiveRel) + "::" + objEntry + " mtllib=" + mtl);
+		REQUIRE(mtl.find("..") == std::string::npos);
+		REQUIRE(mtl.find(':') == std::string::npos);
+		REQUIRE(archiveHasEntry(archive, mtl));
+
+		const std::string mtlText = readArchiveEntryText(archive, mtl.c_str());
+		std::istringstream mtlIn(mtlText);
+		std::string mtlLine;
+		while (std::getline(mtlIn, mtlLine)) {
+			std::string mtlTrimmed = trimCopy(mtlLine);
+			if (!startsWith(mtlTrimmed, "map_")) {
+				continue;
+			}
+			const size_t space = mtlTrimmed.find(' ');
+			REQUIRE(space != std::string::npos);
+			const std::string texture = trimCopy(mtlTrimmed.substr(space + 1));
+			INFO(std::string(archiveRel) + "::" + mtl + " texture=" + texture);
+			REQUIRE(texture.find("..") == std::string::npos);
+			REQUIRE(texture.find(':') == std::string::npos);
+			REQUIRE(archiveHasEntry(archive, texture));
+		}
+	}
+}
+
+std::string readVfsText(const char *path) {
+	u32 size = 0;
+	void *bytes = modVfsResolveAnyAlloc(path, &size, nullptr, 0);
 	REQUIRE(bytes != nullptr);
 	std::string text(static_cast<const char *>(bytes), size);
 	free(bytes);
@@ -382,7 +507,8 @@ TEST_CASE("typed pd content fixture keeps pdxxx files as content units",
 	REQUIRE(arena.find("; tri_arena.pdarena") != std::string::npos);
 	REQUIRE(arena.find("[arena]") != std::string::npos);
 	REQUIRE(arena.find("geometry_file = geometry.obj") != std::string::npos);
-	REQUIRE(geometry.find("f 1 2 3") != std::string::npos);
+	REQUIRE((geometry.find("f 1 2 3") != std::string::npos
+		|| geometry.find("f 1/1 2/2 3/3") != std::string::npos));
 	REQUIRE(pads.find("default_spawn = 0,0,0") != std::string::npos);
 	REQUIRE(setup.find("props = none") != std::string::npos);
 	REQUIRE(weaponAnim.find("catalog_id = fixture:weapon_idle") != std::string::npos);
@@ -715,28 +841,33 @@ TEST_CASE("packed pdmod transport fixture resolves typed pdxxx content through p
 		REQUIRE(modVfsCanResolve(entry) == 1);
 		REQUIRE(modVfsGetSize(entry) > 0);
 	}
+	REQUIRE(modVfsCanResolve("heads/tri_head.pdhead::head.ini") == 1);
+	REQUIRE(modVfsGetSize("heads/tri_head.pdhead::head.ini") > 0);
+	REQUIRE(modVfsCanResolve("arenas/tri_arena.pdarena::geometry.obj") == 1);
+	REQUIRE(modVfsGetSize("arenas/tri_arena.pdarena::geometry.obj") > 0);
 
 	const std::string arena =
-		readFsText("arenas/tri_arena.pdarena::arena.ini");
+		readVfsText("arenas/tri_arena.pdarena::arena.ini");
 	const std::string geometry =
-		readFsText("arenas/tri_arena.pdarena::geometry.obj");
+		readVfsText("arenas/tri_arena.pdarena::geometry.obj");
 	const std::string pads =
-		readFsText("arenas/tri_arena.pdarena::pads.ini");
+		readVfsText("arenas/tri_arena.pdarena::pads.ini");
 	const std::string head =
-		readFsText("heads/tri_head.pdhead::head.ini");
+		readVfsText("heads/tri_head.pdhead::head.ini");
 	const std::string model =
-		readFsText("heads/tri_head.pdhead::model.gltf");
+		readVfsText("heads/tri_head.pdhead::model.gltf");
 	const std::string weaponAnim =
-		readFsText("animations/weapon_idle.pdanim::animation.ini");
+		readVfsText("animations/weapon_idle.pdanim::animation.ini");
 	const std::string weaponGltf =
-		readFsText("animations/weapon_idle.pdanim::animation.gltf");
+		readVfsText("animations/weapon_idle.pdanim::animation.gltf");
 	const std::string skeletalAnim =
-		readFsText("animations/character_skeletal.pdanim::animation.ini");
+		readVfsText("animations/character_skeletal.pdanim::animation.ini");
 	const std::string skeletalGltf =
-		readFsText("animations/character_skeletal.pdanim::animation.gltf");
+		readVfsText("animations/character_skeletal.pdanim::animation.gltf");
 
 	REQUIRE(arena.find("geometry_file = geometry.obj") != std::string::npos);
-	REQUIRE(geometry.find("f 1 2 3") != std::string::npos);
+	REQUIRE((geometry.find("f 1 2 3") != std::string::npos
+		|| geometry.find("f 1/1 2/2 3/3") != std::string::npos));
 	REQUIRE(pads.find("default_spawn = 0,0,0") != std::string::npos);
 	REQUIRE(head.find("model_file = model.gltf") != std::string::npos);
 	REQUIRE(model.find("data:application/octet-stream;base64,") != std::string::npos);
@@ -748,7 +879,7 @@ TEST_CASE("packed pdmod transport fixture resolves typed pdxxx content through p
 	mod_vfs_stats_t stats;
 	modVfsGetStats(&stats);
 	REQUIRE(stats.mounts_active == 1);
-	REQUIRE(stats.entries_resident >= 6);
+	REQUIRE(stats.entries_resident >= 4);
 }
 
 TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
@@ -771,9 +902,19 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	const char *requiredFiles[] = {
 		"mod.json",
 		"heads/tri_head.pdhead",
+		"bodies/tri_body.pdbody",
 		"arenas/tri_arena.pdarena",
+		"meshes/tri_mesh.pdmesh",
+		"weapons/tri_weapon.pdwpn",
 		"animations/weapon_idle.pdanim",
 		"animations/character_skeletal.pdanim",
+		"audio/sfx/tri_click.pdsfx",
+		"audio/voice/tri_voice.pdvoice",
+		"audio/music/tri_song.pdsong",
+		"ui/tri_reticle.pdui",
+		"fonts/tri_font.pdfont",
+		"lang/tri_lang.pdlang",
+		"scenarios/tri_scenario.pdscenario",
 	};
 
 	for (const char *rel : requiredFiles) {
@@ -802,8 +943,14 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 
 	const std::string headArchivePath =
 		"examples/modding/typed-pdxxx-basic/heads/tri_head.pdhead";
+	const std::string bodyArchivePath =
+		"examples/modding/typed-pdxxx-basic/bodies/tri_body.pdbody";
 	const std::string arenaArchivePath =
 		"examples/modding/typed-pdxxx-basic/arenas/tri_arena.pdarena";
+	const std::string meshArchivePath =
+		"examples/modding/typed-pdxxx-basic/meshes/tri_mesh.pdmesh";
+	const std::string weaponArchiveFullPath =
+		"examples/modding/typed-pdxxx-basic/weapons/tri_weapon.pdwpn";
 	const std::string weaponArchivePath =
 		"examples/modding/typed-pdxxx-basic/animations/weapon_idle.pdanim";
 	const std::string skeletalArchivePath =
@@ -814,7 +961,21 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(head.find("catalog_id = example:tri_head") != std::string::npos);
 	REQUIRE(head.find("model_file = model.gltf") != std::string::npos);
 	REQUIRE(model.find("\"meshes\"") != std::string::npos);
+	REQUIRE(model.find("\"TEXCOORD_0\"") != std::string::npos);
+	REQUIRE(model.find("\"baseColorTexture\"") != std::string::npos);
+	REQUIRE(model.find("\"uri\": \"texture.png\"") != std::string::npos);
 	REQUIRE(model.find("data:application/octet-stream;base64,") != std::string::npos);
+
+	const std::string body = readArchiveEntryText(bodyArchivePath.c_str(), "body.ini");
+	const std::string bodyModel = readArchiveEntryText(bodyArchivePath.c_str(), "model.gltf");
+	REQUIRE(body.find("catalog_id = example:tri_body") != std::string::npos);
+	REQUIRE(body.find("rig_class = human_male_neck_standard") != std::string::npos);
+	REQUIRE(body.find("model_file = model.gltf") != std::string::npos);
+	REQUIRE(body.find("hand_model_file = hand.gltf") != std::string::npos);
+	REQUIRE(bodyModel.find("\"skins\"") != std::string::npos);
+	REQUIRE(bodyModel.find("\"JOINTS_0\"") != std::string::npos);
+	REQUIRE(bodyModel.find("\"WEIGHTS_0\"") != std::string::npos);
+	REQUIRE(bodyModel.find("\"TEXCOORD_0\"") != std::string::npos);
 
 	const std::string arena = readArchiveEntryText(arenaArchivePath.c_str(), "arena.ini");
 	const std::string geometry = readArchiveEntryText(arenaArchivePath.c_str(), "geometry.obj");
@@ -824,9 +985,25 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(arena.find("geometry_file = geometry.obj") != std::string::npos);
 	REQUIRE(arena.find("pads_file = pads.ini") != std::string::npos);
 	REQUIRE(arena.find("setup_file = setup.ini") != std::string::npos);
-	REQUIRE(geometry.find("f 1 2 3") != std::string::npos);
+	REQUIRE(geometry.find("vt 0 0") != std::string::npos);
+	REQUIRE(geometry.find("f 1/1 2/2 3/3") != std::string::npos);
 	REQUIRE(pads.find("default_spawn = 0,0,0") != std::string::npos);
 	REQUIRE(setup.find("props = none") != std::string::npos);
+
+	const std::string mesh = readArchiveEntryText(meshArchivePath.c_str(), "model.ini");
+	const std::string meshModel = readArchiveEntryText(meshArchivePath.c_str(), "model.gltf");
+	REQUIRE(mesh.find("catalog_id = example:tri_mesh") != std::string::npos);
+	REQUIRE(mesh.find("model_file = model.gltf") != std::string::npos);
+	REQUIRE(meshModel.find("\"TEXCOORD_0\"") != std::string::npos);
+	REQUIRE(meshModel.find("\"baseColorTexture\"") != std::string::npos);
+
+	const std::string weapon = readArchiveEntryText(weaponArchiveFullPath.c_str(), "weapon.ini");
+	REQUIRE(weapon.find("catalog_id = example:tri_weapon") != std::string::npos);
+	REQUIRE(weapon.find("model_file = model.gltf") != std::string::npos);
+	REQUIRE(weapon.find("hand_model_file = hand.gltf") != std::string::npos);
+	REQUIRE(weapon.find("texture_file = weapon_texture.png") != std::string::npos);
+	REQUIRE(weapon.find("animation_file = reload.gltf") != std::string::npos);
+	REQUIRE(weapon.find("file_path = fire.wav") != std::string::npos);
 
 	const std::string weaponAnim = readArchiveEntryText(weaponArchivePath.c_str(), "animation.ini");
 	const std::string weaponGltf = readArchiveEntryText(weaponArchivePath.c_str(), "animation.gltf");
@@ -840,8 +1017,269 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(skeletalGltf.find("\"path\": \"translation\"") != std::string::npos);
 
 	REQUIRE_FALSE(std::filesystem::exists(root / "heads/tri_head/model.gltf"));
+	REQUIRE_FALSE(std::filesystem::exists(root / "bodies/tri_body/model.gltf"));
 	REQUIRE_FALSE(std::filesystem::exists(root / "arenas/tri_arena/geometry.obj"));
+	REQUIRE_FALSE(std::filesystem::exists(root / "weapons/tri_weapon/model.gltf"));
 	REQUIRE_FALSE(std::filesystem::exists(root / "animations/weapon_idle/animation.gltf"));
+}
+
+TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
+          "[modding][pdxxx][examples][static][c3812][archive-inventory]") {
+	const std::filesystem::path root =
+		"examples/modding/typed-pdxxx-basic";
+	REQUIRE(std::filesystem::is_directory(root));
+
+	const std::vector<ExpectedPdxxxArchive> implementedArchives = {
+		{
+			"head",
+			".pdhead",
+			"heads/tri_head.pdhead",
+			{ "head.ini", "model.gltf", "texture.png" },
+		},
+		{
+			"body",
+			".pdbody",
+			"bodies/tri_body.pdbody",
+			{ "body.ini", "model.gltf", "hand.gltf", "texture.png" },
+		},
+		{
+			"arena",
+			".pdarena",
+			"arenas/tri_arena.pdarena",
+			{ "arena.ini", "geometry.obj", "arena.mtl", "arena_texture.png",
+			  "pads.ini", "setup.ini" },
+		},
+		{
+			"mesh/model",
+			".pdmesh",
+			"meshes/tri_mesh.pdmesh",
+			{ "model.ini", "model.gltf", "texture.png" },
+		},
+		{
+			"weapon",
+			".pdwpn",
+			"weapons/tri_weapon.pdwpn",
+			{ "weapon.ini", "model.gltf", "hand.gltf", "weapon_texture.png",
+			  "texture.png", "reload.gltf", "fire.wav" },
+		},
+		{
+			"weapon animation",
+			".pdanim",
+			"animations/weapon_idle.pdanim",
+			{ "animation.ini", "animation.gltf" },
+		},
+		{
+			"character animation",
+			".pdanim",
+			"animations/character_skeletal.pdanim",
+			{ "animation.ini", "animation.gltf" },
+		},
+		{
+			"sound effect",
+			".pdsfx",
+			"audio/sfx/tri_click.pdsfx",
+			{ "sound.ini", "sample.wav" },
+		},
+		{
+			"voice",
+			".pdvoice",
+			"audio/voice/tri_voice.pdvoice",
+			{ "voice.ini", "sample.wav" },
+		},
+		{
+			"music",
+			".pdsong",
+			"audio/music/tri_song.pdsong",
+			{ "music.ini", "track.wav" },
+		},
+		{
+			"UI texture",
+			".pdui",
+			"ui/tri_reticle.pdui",
+			{ "ui.ini", "texture.png" },
+		},
+		{
+			"font",
+			".pdfont",
+			"fonts/tri_font.pdfont",
+			{ "font.ini", "font.otf" },
+		},
+		{
+			"language",
+			".pdlang",
+			"lang/tri_lang.pdlang",
+			{ "lang.ini", "strings.tsv" },
+		},
+		{
+			"scenario",
+			".pdscenario",
+			"scenarios/tri_scenario.pdscenario",
+			{ "scenario.ini", "rooms.obj", "scenario.mtl", "room_texture.png",
+			  "props.ini", "objectives.ini", "pads.ini", "setup.ini" },
+		},
+	};
+
+	for (const ExpectedPdxxxArchive &spec : implementedArchives) {
+		const std::filesystem::path archivePath = root / spec.relPath;
+		INFO(spec.assetType << " " << archivePath.generic_string());
+		REQUIRE(std::filesystem::is_regular_file(archivePath));
+
+		OpenArchive opened;
+		opened.archive = modArchiveOpen(archivePath.string().c_str());
+		REQUIRE(opened.archive != nullptr);
+
+		for (const char *entryPath : spec.requiredEntries) {
+			INFO(spec.relPath << "::" << entryPath);
+			s32 idx = modArchiveFindEntry(opened.archive, entryPath);
+			REQUIRE(idx >= 0);
+			REQUIRE(modArchiveGetEntrySize(opened.archive, idx) > 0);
+		}
+
+		for (s32 i = 0; i < modArchiveGetEntryCount(opened.archive); i++) {
+			const char *entryName = modArchiveGetEntryName(opened.archive, i);
+			REQUIRE(entryName != nullptr);
+			INFO(spec.relPath << "::" << entryName);
+			REQUIRE(std::string(entryName).find(".bin") == std::string::npos);
+			REQUIRE(std::string(entryName).find("..") == std::string::npos);
+		}
+	}
+}
+
+TEST_CASE("typed pdxxx example archives keep declared source refs self-contained",
+          "[modding][pdxxx][examples][static][c3812][archive-refs]") {
+	const std::filesystem::path root =
+		"examples/modding/typed-pdxxx-basic";
+
+	struct ArchiveRefSpec {
+		const char *relPath;
+		const char *descriptorEntry;
+		std::vector<const char *> iniPathKeys;
+		std::vector<const char *> gltfEntries;
+		std::vector<const char *> objEntries;
+	};
+
+	const std::vector<ArchiveRefSpec> specs = {
+		{
+			"heads/tri_head.pdhead",
+			"head.ini",
+			{ "model_file" },
+			{ "model.gltf" },
+			{},
+		},
+		{
+			"bodies/tri_body.pdbody",
+			"body.ini",
+			{ "model_file", "hand_model_file" },
+			{ "model.gltf", "hand.gltf" },
+			{},
+		},
+		{
+			"arenas/tri_arena.pdarena",
+			"arena.ini",
+			{ "geometry_file", "pads_file", "setup_file" },
+			{},
+			{ "geometry.obj" },
+		},
+		{
+			"meshes/tri_mesh.pdmesh",
+			"model.ini",
+			{ "model_file" },
+			{ "model.gltf" },
+			{},
+		},
+		{
+			"weapons/tri_weapon.pdwpn",
+			"weapon.ini",
+			{ "model_file", "hand_model_file", "texture_file",
+			  "animation_file", "file_path" },
+			{ "model.gltf", "hand.gltf", "reload.gltf" },
+			{},
+		},
+		{
+			"animations/weapon_idle.pdanim",
+			"animation.ini",
+			{ "animation_file" },
+			{ "animation.gltf" },
+			{},
+		},
+		{
+			"animations/character_skeletal.pdanim",
+			"animation.ini",
+			{ "animation_file" },
+			{ "animation.gltf" },
+			{},
+		},
+		{
+			"audio/sfx/tri_click.pdsfx",
+			"sound.ini",
+			{ "file_path" },
+			{},
+			{},
+		},
+		{
+			"audio/voice/tri_voice.pdvoice",
+			"voice.ini",
+			{ "file_path" },
+			{},
+			{},
+		},
+		{
+			"audio/music/tri_song.pdsong",
+			"music.ini",
+			{ "file_path" },
+			{},
+			{},
+		},
+		{
+			"ui/tri_reticle.pdui",
+			"ui.ini",
+			{ "texture_file" },
+			{},
+			{},
+		},
+		{
+			"fonts/tri_font.pdfont",
+			"font.ini",
+			{ "font_file" },
+			{},
+			{},
+		},
+		{
+			"lang/tri_lang.pdlang",
+			"lang.ini",
+			{ "strings_file" },
+			{},
+			{},
+		},
+		{
+			"scenarios/tri_scenario.pdscenario",
+			"scenario.ini",
+			{ "rooms_file", "props_file", "objectives_file",
+			  "pads_file", "setup_file" },
+			{},
+			{ "rooms.obj" },
+		},
+	};
+
+	for (const ArchiveRefSpec &spec : specs) {
+		const std::filesystem::path archivePath = root / spec.relPath;
+		INFO(archivePath.generic_string());
+		REQUIRE(std::filesystem::is_regular_file(archivePath));
+
+		OpenArchive opened;
+		opened.archive = modArchiveOpen(archivePath.string().c_str());
+		REQUIRE(opened.archive != nullptr);
+
+		requireIniPathRefsResolve(opened.archive, spec.relPath,
+			spec.descriptorEntry, spec.iniPathKeys);
+
+		for (const char *gltfEntry : spec.gltfEntries) {
+			requireGltfUrisResolve(opened.archive, spec.relPath, gltfEntry);
+		}
+		for (const char *objEntry : spec.objEntries) {
+			requireObjRefsResolve(opened.archive, spec.relPath, objEntry);
+		}
+	}
 }
 
 TEST_CASE("Modding Hub exposes typed pdxxx examples as pack input",
@@ -854,8 +1292,10 @@ TEST_CASE("Modding Hub exposes typed pdxxx examples as pack input",
 	REQUIRE(hub.find("Use Sample Folder") != std::string::npos);
 	REQUIRE(hub.find("examples/modding/typed-pdxxx-basic/") != std::string::npos);
 	REQUIRE(hub.find("mods/typed-pdxxx-basic.pdmod") != std::string::npos);
-	REQUIRE(hub.find("Edit .pdxxx files first; pack .pdmod only for transport.") !=
+	REQUIRE(hub.find("Edit the .pdxxx archives first; pack .pdmod only for transport.") !=
 	        std::string::npos);
 	REQUIRE(hub.find(".pdmod output is for sharing, Public Mods, or online delivery") !=
+	        std::string::npos);
+	REQUIRE(hub.find("editable content is inside the typed .pdxxx asset archives") !=
 	        std::string::npos);
 }

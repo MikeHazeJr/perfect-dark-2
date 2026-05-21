@@ -664,6 +664,7 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_scanner.c
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_api.c
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_deps.c
+  ${CMAKE_SOURCE_DIR}/port/src/modarchive.c
 
   # INV-1: pure validators backing the _Checked catalog accessor variants.
   # assetcatalog_api.c references catalogCheckedValidate*; without this

@@ -77,7 +77,7 @@ Each subsection covers one `pd_kind` with: required fields, optional fields, an 
 
 ### 2.1 `pd_kind: weapon` (`.pdwpn`)
 
-JSON document. One file per weapon. Lifts the per-row shape from [base/weapons.pdbase](../../../base/weapons.pdbase) `weapons[]` array, adapts cross-references to use catalog IDs.
+Authored asset archive. One file per weapon. The archive root carries `weapon.ini` and a weapon behavior document, plus all authored model, animation, audio, texture, reticle, overlay, and display assets needed to edit or clone the weapon. Legacy JSON `.pdwpn` files remain a migration input, but the target modder-facing shape is a zip-openable archive consistent with the c3812 typed-asset contract.
 
 Required fields:
 
@@ -102,6 +102,8 @@ Optional fields (today populated for most weapons):
 - `bot_pref` (object inline). Bot AI preferences (target ammo per priority, distance configs, etc.).
 
 **Audio reference type-tolerance (Q-2 architectural invariant).** Any field referencing audio (`shootsound` inside `functions`, future `equip_sound`, etc.) accepts EITHER an `.pdsfx` catalog ID OR a `.pdvoice` catalog ID. The audio playback layer routes by kind at the consumer. This means a modder making a "weapon fire sound = voice line" mod sets `"shootsound": "modname:my_voice_line"` and it just works.
+
+**Behavior modularization (2026-05-20 c3812 clarification).** Weapon behavior already exists in game code and should be modularized into the `.pdwpn` authored format rather than reinvented. The project-owned behavior document should express trigger events, fire cadence in centiseconds, projectile references, looping fire, hold-fire beams, charge-and-release, secondary modes, melee attacks, zoom levels, reticle/overlay/zoom-camera effects, and model/HUD state tied to ammo and reload state. Examples that must fit the same format include Needler-style physical ammo needles with reload slot animation and assault-rifle-style numeric ammo screens on the weapon model.
 
 Example (Falcon 2):
 

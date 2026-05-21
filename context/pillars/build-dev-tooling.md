@@ -16,7 +16,7 @@ Code:
 - PowerShell prelude: [devtools/_build-env-prelude.ps1](../../devtools/_build-env-prelude.ps1).
 - Dev Window v2 (WPF GUI): [devtools/dev-window-v2/](../../devtools/dev-window-v2/) plus [devtools/dev-window-v2.ps1](../../devtools/dev-window-v2.ps1).
 - Release pipeline: [devtools/release.ps1](../../devtools/release.ps1) (1021 lines).
-- Test runner: [devtools/run-pd-tests.ps1](../../devtools/run-pd-tests.ps1) (192 lines).
+- Test runner: [devtools/run-pd-tests.ps1](../../devtools/run-pd-tests.ps1) (sets canonical build env, suppresses Windows loader popups, runs isolated `pd-tests.exe`).
 - Update system: [port/src/updater.c](../../port/src/updater.c), [port/src/updater_standalone/](../../port/src/updater_standalone/).
 - Configuration audit: see Configuration section below.
 

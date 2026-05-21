@@ -109,10 +109,10 @@ s32 assetCatalogScanComponents(const char *modsdir);
 /**
  * Scan external-format descriptors inside one loose folder mod.
  *
- * Preferred authored content is typed .pd* descriptor files
- * (heads/foo.pdhead + heads/foo/model.gltf, arenas/bar.pdarena +
- * arenas/bar/geometry.obj, animations/baz.pdanim + sidecars, etc.). The
- * earlier canonical folder layout (weapons/<id>/weapon.ini,
+ * Preferred authored content is zip-openable typed .pd* asset archives
+ * (heads/foo.pdhead::head.ini + model.gltf, arenas/bar.pdarena::arena.ini
+ * + geometry.obj, animations/baz.pdanim::animation.ini + source files).
+ * The earlier canonical folder layout (weapons/<id>/weapon.ini,
  * characters/heads/<id>/head.ini, maps/<id>/arena.ini, ...) remains accepted
  * for compatibility. .pdmod transport archives use the same scanner contract
  * without extracting files into the mods folder.

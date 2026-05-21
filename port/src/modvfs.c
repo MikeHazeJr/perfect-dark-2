@@ -151,6 +151,8 @@ static vfs_mount_t *findMount(const char *mod_id)
 	return NULL;
 }
 
+static void *resolveFromMount(vfs_mount_t *m, const char *relPath, u32 *outSize);
+
 static vfs_cache_entry_t *findCacheEntry(vfs_mount_t *m, const char *relPath)
 {
 	for (s32 i = 0; i < m->entry_count; i++) {
@@ -159,6 +161,63 @@ static vfs_cache_entry_t *findCacheEntry(vfs_mount_t *m, const char *relPath)
 		}
 	}
 	return NULL;
+}
+
+static const char *nestedArchiveSeparator(const char *relPath)
+{
+	return relPath ? strstr(relPath, "::") : NULL;
+}
+
+static void copyArchivePathPart(const char *src, size_t len, char *out, size_t outsz)
+{
+	if (!out || outsz == 0) {
+		return;
+	}
+	out[0] = '\0';
+	if (!src || len == 0) {
+		return;
+	}
+	if (len >= outsz) {
+		len = outsz - 1;
+	}
+	for (size_t i = 0; i < len; i++) {
+		out[i] = (src[i] == '\\') ? '/' : src[i];
+	}
+	out[len] = '\0';
+}
+
+static void copyNestedEntryName(const char *src, char *out, size_t outsz)
+{
+	if (!out || outsz == 0) {
+		return;
+	}
+	out[0] = '\0';
+	if (!src) {
+		return;
+	}
+	while (*src == '/' || *src == '\\') {
+		src++;
+	}
+	copyArchivePathPart(src, strlen(src), out, outsz);
+}
+
+static s32 splitNestedArchivePath(const char *relPath,
+                                  char *archiveName, size_t archiveNameSz,
+                                  char *entryName, size_t entryNameSz)
+{
+	const char *sep = nestedArchiveSeparator(relPath);
+	if (!sep || sep == relPath) {
+		return 0;
+	}
+
+	size_t archiveLen = (size_t)(sep - relPath);
+	if (archiveLen == 0 || archiveLen >= archiveNameSz) {
+		return 0;
+	}
+
+	copyArchivePathPart(relPath, archiveLen, archiveName, archiveNameSz);
+	copyNestedEntryName(sep + 2, entryName, entryNameSz);
+	return archiveName[0] && entryName[0];
 }
 
 /* ----------------------------------------------------------- Public API */
@@ -237,7 +296,16 @@ s32 modVfsCanResolve(const char *relPath)
 {
 	if (!relPath) return 0;
 	for (s32 i = 0; i < s_MountCount; i++) {
-		if (modArchiveFindEntry(s_Mounts[i].archive, relPath) >= 0) return 1;
+		if (nestedArchiveSeparator(relPath)) {
+			u32 sz = 0;
+			void *bytes = resolveFromMount(&s_Mounts[i], relPath, &sz);
+			if (bytes) {
+				free(bytes);
+				return 1;
+			}
+		} else if (modArchiveFindEntry(s_Mounts[i].archive, relPath) >= 0) {
+			return 1;
+		}
 	}
 	return 0;
 }
@@ -246,8 +314,17 @@ s32 modVfsGetSize(const char *relPath)
 {
 	if (!relPath) return -1;
 	for (s32 i = 0; i < s_MountCount; i++) {
-		s32 idx = modArchiveFindEntry(s_Mounts[i].archive, relPath);
-		if (idx >= 0) return (s32)modArchiveGetEntrySize(s_Mounts[i].archive, idx);
+		if (nestedArchiveSeparator(relPath)) {
+			u32 sz = 0;
+			void *bytes = resolveFromMount(&s_Mounts[i], relPath, &sz);
+			if (bytes) {
+				free(bytes);
+				return (s32)sz;
+			}
+		} else {
+			s32 idx = modArchiveFindEntry(s_Mounts[i].archive, relPath);
+			if (idx >= 0) return (s32)modArchiveGetEntrySize(s_Mounts[i].archive, idx);
+		}
 	}
 	return -1;
 }
@@ -257,6 +334,36 @@ s32 modVfsGetSize(const char *relPath)
  * cache. The cache copy is what survives across calls. */
 static void *resolveFromMount(vfs_mount_t *m, const char *relPath, u32 *outSize)
 {
+	char archiveName[FS_MAXPATH + 1];
+	char entryName[FS_MAXPATH + 1];
+	if (splitNestedArchivePath(relPath, archiveName, sizeof(archiveName),
+			entryName, sizeof(entryName))) {
+		u32 archiveSize = 0;
+		void *archiveBytes = resolveFromMount(m, archiveName, &archiveSize);
+		if (!archiveBytes) {
+			return NULL;
+		}
+
+		u32 entrySize = 0;
+		void *raw = modArchiveExtractMemAlloc(archiveBytes, archiveSize,
+			entryName, &entrySize);
+		free(archiveBytes);
+		if (!raw) {
+			return NULL;
+		}
+
+		void *out = realloc(raw, (size_t)entrySize + 1);
+		if (!out) {
+			free(raw);
+			return NULL;
+		}
+		((u8 *)out)[entrySize] = 0;
+		if (outSize) {
+			*outSize = entrySize;
+		}
+		return out;
+	}
+
 	vfs_cache_entry_t *e = findCacheEntry(m, relPath);
 	if (e) {
 		s_Hits++;

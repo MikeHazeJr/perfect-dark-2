@@ -3,5 +3,5 @@
   "name": "Typed PDXXX Basic Examples",
   "version": "1.0.0",
   "author": "PD2 samples",
-  "description": "Loose typed .pdxxx examples with standard external sidecar files. Wrap as .pdmod only for networking, Public Mods, or sharing transport."
+  "description": "Zip-openable typed .pdxxx asset archive examples for every current asset family. Wrap as .pdmod only for networking, Public Mods, or sharing transport."
 }

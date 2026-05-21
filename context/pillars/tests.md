@@ -116,6 +116,8 @@ Drift is a known gap: each mirror is hand-synced. Replacing with a CI-time `diff
 .\devtools\run-pd-tests.ps1 -Session <id> -ListTags -NoBuild
 ```
 
+Do not invoke `.claude/session-builds/<id>/pd-tests.exe` directly during AI verification. Use the wrapper even for focused selectors. It dot-sources the canonical build environment, keeps the MSYS2/MinGW runtime DLLs first on PATH, and sets the Windows process error mode before launching the binary so DLL/import failures do not become blocking GUI dialogs.
+
 ### Scope aliases
 
 [devtools/run-pd-tests.ps1:69-80](../../devtools/run-pd-tests.ps1:69):

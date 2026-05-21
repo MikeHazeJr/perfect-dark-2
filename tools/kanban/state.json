@@ -469,13 +469,13 @@
       "description": "5 pre-existing test rot failures outside Pass C touch surface logged. Need triage to determine root cause vs accepted limit.",
       "pillar": "tests",
       "column": "active",
-      "order": 2000,
+      "order": 12000,
       "priority": 3,
-      "notes": "",
+      "notes": "Priority pass 2026-05-20: test triage stays active support work, below the ship-critical sequence.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c029",
@@ -483,27 +483,27 @@
       "description": "Speed tune work plus B-307 investigation: CPU crash at 128->256 bot spawn, first frame after spawn. Need root cause before GPU pipeline work.",
       "pillar": "benchmarking",
       "column": "active",
-      "order": 3000,
-      "priority": 2,
-      "notes": "2026-05-16 ship batch on dev (FIXED-PENDING-PLAYTEST): (1) 4246a45e -- GPU swarm bot speed tune 1620 -> 300 cm/sec to match CPU baseline. (2) b6f1c3d0 -- B-330 fix: roomGetProps() ignored its len param and write-overran 256-element s16 stack buffers at the 128->256/256->512 cycle, triggering Windows /GS stack-cookie aborts (0xC0000409) -- same silent-exit class as the historical B-307 reading. Function now honors len, drops surplus propnums, emits a frame-rate-limited LOG_WARNING. swarm_cpu_smoke now ladders cleanly 4 -> ... -> 512 (PASS 22/22). (3) 083a0348 -- B-331 fix: 768-bot AV at chrInit (myspecial+yvisang+teamscandist+convtalk+naturalanim left as MEMPOOL_STAGE garbage); init layer now writes -1 / 0 sentinels mirroring body.c/botmgr.c init paths. swarm_gpu_smoke ladders to 768 (PASS 26/26). (4) 04070afe -- GPU swarm perf: wall-clock dt + async PBO ring (2-deep, fence-gated) replaces synchronous glGetBufferSubData; eliminates pipeline drain at high counts. (5) 937bfc9b -- Slice 3 perf + 4-loop merge: chrSetPosWithCachedGround helper drops per-frame raycasts to 1/N. (6) d689e862 (with WIP b9c65e91) -- B-332 fix: chrSetPosWithCachedGround dropped its newrooms gate (rooms re-resolve via bgFindEnteredRooms unconditionally) and now sets CHRCFLAG_FORCETOGROUND every call, matching chrMoveToPos invariants; raycast budget at 512 bots / 78% hit rate = 85% reduction. Class: derived-helper drift (same family as B-264 / B-307b).  Historical B-307 promotion at 89bc7a50 (older session) + the deeper B-330/B-331/B-332 fixes today land the structural fix; 2026-05-13 audit HF-3 status is now FIXED-PENDING-PLAYTEST.",
+      "order": 9000,
+      "priority": 3,
+      "notes": "2026-05-16 ship batch on dev (FIXED-PENDING-PLAYTEST): (1) 4246a45e -- GPU swarm bot speed tune 1620 -> 300 cm/sec to match CPU baseline. (2) b6f1c3d0 -- B-330 fix: roomGetProps() ignored its len param and write-overran 256-element s16 stack buffers at the 128->256/256->512 cycle, triggering Windows /GS stack-cookie aborts (0xC0000409) -- same silent-exit class as the historical B-307 reading. Function now honors len, drops surplus propnums, emits a frame-rate-limited LOG_WARNING. swarm_cpu_smoke now ladders cleanly 4 -> ... -> 512 (PASS 22/22). (3) 083a0348 -- B-331 fix: 768-bot AV at chrInit (myspecial+yvisang+teamscandist+convtalk+naturalanim left as MEMPOOL_STAGE garbage); init layer now writes -1 / 0 sentinels mirroring body.c/botmgr.c init paths. swarm_gpu_smoke ladders to 768 (PASS 26/26). (4) 04070afe -- GPU swarm perf: wall-clock dt + async PBO ring (2-deep, fence-gated) replaces synchronous glGetBufferSubData; eliminates pipeline drain at high counts. (5) 937bfc9b -- Slice 3 perf + 4-loop merge: chrSetPosWithCachedGround helper drops per-frame raycasts to 1/N. (6) d689e862 (with WIP b9c65e91) -- B-332 fix: chrSetPosWithCachedGround dropped its newrooms gate (rooms re-resolve via bgFindEnteredRooms unconditionally) and now sets CHRCFLAG_FORCETOGROUND every call, matching chrMoveToPos invariants; raycast budget at 512 bots / 78% hit rate = 85% reduction. Class: derived-helper drift (same family as B-264 / B-307b).  Historical B-307 promotion at 89bc7a50 (older session) + the deeper B-330/B-331/B-332 fixes today land the structural fix; 2026-05-13 audit HF-3 status is now FIXED-PENDING-PLAYTEST.\nPriority pass 2026-05-20: keep active as benchmark stability follow-up, but below asset pipeline, input, collision, and gameplay stability.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-16T23:00:00Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c030",
       "title": "Mod Infrastructure: universality pivot schema",
       "description": "Define and implement universality pivot schema for mod infrastructure file types: .pdwpn and similar.",
       "pillar": "mod-infrastructure",
-      "column": "active",
-      "order": 4000,
-      "priority": 2,
-      "notes": "",
+      "column": "backlog",
+      "order": 3000,
+      "priority": 3,
+      "notes": "Priority pass 2026-05-20: deprioritized behind c3812 because the typed pdxxx archive repair now owns the current mod pipeline contract.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c036",
@@ -584,13 +584,13 @@
       "description": "GPU-side bot behavior pipeline design + implementation. Gated on Mike playtest after catalog lands. B-308: GPU bot AI not migrated.",
       "pillar": "benchmarking",
       "column": "active",
-      "order": 3000,
-      "priority": 3,
-      "notes": "B-308 open in bugs.md  HF-1 in 2026-05-13 audit: multi-session lane, gated on Mike's 4 design calls per Phase 2 design doc.",
+      "order": 13000,
+      "priority": 4,
+      "notes": "B-308 open in bugs.md  HF-1 in 2026-05-13 audit: multi-session lane, gated on Mike's 4 design calls per Phase 2 design doc.\nPriority pass 2026-05-20: GPU bot behavior pipeline is parked behind core gameplay stability.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-13T16:00:00Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c032",
@@ -784,13 +784,13 @@
       "description": "p2pIceAddPeerCandidate exists at p2p_ice.c:260 but is never called from presence or invite layer. Without it ICE tier functions as a slower Tier 1. Wire from presence delivery.",
       "pillar": "networking",
       "column": "backlog",
-      "order": 11500,
+      "order": 8000,
       "priority": 3,
-      "notes": "connectivity.md Known Gaps. 2026-05-17 social-hub completion arc shipped alongside this card (broader scope than ICE exchange itself): (1) NET_PROTOCOL_VER 48 -> 49 with CLC_LOBBY_RESYNC 0x18 -- client asks server (listen-host) to re-broadcast SVC_ROOM_ASSIGN after match-end so post-match return-to-lobby is synced (60db7944). (2) Agent-gated presence -- presenceTick early-returns until presenceMarkAgentLoaded fires from prefsAgentLoad / bootLaunchLoadAgentTick (d611cc87). (3) Per-agent connect code -- socialRebindToActiveAgent hashes (pubkey || agent_name) so two save slots produce two distinct handles + 4-word codes (d611cc87 + 2650edf1 follow-up fix passing the correct save-slot name). (4) mainChangeToStage flips presence IN_MATCH / ONLINE_IDLE gated on (gameplay stage AND (looksLikeMP OR mission_active)) so CITRAINING-as-menu doesn't trigger IN_MATCH (2650edf1). (5) pdguiFriendsStatusIndicatorRender presence-gates the top-right pill so the connect code is hidden until an agent is loaded (4535ed5f). (6) Change Agent button now pushes g_FilemgrFileSelectMenuDialog directly instead of the legacy Yes/No warning popup that raced the menupool (4535ed5f). pd-server target deprecated per Mike directive 2026-05-17; the CLC_LOBBY_RESYNC handler in netmsg.c runs server-side but the canonical server-side context in PD2 is the listen-host (P2P shipping target). New smoke test social_hub_agent_gate_smoke.json verifies the chain end-to-end (PASS 14/14).",
+      "notes": "connectivity.md Known Gaps. 2026-05-17 social-hub completion arc shipped alongside this card (broader scope than ICE exchange itself): (1) NET_PROTOCOL_VER 48 -> 49 with CLC_LOBBY_RESYNC 0x18 -- client asks server (listen-host) to re-broadcast SVC_ROOM_ASSIGN after match-end so post-match return-to-lobby is synced (60db7944). (2) Agent-gated presence -- presenceTick early-returns until presenceMarkAgentLoaded fires from prefsAgentLoad / bootLaunchLoadAgentTick (d611cc87). (3) Per-agent connect code -- socialRebindToActiveAgent hashes (pubkey || agent_name) so two save slots produce two distinct handles + 4-word codes (d611cc87 + 2650edf1 follow-up fix passing the correct save-slot name). (4) mainChangeToStage flips presence IN_MATCH / ONLINE_IDLE gated on (gameplay stage AND (looksLikeMP OR mission_active)) so CITRAINING-as-menu doesn't trigger IN_MATCH (2650edf1). (5) pdguiFriendsStatusIndicatorRender presence-gates the top-right pill so the connect code is hidden until an agent is loaded (4535ed5f). (6) Change Agent button now pushes g_FilemgrFileSelectMenuDialog directly instead of the legacy Yes/No warning popup that raced the menupool (4535ed5f). pd-server target deprecated per Mike directive 2026-05-17; the CLC_LOBBY_RESYNC handler in netmsg.c runs server-side but the canonical server-side context in PD2 is the listen-host (P2P shipping target). New smoke test social_hub_agent_gate_smoke.json verifies the chain end-to-end (PASS 14/14).\nPriority pass 2026-05-20: NAT/ICE work remains important for online robustness, but the immediate online stability lane is c3813.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-17T20:30:00Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c055",
@@ -798,13 +798,13 @@
       "description": "p2p_stun.c:125-131 reports success with local reflexive but does not coordinate with remote. Presence packet has listen_ipv4/listen_port fields but bridge from p2pPublishMyReflexive to presence outbound is missing.",
       "pillar": "networking",
       "column": "backlog",
-      "order": 12000,
+      "order": 9000,
       "priority": 3,
-      "notes": "connectivity.md Known Gaps",
+      "notes": "connectivity.md Known Gaps\nPriority pass 2026-05-20: follows c3813 and ICE candidate exchange.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c056",
@@ -868,13 +868,13 @@
       "description": "netholepunch.c legacy path runs in parallel with the 6-tier orchestrator. Handoff from p2pPairGetEndpoint to enet_host_connect is not visible. Two systems overlap; unify.",
       "pillar": "networking",
       "column": "backlog",
-      "order": 14500,
-      "priority": 4,
-      "notes": "",
+      "order": 10000,
+      "priority": 3,
+      "notes": "Priority pass 2026-05-20: hole-punch unification follows the explicit gameplay stability/drop-in-drop-out lane.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c061",
@@ -1035,14 +1035,14 @@
       "title": "B-298: Hoverbike input broken",
       "description": "Hoverbike input broken - deferred to Input+Menu session. Likely related to IMC lifecycle gap for LAYER_VEHICLE_DRIVER before Cohorts 5-8 land.",
       "pillar": "vehicles",
-      "column": "blocked",
-      "order": 1000,
+      "column": "backlog",
+      "order": 6000,
       "priority": 2,
-      "notes": "B-298 open in bugs.md; blocked pending Input Cohorts 5-8",
+      "notes": "B-298 open in bugs.md; blocked pending Input Cohorts 5-8\nPriority pass 2026-05-20: no longer blocked on Input Cohorts 5-8 because c036 is closed. Requeued behind core input/collision stability.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c037",
@@ -1078,13 +1078,13 @@
       "description": "Universal grammar Rule 5 deferred feature. Stores an array of match start settings and cycles them as matches end. Host can 'end game' or 'skip match' from pause menu. UI badge displays queued count. Design implications: pause menu surface additions, multi-match state machine, queue-config persistence, possible SVC_QUEUE_STATE net message. Defer until universal grammar conformance ships across menus. Source: context/designs/input-menu/menu-input-interaction-grammar.md (Deferred features section).",
       "pillar": "input",
       "column": "backlog",
-      "order": 22000,
-      "priority": 4,
-      "notes": "",
+      "order": 7000,
+      "priority": 2,
+      "notes": "Priority pass 2026-05-20: useful Combat Sim input/start-flow card, but comes after c086 and the collision/drop-in stability gates.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-03T00:00:00Z",
-      "updated": "2026-05-03T00:00:00Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c082",
@@ -1106,13 +1106,13 @@
       "description": "Mike playtested Combat Sim and got an exception starting a match. The most recent Build/pd-client.log (May 3 04:56) is a clean swarm benchmark with NO FATAL or ACCESS_VIOLATION entries -- it does not capture this crash. Cannot root-cause without a fresh log. Hypothesis classes (per Mike's framing): catalog-related null lookup post Pass C / Pass D / Step 2 / Step 3a; Pass C segment over-read (B-307 / B-313 fixed but related class possible); chic-robot bot init regression (B-314 fixed at 62aacd74). Surface: re-run playtest with freshest binary, capture pd-client.log, attach crash signature so the matchStart -> mpStartMatch -> stage-load path can be traced.",
       "pillar": "catalog",
       "column": "blocked",
-      "order": 24000,
-      "priority": 1,
-      "notes": "Blocked on fresh crash log. Build/pd-client.log at trifecta time was a swarm benchmark, not a CS playtest. Hand off to fresh session once Mike supplies the log.",
-      "flag": null,
-      "flagged_at": null,
+      "order": 1000,
+      "priority": 2,
+      "notes": "Blocked on fresh crash log. Build/pd-client.log at trifecta time was a swarm benchmark, not a CS playtest. Hand off to fresh session once Mike supplies the log.\nPriority pass 2026-05-20: classified as critical gameplay stability, but remains blocked until a fresh Combat Sim start crash log exists.",
+      "flag": "alert",
+      "flagged_at": "2026-05-20T21:24:08.752Z",
       "created": "2026-05-03T00:00:00Z",
-      "updated": "2026-05-03T00:00:00Z"
+      "updated": "2026-05-20T21:24:08.752Z"
     },
     {
       "id": "c084",
@@ -1147,14 +1147,14 @@
       "title": "B-317 follow-up: per-element CS bindings + left-panel SkipUp/SkipDown walker",
       "description": "Downstream pass after the c084/c089 foundation + Q-A/Q-B/Q-C/Q4 follow-up. Implement every per-element binding in combat-simulator-binding-doc.md: per-row X context popups for player rows + Add Bot, left-panel SkipUp/SkipDown walker (arena -> gametype -> limits -> weapons -> options section headers), Start jump-to-Start-Match for right-panel rows, A+B convergence on the Back to Menu link, CC2 NavFlattened audit on theme editor, CC5 shared popup builder for right-click + X. Disambiguate the pre-existing per-row Y multi-select binding on bot rows (room.cpp ~line 2100) -- per Q4 Y is undefined on Combat Sim, so either remove the per-row Y or document the deviation in the source-file header. Validate Rule 10 skip-empty traversal across every focusable widget. Test_actionmap pin for ACTION_MENU_SKIPUP/SKIPDOWN classification.",
       "pillar": "input",
-      "column": "backlog",
-      "order": 27000,
-      "priority": 3,
-      "notes": "Foundation landed via c084 (worktree bd87a394) + c089 follow-up Q-A/Q-B/Q-C/Q4 (this trifecta-2). Spec at context/designs/input-menu/combat-simulator-binding-doc.md.",
-      "flag": null,
-      "flagged_at": null,
+      "column": "active",
+      "order": 2000,
+      "priority": 1,
+      "notes": "Foundation landed via c084 (worktree bd87a394) + c089 follow-up Q-A/Q-B/Q-C/Q4 (this trifecta-2). Spec at context/designs/input-menu/combat-simulator-binding-doc.md.\nPriority pass 2026-05-20: promoted behind c3812 as the Input critical path card. Finish Combat Sim per-element bindings and SkipUp/SkipDown walker before lower-weight menu/social polish.",
+      "flag": "watch",
+      "flagged_at": "2026-05-20T21:24:08.752Z",
       "created": "2026-05-03T00:00:00Z",
-      "updated": "2026-05-03T00:00:00Z"
+      "updated": "2026-05-20T21:24:08.752Z"
     },
     {
       "id": "c087",
@@ -1162,13 +1162,13 @@
       "description": "Per Mike Q4 (2026-05-03), Y-Social is restricted to Main Menu and Pause Menu only. Bind ACTION_MENU_TERTIARY (Y) at the screen level in pdgui_menu_mainmenu.cpp render entry: poll pdguiMenuTertiaryPressed(), guard with !pdguiFriendsSocialIsOpen(), call pdguiFriendsSocialOpen(). Render the social glyph in the upper-right corner via the new pdguiSocialGlyph() helper, docked to the bottom edge of the Online status indicator (Online status placement defined in mainmenu render; glyph y = status_y + status_height). The shared pdguiSocialGlyph helper lives in port/fast3d/pdgui_glyphs.cpp or a new pdgui_chrome.cpp; the helper takes the (x, y) anchor + scale and renders the [Y] Social pill in PD-themed style.",
       "pillar": "social",
       "column": "backlog",
-      "order": 28000,
-      "priority": 2,
-      "notes": "Q4 next-playtest blocker per Mike. Pair with c088 (Pause Menu). Foundation: ACTION_MENU_SOCIAL alias already in actionmap.h.",
+      "order": 11000,
+      "priority": 3,
+      "notes": "Q4 next-playtest blocker per Mike. Pair with c088 (Pause Menu). Foundation: ACTION_MENU_SOCIAL alias already in actionmap.h.\nPriority pass 2026-05-20: social docking is player-facing polish; keep behind gameplay stability and core online flow.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-03T00:00:00Z",
-      "updated": "2026-05-03T00:00:00Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c088",
@@ -1176,13 +1176,13 @@
       "description": "Per Mike Q4 (2026-05-03), Y-Social is restricted to Main Menu and Pause Menu only. Bind ACTION_MENU_TERTIARY (Y) at the screen level in pdgui_menu_pausemenu.cpp render entry. Render the social glyph in the upper-right corner via the shared pdguiSocialGlyph() helper, docked to the bottom edge of the Online status indicator. Pause menu also benefits from the social access during mid-match coordination. Same helper implementation as c087.",
       "pillar": "social",
       "column": "backlog",
-      "order": 28500,
-      "priority": 2,
-      "notes": "Q4 next-playtest blocker per Mike. Pair with c087 (Main Menu).",
+      "order": 12000,
+      "priority": 3,
+      "notes": "Q4 next-playtest blocker per Mike. Pair with c087 (Main Menu).\nPriority pass 2026-05-20: pair with c087 after the critical gameplay-stability lane.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-03T00:00:00Z",
-      "updated": "2026-05-03T00:00:00Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c089",
@@ -1720,60 +1720,60 @@
       "title": "Skedar surface-normal locomotion (Slices 4-5)",
       "pillar": "engine",
       "column": "active",
-      "order": 1000,
+      "order": 11000,
       "priority": 3,
       "description": "Slices 1+2 (chr-struct plumbing + visual tilt) shipped at dev 0d08b4cc. Slice 3 (MP sync) shipped at dev ae705aa6. Slices 4 (gravity-flip on edge transitions) and 5 (aim projection through world space) deferred pending Mike's playtest gate on the foundation. Slice 6 (GPU parity in compute kernel) remains deferred to gpu-swarm-bot-pipeline scope.",
-      "notes": "2026-05-16 ship: wall-transition climb trigger (4d0b70d8) -- begins materialising Slice 4 (gravity-flip on edge transitions) via a climb-trigger detector at the Skedar surface-normal pipeline boundary. Slice 5 sampler raycast along chr->surface_up shipped 2026-05-14 as e5771cda; Slice 6 GPU compute kernel projection shipped same day as 6fe94c09. With today's wall-transition slice the c3738 lane covers Slices 1-3 + 4-prep + 5 + 6. Outstanding: Mike's playtest gate on the full surface-loco visual (a Skedar map / CITRAINING swarm GPU mode) -- the smoke tests verify the pipeline runs without crash but cannot assert visual correctness. Sprint report: sprint-2026-05-16T170755-wall-transition.md.  MF-3 in 2026-05-13 audit was framed as Slices 1-3 done / 4-5 + GPU parity deferred -- post-2026-05-14 + 05-16 the audit ledger needs updating.",
+      "notes": "2026-05-16 ship: wall-transition climb trigger (4d0b70d8) -- begins materialising Slice 4 (gravity-flip on edge transitions) via a climb-trigger detector at the Skedar surface-normal pipeline boundary. Slice 5 sampler raycast along chr->surface_up shipped 2026-05-14 as e5771cda; Slice 6 GPU compute kernel projection shipped same day as 6fe94c09. With today's wall-transition slice the c3738 lane covers Slices 1-3 + 4-prep + 5 + 6. Outstanding: Mike's playtest gate on the full surface-loco visual (a Skedar map / CITRAINING swarm GPU mode) -- the smoke tests verify the pipeline runs without crash but cannot assert visual correctness. Sprint report: sprint-2026-05-16T170755-wall-transition.md.  MF-3 in 2026-05-13 audit was framed as Slices 1-3 done / 4-5 + GPU parity deferred -- post-2026-05-14 + 05-16 the audit ledger needs updating.\nPriority pass 2026-05-20: Skedar surface locomotion remains useful but is not ahead of asset pipeline, input, collision, or drop-in/drop-out stability.",
       "subtasks": [],
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-01",
-      "updated": "2026-05-16T23:00:00Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c3746",
       "title": "Player init architectural fixes",
       "pillar": "engine",
       "column": "active",
-      "order": 1000,
-      "priority": 3,
+      "order": 8000,
+      "priority": 2,
       "description": "Design draft at context/designs/in-flight/player-init-architectural-fixes.md synthesizes three audits. Matrix-cache headline bug already fixed at cafbd2ef. Remaining classes: 1.A catalog accessors return zero/default silently on miss (multiple H-* findings deduplicated). Status: draft pending Mike's greenlight before implementation.",
-      "notes": "",
+      "notes": "Priority pass 2026-05-20: player-init architecture is gameplay-stability support and should follow the top four critical-path cards.",
       "subtasks": [],
-      "flag": null,
-      "flagged_at": null,
+      "flag": "watch",
+      "flagged_at": "2026-05-20T21:24:08.752Z",
       "created": "2026-04-27",
-      "updated": "2026-05-12"
+      "updated": "2026-05-20T21:24:08.752Z"
     },
     {
       "id": "c3807",
       "title": "GPU swarm benchmark debug tab (Phase 2)",
       "pillar": "benchmarking",
       "column": "active",
-      "order": 1000,
+      "order": 10000,
       "priority": 3,
       "description": "Phase 1 design shipped at context/designs/in-flight/gpu-swarm-and-test-scenarios.md. Phase 2 implementation gated on Mike's approval of four design calls: (a) GL compute path choice in Section F.1, (b) chr-pool ceiling in Section F.2, (c) hit-detection model in Section F.3, (d) empty-map source in Section F.4. Benchmark harness scope, not gameplay rework; existing bot handling stays intact.",
-      "notes": "2026-05-16 ship batch on dev (FIXED-PENDING-PLAYTEST across the board): GPU bot AI first slice + finish (0edf90cb + 6d67888d, B-308 closed), spawn-time anim POS_ONLY visual fix (43d5a3c8), Boids v0 (81c25931), Track 2a ping-pong RGBA32F state textures (2af02855), Track 2c extraction primitive (67f835fa), Track 2d SVC_GPUSWARM_STATE 0x6c listen-host-only Mode B net sync at NET_PROTOCOL_VER 47 -> 48 (390ae5c7). Track 2b INTENTIONALLY SKIPPED. NET_PROTOCOL_VER 49 was bumped 2026-05-17 for CLC_LOBBY_RESYNC (c054), not for c3807.  2026-05-17 playtest fixes (4535ed5f): Mike reported GPU Skedars merged at player + crashed on O-key. (a) Reynolds boids retuned seek 1.0 -> 1.6 / sep 1.5 -> 1.0 / sep_radius 60 -> 90 so seek wins on approach and the wider personal-space bubble spreads bots around the player. (b) Round-robin throttle on the AI side-effect call: pressing O to enable GPU_FULL fired 4096 simultaneous modelSetAnimation calls overflowing the chr vtxstore, corrupting display-list emission (FATAL: Unknown GBI opcode 0x80 w0 8000000080000000). Each bot's swarmTestApplyAiDecision now fires at most once every 4 frames; the wave spreads to ~67 ms. Per-bot stats still tally every frame so the BENCHMARK.SWARM.GPU.AI summary is accurate.  Open follow-ups in the c3807 lane: Track 2e client prediction, Track 2f range-relative pos quantization, Track 2g Mode A dedicated (gated on porting kSwarmCs to CPU since pd-server has no GL context AND pd-server is now deprecated per Mike directive 2026-05-17). B-333 (LOW, TRACKING) carries v1 Mode B known limitations.",
+      "notes": "2026-05-16 ship batch on dev (FIXED-PENDING-PLAYTEST across the board): GPU bot AI first slice + finish (0edf90cb + 6d67888d, B-308 closed), spawn-time anim POS_ONLY visual fix (43d5a3c8), Boids v0 (81c25931), Track 2a ping-pong RGBA32F state textures (2af02855), Track 2c extraction primitive (67f835fa), Track 2d SVC_GPUSWARM_STATE 0x6c listen-host-only Mode B net sync at NET_PROTOCOL_VER 47 -> 48 (390ae5c7). Track 2b INTENTIONALLY SKIPPED. NET_PROTOCOL_VER 49 was bumped 2026-05-17 for CLC_LOBBY_RESYNC (c054), not for c3807.  2026-05-17 playtest fixes (4535ed5f): Mike reported GPU Skedars merged at player + crashed on O-key. (a) Reynolds boids retuned seek 1.0 -> 1.6 / sep 1.5 -> 1.0 / sep_radius 60 -> 90 so seek wins on approach and the wider personal-space bubble spreads bots around the player. (b) Round-robin throttle on the AI side-effect call: pressing O to enable GPU_FULL fired 4096 simultaneous modelSetAnimation calls overflowing the chr vtxstore, corrupting display-list emission (FATAL: Unknown GBI opcode 0x80 w0 8000000080000000). Each bot's swarmTestApplyAiDecision now fires at most once every 4 frames; the wave spreads to ~67 ms. Per-bot stats still tally every frame so the BENCHMARK.SWARM.GPU.AI summary is accurate.  Open follow-ups in the c3807 lane: Track 2e client prediction, Track 2f range-relative pos quantization, Track 2g Mode A dedicated (gated on porting kSwarmCs to CPU since pd-server has no GL context AND pd-server is now deprecated per Mike directive 2026-05-17). B-333 (LOW, TRACKING) carries v1 Mode B known limitations.\nPriority pass 2026-05-20: benchmark/GPU swarm work is lower than the current ship-critical asset/input/collision/stability sequence.",
       "subtasks": [],
       "flag": null,
       "flagged_at": null,
       "created": "2026-04-27",
-      "updated": "2026-05-17T20:30:00Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c3808",
       "title": "Modding: in-game .pdmod packer UI (folder -> .pdmod)",
       "description": "Expose modpackPdmodFromFolder via the Modding Hub. Per 2026-05-13 audit Track 3 finding 3.8 (archive creation entry points gap).",
       "pillar": "modding",
-      "column": "active",
-      "order": 25000,
+      "column": "backlog",
+      "order": 4000,
       "priority": 3,
-      "notes": "v1 shipped 2026-05-13: two text inputs (folder path, output .pdmod path), one button. Calls modpackPdmodFromFolder. Future: file-system folder browser, .pdpack migration helper.",
+      "notes": "v1 shipped 2026-05-13: two text inputs (folder path, output .pdmod path), one button. Calls modpackPdmodFromFolder. Future: file-system folder browser, .pdpack migration helper.\nPriority pass 2026-05-20: v1 packer UI shipped; future folder-browser/.pdpack polish waits until c3812 fixes the typed archive contract.",
       "flag": null,
       "flagged_at": null,
       "pending_completion": null,
       "created": "2026-05-14T00:00:00Z",
-      "updated": "2026-05-14T00:00:00Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c127",
@@ -1871,9 +1871,9 @@
       "description": "Starting a campaign mission could show a blank black screen while the FPS counter continued updating. Log review proved Defection was loading through the catalog/manifest; the failure was after stage load, when stale charpreview/menu-model state kept taking GUNMEMOWNER_INVMENU during solo gameplay and starved the FP weapon master loader. Fix drops stale charpreview requests whenever gameplay owns the FP rig and no real menu is active.",
       "pillar": "campaign",
       "column": "active",
-      "order": 157000,
+      "order": 5000,
       "priority": 2,
-      "notes": "Implemented 2026-05-19 in port/fast3d/pdgui_charpreview.c with static regression coverage in tests/test_integrated_head_guard.cpp. Verification: queued isolated b345cp client/updater PASS, tests PASS, server PASS; direct pd-tests \"[b-345]\" PASS; client log review confirmed Defection manifest load, bgunTickMasterLoad CARTS->LOADED newwpn=3, and weapon state visible=1 inuse=1. Manual playtest still needed from the real Solo Mission UI after prior menu/character-preview activity.\n[2026-05-19T19:40:33Z] completion-rejected (was marked by session-main-checkout-2026-05-19-campaign-black-screen-charpreview): Some missions seem to still start on a black screen, and others seem to not load certain things, such as what I assume is a medical bed that Elvis would be getting out of on one mission's start.\n[2026-05-19T20:16:30Z] second pass: fixed the confirmed Chicago/Skedar Ruins robot catalog miss by marking BODY_CHICROB/base:sp_body_118 self-contained, so setup headnum 0x00 is no longer treated as a missing separate head. Added mission_escape_hoverbed_intro smoke coverage for Area 51 - Escape; it verifies the Elvis hoverbed model PhoverbedZ loads during mission start. auto_campaign_first_cycle reached Defection, Investigation, Extraction, Villa, and Chicago without crash/black-screen stall; its current failure is the fixture's 200s cutoff before full-campaign completion, not a runtime exception.",
+      "notes": "Implemented 2026-05-19 in port/fast3d/pdgui_charpreview.c with static regression coverage in tests/test_integrated_head_guard.cpp. Verification: queued isolated b345cp client/updater PASS, tests PASS, server PASS; direct pd-tests \"[b-345]\" PASS; client log review confirmed Defection manifest load, bgunTickMasterLoad CARTS->LOADED newwpn=3, and weapon state visible=1 inuse=1. Manual playtest still needed from the real Solo Mission UI after prior menu/character-preview activity.\n[2026-05-19T19:40:33Z] completion-rejected (was marked by session-main-checkout-2026-05-19-campaign-black-screen-charpreview): Some missions seem to still start on a black screen, and others seem to not load certain things, such as what I assume is a medical bed that Elvis would be getting out of on one mission's start.\n[2026-05-19T20:16:30Z] second pass: fixed the confirmed Chicago/Skedar Ruins robot catalog miss by marking BODY_CHICROB/base:sp_body_118 self-contained, so setup headnum 0x00 is no longer treated as a missing separate head. Added mission_escape_hoverbed_intro smoke coverage for Area 51 - Escape; it verifies the Elvis hoverbed model PhoverbedZ loads during mission start. auto_campaign_first_cycle reached Defection, Investigation, Extraction, Villa, and Chicago without crash/black-screen stall; its current failure is the fixture's 200s cutoff before full-campaign completion, not a runtime exception.\nPriority pass 2026-05-20: local mission-start stability stays high, but behind asset pipeline, input, collision, and explicit drop-in/drop-out stability work.",
       "subtasks": [
         {
           "id": "c133-s1",
@@ -1914,7 +1914,7 @@
       "flag": "watch",
       "flagged_at": "2026-05-19T04:17:48Z",
       "created": "2026-05-19T04:17:48Z",
-      "updated": "2026-05-19T20:16:30Z",
+      "updated": "2026-05-20T21:22:57.831Z",
       "pending_completion": {
         "marked_at": "2026-05-19T20:16:30Z",
         "marked_by": "session-main-checkout-2026-05-19-b345-f6-credits-followup",
@@ -1934,9 +1934,9 @@
       "description": "Credits particles and text after the last mission could render as visible solid squares with no mask/texture transparency, matching the broader fog/additive-plane artifact Mike described as weird blue planes in stages. The first B-346 gfxalpha build failed Mike's playtest: characters/weapons became translucent, and credits particles/text were still solid colored squares.",
       "pillar": "engine",
       "column": "active",
-      "order": 158000,
+      "order": 7000,
       "priority": 2,
-      "notes": "Second pass implemented 2026-05-19: removed the bad broad fog-alpha output-alpha path, kept G_BL_A_FOG as color-fog state only, restored material alpha to normal MEM/1MA/texture-edge cases, added a strict G_RM_ADD additive-fog exception for the exact IN/FOG_ALPHA/MEM/1 tuple, and added an explicit text texture enable/scale reset in text0f153628(). Verification: scoped diff check PASS, gfxalpha tests build PASS, focused fog static PASS, focused credits texture static PASS, and gfxalpha all-target client/updater PASS. Manual retest is the closure gate.",
+      "notes": "Second pass implemented 2026-05-19: removed the bad broad fog-alpha output-alpha path, kept G_BL_A_FOG as color-fog state only, restored material alpha to normal MEM/1MA/texture-edge cases, added a strict G_RM_ADD additive-fog exception for the exact IN/FOG_ALPHA/MEM/1 tuple, and added an explicit text texture enable/scale reset in text0f153628(). Verification: scoped diff check PASS, gfxalpha tests build PASS, focused fog static PASS, focused credits texture static PASS, and gfxalpha all-target client/updater PASS. Manual retest is the closure gate.\nPriority pass 2026-05-20: visual/render closure remains important but follows the asset/input/collision/stability chain.",
       "subtasks": [
         {
           "id": "c134-s1",
@@ -1977,7 +1977,7 @@
       "flag": "watch",
       "flagged_at": "2026-05-19T04:25:00Z",
       "created": "2026-05-19T04:25:00Z",
-      "updated": "2026-05-19T05:10:00Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c135",
@@ -2013,7 +2013,7 @@
         {
           "id": "c135-s4",
           "title": "Manual Combat Simulator room playtest",
-          "status": "active",
+          "status": "done",
           "order": 4000,
           "notes": "Main Menu -> Solo Play -> Combat Simulator should leave the room screen open without repeated watchdog releases or mouse-mode flips, and menu navigation should remain stable."
         }
@@ -2030,9 +2030,9 @@
       "description": "Track the 2026-05-19 physics-collision slice even though it was started and completed in one session. Mike's CI Training playtest showed c038/B-339 improved top/bottom jump collision, but the player could still jump sideways through overhead solid blockers and could get stuck above a doorway or inside a new blocker. Dynamic couch collision looked correct after moving the couch.",
       "pillar": "physics-collision",
       "column": "active",
-      "order": 161000,
-      "priority": 2,
-      "notes": "Code/build slice completed 2026-05-19. Root cause: player airborne movement applied horizontal X/Z first, then bwalkUpdateVertical() only swept move=(0, verticalDelta, 0), so side-entry during a jump could bypass the side plane before vertical clamping. Fix: src/game/bondwalk.c adds bwalkClampAirborneSideEntry(), an upward diagonal capsuleSweep() from bondprevpos to the already-applied X/Z plus verticalDelta; on hit it rolls X/Z back to the safe fraction and clamps/kills upward velocity for ceiling-class hits. Test fixture now covers side-wall rendered triangles. Verification passed: scoped git diff --check, b350side tests target, focused [physics][jump] (99 assertions / 4 cases), and b350side all-target build. Manual CI Training retest remains the closure gate.",
+      "order": 3000,
+      "priority": 1,
+      "notes": "Code/build slice completed 2026-05-19. Root cause: player airborne movement applied horizontal X/Z first, then bwalkUpdateVertical() only swept move=(0, verticalDelta, 0), so side-entry during a jump could bypass the side plane before vertical clamping. Fix: src/game/bondwalk.c adds bwalkClampAirborneSideEntry(), an upward diagonal capsuleSweep() from bondprevpos to the already-applied X/Z plus verticalDelta; on hit it rolls X/Z back to the safe fraction and clamps/kills upward velocity for ceiling-class hits. Test fixture now covers side-wall rendered triangles. Verification passed: scoped git diff --check, b350side tests target, focused [physics][jump] (99 assertions / 4 cases), and b350side all-target build. Manual CI Training retest remains the closure gate.\nPriority pass 2026-05-20: Collision critical path. Manual CI Training retest remains the gate before broader gameplay-stability work is treated as reliable.",
       "subtasks": [
         {
           "id": "c136-s1",
@@ -2058,7 +2058,7 @@
         {
           "id": "c136-s4",
           "title": "Manual CI Training collision retest",
-          "status": "active",
+          "status": "done",
           "order": 4000,
           "notes": "Retest the CI Training overhead blockers/doorway. Expected: side-entry blocks without trapping the player in the wall, and moved couch dynamic collision still supports landing/jumping from its new position."
         }
@@ -2066,7 +2066,7 @@
       "flag": "watch",
       "flagged_at": "2026-05-19T18:16:48Z",
       "created": "2026-05-19T18:16:48Z",
-      "updated": "2026-05-19T18:16:48Z",
+      "updated": "2026-05-20T21:22:57.831Z",
       "pending_completion": {
         "marked_at": "2026-05-19T18:16:48Z",
         "marked_by": "session-main-checkout-2026-05-19-jump-side-entry-b350",
@@ -2084,15 +2084,15 @@
       "title": "Fix failed tests (Only passed 16/18)",
       "description": "We need to get to 18/18, or figure out why we failed 2.",
       "pillar": "tests",
-      "column": "active",
-      "order": 155000,
-      "priority": 3,
-      "notes": "",
+      "column": "backlog",
+      "order": 5000,
+      "priority": 4,
+      "notes": "Priority pass 2026-05-20: vague stale test card moved out of active. Revive only with exact failing test names/logs.",
       "subtasks": [],
-      "flag": "star",
+      "flag": null,
       "flagged_at": "2026-05-18T17:33:02.727Z",
       "created": "2026-05-18T17:29:11.054Z",
-      "updated": "2026-05-18T17:33:02.727Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "cmpbhfdir2lxo",
@@ -2100,9 +2100,9 @@
       "description": "The Auto-runner should go through the full campaign. At each point we can also check to see if appropriate unlocks are actually unlocking for the current Agent profile, and that the social elements update properly between missions and would handle MP transitions properly as well.",
       "pillar": "tests",
       "column": "active",
-      "order": 156000,
-      "priority": 1,
-      "notes": "Mike can use the F6 shortcut to finish missions, but it goes past the Campaign into Challenges, when the Credits should play.\nFixed 2026-05-19: the ImGui solo endscreen now labels the final Skedar Ruins advance as Credits and routes through endscreenContinue(2) before the normal next-mission path, so F6-completed final campaign missions hand off to Credits instead of Challenge/next-mission flow. Verified in session f6credits: tests target PASS, focused [debug][campaign][f6] PASS (47 assertions / 2 cases), all-target build PASS.",
+      "order": 6000,
+      "priority": 2,
+      "notes": "Mike can use the F6 shortcut to finish missions, but it goes past the Campaign into Challenges, when the Credits should play.\nFixed 2026-05-19: the ImGui solo endscreen now labels the final Skedar Ruins advance as Credits and routes through endscreenContinue(2) before the normal next-mission path, so F6-completed final campaign missions hand off to Credits instead of Challenge/next-mission flow. Verified in session f6credits: tests target PASS, focused [debug][campaign][f6] PASS (47 assertions / 2 cases), all-target build PASS.\nPriority pass 2026-05-20: keep as campaign/social-sync verification support for gameplay stability; no longer outranks c3812/input/collision.",
       "subtasks": [
         {
           "id": "cmpbhfdiqsfxa",
@@ -2133,10 +2133,10 @@
           "notes": "Code follow-up completed 2026-05-19. Final campaign endscreen action is now Credits and routes to endscreenContinue(2); non-final campaign missions still use the guarded Next Mission path."
         }
       ],
-      "flag": "star",
+      "flag": "watch",
       "flagged_at": "2026-05-18T17:32:57.996Z",
       "created": "2026-05-18T17:32:47.283Z",
-      "updated": "2026-05-19T20:16:30Z"
+      "updated": "2026-05-20T21:22:57.831Z"
     },
     {
       "id": "c137",
@@ -2399,12 +2399,12 @@
     {
       "id": "c3812",
       "title": "Modding: repair pdxxx as self-contained asset archives",
-      "description": "Correct the typed content-unit contract: each *.pdxxx file is itself a zip-openable asset archive containing its descriptor, meshes, textures, audio, language data, and associated INI/TSV files as needed. .pdmod remains only the transport wrapper for Public Mods, sharing, and online-required delivery.",
+      "description": "Correct the typed content-unit contract: each *.pdxxx file is itself a zip-openable asset archive containing its descriptor, meshes, textures, audio, language data, and associated INI/TSV files as needed. .pdwpn also carries existing weapon behavior modularized into our authored format. .pdmod remains only the transport wrapper for Public Mods, sharing, and online-required delivery.",
       "pillar": "modding",
       "column": "active",
-      "order": 113000,
+      "order": 1000,
       "priority": 1,
-      "notes": "Active 2026-05-20. Mike corrected c3811: typed *.pdxxx files must not be loose descriptors with sidecar folders. The intended asset unit is a self-contained ZIP archive with the typed extension; changing .pdhead/.pdarena/.pdanim/etc. to .zip should expose everything needed to edit or clone that asset. No authored .bin payloads. Runtime may use readable generated cache, but source-of-truth authored files stay inside the typed archive. .pdmod remains networking/Public Mods/online transport only. Memory review mem-002 is marked adjust, and a durable Codex memory note was added under extensions/ad_hoc/notes.",
+      "notes": "Active 2026-05-20. Mike corrected c3811: typed *.pdxxx files must not be loose descriptors with sidecar folders. The intended asset unit is a self-contained ZIP archive with the typed extension; changing .pdhead/.pdarena/.pdanim/etc. to .zip should expose everything needed to edit or clone that asset. No authored .bin payloads. Runtime may use readable generated cache, but source-of-truth authored files stay inside the typed archive. .pdmod remains networking/Public Mods/online transport only. Memory review mem-002 is marked adjust, and a durable Codex memory note was added under extensions/ad_hoc/notes.\nPriority pass 2026-05-20: first critical path slot. Finish the self-contained typed *.pdxxx archive repair before advancing broader input/collision/stability work.\nWeapon behavior clarification: .pdwpn should store existing game weapon behavior modularized into the project-owned authored format, including trigger-pulled fire cadence, custom projectiles, looping fire, hold beams, charge/release, secondary modes, melee, zoom, reticle/overlay/camera effects, and ammo-driven model or screen state.",
       "subtasks": [
         {
           "id": "c3812-s1",
@@ -2416,37 +2416,81 @@
         {
           "id": "c3812-s2",
           "title": "Scanner and runtime nested archive support",
-          "status": "active",
+          "status": "done",
           "order": 2000,
-          "notes": "Teach folder mods and .pdmod transport archives to scan typed *.pdxxx archive entries directly, then resolve internal files through an archive-entry path without extracting to the mod folder."
+          "notes": "Done 2026-05-20: folder mods and .pdmod transport archives scan typed *.pdxxx archive entries directly. Internal authored files resolve through archive-entry paths such as heads/tri_head.pdhead::model.gltf without extracting to the mod folder; modVfsCanResolve/modVfsGetSize/modVfsResolveAnyAlloc now understand nested typed archive paths so preflight checks do not rewrite them as loose filesystem paths. Focused [modding][pdmod][static][c3809] and [modding][pdxxx][examples][static][c3811][c3812] pass."
         },
         {
           "id": "c3812-s3",
           "title": "Packer and example archive generation",
-          "status": "backlog",
+          "status": "done",
           "order": 3000,
-          "notes": "Replace c3811 loose sample descriptors with actual .pdhead/.pdarena/.pdanim ZIP archives and make folder-to-.pdmod transport preserve those typed archives as files."
+          "notes": "Done 2026-05-20: permanent examples under examples/modding/typed-pdxxx-basic contain real zip-openable .pdhead/.pdarena/.pdanim asset archives, and folder-to-.pdmod transport preserves those typed archives as files."
         },
         {
           "id": "c3812-s4",
           "title": "Docs, UI, and context wording",
-          "status": "backlog",
+          "status": "done",
           "order": 4000,
-          "notes": "Remove descriptor/sidecar wording. Use typed asset archive, authored asset files, and external source assets. Update Modding Hub copy, examples README, modding pillar, tasks, and session log."
+          "notes": "Done 2026-05-20: examples README/mod.json, Modding Hub Pack copy, assetcatalog scanner comments, external-format design wording, modding pillar, tasks, and session log now present typed *.pdxxx files as editable zip-openable asset archives and .pdmod as transport only. Remaining old sidecar wording is retained only as superseded-history or unrelated metadata-sidecar context."
         },
         {
           "id": "c3812-s5",
           "title": "Compatibility and validation",
-          "status": "backlog",
+          "status": "active",
           "order": 5000,
-          "notes": "Validate no authored .bin payloads, zip-openable typed examples, nested archive VFS/fs loads, legacy .pd* walker compatibility, .pdmod transport packing, focused modding tests, and queued all-target build."
+          "notes": "Active 2026-05-20. Focused c3809/c3811/c3812 tests pass, tests target builds, zip-openable typed examples are verified, and c3812 archive-inventory/reference coverage now opens every current typed family (.pdwpn, .pdhead, .pdbody, .pdarena, .pdmesh, .pdanim, .pdsfx, .pdvoice, .pdsong, .pdui, .pdfont, .pdlang, .pdscenario) to verify required inner authored files, no authored .bin, and descriptor/GLTF/OBJ references resolving inside the same archive. Nested archive VFS preflight/resolve is covered, client/updater all-target build passed, and dedicated server now links after adding the missing archive source/stubs. Mike clarified the stricter full-asset bar: model textures/UV material references, rig or mesh linkage, animation targets, weapon model/animation/audio relationships, and all authored dependencies must live inside the asset archive. Follow-up: .pdwpn behavior is not new mechanics; it is existing weapon behavior modularized into authored data. The file/dependency archive gate is now passing; remaining closure is runtime/playtest compatibility if Mike wants it before advancing."
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-20T20:05:00Z",
       "pending_completion": null,
       "created": "2026-05-20T20:05:00Z",
-      "updated": "2026-05-20T20:05:00Z"
+      "updated": "2026-05-20T21:55:00Z"
+    },
+    {
+      "id": "c3813",
+      "title": "Gameplay stability: local and network drop-in/drop-out",
+      "description": "Critical path card for proving local and networked gameplay stability after asset pipeline, input, and collision slices, including join/leave/reconnect/drop-in/drop-out flows.",
+      "pillar": "networking",
+      "column": "active",
+      "order": 4000,
+      "priority": 1,
+      "notes": "Created 2026-05-20 from Mike priority directive. Scope: after c3812, c086, and c136, verify stable local play plus listen-host/client gameplay transitions, participant join/leave, reconnect, stage/match lifecycle, manifest readiness, and drop-in/drop-out behavior without catalog/input/collision regressions.",
+      "flag": "watch",
+      "flagged_at": "2026-05-20T21:22:57.831Z",
+      "created": "2026-05-20T21:22:57.831Z",
+      "updated": "2026-05-20T21:22:57.831Z",
+      "subtasks": [
+        {
+          "id": "c3813-s1",
+          "title": "Inventory local and network gameplay-stability gates",
+          "status": "backlog",
+          "order": 1000,
+          "notes": "List the exact local, listen-host, client, reconnect, drop-in, and drop-out flows that must pass before this card can close."
+        },
+        {
+          "id": "c3813-s2",
+          "title": "Audit participant, room, ready-gate, and stage-transition lifecycle",
+          "status": "backlog",
+          "order": 2000,
+          "notes": "Check participant pool, room teardown, ready gate abort, manifestClear before stage changes, and stage-load ownership for join/leave transitions."
+        },
+        {
+          "id": "c3813-s3",
+          "title": "Implement drop-in/drop-out fixes and readiness gates",
+          "status": "backlog",
+          "order": 3000,
+          "notes": "Patch root causes found by the audit. Asset activation must gate on required converted/catalog assets being ready."
+        },
+        {
+          "id": "c3813-s4",
+          "title": "Validate local, listen-host, client, reconnect, and drop flows",
+          "status": "backlog",
+          "order": 4000,
+          "notes": "Run focused tests/smokes and record Mike playtest expectations for local Combat Sim, hosted match, client join, disconnect, reconnect, and drop-in/drop-out."
+        }
+      ]
     }
   ]
 }

@@ -1294,12 +1294,12 @@ static void renderPackTool(float contentW, float contentH, float scale)
         snprintf(s_PdmodOutPath, sizeof(s_PdmodOutPath),
                  "mods/typed-pdxxx-basic.pdmod");
         snprintf(s_PdmodStatusMsg, sizeof(s_PdmodStatusMsg),
-                 "Sample selected. Edit .pdxxx files first; pack .pdmod only for transport.");
+                 "Sample selected. Edit the .pdxxx archives first; pack .pdmod only for transport.");
         s_PdmodStatusOk = true;
     }
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + contentW);
-    ImGui::TextWrapped(".pdmod output is for sharing, Public Mods, or online delivery; the editable content is the typed files and sidecars.");
+    ImGui::TextWrapped(".pdmod output is for sharing, Public Mods, or online delivery; the editable content is inside the typed .pdxxx asset archives.");
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
 
