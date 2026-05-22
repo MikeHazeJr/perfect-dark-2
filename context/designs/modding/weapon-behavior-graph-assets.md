@@ -1,6 +1,6 @@
 # Weapon Behavior Graph Assets
 
-Status: active design; schema, base-behavior audit, and module-parameter slices landed 2026-05-21 under Kanban `c3814`.
+Status: active runtime graph design; schema, base-behavior audit, and module-parameter slices landed 2026-05-21 under Kanban `c3814`. The clean human-authored archive layout is now owned by `c3832` and [weapon-archive-clean-format.md](weapon-archive-clean-format.md).
 
 ## Goal
 
@@ -11,6 +11,7 @@ This is not a new gameplay system. It is the existing base-game behavior express
 ## Hard Contract
 
 - `.pdweapon` is the only weapon archive extension for this system. `.pdwpn` is fully deprecated, was never released, and must be removed from current code paths rather than accepted as input, alias, migration source, or compatibility path.
+- The target authored `.pdweapon` archive layout is `weapon.ini` plus purpose folders and `_meta/`, as recorded in [weapon-archive-clean-format.md](weapon-archive-clean-format.md). Root `behavior.graph.json`, root `manifest.json`, and root `nested_payloads.json` are transition-layout details, not the final authoring format.
 - `.pdprojectile` and `.pdentity` are first-class catalog asset types.
 - `.pdentity` describes deployed or stuck behavior archetypes. It does not replace `ASSET_PROP` or the runtime prop system.
 - A `.pdweapon` may embed its projectile/entity dependencies so the weapon is self-contained.
@@ -41,40 +42,25 @@ Coverage audit: [base-weapon-behavior-coverage.md](base-weapon-behavior-coverage
 
 ### `.pdweapon`
 
-Owns inventory behavior, held models, UI presentation, ammo, primary/secondary modes, animation references, graph authoring, and references to nested physical assets.
+Owns inventory behavior, held weapon model data, material defaults, UI presentation, ammo, primary/secondary modes, animation references, graph authoring, and references to nested physical assets.
 
-Required root files:
+The clean authoring archive shape is recorded in [weapon-archive-clean-format.md](weapon-archive-clean-format.md). Summary:
 
 ```text
 weapon.ini
-behavior.graph.json
-```
-
-Optional folders:
-
-```text
 models/
+materials/
 textures/
 animations/
-audio/
-ui/
+sounds/
+behavior/
 projectiles/
 entities/
+ui/
+_meta/
 ```
 
-Canonical example:
-
-```text
-base_slayer.pdweapon
-  weapon.ini
-  behavior.graph.json
-  models/first_person.gltf
-  models/world.gltf
-  animations/reload.pdanim
-  audio/launch.wav
-  projectiles/rocket.pdprojectile
-  projectiles/flybywire_rocket.pdprojectile
-```
+`behavior/` contains `primary.graph.json`, `secondary.graph.json`, shared context, settings, and variables. `_meta/` contains manifest, inventory, provenance, validation, hashes, and compatibility records. Hands are character-owned, not weapon-owned.
 
 ### `.pdprojectile`
 
@@ -177,7 +163,7 @@ Identity and payload storage are separate:
 
 ## Graph Authoring Format
 
-`behavior.graph.json` is tool-owned but readable. It is a typed graph with no arbitrary script text.
+Clean authoring stores readable graph files under `behavior/`, normally `behavior/primary.graph.json` and `behavior/secondary.graph.json`, with shared context/settings/variables as sibling files. The runtime compiler may merge those inputs into a deterministic IR. The older root `behavior.graph.json` file is a transition layout detail.
 
 Top-level shape:
 
@@ -215,7 +201,7 @@ Edges connect output pins to input pins:
 
 ### Modular Mode Graphs and Shared Context
 
-Decision 2026-05-22: keep one `.pdweapon` archive per weapon, but let its `behavior.graph.json` break behavior into explicit modular subgraphs. Primary and secondary are mode entrypoints inside the same graph, not separate top-level weapon graph files. This preserves whole-weapon self-containment while letting the editor expose separate primary/secondary work surfaces.
+Decision updated 2026-05-22: keep one `.pdweapon` archive per weapon, but expose primary and secondary behavior as separate clean authoring graph files under `behavior/`. Shared context remains weapon-level data. During migration, the runtime compiler can continue to understand the earlier single-file subgraph representation, but new examples and emitters should target the split authoring layout.
 
 The graph may declare `shared_context` entries for state that crosses mode, projectile, entity, and player boundaries:
 

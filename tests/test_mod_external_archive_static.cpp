@@ -1080,6 +1080,69 @@ TEST_CASE("weapon graph runtime preserves modular subgraphs and shared context",
 	REQUIRE(std::string(ir.ir_sha256).size() == 64);
 }
 
+TEST_CASE("weapon graph editor layout metadata does not affect runtime IR hash",
+          "[modding][pdxxx][weapon_graph][compiler][layout][c3814]") {
+	const std::string graph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:falcon2\",\n"
+		"  \"graph_id\": \"layout_hash_test\",\n"
+		"  \"shared_context\": [\n"
+		"    { \"name\": \"owner_player\", \"scope\": \"player\", "
+		"\"source\": \"equipped_player\", \"type\": \"player_ref\", "
+		"\"lifetime\": \"weapon_instance\" }\n"
+		"  ],\n"
+		"  \"subgraphs\": [\n"
+		"    { \"id\": \"primary\", \"entry\": \"single\", "
+		"\"shared_context\": [\"owner_player\"] }\n"
+		"  ],\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"single\", \"kind\": \"fire.hitscan\", "
+		"\"subgraph\": \"primary\", \"params\": { \"mode\": \"primary\", "
+		"\"damage\": 8.0, \"context_refs\": [\"owner_player\"] } }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [ { \"name\": \"primary\", \"node\": \"single\" } ]\n"
+		"}\n";
+	const std::string graphWithLayout =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:falcon2\",\n"
+		"  \"graph_id\": \"layout_hash_test\",\n"
+		"  \"shared_context\": [\n"
+		"    { \"name\": \"owner_player\", \"scope\": \"player\", "
+		"\"source\": \"equipped_player\", \"type\": \"player_ref\", "
+		"\"lifetime\": \"weapon_instance\" }\n"
+		"  ],\n"
+		"  \"subgraphs\": [\n"
+		"    { \"id\": \"primary\", \"entry\": \"single\", "
+		"\"shared_context\": [\"owner_player\"] }\n"
+		"  ],\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"single\", \"kind\": \"fire.hitscan\", "
+		"\"subgraph\": \"primary\", \"params\": { \"mode\": \"primary\", "
+		"\"damage\": 8.0, \"context_refs\": [\"owner_player\"] } }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [ { \"name\": \"primary\", \"node\": \"single\" } ],\n"
+		"  \"editor\": {\n"
+		"    \"layout\": {\n"
+		"      \"nodes\": [ { \"id\": \"single\", \"x\": 64.0, \"y\": 88.0 } ]\n"
+		"    }\n"
+		"  }\n"
+		"}\n";
+
+	weapon_graph_ir_t baseIr;
+	weapon_graph_ir_t layoutIr;
+	char err[256] = {};
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+		static_cast<u32>(graph.size()), &baseIr, err, sizeof(err)) == 0);
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graphWithLayout.data(),
+		static_cast<u32>(graphWithLayout.size()), &layoutIr, err, sizeof(err)) == 0);
+	REQUIRE(std::string(baseIr.ir_sha256) == std::string(layoutIr.ir_sha256));
+	REQUIRE(std::string(baseIr.source_sha256) != std::string(layoutIr.source_sha256));
+}
+
 TEST_CASE("weapon graph runtime compiler rejects unsafe or ambiguous graphs",
           "[modding][pdxxx][weapon_graph][compiler][c3814]") {
 	char err[256] = {};
@@ -2251,12 +2314,21 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("ASSET_ENTITY") != std::string::npos);
 }
 
-TEST_CASE("Modding Hub weapon tool builds graph modules without raw JSON authoring",
+TEST_CASE("Modding Hub weapon tool builds visual graph modules without raw JSON authoring",
           "[modding][pdxxx][weapon_graph][ui][editor][c3814]") {
 	const std::string hub = readFile("port/fast3d/pdgui_menu_moddinghub.cpp");
+	const std::string editor =
+		readFile("port/fast3d/pdgui_weapon_graph_node_editor.cpp");
+	const std::string header =
+		readFile("port/include/pdgui_weapon_graph_node_editor.h");
 	REQUIRE(!hub.empty());
+	REQUIRE(!editor.empty());
+	REQUIRE(!header.empty());
 
-	REQUIRE(hub.find("Graph Builder") != std::string::npos);
+	REQUIRE(hub.find("pdgui_weapon_graph_node_editor.h") != std::string::npos);
+	REQUIRE(hub.find("Weapon Behavior Graph") != std::string::npos);
+	REQUIRE(hub.find("pdguiWeaponGraphNodeEditorRender") != std::string::npos);
+	REQUIRE(hub.find("weaponGraphBuilderLoadEditModelFromJson") != std::string::npos);
 	REQUIRE(hub.find("s_WeaponGraphNodes") != std::string::npos);
 	REQUIRE(hub.find("s_WeaponGraphEdges") != std::string::npos);
 	REQUIRE(hub.find("weaponGraphBuilderSyncJson") != std::string::npos);
@@ -2271,21 +2343,61 @@ TEST_CASE("Modding Hub weapon tool builds graph modules without raw JSON authori
 	REQUIRE(hub.find("Seed Projectile") != std::string::npos);
 	REQUIRE(hub.find("Seed Mine Link") != std::string::npos);
 	REQUIRE(hub.find("Seed Laptop Control") != std::string::npos);
-	REQUIRE(hub.find("Shared Context") != std::string::npos);
+	REQUIRE(editor.find("Shared Context") != std::string::npos);
 	REQUIRE(hub.find("Owner Player") != std::string::npos);
 	REQUIRE(hub.find("Detonator Link") != std::string::npos);
 	REQUIRE(hub.find("Target Policy Override") != std::string::npos);
 	REQUIRE(hub.find("hacked_by_player") != std::string::npos);
-	REQUIRE(hub.find("Add Module") != std::string::npos);
-	REQUIRE(hub.find("Mode Module") != std::string::npos);
-	REQUIRE(hub.find("Add Edge") != std::string::npos);
-	REQUIRE(hub.find("Primary Export") != std::string::npos);
-	REQUIRE(hub.find("Generated JSON") != std::string::npos);
+	REQUIRE(hub.find("Advanced JSON") != std::string::npos);
+	REQUIRE(hub.find("\\\"editor\\\"") != std::string::npos);
+	REQUIRE(hub.find("\\\"layout\\\"") != std::string::npos);
 	REQUIRE(hub.find("\"fire.hitscan\"") != std::string::npos);
 	REQUIRE(hub.find("\"spawn.fired_projectile\"") != std::string::npos);
 	REQUIRE(hub.find("\"special.remote_detonator\"") != std::string::npos);
 	REQUIRE(hub.find("\"gate.target_lock\"") != std::string::npos);
 	REQUIRE(hub.find("\\\"exports\\\"") != std::string::npos);
+	REQUIRE(editor.find("imgui_node_editor.h") != std::string::npos);
+	REQUIRE(editor.find("Weapon Behavior Graph Canvas") != std::string::npos);
+	REQUIRE(editor.find("QueryNewLink") != std::string::npos);
+	REQUIRE(editor.find("AcceptNewItem") != std::string::npos);
+	REQUIRE(editor.find("BeginDelete") != std::string::npos);
+	REQUIRE(editor.find("Add Node") != std::string::npos);
+	REQUIRE(editor.find("Delete Node") != std::string::npos);
+	REQUIRE(editor.find("Duplicate Node") != std::string::npos);
+	REQUIRE(editor.find("Set Primary") != std::string::npos);
+	REQUIRE(editor.find("Set Secondary") != std::string::npos);
+	REQUIRE(editor.find("Break Pin Links") != std::string::npos);
+	REQUIRE(editor.find("Alt-click pin") != std::string::npos);
+	REQUIRE(editor.find("Node Context Refs") != std::string::npos);
+	REQUIRE(editor.find("Choose a compatible node from the add-node menu") !=
+	        std::string::npos);
+	REQUIRE(editor.find("pdguiWeaponGraphModelLoadJson") != std::string::npos);
+	REQUIRE(header.find("PdWeaponGraphEditModel") != std::string::npos);
+	REQUIRE(header.find("PD_WEAPON_GRAPH_EDITOR_ACTION_SET_PRIMARY") !=
+	        std::string::npos);
+}
+
+TEST_CASE("Modding Hub vendors imgui-node-editor for the in-game graph canvas",
+          "[modding][pdxxx][weapon_graph][ui][editor][vendor][c3814]") {
+	const std::string cmake = readFile("CMakeLists.txt");
+	const std::string license =
+		readFile("port/external/imgui-node-editor/LICENSE");
+	const std::string api =
+		readFile("port/external/imgui-node-editor/imgui_node_editor.h");
+	const std::string backend = readFile("port/fast3d/pdgui_backend.cpp");
+	REQUIRE(!cmake.empty());
+	REQUIRE(!license.empty());
+	REQUIRE(!api.empty());
+	REQUIRE(!backend.empty());
+
+	REQUIRE(cmake.find("port/external/imgui-node-editor") != std::string::npos);
+	REQUIRE(license.find("MIT License") != std::string::npos);
+	REQUIRE(api.find("CreateEditor") != std::string::npos);
+	REQUIRE(api.find("QueryNewLink") != std::string::npos);
+	REQUIRE(api.find("ShowBackgroundContextMenu") != std::string::npos);
+	REQUIRE(backend.find("pdguiWeaponGraphNodeEditorInit") != std::string::npos);
+	REQUIRE(backend.find("pdguiWeaponGraphNodeEditorShutdown") !=
+	        std::string::npos);
 }
 
 TEST_CASE("base arena extractor emits zip-openable pdarena archives",

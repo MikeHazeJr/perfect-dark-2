@@ -1,6 +1,6 @@
 # Weapon Graph Runtime Cutover Plan
 
-Status: implementation split for Kanban `c3814-s9`; Slice 1 (`c3814-s10`) through Slice 5 (`c3814-s14`) landed 2026-05-21. Slice 6 (`c3814-s15`) is active next.
+Status: implementation split for Kanban `c3814-s9`; Slice 1 (`c3814-s10`) through Slice 6 (`c3814-s15`) landed by 2026-05-22. The clean authored archive layout is now owned by `c3832` and [weapon-archive-clean-format.md](weapon-archive-clean-format.md); runtime slices must preserve compatibility only as a migration bridge while new emitters/examples move to that layout.
 
 This document turns the schema, base behavior audit, parameter matrix, and module parameter spec into sequenced runtime work. It is intentionally split so the pre-release `.pdwpn` removal can land cleanly before graph compiler and gameplay runtime work begins.
 

@@ -167,9 +167,9 @@ s32 romExtractAllPdarena(s32 force_rewrite);
  *   *.sha256          source-file SHA-256 sidecars
  *
  * Catalog IDs derive from the loaderEnumNameForAnimEnum reverse
- * lookup over k_AnimEnum (port/src/loader_enum_reverse.c). For named
- * animations (e.g. "ANIM_HEROHIT") the ID is "base:anim_herohit". For
- * unnamed slots (auto-named "ANIM_NNNN" hex) the ID is "base:anim_NNNN".
+ * lookup over k_AnimEnum (port/src/loader_enum_reverse.c). Named
+ * animations use readable base:animation_* IDs; unnamed slots use
+ * generated readable fallback names while the raw index remains metadata.
  *
  * Boot order requirement: must run AFTER romdataInit (which calls
  * preprocessAnimations and remaps _animationsTableRomStart/End to the
@@ -217,11 +217,9 @@ s32 romExtractAllPdanimChr(s32 force_rewrite);
  *
  * Catalog ID format follows feedback_human_readable_ids:
  *   .pdsfx    base:sfx_<lowered_symbol>  (e.g. base:sfx_launch_rocket)
- *             OR  base:sfx_<NNNN>        (4-digit hex, Q-4 Bucket 2)
- *   .pdvoice  base:voice_<NNNN>          (always hex; symbolic names
- *             are SFX-shaped so curation later can rename per actor)
- *   .pdsong   base:song_<NNNN>           (4-digit hex; curation maps
- *             to track_dark_combat etc. in a follow-up pass)
+ *             OR a generated readable fallback for unnamed entries
+ *   .pdvoice  base:voice_<readable_symbol_or_fallback>
+ *   .pdsong   base:song_sequence_<readable_ordinal>
  *
  * Boot order requirement: must run AFTER romdataInit (segments
  * populated + preprocessSegments byte-swapped the audio bank +

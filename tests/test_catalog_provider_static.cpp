@@ -465,7 +465,7 @@ TEST_CASE("base first-person hand model files populate provider handles", "[cata
 	 * g_HeadsAndBodies[i].handfilenum -> g_BodyData[i].handfilenum
 	 * (authoring table). Pin updated to match the new source. */
 	REQUIRE(baseExtended.find("g_BodyData[i].handfilenum") != std::string::npos);
-	REQUIRE(baseExtended.find("base:hand_model_%04x") != std::string::npos);
+	REQUIRE(baseExtended.find("catalogReadableModelIdForFile(handfilenum, \"hand\", \"hand\"") != std::string::npos);
 	REQUIRE(baseExtended.find("e->runtime_index = -handfilenum") != std::string::npos);
 	REQUIRE(baseExtended.find("e->source_filenum = handfilenum") != std::string::npos);
 	REQUIRE(baseExtended.find("catalogBindPrimaryFromDiskOrRom(e, e->source_filenum)") != std::string::npos);
@@ -479,11 +479,60 @@ TEST_CASE("base menu hudpiece model has a catalog provider handle", "[catalog][p
 
 	REQUIRE(baseExtended.find("#include \"files.h\"") != std::string::npos);
 	REQUIRE(baseExtended.find("FILE_GHUDPIECE") != std::string::npos);
-	REQUIRE(baseExtended.find("base:menu_model_hudpiece_%04x") != std::string::npos);
+	REQUIRE(baseExtended.find("catalogReadableModelIdForFile(fnum, \"menu\", \"menu\"") != std::string::npos);
 	REQUIRE(baseExtended.find("e->source_filenum = fnum") != std::string::npos);
 	REQUIRE(baseExtended.find("catalogBindPrimaryFromDiskOrRom(e, e->source_filenum)") != std::string::npos);
 	REQUIRE(baseExtended.find("weapon/menu-pipeline model files") != std::string::npos);
 	REQUIRE(menu.find("MENUMODELPARAMS_SET_FILENUM(FILE_GHUDPIECE)") != std::string::npos);
+}
+
+TEST_CASE("generated catalog IDs avoid numeric legacy handles", "[catalog][identity][static]")
+{
+	const std::array<const char *, 8> files = {
+		"port/src/assetcatalog_base_extended.c",
+		"port/src/romextract_pdanim_chr.c",
+		"port/src/romextract_pdbody.c",
+		"port/src/romextract_pdhead.c",
+		"port/src/romextract_pdmesh.c",
+		"port/src/romextract_pdsfx.c",
+		"port/src/romextract_pdsong.c",
+		"port/src/romextract_pdweapon.c",
+	};
+	const std::array<const char *, 12> banned = {
+		"base:anim_%04x",
+		"base:anim_chr_%04x",
+		"base:tex_%04x",
+		"base:sfx_%04x",
+		"base:voice_%04x",
+		"base:song_%04x",
+		"base:model_%04x",
+		"base:rom_g_%04x",
+		"base:hand_model_%04x",
+		"base:weapon_model_%04x",
+		"base:cart_model_%s_%04x",
+		"base:stage_%s_%04x",
+	};
+	std::vector<std::string> violations;
+
+	for (const char *path : files) {
+		const std::string text = readTextFile(path);
+		for (const char *pattern : banned) {
+			if (text.find(pattern) != std::string::npos) {
+				violations.push_back(std::string(path) + ": " + pattern);
+			}
+		}
+	}
+
+	INFO("numeric generated catalog ID patterns:\n" << joinLines(violations));
+	REQUIRE(violations.empty());
+
+	const std::string helper = readTextFile("port/include/catalog_readable_ids.h");
+	const std::string baseExtended = readTextFile("port/src/assetcatalog_base_extended.c");
+	REQUIRE(helper.find("catalogReadableAnimationId") != std::string::npos);
+	REQUIRE(helper.find("catalogReadableSongId") != std::string::npos);
+	REQUIRE(helper.find("catalogReadableModelIdForFile") != std::string::npos);
+	REQUIRE(baseExtended.find("catalogReadableSfxId") != std::string::npos);
+	REQUIRE(baseExtended.find("catalogReadableStageSceneId") != std::string::npos);
 }
 
 TEST_CASE("Combat Simulator random bot bodies only draw from MP-selectable bodies",

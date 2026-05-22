@@ -12,14 +12,13 @@
  *   sequence.tsv      editable event listing for round-trip authoring
  *   *.sha256          content sidecars
  *
- * Catalog ID convention: base:song_<NNNN> where NNNN is the seqtable
- * slot index in 4-digit hex (Q-4 Bucket 2). The 43 catalog-registered
+ * Catalog ID convention: base:song_sequence_<readable ordinal>. The 43 catalog-registered
  * music tracks (s_BaseMusicTracks[] in assetcatalog_base_extended.c)
  * use slug names like "track_dark_combat" but those map to MUSIC_*
  * enum values, NOT to seqtable slot indices directly. The MUSIC_* ->
  * seqtable mapping lives in the music subsystem and is curated at
- * Step 5 cleanup (or in a follow-up worktree); the slot-based ID
- * stays stable across that follow-up so refs survive.
+ * Step 5 cleanup (or in a follow-up worktree). Raw seqtable slots stay
+ * descriptor/provenance metadata, not catalog identity.
  *
  * Per-entry layout in the sequences segment:
  *   offset 0x00     u16 count                  (byte-swapped)
@@ -54,6 +53,7 @@
 
 #include "boot_pool.h"
 #include "boot_progress.h"
+#include "catalog_readable_ids.h"
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -93,10 +93,10 @@ static s32 s_findSegment(const char *name, const u8 **outData, u32 *outSize)
 	return 0;
 }
 
-/* Catalog ID for a song slot. base:song_<NNNN> hex form. */
+/* Catalog ID for a raw sequence slot. Numeric slots remain metadata. */
 static void s_buildSongCatalogId(s32 slot_idx, char *out, size_t out_n)
 {
-	snprintf(out, out_n, "base:song_%04x", (unsigned)slot_idx);
+	catalogReadableSongId(slot_idx, out, out_n);
 }
 
 /* Filename slug: catalog ID with ':' -> '_'. */

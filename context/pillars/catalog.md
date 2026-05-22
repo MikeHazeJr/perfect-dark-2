@@ -1,12 +1,12 @@
 # Catalog System
 
-> Single source of truth for asset identity. String-keyed, namespace-scoped, hash-indexed. Every cross-boundary reference (wire, save, public API, manifest) goes through a catalog ID.
+> Single source of truth for asset identity. String-keyed, namespace-scoped, hash-indexed. Every asset reference uses a human-readable catalog ID.
 
 ---
 
 ## What it is
 
-The asset catalog is a string-keyed FNV-1a hash table that holds an entry for every asset the game can resolve: maps, characters, skins, bodies, heads, weapons, models, props, audio, textures, animations, HUD elements, language banks, bot profiles, and more. Each entry carries identity (`namespace:readable_name`), type, runtime index for legacy engine APIs, source provider handle, load state, payload, refcount, and metadata. The catalog is the only legitimate way to ask "what is asset X" anywhere outside a final last-mile legacy API call.
+The asset catalog is a string-keyed FNV-1a hash table that holds an entry for every asset the game can resolve: maps, characters, skins, bodies, heads, weapons, models, props, audio, textures, animations, HUD elements, language banks, bot profiles, and more. Each entry carries identity (`namespace:asset_type_readable_name`), type, source provider handle, load state, payload, refcount, and metadata. The catalog ID is the asset reference. Numeric ROM/file/model/sound/body/head/animation slots are migration metadata only and must not be used as catalog identity or modder-facing live-file names.
 
 Code: [port/include/assetcatalog.h](../../port/include/assetcatalog.h), [port/src/assetcatalog.c](../../port/src/assetcatalog.c), and 8 sibling files (`_api`, `_base`, `_base_extended`, `_cache`, `_deps`, `_load`, `_resolve`, `_scanner`).
 
@@ -18,7 +18,7 @@ The catalog is built from a layered structure that has been migrating since 2026
 
 **Layer A: legacy static data.** The original N64-era static C arrays (`g_Weapons[]` at [src/game/invitems.c:5700](../../src/game/invitems.c:5700), `g_AibotWeaponPreferences[]` at [src/game/botinv.c:23](../../src/game/botinv.c:23), `g_HeadsAndBodies[]`, `g_Stages[]`, `g_ModelStates[]`, `g_MpWeapons[]`). These hold the actual data (damage, fire rate, animations, etc.) for base game content. Layer A is being retired in stages, but is still the source of truth for most content fields today.
 
-**Layer B: catalog rows.** Every asset has a row in the catalog (`asset_entry_t`, [port/include/assetcatalog.h:186](../../port/include/assetcatalog.h:186)) carrying identity (`id[CATALOG_ID_LEN=64]`), type (`asset_type_e`, see Asset Types below), display name, runtime index, type-specific extension struct, source handle, load state, refcount. Layer B holds the identity and metadata; for non-migrated content, it points back to Layer A through `runtime_index`.
+**Layer B: catalog rows.** Every asset has a row in the catalog (`asset_entry_t`, [port/include/assetcatalog.h:186](../../port/include/assetcatalog.h:186)) carrying identity (`id[CATALOG_ID_LEN=64]`), type (`asset_type_e`, see Asset Types below), display name, type-specific extension struct, source handle, load state, and refcount. Layer B owns the identity and metadata. Any remaining runtime index fields are temporary migration hooks, not asset-reference fields.
 
 **Manager layer.** A type-specific manager (`catalog_mgr_<type>.c`) owns the typed accessors and validates inputs. The first manager is the weapons manager ([port/src/catalog_mgr_weapons.c](../../port/src/catalog_mgr_weapons.c), 162 lines) which is currently a thin pass-through router over `g_Weapons[]` (line 59), but provides the API surface for the future data move. A globals-free pure validator file ([port/src/catalog_mgr_weapons_pure.c](../../port/src/catalog_mgr_weapons_pure.c), 65 lines) is testable in `pd-tests`.
 
@@ -34,17 +34,19 @@ The full migration path is documented in [designs/catalog/catalog-full-pipeline-
 
 ## Catalog ID convention
 
-All asset references at boundaries (wire, save, public API, manifest) use full catalog ID strings in `"namespace:readable_name"` format:
+All asset references use full catalog ID strings in `[namespace]:[asset_type]_[readable_name]` format:
 
-- `base:dark_combat` (a stage)
-- `base:falcon2` (a weapon)
-- `base:carrington` (a body)
+- `base:stage_dark_combat` (a stage)
+- `base:weapon_falcon2` (a weapon)
+- `base:body_carrington` (a body)
 - `base:arena_felicity` (an arena)
-- `mods/skin_redmund:my_skin` (a mod-supplied skin)
+- `mod_redmund:skin_my_skin` (a mod-supplied skin)
 
 The leading namespace is `base` for original Perfect Dark content, or a mod-scoped namespace for mod content. The trailing readable_name is human-friendly and stable across versions.
 
-Integer indices are NEVER used at boundaries. They are derived ONLY at the last-mile handoff to legacy engine APIs that still demand them, via typed catalog helpers (see Identity Helpers below). The deprecated `net_hash u32` compact form was removed from the wire in v27 and from save format around the same time; do not reintroduce it.
+Integer indices are NEVER asset references. They must not appear in catalog IDs, authored descriptors, dependency manifests, modding UI dropdowns, generated live file names, wire messages, saves, public APIs, or runtime structs that mean "this asset." Existing numeric fields are migration debt only. The deprecated `net_hash u32` compact form was removed from the wire in v27 and from save format around the same time; do not reintroduce it.
+
+**Generated-ID implementation guard (2026-05-22).** `port/include/catalog_readable_ids.h` owns readable fallback generation for base assets and ROM extractors. Base catalog registration and `.pdanim` / `.pdsfx` / `.pdvoice` / `.pdsong` / `.pdmesh` / `.pdhead` / `.pdbody` / `.pdweapon` dependency generation must call that helper instead of formatting raw slots into IDs. `tests/test_catalog_provider_static.cpp` pins the ban on patterns such as `base:model_%04x`, `base:sfx_%04x`, `base:voice_%04x`, and `base:rom_g_%04x`.
 
 ---
 
@@ -134,8 +136,8 @@ Base-game registration: [port/src/assetcatalog_base.c](../../port/src/assetcatal
 These are pulled from [constraints.md](../constraints.md). Any change to a catalog invariant updates that file in the same commit.
 
 - **Catalog registers ALL assets** (including SP-only heads/bodies). Unlock is a separate gameplay layer; catalog registration is universal.
-- **Catalog-owned asset lifecycle** (S485). The catalog is the single source of truth for declared asset identity, metadata, references, source handles, dependencies, load state, loaded payloads, refcounts, and release/unload behavior. Static Layer A tables are temporary seed data or last-mile legacy handoff only.
-- **Catalog ID strings at all interface boundaries** (since 2026-04-02). No integer asset identity on the wire, in saves, or in public APIs.
+- **Catalog-owned asset lifecycle** (S485, strengthened 2026-05-22). The catalog is the single source of truth for declared asset identity, metadata, references, source handles, dependencies, load state, loaded payloads, refcounts, and release/unload behavior. Static Layer A tables are migration sources only, not identity stores.
+- **Catalog ID strings for all asset references** (since 2026-04-02, strengthened 2026-05-22). No integer asset identity on the wire, in saves, in public APIs, in runtime reference structs, in authored archives, in generated live-file names, or in modding tool selectors.
 - **Catalog-first pattern for stage identity** (S165). `g_MissionConfig.stage_id` is authoritative; `stagenum` is resolved from `stage_id` only at the consumption point, never stored or passed as primary identity.
 - **Random / Fiesta spawn-weapon pool sources from match-manifest** (S483). `MANIFEST_TYPE_WEAPON` entries drive the eligible pool, not `g_MpSetup.weapons[]`.
 - **Sentinel-audit discipline + `spawnWeaponNumIsResolved`** (S483c). Single source of truth for "is this a real resolved WEAPON_* enum?" returns 0 for {0, 0xFF, 0xFE}.
@@ -176,7 +178,7 @@ Audit: [audits/catalog-phase3-passd-self-heal-2026-05-02.md](../audits/catalog-p
 
 - **Asset Provider Phase 4.** Filenum retirement (~23 game-code sites). Blocked on three prerequisite API migrations: handle-aware `assetGetSize`, handle-aware `modeldefLoad`, `MENUMODELPARAMS_SET_HANDLE`. Design at [designs/catalog/catalog-asset-provider-future-phases.md](../designs/catalog/catalog-asset-provider-future-phases.md) [TBD doc].
 - **Catalog post-migration polish (non-blocking).** Scenarios / game modes and bot profiles + bot variants do not yet have a typed manager + `.pdbase`. Each is a future micro-lane following the F1-F13 template proven by weapons / heads / bodies / arenas. The architectural endpoint (ROM-once-then-disk + catalog-fronted accessors) is achieved without these.
-- **Catalog Universality Pivot (Steps 0-2 shipped, 3a/3/4/5 queued).** Per [designs/catalog/universality-pivot-schemas.md](../designs/catalog/universality-pivot-schemas.md). Step 0 (schema lock-down) at dev `00fdb8b7`; Step 1 (`.pdwpn` + `.pdmesh` + `.pdanim` for weapons) at dev `7e0d0791`; Step 2 (`.pdhead` + `.pdbody` + `.pdarena` + `.pdscenario`) shipped 2026-05-03. Emitters live in `port/src/romextract_pd*.c`; per-kind parity checks log `LOADER.UNIVERSAL.PARITY_FAIL` on disagreement during the parity period. Q-1 unified-scenario ZIP per arena (geometry + tiles + pads + setup + mpsetup + manifest). Cross-references stay as FILE_*/L_*/SFX_*/etc enum strings in the Step 1-2 emit format; Step 4's universal directory walker promotes them to true catalog IDs. Step 5 retires `base/*.pdbase` + extractor scripts + parity checks once Mike's playtest validates the round-trip.
+- **Catalog Universality Pivot COMPLETE, with readability guard active.** Per [designs/catalog/universality-pivot-schemas.md](../designs/catalog/universality-pivot-schemas.md). Step 0 (schema lock-down) at dev `00fdb8b7`; Step 1 (`.pdwpn` + `.pdmesh` + `.pdanim` for weapons) at dev `7e0d0791`; Step 2 (`.pdhead` + `.pdbody` + `.pdarena` + `.pdscenario`) shipped 2026-05-03; Steps 3a/3b/4/5 completed the universal directory walker and retired the aggregate `.pdbase` tier. Emitters live in `port/src/romextract_pd*.c`. As of 2026-05-22, generated catalog IDs from these emitters use readable catalog IDs and keep raw FILE_*/SFX_*/ANIM_*/seq/model slots as provenance metadata only.
 
 ---
 

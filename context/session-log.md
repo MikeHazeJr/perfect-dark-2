@@ -1,5 +1,92 @@
 # Session Log (Active)
 
+## Session (`weapon-format-card`) - 2026-05-22 - clean `.pdweapon` format priority
+
+Mike asked to create a top-priority card for the full weapon asset format, then track the broader format-definition and extractor rebuild process as the main Asset Pipeline priority.
+
+### Recorded
+
+- Added [designs/modding/weapon-archive-clean-format.md](designs/modding/weapon-archive-clean-format.md) with the target `.pdweapon` layout: `weapon.ini`, purpose folders for models/materials/textures/animations/sounds/behavior/projectiles/entities/ui, and `_meta/` for manifest, inventory, provenance, validation, and hashes.
+- Recorded the architecture decisions: authored mods default to one weapon model, hands are character-owned, material slots support skin overrides, behavior authors primary/secondary graph files plus shared settings/variables, `.pdmod` remains transport only, and import installs only missing or newer compatible typed dependency assets.
+- Reprioritized Kanban so `c3824` is the top active Asset Pipeline migration-plan card and new card `c3832` sits directly under it as the concrete `.pdweapon` format card.
+- Added stale-reference cleanup to `c3832`: root `behavior.graph.json`, root `manifest.json`, root `nested_payloads.json`, canonical `audio/`, weapon-owned hands, reference-only dependency wording, `.pdwpn`, and numeric generated names must be removed from active docs/examples/UI/tests/emitters.
+- Updated the Modding pillar, task handoff, README design index, and weapon graph design docs so `c3814` remains runtime/parity work below the archive-format migration.
+
+### Next
+
+- Complete `c3832`: update examples, base extractor output, Modding Hub save/import, manifest dependency/fallback behavior, material-slot/skin override contract, stale-reference sweep, and validators/release gates.
+- Then continue `c3824` through the remaining asset-family formats before rebuilding extraction broadly.
+
+---
+
+## Session (`catnames`) - 2026-05-22 - catalog human-readable generated IDs
+
+Mike asked to implement the catalog human-readable names plan after the Weapon Mod menu exposed numeric legacy handles.
+
+### Implemented
+
+- Added `catalog_readable_ids` as the shared generator for readable fallback catalog IDs across base catalog registration and ROM extractors.
+- Replaced generated numeric catalog IDs for base animations, textures, SFX, voice lines, raw songs, models, hand models, weapon models, cartridge models, the menu HUD piece, and stage-scene files.
+- Routed `.pdanim`, `.pdsfx`, `.pdvoice`, `.pdsong`, `.pdmesh`, `.pdhead`, `.pdbody`, and `.pdweapon` dependency/reference archive paths through the readable IDs, so generated live filenames inherit catalog-readable names instead of raw slots.
+- Added static coverage that rejects the old generated numeric ID formats in the catalog registrar and typed archive emitters.
+- Updated catalog/modding context and the release-note source.
+
+### Verification
+
+- `.\devtools\build-session.ps1 -Session catnames -Target all -BuildTimeoutSeconds 240` passed for client/updater.
+- `.\devtools\build-session.ps1 -Session catnames -Target tests -BuildTimeoutSeconds 240` passed.
+- `.\.claude\session-builds\catnames\pd-tests.exe "generated catalog IDs avoid numeric legacy handles"` passed: 16 assertions / 1 case.
+- `.\.claude\session-builds\catnames\pd-tests.exe "[catalog][identity][static]"` passed: 1516 assertions / 2 cases.
+- Removed isolated session build `catnames`.
+
+### Next
+
+- Continue `c3814-s16` deeper `.pdprojectile` runtime execution unless Mike wants a broader audit of non-catalog diagnostic filenames such as internal extracted texture inventory labels.
+
+---
+
+## Session (`wgraphnode`) - 2026-05-22 - in-game weapon graph node editor
+
+Mike asked to implement the in-game weapon behavior node editor plan in the existing Modding Hub Weapons Template flow.
+
+### Implemented
+
+- Vendored `thedmd/imgui-node-editor` under `port/external/imgui-node-editor/` and wired its include path into CMake.
+- Added a PD2 wrapper/edit model for the node editor lifecycle, palette, canvas, inspector, context menus, link creation/deletion, selection, shared context toggles, node context refs, primary/secondary exports, and editor layout positions.
+- Replaced the form-first Graph Builder area with a canvas-first weapon behavior graph editor while keeping seed presets, validation, template/import/save flow, and Advanced JSON fallback.
+- Added graph JSON round-trip support for template/imported graphs and authoring-only `editor.layout.nodes[]` metadata that is ignored by the runtime IR hash.
+- Added static/compiler coverage for the vendored node editor, UI wiring, editable graph controls, imported/layout metadata, and layout-hash stability.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wgraphnode -Selector "[weapon_graph][compiler][c3814],[weapon_graph][ui][c3814]" -BuildTimeoutSeconds 240` passed: 147 assertions / 8 cases.
+- Sandboxed all-target build hit the build wrapper's git dubious-ownership check; rerunning the same isolated build outside the sandbox passed.
+- `.\devtools\build-session.ps1 -Session wgraphnode -Target all -BuildTimeoutSeconds 300` passed for client/updater.
+- Removed isolated session build `wgraphnode`.
+
+### Next
+
+- Manual editor pass: open Modding Hub > Weapons > Use as Template, seed dual fire modes, mine-link, and Laptop-control graphs, drag/link/delete nodes, validate/save, and confirm the controller/mouse UX feels clear in-game.
+- Continue `c3814-s16`: deeper `.pdprojectile` runtime execution.
+
+---
+
+## Session (`catalog-id-rule`) - 2026-05-22 - catalog IDs are the asset references
+
+Mike corrected the Weapon Mod menu/catalog drift: numeric legacy handles are not acceptable catalog IDs, even internally. Catalog IDs must be human-readable asset references in `[namespace]:[asset_type]_[name]` form for all asset families.
+
+### Recorded
+
+- Strengthened the catalog constraints so all asset references use human-readable catalog IDs everywhere, including runtime structs, tools, authored archives, generated live files, dependency descriptors, saves, wire, manifests, and public APIs.
+- Marked numeric file/model/sound/body/head/animation slots as migration debt only. They may remain temporarily as private loader/runtime metadata while being removed, but they are not catalog identity and not valid modder-facing names.
+- Updated the catalog and modding pillar docs and opened a Modding follow-up for catalog identity readability repair across generated base IDs, live-file names, typed archive references, and Weapon Mod menu selectors.
+
+### Next
+
+- Implemented by session `catnames`: generated numeric catalog IDs were replaced with readable IDs, archive/reference generation was updated, and static coverage now pins the old numeric patterns.
+
+---
+
 ## Session (`falconbeam-b366`) - 2026-05-22 - Falcon 2 fixed-tip stretch final pass
 
 Mike reported that Falcon 2 still stretched in-game, with the tip staying fixed while the model moved.

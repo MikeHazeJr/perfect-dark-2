@@ -228,6 +228,7 @@ include_directories("${CMAKE_SOURCE_DIR}/src/lib/ultra/audio")
 include_directories("${CMAKE_SOURCE_DIR}/port/include")
 include_directories("${CMAKE_BINARY_DIR}/port/include")
 include_directories("${CMAKE_SOURCE_DIR}/port/fast3d/imgui")  # Dear ImGui (D3d)
+include_directories("${CMAKE_SOURCE_DIR}/port/external/imgui-node-editor")  # Dear ImGui node editor
 include_directories("${CMAKE_SOURCE_DIR}/port/external/miniupnpc/include")  # UPnP (auto port forwarding)
 include_directories("${CMAKE_SOURCE_DIR}/port/external/miniupnpc/src")      # UPnP internal headers
 

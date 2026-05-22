@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include "types.h"
 #include "constants.h"
+#include "catalog_readable_ids.h"
 #include "files.h"
 #include "assetcatalog.h"
 #include "fs.h"          /* Phase 3 Pass B: fsFullPath probe of extracted file */
@@ -58,6 +59,41 @@ extern struct mpweapon          g_MpWeapons[];
 extern struct mpscenariooverview g_MpScenarioOverviews[];
 extern struct mptrack           g_MpTracks[];
 extern struct botprofile        g_BotProfiles[18];
+
+static s32 s_catalogIdSeen(char ids[][CATALOG_ID_LEN], s32 count, const char *id)
+{
+	for (s32 i = 0; i < count; i++) {
+		if (strncmp(ids[i], id, CATALOG_ID_LEN) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static void s_noteCatalogId(char ids[][CATALOG_ID_LEN], s32 *count, const char *id)
+{
+	if (!ids || !count || !id) return;
+	if (*count < NUM_MODELS) {
+		strncpy(ids[*count], id, CATALOG_ID_LEN - 1);
+		ids[*count][CATALOG_ID_LEN - 1] = '\0';
+		(*count)++;
+	}
+}
+
+static void s_makeReadableCatalogIdUnique(char ids[][CATALOG_ID_LEN],
+	s32 count, s32 ordinal, char *id, size_t id_n)
+{
+	if (!s_catalogIdSeen(ids, count, id)) {
+		return;
+	}
+
+	char base[CATALOG_ID_LEN];
+	char alpha[24];
+	strncpy(base, id, sizeof(base) - 1);
+	base[sizeof(base) - 1] = '\0';
+	catalogReadableAlphaOrdinal(ordinal, alpha, sizeof(alpha));
+	snprintf(id, id_n, "%s_variant_%s", base, alpha);
+}
 
 /* ========================================================================
  * Weapon Table
@@ -128,7 +164,8 @@ _Static_assert(NUM_BASE_WEAPONS == NUM_MPWEAPONS,
 /*
  * Full animation table: 1207 entries (indices 0x0000..0x04B6).
  * Count derived from src/assets/ntsc-final/animations.json (1207 entries,
- * last file 04b6.bin). IDs generated as "base:anim_XXXX"; metadata zeroed
+ * last file 04b6.bin). IDs are generated through catalog_readable_ids so
+ * the public catalog identity stays symbolic/readable; metadata zeroed
  * since frame counts aren't available as compile-time constants.
  * g_NumAnimations is set at runtime (after catalog init), so we use the
  * static count from the JSON rather than animGetNumAnimations().
@@ -142,8 +179,9 @@ _Static_assert(NUM_BASE_WEAPONS == NUM_MPWEAPONS,
 /*
  * Full texture table: NUM_TEXTURES entries (3503 NTSC / 3511 JPN-final).
  * NUM_TEXTURES is defined in constants.h and is a compile-time constant.
- * width/height/format = 0 (loaded from ROM at runtime). IDs generated
- * as "base:tex_XXXX".
+ * width/height/format = 0 (loaded from ROM at runtime). IDs are generated
+ * as readable texture placeholders, with the numeric texture index kept
+ * only in runtime_index metadata.
  */
 /* NUM_TEXTURES pulled from constants.h */
 
@@ -530,7 +568,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 	{
 		s32 n = 0;
 		for (s32 i = 0; i < NUM_BASE_ANIM_ENTRIES; i++) {
-			snprintf(idbuf, sizeof(idbuf), "base:anim_%04x", i);
+			catalogReadableAnimationId(i, "unlabeled", idbuf, sizeof(idbuf));
 			asset_entry_t *e = assetCatalogRegisterAnimation(
 				idbuf, i, "", 0, "");
 			if (!e) {
@@ -551,7 +589,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 	{
 		s32 n = 0;
 		for (s32 i = 0; i < NUM_TEXTURES; i++) {
-			snprintf(idbuf, sizeof(idbuf), "base:tex_%04x", i);
+			catalogReadableTextureId(i, idbuf, sizeof(idbuf));
 			asset_entry_t *e = assetCatalogRegisterTexture(
 				idbuf, i, 0, 0, 0, "");
 			if (!e) {
@@ -663,7 +701,6 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 		s32 sfx_n = 0;
 		s32 voice_n = 0;
 		for (s32 i = 0; i < NUM_BASE_SFX_ENTRIES; i++) {
-			snprintf(idbuf, sizeof(idbuf), "base:sfx_%04x", i);
 			s32 category = AUDIO_CAT_SFX;
 #if !defined(PD_SERVER)
 			if (voice_cache[i]) {
@@ -672,6 +709,11 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 #else
 			(void)russCount;
 #endif
+			if (category == AUDIO_CAT_VOICE) {
+				catalogReadableVoiceId(i, idbuf, sizeof(idbuf));
+			} else {
+				catalogReadableSfxId(i, idbuf, sizeof(idbuf));
+			}
 			asset_entry_t *e = assetCatalogRegisterAudio(
 				idbuf, i, "", category, 0, "");
 			if (!e) {
@@ -812,7 +854,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 	 *
 	 * runtime_index = MODEL_* enum value (index into g_ModelStates[]).
 	 * The manifest pipeline uses catalogIdByRuntime(ASSET_MODEL, modelnum)
-	 * to get the canonical "base:model_%04x" ID.
+	 * to get a readable "base:model_<file-symbol>" ID.
 	 * source_filenum = g_ModelStates[i].fileid (FILE_* ROM constant)
 	 *
 	 * ASSET_MODEL is separate from ASSET_PROP (which tracks PROPTYPE_*
@@ -821,13 +863,20 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 	{
 		s32 n = 0;
 		s32 i;
+		char seen_ids[NUM_MODELS][CATALOG_ID_LEN];
+		s32 seen_count = 0;
+		memset(seen_ids, 0, sizeof(seen_ids));
 		for (i = 0; i < NUM_MODELS; i++) {
-			snprintf(idbuf, sizeof(idbuf), "base:model_%04x", i);
+			catalogReadableModelIdForModelnum(i, (s32)g_ModelStates[i].fileid,
+				idbuf, sizeof(idbuf));
+			s_makeReadableCatalogIdUnique(seen_ids, seen_count, i,
+				idbuf, sizeof(idbuf));
 			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
 			if (!e) {
 				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register model %s", idbuf);
 				continue;
 			}
+			s_noteCatalogId(seen_ids, &seen_count, idbuf);
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = i;
@@ -875,7 +924,8 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			}
 			seen[seen_count++] = (u16)handfilenum;
 
-			snprintf(idbuf, sizeof(idbuf), "base:hand_model_%04x", (u32)handfilenum);
+			catalogReadableModelIdForFile(handfilenum, "hand", "hand",
+				idbuf, sizeof(idbuf));
 			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
 			if (!e) {
 				sysLogPrintf(LOG_ERROR,
@@ -1054,8 +1104,8 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 				continue;
 			}
 
-			snprintf(idbuf, sizeof(idbuf),
-				"base:weapon_model_%04x_%s", (u32)fnum, suffixes[fi]);
+			catalogReadableModelIdForFile(fnum, suffixes[fi], "weapon",
+				idbuf, sizeof(idbuf));
 			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
 			if (!e) {
 				sysLogPrintf(LOG_ERROR,
@@ -1102,7 +1152,7 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 			}
 
 			snprintf(idbuf, sizeof(idbuf),
-				"base:cart_model_%s_%04x", cart_slugs[ci], (u32)fnum);
+				"base:model_cartridge_%s", cart_slugs[ci]);
 			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
 			if (!e) {
 				sysLogPrintf(LOG_ERROR,
@@ -1135,8 +1185,8 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 		if (!assetHandleIsNull(existing)) {
 			skipped_dup++;
 		} else {
-			snprintf(idbuf, sizeof(idbuf),
-				"base:menu_model_hudpiece_%04x", (u32)fnum);
+			catalogReadableModelIdForFile(fnum, "menu", "menu",
+				idbuf, sizeof(idbuf));
 			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
 			if (!e) {
 				sysLogPrintf(LOG_ERROR,
@@ -1184,8 +1234,8 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
  * as ASSET_MODEL with `source_filenum` binding plus
  * `catalogSetPrimaryRomFilenum`. Same pattern as
  * assetCatalogRegisterWeaponModelFiles (cartridge / hand / hi+lo
- * model files). The discriminator is the catalog ID slug
- * ("base:stage_<class>_<filenum>") so a future migration to dedicated
+ * model files). The discriminator is the readable catalog ID slug
+ * ("base:model_<stage>_<class>") so a future migration to dedicated
  * ASSET_BG / ASSET_TILES / ASSET_PADS / ASSET_SETUP types can rename
  * without breaking on-wire identity (these IDs are not referenced from
  * mods or saves today).
@@ -1250,8 +1300,8 @@ s32 assetCatalogRegisterStageSceneFiles(void)
 				continue;
 			}
 
-			snprintf(idbuf, sizeof(idbuf),
-				"base:stage_%s_%04x", kFileSlots[fi].slug, (u32)fnum);
+			catalogReadableStageSceneId(catalogStageIdByStageTableIndex(si),
+				kFileSlots[fi].slug, fnum, idbuf, sizeof(idbuf));
 			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
 			if (!e) {
 				sysLogPrintf(LOG_ERROR,

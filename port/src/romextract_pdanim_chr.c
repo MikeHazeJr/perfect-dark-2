@@ -34,13 +34,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
 #include <stdarg.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
 
 #include "boot_pool.h"
 #include "boot_progress.h"
+#include "catalog_readable_ids.h"
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -82,34 +82,17 @@ static s32 s_findAnimSegment(const u8 **outData, u32 *outSize)
 	return 0;
 }
 
-/* Lowercase a string into out_buf. Stops at NUL or out_n - 1. */
-static void s_lowercaseInto(const char *src, char *out, size_t out_n)
-{
-	size_t i;
-	for (i = 0; src && src[i] && i + 1 < out_n; i++) {
-		out[i] = (char)tolower((unsigned char)src[i]);
-	}
-	out[i] = '\0';
-}
-
 /* Build the catalog ID for a chr animation index. If the loader's
- * enum reverse-lookup has a symbolic name (e.g. "ANIM_HEROHIT"), emit
- * "base:anim_herohit". Otherwise fall back to "base:anim_chr_<NNNN>"
- * with the index in 4-digit hex (Q-4 Bucket 2: has consumers, name
- * obscure -> generated stable ID).
+ * enum reverse-lookup has a symbolic name (e.g. "ANIM_HEROHIT"), the
+ * shared readable-ID helper uses it. Otherwise it emits a readable
+ * generated fallback and leaves the raw index as metadata only.
  *
  * Returns 1 if a symbolic name was found, 0 if generated. */
 static s32 s_buildCatalogId(s32 anim_idx, char *out, size_t out_n)
 {
 	const char *sym = loaderEnumNameForAnimEnum(anim_idx);
-	if (sym && sym[0]) {
-		char lowered[96];
-		s_lowercaseInto(sym, lowered, sizeof(lowered));
-		snprintf(out, out_n, "base:%s", lowered);
-		return 1;
-	}
-	snprintf(out, out_n, "base:anim_chr_%04x", (unsigned)anim_idx);
-	return 0;
+	catalogReadableAnimationId(anim_idx, "character", out, out_n);
+	return sym && sym[0] ? 1 : 0;
 }
 
 static s32 s_existingArchiveHasAnimPayloads(const char *relpath)

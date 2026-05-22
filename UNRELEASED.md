@@ -21,7 +21,7 @@
 - Added named input profile slots and per-controller profile assignment, including custom/raw controller devices.
 - Added Blender-ready map visual exports inside scenario/arena archives, including OBJ/MTL scenes, decoded TGA wall/floor textures, and material TSV ledgers.
 - Added self-contained weapon archives that embed model, animation, audio, projectile, and entity payloads for editing and sharing.
-- Added a Modding Hub weapon graph builder for modular primary/secondary subgraphs, shared owner/damage/detonator/targeting context, presets, modules, edges, and exports instead of hand-authoring JSON.
+- Added a Blueprint-style Modding Hub weapon graph node editor for modular primary/secondary subgraphs, shared owner/damage/detonator/targeting context, presets, draggable nodes, links, inspector editing, and JSON validation.
 
 ## Changed
 
@@ -29,6 +29,7 @@
 - The release script mirrors Codex memory before release commits and warns if the notes file looks stale.
 - Memory Review now parses live memory task groups and stores review markup separately from the source memory file.
 - Weapon behavior graphs now feed more runtime weapon actions, including recoil/recovery, throw/special handling, projectile spawn values, auto-aim, and sight behavior behind the debug graph-runtime toggle.
+- Catalog-generated base asset IDs and typed archive references now use readable names instead of legacy numeric handles.
 - Replaced the old Settings Controls surface with a single actionmap-backed Input binding table.
 - Main Menu now presents Play instead of Solo Play and removes the old Online Play direct-connect entry; online friend play now routes through Social invites/joins.
 - Social friend invites are available even when a friend row is showing a stale Offline state.

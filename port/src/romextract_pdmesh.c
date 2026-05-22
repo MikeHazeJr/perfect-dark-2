@@ -15,8 +15,8 @@
  *
  * Step 1 cross-reference convention: emits source_filenum_symbol with
  * the FILE_* enum string (provenance hint) and the catalog ID is
- * synthesized from the symbol (e.g. FILE_GFALCON2 -> base:falcon2_hi).
- * Step 4 universal loader can refine the ID minting.
+ * synthesized from the symbol (e.g. FILE_GFALCON2 ->
+ * base:model_falcon2_hi). Numeric filenums remain provenance metadata.
  */
 
 #include <stdio.h>
@@ -30,6 +30,7 @@
 
 #include "boot_pool.h"
 #include "boot_progress.h"
+#include "catalog_readable_ids.h"
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -1062,34 +1063,13 @@ static s32 s_addShaSidecar(mod_archive_writer_t *aw, const char *name,
 	return modArchiveAddFileMem(aw, name, sidecar, (u32)strlen(sidecar));
 }
 
-/* Convert "FILE_GFALCON2" -> "base:falcon2_hi" given a hint suffix.
- * Falls back to "base:rom_g_<HEX>" when the symbol is not known. */
+/* Convert "FILE_GFALCON2" -> "base:model_falcon2_hi" given a hint
+ * suffix. Unknown file symbols still get readable fallback ordinals; raw
+ * filenums stay private metadata. */
 static void s_synthCatalogId(u16 filenum, const char *hint_suffix,
                               char *out, size_t n)
 {
-	const char *sym = loaderEnumNameForFileEnum(filenum);
-	if (!sym) {
-		snprintf(out, n, "base:rom_g_%04x", (unsigned)filenum);
-		return;
-	}
-	/* Strip "FILE_G" prefix (weapon model files all start with this) and
-	 * lowercase the rest, append a discriminator hint when supplied. */
-	const char *body = sym;
-	if (strncmp(sym, "FILE_G", 6) == 0) body = sym + 6;
-	else if (strncmp(sym, "FILE_", 5) == 0) body = sym + 5;
-
-	char lowered[96];
-	size_t i;
-	for (i = 0; i + 1 < sizeof(lowered) && body[i]; i++) {
-		lowered[i] = (char)tolower((unsigned char)body[i]);
-	}
-	lowered[i] = '\0';
-
-	if (hint_suffix && hint_suffix[0]) {
-		snprintf(out, n, "base:%s_%s", lowered, hint_suffix);
-	} else {
-		snprintf(out, n, "base:%s", lowered);
-	}
+	catalogReadableModelIdForFile(filenum, hint_suffix, "mesh", out, n);
 }
 
 /* Build the on-disk path of the existing extracted .bin for a given

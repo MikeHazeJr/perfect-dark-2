@@ -47,6 +47,7 @@
 #include "pdgui_forge.h"
 #include "pdgui_interact_prompt.h"
 #include "pdgui_cutscene_prompt.h"
+#include "pdgui_weapon_graph_node_editor.h"
 
 /* F8 in-game menu hot-swap */
 #include "pdgui_hotswap.h"
@@ -452,6 +453,7 @@ void pdguiInit(void *sdlWindow)
     pdguiNinesliceInit();
     pdguiEffectsInit();
     pdguiFontMgrInit();
+    pdguiWeaponGraphNodeEditorInit();
 
     /* D5 Phase 2: Register the C++ wrap trampoline so pdguiNavTickWrap()
      * can call ImGui::NavMoveRequestTryWrapping from C code. */
@@ -1302,6 +1304,7 @@ void pdguiShutdown(void)
     }
 
     pdguiFontMgrShutdown();
+    pdguiWeaponGraphNodeEditorShutdown();
     pdguiEffectsShutdown();
     pdguiNinesliceShutdown();
     pdguiThemeShutdown();

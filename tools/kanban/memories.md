@@ -100,6 +100,51 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - The first graph pass was too adapter-centric; replace temporary compatibility layers with graph-shaped emission once the target contract is known [Task 2]
 - If the first Kanban rewrite is too historical, recast it into a completed-vs-incomplete CLI ledger after reading the exact live card block instead of patching by assumption [Task 2]
 
+# Task Group: PD2 Weapon Export and Beam Coordinate Diagnostics
+scope: Weapon-model extraction, held-weapon transform handling, and live beam/effect coordinate-space diagnosis for visible weapon artifacts.
+applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for PD2 weapon OBJ export, held-weapon rendering, and laser/effect anchoring work when the symptom is a narrow visible weapon artifact rather than a broad model-system failure.
+
+## Task 1: Diagnose Falcon 2 barrel stretch as split exporter and runtime coordinate-space bugs, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-22T01-37-19-RsXc-falcon_2_stretch_exporter_and_beam_space_fix.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T21-37-19-019e4d54-6de5-7542-9097-a9cb16c729ae.jsonl, updated_at=2026-05-22T05:42:02+00:00, thread_id=019e4d54-6de5-7542-9097-a9cb16c729ae, split Falcon 2 artifact into exporter-side matrix handling and runtime beam-space handling)
+
+### keywords
+
+- Falcon 2, pdmesh, pdweapon, OBJ export, G_MTX, G_POPMTX, SPSEGMENT_MODEL_MTX, bgunUpdateLasersight, beamfar, crosspos, rigged models, matrix stack
+
+## Task 2: Track and verify the Falcon 2 export/runtime fix set, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-22T01-37-19-RsXc-falcon_2_stretch_exporter_and_beam_space_fix.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T21-37-19-019e4d54-6de5-7542-9097-a9cb16c729ae.jsonl, updated_at=2026-05-22T05:42:02+00:00, thread_id=019e4d54-6de5-7542-9097-a9cb16c729ae, verification and B-366 tracking updates for the split fix)
+
+### keywords
+
+- B-366, model_obj_mtx_v8, export_version.txt, boot_smoke, bondgun laser static, detached-group, context/pillars/modding.md, context/pillars/rendering.md, UNRELEASED.md
+
+## User preferences
+
+- when the user asks whether a visible weapon artifact is in "how we Re parsing model data" or "something to do with rigged models" -> test the parser/export path against the runtime effect/state path instead of answering with one broad cause [Task 1]
+- when the user says the model is "mostly fine" but one visible piece stays fixed or stretches -> frame the diagnosis as a narrow coordinate-space or transform problem, not a blanket "model system is broken" claim [Task 1]
+- when the user reports one concrete artifact, keep the work scoped to that artifact and avoid expanding into unrelated model-system cleanup [Task 2]
+
+## Reusable knowledge
+
+- The Falcon 2 OBJ issue was real in the export pipeline: weapon display lists use `G_MTX` / `G_POPMTX` against `SPSEGMENT_MODEL_MTX`, and the older `.pdmesh` OBJ path emitted vertices without applying those transforms [Task 1]
+- The exporter-side fix now applies the held-weapon model-matrix stack and writes version markers (`model_obj_mtx_v8`, `export_version.txt`) so stale exports regenerate instead of silently persisting the old geometry [Task 1]
+- The in-game Falcon 2 "tip stays fixed while the model moves" symptom was separate from the OBJ issue: the live laser-sight beam path had its far endpoint projected from the wrong space while the near endpoint followed the muzzle/root [Task 1]
+- The durable diagnostic split is exporter-side matrix handling for held weapon meshes vs runtime beam/effect-space handling in `bgunUpdateLasersight()`; both can coexist for the same visible weapon symptom [Task 1][Task 2]
+- Verification for this lane was intentionally split across extraction and runtime: focused mesh extractor, focused `.pdweapon`, focused `[bondgun][laser][static]`, isolated all-target builds, and `boot_smoke` regeneration of 303 `.pdmesh` plus 86 `.pdweapon` archives [Task 2]
+- The all-weapon sweep reported 86 weapon archives, 152 nested weapon meshes, 303 standalone meshes, and no remaining severe-Y detached-group issues after the export fix [Task 2]
+
+## Failures and how to do differently
+
+- Do not collapse "OBJ artifact" and "in-game artifact" into one generic rigged-model parsing theory when the symptom can come from both exporter transforms and runtime beam/effect anchoring [Task 1][Task 2]
+- When the symptom is "models mostly fine" but one endpoint or tip stays fixed while the model moves, inspect effect anchoring and coordinate spaces before blaming skeletal parsing [Task 1]
+- Keep the exporter bug vs live effect bug distinction explicit in notes and tracking; collapsing them into one cause makes later verification ambiguous [Task 2]
+
 # Task Group: PD2 F6 Debug Completion Semantics
 scope: F6 debug hotkey behavior in Campaign and Combat Simulator, plus adjacent credits-routing debug entry points.
 applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for campaign/debug-hotkey/credits-routing work in this checkout, but keep Combat Simulator-only behavior separated from Campaign behavior.
@@ -647,7 +692,17 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 scope: Runtime bug diagnosis for black screens, load failures, catalog misses, lifecycle cleanup, and scenario/debug-launch issues.
 applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for future gameplay/runtime crash, black-screen, or missing-object investigations in this checkout.
 
-## Task 1: Diagnose Defection Perfect mission-start crash from `Build\pd-client.log` and move the ownership boundary to collision-owned meshes, success
+## Task 1: Diagnose and fix Combat Simulator restart-after-leave crash from the build log, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-22T04-29-11-jKNd-b368_combat_sim_restart_after_leave_crash_fix.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\22\rollout-2026-05-22T00-29-11-019e4df1-c7b7-74d2-9f31-28e45e8505bb.jsonl, updated_at=2026-05-22T04:46:32+00:00, thread_id=019e4df1-c7b7-74d2-9f31-28e45e8505bb, B-368 restart crash traced through teardown and stale MP runtime state)
+
+### keywords
+
+- Build/logs/game client/pd-client.log, objFree, lvStop, chrmgrStop, chrRemove, mpClearRuntimeChrState, g_MpAllChrPtrs, g_MpNumChrs, pdguiEndscreenExitToMainMenu, pdguiEndscreenExitToRoom, B-368
+
+## Task 2: Diagnose Defection Perfect mission-start crash from `Build\pd-client.log` and move the ownership boundary to collision-owned meshes, success
 
 ### rollout_summary_files
 
@@ -657,7 +712,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - Build\\pd-client.log, Defection Perfect, stage=0x30, CHR.TICK, symbolication, rendered-prop floor acquisition
 
-## Task 2: Diagnose the second load-screen crash from the newest log, then harden mesh extraction instead of reverting the architecture, success
+## Task 3: Diagnose the second load-screen crash from the newest log, then harden mesh extraction instead of reverting the architecture, success
 
 ### rollout_summary_files
 
@@ -667,7 +722,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - second exception, setupCreateDoor, meshExtractFromModel, extractGfxTris, architectural problem, latest log first
 
-## Task 3: Follow up on the rejected B-345 black-screen/missing-prop card with a narrower hoverbed smoke and a Chicrob metadata fix, success
+## Task 4: Follow up on the rejected B-345 black-screen/missing-prop card with a narrower hoverbed smoke and a Chicrob metadata fix, success
 
 ### rollout_summary_files
 
@@ -680,22 +735,28 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 ## User preferences
 
-- when the user points at a runtime log or says "Log is in build folder", start from the log rather than from prior issue state or source guesses [Task 1][Task 2]
-- when the user rejects a "fixed" card because some mission starts still look black or miss a visible prop, treat the complaint as a concrete runtime artifact problem and investigate the named object or mission start directly [Task 3]
-- when a user names a specific missing object such as the Elvis medical bed, add a targeted smoke fixture for that exact object/path instead of relying only on a broad campaign run [Task 3]
+- when the user says "Start match or mission, leave. Try to start a new one." -> treat it as a lifecycle/restart bug and inspect teardown plus re-entry instead of only the visible crash site [Task 1]
+- when the user points at a runtime log or says "Log is in build folder" or "Check the log in build, I got an exception." -> start from the log rather than from prior issue state or source guesses [Task 1][Task 2][Task 3]
+- when the user rejects a "fixed" card because some mission starts still look black or miss a visible prop, treat the complaint as a concrete runtime artifact problem and investigate the named object or mission start directly [Task 4]
+- when a user names a specific missing object such as the Elvis medical bed, add a targeted smoke fixture for that exact object/path instead of relying only on a broad campaign run [Task 4]
 
 ## Reusable knowledge
 
-- For black screens, HUD-only loads, missing objects, or debug scenario failures, check launch-path ownership, load/manifest state, catalog/provider registration, and teardown lifecycle before guessing at rendering [Task 1][Task 2][Task 3]
-- Symbolication can help, but recent evidence showed the log breadcrumbs were often more useful than raw `addr2line` output when the backtrace came back `??` [Task 1]
-- The mission-start lifecycle fix moved dynamic prop-mesh teardown into a live-prop cleanup pass before `MEMPOOL_STAGE` reset, and later smoke cleanup removed stale free-tail traversal artifacts [Task 3]
-- The broad `auto_campaign_first_cycle` fixture can be useful for proving early mission-start health even if it times out before full campaign completion; judge it by the target assertions and named artifact loads [Task 3]
+- For black screens, HUD-only loads, restart-after-leave crashes, missing objects, or debug scenario failures, check launch-path ownership, load/manifest state, catalog/provider registration, and teardown lifecycle before guessing at rendering [Task 1][Task 2][Task 3][Task 4]
+- The newest `Build/logs/game client/pd-client.log` was enough to isolate the B-368 crash path, and `addr2line` cleanly symbolicated it to `objFree()` in the teardown chain `lvStop -> chrmgrStop -> chrRemove -> objFree` [Task 1]
+- `mpClearRuntimeChrState()` is now the central helper for clearing `g_MpNumChrs`, `g_MpAllChrPtrs`, `g_MpAllChrConfigPtrs`, and bots after MP endscreen exits; the endscreen exit paths plus the legacy MP fallback call it before the next stage starts [Task 1]
+- `propobj.c` MP cleanup loops should null-check each `g_MpAllChrPtrs[i]` before dereferencing `chr->aibot`, because stale/null runtime chr slots can survive long enough to crash teardown on the next start [Task 1]
+- Symbolication can help, but recent evidence showed the log breadcrumbs were often more useful than raw `addr2line` output when the backtrace came back `??` [Task 2]
+- The mission-start lifecycle fix moved dynamic prop-mesh teardown into a live-prop cleanup pass before `MEMPOOL_STAGE` reset, and later smoke cleanup removed stale free-tail traversal artifacts [Task 4]
+- The broad `auto_campaign_first_cycle` fixture can be useful for proving early mission-start health even if it times out before full campaign completion; judge it by the target assertions and named artifact loads [Task 4]
 
 ## Failures and how to do differently
 
-- Do not assume the first crash fix closed the issue just because the crash moved; inspect the next stack and keep the architecture if the new failure is only at a still-unguarded boundary [Task 2]
-- Do not over-trust broad smokes for closure when the useful signal is a named mission-start path or object load; add a narrow smoke fixture [Task 3]
-- When cleaning up after runtime-smoke work, remove generated smoke artifacts from the current session but do not sweep unrelated dirty files [Task 3]
+- A broad status scan can time out in a dirty tree; for crash follow-up in this checkout, prefer focused file checks plus the exact regression selector over repeated whole-tree scans [Task 1]
+- When adding a regression case in an already-busy test file, inspect the existing block and append with matching anchors instead of patching by assumption [Task 1]
+- Do not assume the first crash fix closed the issue just because the crash moved; inspect the next stack and keep the architecture if the new failure is only at a still-unguarded boundary [Task 3]
+- Do not over-trust broad smokes for closure when the useful signal is a named mission-start path or object load; add a narrow smoke fixture [Task 4]
+- When cleaning up after runtime-smoke work, remove generated smoke artifacts from the current session but do not sweep unrelated dirty files [Task 4]
 
 # Task Group: PD2 Catalog as Asset Reference Authority
 scope: Catalog-owned asset identity, lookup, provider, and reference behavior.

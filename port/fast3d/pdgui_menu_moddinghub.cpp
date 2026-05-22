@@ -37,6 +37,7 @@
 #include "pdgui_nineslice.h"
 #include "pdgui_filebrowser.h"
 #include "pdgui_font_mod.h"
+#include "pdgui_weapon_graph_node_editor.h"
 #include "system.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
@@ -271,10 +272,10 @@ static bool     s_IniEmptyLogged = false;
  * ======================================================================== */
 
 #define HUB_WEAPON_TEXT_PREVIEW_LEN 8192
-#define HUB_WEAPON_GRAPH_MAX_NODES  24
-#define HUB_WEAPON_GRAPH_MAX_EDGES  32
-#define HUB_WEAPON_GRAPH_PARAM_LEN  512
-#define HUB_WEAPON_GRAPH_SCOPE_LEN  16
+#define HUB_WEAPON_GRAPH_MAX_NODES  PDGUI_WEAPON_GRAPH_MAX_NODES
+#define HUB_WEAPON_GRAPH_MAX_EDGES  PDGUI_WEAPON_GRAPH_MAX_EDGES
+#define HUB_WEAPON_GRAPH_PARAM_LEN  PDGUI_WEAPON_GRAPH_PARAM_LEN
+#define HUB_WEAPON_GRAPH_SCOPE_LEN  PDGUI_WEAPON_GRAPH_SCOPE_LEN
 
 static char s_WeaponSelectedId[CATALOG_ID_LEN] = "";
 static char s_WeaponLoadedId[CATALOG_ID_LEN] = "";
@@ -321,45 +322,23 @@ static char s_WeaponEditGraph[HUB_WEAPON_TEXT_PREVIEW_LEN] = "";
 static char s_WeaponEditNested[4096] = "";
 static WeaponImportTarget s_WeaponImportTarget = WEAPON_IMPORT_NONE;
 
-struct WeaponGraphModuleDef {
-    const char *label;
-    const char *kind;
-    const char *default_params;
-};
+typedef PdWeaponGraphModuleDef WeaponGraphModuleDef;
+typedef PdWeaponGraphContextDef WeaponGraphContextDef;
+typedef PdWeaponGraphNodeEdit WeaponGraphNodeEdit;
+typedef PdWeaponGraphEdgeEdit WeaponGraphEdgeEdit;
 
-struct WeaponGraphContextDef {
-    const char *label;
-    const char *name;
-    const char *scope;
-    const char *source;
-    const char *type;
-    const char *lifetime;
-    bool default_enabled;
-};
-
-struct WeaponGraphNodeEdit {
-    char id[WEAPON_GRAPH_IR_ID_LEN];
-    char kind[WEAPON_GRAPH_IR_ID_LEN];
-    char subgraph[HUB_WEAPON_GRAPH_SCOPE_LEN];
-    char params[HUB_WEAPON_GRAPH_PARAM_LEN];
-};
-
-struct WeaponGraphEdgeEdit {
-    int from;
-    int to;
-};
-
-static WeaponGraphNodeEdit s_WeaponGraphNodes[HUB_WEAPON_GRAPH_MAX_NODES];
-static WeaponGraphEdgeEdit s_WeaponGraphEdges[HUB_WEAPON_GRAPH_MAX_EDGES];
-static int s_WeaponGraphNodeCount = 0;
-static int s_WeaponGraphEdgeCount = 0;
-static int s_WeaponGraphModulePick = 0;
-static int s_WeaponGraphScopePick = 0;
-static int s_WeaponGraphEdgeFrom = 0;
-static int s_WeaponGraphEdgeTo = 0;
-static int s_WeaponGraphPrimaryExport = -1;
-static int s_WeaponGraphSecondaryExport = -1;
-static bool s_WeaponGraphContextEnabled[WEAPON_GRAPH_IR_MAX_CONTEXTS];
+static PdWeaponGraphEditModel s_WeaponGraphModel;
+#define s_WeaponGraphNodes            (s_WeaponGraphModel.nodes)
+#define s_WeaponGraphEdges            (s_WeaponGraphModel.edges)
+#define s_WeaponGraphNodeCount        (s_WeaponGraphModel.node_count)
+#define s_WeaponGraphEdgeCount        (s_WeaponGraphModel.edge_count)
+#define s_WeaponGraphModulePick       (s_WeaponGraphModel.module_pick)
+#define s_WeaponGraphScopePick        (s_WeaponGraphModel.scope_pick)
+#define s_WeaponGraphEdgeFrom         (s_WeaponGraphModel.edge_from)
+#define s_WeaponGraphEdgeTo           (s_WeaponGraphModel.edge_to)
+#define s_WeaponGraphPrimaryExport    (s_WeaponGraphModel.primary_export)
+#define s_WeaponGraphSecondaryExport  (s_WeaponGraphModel.secondary_export)
+#define s_WeaponGraphContextEnabled   (s_WeaponGraphModel.context_enabled)
 
 /* ========================================================================
  * INI Editor — helpers
@@ -984,6 +963,11 @@ static int weaponGraphScopeCount(void)
     return (int)(sizeof(s_WeaponGraphScopes) / sizeof(s_WeaponGraphScopes[0]));
 }
 
+static int weaponGraphModuleCount(void)
+{
+    return (int)(sizeof(s_WeaponGraphModules) / sizeof(s_WeaponGraphModules[0]));
+}
+
 static int weaponGraphContextCount(void)
 {
     return (int)(sizeof(s_WeaponGraphContextDefs) /
@@ -1056,16 +1040,9 @@ static bool weaponGraphBuilderAppendContextNameArray(char *dst, size_t dstSize,
 
 static void weaponGraphBuilderClear(void)
 {
-    memset(s_WeaponGraphNodes, 0, sizeof(s_WeaponGraphNodes));
-    memset(s_WeaponGraphEdges, 0, sizeof(s_WeaponGraphEdges));
-    s_WeaponGraphNodeCount = 0;
-    s_WeaponGraphEdgeCount = 0;
-    s_WeaponGraphScopePick = 0;
-    s_WeaponGraphEdgeFrom = 0;
-    s_WeaponGraphEdgeTo = 0;
-    s_WeaponGraphPrimaryExport = -1;
-    s_WeaponGraphSecondaryExport = -1;
-    weaponGraphBuilderResetContextDefaults();
+    pdguiWeaponGraphModelReset(&s_WeaponGraphModel,
+                               s_WeaponGraphContextDefs,
+                               weaponGraphContextCount());
 }
 
 static const char *weaponGraphNodeLabel(int index)
@@ -1236,7 +1213,29 @@ static bool weaponGraphBuilderSyncJson(void)
         ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos, "\n");
     }
     ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
-        "  ]\n"
+        "  ],\n"
+        "  \"editor\": {\n"
+        "    \"layout\": {\n"
+        "      \"nodes\": [\n");
+
+    for (int i = 0; ok && i < s_WeaponGraphNodeCount; i++) {
+        char escapedId[WEAPON_GRAPH_IR_ID_LEN + 16];
+        weaponJsonEscape(s_WeaponGraphNodes[i].id, escapedId, sizeof(escapedId));
+        float x = s_WeaponGraphNodes[i].pos_valid
+            ? s_WeaponGraphNodes[i].pos_x
+            : 48.0f + (float)((i % 3) * 230);
+        float y = s_WeaponGraphNodes[i].pos_valid
+            ? s_WeaponGraphNodes[i].pos_y
+            : 48.0f + (float)((i / 3) * 120);
+        ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
+            "        { \"id\": \"%s\", \"x\": %.1f, \"y\": %.1f }%s\n",
+            escapedId, x, y, (i + 1 < s_WeaponGraphNodeCount) ? "," : "");
+    }
+
+    ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
+        "      ]\n"
+        "    }\n"
+        "  }\n"
         "}\n");
 
     if (!ok) {
@@ -1257,33 +1256,45 @@ static bool weaponGraphBuilderSyncJson(void)
     return true;
 }
 
+static bool weaponGraphBuilderNodeIdExists(const char *id, int skipIndex)
+{
+    if (!id || !id[0]) return false;
+    for (int i = 0; i < s_WeaponGraphNodeCount; i++) {
+        if (i == skipIndex) continue;
+        if (strcmp(s_WeaponGraphNodes[i].id, id) == 0) return true;
+    }
+    return false;
+}
+
 static void weaponGraphBuilderMakeNodeId(const char *kind, char *out, size_t outSize)
 {
     if (!out || outSize == 0) return;
+    char base[WEAPON_GRAPH_IR_ID_LEN];
     size_t j = 0;
     const char *src = kind && kind[0] ? kind : "node";
-    for (size_t i = 0; src[i] && j + 1 < outSize; i++) {
+    for (size_t i = 0; src[i] && j + 1 < sizeof(base); i++) {
         char c = src[i];
         if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
         if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
-            out[j++] = c;
-        } else if (j > 0 && out[j - 1] != '_') {
-            out[j++] = '_';
+            base[j++] = c;
+        } else if (j > 0 && base[j - 1] != '_') {
+            base[j++] = '_';
         }
     }
-    while (j > 0 && out[j - 1] == '_') j--;
-    if (j + 5 < outSize) {
-        snprintf(out + j, outSize - j, "_%02d", s_WeaponGraphNodeCount + 1);
-    } else {
-        out[j] = '\0';
+    while (j > 0 && base[j - 1] == '_') j--;
+    base[j] = '\0';
+    if (!base[0]) snprintf(base, sizeof(base), "node");
+
+    for (int i = s_WeaponGraphNodeCount + 1; i < 1000; i++) {
+        snprintf(out, outSize, "%s_%02d", base, i);
+        if (!weaponGraphBuilderNodeIdExists(out, -1)) return;
     }
+    snprintf(out, outSize, "%s", base);
 }
 
 static bool weaponGraphBuilderAddModule(int moduleIndex, bool syncNow)
 {
-    if (moduleIndex < 0 ||
-            moduleIndex >= (int)(sizeof(s_WeaponGraphModules) /
-                                 sizeof(s_WeaponGraphModules[0]))) {
+    if (moduleIndex < 0 || moduleIndex >= weaponGraphModuleCount()) {
         return false;
     }
     if (s_WeaponGraphNodeCount >= HUB_WEAPON_GRAPH_MAX_NODES) {
@@ -1292,6 +1303,12 @@ static bool weaponGraphBuilderAddModule(int moduleIndex, bool syncNow)
     }
     WeaponGraphNodeEdit &node = s_WeaponGraphNodes[s_WeaponGraphNodeCount];
     memset(&node, 0, sizeof(node));
+    if (s_WeaponGraphModel.next_editor_id <= 0) s_WeaponGraphModel.next_editor_id = 1;
+    node.editor_id = s_WeaponGraphModel.next_editor_id++;
+    node.pos_x = 48.0f + (float)((s_WeaponGraphNodeCount % 3) * 230);
+    node.pos_y = 48.0f + (float)((s_WeaponGraphNodeCount / 3) * 120);
+    node.pos_valid = true;
+    s_WeaponGraphModel.canvas_layout_seeded = false;
     weaponGraphBuilderMakeNodeId(s_WeaponGraphModules[moduleIndex].kind,
                                  node.id, sizeof(node.id));
     strncpy(node.kind, s_WeaponGraphModules[moduleIndex].kind,
@@ -1314,9 +1331,7 @@ static bool weaponGraphBuilderAddModule(int moduleIndex, bool syncNow)
 static int weaponGraphModuleIndexByKind(const char *kind)
 {
     if (!kind) return 0;
-    for (int i = 0;
-            i < (int)(sizeof(s_WeaponGraphModules) / sizeof(s_WeaponGraphModules[0]));
-            i++) {
+    for (int i = 0; i < weaponGraphModuleCount(); i++) {
         if (strcmp(s_WeaponGraphModules[i].kind, kind) == 0) return i;
     }
     return 0;
@@ -1347,10 +1362,20 @@ static void weaponGraphBuilderAddEdge(int from, int to, bool syncNow)
         weaponSetStatus(false, "Graph edges cannot point to the same node");
         return;
     }
+    for (int i = 0; i < s_WeaponGraphEdgeCount; i++) {
+        if (s_WeaponGraphEdges[i].from == from &&
+                s_WeaponGraphEdges[i].to == to) {
+            weaponSetStatus(false, "That graph edge already exists");
+            return;
+        }
+    }
     if (s_WeaponGraphEdgeCount >= HUB_WEAPON_GRAPH_MAX_EDGES) {
         weaponSetStatus(false, "Graph builder edge limit reached");
         return;
     }
+    if (s_WeaponGraphModel.next_editor_id <= 0) s_WeaponGraphModel.next_editor_id = 1;
+    s_WeaponGraphEdges[s_WeaponGraphEdgeCount].editor_id =
+        s_WeaponGraphModel.next_editor_id++;
     s_WeaponGraphEdges[s_WeaponGraphEdgeCount].from = from;
     s_WeaponGraphEdges[s_WeaponGraphEdgeCount].to = to;
     s_WeaponGraphEdgeCount++;
@@ -1369,13 +1394,15 @@ static void weaponGraphBuilderRemoveNode(int index)
 
     int out = 0;
     for (int i = 0; i < s_WeaponGraphEdgeCount; i++) {
-        int from = s_WeaponGraphEdges[i].from;
-        int to = s_WeaponGraphEdges[i].to;
+        WeaponGraphEdgeEdit edge = s_WeaponGraphEdges[i];
+        int from = edge.from;
+        int to = edge.to;
         if (from == index || to == index) continue;
         if (from > index) from--;
         if (to > index) to--;
-        s_WeaponGraphEdges[out].from = from;
-        s_WeaponGraphEdges[out].to = to;
+        edge.from = from;
+        edge.to = to;
+        s_WeaponGraphEdges[out] = edge;
         out++;
     }
     s_WeaponGraphEdgeCount = out;
@@ -1386,6 +1413,9 @@ static void weaponGraphBuilderRemoveNode(int index)
     if (s_WeaponGraphSecondaryExport > index) s_WeaponGraphSecondaryExport--;
     if (s_WeaponGraphEdgeFrom >= s_WeaponGraphNodeCount) s_WeaponGraphEdgeFrom = 0;
     if (s_WeaponGraphEdgeTo >= s_WeaponGraphNodeCount) s_WeaponGraphEdgeTo = 0;
+    s_WeaponGraphModel.selected_node = -1;
+    s_WeaponGraphModel.selected_edge = -1;
+    s_WeaponGraphModel.canvas_layout_seeded = false;
     weaponGraphBuilderSyncJson();
 }
 
@@ -1396,6 +1426,60 @@ static void weaponGraphBuilderRemoveEdge(int index)
         s_WeaponGraphEdges[i] = s_WeaponGraphEdges[i + 1];
     }
     s_WeaponGraphEdgeCount--;
+    s_WeaponGraphModel.selected_edge = -1;
+    weaponGraphBuilderSyncJson();
+}
+
+static void weaponGraphBuilderDuplicateNode(int index)
+{
+    if (index < 0 || index >= s_WeaponGraphNodeCount) return;
+    if (s_WeaponGraphNodeCount >= HUB_WEAPON_GRAPH_MAX_NODES) {
+        weaponSetStatus(false, "Graph builder node limit reached");
+        return;
+    }
+    WeaponGraphNodeEdit src = s_WeaponGraphNodes[index];
+    WeaponGraphNodeEdit &node = s_WeaponGraphNodes[s_WeaponGraphNodeCount];
+    memset(&node, 0, sizeof(node));
+    if (s_WeaponGraphModel.next_editor_id <= 0) s_WeaponGraphModel.next_editor_id = 1;
+    node.editor_id = s_WeaponGraphModel.next_editor_id++;
+    weaponGraphBuilderMakeNodeId(src.id[0] ? src.id : src.kind,
+                                 node.id, sizeof(node.id));
+    strncpy(node.kind, src.kind, sizeof(node.kind) - 1);
+    strncpy(node.subgraph, src.subgraph, sizeof(node.subgraph) - 1);
+    strncpy(node.params, src.params, sizeof(node.params) - 1);
+    node.pos_x = src.pos_valid ? src.pos_x + 36.0f : 80.0f;
+    node.pos_y = src.pos_valid ? src.pos_y + 36.0f : 80.0f;
+    node.pos_valid = true;
+    s_WeaponGraphModel.selected_node = s_WeaponGraphNodeCount;
+    s_WeaponGraphModel.canvas_layout_seeded = false;
+    s_WeaponGraphNodeCount++;
+    weaponGraphBuilderSyncJson();
+}
+
+static void weaponGraphBuilderBreakPin(int nodeIndex, int pinKind)
+{
+    if (nodeIndex < 0 || nodeIndex >= s_WeaponGraphNodeCount) return;
+    int out = 0;
+    for (int i = 0; i < s_WeaponGraphEdgeCount; i++) {
+        bool remove = false;
+        if (pinKind == 1) {
+            remove = s_WeaponGraphEdges[i].to == nodeIndex;
+        } else if (pinKind == 2) {
+            remove = s_WeaponGraphEdges[i].from == nodeIndex;
+        } else {
+            remove = s_WeaponGraphEdges[i].from == nodeIndex ||
+                s_WeaponGraphEdges[i].to == nodeIndex;
+        }
+        if (!remove) {
+            s_WeaponGraphEdges[out++] = s_WeaponGraphEdges[i];
+        }
+    }
+    if (out == s_WeaponGraphEdgeCount) {
+        weaponSetStatus(false, "No graph links were attached to that pin");
+        return;
+    }
+    s_WeaponGraphEdgeCount = out;
+    s_WeaponGraphModel.selected_edge = -1;
     weaponGraphBuilderSyncJson();
 }
 
@@ -1470,6 +1554,95 @@ static void weaponGraphBuilderSeedLaptopControl(void)
     s_WeaponGraphPrimaryExport = primary;
     s_WeaponGraphSecondaryExport = secondary;
     weaponGraphBuilderSyncJson();
+}
+
+static bool weaponGraphBuilderLoadEditModelFromJson(bool syncNow)
+{
+    char err[192];
+    if (!pdguiWeaponGraphModelLoadJson(&s_WeaponGraphModel,
+            s_WeaponEditGraph,
+            s_WeaponGraphModules,
+            weaponGraphModuleCount(),
+            s_WeaponGraphContextDefs,
+            weaponGraphContextCount(),
+            err,
+            sizeof(err))) {
+        weaponGraphBuilderClear();
+        if (err[0]) {
+            char msg[240];
+            snprintf(msg, sizeof(msg), "Graph editor could not load JSON: %s", err);
+            weaponSetStatus(false, msg);
+        }
+        return false;
+    }
+    s_WeaponGraphModel.canvas_layout_seeded = false;
+    if (syncNow) {
+        return weaponGraphBuilderSyncJson();
+    }
+    weaponSetStatus(true, "Loaded behavior graph into node editor");
+    return true;
+}
+
+static void weaponGraphBuilderApplyEditorResult(
+        const PdWeaponGraphEditorResult &result)
+{
+    bool needsSync = result.model_changed;
+    switch (result.action) {
+        case PD_WEAPON_GRAPH_EDITOR_ACTION_ADD_MODULE: {
+            int previousScope = s_WeaponGraphScopePick;
+            if (result.scope[0]) {
+                s_WeaponGraphScopePick = weaponGraphBuilderScopeIndex(result.scope);
+            } else if (result.b >= 0 && result.b < weaponGraphScopeCount()) {
+                s_WeaponGraphScopePick = result.b;
+            }
+            needsSync = weaponGraphBuilderAddModule(result.module_index, false) || needsSync;
+            s_WeaponGraphScopePick = previousScope;
+            break;
+        }
+        case PD_WEAPON_GRAPH_EDITOR_ACTION_ADD_EDGE:
+            weaponGraphBuilderAddEdge(result.a, result.b, false);
+            needsSync = true;
+            break;
+        case PD_WEAPON_GRAPH_EDITOR_ACTION_REMOVE_NODE:
+            weaponGraphBuilderRemoveNode(result.a);
+            needsSync = false;
+            break;
+        case PD_WEAPON_GRAPH_EDITOR_ACTION_REMOVE_EDGE:
+            weaponGraphBuilderRemoveEdge(result.a);
+            needsSync = false;
+            break;
+        case PD_WEAPON_GRAPH_EDITOR_ACTION_DUPLICATE_NODE:
+            weaponGraphBuilderDuplicateNode(result.a);
+            needsSync = false;
+            break;
+        case PD_WEAPON_GRAPH_EDITOR_ACTION_SET_PRIMARY:
+            if (result.a >= 0 && result.a < s_WeaponGraphNodeCount) {
+                s_WeaponGraphPrimaryExport = result.a;
+                needsSync = true;
+            }
+            break;
+        case PD_WEAPON_GRAPH_EDITOR_ACTION_SET_SECONDARY:
+            if (result.a >= 0 && result.a < s_WeaponGraphNodeCount) {
+                s_WeaponGraphSecondaryExport = result.a;
+                needsSync = true;
+            }
+            break;
+        case PD_WEAPON_GRAPH_EDITOR_ACTION_BREAK_PIN:
+            weaponGraphBuilderBreakPin(result.a, result.b);
+            needsSync = false;
+            break;
+        case PD_WEAPON_GRAPH_EDITOR_ACTION_NONE:
+        default:
+            break;
+    }
+
+    bool syncOk = true;
+    if (needsSync) {
+        syncOk = weaponGraphBuilderSyncJson();
+    }
+    if (result.status[0] && syncOk) {
+        weaponSetStatus(result.status_ok, result.status);
+    }
 }
 
 static char *weaponImportPathMutableForTarget(WeaponImportTarget target)
@@ -1652,6 +1825,9 @@ static void weaponToolStartTemplate(const asset_entry_t *e)
     }
     weaponReplaceJsonStringField(s_WeaponEditGraph, sizeof(s_WeaponEditGraph),
                                  "asset_id", s_WeaponEditCatalogId);
+    if (!weaponGraphBuilderLoadEditModelFromJson(true)) {
+        weaponGraphBuilderSeedSingleShot();
+    }
     if (s_WeaponNestedPreview[0]) {
         strncpy(s_WeaponEditNested, s_WeaponNestedPreview,
                 sizeof(s_WeaponEditNested) - 1);
@@ -2317,7 +2493,7 @@ static bool weaponRenderGraphScopeCombo(const char *label, char *scope, size_t s
 
 static void weaponRenderGraphBuilder(float scale)
 {
-    ImGui::Text("Graph Builder");
+    ImGui::Text("Weapon Behavior Graph");
     ImGui::SameLine();
     ImGui::TextDisabled("%d modules, %d edges",
                         s_WeaponGraphNodeCount, s_WeaponGraphEdgeCount);
@@ -2356,135 +2532,26 @@ static void weaponRenderGraphBuilder(float scale)
         weaponSetStatus(true, "Graph builder cleared");
     }
 
-    if (ImGui::CollapsingHeader("Shared Context", ImGuiTreeNodeFlags_DefaultOpen)) {
-        for (int i = 0; i < weaponGraphContextCount(); i++) {
-            ImGui::PushID(5000 + i);
-            bool enabled = s_WeaponGraphContextEnabled[i];
-            if (ImGui::Checkbox(s_WeaponGraphContextDefs[i].label, &enabled)) {
-                s_WeaponGraphContextEnabled[i] = enabled;
-                weaponGraphBuilderSyncJson();
-            }
-            if ((i % 3) != 2) {
-                ImGui::SameLine();
-            }
-            ImGui::PopID();
-        }
-    }
+    PdWeaponGraphEditorDesc desc;
+    memset(&desc, 0, sizeof(desc));
+    desc.model = &s_WeaponGraphModel;
+    desc.modules = s_WeaponGraphModules;
+    desc.module_count = weaponGraphModuleCount();
+    desc.contexts = s_WeaponGraphContextDefs;
+    desc.context_count = weaponGraphContextCount();
+    desc.scopes = s_WeaponGraphScopes;
+    desc.scope_count = weaponGraphScopeCount();
+    desc.scale = scale;
 
-    const char *modulePreview = s_WeaponGraphModules[s_WeaponGraphModulePick].label;
-    ImGui::SetNextItemWidth(220.0f * scale);
-    if (ImGui::BeginCombo("Module", modulePreview)) {
-        for (int i = 0;
-                i < (int)(sizeof(s_WeaponGraphModules) /
-                          sizeof(s_WeaponGraphModules[0]));
-                i++) {
-            bool selected = s_WeaponGraphModulePick == i;
-            char label[128];
-            snprintf(label, sizeof(label), "%s  (%s)",
-                     s_WeaponGraphModules[i].label,
-                     s_WeaponGraphModules[i].kind);
-            if (ImGui::Selectable(label, selected)) {
-                s_WeaponGraphModulePick = i;
-            }
-        }
-        ImGui::EndCombo();
-    }
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(120.0f * scale);
-    if (ImGui::BeginCombo("Mode Module",
-                          weaponGraphBuilderScopeForIndex(s_WeaponGraphScopePick))) {
-        for (int i = 0; i < weaponGraphScopeCount(); i++) {
-            bool selected = s_WeaponGraphScopePick == i;
-            if (ImGui::Selectable(s_WeaponGraphScopes[i], selected)) {
-                s_WeaponGraphScopePick = i;
-            }
-        }
-        ImGui::EndCombo();
-    }
-    ImGui::SameLine();
-    if (PdButton("Add Module", ImVec2(112.0f * scale, 26.0f * scale))) {
-        weaponGraphBuilderAddModule(s_WeaponGraphModulePick, true);
-    }
-
-    ImGui::BeginChild("##weapon_graph_builder_nodes",
-                      ImVec2(-1.0f, 190.0f * scale), true,
-                      ImGuiWindowFlags_HorizontalScrollbar);
-    if (s_WeaponGraphNodeCount == 0) {
-        ImGui::TextDisabled("No graph modules.");
-    }
-    for (int i = 0; i < s_WeaponGraphNodeCount; i++) {
-        WeaponGraphNodeEdit &node = s_WeaponGraphNodes[i];
-        ImGui::PushID(i);
-        ImGui::Text("%s", node.kind);
-        ImGui::SameLine();
-        if (PdButton("Remove", ImVec2(76.0f * scale, 0))) {
-            ImGui::PopID();
-            weaponGraphBuilderRemoveNode(i);
-            break;
-        }
-        ImGui::SetNextItemWidth(190.0f * scale);
-        if (ImGui::InputText("Node ID", node.id, sizeof(node.id))) {
-            weaponGraphBuilderSyncJson();
-        }
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(130.0f * scale);
-        if (weaponRenderGraphScopeCombo("Mode", node.subgraph,
-                                        sizeof(node.subgraph))) {
-            weaponGraphBuilderApplyNodeMode(&node);
-            weaponGraphBuilderSyncJson();
-        }
-        ImGui::InputTextMultiline("Params",
-                                  node.params,
-                                  sizeof(node.params),
-                                  ImVec2(-1.0f, 58.0f * scale),
-                                  ImGuiInputTextFlags_AllowTabInput);
-        if (ImGui::IsItemDeactivatedAfterEdit()) {
-            weaponGraphBuilderSyncJson();
-        }
-        ImGui::Separator();
-        ImGui::PopID();
+    ImGui::BeginChild("##weapon_graph_node_editor_region",
+                      ImVec2(-1.0f, 430.0f * scale), true,
+                      ImGuiWindowFlags_NoScrollbar);
+    PdWeaponGraphEditorResult result;
+    if (pdguiWeaponGraphNodeEditorRender(&desc, &result)) {
+        weaponGraphBuilderApplyEditorResult(result);
     }
     ImGui::EndChild();
 
-    if (s_WeaponGraphNodeCount > 0) {
-        ImGui::SetNextItemWidth(190.0f * scale);
-        weaponRenderGraphNodeCombo("From", &s_WeaponGraphEdgeFrom, false);
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(190.0f * scale);
-        weaponRenderGraphNodeCombo("To", &s_WeaponGraphEdgeTo, false);
-        ImGui::SameLine();
-        if (PdButton("Add Edge", ImVec2(94.0f * scale, 26.0f * scale))) {
-            weaponGraphBuilderAddEdge(s_WeaponGraphEdgeFrom,
-                                      s_WeaponGraphEdgeTo, true);
-        }
-    }
-
-    for (int i = 0; i < s_WeaponGraphEdgeCount; i++) {
-        ImGui::PushID(1000 + i);
-        ImGui::Text("%s -> %s",
-                    weaponGraphNodeLabel(s_WeaponGraphEdges[i].from),
-                    weaponGraphNodeLabel(s_WeaponGraphEdges[i].to));
-        ImGui::SameLine();
-        if (PdButton("Remove", ImVec2(76.0f * scale, 0))) {
-            ImGui::PopID();
-            weaponGraphBuilderRemoveEdge(i);
-            break;
-        }
-        ImGui::PopID();
-    }
-
-    ImGui::SetNextItemWidth(220.0f * scale);
-    if (weaponRenderGraphNodeCombo("Primary Export",
-                                   &s_WeaponGraphPrimaryExport, true)) {
-        weaponGraphBuilderSyncJson();
-    }
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(220.0f * scale);
-    if (weaponRenderGraphNodeCombo("Secondary Export",
-                                   &s_WeaponGraphSecondaryExport, true)) {
-        weaponGraphBuilderSyncJson();
-    }
-    ImGui::SameLine();
     if (PdButton("Validate Graph", ImVec2(124.0f * scale, 26.0f * scale))) {
         char graphErr[192];
         if (weaponGraphValidateJson(ASSET_WEAPON, s_WeaponEditGraph,
@@ -2497,12 +2564,19 @@ static void weaponRenderGraphBuilder(float scale)
         }
     }
 
-    if (ImGui::CollapsingHeader("Generated JSON")) {
+    if (ImGui::CollapsingHeader("Advanced JSON")) {
         ImGui::InputTextMultiline("##weapon_edit_graph",
                                   s_WeaponEditGraph,
                                   sizeof(s_WeaponEditGraph),
                                   ImVec2(-1.0f, 150.0f * scale),
                                   ImGuiInputTextFlags_AllowTabInput);
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            weaponReplaceJsonStringField(s_WeaponEditGraph,
+                                         sizeof(s_WeaponEditGraph),
+                                         "asset_id",
+                                         s_WeaponEditCatalogId);
+            weaponGraphBuilderLoadEditModelFromJson(false);
+        }
     }
 }
 
@@ -2521,8 +2595,9 @@ static void renderWeaponTool(float contentW, float contentH, float scale)
                                                      sizeof(s_WeaponEditGraph),
                                                      "asset_id",
                                                      s_WeaponEditCatalogId);
-                        weaponGraphBuilderClear();
-                        weaponSetStatus(true, "Imported behavior graph JSON");
+                        if (weaponGraphBuilderLoadEditModelFromJson(false)) {
+                            weaponSetStatus(true, "Imported behavior graph JSON");
+                        }
                     } else {
                         weaponSetStatus(false, "Could not read graph JSON file");
                     }

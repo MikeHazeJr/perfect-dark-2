@@ -3150,9 +3150,9 @@
       "description": "Normalize every typed asset archive to a clean two-zone layout now that c3812/c3814 foundations exist. Human-authored files stay obvious at archive root or in purpose-named folders; machine/provenance/validation data moves under _meta/. Every archive remains fully self-contained: all descriptor, source-format, material, graph, nested-descriptor, and payload references must resolve inside the archive or inside an embedded typed archive. .pdmod remains transport only.",
       "pillar": "modding",
       "column": "active",
-      "order": 925,
+      "order": 800,
       "priority": 1,
-      "notes": "Created 2026-05-21 from Mike's request to walk each asset type and implement the clean-but-functional archive shape. Shared contract: root descriptor required; no .pdwpn; no authored .bin; no reference-only dependency closure; duplicate embedded payloads are allowed on disk and deduped after ingestion by catalog identity and canonical SHA-256. Preferred archive zones are authoring files first, nested typed dependencies second, and _meta/ for manifest.json, inventory.json, provenance.json, validation reports, source handles, SHA rows, and compatibility bookkeeping. During transition, scanners/loaders may accept old root manifest.json and root SHA sidecars but new emitters should write _meta/ and release validation should fail stale installed outputs that are non-zip, .pdwpn, .bin-backed, descriptor-less, or unresolved internally.",
+      "notes": "Created 2026-05-21 from Mike's request to walk each asset type and implement the clean-but-functional archive shape. Reprioritized 2026-05-22 as the top Asset Pipeline migration plan. Shared contract: root descriptor required; no .pdwpn; no authored .bin; no reference-only dependency closure; duplicate embedded payloads are allowed on disk and deduped after ingestion by catalog identity and canonical SHA-256. Preferred archive zones are authoring files first, nested typed dependencies second, and _meta/ for manifest.json, inventory.json, provenance.json, validation reports, source handles, SHA rows, and compatibility bookkeeping. During transition, scanners/loaders may accept old root manifest.json and root SHA sidecars but new emitters should write _meta/ and release validation should fail stale installed outputs that are non-zip, .pdwpn, .bin-backed, descriptor-less, or unresolved internally. c3832 is the detailed .pdweapon format card and sits immediately under this migration plan.",
       "subtasks": [
         {
           "id": "c3824-s1",
@@ -3166,7 +3166,7 @@
           "title": ".pdweapon layout",
           "status": "backlog",
           "order": 2000,
-          "notes": "Target layout: weapon.ini and behavior.graph.json at root; models/, animations/, audio/, ui/, projectiles/, and entities/ hold authored dependencies or embedded typed archives; _meta/ holds manifest, nested_payloads or inventory, provenance, validation, graph compiler hashes, and compatibility records. Keep weapon archives self-contained by embedding selected model, animation, audio, projectile, and entity payloads rather than writing reference-only catalog paths."
+          "notes": "Target layout now lives in context/designs/modding/weapon-archive-clean-format.md and c3832. Canonical folders are models/, materials/, textures/, animations/, sounds/, behavior/, projectiles/, entities/, ui/, and _meta/. Behavior mode authoring uses behavior/primary.graph.json and behavior/secondary.graph.json plus settings/variables/shared context files. _meta/ holds manifest, inventory, provenance, validation, hashes, and compatibility records. Remove new emissions of root behavior.graph.json, root manifest.json, root nested_payloads.json, canonical audio/, and weapon-owned hands."
         },
         {
           "id": "c3824-s3",
@@ -3286,6 +3286,79 @@
       "pending_completion": null,
       "created": "2026-05-21T15:45:19-04:00",
       "updated": "2026-05-21T15:45:19-04:00"
+    },
+    {
+      "id": "c3832",
+      "title": "Asset Pipeline: define clean .pdweapon archive format",
+      "description": "Lock the human-readable .pdweapon authoring format before rebuilding extraction. The archive uses purpose folders for models, materials, textures, animations, sounds, behavior, projectiles, entities, and UI, with machine/provenance data under _meta/. Primary and secondary behavior are authored as separate graph files with shared settings and variables. Hands are character-owned, mod weapons default to one model, material slots enable skin overrides, .pdmod is transport only, and the weapon manifest declares dependencies plus base-game fallbacks.",
+      "pillar": "modding",
+      "column": "active",
+      "order": 850,
+      "priority": 1,
+      "notes": "Created 2026-05-22 from Mike's format discussion. This card is the first concrete asset-type format under the c3824 migration plan and is now the main Asset Pipeline priority after that migration-plan card. Full target format is recorded in context/designs/modding/weapon-archive-clean-format.md. Acceptance: clean .pdweapon examples, extractor output, Modding Hub save output, validators, and docs all converge on weapon.ini plus models/materials/textures/animations/sounds/behavior/projectiles/entities/ui/_meta. Stale old-system references to root behavior.graph.json, root manifest.json, root nested_payloads.json, audio/ as canonical sound folder, weapon-owned hand models, reference-only dependency manifests, and numeric generated names must be removed from active docs, examples, UI labels, tests, and new emitters.",
+      "subtasks": [
+        {
+          "id": "c3832-s1",
+          "title": "Record the target .pdweapon layout",
+          "status": "done",
+          "order": 1000,
+          "notes": "Done 2026-05-22: context/designs/modding/weapon-archive-clean-format.md records the canonical folder layout, character-owned hands rule, one-model default for authored mods, material slots/skin overrides, behavior primary/secondary graph split, _meta manifest placement, dependency/fallback rules, .pdmod export/import behavior, stale-layout removal list, and acceptance gates."
+        },
+        {
+          "id": "c3832-s2",
+          "title": "Update examples to the clean weapon shape",
+          "status": "backlog",
+          "order": 2000,
+          "notes": "Refresh examples/modding/typed-pdxxx-basic with a .pdweapon archive using models/, materials/, textures/, animations/, sounds/, behavior/, projectiles/, entities/, ui/, and _meta/. The example must be zip-openable and should not contain root behavior.graph.json, root manifest.json, root nested_payloads.json, audio/ as the canonical folder, or weapon-owned hand assets."
+        },
+        {
+          "id": "c3832-s3",
+          "title": "Rebuild base weapon extraction to this format",
+          "status": "backlog",
+          "order": 3000,
+          "notes": "Change the base .pdweapon emitter from the current compatibility layout into the clean layout. Base hi/lo source relationships become provenance or optional named model variants; mod-authored shape remains one main weapon model. Source slots and raw numeric handles stay confined to _meta/provenance and never become catalog identity or user-facing filenames."
+        },
+        {
+          "id": "c3832-s4",
+          "title": "Implement manifest dependencies and fallbacks",
+          "status": "backlog",
+          "order": 4000,
+          "notes": "Define and implement _meta/manifest.json dependency roles for models, animations, sounds, projectiles, entities, skins/materials, UI, and behavior files. Each dependency can name an embedded archive path and a base-game fallback catalog ID. Import validates dependencies and installs only missing or newer compatible typed assets."
+        },
+        {
+          "id": "c3832-s5",
+          "title": "Define material slots and skin override contract",
+          "status": "backlog",
+          "order": 5000,
+          "notes": "Make weapon models expose named material slots, write materials/slots.json plus default material assignment, and document how future skin assets override slots without replacing the weapon model. Included default textures stay embedded or resolve inside textures/default/."
+        },
+        {
+          "id": "c3832-s6",
+          "title": "Align Modding Hub weapon save/import",
+          "status": "backlog",
+          "order": 6000,
+          "notes": "Update the Weapons Template flow to save the clean .pdweapon layout, use sounds/ as the canonical folder, keep hands character-owned, place machine data under _meta/, export dependency assets inside .pdmod as typed catalog units, and install only missing compatible dependencies on import."
+        },
+        {
+          "id": "c3832-s7",
+          "title": "Remove stale old-system references",
+          "status": "backlog",
+          "order": 7000,
+          "notes": "Sweep active docs, examples, tests, UI labels, and emitter comments for old-layout guidance: root behavior.graph.json as the authored target, root manifest.json/nested_payloads.json clutter, audio/ as the canonical sound folder, weapon-owned hand.gltf/hand_model fields, reference-only dependency wording, .pdwpn acceptance, and numeric generated filenames."
+        },
+        {
+          "id": "c3832-s8",
+          "title": "Add validators and release gates",
+          "status": "backlog",
+          "order": 8000,
+          "notes": "Add archive validation that accepts the clean .pdweapon layout and rejects unresolved internal references, authored .bin payloads, .pdwpn, root machine-metadata clutter in newly emitted archives, missing descriptors, missing dependency payloads, and numeric catalog identity leaks."
+        }
+      ],
+      "flag": "star",
+      "flagged_at": "2026-05-22T00:00:00-04:00",
+      "pending_completion": null,
+      "created": "2026-05-22T00:00:00-04:00",
+      "updated": "2026-05-22T00:00:00-04:00"
     },
     {
       "id": "c3814",
@@ -3443,6 +3516,13 @@
           "status": "done",
           "order": 3900,
           "notes": "Done 2026-05-22: chose one .pdweapon per weapon with modular primary/secondary subgraphs inside behavior.graph.json and explicit shared_context for owner player/team, weapon instance, damage credit, projectile owner, deployed entity sets, detonator links, target policy overrides, and hacking ownership. The compiler validates/preserves/hashes shared contexts, subgraphs, and per-node subgraph ownership; the base emitter writes those fields; and the Modding Hub builder exposes Shared Context checkboxes, mode-scoped module insertion, per-node mode assignment, and seeds for dual fire modes, remote mine/detonator linkage, and Laptop Gun targeting control. Verification: focused [weapon_graph][compiler][c3814],[weapon_graph][ui][c3814] passed 106 assertions / 6 cases; isolated all-target build session wgraphmod passed for client/updater and was removed."
+        },
+        {
+          "id": "c3814-s25",
+          "title": "Add in-game weapon graph node editor",
+          "status": "done",
+          "order": 4000,
+          "notes": "Done 2026-05-22: the Modding Hub Weapons Template flow now uses a Blueprint-style ImGui node canvas powered by vendored imgui-node-editor. It supports palette/search, draggable nodes, Bezier links, selection/delete, pin/link/node/canvas context menus, inspector param editing, shared context toggles, node context-ref checkboxes, primary/secondary export actions, imported/template graph round-trip, Advanced JSON fallback, and authoring-only editor.layout.nodes positions that do not affect runtime IR hashes. Verification: focused [weapon_graph][compiler][c3814],[weapon_graph][ui][c3814] passed 147 assertions / 8 cases; isolated all-target build session wgraphnode passed for client/updater and was removed."
         },
         {
           "id": "c3814-s3",

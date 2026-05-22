@@ -27,12 +27,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
 
 #include "boot_pool.h"
 #include "boot_progress.h"
+#include "catalog_readable_ids.h"
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -81,25 +81,7 @@ static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
 static void s_meshCatalogId(u16 filenum, const char *hint_suffix,
                             char *out, size_t n)
 {
-	if (!out || n == 0) return;
-	const char *sym = loaderEnumNameForFileEnum(filenum);
-	if (!sym) {
-		snprintf(out, n, "base:rom_g_%04x", (unsigned)filenum);
-		return;
-	}
-	const char *body = sym;
-	if (strncmp(sym, "FILE_G", 6) == 0) body = sym + 6;
-	else if (strncmp(sym, "FILE_", 5) == 0) body = sym + 5;
-
-	char lowered[96];
-	size_t i;
-	for (i = 0; i + 1 < sizeof(lowered) && body[i]; i++) {
-		lowered[i] = (char)tolower((unsigned char)body[i]);
-	}
-	lowered[i] = '\0';
-
-	if (hint_suffix && hint_suffix[0]) snprintf(out, n, "base:%s_%s", lowered, hint_suffix);
-	else snprintf(out, n, "base:%s", lowered);
+	catalogReadableModelIdForFile(filenum, hint_suffix, "mesh", out, n);
 }
 
 static void s_meshArchiveRelPath(u16 filenum, const char *hint_suffix,

@@ -23,13 +23,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
 #include <stdint.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
 
 #include "boot_pool.h"
 #include "boot_progress.h"
+#include "catalog_readable_ids.h"
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -364,27 +364,7 @@ static void s_collectWeaponDependencies(const struct weapon *wpn,
 static void s_synthMeshCatalogId(u16 filenum, const char *hint_suffix,
                                  char *out, size_t n)
 {
-	const char *sym = loaderEnumNameForFileEnum(filenum);
-	if (!sym) {
-		snprintf(out, n, "base:rom_g_%04x", (unsigned)filenum);
-		return;
-	}
-	const char *body = sym;
-	if (strncmp(sym, "FILE_G", 6) == 0) body = sym + 6;
-	else if (strncmp(sym, "FILE_", 5) == 0) body = sym + 5;
-
-	char lowered[96];
-	size_t i;
-	for (i = 0; i + 1 < sizeof(lowered) && body[i]; i++) {
-		lowered[i] = (char)tolower((unsigned char)body[i]);
-	}
-	lowered[i] = '\0';
-
-	if (hint_suffix && hint_suffix[0]) {
-		snprintf(out, n, "base:%s_%s", lowered, hint_suffix);
-	} else {
-		snprintf(out, n, "base:%s", lowered);
-	}
+	catalogReadableModelIdForFile(filenum, hint_suffix, "mesh", out, n);
 }
 
 static s32 s_meshRelForFilenum(u16 filenum, const char *hint,
@@ -452,32 +432,9 @@ static s32 s_addProjectileModelDependency(mod_archive_writer_t *aw,
 	return s_addArchiveFileDiskRel(aw, entry, src_rel, catalog_id);
 }
 
-static void s_lowerSfxSymbolForWeapon(const char *src, char *out, size_t out_n)
-{
-	if (out_n == 0) return;
-	out[0] = '\0';
-	if (!src) return;
-	const char *p = src;
-	if (strncmp(p, "SFX_", 4) == 0 || strncmp(p, "sfx_", 4) == 0) p += 4;
-	size_t i;
-	for (i = 0; p[i] && i + 1 < out_n; i++) {
-		out[i] = (char)tolower((unsigned char)p[i]);
-	}
-	out[i] = '\0';
-}
-
 static void s_sfxCatalogIdForWeapon(s32 sfx_idx, char *out, size_t out_n)
 {
-	const char *sym = loaderEnumNameForSfxEnum(sfx_idx);
-	if (sym && sym[0]) {
-		char lowered[96];
-		s_lowerSfxSymbolForWeapon(sym, lowered, sizeof(lowered));
-		if (lowered[0]) {
-			snprintf(out, out_n, "base:sfx_%s", lowered);
-			return;
-		}
-	}
-	snprintf(out, out_n, "base:sfx_%04x", (unsigned)sfx_idx);
+	catalogReadableSfxId(sfx_idx, out, out_n);
 }
 
 static s32 s_audioRelForSfx(s32 sfx_idx, char *out, size_t out_n,
@@ -500,7 +457,7 @@ static s32 s_audioRelForSfx(s32 sfx_idx, char *out, size_t out_n,
 		return 1;
 	}
 
-	snprintf(catalog_id, sizeof(catalog_id), "base:voice_%04x", (unsigned)sfx_idx);
+	catalogReadableVoiceId(sfx_idx, catalog_id, sizeof(catalog_id));
 	s_idToFilename(catalog_id, slug, sizeof(slug));
 	snprintf(rel, sizeof(rel), "audio/voice/%s.pdvoice", slug);
 	fsDataPathFor(rel, out, out_n);
@@ -540,7 +497,7 @@ static s32 s_addWeaponAudioDependency(mod_archive_writer_t *aw,
 	char slug[128];
 	s_sfxCatalogIdForWeapon(sfx_idx, id, sizeof(id));
 	if (strcmp(ext, ".pdvoice") == 0) {
-		snprintf(id, sizeof(id), "base:voice_%04x", (unsigned)sfx_idx);
+		catalogReadableVoiceId(sfx_idx, id, sizeof(id));
 	}
 	s_idToFilename(id, slug, sizeof(slug));
 	char entry[FS_MAXPATH];
@@ -582,7 +539,7 @@ static s32 s_addDependencyManifests(mod_archive_writer_t *aw,
 		char slug[128];
 		s_sfxCatalogIdForWeapon(audio_deps->sfx[i], id, sizeof(id));
 		if (strcmp(ext, ".pdvoice") == 0) {
-			snprintf(id, sizeof(id), "base:voice_%04x", (unsigned)audio_deps->sfx[i]);
+			catalogReadableVoiceId(audio_deps->sfx[i], id, sizeof(id));
 		}
 		s_idToFilename(id, slug, sizeof(slug));
 		len += snprintf(audio_manifest + len, sizeof(audio_manifest) - len,
