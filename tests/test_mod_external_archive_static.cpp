@@ -687,8 +687,9 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	REQUIRE(extractor.find("device.activate") != std::string::npos);
 	REQUIRE(extractor.find("projectile.ini") != std::string::npos);
 	REQUIRE(extractor.find("entity.ini") != std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v2\"") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v3\"") != std::string::npos);
 	REQUIRE(extractor.find("dependency_closure = \" PDWEAPON_DEPENDENCY_CLOSURE_MARKER") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v3\"") != std::string::npos);
 	REQUIRE(extractor.find("models/held_hi.pdmesh") != std::string::npos);
 	REQUIRE(extractor.find("models/held_lo.pdmesh") != std::string::npos);
 	REQUIRE(extractor.find("animations_manifest.tsv") != std::string::npos);
@@ -2556,6 +2557,10 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 
 	REQUIRE(mesh.find("s_buildModelObj") != std::string::npos);
 	REQUIRE(mesh.find("s_exportGdlToObj") != std::string::npos);
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v2\"") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v2\"") !=
+	        std::string::npos);
 	REQUIRE(mesh.find("#include \"preprocess.h\"") != std::string::npos);
 	REQUIRE(mesh.find("#include \"game/modeldef.h\"") != std::string::npos);
 	REQUIRE(mesh.find("#include \"lib/rzip.h\"") != std::string::npos);
@@ -2579,6 +2584,12 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("seg == SPSEGMENT_MODEL_VTX") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("((w0 >> 4) & 0xf) + 1") == std::string::npos);
+	REQUIRE(mesh.find("G_MTX") != std::string::npos);
+	REQUIRE(mesh.find("G_POPMTX") != std::string::npos);
+	REQUIRE(mesh.find("s_objApplyMtxCommand") != std::string::npos);
+	REQUIRE(mesh.find("SPSEGMENT_MODEL_MTX") != std::string::npos);
+	REQUIRE(mesh.find("s_objBuildDefaultModelMatrices") != std::string::npos);
+	REQUIRE(mesh.find("s_objMtxTransformPoint") != std::string::npos);
 	REQUIRE(mesh.find("G_TRI1") != std::string::npos);
 	REQUIRE(mesh.find("G_TRI4") != std::string::npos);
 	REQUIRE(mesh.find("(w1 >> 0)  & 0xf") != std::string::npos);
@@ -2586,11 +2597,18 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("gdl[cmdidx].tri4") == std::string::npos);
 	REQUIRE(mesh.find("model.obj") != std::string::npos);
 	REQUIRE(mesh.find("model.mtl") != std::string::npos);
+	REQUIRE(mesh.find("export_version.txt") != std::string::npos);
 	REQUIRE(mesh.find("source_format = PD_MODELDEF") != std::string::npos);
 	REQUIRE(mesh.find("format = OBJ") != std::string::npos);
+	REQUIRE(mesh.find("obj_export_version = %s") != std::string::npos);
 	REQUIRE(mesh.find("geometry_file = model.obj") != std::string::npos);
 	REQUIRE(mesh.find("material_file = model.mtl") != std::string::npos);
+	REQUIRE(mesh.find("model_matrix_reference_count = %u") != std::string::npos);
 	REQUIRE(mesh.find("s_existingArchiveHasEntry(dst_rel, \"model.obj\")") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("s_existingArchiveEntryContains(dst_rel, \"export_version.txt\"") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("modArchiveAddFileMem(aw, \"export_version.txt\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("modArchiveAddFileMem(aw, \"model.obj\"") !=
 	        std::string::npos);
@@ -2598,6 +2616,7 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	        std::string::npos);
 	REQUIRE(mesh.find("model.obj.sha256") != std::string::npos);
 	REQUIRE(mesh.find("model.mtl.sha256") != std::string::npos);
+	REQUIRE(mesh.find("export_version.txt.sha256") != std::string::npos);
 	REQUIRE(mesh.find("const char *wanted_hint = hint ? hint : \"\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("strcmp(jobs[i].hint, wanted_hint) == 0") !=

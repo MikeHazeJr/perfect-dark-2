@@ -55,6 +55,10 @@
  * dedup headroom. */
 #define ROMEXTRACT_PDMESH_SEEN_CAP 512
 #define ROMEXTRACT_PDMESH_MODEL_VMA 0x05000000u
+#define ROMEXTRACT_PDMESH_MTX_STACK_CAP 11
+#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v2"
+#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "\n"
+#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v2"
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
 
@@ -83,6 +87,40 @@ static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
 	s32 has_entry = modArchiveFindEntry(arc, entry) >= 0;
 	modArchiveClose(arc);
 	return has_entry;
+}
+
+static s32 s_existingArchiveEntryContains(const char *relpath,
+                                          const char *entry,
+                                          const char *needle)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0] || !needle) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	s32 idx = modArchiveFindEntry(arc, entry);
+	if (idx < 0) {
+		modArchiveClose(arc);
+		return 0;
+	}
+	u32 size = 0;
+	char *bytes = (char *)modArchiveExtractAlloc(arc, idx, &size);
+	modArchiveClose(arc);
+	if (!bytes) return 0;
+	s32 found = 0;
+	size_t needle_len = strlen(needle);
+	if (needle_len == 0) {
+		found = 1;
+	} else if (size >= needle_len) {
+		for (u32 i = 0; i + needle_len <= size; i++) {
+			if (memcmp(bytes + i, needle, needle_len) == 0) {
+				found = 1;
+				break;
+			}
+		}
+	}
+	free(bytes);
+	return found;
 }
 
 typedef struct {
@@ -160,6 +198,15 @@ typedef struct {
 	u32             tri_attempt_count;
 	u32             tri_missing_slot_count;
 	u32             vtx_bad_addr_count;
+	u32             mtx_cmd_count;
+	u32             popmtx_cmd_count;
+	u32             mtx_model_ref_count;
+	u32             mtx_bad_addr_count;
+	u32             transformed_vertex_count;
+	f32           (*model_matrices)[4][4];
+	s32             model_matrix_count;
+	f32             mtx_stack[ROMEXTRACT_PDMESH_MTX_STACK_CAP][4][4];
+	s32             mtx_stack_size;
 } pdmesh_obj_export_t;
 
 typedef struct {
@@ -171,6 +218,11 @@ typedef struct {
 	u32 tri_attempt_count;
 	u32 tri_missing_slot_count;
 	u32 vtx_bad_addr_count;
+	u32 mtx_cmd_count;
+	u32 popmtx_cmd_count;
+	u32 mtx_model_ref_count;
+	u32 mtx_bad_addr_count;
+	u32 transformed_vertex_count;
 } pdmesh_obj_stats_t;
 
 static s32 s_ptrInModel(const pdmesh_obj_export_t *ctx, const void *ptr,
@@ -198,24 +250,266 @@ static Gfx *s_resolveGdlPtr(const pdmesh_obj_export_t *ctx, Gfx *raw)
 	return NULL;
 }
 
+static void s_objMtxIdentity(f32 m[4][4])
+{
+	memset(m, 0, sizeof(f32) * 16);
+	m[0][0] = 1.0f;
+	m[1][1] = 1.0f;
+	m[2][2] = 1.0f;
+	m[3][3] = 1.0f;
+}
+
+static void s_objMtxCopy(f32 dst[4][4], const f32 src[4][4])
+{
+	memcpy(dst, src, sizeof(f32) * 16);
+}
+
+static void s_objMtxMul(f32 dst[4][4], const f32 a[4][4],
+                        const f32 b[4][4])
+{
+	f32 tmp[4][4];
+	for (s32 i = 0; i < 4; i++) {
+		for (s32 j = 0; j < 4; j++) {
+			tmp[i][j] =
+				a[i][0] * b[0][j] +
+				a[i][1] * b[1][j] +
+				a[i][2] * b[2][j] +
+				a[i][3] * b[3][j];
+		}
+	}
+	s_objMtxCopy(dst, tmp);
+}
+
+static void s_objMtxTranslation(const struct coord *pos, f32 m[4][4])
+{
+	s_objMtxIdentity(m);
+	if (!pos) return;
+	m[3][0] = pos->x;
+	m[3][1] = pos->y;
+	m[3][2] = pos->z;
+}
+
+static void s_objMtxTransformPoint(const f32 m[4][4],
+                                   const Vtx *v,
+                                   f32 out[3])
+{
+	f32 x = (f32)v->x;
+	f32 y = (f32)v->y;
+	f32 z = (f32)v->z;
+	out[0] = x * m[0][0] + y * m[1][0] + z * m[2][0] + m[3][0];
+	out[1] = x * m[0][1] + y * m[1][1] + z * m[2][1] + m[3][1];
+	out[2] = x * m[0][2] + y * m[1][2] + z * m[2][2] + m[3][2];
+}
+
+static s32 s_objNodeMtxIndex(const pdmesh_obj_export_t *ctx,
+                             const struct modelnode *node,
+                             s32 which)
+{
+	if (!node || !s_ptrInModel(ctx, node, sizeof(*node)) || !node->rodata) {
+		return -1;
+	}
+	switch (node->type & 0xff) {
+	case MODELNODETYPE_CHRINFO:
+		if (!s_ptrInModel(ctx, node->rodata,
+		                  sizeof(struct modelrodata_chrinfo))) return -1;
+		return node->rodata->chrinfo.mtxindex;
+	case MODELNODETYPE_POSITION:
+		if (!s_ptrInModel(ctx, node->rodata,
+		                  sizeof(struct modelrodata_position))) return -1;
+		if (which == 2) return node->rodata->position.mtxindex2;
+		if (which == 1) return node->rodata->position.mtxindex1;
+		return node->rodata->position.mtxindex0;
+	case MODELNODETYPE_POSITIONHELD:
+		if (!s_ptrInModel(ctx, node->rodata,
+		                  sizeof(struct modelrodata_positionheld))) return -1;
+		return node->rodata->positionheld.mtxindex;
+	}
+	return -1;
+}
+
+static s32 s_objParentMtxIndex(const pdmesh_obj_export_t *ctx,
+                               const struct modelnode *node)
+{
+	const struct modelnode *parent = node ? node->parent : NULL;
+	while (parent && s_ptrInModel(ctx, parent, sizeof(*parent))) {
+		s32 idx = s_objNodeMtxIndex(ctx, parent, 0);
+		if (idx >= 0) return idx;
+		parent = parent->parent;
+	}
+	return -1;
+}
+
+static s32 s_objMtxIndexValid(const pdmesh_obj_export_t *ctx, s32 idx)
+{
+	return idx >= 0 && idx < ctx->model_matrix_count && ctx->model_matrices;
+}
+
+static void s_objStoreNodeTranslationMtx(pdmesh_obj_export_t *ctx,
+                                         struct modelnode *node,
+                                         const struct coord *pos,
+                                         s32 idx)
+{
+	if (!s_objMtxIndexValid(ctx, idx)) return;
+	f32 local[4][4];
+	f32 out[4][4];
+	s_objMtxTranslation(pos, local);
+	s32 parent_idx = s_objParentMtxIndex(ctx, node);
+	if (s_objMtxIndexValid(ctx, parent_idx)) {
+		s_objMtxMul(out, local, ctx->model_matrices[parent_idx]);
+		s_objMtxCopy(ctx->model_matrices[idx], out);
+	} else {
+		s_objMtxCopy(ctx->model_matrices[idx], local);
+	}
+}
+
+static void s_objBuildDefaultModelMatrices(pdmesh_obj_export_t *ctx,
+                                           struct modelnode *node)
+{
+	if (!node || !s_ptrInModel(ctx, node, sizeof(*node))) return;
+
+	u32 type = node->type & 0xff;
+	if (type == MODELNODETYPE_POSITION && node->rodata &&
+	    s_ptrInModel(ctx, node->rodata, sizeof(struct modelrodata_position))) {
+		struct modelrodata_position *pos = &node->rodata->position;
+		s_objStoreNodeTranslationMtx(ctx, node, &pos->pos, pos->mtxindex0);
+		s_objStoreNodeTranslationMtx(ctx, node, &pos->pos, pos->mtxindex1);
+		s_objStoreNodeTranslationMtx(ctx, node, &pos->pos, pos->mtxindex2);
+	} else if (type == MODELNODETYPE_POSITIONHELD && node->rodata &&
+	           s_ptrInModel(ctx, node->rodata,
+	                        sizeof(struct modelrodata_positionheld))) {
+		struct modelrodata_positionheld *held = &node->rodata->positionheld;
+		s_objStoreNodeTranslationMtx(ctx, node, &held->pos, held->mtxindex);
+	} else if (type == MODELNODETYPE_CHRINFO && node->rodata &&
+	           s_ptrInModel(ctx, node->rodata,
+	                        sizeof(struct modelrodata_chrinfo))) {
+		s32 idx = node->rodata->chrinfo.mtxindex;
+		s32 parent_idx = s_objParentMtxIndex(ctx, node);
+		if (s_objMtxIndexValid(ctx, idx) &&
+		    s_objMtxIndexValid(ctx, parent_idx)) {
+			s_objMtxCopy(ctx->model_matrices[idx],
+			             ctx->model_matrices[parent_idx]);
+		}
+	}
+
+	if (node->child) s_objBuildDefaultModelMatrices(ctx, node->child);
+	if (node->next) s_objBuildDefaultModelMatrices(ctx, node->next);
+}
+
+static s32 s_objDecodeFixedMtx(const s32 *addr, f32 out[4][4])
+{
+	if (!addr) return 0;
+#ifdef GBI_FLOATS
+	memcpy(out, addr, sizeof(f32) * 16);
+#else
+	for (s32 i = 0; i < 4; i++) {
+		for (s32 j = 0; j < 4; j += 2) {
+			s32 int_part = addr[i * 2 + j / 2];
+			u32 frac_part = (u32)addr[8 + i * 2 + j / 2];
+			out[i][j] = (f32)((s32)((int_part & 0xffff0000) |
+				(frac_part >> 16))) / 65536.0f;
+			out[i][j + 1] = (f32)((s32)((int_part << 16) |
+				(frac_part & 0xffff))) / 65536.0f;
+		}
+	}
+#endif
+	return 1;
+}
+
+static s32 s_objResolveMtx(const pdmesh_obj_export_t *ctx, uintptr_t raw,
+                           f32 out[4][4], u32 *from_model_table)
+{
+	if (from_model_table) *from_model_table = 0;
+	if (!raw) return 0;
+
+	if (raw & 1u) {
+		u32 seg = (u32)((raw & 0x0f000000u) >> 24);
+		u32 off = (u32)(raw & 0x00fffffeu);
+		if (seg == SPSEGMENT_MODEL_MTX && ctx->model_matrices) {
+			s32 idx = (s32)(off / sizeof(Mtxf));
+			if ((off % sizeof(Mtxf)) == 0 && s_objMtxIndexValid(ctx, idx)) {
+				s_objMtxCopy(out, ctx->model_matrices[idx]);
+				if (from_model_table) *from_model_table = 1;
+				return 1;
+			}
+			idx = (s32)(off / sizeof(Mtx));
+			if ((off % sizeof(Mtx)) == 0 && s_objMtxIndexValid(ctx, idx)) {
+				s_objMtxCopy(out, ctx->model_matrices[idx]);
+				if (from_model_table) *from_model_table = 1;
+				return 1;
+			}
+		}
+	}
+
+	uintptr_t ptr = UNSEGADDR(raw);
+	if (s_ptrInModel(ctx, (const void *)ptr, sizeof(Mtx))) {
+		return s_objDecodeFixedMtx((const s32 *)ptr, out);
+	}
+	u32 off = (u32)(ptr & 0x00ffffffu);
+	if (off + sizeof(Mtx) <= ctx->size) {
+		return s_objDecodeFixedMtx((const s32 *)(ctx->base + off), out);
+	}
+	return 0;
+}
+
+static void s_objApplyMtxCommand(pdmesh_obj_export_t *ctx,
+                                 u8 parameters,
+                                 uintptr_t raw)
+{
+	f32 matrix[4][4];
+	u32 from_model_table = 0;
+	ctx->mtx_cmd_count++;
+	if (!s_objResolveMtx(ctx, raw, matrix, &from_model_table)) {
+		ctx->mtx_bad_addr_count++;
+		return;
+	}
+	if (from_model_table) ctx->mtx_model_ref_count++;
+	if (parameters & G_MTX_PROJECTION) return;
+
+	if (ctx->mtx_stack_size <= 0) {
+		ctx->mtx_stack_size = 1;
+		s_objMtxIdentity(ctx->mtx_stack[0]);
+	}
+	if ((parameters & G_MTX_PUSH) &&
+	    ctx->mtx_stack_size < ROMEXTRACT_PDMESH_MTX_STACK_CAP) {
+		s_objMtxCopy(ctx->mtx_stack[ctx->mtx_stack_size],
+		             ctx->mtx_stack[ctx->mtx_stack_size - 1]);
+		ctx->mtx_stack_size++;
+	}
+	if (parameters & G_MTX_LOAD) {
+		s_objMtxCopy(ctx->mtx_stack[ctx->mtx_stack_size - 1], matrix);
+	} else {
+		s_objMtxMul(ctx->mtx_stack[ctx->mtx_stack_size - 1],
+		            matrix,
+		            ctx->mtx_stack[ctx->mtx_stack_size - 1]);
+	}
+}
+
 static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
                         const Vtx *a, const Vtx *b, const Vtx *c)
 {
 	if (!a || !b || !c) return 0;
+	if (ctx->mtx_stack_size <= 0) {
+		ctx->mtx_stack_size = 1;
+		s_objMtxIdentity(ctx->mtx_stack[0]);
+	}
+	f32 va[3], vb[3], vc[3];
+	s_objMtxTransformPoint(ctx->mtx_stack[ctx->mtx_stack_size - 1], a, va);
+	s_objMtxTransformPoint(ctx->mtx_stack[ctx->mtx_stack_size - 1], b, vb);
+	s_objMtxTransformPoint(ctx->mtx_stack[ctx->mtx_stack_size - 1], c, vc);
 	u32 i0 = ctx->next_index++;
 	u32 i1 = ctx->next_index++;
 	u32 i2 = ctx->next_index++;
 	if (s_textbufAppendf(ctx->obj,
-			"v %d %d %d\n"
-			"v %d %d %d\n"
-			"v %d %d %d\n"
+			"v %.6f %.6f %.6f\n"
+			"v %.6f %.6f %.6f\n"
+			"v %.6f %.6f %.6f\n"
 			"vt %.6f %.6f\n"
 			"vt %.6f %.6f\n"
 			"vt %.6f %.6f\n"
 			"f %u/%u %u/%u %u/%u\n",
-			(int)a->x, (int)a->y, (int)a->z,
-			(int)b->x, (int)b->y, (int)b->z,
-			(int)c->x, (int)c->y, (int)c->z,
+			(double)va[0], (double)va[1], (double)va[2],
+			(double)vb[0], (double)vb[1], (double)vb[2],
+			(double)vc[0], (double)vc[1], (double)vc[2],
 			(double)a->s / 32.0, 1.0 - ((double)a->t / 32.0),
 			(double)b->s / 32.0, 1.0 - ((double)b->t / 32.0),
 			(double)c->s / 32.0, 1.0 - ((double)c->t / 32.0),
@@ -225,6 +519,7 @@ static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
 		return -1;
 	}
 	ctx->triangle_count++;
+	ctx->transformed_vertex_count += 3;
 	return 0;
 }
 
@@ -254,6 +549,18 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 			if (s_exportGdlToObj(ctx, child, vbuf, numverts, depth + 1) != 0) {
 				return -1;
 			}
+			continue;
+		}
+
+		if (cmd == (u8)G_MTX) {
+			s_objApplyMtxCommand(ctx, (u8)((w0 >> 16) & 0xffu),
+			                     (uintptr_t)w1);
+			continue;
+		}
+
+		if (cmd == (u8)G_POPMTX && w1 != 0) {
+			ctx->popmtx_cmd_count++;
+			if (ctx->mtx_stack_size > 1) ctx->mtx_stack_size--;
 			continue;
 		}
 
@@ -425,6 +732,10 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 	modelPromoteTypeToPointer(modeldef);
 	modelPromoteOffsetsToPointers(modeldef, ROMEXTRACT_PDMESH_MODEL_VMA,
 	                              (uintptr_t)modeldef);
+	if (modeldef->nummatrices < 0 || modeldef->nummatrices > 4096) {
+		free(copy);
+		return -1;
+	}
 
 	if (s_textbufAppend(obj,
 			"# Perfect Dark 2 base model export\n"
@@ -440,7 +751,26 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 	ctx.size = src_size;
 	ctx.obj = obj;
 	ctx.next_index = 1;
+	ctx.mtx_stack_size = 1;
+	s_objMtxIdentity(ctx.mtx_stack[0]);
+	if (modeldef->nummatrices > 0) {
+		size_t matrix_bytes = (size_t)modeldef->nummatrices *
+			sizeof(*ctx.model_matrices);
+		ctx.model_matrices = (f32 (*)[4][4])malloc(matrix_bytes);
+		if (!ctx.model_matrices) {
+			free(copy);
+			return -1;
+		}
+		ctx.model_matrix_count = modeldef->nummatrices;
+		for (s32 i = 0; i < ctx.model_matrix_count; i++) {
+			s_objMtxIdentity(ctx.model_matrices[i]);
+		}
+		if (modeldef->rootnode) {
+			s_objBuildDefaultModelMatrices(&ctx, modeldef->rootnode);
+		}
+	}
 	if (modeldef->rootnode && s_exportNodeObj(&ctx, modeldef->rootnode) != 0) {
+		if (ctx.model_matrices) free(ctx.model_matrices);
 		free(copy);
 		return -1;
 	}
@@ -454,7 +784,13 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 		out_stats->tri_attempt_count = ctx.tri_attempt_count;
 		out_stats->tri_missing_slot_count = ctx.tri_missing_slot_count;
 		out_stats->vtx_bad_addr_count = ctx.vtx_bad_addr_count;
+		out_stats->mtx_cmd_count = ctx.mtx_cmd_count;
+		out_stats->popmtx_cmd_count = ctx.popmtx_cmd_count;
+		out_stats->mtx_model_ref_count = ctx.mtx_model_ref_count;
+		out_stats->mtx_bad_addr_count = ctx.mtx_bad_addr_count;
+		out_stats->transformed_vertex_count = ctx.transformed_vertex_count;
 	}
+	if (ctx.model_matrices) free(ctx.model_matrices);
 	free(copy);
 	return 0;
 }
@@ -631,7 +967,9 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	snprintf(dst_rel, sizeof(dst_rel), "%s/%s.pdmesh", out_dir, filename_slug);
 
 	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
-	    s_existingArchiveHasEntry(dst_rel, "model.obj")) return 0;
+	    s_existingArchiveHasEntry(dst_rel, "model.obj") &&
+	    s_existingArchiveEntryContains(dst_rel, "export_version.txt",
+		ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION)) return 0;
 
 	u8 *model_bytes = NULL;
 	u32 model_size = 0;
@@ -656,18 +994,23 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		sysMemFree(model_bytes);
 		s_textbufFree(&obj_buf);
 		sysLogPrintf(LOG_WARNING,
-			"romextract pdmesh: OBJ export produced no triangles for filenum=0x%04x (rel=\"%s\", gdls=%u vtxcmds=%u vtxslots=%u tricmds=%u triattempts=%u trimiss=%u badvtxaddr=%u)",
+			"romextract pdmesh: OBJ export produced no triangles for filenum=0x%04x (rel=\"%s\", gdls=%u vtxcmds=%u vtxslots=%u mtxcmds=%u mtxrefs=%u tricmds=%u triattempts=%u trimiss=%u badvtxaddr=%u badmtxaddr=%u)",
 			(unsigned)filenum, src_rel, (unsigned)stats.gdl_count,
 			(unsigned)stats.vtx_cmd_count, (unsigned)stats.vtx_slot_count,
+			(unsigned)stats.mtx_cmd_count,
+			(unsigned)stats.mtx_model_ref_count,
 			(unsigned)stats.tri_cmd_count, (unsigned)stats.tri_attempt_count,
 			(unsigned)stats.tri_missing_slot_count,
-			(unsigned)stats.vtx_bad_addr_count);
+			(unsigned)stats.vtx_bad_addr_count,
+			(unsigned)stats.mtx_bad_addr_count);
 		return -1;
 	}
 	sysLogPrintf(LOG_NOTE,
-		"romextract pdmesh: exported filenum=0x%04x loadtype=%u tris=%u gdls=%u",
+		"romextract pdmesh: exported filenum=0x%04x loadtype=%u tris=%u gdls=%u mtxcmds=%u mtxrefs=%u",
 		(unsigned)filenum, (unsigned)loadtype,
-		(unsigned)stats.triangle_count, (unsigned)stats.gdl_count);
+		(unsigned)stats.triangle_count, (unsigned)stats.gdl_count,
+		(unsigned)stats.mtx_cmd_count,
+		(unsigned)stats.mtx_model_ref_count);
 	sysMemFree(model_bytes);
 
 	const char mtl_buf[] =
@@ -681,7 +1024,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	const char *sym_for_provenance = loaderEnumNameForFileEnum(filenum);
 
 	/* Build manifest.json text in memory. */
-	char manifest_buf[768];
+	char manifest_buf[1024];
 	int manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
 		"{\n"
 		"  \"pd_kind\": \"mesh\",\n"
@@ -690,15 +1033,21 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"  \"source_filenum_symbol\": \"%s\",\n"
 		"  \"source_format\": \"PD_MODELDEF\",\n"
 		"  \"format\": \"OBJ\",\n"
+		"  \"obj_export_version\": \"%s\",\n"
 		"  \"geometry\": \"model.obj\",\n"
 		"  \"material\": \"model.mtl\",\n"
 		"  \"triangle_count\": %u,\n"
-		"  \"display_list_count\": %u\n"
+		"  \"display_list_count\": %u,\n"
+		"  \"matrix_command_count\": %u,\n"
+		"  \"model_matrix_reference_count\": %u\n"
 		"}\n",
 		catalog_id,
 		sym_for_provenance ? sym_for_provenance : "",
+		ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL,
 		(unsigned)stats.triangle_count,
-		(unsigned)stats.gdl_count);
+		(unsigned)stats.gdl_count,
+		(unsigned)stats.mtx_cmd_count,
+		(unsigned)stats.mtx_model_ref_count);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
 		s_textbufFree(&obj_buf);
 		sysLoudFailf("EXTRACT.PDMESH",
@@ -707,21 +1056,27 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 
-	char ini_buf[512];
+	char ini_buf[768];
 	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
 		"[model]\n"
 		"catalog_id = %s\n"
 		"kind = mesh\n"
 		"source_format = PD_MODELDEF\n"
 		"format = OBJ\n"
+		"obj_export_version = %s\n"
 		"geometry_file = model.obj\n"
 		"material_file = model.mtl\n"
 		"triangle_count = %u\n"
 		"display_list_count = %u\n"
+		"matrix_command_count = %u\n"
+		"model_matrix_reference_count = %u\n"
 		"source_filenum_symbol = %s\n",
 		catalog_id,
+		ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL,
 		(unsigned)stats.triangle_count,
 		(unsigned)stats.gdl_count,
+		(unsigned)stats.mtx_cmd_count,
+		(unsigned)stats.mtx_model_ref_count,
 		sym_for_provenance ? sym_for_provenance : "");
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		s_textbufFree(&obj_buf);
@@ -764,6 +1119,16 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 
+	if (modArchiveAddFileMem(aw, "export_version.txt",
+	                          ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION,
+	                          (u32)strlen(ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION)) != 0) {
+		sysLoudFailf("EXTRACT.PDMESH",
+			"AddFileMem export_version.txt failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		s_textbufFree(&obj_buf);
+		return -1;
+	}
+
 	if (modArchiveAddFileMem(aw, "model.obj", obj_buf.data, obj_buf.len) != 0) {
 		sysLoudFailf("EXTRACT.PDMESH",
 			"AddFileMem model.obj failed for \"%s\"", dst_full);
@@ -780,7 +1145,10 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 
-	if (s_addShaSidecar(aw, "model.obj.sha256", obj_buf.data, obj_buf.len) != 0 ||
+	if (s_addShaSidecar(aw, "export_version.txt.sha256",
+			ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION,
+			(u32)strlen(ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION)) != 0 ||
+	    s_addShaSidecar(aw, "model.obj.sha256", obj_buf.data, obj_buf.len) != 0 ||
 	    s_addShaSidecar(aw, "model.mtl.sha256", mtl_buf, mtl_len) != 0) {
 		sysLogPrintf(LOG_WARNING,
 			"romextract pdmesh: sidecar write failed for \"%s\"", dst_full);
@@ -947,7 +1315,7 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 		}
 	}
 
-	if (romExtractPdFastCacheCanSkip("pdmesh", meshes_dir,
+	if (romExtractPdFastCacheCanSkip(ROMEXTRACT_PDMESH_FAST_CACHE_KIND, meshes_dir,
 			".pdmesh", force_rewrite)) {
 		bootProgressUpdate(job_count, job_count);
 		s_SeenCount = job_count;
@@ -987,7 +1355,8 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 		written, skipped, failed, s_SeenCount);
 
 	if (failed == 0) {
-		romExtractPdFastCacheWrite("pdmesh", meshes_dir, ".pdmesh");
+		romExtractPdFastCacheWrite(ROMEXTRACT_PDMESH_FAST_CACHE_KIND,
+			meshes_dir, ".pdmesh");
 	}
 
 	return written;

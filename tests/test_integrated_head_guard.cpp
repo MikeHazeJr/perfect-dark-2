@@ -200,6 +200,29 @@ TEST_CASE("bodydata: Chicrob is self-contained and suppresses phantom head loads
 	        != std::string::npos);
 }
 
+/* B-365: Infiltration campaign auto-advance can reach robot attack during
+ * live AI ticks. Robot muzzle/attack code must fail closed when catalog or
+ * setup data yields a robot-race chr without the expected robot model parts. */
+TEST_CASE("chraction: robot attack and muzzle flash fail closed",
+          "[chraction][robot][static][b365]") {
+	const std::string src = readTextFile("src/game/chraction.c");
+
+	REQUIRE(src.find("union modelrwdata *rwdata = NULL;")
+	        != std::string::npos);
+	REQUIRE(src.find("if (!chr || !chr->model || !chr->model->definition) {")
+	        != std::string::npos);
+	REQUIRE(src.find("&& chr->model->definition->skel == &g_SkelRobot")
+	        != std::string::npos);
+	REQUIRE(src.find("&& chr->unk348[0]->beam")
+	        != std::string::npos);
+	REQUIRE(src.find("&& chr->unk348[1]->beam")
+	        != std::string::npos);
+	REQUIRE(src.find("ROBOT.ATTACK.GUARD:")
+	        != std::string::npos);
+	REQUIRE(src.find("if (!rodata) {\n\t\t\t\tact->finished = true;")
+	        != std::string::npos);
+}
+
 /* B-345: campaign mission start can inherit a stale charpreview request
  * after menu transition cleanup.  The preview path must yield whenever
  * active gameplay owns the first-person rig, not only in MP gameplay. */

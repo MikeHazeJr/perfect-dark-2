@@ -165,6 +165,123 @@
       ]
     },
     {
+      "id": "c3829",
+      "title": "B-365: Infiltration robot attack exception",
+      "description": "Mike reported an exception while playtesting in the build. The latest build log crashed after the campaign auto-runner reached Infiltration, with symbolication resolving the PC to chrTickRobotAttack.",
+      "pillar": "engine",
+      "column": "active",
+      "order": 3829000,
+      "notes": "Code/build/smoke verified 2026-05-21; pending Mike's manual retest in his build before closure. Root cause was robotSetMuzzleFlash using uninitialized rwdata when a robot gunfire model part was missing, plus robot attack setup/tick paths trusting incomplete robot model, beam, target, and gun-position state. chraction.c now initializes and guards muzzle flash rwdata, starts robot attack only with valid robot skeleton/fireslots/beams, and fails closed if chr/model/prop/target/gun-position state is incomplete. Verification: focused [chraction][robot][static][b365] passed, isolated all-target build b363robot passed for client/updater, and exact auto_campaign_infiltration_robot_attack smoke passed from the isolated binary with no ACCESS_VIOLATION, EXCEPTION, or FATAL pattern.",
+      "flag": null,
+      "flagged_at": null,
+      "created": "2026-05-21T21:55:00-04:00",
+      "updated": "2026-05-21T21:55:00-04:00",
+      "pending_completion": {
+        "marked_by": "codex-robot-attack-b365",
+        "summary": "Robot muzzle flash and robot attack setup now fail closed when robot model parts or target state are incomplete, preventing the Infiltration robot attack exception seen in the build log.",
+        "verify_notes": "Verified 2026-05-21: symbolicated Build/logs/game client/pd-client.log to chrTickRobotAttack; focused [chraction][robot][static][b365] passed with 8 assertions / 1 case; isolated all-target build b363robot passed for client/updater; exact auto_campaign_infiltration_robot_attack smoke reached Infiltration, entered lvTick for stage 0x2f, scripted-exited, and had no ACCESS_VIOLATION, EXCEPTION, or FATAL pattern. Needs Mike manual retest of the original build playtest path before closure.",
+        "files": [
+          "src/game/chraction.c",
+          "tests/test_integrated_head_guard.cpp",
+          "tools/smoke-verify/tests/auto_campaign_infiltration_robot_attack.json",
+          "Build/logs/game client/pd-client.log"
+        ],
+        "manual_checks": [
+          "Replay the build path that produced the exception.",
+          "Confirm the campaign reaches and dwells in Infiltration without crashing during the robot-heavy intro/AI tick window.",
+          "Confirm no new robot muzzle flash, beam, or attack visual regression is visible around Chicrob/robot enemies."
+        ]
+      },
+      "subtasks": [
+        {
+          "id": "c3829-s1",
+          "title": "Symbolicate latest build exception and identify runtime path",
+          "status": "done",
+          "order": 1000,
+          "notes": "Latest Build/logs/game client/pd-client.log crashed at PC offset 0x7b2c4 after Infiltration stage 0x2f became live; addr2line resolved it to chrTickRobotAttack."
+        },
+        {
+          "id": "c3829-s2",
+          "title": "Harden robot muzzle flash and attack state",
+          "status": "done",
+          "order": 2000,
+          "notes": "Initialized muzzle flash rwdata, guarded missing model definitions, required robot skeleton/fireslots/beams before attack start, and fail-closed on invalid target/prop/gun-position state."
+        },
+        {
+          "id": "c3829-s3",
+          "title": "Add exact regression coverage",
+          "status": "done",
+          "order": 3000,
+          "notes": "Added [chraction][robot][static][b365] and the auto_campaign_infiltration_robot_attack smoke fixture."
+        },
+        {
+          "id": "c3829-s4",
+          "title": "Verify and track manual retest gate",
+          "status": "done",
+          "order": 4000,
+          "notes": "Focused static test, isolated all-target build, and exact Infiltration smoke passed; card remains active pending Mike's manual build retest."
+        }
+      ]
+    },
+    {
+      "id": "c3830",
+      "title": "B-366: Falcon 2 extracted OBJ barrel stretch",
+      "description": "Mike reported that Falcon 2 loads with the end of the barrel stretched/skewed and the extracted OBJ has the same bad shape, then asked to check all weapons for a model extraction process issue.",
+      "pillar": "modding",
+      "column": "active",
+      "order": 3830000,
+      "notes": "Code/build/smoke verified 2026-05-22; pending Mike's visual retest of Falcon 2 and its extracted OBJ before closure. Root cause was .pdmesh OBJ export ignoring G_MTX/G_POPMTX modelview commands and the SPSEGMENT_MODEL_MTX table used by weapon display lists, so local unposed weapon parts could be written into OBJ data and then embedded into .pdweapon archives. The exporter now builds default model matrices from model position nodes, applies the matrix stack while emitting OBJ vertices, writes model_obj_mtx_v2/export_version.txt metadata, and bumps .pdmesh plus .pdweapon cache markers so stale standalone and nested held meshes rebuild. Verification: focused mesh extractor test passed, focused .pdweapon test passed, isolated falconmesh all-target build passed, per-test boot_smoke passed, and fresh all-weapon sweep found 86 weapon archives, 152 nested weapon meshes, 303 standalone meshes, 0 nested issues, 0 stale standalone version issues, and 0 nested weapon meshes without model matrix references. Broad c3812 static selector still has one unrelated pre-existing scenario visual-export literal assertion.",
+      "flag": null,
+      "flagged_at": null,
+      "created": "2026-05-22T00:00:00-04:00",
+      "updated": "2026-05-22T00:00:00-04:00",
+      "pending_completion": {
+        "marked_by": "codex-falconmesh-b366",
+        "summary": "Weapon OBJ extraction now applies model matrices before standalone .pdmesh and nested .pdweapon held meshes are written, addressing the Falcon 2 extracted-OBJ barrel stretch class across all weapons.",
+        "verify_notes": "Verified 2026-05-22: scoped diff check passed; focused base mesh extractor test passed with 64 assertions / 1 case; focused pdweapon-only test passed with 61 assertions / 1 case; isolated all-target build falconmesh passed; per-test boot_smoke wrote 303 .pdmesh and 86 .pdweapon archives; all-weapon sweep found 86 weapon archives, 152 nested weapon meshes, 303 standalone meshes, nested_issues=0, standalone_version_issues=0, and zero_matrix_ref_meshes=0. Needs Mike visual retest of Falcon 2 in-game and the extracted Falcon 2 OBJ before closure.",
+        "files": [
+          "port/src/romextract_pdmesh.c",
+          "port/src/romextract_pdweapon.c",
+          "tests/test_mod_external_archive_static.cpp"
+        ],
+        "manual_checks": [
+          "Start a mission with Falcon 2 and confirm the barrel end no longer appears stretched/skewed.",
+          "Open the freshly extracted Falcon 2 OBJ and confirm the barrel end placement is corrected.",
+          "Spot-check one or two other held weapon OBJs if Falcon 2 is clean, since the exporter fix applies to all weapon meshes."
+        ]
+      },
+      "subtasks": [
+        {
+          "id": "c3830-s1",
+          "title": "Identify extractor root cause",
+          "status": "done",
+          "order": 1000,
+          "notes": ".pdmesh OBJ export emitted raw vertices without applying weapon display-list G_MTX/G_POPMTX model matrix commands."
+        },
+        {
+          "id": "c3830-s2",
+          "title": "Apply model matrices during OBJ export",
+          "status": "done",
+          "order": 2000,
+          "notes": "Added matrix-stack handling, default model matrices from model position nodes, transformed OBJ vertex emission, export_version.txt, and model_obj_mtx_v2 metadata."
+        },
+        {
+          "id": "c3830-s3",
+          "title": "Force stale weapon archives to rebuild",
+          "status": "done",
+          "order": 3000,
+          "notes": "Bumped .pdmesh fast-cache kind and .pdweapon dependency/fast-cache markers so standalone meshes and nested held meshes regenerate together."
+        },
+        {
+          "id": "c3830-s4",
+          "title": "Sweep all generated weapon archives",
+          "status": "done",
+          "order": 4000,
+          "notes": "Fresh boot-generated archive sweep checked 86 weapon archives, 152 nested weapon meshes, and 303 standalone meshes with 0 nested issues, 0 stale standalone version issues, and 0 zero-matrix-reference weapon meshes."
+        }
+      ]
+    },
+    {
       "id": "c3827",
       "title": "B-362: Falcon 2 mission-start beam stretches to center",
       "description": "Mike reported that starting a mission with the Falcon 2 points the gun down while geometry stretches to the center of the screen. Root cause is the Falcon laser-sight beam rendering during weapon-change/equip frames, plus an unchecked laser-sight node matrix index.",

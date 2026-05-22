@@ -10972,8 +10972,12 @@ void chrTickAttackAmount(struct chrdata *chr)
 void robotSetMuzzleFlash(struct chrdata *chr, bool right, bool visible)
 {
 	struct modelnode *node;
-	union modelrwdata *rwdata;
+	union modelrwdata *rwdata = NULL;
 	s32 partnum;
+
+	if (!chr || !chr->model || !chr->model->definition) {
+		return;
+	}
 
 	if (right) {
 		partnum = MODELPART_ROBOT_RGUNFIRE;
@@ -10996,7 +11000,14 @@ void robotAttack(struct chrdata *chr)
 {
 	u32 numshots = rngRandom() % 20;
 
-	if (chr->unk348[0] && chr->unk348[1]) {
+	if (chr
+			&& chr->model
+			&& chr->model->definition
+			&& chr->model->definition->skel == &g_SkelRobot
+			&& chr->unk348[0]
+			&& chr->unk348[1]
+			&& chr->unk348[0]->beam
+			&& chr->unk348[1]->beam) {
 		chr->actiontype = ACT_ROBOTATTACK;
 
 		chr->unk348[0]->beam->age = -1;
@@ -11048,9 +11059,21 @@ void robotAttack(struct chrdata *chr)
 
 void func0f0429d8(struct chrdata *chr, f32 arg1, f32 arg2)
 {
-	struct prop *prop = chrGetTargetProp(chr);
-	f32 distance = atan2f(prop->pos.x - chr->prop->pos.x, prop->pos.z - chr->prop->pos.z);
-	f32 value = modelTweenRotAxis(arg2, distance, arg1);
+	struct prop *prop;
+	f32 distance;
+	f32 value;
+
+	if (!chr || !chr->prop) {
+		return;
+	}
+
+	prop = chrGetTargetProp(chr);
+	if (!prop) {
+		return;
+	}
+
+	distance = atan2f(prop->pos.x - chr->prop->pos.x, prop->pos.z - chr->prop->pos.z);
+	value = modelTweenRotAxis(arg2, distance, arg1);
 	chrSetLookAngle(chr, value);
 }
 
@@ -11059,18 +11082,46 @@ void chrTickRobotAttack(struct chrdata *chr)
 	s32 i;
 	f32 roty = 0.0f;
 	f32 rotx = 0.0f;
-	struct prop *targetprop = chrGetTargetProp(chr);
+	struct prop *targetprop;
 	bool firing;
 	bool empty;
-	f32 invtheta = chrGetInverseTheta(chr);
-	struct act_robotattack *act = &chr->act_robotattack;
+	f32 invtheta;
+	struct act_robotattack *act;
 
-	func0f0429d8(chr, 0.085f, invtheta);
+	if (!chr) {
+		return;
+	}
 
-	if (chr->model->definition->skel != &g_SkelRobot) {
+	act = &chr->act_robotattack;
+
+	if (!chr->model
+			|| !chr->model->definition
+			|| chr->model->definition->skel != &g_SkelRobot) {
 		act->finished = true;
 		return;
 	}
+
+	if (!chr->prop
+			|| !chr->unk348[0]
+			|| !chr->unk348[1]
+			|| !chr->unk348[0]->beam
+			|| !chr->unk348[1]->beam) {
+		sysLogPrintf(LOG_WARNING,
+			"ROBOT.ATTACK.GUARD: invalid robot attack state chr=%p model=%p prop=%p fire0=%p fire1=%p",
+			(void *)chr, (void *)chr->model, (void *)chr->prop,
+			(void *)chr->unk348[0], (void *)chr->unk348[1]);
+		act->finished = true;
+		return;
+	}
+
+	targetprop = chrGetTargetProp(chr);
+	if (!targetprop) {
+		act->finished = true;
+		return;
+	}
+
+	invtheta = chrGetInverseTheta(chr);
+	func0f0429d8(chr, 0.085f, invtheta);
 
 	for (i = 0; i < 2; i++) {
 		empty = false;
@@ -11107,6 +11158,11 @@ void chrTickRobotAttack(struct chrdata *chr)
 
 			aimy = targetprop->pos.y - 20.0f;
 			rodata = modelGetPartRodata(chr->model->definition, (i ? MODELPART_ROBOT_0000 : MODELPART_ROBOT_0001));
+
+			if (!rodata) {
+				act->finished = true;
+				return;
+			}
 
 			act->pos[i].x = rodata->position.pos.x;
 			act->pos[i].y = rodata->position.pos.y - 300.0f;

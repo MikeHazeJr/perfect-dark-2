@@ -1,0 +1,49 @@
+{
+  "scenario_name": "auto_campaign_infiltration_robot_attack",
+  "description": "B-365: start the campaign auto-runner directly at Infiltration (stage 0x2f) and dwell through the robot-heavy intro/AI tick window that Mike's build log crashed in at chrTickRobotAttack. This targets the exact auto-campaign path instead of relying on the longer first-cycle runner to reach Infiltration before its timeout.",
+  "tags": ["campaign", "auto-runner", "mission", "robot", "stability"],
+  "paths_of_interest": [
+    "src/game/chraction.c",
+    "src/game/body.c",
+    "port/src/autocampaign.c",
+    "tools/smoke-verify/tests/auto_campaign_infiltration_robot_attack.json"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--skip-intro",
+    "--auto-campaign",
+    "6",
+    "--auto-campaign-fast"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "boot path: --auto-campaign 6 starts the campaign auto-runner at Infiltration." },
+    { "at_ms": 70000, "type": "exit", "comment": "the prior build crashed about six seconds after stage 0x2f became live; this dwell covers that robot AI tick window." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=auto_campaign_infiltration_robot_attack",
+      "CAMPAIGN\\.AUTO: armed start_idx=6",
+      "CAMPAIGN\\.AUTO: state IDLE -> BOOT",
+      "CAMPAIGN\\.AUTO: boot stage_id='base:infiltration' stagenum=0x2f idx=6",
+      "GAMELOOP\\.CAMPAIGN: playerReset begin playernum=0 role=bond stage=0x2f",
+      "TICK: lvTick enter tick=0 stagenum=0x2f",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "ACCESS_VIOLATION",
+      "EXCEPTION:",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "CAMPAIGN\\.AUTO: load timeout",
+      "CAMPAIGN\\.AUTO: endscreen still missing after retry"
+    ],
+    "required_counts": []
+  }
+}

@@ -42,7 +42,8 @@
 #include "weapondata_authored.h"
 #include "animdata_authored.h"
 
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v2"
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v3"
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v3"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 
@@ -2197,7 +2198,7 @@ s32 romExtractAllPdweapon(s32 force_rewrite)
 		return -1;
 	}
 
-	if (romExtractPdFastCacheCanSkip("pdweapon", weapons_dir,
+	if (romExtractPdFastCacheCanSkip(PDWEAPON_FAST_CACHE_KIND, weapons_dir,
 			".pdweapon", force_rewrite)) {
 		bootProgressUpdate(g_WeaponDataCount, g_WeaponDataCount);
 		sysLogPrintf(LOG_NOTE,
@@ -2229,7 +2230,8 @@ s32 romExtractAllPdweapon(s32 force_rewrite)
 		written, skipped, failed, g_WeaponDataCount);
 
 	if (failed == 0) {
-		romExtractPdFastCacheWrite("pdweapon", weapons_dir, ".pdweapon");
+		romExtractPdFastCacheWrite(PDWEAPON_FAST_CACHE_KIND,
+			weapons_dir, ".pdweapon");
 	}
 
 	return written;

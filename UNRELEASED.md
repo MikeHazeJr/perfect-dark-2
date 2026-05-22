@@ -48,3 +48,5 @@
 - Fixed gameplay interaction prompts so labels like Open door do not appear during cutscenes.
 - Fixed Falcon 2 mission-start viewmodel stretch by hiding the laser sight beam during weapon equip and bounding its muzzle matrix lookup.
 - Fixed mouse/keyboard Campaign weapon switching: Q tap/hold, scroll wheel next/previous, number-key direct select, and stale weapon-function HUD labels now use the current weapon state.
+- Fixed an Infiltration campaign exception by making robot muzzle flash and robot attack setup fail closed when robot model parts or target state are incomplete.
+- Fixed weapon OBJ extraction so held weapon meshes apply model matrices before being embedded in `.pdweapon` archives.

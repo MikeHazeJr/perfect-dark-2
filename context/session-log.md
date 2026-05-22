@@ -1,5 +1,58 @@
 # Session Log (Active)
 
+## Session (`falconmesh-b366`) - 2026-05-22 - weapon OBJ matrix extraction sweep
+
+Mike reported that the Falcon 2 loads with the end of the barrel stretched/skewed, and the extracted OBJ has the same bad shape. He asked to check all weapons to see whether model extraction was the problem.
+
+### Implemented
+
+- Traced the issue to `.pdmesh` OBJ export ignoring weapon display-list matrix commands, so OBJ vertices were emitted in raw local space even when the display list referenced `SPSEGMENT_MODEL_MTX`.
+- Added a matrix-aware OBJ export path for `G_MTX` / `G_POPMTX`, including default model matrices from model position nodes and transformed vertex emission.
+- Added an OBJ export version marker (`model_obj_mtx_v2`), `export_version.txt`, manifest/model.ini metadata, and stale-archive checks so old OBJ exports regenerate.
+- Bumped `.pdmesh` and `.pdweapon` cache/dependency markers so standalone mesh archives and nested held meshes inside `.pdweapon` archives rebuild together.
+- Added static coverage for the matrix-aware export path and the new cache/version markers. Logged B-366 and Kanban `c3830`.
+
+### Verification
+
+- `git diff --check` passed for the touched extractor/test files before context updates.
+- Focused `base mesh extractor emits standard obj geometry payloads` passed: 64 assertions / 1 case.
+- Focused `weapon content pipeline accepts pdweapon only` passed: 61 assertions / 1 case.
+- `.\devtools\build-session.ps1 -Session falconmesh -Target all` passed.
+- Per-test `boot_smoke` passed from the isolated binary and wrote 303 `.pdmesh` archives plus 86 `.pdweapon` archives.
+- Fresh all-weapon archive sweep found 86 weapon archives, 152 nested weapon meshes, 303 standalone meshes, 0 nested issues, 0 standalone stale-version issues, and 0 nested weapon meshes without model matrix references.
+- Broad `[modding][pdxxx][base][static][c3812]` still has one unrelated pre-existing static assertion in the scenario visual-export literal check.
+
+### Manual Gate
+
+Mike should inspect Falcon 2 in-game and open the newly extracted Falcon 2 OBJ to confirm the barrel end is no longer stretched or skewed.
+
+---
+
+## Session (`robot-attack-b365`) - 2026-05-21 - build exception in Infiltration robot attack
+
+Mike reported an exception from playtesting in the build.
+
+### Implemented
+
+- Started from `Build/logs/game client/pd-client.log` and symbolicated `PC=...+0x7b2c4` to `chrTickRobotAttack()` in `src/game/chraction.c`.
+- Traced the runtime path to the campaign auto-runner reaching Infiltration (`stage=0x2f`) and crashing during the robot-heavy AI tick window.
+- Fixed `robotSetMuzzleFlash()` so missing robot gunfire model parts leave `rwdata` null instead of using uninitialized stack state.
+- Hardened robot attack setup/tick paths so robot attacks only start with a robot skeleton plus both fireslots/beams, and tick exits fail closed for missing chr/model/prop/target/gun-position state.
+- Added focused static coverage for the robot muzzle-flash/attack guard and an exact Infiltration auto-campaign smoke fixture. Logged B-365, added Kanban `c3829`, and updated release notes.
+
+### Verification
+
+- `git diff --check` passed for the code/test/smoke files before context updates.
+- `.\devtools\run-pd-tests.ps1 -Session b363robot -Selector "[chraction][robot][static][b365]" -BuildTimeoutSeconds 180` passed: 8 assertions / 1 case.
+- `.\devtools\build-session.ps1 -Session b363robot -Target all -BuildTimeoutSeconds 180` passed for client/updater.
+- `.\tools\smoke-verify\run.ps1 -Test auto_campaign_infiltration_robot_attack -SourceBinary .claude\session-builds\b363robot\PerfectDark.exe -SourceRom .claude\session-builds\b363robot\pd.ntsc-final.z64` passed: reached Infiltration, entered `lvTick` for `stage=0x2f`, scripted-exited at 70 seconds, and had no access violation, exception, or fatal pattern.
+
+### Manual Gate
+
+Mike should replay the build path that produced the exception and confirm Infiltration/robot-heavy campaign progression no longer crashes.
+
+---
+
 ## Session (`c3828-social-presence-invites`) - 2026-05-21 - friend presence, invites, and Main Menu Play cleanup
 
 Mike reported that he and Chris could add each other by correct client code, and wrong codes correctly returned no user, but both clients showed each other Offline. He also asked to remove the obsolete Main Menu Online Play entry, rename Solo Play to Play, and make friend invites available even when the displayed state is stale/offline.
