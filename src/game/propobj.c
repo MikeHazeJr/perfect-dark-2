@@ -2737,8 +2737,10 @@ void objFree(struct defaultobj *obj, bool freeprop, bool canregen)
 			s32 i;
 
 			for (i = 0; i < g_MpNumChrs; i++) {
-				if (g_MpAllChrPtrs[i]->aibot && g_MpAllChrPtrs[i]->aibot->skrocket == obj->prop) {
-					g_MpAllChrPtrs[i]->aibot->skrocket = NULL;
+				struct chrdata *chr = g_MpAllChrPtrs[i];
+
+				if (chr && chr->aibot && chr->aibot->skrocket == obj->prop) {
+					chr->aibot->skrocket = NULL;
 				}
 			}
 		}
@@ -2811,8 +2813,10 @@ void objFree(struct defaultobj *obj, bool freeprop, bool canregen)
 			s32 i;
 
 			for (i = 0; i < g_MpNumChrs; i++) {
-				if (g_MpAllChrPtrs[i]->aibot && g_MpAllChrPtrs[i]->aibot->gotoprop == obj->prop) {
-					g_MpAllChrPtrs[i]->aibot->gotoprop = NULL;
+				struct chrdata *chr = g_MpAllChrPtrs[i];
+
+				if (chr && chr->aibot && chr->aibot->gotoprop == obj->prop) {
+					chr->aibot->gotoprop = NULL;
 				}
 			}
 		}

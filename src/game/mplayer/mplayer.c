@@ -12,6 +12,7 @@
 #include "game/game_1531a0.h"
 #include "game/lv.h"
 #include "game/music.h"
+#include "game/botmgr.h"
 #include "game/mplayer/setup.h"
 #include "game/mplayer/participant.h"
 #include "game/mplayer/scenarios.h"
@@ -96,6 +97,20 @@ s32 var80087260 = 0x00000000;
  * which is the correct destination per Mike's UX spec. */
 s32 g_PostExitMainMenuView = -1;
 bool g_MpEnableMusicSwitching = false;
+
+void mpClearRuntimeChrState(void)
+{
+	s32 i;
+
+	g_MpNumChrs = 0;
+
+	for (i = 0; i < MAX_MPCHRS; i++) {
+		g_MpAllChrPtrs[i] = NULL;
+		g_MpAllChrConfigPtrs[i] = NULL;
+	}
+
+	botmgrRemoveAll();
+}
 
 struct mpweapon g_MpWeapons[NUM_MPWEAPONS] = {
 	/*0x00*/ { WEAPON_NONE,             0,                    0,   0,                   0,  1, 0,                                MODEL_CHRTT33,          256 },

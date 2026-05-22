@@ -7593,7 +7593,6 @@ void bgunUpdateLasersight(struct hand *hand, struct modeldef *modeldef, s32 hand
 	struct coord sp48;
 	struct coord sp3c;
 	struct coord sp30;
-	bool busy;
 
 	if (modeldef == NULL || allocation == NULL) {
 		lasersightFree(handnum);
@@ -7649,32 +7648,16 @@ void bgunUpdateLasersight(struct hand *hand, struct modeldef *modeldef, s32 hand
 			return;
 		}
 
-		busy = false;
+		beamfar.x = 0.0f;
+		beamfar.y = 0.0f;
+		beamfar.z = 500.0f;
 
-		if (hand->animmode == HANDANIMMODE_BUSY) {
-			busy = true;
-		}
-
-		if (busy) {
-			mtxindex = modelFindNodeMtxIndex(node, 0);
-
-			beamfar.x = 0.0f;
-			beamfar.y = 0.0f;
-			beamfar.z = 500.0f;
-
-			mtx4TransformVecInPlace((Mtxf *)((uintptr_t)allocation + mtxindex * sizeof(Mtxf)), &beamfar);
-		} else {
-			cam0f0b4c3c(g_Vars.currentplayer->crosspos, &beamfar, 1);
-
-			beamfar.x *= 500.0f;
-			beamfar.y *= 500.0f;
-			beamfar.z *= 500.0f;
-		}
+		mtx4TransformVecInPlace((Mtxf *)((uintptr_t)allocation + mtxindex * sizeof(Mtxf)), &beamfar);
 
 		mtx4TransformVecInPlace(camGetProjectionMtxF(), &beamfar);
 		lasersightSetBeam(handnum, 1, &beamnear, &beamfar);
 
-		if (handnum == HAND_RIGHT && hand->hasdotinfo && !busy) {
+		if (handnum == HAND_RIGHT && hand->hasdotinfo) {
 			dotpos.x = hand->dotpos.x;
 			dotpos.y = hand->dotpos.y;
 			dotpos.z = hand->dotpos.z;

@@ -19,6 +19,8 @@ extern "C" {
 #define WEAPON_GRAPH_IR_MAX_EDGES   128
 #define WEAPON_GRAPH_IR_MAX_EXPORTS 16
 #define WEAPON_GRAPH_IR_MAX_PARAMS  512
+#define WEAPON_GRAPH_IR_MAX_CONTEXTS 16
+#define WEAPON_GRAPH_IR_MAX_SUBGRAPHS 8
 #define WEAPON_GRAPH_IR_ID_LEN      64
 #define WEAPON_GRAPH_IR_KEY_LEN     64
 #define WEAPON_GRAPH_IR_VALUE_LEN   160
@@ -97,6 +99,7 @@ typedef struct weapon_graph_ir_param {
 typedef struct weapon_graph_ir_node {
 	char id[WEAPON_GRAPH_IR_ID_LEN];
 	char kind[WEAPON_GRAPH_IR_ID_LEN];
+	char subgraph[WEAPON_GRAPH_IR_ID_LEN];
 	weapon_graph_opcode_e opcode;
 	s32 param_start;
 	s32 param_count;
@@ -112,6 +115,20 @@ typedef struct weapon_graph_ir_export {
 	s32 node;
 } weapon_graph_ir_export_t;
 
+typedef struct weapon_graph_ir_context {
+	char name[WEAPON_GRAPH_IR_ID_LEN];
+	char scope[WEAPON_GRAPH_IR_ID_LEN];
+	char source[WEAPON_GRAPH_IR_ID_LEN];
+	char type[WEAPON_GRAPH_IR_ID_LEN];
+	char lifetime[WEAPON_GRAPH_IR_ID_LEN];
+} weapon_graph_ir_context_t;
+
+typedef struct weapon_graph_ir_subgraph {
+	char id[WEAPON_GRAPH_IR_ID_LEN];
+	char entry[WEAPON_GRAPH_IR_ID_LEN];
+	s32 entry_node;
+} weapon_graph_ir_subgraph_t;
+
 typedef struct weapon_graph_ir {
 	asset_type_e asset_type;
 	char schema[WEAPON_GRAPH_IR_ID_LEN];
@@ -120,12 +137,16 @@ typedef struct weapon_graph_ir {
 	char source_sha256[SHA256_HEX_SIZE];
 	char ir_sha256[SHA256_HEX_SIZE];
 
+	weapon_graph_ir_context_t contexts[WEAPON_GRAPH_IR_MAX_CONTEXTS];
+	s32 context_count;
 	weapon_graph_ir_node_t nodes[WEAPON_GRAPH_IR_MAX_NODES];
 	s32 node_count;
 	weapon_graph_ir_edge_t edges[WEAPON_GRAPH_IR_MAX_EDGES];
 	s32 edge_count;
 	weapon_graph_ir_export_t exports[WEAPON_GRAPH_IR_MAX_EXPORTS];
 	s32 export_count;
+	weapon_graph_ir_subgraph_t subgraphs[WEAPON_GRAPH_IR_MAX_SUBGRAPHS];
+	s32 subgraph_count;
 	weapon_graph_ir_param_t params[WEAPON_GRAPH_IR_MAX_PARAMS];
 	s32 param_count;
 } weapon_graph_ir_t;

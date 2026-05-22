@@ -361,6 +361,46 @@ TEST_CASE("offline Combat Simulator starts with a predeclared MP manifest",
             std::string::npos);
 }
 
+TEST_CASE("Combat Simulator restart clears stage-owned MP chr pointers on endscreen exit",
+          "[scene][transition][combat-sim][static][b368]")
+{
+    const std::string header = readTextFile("src/include/game/mplayer/mplayer.h");
+    const std::string mplayer = readTextFile("src/game/mplayer/mplayer.c");
+    const std::string bridge = readTextFile("port/fast3d/pdgui_bridge.c");
+    const std::string menutick = readTextFile("src/game/menutick.c");
+    const std::string propobj = readTextFile("src/game/propobj.c");
+
+    REQUIRE(header.find("void mpClearRuntimeChrState(void);") != std::string::npos);
+    REQUIRE(mplayer.find("void mpClearRuntimeChrState(void)") != std::string::npos);
+    REQUIRE(mplayer.find("g_MpNumChrs = 0;") != std::string::npos);
+    REQUIRE(mplayer.find("g_MpAllChrPtrs[i] = NULL;") != std::string::npos);
+    REQUIRE(mplayer.find("g_MpAllChrConfigPtrs[i] = NULL;") != std::string::npos);
+    REQUIRE(mplayer.find("botmgrRemoveAll();") != std::string::npos);
+
+    const size_t exitMain = bridge.find("void pdguiEndscreenExitToMainMenu(void)");
+    const size_t exitMainClear = bridge.find("mpClearRuntimeChrState();", exitMain);
+    const size_t exitRoom = bridge.find("void pdguiEndscreenExitToRoom(void)");
+    const size_t exitRoomClear = bridge.find("mpClearRuntimeChrState();", exitRoom);
+    REQUIRE(exitMain != std::string::npos);
+    REQUIRE(exitMainClear != std::string::npos);
+    REQUIRE(exitRoom != std::string::npos);
+    REQUIRE(exitRoomClear != std::string::npos);
+
+    const size_t mpExit = menutick.find("GAMELOOP.%s: MPENDSCREEN");
+    const size_t mpClear = menutick.find("mpClearRuntimeChrState();", mpExit);
+    const size_t mpChange = menutick.find("mainChangeToStage(STAGE_CITRAINING);", mpExit);
+    REQUIRE(mpExit != std::string::npos);
+    REQUIRE(mpClear != std::string::npos);
+    REQUIRE(mpChange != std::string::npos);
+    REQUIRE(mpClear < mpChange);
+
+    REQUIRE(propobj.find("struct chrdata *chr = g_MpAllChrPtrs[i];") != std::string::npos);
+    REQUIRE(propobj.find("if (chr && chr->aibot && chr->aibot->skrocket == obj->prop)") !=
+            std::string::npos);
+    REQUIRE(propobj.find("if (chr && chr->aibot && chr->aibot->gotoprop == obj->prop)") !=
+            std::string::npos);
+}
+
 TEST_CASE("Combat Simulator bot target commands validate live prop backlinks",
           "[combat-sim][bot][static]")
 {

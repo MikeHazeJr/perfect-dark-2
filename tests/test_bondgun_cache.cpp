@@ -176,6 +176,26 @@ TEST_CASE("Falcon laser sight is hidden while the gun root is moving", "[bondgun
 	REQUIRE(helper.find("hand->state != HANDSTATE_ATTACK") != std::string::npos);
 }
 
+TEST_CASE("Falcon laser sight beam follows the muzzle matrix",
+          "[bondgun][laser][static]") {
+	const std::string source = readBondgunSource();
+	const std::size_t start = source.find("void bgunUpdateLasersight");
+	REQUIRE(start != std::string::npos);
+
+	const std::size_t end = source.find("/**", start);
+	REQUIRE(end != std::string::npos);
+
+	const std::string helper = source.substr(start, end - start);
+
+	REQUIRE(helper.find("cam0f0b4c3c(g_Vars.currentplayer->crosspos") ==
+	        std::string::npos);
+	REQUIRE(helper.find("beamfar.z = 500.0f") != std::string::npos);
+	REQUIRE(helper.find("mtx4TransformVecInPlace((Mtxf *)((uintptr_t)allocation + mtxindex * sizeof(Mtxf)), &beamfar)") !=
+	        std::string::npos);
+	REQUIRE(helper.find("lasersightSetBeam(handnum, 1, &beamnear, &beamfar)") !=
+	        std::string::npos);
+}
+
 TEST_CASE("Falcon laser sight matrix lookup is bounded", "[bondgun][laser][static]") {
 	const std::string source = readBondgunSource();
 

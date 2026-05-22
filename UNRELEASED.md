@@ -21,7 +21,7 @@
 - Added named input profile slots and per-controller profile assignment, including custom/raw controller devices.
 - Added Blender-ready map visual exports inside scenario/arena archives, including OBJ/MTL scenes, decoded TGA wall/floor textures, and material TSV ledgers.
 - Added self-contained weapon archives that embed model, animation, audio, projectile, and entity payloads for editing and sharing.
-- Added a Modding Hub weapon graph builder for creating behavior graphs from presets, modules, edges, and primary/secondary exports instead of hand-authoring JSON.
+- Added a Modding Hub weapon graph builder for modular primary/secondary subgraphs, shared owner/damage/detonator/targeting context, presets, modules, edges, and exports instead of hand-authoring JSON.
 
 ## Changed
 
@@ -40,6 +40,7 @@
 - Removed the outdated v0.0.7 dedicated-server release notes that were being reused for new releases.
 - Cleared stale Kanban Bug Tracker rows B-318 through B-326.
 - Fixed Combat Simulator post-match endscreen X and Quit/Disconnect confirmation clicks so the visible results screen can be exited normally.
+- Fixed a Combat Simulator restart exception after leaving a match by clearing stale MP runtime character slots before the next start.
 - Fixed online post-match return-to-room resync so clients replay room assignment, match settings, and playlist state instead of returning with partial room state.
 - Fixed friend presence so existing agents using per-agent client codes start the social hub, validate signed presence, appear online, and use invite/join handoffs through the NAT-aware path.
 - Fixed failed online match asset transfers so active match prep declines the manifest and returns to lobby instead of repeatedly requesting the same failed content.
@@ -47,9 +48,8 @@
 - Fixed Main Menu Escape/title-X closing so the menu actually exits instead of playing cancel and reopening.
 - Fixed Main Menu entry timing so the Carrington Institute camera intro finishes before the menu opens and accepts input.
 - Fixed gameplay interaction prompts so labels like Open door do not appear during cutscenes.
-- Fixed Falcon 2 mission-start viewmodel stretch by hiding the laser sight beam during weapon equip and bounding its muzzle matrix lookup.
-- Fixed the remaining Falcon 2 in-game barrel stretch by hiding its laser sight during moving gun-root animations.
+- Fixed Falcon 2 in-game barrel stretch by making the laser beam endpoint move with the muzzle instead of staying pinned to the crosshair during weapon-root animation.
 - Fixed mouse/keyboard Campaign weapon switching: Q tap/hold, scroll wheel next/previous, number-key direct select, and equipped primary/secondary function labels now stay tied to the actual weapon instead of stale inventory or transition state.
 - Fixed an Infiltration campaign exception by making robot muzzle flash and robot attack setup fail closed when robot model parts or target state are incomplete.
-- Fixed weapon OBJ extraction so held weapon meshes apply model matrices before being embedded in `.pdweapon` archives.
+- Fixed weapon OBJ extraction so held meshes apply model matrices before being embedded in `.pdweapon` archives, and Falcon 2 exports no longer include the detached skewed effect group.
 - Fixed jump collision follow-through so airborne horizontal movement is clamped against rendered wall, ceiling, and corner geometry before the player can clip into it.

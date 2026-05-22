@@ -675,6 +675,10 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	REQUIRE(extractor.find("nested_payloads = nested_payloads.json") != std::string::npos);
 	REQUIRE(extractor.find("WEAPON_GRAPH_ARCHIVE_NESTED_PAYLOADS_ENTRY") != std::string::npos);
 	REQUIRE(extractor.find("base_weapon_graph_v1") != std::string::npos);
+	REQUIRE(extractor.find("\"shared_context\"") != std::string::npos);
+	REQUIRE(extractor.find("\"subgraphs\"") != std::string::npos);
+	REQUIRE(extractor.find("\"subgraph\"") != std::string::npos);
+	REQUIRE(extractor.find("damage_credit_player") != std::string::npos);
 	REQUIRE(extractor.find("base_legacy_adapter") == std::string::npos);
 	REQUIRE(extractor.find("spawn.fired_projectile") != std::string::npos);
 	REQUIRE(extractor.find("spawn.thrown_physical") != std::string::npos);
@@ -687,9 +691,9 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	REQUIRE(extractor.find("device.activate") != std::string::npos);
 	REQUIRE(extractor.find("projectile.ini") != std::string::npos);
 	REQUIRE(extractor.find("entity.ini") != std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v3\"") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v9\"") != std::string::npos);
 	REQUIRE(extractor.find("dependency_closure = \" PDWEAPON_DEPENDENCY_CLOSURE_MARKER") != std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v3\"") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v9\"") != std::string::npos);
 	REQUIRE(extractor.find("models/held_hi.pdmesh") != std::string::npos);
 	REQUIRE(extractor.find("models/held_lo.pdmesh") != std::string::npos);
 	REQUIRE(extractor.find("animations_manifest.tsv") != std::string::npos);
@@ -1022,6 +1026,60 @@ TEST_CASE("weapon graph runtime compiler validates modules and deterministic IR"
 	REQUIRE(std::string(fromArchive.ir_sha256) == std::string(a.ir_sha256));
 }
 
+TEST_CASE("weapon graph runtime preserves modular subgraphs and shared context",
+          "[modding][pdxxx][weapon_graph][compiler][context][c3814]") {
+	const std::string graph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:remotemine\",\n"
+		"  \"graph_id\": \"modular_context_test\",\n"
+		"  \"shared_context\": [\n"
+		"    { \"name\": \"owner_player\", \"scope\": \"player\", "
+		"\"source\": \"equipped_player\", \"type\": \"player_ref\", "
+		"\"lifetime\": \"weapon_instance\" },\n"
+		"    { \"name\": \"detonator_link_group\", \"scope\": \"weapon\", "
+		"\"source\": \"weapon_instance\", \"type\": \"link_group_ref\", "
+		"\"lifetime\": \"player_life\" }\n"
+		"  ],\n"
+		"  \"subgraphs\": [\n"
+		"    { \"id\": \"primary\", \"entry\": \"throw_mine\", "
+		"\"shared_context\": [\"owner_player\", \"detonator_link_group\"] },\n"
+		"    { \"id\": \"secondary\", \"entry\": \"detonate_mines\", "
+		"\"shared_context\": [\"owner_player\", \"detonator_link_group\"] }\n"
+		"  ],\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"throw_mine\", \"kind\": \"spawn.thrown_physical\", "
+		"\"subgraph\": \"primary\", \"params\": { \"mode\": \"primary\", "
+		"\"payload_ref\": \"base:remotemine__entity_armed_remote_mine\", "
+		"\"activation_time_ticks60\": 240, "
+		"\"context_refs\": [\"owner_player\", \"detonator_link_group\"] } },\n"
+		"    { \"id\": \"detonate_mines\", \"kind\": \"special.remote_detonator\", "
+		"\"subgraph\": \"secondary\", \"params\": { \"mode\": \"secondary\", "
+		"\"detonator_ref\": \"base:remotemine__entity_armed_remote_mine\", "
+		"\"context_refs\": [\"owner_player\", \"detonator_link_group\"] } }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [\n"
+		"    { \"name\": \"primary\", \"node\": \"throw_mine\" },\n"
+		"    { \"name\": \"secondary\", \"node\": \"detonate_mines\" }\n"
+		"  ]\n"
+		"}\n";
+
+	weapon_graph_ir_t ir;
+	char err[256] = {};
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+		static_cast<u32>(graph.size()), &ir, err, sizeof(err)) == 0);
+	REQUIRE(ir.context_count == 2);
+	REQUIRE(std::string(ir.contexts[0].name) == "owner_player");
+	REQUIRE(std::string(ir.contexts[1].type) == "link_group_ref");
+	REQUIRE(ir.subgraph_count == 2);
+	REQUIRE(std::string(ir.subgraphs[0].id) == "primary");
+	REQUIRE(ir.subgraphs[0].entry_node == 0);
+	REQUIRE(std::string(ir.nodes[0].subgraph) == "primary");
+	REQUIRE(std::string(ir.nodes[1].subgraph) == "secondary");
+	REQUIRE(std::string(ir.ir_sha256).size() == 64);
+}
+
 TEST_CASE("weapon graph runtime compiler rejects unsafe or ambiguous graphs",
           "[modding][pdxxx][weapon_graph][compiler][c3814]") {
 	char err[256] = {};
@@ -1064,6 +1122,30 @@ TEST_CASE("weapon graph runtime compiler rejects unsafe or ambiguous graphs",
 	REQUIRE(weaponGraphCompileJson(ASSET_PROJECTILE, cycle.data(),
 		static_cast<u32>(cycle.size()), &ir, err, sizeof(err)) != 0);
 	REQUIRE(std::string(err).find("cycle") != std::string::npos);
+
+	const std::string badSubgraph =
+		"{\"schema\":\"pd.weapon_graph.v1\",\"asset_id\":\"base:test\","
+		"\"graph_id\":\"bad_subgraph\","
+		"\"shared_context\":[{\"name\":\"owner_player\",\"scope\":\"player\","
+		"\"source\":\"equipped_player\"}],"
+		"\"subgraphs\":[{\"id\":\"primary\",\"entry\":\"missing\"}],"
+		"\"nodes\":[{\"id\":\"n\",\"kind\":\"fire.hitscan\",\"params\":{}}],"
+		"\"edges\":[],\"exports\":[]}";
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, badSubgraph.data(),
+		static_cast<u32>(badSubgraph.size()), &ir, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("missing entry") != std::string::npos);
+
+	const std::string dupContext =
+		"{\"schema\":\"pd.weapon_graph.v1\",\"asset_id\":\"base:test\","
+		"\"graph_id\":\"dup_context\","
+		"\"shared_context\":["
+		"{\"name\":\"owner_player\",\"scope\":\"player\",\"source\":\"a\"},"
+		"{\"name\":\"owner_player\",\"scope\":\"player\",\"source\":\"b\"}],"
+		"\"nodes\":[{\"id\":\"n\",\"kind\":\"fire.hitscan\",\"params\":{}}],"
+		"\"edges\":[],\"exports\":[]}";
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, dupContext.data(),
+		static_cast<u32>(dupContext.size()), &ir, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("duplicate shared context") != std::string::npos);
 }
 
 TEST_CASE("weapon graph runtime is wired to a Debug Settings toggle",
@@ -2178,15 +2260,31 @@ TEST_CASE("Modding Hub weapon tool builds graph modules without raw JSON authori
 	REQUIRE(hub.find("s_WeaponGraphNodes") != std::string::npos);
 	REQUIRE(hub.find("s_WeaponGraphEdges") != std::string::npos);
 	REQUIRE(hub.find("weaponGraphBuilderSyncJson") != std::string::npos);
+	REQUIRE(hub.find("s_WeaponGraphContextDefs") != std::string::npos);
+	REQUIRE(hub.find("shared_context") != std::string::npos);
+	REQUIRE(hub.find("subgraphs") != std::string::npos);
+	REQUIRE(hub.find("context_refs") != std::string::npos);
+	REQUIRE(hub.find("subgraph") != std::string::npos);
 	REQUIRE(hub.find("Seed Single Shot") != std::string::npos);
+	REQUIRE(hub.find("Seed Dual Fire Modes") != std::string::npos);
 	REQUIRE(hub.find("Seed Automatic") != std::string::npos);
 	REQUIRE(hub.find("Seed Projectile") != std::string::npos);
+	REQUIRE(hub.find("Seed Mine Link") != std::string::npos);
+	REQUIRE(hub.find("Seed Laptop Control") != std::string::npos);
+	REQUIRE(hub.find("Shared Context") != std::string::npos);
+	REQUIRE(hub.find("Owner Player") != std::string::npos);
+	REQUIRE(hub.find("Detonator Link") != std::string::npos);
+	REQUIRE(hub.find("Target Policy Override") != std::string::npos);
+	REQUIRE(hub.find("hacked_by_player") != std::string::npos);
 	REQUIRE(hub.find("Add Module") != std::string::npos);
+	REQUIRE(hub.find("Mode Module") != std::string::npos);
 	REQUIRE(hub.find("Add Edge") != std::string::npos);
 	REQUIRE(hub.find("Primary Export") != std::string::npos);
 	REQUIRE(hub.find("Generated JSON") != std::string::npos);
 	REQUIRE(hub.find("\"fire.hitscan\"") != std::string::npos);
 	REQUIRE(hub.find("\"spawn.fired_projectile\"") != std::string::npos);
+	REQUIRE(hub.find("\"special.remote_detonator\"") != std::string::npos);
+	REQUIRE(hub.find("\"gate.target_lock\"") != std::string::npos);
 	REQUIRE(hub.find("\\\"exports\\\"") != std::string::npos);
 }
 
@@ -2590,9 +2688,9 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 
 	REQUIRE(mesh.find("s_buildModelObj") != std::string::npos);
 	REQUIRE(mesh.find("s_exportGdlToObj") != std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v2\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v8\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v2\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v8\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("#include \"preprocess.h\"") != std::string::npos);
 	REQUIRE(mesh.find("#include \"game/modeldef.h\"") != std::string::npos);
@@ -2623,6 +2721,23 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("SPSEGMENT_MODEL_MTX") != std::string::npos);
 	REQUIRE(mesh.find("s_objBuildDefaultModelMatrices") != std::string::npos);
 	REQUIRE(mesh.find("s_objMtxTransformPoint") != std::string::npos);
+	REQUIRE(mesh.find("s_objNodeUnderHiddenGunToggle") != std::string::npos);
+	REQUIRE(mesh.find("s_objHiddenGunToggleTargetsNode") != std::string::npos);
+	REQUIRE(mesh.find("s_objStaticGunVertsLookDetachedEffect") != std::string::npos);
+	REQUIRE(mesh.find("s_objMayCullDetachedGunEffects") != std::string::npos);
+	REQUIRE(mesh.find("ctx.source_filenum = source_filenum") != std::string::npos);
+	REQUIRE(mesh.find("FILE_GFALCON2LOD") != std::string::npos);
+	REQUIRE(mesh.find("s_objTextLooksDetachedGunEffect") != std::string::npos);
+	REQUIRE(mesh.find("s_exportGunDlToObj") != std::string::npos);
+	REQUIRE(mesh.find("ctx.static_gun_model = loadtype == LOADTYPE_GUN") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("MODELPART_0042") != std::string::npos);
+	REQUIRE(mesh.find("MODELPART_FALCON2_002E") != std::string::npos);
+	REQUIRE(mesh.find("MODELPART_FALCON2_002F") != std::string::npos);
+	REQUIRE(mesh.find("MODELPART_GUN_LASERLIQUID") != std::string::npos);
+	REQUIRE(mesh.find("MODELPART_GUN_MUZZLEFLASH1") != std::string::npos);
+	REQUIRE(mesh.find("MODELPART_GUN_MUZZLEFLASH2") != std::string::npos);
+	REQUIRE(mesh.find("MODELPART_GUN_MUZZLEFLASH3") != std::string::npos);
 	REQUIRE(mesh.find("G_TRI1") != std::string::npos);
 	REQUIRE(mesh.find("G_TRI4") != std::string::npos);
 	REQUIRE(mesh.find("(w1 >> 0)  & 0xf") != std::string::npos);

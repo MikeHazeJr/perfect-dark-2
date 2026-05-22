@@ -1,5 +1,82 @@
 # Session Log (Active)
 
+## Session (`falconbeam-b366`) - 2026-05-22 - Falcon 2 fixed-tip stretch final pass
+
+Mike reported that Falcon 2 still stretched in-game, with the tip staying fixed while the model moved.
+
+### Implemented
+
+- Finished the live root-cause pass in `bgunUpdateLasersight()`: the Falcon laser beam far endpoint now comes from the muzzle matrix/local forward vector instead of the crosshair, so both beam endpoints move with the first-person gun root.
+- Kept the steady-state laser gate for equip/busy frames so stale Falcon beams do not render while the weapon root is not settled.
+- Finalized the extracted OBJ side: `.pdmesh` export applies `G_MTX` / `G_POPMTX` model matrices, records `model_obj_mtx_v8`, and Falcon source meshes cull the detached transformed effect group that produced the skewed barrel-end OBJ. `.pdweapon` cache markers are now `embedded.v9` / `pdweapon_embedded_v9`.
+- Updated B-366 context, Kanban, and release-note entries to distinguish the extracted OBJ fix from the live crosshair-anchored beam fix.
+
+### Verification
+
+- Focused mesh extractor test passed: 80 assertions / 1 case.
+- Focused `.pdweapon` pipeline test passed: 65 assertions / 1 case.
+- Focused `[bondgun][laser][static]` passed: 25 assertions / 4 cases.
+- Queued isolated all-target build `falconbeam5` passed.
+- `boot_smoke` passed 14/14, writing 303 `.pdmesh` and 86 `.pdweapon` archives.
+- Falcon 2 extracted OBJ now reports 422 triangles / 4 display lists / 8 matrix commands / 8 model-matrix references, with the previous severe-Y detached group absent. The generated weapon-mesh mixed severe-Y detached scan found 0.
+
+### Next
+
+- Mike should inspect Falcon 2 in-game while equipping, moving, and firing, and open the extracted Falcon 2 OBJ once more before closing B-366.
+
+---
+
+## Session (`wgraphmod`) - 2026-05-22 - modular weapon graph context editor
+
+Mike asked for the graph-editor decision to land: modular primary/secondary behavior is useful, but graph state also needs explicit shared variables tied to the player, weapon, projectile, detonator, deployed entity, or targeting policy.
+
+### Implemented
+
+- Chose one `.pdweapon` archive per weapon, with modular `primary` and `secondary` subgraphs inside `behavior.graph.json` rather than separate top-level graph files.
+- Added top-level `shared_context` to the graph schema/IR for cross-mode and spawned-object state such as owner player/team, weapon instance, damage credit, projectile owner, deployed entity sets, detonator links, target policy overrides, and hacking ownership.
+- Extended the weapon graph compiler to parse, validate, preserve, and hash shared contexts, subgraphs, and per-node `subgraph` ownership.
+- Updated the base `.pdweapon` emitter so generated archives include `shared_context`, `subgraphs`, and per-node subgraph tags.
+- Wired the Modding Hub weapon graph builder with a Shared Context panel, mode-scoped module insertion, per-node mode assignment, and seed flows for dual fire modes, remote mine/detonator linkage, and Laptop Gun targeting control.
+- Added static/compiler coverage for modular subgraphs, shared context validation, base emitter output, and the new editor controls.
+
+### Verification
+
+- `git diff --check` passed for the graph runtime, emitter, editor, and focused test files.
+- `.\devtools\run-pd-tests.ps1 -Session wgraphmod -Selector "[weapon_graph][compiler][c3814],[weapon_graph][ui][c3814]" -BuildTimeoutSeconds 240` passed: 106 assertions / 6 cases.
+- `.\devtools\build-session.ps1 -Session wgraphmod -Target all -BuildTimeoutSeconds 300` passed for client/updater.
+- Removed isolated session build `wgraphmod`.
+
+### Next
+
+- Continue `c3814-s16`: deeper `.pdprojectile` runtime execution for motion, guidance, impact, timer, sticky, pickup, and transition behavior.
+- Manual editor pass: open Modding Hub > Weapons > Template, seed the dual-mode, mine-link, and Laptop-control graphs, validate/save generated JSON, and confirm the UX reads clearly.
+
+---
+
+## Session (`b368re`) - 2026-05-22 - B-368 match restart exception after leaving
+
+Mike reported an exception with this procedure: start a match or mission, leave, then try to start a new one.
+
+### Implemented
+
+- Read the latest build log at `Build/logs/game client/pd-client.log` and traced the second-start crash to `objFree()` during old-stage teardown after a prior MP endscreen exit.
+- Root cause: MP endscreen exit returned to CI with stale stage-owned MP runtime chr state (`g_MpNumChrs=1`, stale/null `g_MpAllChrPtrs`), then the next `mpStartMatch()` set `normmplayerisrunning` before CI teardown completed, so `objFree()` entered MP cleanup and dereferenced a stale/null MP chr slot.
+- Added `mpClearRuntimeChrState()` to clear `g_MpNumChrs`, `g_MpAllChrPtrs`, `g_MpAllChrConfigPtrs`, and bot runtime pointers on MP endscreen exits while preserving participants and match setup.
+- Wired the clear through ImGui MP endscreen exit-to-main-menu / exit-to-room paths and legacy fallback exit paths.
+- Added null guards to the MP cleanup loops in `propobj.c` so stale or already-cleared MP chr slots cannot crash cleanup.
+- Added focused static regression coverage for the exit cleanup and restart guard.
+
+### Verification
+
+- `git diff --check` PASS for the touched code/test files.
+- `.\devtools\run-pd-tests.ps1 -Session b368re -Selector "[scene][transition][combat-sim][static][b368]" -BuildTimeoutSeconds 240` PASS (22 assertions / 1 case).
+- `.\devtools\build-session.ps1 -Session b368re -Target all -BuildTimeoutSeconds 300` PASS.
+- Removed isolated session build `b368re`.
+
+### Manual Gate
+
+- Mike should retest the exact flow: start a Combat Simulator match or mission, leave to menu/room, start another, and confirm there is no exception or `objFree` access violation.
+
 ## Session (`wpuitxt-b363`) - 2026-05-22 - B-363 weapon function UI text second pass
 
 Mike reported that equipped weapon primary/secondary UI text could still be wrong; the concrete example was Magsec firemode text showing "Falcon 2".

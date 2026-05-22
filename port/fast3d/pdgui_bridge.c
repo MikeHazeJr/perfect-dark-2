@@ -969,6 +969,7 @@ void pdguiEndscreenExitToMainMenu(void)
             g_NetClients[i].config = NULL;
         }
     }
+    mpClearRuntimeChrState();
     /* F-1.2: Reset solo mission menu state so re-entry starts clean. */
     pdguiSoloMissionReset();
     sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
@@ -1014,6 +1015,7 @@ void pdguiEndscreenExitToRoom(void)
             g_NetClients[i].config = NULL;
         }
     }
+    mpClearRuntimeChrState();
     /* Deliberately NO pdguiSoloMissionReset() here. */
     sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
         "endscreen exit to room");

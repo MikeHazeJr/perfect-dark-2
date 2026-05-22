@@ -231,15 +231,15 @@
       "pillar": "modding",
       "column": "active",
       "order": 3830000,
-      "notes": "Code/build/smoke verified 2026-05-22; pending Mike's visual retest of Falcon 2 in-game and its extracted OBJ before closure. Extracted OBJ root cause was .pdmesh OBJ export ignoring G_MTX/G_POPMTX modelview commands and the SPSEGMENT_MODEL_MTX table used by weapon display lists, so local unposed weapon parts could be written into OBJ data and then embedded into .pdweapon archives. The exporter now builds default model matrices from model position nodes, applies the matrix stack while emitting OBJ vertices, writes model_obj_mtx_v2/export_version.txt metadata, and bumps .pdmesh plus .pdweapon cache markers so stale standalone and nested held meshes rebuild. Remaining in-game root cause matched Mike's tip-fixed-while-model-moved clue: the Falcon laser beam could render while the first-person gun root was moving, with the far endpoint anchored at the crosshair. The beam now renders only in steady aim-capable states and is freed during busy/non-steady gun animation. Verification: focused mesh extractor test passed, focused .pdweapon test passed, isolated falconmesh all-target build passed, per-test boot_smoke passed, fresh all-weapon sweep found 86 weapon archives, 152 nested weapon meshes, 303 standalone meshes, 0 nested issues, 0 stale standalone version issues, and 0 nested weapon meshes without model matrix references; focused [bondgun][laser][static] passed 18 assertions / 3 cases and isolated falconanim all-target build passed. Broad c3812 static selector still has one unrelated pre-existing scenario visual-export literal assertion.",
+      "notes": "Code/build/smoke verified 2026-05-22; pending Mike's visual retest of Falcon 2 in-game and its extracted OBJ before closure. Extracted OBJ root cause was .pdmesh OBJ export ignoring G_MTX/G_POPMTX modelview commands and the SPSEGMENT_MODEL_MTX table used by weapon display lists, so local unposed weapon parts could be written into OBJ data and then embedded into .pdweapon archives. The exporter now builds default model matrices from model position nodes, applies the matrix stack while emitting OBJ vertices, writes model_obj_mtx_v8/export_version.txt metadata, and bumps .pdmesh plus .pdweapon cache markers through embedded.v9 / pdweapon_embedded_v9 so stale standalone and nested held meshes rebuild. The final Falcon source-mesh pass culls the detached transformed effect group only for FILE_GFALCON2 / FILE_GFALCON2LOD, removing the skewed OBJ barrel-end group without applying that cull globally. Remaining in-game root cause matched Mike's tip-fixed-while-model-moved clue: the Falcon laser beam far endpoint was projected from the crosshair while the near endpoint followed the muzzle/root. bgunUpdateLasersight now derives both near and far endpoints from the muzzle matrix/local forward vector before projection, while the steady-state gate keeps stale equip/busy beams hidden. Verification: focused mesh extractor test passed with 80 assertions / 1 case; focused .pdweapon test passed with 65 assertions / 1 case; focused [bondgun][laser][static] passed with 25 assertions / 4 cases; isolated falconbeam5 all-target build passed; boot_smoke passed 14/14 and wrote 303 .pdmesh plus 86 .pdweapon archives; Falcon OBJ reports 422 triangles, 4 display lists, 8 matrix commands, 8 model-matrix references, and FILE_GFALCON2; the previous severe-Y detached group is absent; mixed severe-Y detached scan across generated weapon meshes found 0. Broad c3812 static selector still has one unrelated pre-existing scenario visual-export literal assertion.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-22T00:00:00-04:00",
       "updated": "2026-05-22T00:00:00-04:00",
       "pending_completion": {
-        "marked_by": "codex-falconanim-b366",
-        "summary": "Weapon OBJ extraction now applies model matrices before standalone .pdmesh and nested .pdweapon held meshes are written, and Falcon laser rendering is suppressed during moving gun-root animations so the in-game beam no longer reads as a stretched barrel tip.",
-        "verify_notes": "Verified 2026-05-22: scoped diff check passed; focused base mesh extractor test passed with 64 assertions / 1 case; focused pdweapon-only test passed with 61 assertions / 1 case; isolated all-target build falconmesh passed; per-test boot_smoke wrote 303 .pdmesh and 86 .pdweapon archives; all-weapon sweep found 86 weapon archives, 152 nested weapon meshes, 303 standalone meshes, nested_issues=0, standalone_version_issues=0, and zero_matrix_ref_meshes=0; focused [bondgun][laser][static] passed with 18 assertions / 3 cases; isolated all-target build falconanim passed. Needs Mike visual retest of Falcon 2 in-game and the extracted Falcon 2 OBJ before closure.",
+        "marked_by": "codex-falconbeam-b366",
+        "summary": "Weapon OBJ extraction now applies model matrices and removes the Falcon-only detached transformed effect group before standalone .pdmesh and nested .pdweapon held meshes are written. The live Falcon laser beam now derives both endpoints from the muzzle matrix/local forward vector, so the far tip no longer stays pinned to the crosshair while the gun root moves.",
+        "verify_notes": "Verified 2026-05-22: focused base mesh extractor test passed with 80 assertions / 1 case; focused pdweapon-only test passed with 65 assertions / 1 case; focused [bondgun][laser][static] passed with 25 assertions / 4 cases; isolated all-target build falconbeam5 passed; boot_smoke passed 14/14 and wrote 303 .pdmesh and 86 .pdweapon archives; Falcon OBJ reports 422 triangles, 4 display lists, 8 matrix commands, 8 model-matrix references, and FILE_GFALCON2; the previous severe-Y detached group is absent; mixed severe-Y detached scan across generated weapon meshes found 0. Needs Mike visual retest of Falcon 2 in-game and the extracted Falcon 2 OBJ before closure.",
         "files": [
           "port/src/romextract_pdmesh.c",
           "port/src/romextract_pdweapon.c",
@@ -250,7 +250,7 @@
         "manual_checks": [
           "Start a mission with Falcon 2 and confirm the barrel end no longer appears stretched/skewed while equipping, moving, or firing.",
           "Open the freshly extracted Falcon 2 OBJ and confirm the barrel end placement is corrected.",
-          "Spot-check one or two other held weapon OBJs if Falcon 2 is clean, since the exporter fix applies to all weapon meshes."
+          "Use the completed generated weapon-mesh severe-Y scan as the broader extraction-process check; it found 0 mixed detached severe-Y groups."
         ]
       },
       "subtasks": [
@@ -266,7 +266,7 @@
           "title": "Apply model matrices during OBJ export",
           "status": "done",
           "order": 2000,
-          "notes": "Added matrix-stack handling, default model matrices from model position nodes, transformed OBJ vertex emission, export_version.txt, and model_obj_mtx_v2 metadata."
+          "notes": "Added matrix-stack handling, default model matrices from model position nodes, transformed OBJ vertex emission, export_version.txt, model_obj_mtx_v8 metadata, and Falcon-only detached effect culling."
         },
         {
           "id": "c3830-s3",
@@ -280,14 +280,78 @@
           "title": "Sweep all generated weapon archives",
           "status": "done",
           "order": 4000,
-          "notes": "Fresh boot-generated archive sweep checked 86 weapon archives, 152 nested weapon meshes, and 303 standalone meshes with 0 nested issues, 0 stale standalone version issues, and 0 zero-matrix-reference weapon meshes."
+          "notes": "Fresh boot-generated archive sweep checked 86 weapon archives and 303 standalone meshes; the generated weapon-mesh mixed severe-Y detached scan found 0."
         },
         {
           "id": "c3830-s5",
           "title": "Fix live laser-root animation stretch",
           "status": "done",
           "order": 5000,
-          "notes": "Falcon laser beams now render only in steady aim-capable hand states and are freed during busy/non-steady first-person gun animation, matching Mike's tip-fixed-while-model-moved repro."
+          "notes": "bgunUpdateLasersight now derives both beam endpoints from the muzzle matrix/local forward vector instead of projecting the far endpoint from the crosshair, matching Mike's tip-fixed-while-model-moved repro."
+        }
+      ]
+    },
+    {
+      "id": "c3831",
+      "title": "B-368: Match restart exception after leaving",
+      "description": "Mike reported an exception after this repro: start a match or mission, leave, then try to start a new one. The build log showed the crash on the second Combat Simulator start after leaving the prior match.",
+      "pillar": "engine",
+      "column": "active",
+      "order": 3831000,
+      "notes": "Code/build verified 2026-05-22; pending Mike's manual retest of the exact start/leave/start flow. Root cause was stale stage-owned MP runtime chr state after endscreen exit: g_MpNumChrs stayed 1 while g_MpAllChrPtrs contained stale/null slots. The next mpStartMatch set normmplayerisrunning before old CI teardown, so lvStop -> chrmgrStop -> chrRemove -> objFree entered MP cleanup and dereferenced the stale slot. Fix clears MP runtime chr/bot slots on MP endscreen exits while preserving participant/match setup, and null-guards MP cleanup loops in propobj.c.",
+      "flag": null,
+      "flagged_at": null,
+      "created": "2026-05-22T00:00:00-04:00",
+      "updated": "2026-05-22T00:00:00-04:00",
+      "pending_completion": {
+        "marked_by": "codex-b368re",
+        "summary": "MP endscreen exits now clear stage-owned MP chr and bot runtime slots before the next match start, and prop cleanup tolerates stale or already-cleared MP chr slots.",
+        "verify_notes": "Verified 2026-05-22: scoped diff check passed; focused [scene][transition][combat-sim][static][b368] passed with 22 assertions / 1 case; isolated all-target build b368re passed; isolated session build was removed. Needs Mike manual retest of the original start/leave/start flow before closure.",
+        "files": [
+          "src/game/mplayer/mplayer.c",
+          "src/include/game/mplayer/mplayer.h",
+          "src/game/propobj.c",
+          "port/fast3d/pdgui_bridge.c",
+          "src/game/menutick.c",
+          "tests/test_scene_dispatch.cpp",
+          "context/bugs.md",
+          "context/tasks.md",
+          "context/session-log.md",
+          "UNRELEASED.md"
+        ],
+        "manual_checks": [
+          "Start a Combat Simulator match or mission, leave to menu or room, then start another.",
+          "Confirm no exception occurs and the log does not show an objFree access violation."
+        ]
+      },
+      "subtasks": [
+        {
+          "id": "c3831-s1",
+          "title": "Read and symbolicate latest build crash log",
+          "status": "done",
+          "order": 1000,
+          "notes": "Latest Build/logs/game client/pd-client.log crashed on the second match start; symbolication resolved PC offset 0x151af0 to objFree during old-stage teardown."
+        },
+        {
+          "id": "c3831-s2",
+          "title": "Clear MP runtime chr state on endscreen exit",
+          "status": "done",
+          "order": 2000,
+          "notes": "Added mpClearRuntimeChrState and wired it through ImGui MP endscreen exit-to-main-menu, exit-to-room, and legacy fallback exit paths."
+        },
+        {
+          "id": "c3831-s3",
+          "title": "Harden prop cleanup against stale MP slots",
+          "status": "done",
+          "order": 3000,
+          "notes": "Both MP cleanup loops in propobj.c now guard each g_MpAllChrPtrs slot before reading chr->aibot."
+        },
+        {
+          "id": "c3831-s4",
+          "title": "Verify and track manual retest gate",
+          "status": "done",
+          "order": 4000,
+          "notes": "Focused B-368 static regression and isolated all-target build passed; context, Kanban, and release notes updated; manual UI repro remains the closure gate."
         }
       ]
     },
@@ -3231,7 +3295,7 @@
       "column": "active",
       "order": 900,
       "priority": 1,
-      "notes": "Sprint status 2026-05-22. COMPLETED: c3814-s1..s15, c3814-s20, c3814-s21, c3814-s22 self-contained archive save/export slice, and c3814-s23 graph-builder UI are done. This includes canonical .pdweapon/.pdprojectile/.pdentity schema/design, base weapon behavior audit, 86-weapon parameter matrix, named graph modules, runtime cutover plan, .pdweapon-only live cutover with .pdwpn removed from code/tests/examples, first-class .pdprojectile/.pdentity catalog/scanner/packer/manifest/UI metadata, weapon_graph_archive helper APIs, base base_weapon_graph_v1 emission with embedded projectile/entity payloads, graph validation and deterministic IR compilation, Debug Settings UI/config storage for the graph runtime toggle, Mods Hub Weapons browser/template/graph-builder/save flows, and the expanded graph-backed held/player/AI runtime adapter. c3814-s15 now feeds graph IR into shared gameplay accessors, direct held shooting helpers, recoil/recovery, trigger dispatch function type, throw/special/device handling, sight and auto-aim checks, device state toggles, player projectile spawn values, thrown physical spawn values, and AI projectile spawn values. c3814-s23 adds graph presets, named module insertion, editable node params, edge editing, primary/secondary export selection, validation, and generated JSON as an advanced view so the Weapons tab can author behavior graphs without hand-writing JSON. B-363 follow-up fixed the MKB Campaign weapon-switch and function-HUD edge: Q tap/hold reaches cycle/radial, scroll wheel next/previous reaches gameplay, number keys direct-select inventory, function text no longer holds stale labels from another weapon, and the second-pass Magsec/Falcon report now pins HUD plus active-menu primary/secondary text to the actual equipped weapon instead of mixed inventory cursor or hand transition state. INCOMPLETE / CLI SPRINT ORDER: c3814-s16 ACTIVE - implement deeper .pdprojectile IR execution for projectile motion, homing, Slayer fly-by-wire, Devastator wall-hugger, grenade/N-Bomb/bolt/knife/mine impact, trail, timer, sticky, pickup, and transition behavior; c3814-s17 - implement .pdentity IR execution for armed explosives, proxy/remote/timed detonatables, N-Bomb storm, Laptop autogun, sticky devices, owner cleanup, and pickup/recover; c3814-s18 - parity tests/removal guards, including saved custom weapon hot-register/runtime parity; c3814-s19 - finish gameplay callsite gating and presentation graph modules for reticles, overlays, zoom, model visibility, and any remaining legacy fallback removal. LOCKED: .pdwpn remains unsupported because it was never released; .pdentity is behavior/archetype data, not an ASSET_PROP replacement; weapons stay self-contained by embedding/cataloging nested projectile/entity assets.",
+      "notes": "Sprint status 2026-05-22. COMPLETED: c3814-s1..s15, c3814-s20, c3814-s21, c3814-s22 self-contained archive save/export slice, c3814-s23 graph-builder UI, and c3814-s24 modular shared-context graph editor are done. This includes canonical .pdweapon/.pdprojectile/.pdentity schema/design, base weapon behavior audit, 86-weapon parameter matrix, named graph modules, runtime cutover plan, .pdweapon-only live cutover with .pdwpn removed from code/tests/examples, first-class .pdprojectile/.pdentity catalog/scanner/packer/manifest/UI metadata, weapon_graph_archive helper APIs, base base_weapon_graph_v1 emission with embedded projectile/entity payloads, graph validation and deterministic IR compilation, Debug Settings UI/config storage for the graph runtime toggle, Mods Hub Weapons browser/template/graph-builder/save flows, and the expanded graph-backed held/player/AI runtime adapter. c3814-s15 now feeds graph IR into shared gameplay accessors, direct held shooting helpers, recoil/recovery, trigger dispatch function type, throw/special/device handling, sight and auto-aim checks, device state toggles, player projectile spawn values, thrown physical spawn values, and AI projectile spawn values. c3814-s23 adds graph presets, named module insertion, editable node params, edge editing, primary/secondary export selection, validation, and generated JSON as an advanced view so the Weapons tab can author behavior graphs without hand-writing JSON. c3814-s24 keeps one .pdweapon per weapon while adding primary/secondary subgraphs inside behavior.graph.json, top-level shared_context for owner/damage/projectile/deployed-entity/detonator/targeting/hacking state, compiler preservation/hashing, base-emitter output, and editor controls/seeds for dual fire modes, remote mine links, and Laptop Gun target-policy control. B-363 follow-up fixed the MKB Campaign weapon-switch and function-HUD edge: Q tap/hold reaches cycle/radial, scroll wheel next/previous reaches gameplay, number keys direct-select inventory, function text no longer holds stale labels from another weapon, and the second-pass Magsec/Falcon report now pins HUD plus active-menu primary/secondary text to the actual equipped weapon instead of mixed inventory cursor or hand transition state. INCOMPLETE / CLI SPRINT ORDER: c3814-s16 ACTIVE - implement deeper .pdprojectile IR execution for projectile motion, homing, Slayer fly-by-wire, Devastator wall-hugger, grenade/N-Bomb/bolt/knife/mine impact, trail, timer, sticky, pickup, and transition behavior; c3814-s17 - implement .pdentity IR execution for armed explosives, proxy/remote/timed detonatables, N-Bomb storm, Laptop autogun, sticky devices, owner cleanup, and pickup/recover; c3814-s18 - parity tests/removal guards, including saved custom weapon hot-register/runtime parity; c3814-s19 - finish gameplay callsite gating and presentation graph modules for reticles, overlays, zoom, model visibility, and any remaining legacy fallback removal. LOCKED: .pdwpn remains unsupported because it was never released; .pdentity is behavior/archetype data, not an ASSET_PROP replacement; weapons stay self-contained by embedding/cataloging nested projectile/entity assets.",
       "subtasks": [
         {
           "id": "c3814-s1",
@@ -3372,6 +3436,13 @@
           "status": "done",
           "order": 3800,
           "notes": "Done 2026-05-22: the Modding Hub Weapons Template flow now creates behavior graphs through presets, named module insertion, editable node params, edge add/remove, primary/secondary export selection, validation, and generated JSON as an advanced view. Existing graph JSON import/edit remains as a fallback, but the normal authoring flow no longer requires hand-writing behavior.graph.json. Verified focused [weapon_graph][ui][c3814] and queued all-target build session wgraphui."
+        },
+        {
+          "id": "c3814-s24",
+          "title": "Add modular shared-context graph editor",
+          "status": "done",
+          "order": 3900,
+          "notes": "Done 2026-05-22: chose one .pdweapon per weapon with modular primary/secondary subgraphs inside behavior.graph.json and explicit shared_context for owner player/team, weapon instance, damage credit, projectile owner, deployed entity sets, detonator links, target policy overrides, and hacking ownership. The compiler validates/preserves/hashes shared contexts, subgraphs, and per-node subgraph ownership; the base emitter writes those fields; and the Modding Hub builder exposes Shared Context checkboxes, mode-scoped module insertion, per-node mode assignment, and seeds for dual fire modes, remote mine/detonator linkage, and Laptop Gun targeting control. Verification: focused [weapon_graph][compiler][c3814],[weapon_graph][ui][c3814] passed 106 assertions / 6 cases; isolated all-target build session wgraphmod passed for client/updater and was removed."
         },
         {
           "id": "c3814-s3",

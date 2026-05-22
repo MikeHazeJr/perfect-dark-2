@@ -42,8 +42,8 @@
 #include "weapondata_authored.h"
 #include "animdata_authored.h"
 
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v3"
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v3"
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v9"
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v9"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 
@@ -1724,12 +1724,36 @@ static void s_emitWeaponGraphNode(jw_t *w, const char *node_id,
 	w->indent++;
 	jw_field_str(w, "id", node_id, 0);
 	jw_field_str(w, "kind", s_weaponModuleKind(catalog_id, mode, f), 0);
+	jw_field_str(w, "subgraph", s_modeName(mode), 0);
 	jw_open_object(w, "params");
 	s_emitWeaponGraphParams(w, catalog_id, mode, f, projectile_ref, entity_ref);
 	jw_close_object(w, 1);
 	w->indent--;
 	jw_indent(w);
 	fputs(last ? "}\n" : "},\n", w->fp);
+}
+
+static void s_emitWeaponGraphContext(jw_t *w, const char *name,
+                                     const char *scope, const char *source,
+                                     const char *type, const char *lifetime,
+                                     s32 last)
+{
+	jw_open_object(w, NULL);
+	jw_field_str(w, "name", name, 0);
+	jw_field_str(w, "scope", scope, 0);
+	jw_field_str(w, "source", source, 0);
+	jw_field_str(w, "type", type, 0);
+	jw_field_str(w, "lifetime", lifetime, 1);
+	jw_close_object(w, last);
+}
+
+static void s_emitWeaponGraphSubgraph(jw_t *w, const char *id,
+                                      const char *entry, s32 last)
+{
+	jw_open_object(w, NULL);
+	jw_field_str(w, "id", id, 0);
+	jw_field_str(w, "entry", entry, 1);
+	jw_close_object(w, last);
 }
 
 static void s_emitWeaponGraphExport(jw_t *w, const char *name,
@@ -1769,6 +1793,22 @@ static s32 s_emitWeaponGraphFile(const char *graph_tmp_relpath,
 	jw_field_str(&w, "nested_payloads", WEAPON_GRAPH_ARCHIVE_NESTED_PAYLOADS_ENTRY, 0);
 	jw_field_str(&w, "runtime_source", "graph_ir_pending_manifest_bridge", 1);
 	jw_close_object(&w, 0);
+
+	jw_open_array(&w, "shared_context");
+	s_emitWeaponGraphContext(&w, "owner_player", "player", "equipped_player",
+		"player_ref", "weapon_instance", 0);
+	s_emitWeaponGraphContext(&w, "owner_team", "player", "equipped_player_team",
+		"team_ref", "weapon_instance", 0);
+	s_emitWeaponGraphContext(&w, "weapon_instance", "weapon", "equipped_weapon",
+		"weapon_instance_ref", "weapon_instance", 0);
+	s_emitWeaponGraphContext(&w, "damage_credit_player", "projectile", "owner_player",
+		"player_ref", "projectile_life", 1);
+	jw_close_array(&w, 0);
+
+	jw_open_array(&w, "subgraphs");
+	s_emitWeaponGraphSubgraph(&w, "primary", "primary_action", 0);
+	s_emitWeaponGraphSubgraph(&w, "secondary", "secondary_action", 1);
+	jw_close_array(&w, 0);
 
 	jw_open_array(&w, "nodes");
 	s_emitWeaponGraphNode(&w, "primary_action", catalog_id, 0,

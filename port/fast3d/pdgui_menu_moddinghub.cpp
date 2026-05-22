@@ -271,9 +271,10 @@ static bool     s_IniEmptyLogged = false;
  * ======================================================================== */
 
 #define HUB_WEAPON_TEXT_PREVIEW_LEN 8192
-#define HUB_WEAPON_GRAPH_MAX_NODES  16
+#define HUB_WEAPON_GRAPH_MAX_NODES  24
 #define HUB_WEAPON_GRAPH_MAX_EDGES  32
 #define HUB_WEAPON_GRAPH_PARAM_LEN  512
+#define HUB_WEAPON_GRAPH_SCOPE_LEN  16
 
 static char s_WeaponSelectedId[CATALOG_ID_LEN] = "";
 static char s_WeaponLoadedId[CATALOG_ID_LEN] = "";
@@ -326,9 +327,20 @@ struct WeaponGraphModuleDef {
     const char *default_params;
 };
 
+struct WeaponGraphContextDef {
+    const char *label;
+    const char *name;
+    const char *scope;
+    const char *source;
+    const char *type;
+    const char *lifetime;
+    bool default_enabled;
+};
+
 struct WeaponGraphNodeEdit {
     char id[WEAPON_GRAPH_IR_ID_LEN];
     char kind[WEAPON_GRAPH_IR_ID_LEN];
+    char subgraph[HUB_WEAPON_GRAPH_SCOPE_LEN];
     char params[HUB_WEAPON_GRAPH_PARAM_LEN];
 };
 
@@ -342,10 +354,12 @@ static WeaponGraphEdgeEdit s_WeaponGraphEdges[HUB_WEAPON_GRAPH_MAX_EDGES];
 static int s_WeaponGraphNodeCount = 0;
 static int s_WeaponGraphEdgeCount = 0;
 static int s_WeaponGraphModulePick = 0;
+static int s_WeaponGraphScopePick = 0;
 static int s_WeaponGraphEdgeFrom = 0;
 static int s_WeaponGraphEdgeTo = 0;
 static int s_WeaponGraphPrimaryExport = -1;
 static int s_WeaponGraphSecondaryExport = -1;
+static bool s_WeaponGraphContextEnabled[WEAPON_GRAPH_IR_MAX_CONTEXTS];
 
 /* ========================================================================
  * INI Editor — helpers
@@ -756,13 +770,60 @@ static void weaponDefaultGraph(const char *catalogId, char *out, size_t outSize)
         "{\n"
         "  \"schema\": \"pd.weapon_graph.v1\",\n"
         "  \"asset_id\": \"%s\",\n"
-        "  \"graph_id\": \"custom\",\n"
+        "  \"graph_id\": \"custom_modular\",\n"
+        "  \"shared_context\": [],\n"
+        "  \"subgraphs\": [],\n"
         "  \"nodes\": [],\n"
         "  \"edges\": [],\n"
         "  \"exports\": []\n"
         "}\n",
         catalogId && catalogId[0] ? catalogId : "user:weapon");
 }
+
+static const char *s_WeaponGraphScopes[] = {
+    "primary",
+    "secondary",
+    "shared",
+};
+
+static const WeaponGraphContextDef s_WeaponGraphContextDefs[] = {
+    {
+        "Owner Player", "owner_player", "player", "equipped_player",
+        "player_ref", "weapon_instance", true
+    },
+    {
+        "Owner Team", "owner_team", "player", "equipped_player_team",
+        "team_ref", "weapon_instance", true
+    },
+    {
+        "Weapon Instance", "weapon_instance", "weapon", "equipped_weapon",
+        "weapon_instance_ref", "weapon_instance", true
+    },
+    {
+        "Damage Credit", "damage_credit_player", "projectile", "owner_player",
+        "player_ref", "projectile_life", true
+    },
+    {
+        "Projectile Owner", "projectile_owner", "projectile", "owner_player",
+        "player_ref", "projectile_life", false
+    },
+    {
+        "Deployed Entity Set", "deployed_entity_set", "entity", "owner_player",
+        "entity_set_ref", "player_life", false
+    },
+    {
+        "Detonator Link", "detonator_link_group", "weapon", "weapon_instance",
+        "link_group_ref", "player_life", false
+    },
+    {
+        "Target Policy Override", "target_policy_override", "entity", "hacking_tool",
+        "target_policy_ref", "entity_life", false
+    },
+    {
+        "Hacked By Player", "hacked_by_player", "player", "hacking_tool_owner",
+        "player_ref", "entity_life", false
+    },
+};
 
 static const WeaponGraphModuleDef s_WeaponGraphModules[] = {
     {
@@ -772,7 +833,9 @@ static const WeaponGraphModuleDef s_WeaponGraphModules[] = {
         "\"trigger_policy\": \"press\", \"ammo_slot\": 0, \"damage\": 8.0, "
         "\"spread\": 0.0, \"duration_ticks60\": 6, "
         "\"recoverytime_ticks60\": 12, \"impactforce\": 1.0, "
-        "\"penetration\": 0 }"
+        "\"penetration\": 0, "
+        "\"context_refs\": [\"owner_player\", \"weapon_instance\", "
+        "\"damage_credit_player\"] }"
     },
     {
         "Automatic Fire",
@@ -781,7 +844,9 @@ static const WeaponGraphModuleDef s_WeaponGraphModules[] = {
         "\"trigger_policy\": \"hold\", \"ammo_slot\": 0, "
         "\"initial_rpm\": 450.0, \"max_rpm\": 650.0, "
         "\"turret_accel\": 0, \"turret_decel\": 0, "
-        "\"recoverytime_ticks60\": 4 }"
+        "\"recoverytime_ticks60\": 4, "
+        "\"context_refs\": [\"owner_player\", \"weapon_instance\", "
+        "\"damage_credit_player\"] }"
     },
     {
         "Burst",
@@ -789,7 +854,9 @@ static const WeaponGraphModuleDef s_WeaponGraphModules[] = {
         "{ \"mode\": \"primary\", \"function_type\": \"shoot_single\", "
         "\"trigger_policy\": \"press\", \"ammo_slot\": 0, \"burst_count\": 3, "
         "\"damage\": 6.0, \"duration_ticks60\": 5, "
-        "\"recoverytime_ticks60\": 18 }"
+        "\"recoverytime_ticks60\": 18, "
+        "\"context_refs\": [\"owner_player\", \"weapon_instance\", "
+        "\"damage_credit_player\"] }"
     },
     {
         "Charge Release",
@@ -797,14 +864,18 @@ static const WeaponGraphModuleDef s_WeaponGraphModules[] = {
         "{ \"mode\": \"secondary\", \"function_type\": \"shoot_single\", "
         "\"trigger_policy\": \"hold_release\", \"ammo_slot\": 0, "
         "\"damage\": 24.0, \"duration_ticks60\": 8, "
-        "\"recoverytime_ticks60\": 24 }"
+        "\"recoverytime_ticks60\": 24, "
+        "\"context_refs\": [\"owner_player\", \"weapon_instance\", "
+        "\"damage_credit_player\"] }"
     },
     {
         "Beam Tick",
         "fire.beam_tick",
         "{ \"mode\": \"primary\", \"function_type\": \"shoot_automatic\", "
         "\"trigger_policy\": \"hold\", \"ammo_slot\": 0, \"damage\": 1.0, "
-        "\"duration_ticks60\": 1, \"recoverytime_ticks60\": 1 }"
+        "\"duration_ticks60\": 1, \"recoverytime_ticks60\": 1, "
+        "\"context_refs\": [\"owner_player\", \"weapon_instance\", "
+        "\"damage_credit_player\"] }"
     },
     {
         "Fired Projectile",
@@ -814,7 +885,9 @@ static const WeaponGraphModuleDef s_WeaponGraphModules[] = {
         "\"projectile_ref\": \"user:projectile\", "
         "\"projectile_model_ref\": \"MODEL_rocket\", \"speed\": 120.0, "
         "\"travel_distance\": 3000, \"timer_ticks60\": 180, "
-        "\"scale\": 1.0, \"soundnum\": 0, \"recoverytime_ticks60\": 24 }"
+        "\"scale\": 1.0, \"soundnum\": 0, \"recoverytime_ticks60\": 24, "
+        "\"context_refs\": [\"owner_player\", \"weapon_instance\", "
+        "\"projectile_owner\", \"damage_credit_player\"] }"
     },
     {
         "Thrown Physical",
@@ -822,42 +895,69 @@ static const WeaponGraphModuleDef s_WeaponGraphModules[] = {
         "{ \"mode\": \"secondary\", \"function_type\": \"throw\", "
         "\"trigger_policy\": \"hold_release\", \"payload_ref\": \"user:payload\", "
         "\"speed\": 80.0, \"activation_time_ticks60\": 24, "
-        "\"recovery_time_ticks60\": 30 }"
+        "\"recovery_time_ticks60\": 30, "
+        "\"context_refs\": [\"owner_player\", \"weapon_instance\", "
+        "\"deployed_entity_set\", \"detonator_link_group\"] }"
     },
     {
         "Melee Strike",
         "melee.strike",
         "{ \"mode\": \"secondary\", \"function_type\": \"melee\", "
         "\"trigger_policy\": \"press\", \"damage\": 12.0, \"range\": 120.0, "
-        "\"recoverytime_ticks60\": 20 }"
+        "\"recoverytime_ticks60\": 20, "
+        "\"context_refs\": [\"owner_player\", \"weapon_instance\", "
+        "\"damage_credit_player\"] }"
     },
     {
         "Remote Detonator",
         "special.remote_detonator",
         "{ \"mode\": \"secondary\", \"function_type\": \"special\", "
         "\"trigger_policy\": \"press\", \"detonator_ref\": \"user:remote_mine\", "
-        "\"specialfunc\": 0, \"recovery_time_ticks60\": 20 }"
+        "\"specialfunc\": 0, \"recovery_time_ticks60\": 20, "
+        "\"context_refs\": [\"owner_player\", \"deployed_entity_set\", "
+        "\"detonator_link_group\"] }"
     },
     {
         "Device Activate",
         "device.activate",
         "{ \"mode\": \"primary\", \"function_type\": \"device\", "
         "\"trigger_policy\": \"press\", \"device\": 0, "
-        "\"recovery_time_ticks60\": 12 }"
+        "\"recovery_time_ticks60\": 12, "
+        "\"context_refs\": [\"owner_player\", \"weapon_instance\", "
+        "\"hacked_by_player\", \"target_policy_override\"] }"
+    },
+    {
+        "Target Policy Gate",
+        "gate.target_lock",
+        "{ \"mode\": \"shared\", \"source\": \"target_policy_override\", "
+        "\"required\": false, \"target_filter\": \"hostile_or_override\", "
+        "\"context_refs\": [\"owner_player\", \"owner_team\", "
+        "\"hacked_by_player\", \"target_policy_override\"] }"
+    },
+    {
+        "Weapon State Override",
+        "special.weapon_state",
+        "{ \"mode\": \"primary\", \"function_type\": \"special\", "
+        "\"trigger_policy\": \"press\", \"state_op\": \"set_target_policy\", "
+        "\"context_refs\": [\"owner_player\", \"weapon_instance\", "
+        "\"hacked_by_player\", \"target_policy_override\"], "
+        "\"recovery_time_ticks60\": 18 }"
     },
     {
         "Weapon Visibility",
         "presentation.weapon_visibility",
         "{ \"mode\": \"primary\", \"part_id\": \"ammo_display\", "
         "\"ammo_slot\": 0, \"thresholds\": [0, 1], "
-        "\"visibility_state\": \"visible_when_loaded\" }"
+        "\"visibility_state\": \"visible_when_loaded\", "
+        "\"context_refs\": [\"weapon_instance\"] }"
     },
     {
         "Reticle / Overlay / Camera",
         "presentation.reticle_overlay_camera",
         "{ \"mode\": \"primary\", \"reticle_ref\": \"default\", "
         "\"overlay_ref\": \"\", \"zoom_fovs\": [60.0], "
-        "\"camera_effect\": \"none\" }"
+        "\"camera_effect\": \"none\", "
+        "\"context_refs\": [\"owner_player\", \"weapon_instance\"] }"
     },
 };
 
@@ -879,16 +979,93 @@ static bool weaponAppendf(char *dst, size_t dstSize, size_t *pos,
     return true;
 }
 
+static int weaponGraphScopeCount(void)
+{
+    return (int)(sizeof(s_WeaponGraphScopes) / sizeof(s_WeaponGraphScopes[0]));
+}
+
+static int weaponGraphContextCount(void)
+{
+    return (int)(sizeof(s_WeaponGraphContextDefs) /
+                 sizeof(s_WeaponGraphContextDefs[0]));
+}
+
+static void weaponGraphBuilderResetContextDefaults(void)
+{
+    int count = weaponGraphContextCount();
+    for (int i = 0; i < WEAPON_GRAPH_IR_MAX_CONTEXTS; i++) {
+        s_WeaponGraphContextEnabled[i] =
+            (i < count) ? s_WeaponGraphContextDefs[i].default_enabled : false;
+    }
+}
+
+static void weaponGraphBuilderEnableContext(const char *name)
+{
+    if (!name) return;
+    for (int i = 0; i < weaponGraphContextCount(); i++) {
+        if (strcmp(s_WeaponGraphContextDefs[i].name, name) == 0) {
+            s_WeaponGraphContextEnabled[i] = true;
+            return;
+        }
+    }
+}
+
+static const char *weaponGraphBuilderScopeForIndex(int index)
+{
+    if (index < 0 || index >= weaponGraphScopeCount()) return "primary";
+    return s_WeaponGraphScopes[index];
+}
+
+static int weaponGraphBuilderScopeIndex(const char *scope)
+{
+    if (!scope) return 0;
+    for (int i = 0; i < weaponGraphScopeCount(); i++) {
+        if (strcmp(scope, s_WeaponGraphScopes[i]) == 0) return i;
+    }
+    return 0;
+}
+
+static void weaponGraphBuilderApplyNodeMode(WeaponGraphNodeEdit *node)
+{
+    if (!node || !node->subgraph[0]) return;
+    if (strcmp(node->subgraph, "primary") != 0 &&
+            strcmp(node->subgraph, "secondary") != 0 &&
+            strcmp(node->subgraph, "shared") != 0) {
+        return;
+    }
+    weaponReplaceJsonStringField(node->params, sizeof(node->params),
+                                 "mode", node->subgraph);
+}
+
+static bool weaponGraphBuilderAppendContextNameArray(char *dst, size_t dstSize,
+                                                     size_t *pos)
+{
+    bool first = true;
+    bool ok = weaponAppendf(dst, dstSize, pos, "[");
+    for (int i = 0; ok && i < weaponGraphContextCount(); i++) {
+        if (!s_WeaponGraphContextEnabled[i]) continue;
+        char name[WEAPON_GRAPH_IR_ID_LEN + 16];
+        weaponJsonEscape(s_WeaponGraphContextDefs[i].name, name, sizeof(name));
+        ok = ok && weaponAppendf(dst, dstSize, pos,
+            "%s\"%s\"", first ? "" : ", ", name);
+        first = false;
+    }
+    ok = ok && weaponAppendf(dst, dstSize, pos, "]");
+    return ok;
+}
+
 static void weaponGraphBuilderClear(void)
 {
     memset(s_WeaponGraphNodes, 0, sizeof(s_WeaponGraphNodes));
     memset(s_WeaponGraphEdges, 0, sizeof(s_WeaponGraphEdges));
     s_WeaponGraphNodeCount = 0;
     s_WeaponGraphEdgeCount = 0;
+    s_WeaponGraphScopePick = 0;
     s_WeaponGraphEdgeFrom = 0;
     s_WeaponGraphEdgeTo = 0;
     s_WeaponGraphPrimaryExport = -1;
     s_WeaponGraphSecondaryExport = -1;
+    weaponGraphBuilderResetContextDefaults();
 }
 
 static const char *weaponGraphNodeLabel(int index)
@@ -930,18 +1107,80 @@ static bool weaponGraphBuilderSyncJson(void)
         "{\n"
         "  \"schema\": \"pd.weapon_graph.v1\",\n"
         "  \"asset_id\": \"%s\",\n"
-        "  \"graph_id\": \"custom\",\n"
-        "  \"nodes\": [\n", escapedAsset);
+        "  \"graph_id\": \"custom_modular\",\n",
+        escapedAsset);
+
+    ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
+        "  \"shared_context\": [\n");
+    bool wroteContext = false;
+    for (int i = 0; ok && i < weaponGraphContextCount(); i++) {
+        if (!s_WeaponGraphContextEnabled[i]) continue;
+        const WeaponGraphContextDef &ctx = s_WeaponGraphContextDefs[i];
+        char name[WEAPON_GRAPH_IR_ID_LEN + 16];
+        char scope[WEAPON_GRAPH_IR_ID_LEN + 16];
+        char source[WEAPON_GRAPH_IR_ID_LEN + 16];
+        char type[WEAPON_GRAPH_IR_ID_LEN + 16];
+        char lifetime[WEAPON_GRAPH_IR_ID_LEN + 16];
+        weaponJsonEscape(ctx.name, name, sizeof(name));
+        weaponJsonEscape(ctx.scope, scope, sizeof(scope));
+        weaponJsonEscape(ctx.source, source, sizeof(source));
+        weaponJsonEscape(ctx.type, type, sizeof(type));
+        weaponJsonEscape(ctx.lifetime, lifetime, sizeof(lifetime));
+        ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
+            "%s    { \"name\": \"%s\", \"scope\": \"%s\", "
+            "\"source\": \"%s\", \"type\": \"%s\", \"lifetime\": \"%s\" }",
+            wroteContext ? ",\n" : "", name, scope, source, type, lifetime);
+        wroteContext = true;
+    }
+    if (wroteContext) {
+        ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos, "\n");
+    }
+
+    char primaryEntry[WEAPON_GRAPH_IR_ID_LEN + 16] = "";
+    char secondaryEntry[WEAPON_GRAPH_IR_ID_LEN + 16] = "";
+    if (s_WeaponGraphPrimaryExport >= 0 &&
+            s_WeaponGraphPrimaryExport < s_WeaponGraphNodeCount) {
+        weaponJsonEscape(s_WeaponGraphNodes[s_WeaponGraphPrimaryExport].id,
+                         primaryEntry, sizeof(primaryEntry));
+    }
+    if (s_WeaponGraphSecondaryExport >= 0 &&
+            s_WeaponGraphSecondaryExport < s_WeaponGraphNodeCount) {
+        weaponJsonEscape(s_WeaponGraphNodes[s_WeaponGraphSecondaryExport].id,
+                         secondaryEntry, sizeof(secondaryEntry));
+    }
+    ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
+        "  ],\n"
+        "  \"subgraphs\": [\n"
+        "    { \"id\": \"primary\", \"entry\": \"%s\", \"shared_context\": ",
+        primaryEntry);
+    ok = ok && weaponGraphBuilderAppendContextNameArray(s_WeaponEditGraph,
+        sizeof(s_WeaponEditGraph), &pos);
+    ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
+        " },\n"
+        "    { \"id\": \"secondary\", \"entry\": \"%s\", \"shared_context\": ",
+        secondaryEntry);
+    ok = ok && weaponGraphBuilderAppendContextNameArray(s_WeaponEditGraph,
+        sizeof(s_WeaponEditGraph), &pos);
+    ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
+        " }\n"
+        "  ],\n"
+        "  \"nodes\": [\n");
 
     for (int i = 0; ok && i < s_WeaponGraphNodeCount; i++) {
         char escapedId[WEAPON_GRAPH_IR_ID_LEN + 16];
         char escapedKind[WEAPON_GRAPH_IR_ID_LEN + 16];
+        char escapedSubgraph[HUB_WEAPON_GRAPH_SCOPE_LEN + 16];
         weaponJsonEscape(s_WeaponGraphNodes[i].id, escapedId, sizeof(escapedId));
         weaponJsonEscape(s_WeaponGraphNodes[i].kind, escapedKind, sizeof(escapedKind));
+        weaponJsonEscape(s_WeaponGraphNodes[i].subgraph[0]
+                         ? s_WeaponGraphNodes[i].subgraph : "primary",
+                         escapedSubgraph, sizeof(escapedSubgraph));
         ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
-            "    { \"id\": \"%s\", \"kind\": \"%s\", \"params\": %s }%s\n",
+            "    { \"id\": \"%s\", \"kind\": \"%s\", \"subgraph\": \"%s\", "
+            "\"params\": %s }%s\n",
             escapedId,
             escapedKind,
+            escapedSubgraph,
             s_WeaponGraphNodes[i].params[0] ? s_WeaponGraphNodes[i].params : "{}",
             (i + 1 < s_WeaponGraphNodeCount) ? "," : "");
     }
@@ -1057,8 +1296,11 @@ static bool weaponGraphBuilderAddModule(int moduleIndex, bool syncNow)
                                  node.id, sizeof(node.id));
     strncpy(node.kind, s_WeaponGraphModules[moduleIndex].kind,
             sizeof(node.kind) - 1);
+    strncpy(node.subgraph, weaponGraphBuilderScopeForIndex(s_WeaponGraphScopePick),
+            sizeof(node.subgraph) - 1);
     strncpy(node.params, s_WeaponGraphModules[moduleIndex].default_params,
             sizeof(node.params) - 1);
+    weaponGraphBuilderApplyNodeMode(&node);
     if (s_WeaponGraphPrimaryExport < 0) {
         s_WeaponGraphPrimaryExport = s_WeaponGraphNodeCount;
     }
@@ -1078,6 +1320,20 @@ static int weaponGraphModuleIndexByKind(const char *kind)
         if (strcmp(s_WeaponGraphModules[i].kind, kind) == 0) return i;
     }
     return 0;
+}
+
+static int weaponGraphBuilderAddModuleInScope(const char *kind,
+                                              const char *scope)
+{
+    int previousScope = s_WeaponGraphScopePick;
+    int addedIndex = s_WeaponGraphNodeCount;
+    s_WeaponGraphScopePick = weaponGraphBuilderScopeIndex(scope);
+    if (!weaponGraphBuilderAddModule(weaponGraphModuleIndexByKind(kind), false)) {
+        s_WeaponGraphScopePick = previousScope;
+        return -1;
+    }
+    s_WeaponGraphScopePick = previousScope;
+    return addedIndex;
 }
 
 static void weaponGraphBuilderAddEdge(int from, int to, bool syncNow)
@@ -1146,32 +1402,73 @@ static void weaponGraphBuilderRemoveEdge(int index)
 static void weaponGraphBuilderSeedSingleShot(void)
 {
     weaponGraphBuilderClear();
-    weaponGraphBuilderAddModule(weaponGraphModuleIndexByKind("fire.hitscan"), false);
-    s_WeaponGraphPrimaryExport = 0;
+    int primary = weaponGraphBuilderAddModuleInScope("fire.hitscan", "primary");
+    s_WeaponGraphPrimaryExport = primary;
     weaponGraphBuilderSyncJson();
 }
 
 static void weaponGraphBuilderSeedAutomatic(void)
 {
     weaponGraphBuilderClear();
-    weaponGraphBuilderAddModule(weaponGraphModuleIndexByKind("fire.auto_cadence"), false);
-    s_WeaponGraphPrimaryExport = 0;
+    int primary = weaponGraphBuilderAddModuleInScope("fire.auto_cadence", "primary");
+    s_WeaponGraphPrimaryExport = primary;
+    weaponGraphBuilderSyncJson();
+}
+
+static void weaponGraphBuilderSeedDualFireModes(void)
+{
+    weaponGraphBuilderClear();
+    int primary = weaponGraphBuilderAddModuleInScope("fire.hitscan", "primary");
+    int secondary = weaponGraphBuilderAddModuleInScope("fire.burst", "secondary");
+    s_WeaponGraphPrimaryExport = primary;
+    s_WeaponGraphSecondaryExport = secondary;
     weaponGraphBuilderSyncJson();
 }
 
 static void weaponGraphBuilderSeedProjectile(void)
 {
     weaponGraphBuilderClear();
-    weaponGraphBuilderAddModule(weaponGraphModuleIndexByKind("spawn.fired_projectile"), false);
-    s_WeaponGraphPrimaryExport = 0;
+    weaponGraphBuilderEnableContext("projectile_owner");
+    int primary = weaponGraphBuilderAddModuleInScope("spawn.fired_projectile", "primary");
+    s_WeaponGraphPrimaryExport = primary;
     weaponGraphBuilderSyncJson();
 }
 
 static void weaponGraphBuilderSeedThrown(void)
 {
     weaponGraphBuilderClear();
-    weaponGraphBuilderAddModule(weaponGraphModuleIndexByKind("spawn.thrown_physical"), false);
-    s_WeaponGraphSecondaryExport = 0;
+    weaponGraphBuilderEnableContext("deployed_entity_set");
+    int secondary = weaponGraphBuilderAddModuleInScope("spawn.thrown_physical", "secondary");
+    s_WeaponGraphSecondaryExport = secondary;
+    weaponGraphBuilderSyncJson();
+}
+
+static void weaponGraphBuilderSeedMineLink(void)
+{
+    weaponGraphBuilderClear();
+    weaponGraphBuilderEnableContext("deployed_entity_set");
+    weaponGraphBuilderEnableContext("detonator_link_group");
+    int primary = weaponGraphBuilderAddModuleInScope("spawn.thrown_physical", "primary");
+    int secondary = weaponGraphBuilderAddModuleInScope("special.remote_detonator", "secondary");
+    s_WeaponGraphPrimaryExport = primary;
+    s_WeaponGraphSecondaryExport = secondary;
+    weaponGraphBuilderSyncJson();
+}
+
+static void weaponGraphBuilderSeedLaptopControl(void)
+{
+    weaponGraphBuilderClear();
+    weaponGraphBuilderEnableContext("deployed_entity_set");
+    weaponGraphBuilderEnableContext("target_policy_override");
+    weaponGraphBuilderEnableContext("hacked_by_player");
+    int primary = weaponGraphBuilderAddModuleInScope("fire.auto_cadence", "primary");
+    int secondary = weaponGraphBuilderAddModuleInScope("spawn.thrown_physical", "secondary");
+    int policy = weaponGraphBuilderAddModuleInScope("gate.target_lock", "shared");
+    if (policy >= 0 && primary >= 0) {
+        weaponGraphBuilderAddEdge(policy, primary, false);
+    }
+    s_WeaponGraphPrimaryExport = primary;
+    s_WeaponGraphSecondaryExport = secondary;
     weaponGraphBuilderSyncJson();
 }
 
@@ -1999,6 +2296,25 @@ static bool weaponRenderGraphNodeCombo(const char *label, int *value, bool allow
     return changed;
 }
 
+static bool weaponRenderGraphScopeCombo(const char *label, char *scope, size_t scopeSize)
+{
+    if (!scope || scopeSize == 0) return false;
+    bool changed = false;
+    const char *preview = scope[0] ? scope : "primary";
+    if (ImGui::BeginCombo(label, preview)) {
+        for (int i = 0; i < weaponGraphScopeCount(); i++) {
+            bool selected = strcmp(preview, s_WeaponGraphScopes[i]) == 0;
+            if (ImGui::Selectable(s_WeaponGraphScopes[i], selected)) {
+                strncpy(scope, s_WeaponGraphScopes[i], scopeSize - 1);
+                scope[scopeSize - 1] = '\0';
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
 static void weaponRenderGraphBuilder(float scale)
 {
     ImGui::Text("Graph Builder");
@@ -2010,16 +2326,27 @@ static void weaponRenderGraphBuilder(float scale)
         weaponGraphBuilderSeedSingleShot();
     }
     ImGui::SameLine();
-    if (PdButton("Seed Automatic", ImVec2(132.0f * scale, 26.0f * scale))) {
-        weaponGraphBuilderSeedAutomatic();
+    if (PdButton("Seed Dual Fire Modes", ImVec2(168.0f * scale, 26.0f * scale))) {
+        weaponGraphBuilderSeedDualFireModes();
     }
     ImGui::SameLine();
     if (PdButton("Seed Projectile", ImVec2(132.0f * scale, 26.0f * scale))) {
         weaponGraphBuilderSeedProjectile();
     }
     ImGui::SameLine();
+    if (PdButton("Seed Mine Link", ImVec2(126.0f * scale, 26.0f * scale))) {
+        weaponGraphBuilderSeedMineLink();
+    }
+    if (PdButton("Seed Automatic", ImVec2(132.0f * scale, 26.0f * scale))) {
+        weaponGraphBuilderSeedAutomatic();
+    }
+    ImGui::SameLine();
     if (PdButton("Seed Thrown", ImVec2(112.0f * scale, 26.0f * scale))) {
         weaponGraphBuilderSeedThrown();
+    }
+    ImGui::SameLine();
+    if (PdButton("Seed Laptop Control", ImVec2(160.0f * scale, 26.0f * scale))) {
+        weaponGraphBuilderSeedLaptopControl();
     }
     ImGui::SameLine();
     if (PdButton("Clear", ImVec2(72.0f * scale, 26.0f * scale))) {
@@ -2027,6 +2354,21 @@ static void weaponRenderGraphBuilder(float scale)
         weaponDefaultGraph(s_WeaponEditCatalogId, s_WeaponEditGraph,
                            sizeof(s_WeaponEditGraph));
         weaponSetStatus(true, "Graph builder cleared");
+    }
+
+    if (ImGui::CollapsingHeader("Shared Context", ImGuiTreeNodeFlags_DefaultOpen)) {
+        for (int i = 0; i < weaponGraphContextCount(); i++) {
+            ImGui::PushID(5000 + i);
+            bool enabled = s_WeaponGraphContextEnabled[i];
+            if (ImGui::Checkbox(s_WeaponGraphContextDefs[i].label, &enabled)) {
+                s_WeaponGraphContextEnabled[i] = enabled;
+                weaponGraphBuilderSyncJson();
+            }
+            if ((i % 3) != 2) {
+                ImGui::SameLine();
+            }
+            ImGui::PopID();
+        }
     }
 
     const char *modulePreview = s_WeaponGraphModules[s_WeaponGraphModulePick].label;
@@ -2043,6 +2385,18 @@ static void weaponRenderGraphBuilder(float scale)
                      s_WeaponGraphModules[i].kind);
             if (ImGui::Selectable(label, selected)) {
                 s_WeaponGraphModulePick = i;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(120.0f * scale);
+    if (ImGui::BeginCombo("Mode Module",
+                          weaponGraphBuilderScopeForIndex(s_WeaponGraphScopePick))) {
+        for (int i = 0; i < weaponGraphScopeCount(); i++) {
+            bool selected = s_WeaponGraphScopePick == i;
+            if (ImGui::Selectable(s_WeaponGraphScopes[i], selected)) {
+                s_WeaponGraphScopePick = i;
             }
         }
         ImGui::EndCombo();
@@ -2070,6 +2424,13 @@ static void weaponRenderGraphBuilder(float scale)
         }
         ImGui::SetNextItemWidth(190.0f * scale);
         if (ImGui::InputText("Node ID", node.id, sizeof(node.id))) {
+            weaponGraphBuilderSyncJson();
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(130.0f * scale);
+        if (weaponRenderGraphScopeCombo("Mode", node.subgraph,
+                                        sizeof(node.subgraph))) {
+            weaponGraphBuilderApplyNodeMode(&node);
             weaponGraphBuilderSyncJson();
         }
         ImGui::InputTextMultiline("Params",

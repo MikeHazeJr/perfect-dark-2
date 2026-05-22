@@ -817,6 +817,7 @@ void menuTick(void)
 					g_Vars.mplayerisrunning = false;
 					g_Vars.normmplayerisrunning = false;
 					g_Vars.lvmpbotlevel = 0;
+					mpClearRuntimeChrState();
 
 					if (g_BossFile.locktype == MPLOCKTYPE_CHALLENGE) {
 						g_BossFile.locktype = MPLOCKTYPE_NONE;
@@ -855,6 +856,7 @@ void menuTick(void)
 					g_Vars.mplayerisrunning = false;
 					g_Vars.normmplayerisrunning = false;
 					g_Vars.lvmpbotlevel = 0;
+					mpClearRuntimeChrState();
 					/* S303: same manifestClear pattern for the COOPCONTINUE
 					 * exit path. CITRAINING is a gameplay stage so a stale
 					 * coop manifest would route the new transition through

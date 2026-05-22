@@ -428,6 +428,24 @@ static s32 graphNodeIndex(const weapon_graph_ir_t *ir, const char *id)
 	return -1;
 }
 
+static s32 graphContextIndex(const weapon_graph_ir_t *ir, const char *name)
+{
+	if (!ir || !name || !name[0]) return -1;
+	for (s32 i = 0; i < ir->context_count; i++) {
+		if (strcmp(ir->contexts[i].name, name) == 0) return i;
+	}
+	return -1;
+}
+
+static s32 graphSubgraphIndex(const weapon_graph_ir_t *ir, const char *id)
+{
+	if (!ir || !id || !id[0]) return -1;
+	for (s32 i = 0; i < ir->subgraph_count; i++) {
+		if (strcmp(ir->subgraphs[i].id, id) == 0) return i;
+	}
+	return -1;
+}
+
 static s32 keyNeedsUnit(const char *key)
 {
 	if (!key || !key[0] || startsWith(key, "runtime_")) return 0;
@@ -603,6 +621,41 @@ static s32 compileParams(json_span_t node_obj, weapon_graph_ir_t *ir,
 	return 0;
 }
 
+static s32 compileSharedContexts(json_span_t root, weapon_graph_ir_t *ir,
+                                 char *err, size_t err_cap)
+{
+	json_span_t contexts;
+	const char *cursor = NULL;
+	json_span_t obj;
+	if (!jsonObjectArray(root, "shared_context", &contexts)) return 0;
+
+	while (jsonArrayNextObject(contexts, &cursor, &obj)) {
+		if (ir->context_count >= WEAPON_GRAPH_IR_MAX_CONTEXTS) {
+			setErr(err, err_cap, "too many graph shared contexts");
+			return -1;
+		}
+		weapon_graph_ir_context_t *ctx = &ir->contexts[ir->context_count];
+		memset(ctx, 0, sizeof(*ctx));
+		if (!jsonObjectString(obj, "name", ctx->name, sizeof(ctx->name)) ||
+				!ctx->name[0] ||
+				!jsonObjectString(obj, "scope", ctx->scope, sizeof(ctx->scope)) ||
+				!ctx->scope[0] ||
+				!jsonObjectString(obj, "source", ctx->source, sizeof(ctx->source)) ||
+				!ctx->source[0]) {
+			setErr(err, err_cap, "shared context missing name/scope/source");
+			return -1;
+		}
+		if (graphContextIndex(ir, ctx->name) >= 0) {
+			setErr(err, err_cap, "duplicate shared context %s", ctx->name);
+			return -1;
+		}
+		jsonObjectString(obj, "type", ctx->type, sizeof(ctx->type));
+		jsonObjectString(obj, "lifetime", ctx->lifetime, sizeof(ctx->lifetime));
+		ir->context_count++;
+	}
+	return 0;
+}
+
 static s32 compileNodes(asset_type_e graph_type, json_span_t root,
                         weapon_graph_ir_t *ir, char *err, size_t err_cap)
 {
@@ -635,6 +688,7 @@ static s32 compileNodes(asset_type_e graph_type, json_span_t root,
 			setErr(err, err_cap, "graph node %s missing kind", node->id);
 			return -1;
 		}
+		jsonObjectString(obj, "subgraph", node->subgraph, sizeof(node->subgraph));
 		node->opcode = weaponGraphOpcodeForKind(graph_type, node->kind);
 		if (node->opcode == WEAPON_GRAPH_OP_INVALID) {
 			setErr(err, err_cap, "unsupported %s graph module %s",
@@ -648,6 +702,46 @@ static s32 compileNodes(asset_type_e graph_type, json_span_t root,
 	if (ir->node_count == 0) {
 		setErr(err, err_cap, "graph has no nodes");
 		return -1;
+	}
+	return 0;
+}
+
+static s32 compileSubgraphs(json_span_t root, weapon_graph_ir_t *ir,
+                            char *err, size_t err_cap)
+{
+	json_span_t subgraphs;
+	const char *cursor = NULL;
+	json_span_t obj;
+	if (!jsonObjectArray(root, "subgraphs", &subgraphs)) return 0;
+
+	while (jsonArrayNextObject(subgraphs, &cursor, &obj)) {
+		if (ir->subgraph_count >= WEAPON_GRAPH_IR_MAX_SUBGRAPHS) {
+			setErr(err, err_cap, "too many graph subgraphs");
+			return -1;
+		}
+		weapon_graph_ir_subgraph_t *subgraph =
+			&ir->subgraphs[ir->subgraph_count];
+		memset(subgraph, 0, sizeof(*subgraph));
+		subgraph->entry_node = -1;
+		if (!jsonObjectString(obj, "id", subgraph->id, sizeof(subgraph->id)) ||
+				!subgraph->id[0]) {
+			setErr(err, err_cap, "subgraph missing id");
+			return -1;
+		}
+		if (graphSubgraphIndex(ir, subgraph->id) >= 0) {
+			setErr(err, err_cap, "duplicate subgraph %s", subgraph->id);
+			return -1;
+		}
+		jsonObjectString(obj, "entry", subgraph->entry, sizeof(subgraph->entry));
+		if (subgraph->entry[0]) {
+			subgraph->entry_node = graphNodeIndex(ir, subgraph->entry);
+			if (subgraph->entry_node < 0) {
+				setErr(err, err_cap, "subgraph %s references missing entry %s",
+					subgraph->id, subgraph->entry);
+				return -1;
+			}
+		}
+		ir->subgraph_count++;
 	}
 	return 0;
 }
@@ -777,11 +871,21 @@ static void finalizeIrDigest(weapon_graph_ir_t *ir)
 	hashString(&ctx, ir->schema);
 	hashString(&ctx, ir->asset_id);
 	hashString(&ctx, ir->graph_id);
+	hashS32(&ctx, ir->context_count);
+	for (s32 i = 0; i < ir->context_count; i++) {
+		const weapon_graph_ir_context_t *c = &ir->contexts[i];
+		hashString(&ctx, c->name);
+		hashString(&ctx, c->scope);
+		hashString(&ctx, c->source);
+		hashString(&ctx, c->type);
+		hashString(&ctx, c->lifetime);
+	}
 	hashS32(&ctx, ir->node_count);
 	for (s32 i = 0; i < ir->node_count; i++) {
 		const weapon_graph_ir_node_t *n = &ir->nodes[i];
 		hashString(&ctx, n->id);
 		hashString(&ctx, n->kind);
+		hashString(&ctx, n->subgraph);
 		hashS32(&ctx, (s32)n->opcode);
 		hashS32(&ctx, n->param_count);
 		for (s32 j = 0; j < n->param_count; j++) {
@@ -801,6 +905,12 @@ static void finalizeIrDigest(weapon_graph_ir_t *ir)
 	for (s32 i = 0; i < ir->export_count; i++) {
 		hashString(&ctx, ir->exports[i].name);
 		hashS32(&ctx, ir->exports[i].node);
+	}
+	hashS32(&ctx, ir->subgraph_count);
+	for (s32 i = 0; i < ir->subgraph_count; i++) {
+		hashString(&ctx, ir->subgraphs[i].id);
+		hashString(&ctx, ir->subgraphs[i].entry);
+		hashS32(&ctx, ir->subgraphs[i].entry_node);
 	}
 	sha256Final(&ctx, digest);
 	sha256ToHex(digest, ir->ir_sha256);
@@ -849,7 +959,9 @@ s32 weaponGraphCompileJson(asset_type_e graph_type, const char *json,
 	sha256Hash(json, json_size, digest);
 	sha256ToHex(digest, out->source_sha256);
 
+	if (compileSharedContexts(root, out, err, err_cap) != 0) return -1;
 	if (compileNodes(graph_type, root, out, err, err_cap) != 0) return -1;
+	if (compileSubgraphs(root, out, err, err_cap) != 0) return -1;
 	if (compileEdges(root, out, err, err_cap) != 0) return -1;
 	if (graphHasCycle(out)) {
 		setErr(err, err_cap, "graph contains a cycle");

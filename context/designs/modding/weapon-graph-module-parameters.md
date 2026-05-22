@@ -18,6 +18,22 @@ This document turns the base weapon audit into named graph modules for `.pdweapo
 
 These modules live in `behavior.graph.json` inside `.pdweapon` archives.
 
+### Shared Context
+
+Decision 2026-05-22: primary and secondary behavior are modular subgraphs inside one `.pdweapon`, with explicit shared context entries for cross-mode and spawned-object state. The initial shared context set is:
+
+| Context | Scope | Purpose |
+| --- | --- | --- |
+| `owner_player` | player | The player currently owning, equipping, or deploying the weapon. |
+| `owner_team` | player | Team-aware targeting and friendly/hostile filtering. |
+| `weapon_instance` | weapon | State shared between primary/secondary modules for this held weapon. |
+| `damage_credit_player` | projectile | Damage dealer attribution for spawned projectiles and effects. |
+| `projectile_owner` | projectile | Projectile ownership/lifecycle handoff from weapon to projectile. |
+| `deployed_entity_set` | entity | Owned deployed objects such as remote mines or Laptop Gun autoguns. |
+| `detonator_link_group` | weapon/entity | Links detonator actions to owned remote mine entities. |
+| `target_policy_override` | entity | Runtime retargeting policy used by hacking/reprogramming tools. |
+| `hacked_by_player` | player | The player applying a hacking override to another deployed entity. |
+
 | Module | Key parameters | Base users | Notes |
 | --- | --- | --- | --- |
 | `event.trigger_pressed` | `mode`, `hand`, `requires_equipped`, `consume_press` | all weapons | Starts primary/secondary action graphs. |
@@ -105,4 +121,3 @@ These do not block schema naming, but they should be checked while implementing:
 - Homing rocket steering constants should be extracted with readable names during implementation, not left as `unk` fields.
 - Projectile bounce/slide internals use several anonymous runtime fields; the conversion should name them by behavior, not by struct field.
 - Laptop Gun runtime can continue instantiating the autogun early as long as the graph-facing model remains throw carrier -> deployed autogun.
-

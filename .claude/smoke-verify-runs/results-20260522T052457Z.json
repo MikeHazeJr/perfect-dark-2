@@ -1,0 +1,18 @@
+{
+  "Name": "boot_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": 0,
+  "ElapsedSeconds": 91.4519196,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 14,
+  "AssertionsMet": 13,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "LOADER\\.UNIVERSAL\\.OK: kind=weapon scanned=86 registered=86 envelope_failures=0 register_failures=0"
+    }
+  ]
+}

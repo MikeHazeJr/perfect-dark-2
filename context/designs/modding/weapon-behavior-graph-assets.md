@@ -213,6 +213,50 @@ Edges connect output pins to input pins:
 }
 ```
 
+### Modular Mode Graphs and Shared Context
+
+Decision 2026-05-22: keep one `.pdweapon` archive per weapon, but let its `behavior.graph.json` break behavior into explicit modular subgraphs. Primary and secondary are mode entrypoints inside the same graph, not separate top-level weapon graph files. This preserves whole-weapon self-containment while letting the editor expose separate primary/secondary work surfaces.
+
+The graph may declare `shared_context` entries for state that crosses mode, projectile, entity, and player boundaries:
+
+```json
+{
+  "name": "owner_player",
+  "scope": "player",
+  "source": "equipped_player",
+  "type": "player_ref",
+  "lifetime": "weapon_instance"
+}
+```
+
+Current shared context names are editor/compiler-visible schema data: `owner_player`, `owner_team`, `weapon_instance`, `damage_credit_player`, `projectile_owner`, `deployed_entity_set`, `detonator_link_group`, `target_policy_override`, and `hacked_by_player`. These cover remote mines tied to a detonator, projectile damage credit tied to the firing player, deployed entities tied to the owner/team, and hacking/device tools that can rewrite Laptop Gun or other deployed-entity targeting policy.
+
+Subgraphs bind mode surfaces to entries:
+
+```json
+{
+  "id": "secondary",
+  "entry": "detonate_mines",
+  "shared_context": ["owner_player", "detonator_link_group"]
+}
+```
+
+Nodes can carry a `subgraph` owner:
+
+```json
+{
+  "id": "detonate_mines",
+  "kind": "special.remote_detonator",
+  "subgraph": "secondary",
+  "params": {
+    "mode": "secondary",
+    "context_refs": ["owner_player", "detonator_link_group"]
+  }
+}
+```
+
+The runtime compiler preserves and hashes `shared_context`, `subgraphs`, and node `subgraph` ownership in deterministic IR. Gameplay adapters can keep consuming the existing `exports` path while deeper projectile/entity/runtime slices start using the shared context data.
+
 Time values must preserve authored intent and exact base-game timing. Use typed units:
 
 ```json

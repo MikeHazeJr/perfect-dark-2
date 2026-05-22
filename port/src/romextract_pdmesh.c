@@ -33,6 +33,7 @@
 #include "data.h"
 #include "types.h"
 #include "constants.h"
+#include "files.h"
 #include "fs.h"
 #include "loader_enum_reverse.h"
 #include "modarchive.h"
@@ -56,9 +57,9 @@
 #define ROMEXTRACT_PDMESH_SEEN_CAP 512
 #define ROMEXTRACT_PDMESH_MODEL_VMA 0x05000000u
 #define ROMEXTRACT_PDMESH_MTX_STACK_CAP 11
-#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v2"
+#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v8"
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "\n"
-#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v2"
+#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v8"
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
 
@@ -188,6 +189,9 @@ static s32 s_textbufAppendf(pdmesh_textbuf_t *b, const char *fmt, ...)
 typedef struct {
 	const u8       *base;
 	u32             size;
+	struct modeldef *modeldef;
+	u16             source_filenum;
+	s32             static_gun_model;
 	pdmesh_textbuf_t *obj;
 	u32             next_index;
 	u32             triangle_count;
@@ -393,6 +397,201 @@ static void s_objBuildDefaultModelMatrices(pdmesh_obj_export_t *ctx,
 
 	if (node->child) s_objBuildDefaultModelMatrices(ctx, node->child);
 	if (node->next) s_objBuildDefaultModelMatrices(ctx, node->next);
+}
+
+static s32 s_objPartNumForNode(const pdmesh_obj_export_t *ctx,
+                               const struct modelnode *node)
+{
+	if (!ctx || !ctx->modeldef || !node || ctx->modeldef->numparts <= 0) {
+		return -1;
+	}
+
+	size_t parts_bytes = (size_t)ctx->modeldef->numparts *
+		sizeof(*ctx->modeldef->parts);
+	if (!s_ptrInModel(ctx, ctx->modeldef->parts, parts_bytes)) {
+		return -1;
+	}
+
+	s16 *partnums = (s16 *)&ctx->modeldef->parts[ctx->modeldef->numparts];
+	size_t partnums_bytes = (size_t)ctx->modeldef->numparts *
+		sizeof(*partnums);
+	if (!s_ptrInModel(ctx, partnums, partnums_bytes)) {
+		return -1;
+	}
+
+	for (s32 i = 0; i < ctx->modeldef->numparts; i++) {
+		if (ctx->modeldef->parts[i] == node) {
+			return partnums[i];
+		}
+	}
+
+	return -1;
+}
+
+static s32 s_objHiddenStaticGunTogglePart(s32 partnum)
+{
+	return partnum == MODELPART_0042 ||
+	       partnum == MODELPART_FALCON2_002E ||
+	       partnum == MODELPART_FALCON2_002F ||
+	       partnum == MODELPART_GUN_MUZZLEFLASH1 ||
+	       partnum == MODELPART_GUN_MUZZLEFLASH2 ||
+	       partnum == MODELPART_GUN_MUZZLEFLASH3;
+}
+
+static s32 s_objMayCullDetachedGunEffects(const pdmesh_obj_export_t *ctx)
+{
+	return ctx && ctx->static_gun_model &&
+	       (ctx->source_filenum == FILE_GFALCON2 ||
+	        ctx->source_filenum == FILE_GFALCON2LOD);
+}
+
+static s32 s_objNodeUnderHiddenGunToggle(const pdmesh_obj_export_t *ctx,
+                                         const struct modelnode *node)
+{
+	const struct modelnode *cur = node;
+
+	if (!ctx || !ctx->static_gun_model) {
+		return 0;
+	}
+
+	while (cur && s_ptrInModel(ctx, cur, sizeof(*cur))) {
+		u32 type = cur->type & 0xff;
+		s32 partnum = s_objPartNumForNode(ctx, cur);
+
+		if (partnum == MODELPART_GUN_LASERLIQUID) {
+			return 1;
+		}
+
+		if (type == MODELNODETYPE_TOGGLE) {
+			if (s_objHiddenStaticGunTogglePart(partnum)) {
+				return 1;
+			}
+		}
+
+		cur = cur->parent;
+	}
+
+	return 0;
+}
+
+static s32 s_objNodeIsOrDescendsFrom(const pdmesh_obj_export_t *ctx,
+                                     const struct modelnode *node,
+                                     const struct modelnode *target)
+{
+	const struct modelnode *cur = node;
+
+	if (!ctx || !node || !target) {
+		return 0;
+	}
+
+	while (cur && s_ptrInModel(ctx, cur, sizeof(*cur))) {
+		if (cur == target) {
+			return 1;
+		}
+		cur = cur->parent;
+	}
+
+	return 0;
+}
+
+static s32 s_objHiddenGunToggleTargetsNode(
+	const pdmesh_obj_export_t *ctx,
+	const struct modelnode *scan,
+	const struct modelnode *node,
+	s32 depth)
+{
+	if (!ctx || !ctx->static_gun_model || !scan || !node || depth > 2048) {
+		return 0;
+	}
+	if (!s_ptrInModel(ctx, scan, sizeof(*scan))) {
+		return 0;
+	}
+
+	u32 type = scan->type & 0xff;
+	if (type == MODELNODETYPE_TOGGLE && scan->rodata &&
+	    s_ptrInModel(ctx, scan->rodata, sizeof(struct modelrodata_toggle)) &&
+	    s_objHiddenStaticGunTogglePart(s_objPartNumForNode(ctx, scan))) {
+		struct modelnode *target = scan->rodata->toggle.target;
+		if (s_ptrInModel(ctx, target, sizeof(*target)) &&
+		    s_objNodeIsOrDescendsFrom(ctx, node, target)) {
+			return 1;
+		}
+	}
+
+	if (scan->child &&
+	    s_objHiddenGunToggleTargetsNode(ctx, scan->child, node, depth + 1)) {
+		return 1;
+	}
+	if (scan->next &&
+	    s_objHiddenGunToggleTargetsNode(ctx, scan->next, node, depth + 1)) {
+		return 1;
+	}
+
+	return 0;
+}
+
+static s32 s_objStaticGunVertsLookDetachedEffect(
+	const pdmesh_obj_export_t *ctx,
+	const Vtx *vertices,
+	s32 numvertices)
+{
+	if (!s_objMayCullDetachedGunEffects(ctx) || !vertices ||
+	    numvertices <= 0) {
+		return 0;
+	}
+	if (!s_ptrInModel(ctx, vertices, (size_t)numvertices * sizeof(*vertices))) {
+		return 0;
+	}
+
+	s32 minx = vertices[0].x;
+	s32 maxx = vertices[0].x;
+	s32 miny = vertices[0].y;
+	s32 maxy = vertices[0].y;
+
+	for (s32 i = 1; i < numvertices; i++) {
+		if (vertices[i].x < minx) minx = vertices[i].x;
+		if (vertices[i].x > maxx) maxx = vertices[i].x;
+		if (vertices[i].y < miny) miny = vertices[i].y;
+		if (vertices[i].y > maxy) maxy = vertices[i].y;
+	}
+
+	return minx > 200 || maxx < -200 || miny > 250 || maxy < -250;
+}
+
+static s32 s_objTextLooksDetachedGunEffect(const pdmesh_textbuf_t *buf)
+{
+	if (!buf || !buf->data || buf->len == 0) {
+		return 0;
+	}
+
+	s32 saw_vert = 0;
+	f32 minx = 0.0f, maxx = 0.0f, miny = 0.0f, maxy = 0.0f;
+	const char *line = buf->data;
+
+	while (line && *line) {
+		if (line[0] == 'v' && line[1] == ' ') {
+			f32 x, y, z;
+			if (sscanf(line, "v %f %f %f", &x, &y, &z) == 3) {
+				if (!saw_vert) {
+					minx = maxx = x;
+					miny = maxy = y;
+					saw_vert = 1;
+				} else {
+					if (x < minx) minx = x;
+					if (x > maxx) maxx = x;
+					if (y < miny) miny = y;
+					if (y > maxy) maxy = y;
+				}
+			}
+		}
+
+		line = strchr(line, '\n');
+		if (line) line++;
+	}
+
+	return saw_vert &&
+	       (minx > 200.0f || maxx < -200.0f ||
+	        miny > 250.0f || maxy < -250.0f);
 }
 
 static s32 s_objDecodeFixedMtx(const s32 *addr, f32 out[4][4])
@@ -648,9 +847,62 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 	return 0;
 }
 
+static s32 s_exportGunDlToObj(pdmesh_obj_export_t *ctx,
+                              struct modelnode *node,
+                              struct modelrodata_gundl *gundl)
+{
+	if (!ctx || !node || !gundl) {
+		return 0;
+	}
+
+	if (s_objStaticGunVertsLookDetachedEffect(ctx, gundl->vertices,
+			gundl->numvertices)) {
+		return 0;
+	}
+
+	pdmesh_textbuf_t trial_buf = {0};
+	pdmesh_obj_export_t trial = *ctx;
+	trial.obj = &trial_buf;
+
+	if (s_exportGdlToObj(&trial, gundl->opagdl, gundl->vertices,
+			gundl->numvertices, 0) != 0 ||
+	    s_exportGdlToObj(&trial, gundl->xlugdl, gundl->vertices,
+			gundl->numvertices, 0) != 0) {
+		s_textbufFree(&trial_buf);
+		return -1;
+	}
+
+	if (s_objMayCullDetachedGunEffects(ctx) &&
+	    s_objTextLooksDetachedGunEffect(&trial_buf)) {
+		s_textbufFree(&trial_buf);
+		return 0;
+	}
+
+	if (trial_buf.len > 0) {
+		pdmesh_textbuf_t *real_obj = ctx->obj;
+		if (s_textbufAppendf(real_obj, "g node_%p_gundl\n",
+				(void *)node) != 0 ||
+		    s_textbufAppend(real_obj, trial_buf.data) != 0) {
+			s_textbufFree(&trial_buf);
+			return -1;
+		}
+		*ctx = trial;
+		ctx->obj = real_obj;
+	}
+
+	s_textbufFree(&trial_buf);
+	return 0;
+}
+
 static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node)
 {
 	if (!node || !s_ptrInModel(ctx, node, sizeof(*node))) return 0;
+	if (s_objNodeUnderHiddenGunToggle(ctx, node) ||
+	    s_objHiddenGunToggleTargetsNode(ctx, ctx->modeldef ?
+			ctx->modeldef->rootnode : NULL, node, 0)) {
+		if (node->next && s_exportNodeObj(ctx, node->next) != 0) return -1;
+		return 0;
+	}
 
 	u32 type = node->type & 0xff;
 	if (type == MODELNODETYPE_DL && node->rodata &&
@@ -662,9 +914,7 @@ static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node)
 	} else if (type == MODELNODETYPE_GUNDL && node->rodata &&
 	           s_ptrInModel(ctx, node->rodata, sizeof(struct modelrodata_gundl))) {
 		struct modelrodata_gundl *gundl = &node->rodata->gundl;
-		(void)s_textbufAppendf(ctx->obj, "g node_%p_gundl\n", (void *)node);
-		if (s_exportGdlToObj(ctx, gundl->opagdl, gundl->vertices, gundl->numvertices, 0) != 0) return -1;
-		if (s_exportGdlToObj(ctx, gundl->xlugdl, gundl->vertices, gundl->numvertices, 0) != 0) return -1;
+		if (s_exportGunDlToObj(ctx, node, gundl) != 0) return -1;
 	} else if (type == MODELNODETYPE_STARGUNFIRE && node->rodata &&
 	           s_ptrInModel(ctx, node->rodata, sizeof(struct modelrodata_stargunfire))) {
 		struct modelrodata_stargunfire *star = &node->rodata->stargunfire;
@@ -715,6 +965,7 @@ static s32 s_modeldefOffsetsLookPromotable(const struct modeldef *modeldef,
 }
 
 static s32 s_buildModelObj(const u8 *src, u32 src_size,
+                           u32 loadtype, u16 source_filenum,
                            pdmesh_textbuf_t *obj,
                            pdmesh_obj_stats_t *out_stats)
 {
@@ -749,6 +1000,9 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.base = copy;
 	ctx.size = src_size;
+	ctx.modeldef = modeldef;
+	ctx.source_filenum = source_filenum;
+	ctx.static_gun_model = loadtype == LOADTYPE_GUN;
 	ctx.obj = obj;
 	ctx.next_index = 1;
 	ctx.mtx_stack_size = 1;
@@ -988,8 +1242,8 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	memset(&obj_buf, 0, sizeof(obj_buf));
 	pdmesh_obj_stats_t stats;
 	memset(&stats, 0, sizeof(stats));
-	if (s_buildModelObj((const u8 *)model_bytes, model_size, &obj_buf,
-	                    &stats) != 0 ||
+	if (s_buildModelObj((const u8 *)model_bytes, model_size, loadtype,
+	                    filenum, &obj_buf, &stats) != 0 ||
 	    stats.triangle_count == 0) {
 		sysMemFree(model_bytes);
 		s_textbufFree(&obj_buf);
