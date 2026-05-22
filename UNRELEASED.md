@@ -28,12 +28,13 @@
 - Dev Window build, release, and push sync commits now describe the staged files and include live state paths in the commit body.
 - The release script mirrors Codex memory before release commits and warns if the notes file looks stale.
 - Memory Review now parses live memory task groups and stores review markup separately from the source memory file.
+- Active Kanban now uses a numbered two-pane priority layout with manual reorder, docked card actions, and saved AI special notes.
 - Weapon behavior graphs now feed more runtime weapon actions, including recoil/recovery, throw/special handling, projectile spawn values, auto-aim, and sight behavior behind the debug graph-runtime toggle.
 - Catalog-generated base asset IDs and typed archive references now use readable names instead of legacy numeric handles.
 - Replaced the old Settings Controls surface with a single actionmap-backed Input binding table.
 - Main Menu now presents Play instead of Solo Play and removes the old Online Play direct-connect entry; online friend play now routes through Social invites/joins.
 - Social friend invites are available even when a friend row is showing a stale Offline state.
-- The Modding Hub weapon template editor now opens as a separate menu instead of appearing as another preview tab.
+- The Modding Hub weapon template flow now opens a separate tabbed weapon-creation window with auto-populated template refs, primary/secondary graph tabs, and a mesh picker with live preview.
 - Cutscene skipping now uses a held button with a contextual radial progress prompt instead of an accidental tap.
 - Startup asset extraction now reuses validated per-family cache stamps and shows a centered progress modal with smoother time-weighted progress.
 

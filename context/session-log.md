@@ -1,5 +1,78 @@
 # Session Log (Active)
 
+## Session (`kanban-layout`) - 2026-05-22 - Kanban two-pane priority layout
+
+Mike requested a different Kanban layout: card titles and priority order on the left, selected card contents on the right, fixed scroll areas for description/subtasks, bottom-docked card actions, numbered/reorderable cards, and a docked special-notes modal for AI sessions.
+
+### Implemented
+
+- Replaced the Active Kanban card grid with a two-pane layout: numbered left-side card list, pillar color tab, priority badge, flag status, and selected-card detail pane.
+- Added right-pane editing for title, pillar, status, priority badge, description, card notes, and subtasks. Description and subtasks use fixed-height scroll boxes; Delete, Cancel, and Save are docked at the bottom.
+- Made manual drag order in the left list the default prioritization surface by updating `cards[].order`; the auto-sort toggle now explicitly groups by flags/priority before manual order only when enabled.
+- Added a docked `AI Notes` button and modal. Notes persist under root `x_special_notes` in `tools/kanban/state.json` for future sessions to read when directed or when noticed.
+- Bumped Kanban state semantic version to `0.4.0`, added same-session tracking card `c3833`, and updated the Kanban README, task handoff, and release notes.
+
+### Verification
+
+- `index.html` script parse check passed with Node.
+- `tools/kanban/state.json` parsed successfully, has unique card IDs, `semantic_version=0.4.0`, `x_special_notes`, and tracking card `c3833`.
+- `python -m py_compile tools/kanban/server.py` passed.
+- Local Kanban server served `/api/state` and `/` with HTTP 200 inside a kept-alive check.
+- Headless Chrome loaded the page, and the verification screenshot visually confirmed the two-pane layout, numbered card list, fixed description/subtask panes, docked actions, and `AI Notes` button.
+
+### Next
+
+- Mike can reorder cards in the left list to set the next priority chain directly. Future sessions should treat that manual order as the first planning signal unless auto-sort is enabled.
+
+---
+
+## Session (`wtempltabs`) - 2026-05-22 - weapon creator tabs and template hydration
+
+Mike clarified the weapon creator window should auto-populate the other template-derived controls and expose separate Primary Graph / Secondary Graph tabs populated from the selected weapon's loaded behavior graph.
+
+### Implemented
+
+- Added `Details`, `Assets`, `Primary Graph`, `Secondary Graph`, and `Payloads` tabs to the separate `Create Weapon Mod` window.
+- Auto-populated available template refs from `weapon.ini`, nested typed-archive descriptors, template manifests, and graph params: held mesh, animation, audio, projectile, and entity refs now fill when the source archive exposes catalog IDs.
+- Added scope filtering to the ImGui node-editor wrapper so the Primary Graph tab shows primary plus shared nodes, and the Secondary Graph tab shows secondary plus shared nodes, while both still round-trip through the same loaded `behavior.graph.json`.
+- Extended static UI coverage for creator tabs, template ref hydration helpers, graph scope filtering, and the old no-Template-tab guard.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wtempltabs -Selector "[weapon_graph][ui][editor][c3814]" -BuildTimeoutSeconds 240` passed: 130 assertions / 3 cases.
+- `.\devtools\run-pd-tests.ps1 -Session wtempltabs -Selector "[weapon_graph][compiler][c3814],[weapon_graph][ui][c3814]" -BuildTimeoutSeconds 240` passed: 185 assertions / 8 cases.
+- `.\devtools\build-session.ps1 -Session wtempltabs -Target all -BuildTimeoutSeconds 300` passed for client/updater.
+- Removed isolated session build `wtempltabs`.
+
+### Next
+
+- Manual in-game pass: choose a base weapon, click `Use as Template`, confirm the creator opens with template fields populated, and inspect both graph tabs for the selected weapon's primary/secondary behavior.
+
+---
+
+## Session (`wtemplwin`) - 2026-05-22 - weapon creator window and mesh picker
+
+Mike corrected the previous Template UX pass: the editor was still inside the Weapons tab content. `Use as Template` needs to open a separate weapon mod creation window, and mesh selection needs a catalog mesh popup with preview.
+
+### Implemented
+
+- Promoted weapon mod creation to a floating `Create Weapon Mod` window opened by `Use as Template`; the chosen weapon template still initializes the form, graph, nested payloads, and save target.
+- Widened the `Use as Template` button and replaced `Open Template Editor` with `Open Creator`.
+- Replaced the model combo with a `Select Weapon Mesh` popup: weapon-scoped catalog meshes are listed by default, `Show non-weapon meshes` expands the list, and the right side renders a centered/scaled 3D preview using the existing model preview pipeline.
+- Kept the archive preview tabs as previews only and guarded against reintroducing `BeginTabItem("Template")`.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wtemplwin -Selector "[weapon_graph][ui][editor][c3814]" -BuildTimeoutSeconds 240` passed: 107 assertions / 3 cases.
+- `.\devtools\build-session.ps1 -Session wtemplwin -Target all -BuildTimeoutSeconds 300` passed for client/updater.
+- Removed isolated session build `wtemplwin`.
+
+### Next
+
+- Return to the active `.pdweapon` clean-format priority.
+
+---
+
 ## Session (`wtemplmenu`) - 2026-05-22 - weapon template editor separate menu
 
 Mike corrected the Modding Hub Weapons UX: Template should not be another preview tab.

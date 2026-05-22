@@ -188,6 +188,42 @@ static const char *nodeLabel(const PdWeaponGraphEditModel *model, int index)
 		: model->nodes[index].kind;
 }
 
+static int scopeIndexForName(const PdWeaponGraphEditorDesc *desc, const char *scope)
+{
+	if (!desc || !scope || !scope[0]) return -1;
+	for (int i = 0; i < desc->scope_count; i++) {
+		if (desc->scopes && desc->scopes[i] && strcmp(desc->scopes[i], scope) == 0) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+static const char *currentAddScopeName(const PdWeaponGraphEditorDesc *desc,
+		const PdWeaponGraphEditModel *model)
+{
+	if (desc && desc->scope_filter && desc->scope_filter[0]) {
+		return desc->scope_filter;
+	}
+	if (desc && model && model->scope_pick >= 0 &&
+			model->scope_pick < desc->scope_count &&
+			desc->scopes && desc->scopes[model->scope_pick]) {
+		return desc->scopes[model->scope_pick];
+	}
+	return "primary";
+}
+
+static bool nodeVisibleForScope(const PdWeaponGraphEditorDesc *desc,
+		const PdWeaponGraphEditModel *model,
+		int index)
+{
+	if (!desc || !model || index < 0 || index >= model->node_count) return false;
+	if (!desc->scope_filter || !desc->scope_filter[0]) return true;
+	const char *scope = model->nodes[index].subgraph[0]
+		? model->nodes[index].subgraph : "primary";
+	return strcmp(scope, desc->scope_filter) == 0 || strcmp(scope, "shared") == 0;
+}
+
 static bool paramsHasContext(const char *params, const char *name)
 {
 	if (!params || !name || !name[0]) return false;
@@ -299,10 +335,15 @@ static void renderPalette(const PdWeaponGraphEditorDesc *desc,
 	}
 	ImGui::Separator();
 	ImGui::SetNextItemWidth(-1.0f);
-	const char *scopePreview =
-		(model->scope_pick >= 0 && model->scope_pick < desc->scope_count)
-			? desc->scopes[model->scope_pick] : "primary";
-	if (ImGui::BeginCombo("Mode", scopePreview)) {
+	const char *scopePreview = currentAddScopeName(desc, model);
+	int scopeIndex = scopeIndexForName(desc, scopePreview);
+	if (desc->scope_filter && desc->scope_filter[0]) {
+		if (scopeIndex >= 0) model->scope_pick = scopeIndex;
+		ImGui::Text("Mode: %s", scopePreview);
+		if (ImGui::IsItemHovered()) {
+			ImGui::SetTooltip("This tab adds nodes to the %s graph.", scopePreview);
+		}
+	} else if (ImGui::BeginCombo("Mode", scopePreview)) {
 		for (int i = 0; i < desc->scope_count; i++) {
 			bool selected = model->scope_pick == i;
 			if (ImGui::Selectable(desc->scopes[i], selected)) {
@@ -315,7 +356,7 @@ static void renderPalette(const PdWeaponGraphEditorDesc *desc,
 		result->module_index = model->module_pick;
 		snprintf(result->scope, sizeof(result->scope), "%s", scopePreview);
 		outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_ADD_MODULE,
-			model->module_pick, model->scope_pick);
+			model->module_pick, scopeIndex);
 		editorSetStatus(result, true, "Add node requested");
 	}
 	ImGui::EndChild();
@@ -355,7 +396,8 @@ static void renderInspector(const PdWeaponGraphEditorDesc *desc,
 	renderSharedContext(desc, result);
 	ImGui::Separator();
 	int selected = model->selected_node;
-	if (selected < 0 || selected >= model->node_count) {
+	if (selected < 0 || selected >= model->node_count ||
+			!nodeVisibleForScope(desc, model, selected)) {
 		ImGui::TextDisabled("Select a node to edit params.");
 		ImGui::EndChild();
 		return;
@@ -498,12 +540,11 @@ static void renderCanvasContextMenus(const PdWeaponGraphEditorDesc *desc,
 			}
 			if (ImGui::MenuItem(module.label)) {
 				result->module_index = i;
-				if (model->scope_pick >= 0 && model->scope_pick < desc->scope_count) {
-					snprintf(result->scope, sizeof(result->scope),
-						"%s", desc->scopes[model->scope_pick]);
-				}
+				const char *scopeName = currentAddScopeName(desc, model);
+				int scopeIndex = scopeIndexForName(desc, scopeName);
+				snprintf(result->scope, sizeof(result->scope), "%s", scopeName);
 				outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_ADD_MODULE,
-					i, model->scope_pick);
+					i, scopeIndex);
 				editorSetStatus(result, true, "Add node requested");
 			}
 		}
@@ -525,12 +566,17 @@ static void renderCanvas(const PdWeaponGraphEditorDesc *desc,
 	ed::PushStyleColor(ed::StyleColor_Grid, ImVec4(0.32f, 0.46f, 0.48f, 0.18f));
 	ed::Begin("Weapon Behavior Graph Canvas", ImVec2(0, 0));
 	for (int i = 0; i < model->node_count; i++) {
+		if (!nodeVisibleForScope(desc, model, i)) continue;
 		renderNode(model, i);
 	}
 	for (int i = 0; i < model->edge_count; i++) {
 		const PdWeaponGraphEdgeEdit &edge = model->edges[i];
 		if (edge.from < 0 || edge.from >= model->node_count ||
 				edge.to < 0 || edge.to >= model->node_count) {
+			continue;
+		}
+		if (!nodeVisibleForScope(desc, model, edge.from) ||
+				!nodeVisibleForScope(desc, model, edge.to)) {
 			continue;
 		}
 		ed::Link(linkEditorId(edge),
@@ -562,6 +608,10 @@ static void renderCanvas(const PdWeaponGraphEditorDesc *desc,
 			if (fromNode < 0 || toNode < 0 || startKind != 2 || endKind != 1) {
 				ed::RejectNewItem(ImVec4(1.0f, 0.28f, 0.22f, 1.0f), 2.0f);
 				editorSetStatus(result, false, "Links must connect exec output to exec input");
+			} else if (!nodeVisibleForScope(desc, model, fromNode) ||
+					!nodeVisibleForScope(desc, model, toNode)) {
+				ed::RejectNewItem(ImVec4(1.0f, 0.28f, 0.22f, 1.0f), 2.0f);
+				editorSetStatus(result, false, "Links must stay inside the visible graph tab");
 			} else if (fromNode == toNode) {
 				ed::RejectNewItem(ImVec4(1.0f, 0.28f, 0.22f, 1.0f), 2.0f);
 				editorSetStatus(result, false, "A node cannot link to itself");
@@ -615,6 +665,9 @@ static void renderCanvas(const PdWeaponGraphEditorDesc *desc,
 	ed::NodeId selectedNodes[1];
 	if (ed::GetSelectedNodes(selectedNodes, 1) > 0) {
 		model->selected_node = findNodeByEditorId(model, (int)selectedNodes[0].Get());
+		if (!nodeVisibleForScope(desc, model, model->selected_node)) {
+			model->selected_node = -1;
+		}
 	}
 	ed::LinkId selectedLinks[1];
 	if (ed::GetSelectedLinks(selectedLinks, 1) > 0) {
@@ -645,6 +698,7 @@ static void renderCanvas(const PdWeaponGraphEditorDesc *desc,
 		}
 	}
 	for (int i = 0; i < model->node_count; i++) {
+		if (!nodeVisibleForScope(desc, model, i)) continue;
 		ImVec2 pos = ed::GetNodePosition(nodeEditorId(model->nodes[i]));
 		if (!model->nodes[i].pos_valid ||
 				model->nodes[i].pos_x != pos.x ||
@@ -847,6 +901,9 @@ bool pdguiWeaponGraphNodeEditorRender(const PdWeaponGraphEditorDesc *desc,
 	float inspectorW = 254.0f * scale;
 	float canvasW = avail - paletteW - inspectorW - 16.0f * scale;
 	if (canvasW < 260.0f * scale) canvasW = 260.0f * scale;
+	if (desc->scope_label && desc->scope_label[0]) {
+		ImGui::TextDisabled("Editing %s", desc->scope_label);
+	}
 	float rowH = ImGui::GetContentRegionAvail().y - 30.0f * scale;
 	if (rowH < 280.0f * scale) rowH = 280.0f * scale;
 
@@ -858,7 +915,7 @@ bool pdguiWeaponGraphNodeEditorRender(const PdWeaponGraphEditorDesc *desc,
 
 	ImGui::Separator();
 	ImGui::TextDisabled(
-		"Canvas: drag nodes, drag exec pins to link, right-click canvas/node/link/pin, Alt-click pin to break, Delete removes selection, F frames all.");
+		"Canvas: drag nodes, drag exec pins to link, right-click canvas/node/link/pin, Alt-click pin to break, Delete removes selection, F frames visible nodes.");
 	if (desc->model->selected_node >= 0) {
 		ImGui::SameLine();
 		ImGui::TextDisabled("Selected: %s", nodeLabel(desc->model, desc->model->selected_node));

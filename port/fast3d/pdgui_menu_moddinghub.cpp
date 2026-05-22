@@ -37,6 +37,7 @@
 #include "pdgui_nineslice.h"
 #include "pdgui_filebrowser.h"
 #include "pdgui_font_mod.h"
+#include "pdgui_model_preview.h"
 #include "pdgui_weapon_graph_node_editor.h"
 #include "system.h"
 #include "assetcatalog.h"
@@ -299,6 +300,8 @@ enum WeaponImportTarget {
 
 static bool s_WeaponEditActive = false;
 static bool s_WeaponTemplateMenuOpen = false;
+static bool s_WeaponMeshPickerOpen = false;
+static bool s_WeaponMeshPickerShowNonWeapon = false;
 static s32  s_WeaponEditWeaponId = -1;
 static bool s_WeaponEditDualWieldable = false;
 static char s_WeaponEditTemplateId[CATALOG_ID_LEN] = "";
@@ -319,6 +322,7 @@ static char s_WeaponImportAudioPath[FS_MAXPATH] = "";
 static char s_WeaponImportProjectilePath[FS_MAXPATH] = "";
 static char s_WeaponImportEntityPath[FS_MAXPATH] = "";
 static char s_WeaponImportGraphPath[FS_MAXPATH] = "";
+static char s_WeaponMeshPickerSelected[CATALOG_ID_LEN] = "";
 static char s_WeaponEditGraph[HUB_WEAPON_TEXT_PREVIEW_LEN] = "";
 static char s_WeaponEditNested[4096] = "";
 static WeaponImportTarget s_WeaponImportTarget = WEAPON_IMPORT_NONE;
@@ -1764,6 +1768,326 @@ static void weaponToolLoadSelected(void)
     s_WeaponStatusOk = true;
 }
 
+static bool weaponCharIsSpace(char c)
+{
+    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+
+static void weaponCopyTrimmedRange(char *out, size_t outSize,
+                                   const char *start, const char *end)
+{
+    if (!out || outSize == 0) return;
+    out[0] = '\0';
+    if (!start || !end || end < start) return;
+    while (start < end && weaponCharIsSpace(*start)) start++;
+    while (end > start && weaponCharIsSpace(*(end - 1))) end--;
+    if (end > start + 1 && *start == '"' && *(end - 1) == '"') {
+        start++;
+        end--;
+    }
+    size_t len = (size_t)(end - start);
+    if (len >= outSize) len = outSize - 1;
+    memcpy(out, start, len);
+    out[len] = '\0';
+}
+
+static bool weaponIniGetValue(const char *ini, const char *key,
+                              char *out, size_t outSize)
+{
+    if (out && outSize) out[0] = '\0';
+    if (!ini || !key || !key[0] || !out || outSize == 0) return false;
+    const size_t keyLen = strlen(key);
+    const char *line = ini;
+    while (*line) {
+        const char *lineEnd = line;
+        while (*lineEnd && *lineEnd != '\n') lineEnd++;
+        const char *trim = line;
+        while (trim < lineEnd && weaponCharIsSpace(*trim)) trim++;
+        if (trim < lineEnd && *trim != '#' && *trim != ';' && *trim != '[') {
+            const char *eq = trim;
+            while (eq < lineEnd && *eq != '=') eq++;
+            if (eq < lineEnd) {
+                const char *keyEnd = eq;
+                while (keyEnd > trim && weaponCharIsSpace(*(keyEnd - 1))) keyEnd--;
+                if ((size_t)(keyEnd - trim) == keyLen &&
+                        strncmp(trim, key, keyLen) == 0) {
+                    weaponCopyTrimmedRange(out, outSize, eq + 1, lineEnd);
+                    return out[0] != '\0';
+                }
+            }
+        }
+        line = *lineEnd ? lineEnd + 1 : lineEnd;
+    }
+    return false;
+}
+
+static bool weaponCopyCatalogRef(char *dst, size_t dstSize, const char *src)
+{
+    if (!dst || dstSize == 0 || !src || !src[0]) return false;
+    if (!strchr(src, ':')) return false;
+    strncpy(dst, src, dstSize - 1);
+    dst[dstSize - 1] = '\0';
+    return true;
+}
+
+static bool weaponJsonFindFirstStringField(const char *json, const char *key,
+                                           char *out, size_t outSize)
+{
+    if (out && outSize) out[0] = '\0';
+    if (!json || !key || !key[0] || !out || outSize == 0) return false;
+    char needle[96];
+    snprintf(needle, sizeof(needle), "\"%s\"", key);
+    const size_t needleLen = strlen(needle);
+    for (const char *p = strstr(json, needle); p; p = strstr(p + 1, needle)) {
+        const char *q = p + needleLen;
+        while (*q && weaponCharIsSpace(*q)) q++;
+        if (*q != ':') continue;
+        q++;
+        while (*q && weaponCharIsSpace(*q)) q++;
+        if (*q != '"') continue;
+        q++;
+        char *w = out;
+        size_t left = outSize - 1;
+        bool escaped = false;
+        while (*q && left > 0) {
+            if (!escaped && *q == '"') break;
+            if (!escaped && *q == '\\') {
+                escaped = true;
+                q++;
+                continue;
+            }
+            *w++ = *q++;
+            left--;
+            escaped = false;
+        }
+        *w = '\0';
+        if (out[0]) return true;
+    }
+    return false;
+}
+
+static bool weaponArchiveReadEntryText(const char *archivePath,
+                                       const char *entry,
+                                       char *out,
+                                       size_t outSize)
+{
+    if (out && outSize) out[0] = '\0';
+    if (!archivePath || !archivePath[0] || !entry || !entry[0] ||
+            !out || outSize == 0) {
+        return false;
+    }
+    char *text = NULL;
+    u32 size = 0;
+    if (weaponGraphArchiveReadTextFile(archivePath, entry, &text, &size) != 0 ||
+            !text) {
+        return false;
+    }
+    size_t copy = size;
+    if (copy >= outSize) copy = outSize - 1;
+    memcpy(out, text, copy);
+    out[copy] = '\0';
+    free(text);
+    return true;
+}
+
+static bool weaponTsvFirstField(const char *tsv, const char *field,
+                                char *out, size_t outSize)
+{
+    if (out && outSize) out[0] = '\0';
+    if (!tsv || !field || !field[0] || !out || outSize == 0) return false;
+    const char *headerEnd = tsv;
+    while (*headerEnd && *headerEnd != '\n') headerEnd++;
+    int targetCol = -1;
+    int col = 0;
+    const char *cell = tsv;
+    while (cell <= headerEnd) {
+        const char *cellEnd = cell;
+        while (cellEnd < headerEnd && *cellEnd != '\t') cellEnd++;
+        char name[64];
+        weaponCopyTrimmedRange(name, sizeof(name), cell, cellEnd);
+        if (strcmp(name, field) == 0) {
+            targetCol = col;
+            break;
+        }
+        if (cellEnd >= headerEnd) break;
+        cell = cellEnd + 1;
+        col++;
+    }
+    if (targetCol < 0) return false;
+
+    const char *line = *headerEnd ? headerEnd + 1 : headerEnd;
+    while (*line) {
+        const char *lineEnd = line;
+        while (*lineEnd && *lineEnd != '\n') lineEnd++;
+        const char *trim = line;
+        while (trim < lineEnd && weaponCharIsSpace(*trim)) trim++;
+        if (trim < lineEnd && *trim != '#') {
+            col = 0;
+            cell = line;
+            while (cell <= lineEnd) {
+                const char *cellEnd = cell;
+                while (cellEnd < lineEnd && *cellEnd != '\t') cellEnd++;
+                if (col == targetCol) {
+                    weaponCopyTrimmedRange(out, outSize, cell, cellEnd);
+                    return out[0] != '\0';
+                }
+                if (cellEnd >= lineEnd) break;
+                cell = cellEnd + 1;
+                col++;
+            }
+        }
+        line = *lineEnd ? lineEnd + 1 : lineEnd;
+    }
+    return false;
+}
+
+static bool weaponArchiveReadNestedCatalogId(const char *archivePath,
+                                             const char *nestedEntry,
+                                             char *out,
+                                             size_t outSize)
+{
+    if (out && outSize) out[0] = '\0';
+    if (!archivePath || !archivePath[0] || !nestedEntry || !nestedEntry[0] ||
+            !out || outSize == 0) {
+        return false;
+    }
+    mod_archive_t *arc = modArchiveOpen(archivePath);
+    if (!arc) return false;
+    s32 idx = modArchiveFindEntry(arc, nestedEntry);
+    if (idx < 0) {
+        modArchiveClose(arc);
+        return false;
+    }
+    u32 nestedSize = 0;
+    void *nestedBytes = modArchiveExtractAlloc(arc, idx, &nestedSize);
+    modArchiveClose(arc);
+    if (!nestedBytes || nestedSize == 0) {
+        if (nestedBytes) free(nestedBytes);
+        return false;
+    }
+
+    static const char *kDescriptorEntries[] = {
+        "model.ini", "animation.ini", "sound.ini", "voice.ini",
+        "music.ini", "projectile.ini", "entity.ini", "texture.ini",
+        "textures.ini"
+    };
+    bool found = false;
+    for (size_t i = 0; i < sizeof(kDescriptorEntries) / sizeof(kDescriptorEntries[0]); i++) {
+        u32 iniSize = 0;
+        void *iniBytes = modArchiveExtractMemAlloc(nestedBytes, nestedSize,
+            kDescriptorEntries[i], &iniSize);
+        if (!iniBytes) continue;
+        char *iniText = (char *)malloc((size_t)iniSize + 1);
+        if (iniText) {
+            memcpy(iniText, iniBytes, iniSize);
+            iniText[iniSize] = '\0';
+            char catalogId[CATALOG_ID_LEN];
+            if (weaponIniGetValue(iniText, "catalog_id",
+                    catalogId, sizeof(catalogId)) &&
+                    weaponCopyCatalogRef(out, outSize, catalogId)) {
+                found = true;
+            }
+            free(iniText);
+        }
+        free(iniBytes);
+        if (found) break;
+    }
+    free(nestedBytes);
+    return found;
+}
+
+static void weaponToolPopulateTemplateRefs(const asset_entry_t *e)
+{
+    char value[CATALOG_ID_LEN];
+    if (weaponIniGetValue(s_WeaponIniPreview, "model_ref",
+            value, sizeof(value)) ||
+            weaponIniGetValue(s_WeaponIniPreview, "model_file",
+            value, sizeof(value)) ||
+            weaponIniGetValue(s_WeaponIniPreview, "model",
+            value, sizeof(value))) {
+        weaponCopyCatalogRef(s_WeaponEditModelRef,
+            sizeof(s_WeaponEditModelRef), value);
+    }
+    if (!s_WeaponEditModelRef[0] && e && e->ext.weapon.model_file[0]) {
+        weaponCopyCatalogRef(s_WeaponEditModelRef,
+            sizeof(s_WeaponEditModelRef), e->ext.weapon.model_file);
+    }
+    if (!s_WeaponEditModelRef[0]) {
+        weaponArchiveReadNestedCatalogId(s_WeaponEditTemplateArchive,
+            "models/held_hi.pdmesh", s_WeaponEditModelRef,
+            sizeof(s_WeaponEditModelRef));
+    }
+
+    if (weaponIniGetValue(s_WeaponIniPreview, "texture_ref",
+            value, sizeof(value))) {
+        weaponCopyCatalogRef(s_WeaponEditTextureRef,
+            sizeof(s_WeaponEditTextureRef), value);
+    }
+
+    if (weaponIniGetValue(s_WeaponIniPreview, "animation_ref",
+            value, sizeof(value))) {
+        weaponCopyCatalogRef(s_WeaponEditAnimationRef,
+            sizeof(s_WeaponEditAnimationRef), value);
+    }
+    if (!s_WeaponEditAnimationRef[0]) {
+        char tsv[4096];
+        if (weaponArchiveReadEntryText(s_WeaponEditTemplateArchive,
+                "animations_manifest.tsv", tsv, sizeof(tsv)) &&
+                weaponTsvFirstField(tsv, "catalog_id", value, sizeof(value))) {
+            weaponCopyCatalogRef(s_WeaponEditAnimationRef,
+                sizeof(s_WeaponEditAnimationRef), value);
+        }
+    }
+
+    if (weaponIniGetValue(s_WeaponIniPreview, "audio_ref",
+            value, sizeof(value))) {
+        weaponCopyCatalogRef(s_WeaponEditAudioRef,
+            sizeof(s_WeaponEditAudioRef), value);
+    }
+    if (!s_WeaponEditAudioRef[0]) {
+        char tsv[4096];
+        char nestedEntry[FS_MAXPATH];
+        if (weaponArchiveReadEntryText(s_WeaponEditTemplateArchive,
+                "audio_manifest.tsv", tsv, sizeof(tsv)) &&
+                weaponTsvFirstField(tsv, "archive_entry",
+                nestedEntry, sizeof(nestedEntry))) {
+            weaponArchiveReadNestedCatalogId(s_WeaponEditTemplateArchive,
+                nestedEntry, s_WeaponEditAudioRef,
+                sizeof(s_WeaponEditAudioRef));
+        }
+    }
+
+    if (weaponIniGetValue(s_WeaponIniPreview, "projectile_ref",
+            value, sizeof(value))) {
+        weaponCopyCatalogRef(s_WeaponEditProjectileRef,
+            sizeof(s_WeaponEditProjectileRef), value);
+    }
+    if (!s_WeaponEditProjectileRef[0] &&
+            weaponJsonFindFirstStringField(s_WeaponEditGraph, "projectile_ref",
+            value, sizeof(value))) {
+        weaponCopyCatalogRef(s_WeaponEditProjectileRef,
+            sizeof(s_WeaponEditProjectileRef), value);
+    }
+
+    if (weaponIniGetValue(s_WeaponIniPreview, "entity_ref",
+            value, sizeof(value))) {
+        weaponCopyCatalogRef(s_WeaponEditEntityRef,
+            sizeof(s_WeaponEditEntityRef), value);
+    }
+    if (!s_WeaponEditEntityRef[0] &&
+            weaponJsonFindFirstStringField(s_WeaponEditGraph, "entity_ref",
+            value, sizeof(value))) {
+        weaponCopyCatalogRef(s_WeaponEditEntityRef,
+            sizeof(s_WeaponEditEntityRef), value);
+    }
+    if (!s_WeaponEditEntityRef[0] &&
+            weaponJsonFindFirstStringField(s_WeaponEditGraph, "payload_ref",
+            value, sizeof(value))) {
+        weaponCopyCatalogRef(s_WeaponEditEntityRef,
+            sizeof(s_WeaponEditEntityRef), value);
+    }
+}
+
 static void weaponToolStartTemplate(const asset_entry_t *e)
 {
     if (!e) {
@@ -1826,6 +2150,7 @@ static void weaponToolStartTemplate(const asset_entry_t *e)
     }
     weaponReplaceJsonStringField(s_WeaponEditGraph, sizeof(s_WeaponEditGraph),
                                  "asset_id", s_WeaponEditCatalogId);
+    weaponToolPopulateTemplateRefs(e);
     if (!weaponGraphBuilderLoadEditModelFromJson(true)) {
         weaponGraphBuilderSeedSingleShot();
     }
@@ -2432,6 +2757,206 @@ static void weaponRenderCatalogPicker(const char *label,
     }
 }
 
+static bool weaponMeshIdLooksWeaponScoped(const char *id)
+{
+    if (!id || !id[0]) return false;
+    const char *body = strchr(id, ':');
+    body = body ? body + 1 : id;
+    if (strstr(body, "weapon") != NULL) return true;
+    const size_t len = strlen(body);
+    return (len > 3 && strcmp(body + len - 3, "_hi") == 0)
+        || (len > 3 && strcmp(body + len - 3, "_lo") == 0);
+}
+
+static bool weaponMeshEntryIsWeaponMesh(const asset_entry_t *e)
+{
+    if (!e || e->type != ASSET_MODEL) return false;
+    if (weaponMeshIdLooksWeaponScoped(e->id)) return true;
+    if (strstr(e->dirpath, "\\Weapons\\") != NULL
+            || strstr(e->dirpath, "/Weapons/") != NULL
+            || strstr(e->dirpath, "\\weapons\\") != NULL
+            || strstr(e->dirpath, "/weapons/") != NULL) {
+        return true;
+    }
+    return false;
+}
+
+static const asset_entry_t *weaponFindFirstMeshForPicker(bool includeNonWeapon)
+{
+    const s32 poolSize = assetCatalogGetPoolSize();
+    for (s32 i = 0; i < poolSize; i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        if (!e || e->type != ASSET_MODEL) continue;
+        if (!includeNonWeapon && !weaponMeshEntryIsWeaponMesh(e)) continue;
+        return e;
+    }
+    return NULL;
+}
+
+static void weaponOpenMeshPicker(void)
+{
+    s_WeaponMeshPickerSelected[0] = '\0';
+    if (s_WeaponEditModelRef[0]) {
+        strncpy(s_WeaponMeshPickerSelected, s_WeaponEditModelRef,
+                sizeof(s_WeaponMeshPickerSelected) - 1);
+        s_WeaponMeshPickerSelected[sizeof(s_WeaponMeshPickerSelected) - 1] = '\0';
+    } else {
+        const asset_entry_t *first =
+            weaponFindFirstMeshForPicker(s_WeaponMeshPickerShowNonWeapon);
+        if (first) {
+            strncpy(s_WeaponMeshPickerSelected, first->id,
+                    sizeof(s_WeaponMeshPickerSelected) - 1);
+            s_WeaponMeshPickerSelected[sizeof(s_WeaponMeshPickerSelected) - 1] = '\0';
+        }
+    }
+    pdguiModelPreviewInvalidate();
+    s_WeaponMeshPickerOpen = true;
+}
+
+static void weaponRenderMeshSelector(float scale)
+{
+    ImGui::Text("Weapon Mesh");
+    const char *preview = s_WeaponEditModelRef[0] ? s_WeaponEditModelRef : "(none)";
+    ImGui::SetNextItemWidth(260.0f * scale);
+    ImGui::BeginDisabled();
+    ImGui::InputText("##weapon_mesh_ref", s_WeaponEditModelRef,
+                     sizeof(s_WeaponEditModelRef));
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (PdButton("Select Mesh", ImVec2(116.0f * scale, 0))) {
+        weaponOpenMeshPicker();
+    }
+    if (!s_WeaponEditModelRef[0]) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", preview);
+    }
+}
+
+static void weaponRenderMeshPreviewPanel(float panelW, float panelH, float scale)
+{
+    ImGui::BeginChild("##weapon_mesh_picker_preview", ImVec2(panelW, panelH), true,
+                      ImGuiWindowFlags_NoScrollbar);
+    ImGui::Text("Preview");
+    ImGui::Separator();
+
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    ImVec2 start = ImGui::GetCursorScreenPos();
+    float previewSide = avail.x < avail.y ? avail.x : avail.y;
+    previewSide -= 18.0f * scale;
+    if (previewSide < 120.0f * scale) previewSide = 120.0f * scale;
+    if (previewSide > 420.0f * scale) previewSide = 420.0f * scale;
+
+    float x = start.x + (avail.x - previewSide) * 0.5f;
+    float y = start.y + (avail.y - previewSide) * 0.5f;
+    if (y < start.y) y = start.y;
+
+    ModelPreviewOpts opts = pdguiModelPreviewDefaultOpts();
+    opts.showBodyName = 0;
+    opts.showHeadName = 0;
+    opts.idleRotation = 1;
+    opts.idleRotSpeed = 0.35f;
+    opts.cornerRadius = 4.0f * scale;
+
+    pdguiModelPreviewDrawEx(PDGUI_MP_WEAPON,
+                            s_WeaponMeshPickerSelected[0]
+                                ? s_WeaponMeshPickerSelected : NULL,
+                            NULL,
+                            x, y, previewSide, previewSide,
+                            &opts);
+
+    ImGui::Dummy(avail);
+    if (s_WeaponMeshPickerSelected[0]) {
+        ImGui::TextWrapped("%s", s_WeaponMeshPickerSelected);
+    } else {
+        ImGui::TextDisabled("No mesh selected.");
+    }
+    ImGui::EndChild();
+}
+
+static void weaponRenderMeshPickerPopup(float scale)
+{
+    if (s_WeaponMeshPickerOpen) {
+        ImGui::OpenPopup("Select Weapon Mesh");
+    }
+
+    const float viewportW = (float)viGetWidth();
+    const float viewportH = (float)viGetHeight();
+    float popupW = 900.0f * scale;
+    float popupH = 560.0f * scale;
+    if (popupW > viewportW - 80.0f * scale) popupW = viewportW - 80.0f * scale;
+    if (popupH > viewportH - 80.0f * scale) popupH = viewportH - 80.0f * scale;
+    if (popupW < 620.0f * scale) popupW = 620.0f * scale;
+    if (popupH < 420.0f * scale) popupH = 420.0f * scale;
+    ImGui::SetNextWindowSize(ImVec2(popupW, popupH), ImGuiCond_Appearing);
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoSavedSettings
+                           | ImGuiWindowFlags_NoCollapse;
+    if (ImGui::BeginPopupModal("Select Weapon Mesh",
+                               &s_WeaponMeshPickerOpen, flags)) {
+        ImGui::Checkbox("Show non-weapon meshes",
+                        &s_WeaponMeshPickerShowNonWeapon);
+        ImGui::Separator();
+
+        const float actionH = 36.0f * scale;
+        const float bodyH = ImGui::GetContentRegionAvail().y - actionH
+                          - ImGui::GetStyle().ItemSpacing.y;
+        const float listW = popupW * 0.44f;
+        const float previewW = ImGui::GetContentRegionAvail().x - listW
+                             - ImGui::GetStyle().ItemSpacing.x;
+
+        ImGui::BeginChild("##weapon_mesh_picker_list",
+                          ImVec2(listW, bodyH), true,
+                          ImGuiWindowFlags_AlwaysVerticalScrollbar);
+        if (ImGui::Selectable("(none)", !s_WeaponMeshPickerSelected[0])) {
+            s_WeaponMeshPickerSelected[0] = '\0';
+            pdguiModelPreviewInvalidate();
+        }
+
+        int visibleCount = 0;
+        const s32 poolSize = assetCatalogGetPoolSize();
+        for (s32 i = 0; i < poolSize; i++) {
+            const asset_entry_t *e = assetCatalogGetByIndex(i);
+            if (!e || e->type != ASSET_MODEL) continue;
+            const bool isWeaponMesh = weaponMeshEntryIsWeaponMesh(e);
+            if (!s_WeaponMeshPickerShowNonWeapon && !isWeaponMesh) continue;
+            visibleCount++;
+
+            char label[CATALOG_ID_LEN + 32];
+            snprintf(label, sizeof(label), "%s%s##weapon_mesh_%d",
+                     e->id, isWeaponMesh ? "" : "  (non-weapon)", (int)i);
+            bool selected = strcmp(s_WeaponMeshPickerSelected, e->id) == 0;
+            if (ImGui::Selectable(label, selected)) {
+                strncpy(s_WeaponMeshPickerSelected, e->id,
+                        sizeof(s_WeaponMeshPickerSelected) - 1);
+                s_WeaponMeshPickerSelected[sizeof(s_WeaponMeshPickerSelected) - 1] = '\0';
+                pdguiModelPreviewInvalidate();
+            }
+        }
+        if (visibleCount == 0) {
+            ImGui::TextDisabled("No catalog meshes match the current filter.");
+        }
+        ImGui::EndChild();
+
+        ImGui::SameLine();
+        weaponRenderMeshPreviewPanel(previewW, bodyH, scale);
+
+        if (PdButton("Use Mesh", ImVec2(112.0f * scale, 28.0f * scale))) {
+            strncpy(s_WeaponEditModelRef, s_WeaponMeshPickerSelected,
+                    sizeof(s_WeaponEditModelRef) - 1);
+            s_WeaponEditModelRef[sizeof(s_WeaponEditModelRef) - 1] = '\0';
+            s_WeaponMeshPickerOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (PdButton("Cancel", ImVec2(92.0f * scale, 28.0f * scale))) {
+            s_WeaponMeshPickerOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
 static void weaponRenderImportRow(const char *label,
                                   WeaponImportTarget target,
                                   const char *filters)
@@ -2493,9 +3018,13 @@ static bool weaponRenderGraphScopeCombo(const char *label, char *scope, size_t s
     return changed;
 }
 
-static void weaponRenderGraphBuilder(float scale)
+static void weaponRenderGraphBuilder(const char *scopeFilter,
+                                     const char *graphTitle,
+                                     float scale)
 {
-    ImGui::Text("Weapon Behavior Graph");
+    const char *title = graphTitle && graphTitle[0]
+        ? graphTitle : "Weapon Behavior Graph";
+    ImGui::Text("%s", title);
     ImGui::SameLine();
     ImGui::TextDisabled("%d modules, %d edges",
                         s_WeaponGraphNodeCount, s_WeaponGraphEdgeCount);
@@ -2543,6 +3072,8 @@ static void weaponRenderGraphBuilder(float scale)
     desc.context_count = weaponGraphContextCount();
     desc.scopes = s_WeaponGraphScopes;
     desc.scope_count = weaponGraphScopeCount();
+    desc.scope_filter = scopeFilter;
+    desc.scope_label = title;
     desc.scale = scale;
 
     ImGui::BeginChild("##weapon_graph_node_editor_region",
@@ -2585,10 +3116,10 @@ static void weaponRenderGraphBuilder(float scale)
 static void weaponRenderTemplateEditor(float scale)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow());
-    ImGui::Text("Weapon Template Editor");
+    ImGui::Text("Weapon Mod Creation");
     ImGui::PopStyleColor();
     ImGui::SameLine();
-    if (PdButton("Back to Weapon Browser", ImVec2(184.0f * scale, 28.0f * scale))) {
+    if (PdButton("Close Creator", ImVec2(132.0f * scale, 28.0f * scale))) {
         s_WeaponTemplateMenuOpen = false;
         return;
     }
@@ -2605,71 +3136,88 @@ static void weaponRenderTemplateEditor(float scale)
                 s_WeaponEditSlug[0] ? s_WeaponEditSlug : "(slug)");
     ImGui::Separator();
 
-    ImGui::SetNextItemWidth(300.0f * scale);
-    ImGui::InputText("Display Name", s_WeaponEditDisplayName,
-                     sizeof(s_WeaponEditDisplayName));
-    ImGui::SetNextItemWidth(220.0f * scale);
-    ImGui::InputText("Slug", s_WeaponEditSlug,
-                     sizeof(s_WeaponEditSlug));
-    char catalogPreview[CATALOG_ID_LEN];
-    char slugRaw[sizeof(s_WeaponEditSlug)];
-    char slugPreview[sizeof(s_WeaponEditSlug)];
-    snprintf(slugRaw, sizeof(slugRaw), "%s", s_WeaponEditSlug);
-    weaponToolSlugify(slugRaw, slugPreview, sizeof(slugPreview));
-    snprintf(catalogPreview, sizeof(catalogPreview), "user:%s",
-             slugPreview[0] ? slugPreview : "(invalid)");
-    ImGui::Text("Catalog ID: %s", catalogPreview);
-    ImGui::SetNextItemWidth(120.0f * scale);
-    ImGui::InputInt("Weapon ID", &s_WeaponEditWeaponId);
-    ImGui::Checkbox("Dual wieldable", &s_WeaponEditDualWieldable);
+    if (ImGui::BeginTabBar("##weapon_creator_tabs")) {
+        if (ImGui::BeginTabItem("Details")) {
+            ImGui::SetNextItemWidth(300.0f * scale);
+            ImGui::InputText("Display Name", s_WeaponEditDisplayName,
+                             sizeof(s_WeaponEditDisplayName));
+            ImGui::SetNextItemWidth(220.0f * scale);
+            ImGui::InputText("Slug", s_WeaponEditSlug,
+                             sizeof(s_WeaponEditSlug));
+            char catalogPreview[CATALOG_ID_LEN];
+            char slugRaw[sizeof(s_WeaponEditSlug)];
+            char slugPreview[sizeof(s_WeaponEditSlug)];
+            snprintf(slugRaw, sizeof(slugRaw), "%s", s_WeaponEditSlug);
+            weaponToolSlugify(slugRaw, slugPreview, sizeof(slugPreview));
+            snprintf(catalogPreview, sizeof(catalogPreview), "user:%s",
+                     slugPreview[0] ? slugPreview : "(invalid)");
+            ImGui::Text("Catalog ID: %s", catalogPreview);
+            ImGui::SetNextItemWidth(120.0f * scale);
+            ImGui::InputInt("Weapon ID", &s_WeaponEditWeaponId);
+            ImGui::Checkbox("Dual wieldable", &s_WeaponEditDualWieldable);
+            ImGui::EndTabItem();
+        }
 
-    ImGui::Separator();
-    ImGui::Columns(2, "##weapon_editor_cols", false);
-    weaponRenderCatalogPicker("Model Catalog", ASSET_MODEL,
-                              s_WeaponEditModelRef,
-                              sizeof(s_WeaponEditModelRef));
-    weaponRenderCatalogPicker("Texture Catalog", ASSET_TEXTURE,
-                              s_WeaponEditTextureRef,
-                              sizeof(s_WeaponEditTextureRef));
-    weaponRenderCatalogPicker("Animation Catalog", ASSET_ANIMATION,
-                              s_WeaponEditAnimationRef,
-                              sizeof(s_WeaponEditAnimationRef));
-    weaponRenderCatalogPicker("Audio Catalog", ASSET_AUDIO,
-                              s_WeaponEditAudioRef,
-                              sizeof(s_WeaponEditAudioRef));
-    ImGui::NextColumn();
-    weaponRenderCatalogPicker("Projectile Catalog", ASSET_PROJECTILE,
-                              s_WeaponEditProjectileRef,
-                              sizeof(s_WeaponEditProjectileRef));
-    weaponRenderCatalogPicker("Entity Catalog", ASSET_ENTITY,
-                              s_WeaponEditEntityRef,
-                              sizeof(s_WeaponEditEntityRef));
-    ImGui::Columns(1);
+        if (ImGui::BeginTabItem("Assets")) {
+            ImGui::Columns(2, "##weapon_editor_cols", false);
+            weaponRenderMeshSelector(scale);
+            weaponRenderCatalogPicker("Texture Catalog", ASSET_TEXTURE,
+                                      s_WeaponEditTextureRef,
+                                      sizeof(s_WeaponEditTextureRef));
+            weaponRenderCatalogPicker("Animation Catalog", ASSET_ANIMATION,
+                                      s_WeaponEditAnimationRef,
+                                      sizeof(s_WeaponEditAnimationRef));
+            weaponRenderCatalogPicker("Audio Catalog", ASSET_AUDIO,
+                                      s_WeaponEditAudioRef,
+                                      sizeof(s_WeaponEditAudioRef));
+            ImGui::NextColumn();
+            weaponRenderCatalogPicker("Projectile Catalog", ASSET_PROJECTILE,
+                                      s_WeaponEditProjectileRef,
+                                      sizeof(s_WeaponEditProjectileRef));
+            weaponRenderCatalogPicker("Entity Catalog", ASSET_ENTITY,
+                                      s_WeaponEditEntityRef,
+                                      sizeof(s_WeaponEditEntityRef));
+            ImGui::Columns(1);
 
-    ImGui::Separator();
-    weaponRenderImportRow("Import Model", WEAPON_IMPORT_MODEL,
-                          ".pdmesh;.gltf;.glb;.obj");
-    weaponRenderImportRow("Import Texture", WEAPON_IMPORT_TEXTURE,
-                          ".pdtexture;.png;.tga;.jpg;.bmp");
-    weaponRenderImportRow("Import Animation", WEAPON_IMPORT_ANIMATION,
-                          ".pdanim");
-    weaponRenderImportRow("Import Audio", WEAPON_IMPORT_AUDIO,
-                          ".pdsfx;.pdvoice;.pdsong;.wav;.ogg;.mp3");
-    weaponRenderImportRow("Import Projectile", WEAPON_IMPORT_PROJECTILE,
-                          ".pdprojectile");
-    weaponRenderImportRow("Import Entity", WEAPON_IMPORT_ENTITY,
-                          ".pdentity");
-    weaponRenderImportRow("Import Graph JSON", WEAPON_IMPORT_GRAPH,
-                          ".json");
+            ImGui::Separator();
+            weaponRenderImportRow("Import Model", WEAPON_IMPORT_MODEL,
+                                  ".pdmesh;.gltf;.glb;.obj");
+            weaponRenderImportRow("Import Texture", WEAPON_IMPORT_TEXTURE,
+                                  ".pdtexture;.png;.tga;.jpg;.bmp");
+            weaponRenderImportRow("Import Animation", WEAPON_IMPORT_ANIMATION,
+                                  ".pdanim");
+            weaponRenderImportRow("Import Audio", WEAPON_IMPORT_AUDIO,
+                                  ".pdsfx;.pdvoice;.pdsong;.wav;.ogg;.mp3");
+            weaponRenderImportRow("Import Projectile", WEAPON_IMPORT_PROJECTILE,
+                                  ".pdprojectile");
+            weaponRenderImportRow("Import Entity", WEAPON_IMPORT_ENTITY,
+                                  ".pdentity");
+            weaponRenderImportRow("Import Graph JSON", WEAPON_IMPORT_GRAPH,
+                                  ".json");
+            ImGui::EndTabItem();
+        }
 
-    ImGui::Separator();
-    weaponRenderGraphBuilder(scale);
-    ImGui::Text("Nested Payloads");
-    ImGui::InputTextMultiline("##weapon_edit_nested",
-                              s_WeaponEditNested,
-                              sizeof(s_WeaponEditNested),
-                              ImVec2(-1.0f, 92.0f * scale),
-                              ImGuiInputTextFlags_AllowTabInput);
+        if (ImGui::BeginTabItem("Primary Graph")) {
+            weaponRenderGraphBuilder("primary", "Primary Graph", scale);
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Secondary Graph")) {
+            weaponRenderGraphBuilder("secondary", "Secondary Graph", scale);
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Payloads")) {
+            ImGui::Text("Nested Payloads");
+            ImGui::InputTextMultiline("##weapon_edit_nested",
+                                      s_WeaponEditNested,
+                                      sizeof(s_WeaponEditNested),
+                                      ImVec2(-1.0f, 220.0f * scale),
+                                      ImGuiInputTextFlags_AllowTabInput);
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
 
     bool canSave = s_WeaponEditDisplayName[0] &&
                    s_WeaponEditSlug[0] &&
@@ -2679,6 +3227,35 @@ static void weaponRenderTemplateEditor(float scale)
         weaponToolSaveCustom();
     }
     if (!canSave) ImGui::EndDisabled();
+}
+
+static void weaponRenderTemplateWindow(s32 winW, s32 winH, float scale)
+{
+    if (!s_WeaponTemplateMenuOpen) return;
+
+    float windowW = 1120.0f * scale;
+    float windowH = 720.0f * scale;
+    if (windowW > (float)winW - 64.0f * scale) windowW = (float)winW - 64.0f * scale;
+    if (windowH > (float)winH - 64.0f * scale) windowH = (float)winH - 64.0f * scale;
+    if (windowW < 760.0f * scale) windowW = 760.0f * scale;
+    if (windowH < 520.0f * scale) windowH = 520.0f * scale;
+
+    ImGui::SetNextWindowSize(ImVec2(windowW, windowH), ImGuiCond_Appearing);
+    ImGui::SetNextWindowPos(ImVec2(((float)winW - windowW) * 0.5f,
+                                   ((float)winH - windowH) * 0.5f),
+                            ImGuiCond_Appearing);
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoSavedSettings
+                           | ImGuiWindowFlags_NoCollapse;
+    if (ImGui::Begin("Create Weapon Mod", &s_WeaponTemplateMenuOpen, flags)) {
+        weaponRenderTemplateEditor(scale);
+        weaponRenderMeshPickerPopup(scale);
+        if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)
+                && pdguiMenuCancelPressed()) {
+            s_WeaponTemplateMenuOpen = false;
+        }
+    }
+    ImGui::End();
 }
 
 static void renderWeaponTool(float contentW, float contentH, float scale)
@@ -2770,16 +3347,15 @@ static void renderWeaponTool(float contentW, float contentH, float scale)
     ImGui::Text("Dual Wield: %s", e->ext.weapon.dual_wieldable ? "yes" : "no");
     ImGui::Text("Archive: %s", s_WeaponArchivePath[0] ? s_WeaponArchivePath : "(not resolved)");
 
-    if (PdButton("Use as Template", ImVec2(142.0f * scale, 28.0f * scale))) {
+    if (PdButton("Use as Template", ImVec2(176.0f * scale, 28.0f * scale))) {
         weaponToolStartTemplate(e);
     }
     if (s_WeaponEditActive) {
         ImGui::SameLine();
-        if (PdButton("Open Template Editor", ImVec2(164.0f * scale, 28.0f * scale))) {
+        if (PdButton("Open Creator", ImVec2(132.0f * scale, 28.0f * scale))) {
             s_WeaponTemplateMenuOpen = true;
         }
     }
-    ImGui::SameLine();
     ImGui::TextDisabled("%s",
                         e->bundled ? "Base weapon is read-only; templates save as a new mod."
                                    : "Mod weapon can be cloned into a new self-contained .pdweapon.");
@@ -2789,12 +3365,6 @@ static void renderWeaponTool(float contentW, float contentH, float scale)
                                            : pdguiVec4TextWarning(220));
     ImGui::TextWrapped("%s", s_WeaponStatus[0] ? s_WeaponStatus : "Ready");
     ImGui::PopStyleColor();
-
-    if (s_WeaponTemplateMenuOpen) {
-        weaponRenderTemplateEditor(scale);
-        ImGui::EndChild();
-        return;
-    }
 
     if (ImGui::BeginTabBar("##weapon_detail_tabs")) {
         if (ImGui::BeginTabItem("Descriptor")) {
@@ -3947,7 +4517,8 @@ static void renderModdingHub(s32 winW, s32 winH)
 
     /* Back input mirrors footer Close behavior.  S311: title X button
      * also closes via pdguiConsumeTitleClose (first-click reliability). */
-    if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
+    if (!s_WeaponTemplateMenuOpen
+            && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
         if (pdguiConsumeTitleClose()) {
             moddingHubCloseFromUi("title-x-button");
         } else if (pdguiMenuCancelPressed()) {
@@ -3963,6 +4534,8 @@ static void renderModdingHub(s32 winW, s32 winH)
 
     ImGui::EndChild();
     ImGui::End();
+
+    weaponRenderTemplateWindow(winW, winH, scale);
 
     if (s_LastLoggedTool != s_ActiveTool) {
         sysLogPrintf(LOG_NOTE, "modhub: active tool -> %d (%s)",
@@ -5288,6 +5861,8 @@ void pdguiModdingHubShow(void)
     if (!s_Visible) {
         s_Visible    = true;
         s_ActiveTool = 0;
+        s_WeaponTemplateMenuOpen = false;
+        s_WeaponMeshPickerOpen = false;
         pdguiModManagerRefreshSnapshot();
         sysLogPrintf(LOG_NOTE, "MODHUB: opened");
     }
@@ -5299,11 +5874,13 @@ void pdguiModdingHubShow(void)
  * without requiring the user to navigate through the hub manually. */
 void pdguiModdingHubShowTool(s32 tool)
 {
-    /* Clamp to the known tool range (0..8); out-of-range requests land
+    /* Clamp to the known tool range (0..9); out-of-range requests land
      * on Mod Manager rather than an undefined child render. */
-    if (tool < 0 || tool > 8) tool = 0;
+    if (tool < 0 || tool > 9) tool = 0;
     s_Visible    = 1;
     s_ActiveTool = tool;
+    s_WeaponTemplateMenuOpen = false;
+    s_WeaponMeshPickerOpen = false;
     /* Refresh whichever tool we're about to show so its data is live. */
     switch (tool) {
         case 0: pdguiModManagerRefreshSnapshot(); break;
@@ -5315,6 +5892,7 @@ void pdguiModdingHubShowTool(s32 tool)
         case 6: importReset();                    break;
         case 7: chromeToolReset();                break;
         case 8: fontToolReset();                  break;
+        case 9: weaponToolRefresh();              break;
     }
     sysLogPrintf(LOG_NOTE, "MODHUB: opened on tool %d", (int)tool);
 }
@@ -5346,7 +5924,9 @@ void pdguiModdingHubRender(s32 winW, s32 winH)
 
     /* Click-outside-to-close: if the user clicks outside the dialog area,
      * dismiss the modding hub.  Uses pdguiMenuPos/Size for the hub bounds. */
-    if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId) && ImGui::IsMouseClicked(0)) {
+    if (!s_WeaponTemplateMenuOpen
+            && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)
+            && ImGui::IsMouseClicked(0)) {
         ImVec2 mp = ImGui::GetMousePos();
         ImVec2 hubPos  = pdguiMenuPos();
         float  hubW    = pdguiMenuWidth();

@@ -2291,15 +2291,45 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(!hub.empty());
 
 	REQUIRE(hub.find("Use as Template") != std::string::npos);
-	REQUIRE(hub.find("Open Template Editor") != std::string::npos);
-	REQUIRE(hub.find("Weapon Template Editor") != std::string::npos);
-	REQUIRE(hub.find("Back to Weapon Browser") != std::string::npos);
+	REQUIRE(hub.find("Open Creator") != std::string::npos);
+	REQUIRE(hub.find("Create Weapon Mod") != std::string::npos);
+	REQUIRE(hub.find("Weapon Mod Creation") != std::string::npos);
+	REQUIRE(hub.find("Close Creator") != std::string::npos);
 	REQUIRE(hub.find("weaponToolStartTemplate") != std::string::npos);
+	REQUIRE(hub.find("weaponToolPopulateTemplateRefs") != std::string::npos);
+	REQUIRE(hub.find("weaponIniGetValue") != std::string::npos);
+	REQUIRE(hub.find("weaponArchiveReadNestedCatalogId") != std::string::npos);
+	REQUIRE(hub.find("weaponTsvFirstField") != std::string::npos);
+	REQUIRE(hub.find("weaponJsonFindFirstStringField") != std::string::npos);
+	REQUIRE(hub.find("models/held_hi.pdmesh") != std::string::npos);
+	REQUIRE(hub.find("animations_manifest.tsv") != std::string::npos);
+	REQUIRE(hub.find("audio_manifest.tsv") != std::string::npos);
+	REQUIRE(hub.find("\"projectile_ref\"") != std::string::npos);
+	REQUIRE(hub.find("\"entity_ref\"") != std::string::npos);
+	REQUIRE(hub.find("\"payload_ref\"") != std::string::npos);
+	REQUIRE(hub.find("weaponRenderTemplateWindow") != std::string::npos);
 	REQUIRE(hub.find("weaponRenderTemplateEditor") != std::string::npos);
 	REQUIRE(hub.find("s_WeaponTemplateMenuOpen") != std::string::npos);
 	REQUIRE(hub.find("weaponToolSaveCustom") != std::string::npos);
 	REQUIRE(hub.find("Save Weapon Mod") != std::string::npos);
+	REQUIRE(hub.find("BeginTabItem(\"Details\")") != std::string::npos);
+	REQUIRE(hub.find("BeginTabItem(\"Assets\")") != std::string::npos);
+	REQUIRE(hub.find("BeginTabItem(\"Primary Graph\")") != std::string::npos);
+	REQUIRE(hub.find("BeginTabItem(\"Secondary Graph\")") != std::string::npos);
+	REQUIRE(hub.find("BeginTabItem(\"Payloads\")") != std::string::npos);
+	REQUIRE(hub.find("weaponRenderGraphBuilder(\"primary\", \"Primary Graph\"") !=
+	        std::string::npos);
+	REQUIRE(hub.find("weaponRenderGraphBuilder(\"secondary\", \"Secondary Graph\"") !=
+	        std::string::npos);
 	REQUIRE(hub.find("BeginTabItem(\"Template\")") == std::string::npos);
+	REQUIRE(hub.find("weaponRenderTemplateEditor(scale);\n        ImGui::EndChild();") ==
+	        std::string::npos);
+	REQUIRE(hub.find("Show non-weapon meshes") != std::string::npos);
+	REQUIRE(hub.find("Select Weapon Mesh") != std::string::npos);
+	REQUIRE(hub.find("weaponMeshEntryIsWeaponMesh") != std::string::npos);
+	REQUIRE(hub.find("pdguiModelPreviewDrawEx") != std::string::npos);
+	REQUIRE(hub.find("PDGUI_MP_WEAPON") != std::string::npos);
+	REQUIRE(hub.find("ASSET_MODEL") != std::string::npos);
 	REQUIRE(hub.find("modArchiveBegin(archivePath)") != std::string::npos);
 	REQUIRE(hub.find("weaponCopyTemplatePayloads") != std::string::npos);
 	REQUIRE(hub.find("modArchiveAddFileDisk") != std::string::npos);
@@ -2378,6 +2408,12 @@ TEST_CASE("Modding Hub weapon tool builds visual graph modules without raw JSON 
 	REQUIRE(editor.find("Choose a compatible node from the add-node menu") !=
 	        std::string::npos);
 	REQUIRE(editor.find("pdguiWeaponGraphModelLoadJson") != std::string::npos);
+	REQUIRE(editor.find("scope_filter") != std::string::npos);
+	REQUIRE(editor.find("nodeVisibleForScope") != std::string::npos);
+	REQUIRE(editor.find("Links must stay inside the visible graph tab") !=
+	        std::string::npos);
+	REQUIRE(header.find("scope_filter") != std::string::npos);
+	REQUIRE(header.find("scope_label") != std::string::npos);
 	REQUIRE(header.find("PdWeaponGraphEditModel") != std::string::npos);
 	REQUIRE(header.find("PD_WEAPON_GRAPH_EDITOR_ACTION_SET_PRIMARY") !=
 	        std::string::npos);

@@ -12,16 +12,15 @@ Then open: `http://localhost:7531/`
 
 ## Browser workflow
 
-- **Filter by pillar**: click pillar buttons in the top bar
-- **Drag cards**: move between columns or reorder within a column
-- **Edit card**: click any card to open the edit modal (title, description, pillar, column, priority, notes, subtasks)
-- **Add card**: click "+ Add card" at the bottom of any column
-- **Expand subtasks**: click the progress bar or "X/Y" count on any parent card
-- **Cycle subtask status**: click the colored dot in the inline subtask list
-- **Reorder subtasks**: drag the "::" handle within the expanded subtask list
-- **Add/edit subtasks**: open the card edit modal (subtasks section at the bottom)
-- **Collapse column**: click "-" in a column header (saves in localStorage)
-- **Auto-sort by priority**: Settings panel, Sorting toggle - Critical cards rise to the top within each column
+- **Select status**: use the top status tabs (`Backlogged`, `Active`, `Blocked`, `Done`).
+- **Filter by pillar**: use the `Show` dropdown beside the status tabs.
+- **Select a card**: click a numbered card title in the left list to show its contents on the right.
+- **Reprioritize cards**: drag cards in the left list. The saved `order` field is the manual priority order for that status.
+- **Edit card contents**: use the right pane for title, description, pillar, status, priority badge, card notes, and subtasks. `Save`, `Cancel`, and `Delete` are docked at the bottom of the pane.
+- **Add card**: click "+ Add card" in the filter bar.
+- **AI special notes**: click the docked `AI Notes` button. Notes save to root `x_special_notes` in `state.json` so AI sessions can read them when directed or when noticed.
+- **Subtasks**: the right pane shows subtasks in their own scrollable box. `✅` means complete; `❎` means open. Click the indicator to toggle open/completed.
+- **Auto-sort by priority**: Settings panel, Sorting toggle. Off means manual order drives priority; on means flags and priority badges group the list before manual order.
 
 ## AI workflow
 
@@ -43,6 +42,7 @@ Write state: edit `state.json` directly (server must not be mid-write), or POST 
   "pillars":  [...],
   "columns":  ["backlog", "active", "blocked", "done"],
   "columnLabels": {...},
+  "x_special_notes": {"text": "", "updated": null},
   "cards":    [...]
 }
 ```
@@ -91,7 +91,20 @@ Write state: edit `state.json` directly (server must not be mid-write), or POST 
 
 The browser cycles `null -> star -> alert -> watch -> null` on badge click. The PATCH endpoint (`PATCH /api/cards/:id`) updates only `flag`, `flagged_at`, and `updated` without a full state rewrite.
 
-**`order`** (integer): relative position within the column. Lower = higher in the list. The UI assigns midpoint values on drag-drop so exact integers stay stable.
+**`order`** (integer): relative position within the column. Lower = higher in the numbered list. Manual browser reordering updates this field and is the default prioritization surface. The UI assigns midpoint values on drag-drop so exact integers stay stable.
+
+### AI special notes
+
+```json
+{
+  "x_special_notes": {
+    "text": "Mike's note for future AI sessions.",
+    "updated": "2026-05-22T21:00:00Z"
+  }
+}
+```
+
+Root `x_special_notes` is Mike-authored guidance for AI sessions. Read it when Mike directs you to, and also check it when the docked AI Notes button indicates saved notes.
 
 ### Subtask
 
@@ -119,8 +132,8 @@ The browser cycles `null -> star -> alert -> watch -> null` on badge click. The 
 When choosing what to work on next, use this algorithm:
 
 1. Collect all cards where `column` is `"active"` or `"backlog"`.
-2. Sort by `priority` ascending (1 first; treat absent as 3).
-3. Within a priority tier, sort by `order` ascending.
-4. Prefer cards in `"active"` over `"backlog"` at the same priority.
+2. Sort by `order` ascending first. This is Mike's manual prioritization order from the left-side numbered list.
+3. Use `priority` and `flag` as severity/attention metadata, not as a replacement for manual order unless `settings.autoSortPriority` is true.
+4. Prefer cards in `"active"` over `"backlog"` when the manual order is otherwise ambiguous.
 5. For parent cards, look at which subtasks are `"backlog"` or `"active"` - those are the actual work units.
 6. Report your chosen card + subtask to Mike before starting, so he can override if priorities have shifted.

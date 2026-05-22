@@ -38,9 +38,62 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .board-filter-select:focus{outline:none;border-color:#38bdf8;box-shadow:0 0 0 2px rgba(56,189,248,0.14)}
 
 /* Board */
-#board{display:grid;grid-template-columns:repeat(auto-fill,minmax(275px,1fr));grid-auto-rows:max-content;gap:12px;padding:14px 18px;overflow-y:auto;overflow-x:hidden;flex:1;min-height:0;align-content:start}
-#board.board-empty{display:flex;align-items:center;justify-content:center}
-#board[data-col="done"] .card{opacity:0.72}
+#board{display:flex;flex:1;min-height:0;overflow:hidden;background:#0f172a}
+#board.board-empty{align-items:center;justify-content:center;padding:18px}
+#board[data-col="done"] .kb-list-item{opacity:0.72}
+.kb-layout{display:grid;grid-template-columns:minmax(280px,34%) minmax(360px,1fr);gap:0;width:100%;height:100%;min-height:0}
+.kb-list-pane{background:#0c1426;border-right:1px solid #1e293b;display:flex;flex-direction:column;min-width:0;min-height:0}
+.kb-list-head{height:42px;padding:10px 12px;border-bottom:1px solid #1e293b;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0}
+.kb-list-title{font-size:0.72rem;font-weight:800;color:#e2e8f0;letter-spacing:0.06em;text-transform:uppercase}
+.kb-list-count{font-size:0.68rem;color:#94a3b8;white-space:nowrap}
+.kb-list{flex:1;min-height:0;overflow:auto;padding:8px 9px}
+.kb-list-item{position:relative;width:100%;border:1px solid #1e293b;border-left:4px solid #64748b;background:#172033;color:#e2e8f0;border-radius:6px;padding:8px 9px 8px 10px;margin-bottom:7px;cursor:pointer;text-align:left;font-family:inherit;display:grid;grid-template-columns:34px 1fr;gap:8px;align-items:start;transition:background 0.12s,border-color 0.12s,box-shadow 0.12s}
+.kb-list-item:hover{background:#1f2a3d;border-color:#334155}
+.kb-list-item.selected{background:#24324b;border-color:#38bdf8;box-shadow:0 0 0 1px rgba(56,189,248,0.35)}
+.kb-list-item.dragging{opacity:0.35}
+.kb-rank{width:28px;height:28px;border-radius:6px;background:#0f172a;border:1px solid #334155;color:#e2e8f0;font-weight:900;font-size:0.78rem;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+.kb-list-main{min-width:0}
+.kb-list-title-line{font-size:0.82rem;font-weight:700;color:#f8fafc;line-height:1.35;word-break:break-word}
+.kb-list-meta{display:flex;align-items:center;gap:5px;margin-top:6px;flex-wrap:wrap}
+.kb-pillar-tab{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:8px;background:#334155;color:#f8fafc;font-size:0.62rem;font-weight:800;line-height:1.4;white-space:nowrap}
+.kb-pillar-swatch{width:8px;height:8px;border-radius:2px;display:inline-block;flex-shrink:0}
+.kb-flag{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border-radius:8px;background:#111827;color:#94a3b8;border:1px solid #334155;font-size:0.6rem;font-weight:800;line-height:1.35;white-space:nowrap;text-transform:uppercase}
+.kb-flag.star{background:#78350f;color:#fef3c7;border-color:#f59e0b}
+.kb-flag.alert{background:#7f1d1d;color:#fee2e2;border-color:#ef4444}
+.kb-flag.watch{background:#3b0764;color:#f3e8ff;border-color:#8b5cf6}
+.kb-drop-line{height:3px;background:#38bdf8;border-radius:2px;margin:0 0 7px;pointer-events:none}
+.kb-detail-pane{display:flex;flex-direction:column;min-width:0;min-height:0;background:#f8fafc;color:#1e293b}
+.kb-detail-scroll{flex:1;min-height:0;overflow:auto;padding:16px 18px 12px;display:flex;flex-direction:column;gap:12px}
+.kb-detail-head{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start}
+.kb-detail-title{width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:6px;background:white;color:#0f172a;font-size:1rem;font-weight:800;font-family:inherit;line-height:1.35}
+.kb-detail-title:focus,.kb-detail-textarea:focus,.kb-detail-notes:focus,.kb-detail-select:focus,.kb-st-input:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.12)}
+.kb-detail-id{font-family:ui-monospace,Consolas,monospace;font-size:0.72rem;color:#64748b;white-space:nowrap;padding-top:9px}
+.kb-detail-meta{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.kb-detail-field label,.kb-detail-box-title{display:block;font-size:0.66rem;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px}
+.kb-detail-select{width:100%;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;background:white;color:#1e293b;font-size:0.82rem;font-family:inherit}
+.kb-detail-box{display:flex;flex-direction:column;min-height:0}
+.kb-detail-textarea{height:150px;min-height:150px;max-height:150px;resize:none;overflow:auto;width:100%;padding:10px 11px;border:1px solid #cbd5e1;border-radius:7px;background:white;color:#1e293b;font-size:0.86rem;line-height:1.45;font-family:inherit}
+.kb-subtask-box{height:260px;min-height:260px;overflow:auto;background:white;border:1px solid #cbd5e1;border-radius:7px;padding:8px}
+.kb-subtask-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.kb-st-row{display:grid;grid-template-columns:34px 1fr 26px;gap:7px;align-items:center;padding:5px;border-bottom:1px solid #f1f5f9}
+.kb-st-row:last-child{border-bottom:none}
+.kb-st-toggle{width:28px;height:28px;border-radius:6px;border:1px solid #cbd5e1;background:#f8fafc;cursor:pointer;font-size:1rem;line-height:1;font-family:inherit}
+.kb-st-toggle:hover{background:#eff6ff;border-color:#60a5fa}
+.kb-st-input{min-width:0;width:100%;padding:6px 8px;border:1px solid #dbe3ef;border-radius:5px;background:white;color:#1e293b;font-size:0.82rem;font-family:inherit}
+.kb-st-del{width:24px;height:24px;border-radius:5px;border:1px solid #fecaca;background:white;color:#ef4444;cursor:pointer;font-size:0.75rem;font-family:inherit}
+.kb-st-del:hover{background:#fef2f2}
+.kb-detail-notes{height:54px;min-height:54px;max-height:54px;resize:none;overflow:auto;width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:7px;background:white;color:#1e293b;font-size:0.8rem;line-height:1.35;font-family:inherit}
+.kb-detail-actions{flex-shrink:0;display:flex;align-items:center;gap:8px;padding:11px 18px;background:white;border-top:1px solid #e2e8f0;box-shadow:0 -6px 18px rgba(15,23,42,0.06)}
+.kb-detail-actions .modal-spacer{flex:1}
+.kb-empty-detail{height:100%;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:0.88rem;text-align:center;padding:30px}
+@media (max-width:900px){
+  .kb-layout{grid-template-columns:1fr}
+  .kb-list-pane{max-height:42vh;border-right:none;border-bottom:1px solid #1e293b}
+  .kb-detail-pane{min-height:0}
+  .kb-detail-meta{grid-template-columns:1fr}
+  .kb-detail-head{grid-template-columns:1fr}
+  .kb-detail-id{padding-top:0}
+}
 
 /* Card */
 .card{position:relative;background:white;border-radius:7px;border-left:4px solid #94a3b8;padding:9px 11px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.08);transition:box-shadow 0.15s,transform 0.1s,opacity 0.15s;user-select:none}
@@ -497,6 +550,19 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 #oq-modal .oq-modal-pending .oq-mp-interp{font-size:0.84rem;color:#0c4a6e;background:#e0f2fe;padding:8px 10px;border-radius:5px;line-height:1.45;margin-bottom:9px}
 #oq-modal .oq-modal-actions{display:flex;gap:8px;align-items:center;margin-top:18px;flex-wrap:wrap}
 
+/* AI special notes */
+.ai-notes-dock{position:fixed;left:18px;bottom:18px;z-index:1000;border:1px solid #38bdf8;background:#075985;color:#e0f2fe;border-radius:999px;padding:8px 14px;font-size:0.76rem;font-weight:900;letter-spacing:0.04em;text-transform:uppercase;box-shadow:0 8px 24px rgba(0,0,0,0.35);cursor:pointer;font-family:inherit}
+.ai-notes-dock:hover{background:#0369a1}
+.ai-notes-dock.has-notes{border-color:#f59e0b;background:#854d0e;color:#fef3c7}
+#ai-notes-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);display:none;align-items:center;justify-content:center;z-index:260;padding:16px}
+#ai-notes-modal-overlay.show{display:flex}
+#ai-notes-modal{background:white;color:#1e293b;border-radius:12px;padding:22px;width:100%;max-width:560px;box-shadow:0 24px 64px rgba(0,0,0,0.4)}
+#ai-notes-modal h3{font-size:0.95rem;font-weight:800;margin-bottom:12px}
+#ai-notes-text{width:100%;min-height:220px;max-height:46vh;resize:vertical;overflow:auto;padding:10px 11px;border:1px solid #cbd5e1;border-radius:7px;color:#1e293b;font-family:inherit;font-size:0.86rem;line-height:1.45}
+#ai-notes-text:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.12)}
+.ai-notes-meta{font-size:0.7rem;color:#64748b;margin-top:7px}
+.ai-notes-actions{display:flex;gap:8px;align-items:center;margin-top:16px}
+
 </style>
 </head>
 <body>
@@ -551,6 +617,8 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 </div>
 
 <button id="pc-banner-min" class="pc-banner-min" title="Show pending completions" onclick="restorePendingCompletionBanner()">R</button>
+
+<button id="ai-notes-dock" class="ai-notes-dock" onclick="openAiNotesModal()" title="Open notes for future AI sessions">AI Notes</button>
 
 <div id="main-area">
   <div id="panel-kanban" class="panel active">
@@ -671,6 +739,21 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
     </div>
     <div class="sb-list" id="parked-list"></div>
   </aside>
+</div>
+
+<!-- AI special notes modal -->
+<div id="ai-notes-modal-overlay" onclick="if(event.target===this)closeAiNotesModal()">
+  <div id="ai-notes-modal">
+    <h3>Special notes for AI sessions</h3>
+    <textarea id="ai-notes-text" placeholder="Notes here are saved into tools/kanban/state.json under x_special_notes for future sessions to read."></textarea>
+    <div class="ai-notes-meta" id="ai-notes-meta"></div>
+    <div class="ai-notes-actions">
+      <button class="btn btn-danger btn-sm" onclick="clearAiNotes()">Clear</button>
+      <span class="modal-spacer"></span>
+      <button class="btn btn-ghost btn-sm" onclick="closeAiNotesModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveAiNotes()">Save</button>
+    </div>
+  </div>
 </div>
 
 <!-- Open-questions side panel -->
@@ -893,7 +976,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
         <div class="toggle-knob"></div>
       </label>
     </div>
-    <div class="toggle-note">When on, Critical cards rise to the top. Drag to override within a priority tier.</div>
+    <div class="toggle-note">Off: manual card order is the priority. On: flags and priority badges group the list before manual order.</div>
   </div>
   <div class="pillar-list" id="pillar-list">
     <div class="settings-pillars-hd">Pillars</div>
@@ -951,6 +1034,9 @@ let subDropTarget = null;  // {cardId, beforeSubId}
 let activeKanbanColumn = localStorage.getItem('pd2kb-active-status') || 'active';
 let boardFilter = localStorage.getItem('pd2kb-board-filter') || 'all';
 let editingCardId = null;
+let selectedCardId = localStorage.getItem('pd2kb-selected-card') || null;
+let listDragId = null;
+let boardDetailDirty = false;
 let saveTimer = null;
 let inlineEditingPillarId = null;
 
@@ -977,15 +1063,21 @@ function getCard(id) { return state.cards.find(c => c.id === id) || null; }
 
 function sortedCards(cards) {
   return [...cards].sort((a, b) => {
-    const fa = a.flag === 'star' ? 0 : 1;
-    const fb = b.flag === 'star' ? 0 : 1;
-    if (fa !== fb) return fa - fb;
+    if (state && state.settings && state.settings.autoSortPriority) {
+      const flagRank = {alert: 0, star: 1, watch: 2};
+      const fa = flagRank[a.flag] != null ? flagRank[a.flag] : 9;
+      const fb = flagRank[b.flag] != null ? flagRank[b.flag] : 9;
+      if (fa !== fb) return fa - fb;
 
-    const pa = a.priority || 999;
-    const pb = b.priority || 999;
-    if (pa !== pb) return pa - pb;
+      const pa = a.priority || 999;
+      const pb = b.priority || 999;
+      if (pa !== pb) return pa - pb;
+    }
 
-    return a.order - b.order;
+    const oa = Number.isFinite(a.order) ? a.order : 999999;
+    const ob = Number.isFinite(b.order) ? b.order : 999999;
+    if (oa !== ob) return oa - ob;
+    return String(a.id || '').localeCompare(String(b.id || ''));
   });
 }
 
@@ -1001,6 +1093,7 @@ async function loadState() {
   const r = await fetch('/api/state');
   state = await r.json();
   if (!state.settings) state.settings = {autoSortPriority: false};
+  if (!state.x_special_notes) state.x_special_notes = {text: '', updated: null};
   render();
 }
 
@@ -1025,6 +1118,44 @@ function setSaveStatus(cls, msg) {
   el.className = cls; el.textContent = msg;
 }
 
+function refreshAiNotesDock() {
+  const btn = document.getElementById('ai-notes-dock');
+  if (!btn || !state) return;
+  const text = state.x_special_notes && state.x_special_notes.text ? state.x_special_notes.text.trim() : '';
+  btn.classList.toggle('has-notes', text.length > 0);
+  btn.title = text.length > 0
+    ? 'Special AI notes saved ' + shortDate(state.x_special_notes.updated)
+    : 'Open notes for future AI sessions';
+}
+
+function openAiNotesModal() {
+  if (!state.x_special_notes) state.x_special_notes = {text: '', updated: null};
+  document.getElementById('ai-notes-text').value = state.x_special_notes.text || '';
+  document.getElementById('ai-notes-meta').textContent = state.x_special_notes.updated
+    ? 'Last saved ' + state.x_special_notes.updated
+    : 'No notes saved yet.';
+  document.getElementById('ai-notes-modal-overlay').classList.add('show');
+  setTimeout(() => document.getElementById('ai-notes-text').focus(), 40);
+}
+
+function closeAiNotesModal() {
+  document.getElementById('ai-notes-modal-overlay').classList.remove('show');
+}
+
+function saveAiNotes() {
+  if (!state.x_special_notes) state.x_special_notes = {};
+  state.x_special_notes.text = document.getElementById('ai-notes-text').value.trim();
+  state.x_special_notes.updated = state.x_special_notes.text ? now() : null;
+  closeAiNotesModal();
+  refreshAiNotesDock();
+  scheduleSave();
+}
+
+function clearAiNotes() {
+  document.getElementById('ai-notes-text').value = '';
+  saveAiNotes();
+}
+
 // ---------- render ----------
 
 function render() {
@@ -1033,6 +1164,7 @@ function render() {
   renderFilters();
   renderBoard();
   renderPillarList();
+  refreshAiNotesDock();
 }
 
 function columnLabel(colId) {
@@ -1151,19 +1283,424 @@ function renderBoard() {
   board.innerHTML = '';
   board.dataset.col = activeKanbanColumn;
   board.classList.toggle('board-empty', visibleCards.length === 0);
-  board.ondragover = e => onDragOver(e, activeKanbanColumn, board);
-  board.ondrop = e => onDrop(e, activeKanbanColumn);
-  board.ondragleave = e => { if (!board.contains(e.relatedTarget)) clearDropLines(board); };
+  board.ondragover = null;
+  board.ondrop = null;
+  board.ondragleave = null;
 
   if (visibleCards.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
     empty.textContent = 'No cards match this status and filter.';
     board.appendChild(empty);
+    refreshAiNotesDock();
     return;
   }
 
-  for (const card of visibleCards) board.appendChild(buildCard(card));
+  ensureSelectedCard(visibleCards);
+
+  const layout = document.createElement('div');
+  layout.className = 'kb-layout';
+
+  const listPane = document.createElement('section');
+  listPane.className = 'kb-list-pane';
+  const listHead = document.createElement('div');
+  listHead.className = 'kb-list-head';
+  const listTitle = document.createElement('span');
+  listTitle.className = 'kb-list-title';
+  listTitle.textContent = columnLabel(activeKanbanColumn);
+  const listCount = document.createElement('span');
+  listCount.className = 'kb-list-count';
+  listCount.textContent = visibleCards.length + ' cards';
+  listHead.appendChild(listTitle);
+  listHead.appendChild(listCount);
+  listPane.appendChild(listHead);
+
+  const list = document.createElement('div');
+  list.className = 'kb-list';
+  list.ondragover = e => onListDragOver(e, list);
+  list.ondrop = e => onListDrop(e);
+  list.ondragleave = e => { if (!list.contains(e.relatedTarget)) clearKbDropLines(list); };
+  visibleCards.forEach((card, idx) => list.appendChild(buildCardListItem(card, idx + 1)));
+  listPane.appendChild(list);
+  layout.appendChild(listPane);
+
+  layout.appendChild(buildDetailPane(getCard(selectedCardId)));
+  board.appendChild(layout);
+  refreshAiNotesDock();
+}
+
+function ensureSelectedCard(visibleCards) {
+  if (!visibleCards.some(c => c.id === selectedCardId)) {
+    selectedCardId = visibleCards.length > 0 ? visibleCards[0].id : null;
+    if (selectedCardId) localStorage.setItem('pd2kb-selected-card', selectedCardId);
+  }
+}
+
+function selectBoardCard(cardId) {
+  if (cardId === selectedCardId) return;
+  if (boardDetailDirty && !confirm('Discard unsaved card edits?')) return;
+  selectedCardId = cardId;
+  localStorage.setItem('pd2kb-selected-card', selectedCardId);
+  boardDetailDirty = false;
+  renderBoard();
+}
+
+function buildCardListItem(card, rank) {
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.className = 'kb-list-item' + (card.id === selectedCardId ? ' selected' : '');
+  el.dataset.id = card.id;
+  el.draggable = true;
+  el.style.borderLeftColor = pillarColor(card.pillar);
+  el.onclick = () => selectBoardCard(card.id);
+  el.addEventListener('contextmenu', e => showCtxMenu(e, card.id));
+
+  const rankEl = document.createElement('span');
+  rankEl.className = 'kb-rank';
+  rankEl.textContent = rank;
+  el.appendChild(rankEl);
+
+  const main = document.createElement('span');
+  main.className = 'kb-list-main';
+  const title = document.createElement('span');
+  title.className = 'kb-list-title-line';
+  title.textContent = card.title || '(untitled)';
+  main.appendChild(title);
+
+  const meta = document.createElement('span');
+  meta.className = 'kb-list-meta';
+  const p = getPillar(card.pillar);
+  const pillar = document.createElement('span');
+  pillar.className = 'kb-pillar-tab';
+  const sw = document.createElement('span');
+  sw.className = 'kb-pillar-swatch';
+  sw.style.background = p ? p.color : '#94a3b8';
+  pillar.appendChild(sw);
+  pillar.appendChild(document.createTextNode(p ? p.name : 'No pillar'));
+  meta.appendChild(pillar);
+
+  if (card.priority && PRIORITY[card.priority]) {
+    const pri = PRIORITY[card.priority];
+    const badge = document.createElement('span');
+    badge.className = 'pri-badge pri-' + card.priority;
+    badge.title = pri.label;
+    badge.textContent = pri.short;
+    meta.appendChild(badge);
+  }
+  meta.appendChild(buildFlagStatus(card));
+  main.appendChild(meta);
+  el.appendChild(main);
+
+  el.addEventListener('dragstart', e => {
+    listDragId = card.id;
+    el.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', card.id);
+  });
+  el.addEventListener('dragend', () => {
+    el.classList.remove('dragging');
+    listDragId = null;
+    clearKbDropLines(null);
+  });
+
+  return el;
+}
+
+function buildFlagStatus(card) {
+  const flag = document.createElement('span');
+  const cfg = card.flag ? FLAG_CONFIG[card.flag] : null;
+  flag.className = 'kb-flag' + (card.flag ? ' ' + card.flag : '');
+  flag.textContent = cfg ? `${cfg.icon} ${cfg.label}` : 'No flag';
+  flag.title = cfg ? ('Flagged: ' + cfg.label) : 'No flag';
+  return flag;
+}
+
+function buildDetailPane(card) {
+  const pane = document.createElement('section');
+  pane.className = 'kb-detail-pane';
+  if (!card) {
+    pane.innerHTML = '<div class="kb-empty-detail">Select a card to view or edit its contents.</div>';
+    return pane;
+  }
+
+  const scroll = document.createElement('div');
+  scroll.className = 'kb-detail-scroll';
+
+  const head = document.createElement('div');
+  head.className = 'kb-detail-head';
+  const title = document.createElement('input');
+  title.id = 'detail-title';
+  title.className = 'kb-detail-title';
+  title.type = 'text';
+  title.value = card.title || '';
+  title.oninput = markDetailDirty;
+  head.appendChild(title);
+  const id = document.createElement('div');
+  id.className = 'kb-detail-id';
+  id.textContent = card.id;
+  head.appendChild(id);
+  scroll.appendChild(head);
+
+  const meta = document.createElement('div');
+  meta.className = 'kb-detail-meta';
+  meta.appendChild(buildDetailSelect('Pillar', 'detail-pillar', state.pillars.map(p => [p.id, p.name]), card.pillar));
+  meta.appendChild(buildDetailSelect('Status', 'detail-column', state.columns.map(c => [c, columnLabel(c)]), card.column));
+  meta.appendChild(buildDetailSelect('Priority', 'detail-priority', [['', 'Unset'], ['1', '1 - Critical'], ['2', '2 - High'], ['3', '3 - Medium'], ['4', '4 - Low'], ['5', '5 - Someday']], card.priority != null ? String(card.priority) : ''));
+  scroll.appendChild(meta);
+
+  const descBox = document.createElement('div');
+  descBox.className = 'kb-detail-box';
+  const descLabel = document.createElement('span');
+  descLabel.className = 'kb-detail-box-title';
+  descLabel.textContent = 'Description';
+  const desc = document.createElement('textarea');
+  desc.id = 'detail-desc';
+  desc.className = 'kb-detail-textarea';
+  desc.value = card.description || '';
+  desc.oninput = markDetailDirty;
+  descBox.appendChild(descLabel);
+  descBox.appendChild(desc);
+  scroll.appendChild(descBox);
+
+  const stHead = document.createElement('div');
+  stHead.className = 'kb-subtask-head';
+  const stTitle = document.createElement('span');
+  stTitle.className = 'kb-detail-box-title';
+  stTitle.textContent = 'Subtasks';
+  const add = document.createElement('button');
+  add.className = 'btn btn-ghost btn-sm';
+  add.type = 'button';
+  add.textContent = '+ Add';
+  add.onclick = addDetailSubtask;
+  stHead.appendChild(stTitle);
+  stHead.appendChild(add);
+  scroll.appendChild(stHead);
+
+  const subBox = document.createElement('div');
+  subBox.id = 'detail-subtasks';
+  subBox.className = 'kb-subtask-box';
+  const subtasks = [...(card.subtasks || [])].sort((a, b) => a.order - b.order);
+  if (subtasks.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'No subtasks yet.';
+    subBox.appendChild(empty);
+  } else {
+    for (const st of subtasks) subBox.appendChild(buildDetailSubtaskRow(st));
+  }
+  scroll.appendChild(subBox);
+
+  const notesBox = document.createElement('div');
+  notesBox.className = 'kb-detail-box';
+  const notesLabel = document.createElement('span');
+  notesLabel.className = 'kb-detail-box-title';
+  notesLabel.textContent = 'Card notes';
+  const notes = document.createElement('textarea');
+  notes.id = 'detail-notes';
+  notes.className = 'kb-detail-notes';
+  notes.value = card.notes || '';
+  notes.oninput = markDetailDirty;
+  notesBox.appendChild(notesLabel);
+  notesBox.appendChild(notes);
+  scroll.appendChild(notesBox);
+
+  pane.appendChild(scroll);
+
+  const actions = document.createElement('div');
+  actions.className = 'kb-detail-actions';
+  const del = document.createElement('button');
+  del.className = 'btn btn-danger btn-sm';
+  del.type = 'button';
+  del.textContent = 'Delete';
+  del.onclick = deleteSelectedCard;
+  const cancel = document.createElement('button');
+  cancel.className = 'btn btn-ghost btn-sm';
+  cancel.type = 'button';
+  cancel.textContent = 'Cancel';
+  cancel.onclick = cancelSelectedCard;
+  const save = document.createElement('button');
+  save.className = 'btn btn-primary btn-sm';
+  save.type = 'button';
+  save.textContent = 'Save';
+  save.onclick = saveSelectedCard;
+  actions.appendChild(del);
+  actions.appendChild(document.createElement('span')).className = 'modal-spacer';
+  actions.appendChild(cancel);
+  actions.appendChild(save);
+  pane.appendChild(actions);
+  boardDetailDirty = false;
+  return pane;
+}
+
+function buildDetailSelect(label, id, options, value) {
+  const wrap = document.createElement('div');
+  wrap.className = 'kb-detail-field';
+  const lbl = document.createElement('label');
+  lbl.htmlFor = id;
+  lbl.textContent = label;
+  const sel = document.createElement('select');
+  sel.id = id;
+  sel.className = 'kb-detail-select';
+  for (const [optValue, optLabel] of options) {
+    const opt = document.createElement('option');
+    opt.value = optValue;
+    opt.textContent = optLabel;
+    sel.appendChild(opt);
+  }
+  sel.value = value;
+  sel.onchange = markDetailDirty;
+  wrap.appendChild(lbl);
+  wrap.appendChild(sel);
+  return wrap;
+}
+
+function buildDetailSubtaskRow(st) {
+  const row = document.createElement('div');
+  row.className = 'kb-st-row';
+  row.dataset.stid = st.id || newId();
+  row.dataset.status = st.status || 'backlog';
+
+  const toggle = document.createElement('button');
+  toggle.className = 'kb-st-toggle';
+  toggle.type = 'button';
+  setDetailSubtaskToggle(toggle, row.dataset.status);
+  toggle.onclick = () => {
+    row.dataset.status = row.dataset.status === 'done' ? 'backlog' : 'done';
+    setDetailSubtaskToggle(toggle, row.dataset.status);
+    markDetailDirty();
+  };
+  row.appendChild(toggle);
+
+  const input = document.createElement('input');
+  input.className = 'kb-st-input';
+  input.type = 'text';
+  input.value = st.title || '';
+  input.placeholder = 'Subtask title';
+  input.oninput = markDetailDirty;
+  row.appendChild(input);
+
+  const del = document.createElement('button');
+  del.className = 'kb-st-del';
+  del.type = 'button';
+  del.textContent = 'x';
+  del.title = 'Remove subtask';
+  del.onclick = () => { row.remove(); markDetailDirty(); refreshDetailSubtaskEmpty(); };
+  row.appendChild(del);
+  return row;
+}
+
+function setDetailSubtaskToggle(btn, status) {
+  const done = status === 'done';
+  btn.textContent = done ? '✅' : '❎';
+  btn.title = done ? 'Completed' : 'Open';
+}
+
+function addDetailSubtask() {
+  const box = document.getElementById('detail-subtasks');
+  if (!box) return;
+  box.querySelectorAll('.empty-state').forEach(e => e.remove());
+  const row = buildDetailSubtaskRow({id: newId(), title: '', status: 'backlog'});
+  box.appendChild(row);
+  markDetailDirty();
+  setTimeout(() => row.querySelector('.kb-st-input').focus(), 20);
+}
+
+function refreshDetailSubtaskEmpty() {
+  const box = document.getElementById('detail-subtasks');
+  if (!box || box.querySelector('.kb-st-row')) return;
+  const empty = document.createElement('div');
+  empty.className = 'empty-state';
+  empty.textContent = 'No subtasks yet.';
+  box.appendChild(empty);
+}
+
+function markDetailDirty() {
+  boardDetailDirty = true;
+}
+
+function saveSelectedCard() {
+  const card = getCard(selectedCardId);
+  if (!card) return;
+  const title = document.getElementById('detail-title').value.trim();
+  if (!title) { document.getElementById('detail-title').focus(); return; }
+
+  const prevCol = card.column;
+  const colVal = document.getElementById('detail-column').value;
+  card.title = title;
+  card.description = document.getElementById('detail-desc').value.trim();
+  card.notes = document.getElementById('detail-notes').value.trim();
+  card.pillar = document.getElementById('detail-pillar').value;
+  card.column = colVal;
+  const priRaw = document.getElementById('detail-priority').value;
+  card.priority = priRaw !== '' ? parseInt(priRaw, 10) : null;
+  card.subtasks = [...document.querySelectorAll('#detail-subtasks .kb-st-row')].map((row, i) => ({
+    id: row.dataset.stid || newId(),
+    title: row.querySelector('.kb-st-input').value.trim(),
+    status: row.dataset.status || 'backlog',
+    order: (i + 1) * 1000,
+    notes: ''
+  })).filter(st => st.title);
+  if (colVal !== prevCol) {
+    const colCards = sortedCards(state.cards.filter(c => c.id !== card.id && c.column === colVal));
+    card.order = colCards.length > 0 ? colCards[colCards.length - 1].order + 1000 : 1000;
+  }
+  card.updated = now();
+  boardDetailDirty = false;
+  render();
+  scheduleSave();
+}
+
+function cancelSelectedCard() {
+  boardDetailDirty = false;
+  renderBoard();
+}
+
+function deleteSelectedCard() {
+  if (!selectedCardId) return;
+  const card = getCard(selectedCardId);
+  if (!confirm('Delete this card?')) return;
+  state.cards = state.cards.filter(c => c.id !== selectedCardId);
+  selectedCardId = null;
+  boardDetailDirty = false;
+  render();
+  scheduleSave();
+}
+
+function onListDragOver(e, listEl) {
+  if (!listDragId) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const items = [...listEl.querySelectorAll('.kb-list-item:not(.dragging)')];
+  let beforeId = null;
+  let insertBefore = null;
+  for (const item of items) {
+    const rect = item.getBoundingClientRect();
+    if (e.clientY < rect.top + rect.height / 2) {
+      beforeId = item.dataset.id;
+      insertBefore = item;
+      break;
+    }
+  }
+  dropTarget = {colId: activeKanbanColumn, beforeId};
+  clearKbDropLines(listEl);
+  const line = document.createElement('div');
+  line.className = 'kb-drop-line';
+  if (insertBefore) listEl.insertBefore(line, insertBefore); else listEl.appendChild(line);
+}
+
+function onListDrop(e) {
+  if (!listDragId || !dropTarget) return;
+  e.preventDefault();
+  moveCard(listDragId, dropTarget.colId, dropTarget.beforeId);
+  selectedCardId = listDragId;
+  localStorage.setItem('pd2kb-selected-card', selectedCardId);
+  listDragId = null;
+  dropTarget = null;
+  clearKbDropLines(null);
+}
+
+function clearKbDropLines(wrap) {
+  (wrap || document).querySelectorAll('.kb-drop-line').forEach(d => d.remove());
 }
 
 function buildCard(card) {
@@ -1764,7 +2301,8 @@ function addPillar() {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    if (!document.getElementById('modal-overlay').classList.contains('hidden')) closeModal();
+    if (document.getElementById('ai-notes-modal-overlay').classList.contains('show')) closeAiNotesModal();
+    else if (!document.getElementById('modal-overlay').classList.contains('hidden')) closeModal();
     else closeSettings();
   }
   if (e.key === 'Enter' && !document.getElementById('modal-overlay').classList.contains('hidden')) {
@@ -2014,7 +2552,7 @@ function buildDecisionResponseRow(q) {
   const openCard = document.createElement('button');
   openCard.className = 'btn btn-ghost btn-sm';
   openCard.textContent = 'Open card';
-  openCard.onclick = () => openModal(q.card_id, null);
+  openCard.onclick = () => { switchTab('kanban'); selectBoardCard(q.card_id); };
   actions.appendChild(openCard);
   if (!q.resolved) {
     const openQuestion = document.createElement('button');
@@ -2839,7 +3377,7 @@ function ctxOpenAction() {
   if (!ctxCardId) return;
   const id = ctxCardId;
   hideCtxMenu();
-  openModal(id, null);
+  selectBoardCard(id);
 }
 
 function ctxFlagAction() {

@@ -101,6 +101,8 @@ struct PdWeaponGraphEditorDesc {
 	int context_count;
 	const char *const *scopes;
 	int scope_count;
+	const char *scope_filter;
+	const char *scope_label;
 	float scale;
 };
 
