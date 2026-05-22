@@ -91,6 +91,80 @@
   },
   "cards": [
     {
+      "id": "c3828",
+      "title": "Connectivity: online friend presence and invites",
+      "description": "Mike and Chris can add each other by correct client code, but both appear offline. Remove the obsolete Main Menu Online Play entry, rename Solo Play to Play, and make friend invite/join work from the Social flow even when a stale row still says offline.",
+      "pillar": "networking",
+      "column": "active",
+      "order": 3828000,
+      "notes": "Code/build verified 2026-05-21; pending Mike+Chris live two-client confirmation before the goal can close. Fixed the offline-after-add root cause by validating signed presence against per-agent handles and storing the loaded save-slot agent name instead of the generic identity profile. Presence frames now carry agent name and status separately, LAN bootstrap sends presence to the presence port, Social friend rows and profile modals expose Invite even when the displayed state is stale/offline, invite/group-session and live-spectator handoffs use the hole-punch-aware join path, and Main Menu now shows Play instead of Solo Play with the obsolete Online Play direct-connect view removed. Verification: [c3828] passed, [connectcode][security][static] passed, [input][menu_graph][static] passed, git diff --check passed with existing CRLF warnings only, and isolated all-target build c3828social passed for client/updater.",
+      "flag": "star",
+      "flagged_at": "2026-05-21T19:25:00-04:00",
+      "created": "2026-05-21T19:25:00-04:00",
+      "updated": "2026-05-21T19:51:46-04:00",
+      "pending_completion": {
+        "marked_by": "codex-c3828-social-presence",
+        "summary": "Presence identity, stale-offline invite recovery, NAT-aware friend handoffs, and Main Menu Play cleanup are code/build verified.",
+        "verify_notes": "Verified 2026-05-21 in isolated session c3828social: [c3828] passed with 42 assertions / 3 cases; [connectcode][security][static] passed with 45 assertions / 1 case; [input][menu_graph][static] passed with 688 assertions / 35 cases; git diff --check passed with existing CRLF warnings only; all-target build passed for client/updater. Needs Mike+Chris live retest before closure.",
+        "files": [
+          "port/src/social_store.c",
+          "port/src/presence.c",
+          "port/fast3d/pdgui_friends.cpp",
+          "port/src/net/group_session.c",
+          "port/src/spectator.c",
+          "port/fast3d/pdgui_menu_mainmenu.cpp",
+          "port/src/menugraph.c",
+          "tests/test_social_toggle_imc.cpp",
+          "tests/test_menu_graph.cpp",
+          "tests/test_net_lifecycle_static.cpp",
+          "tests/test_connectcode.cpp"
+        ],
+        "manual_checks": [
+          "Mike and Chris both load an agent, add each other by valid client code, and each row changes from Offline to online within the presence window.",
+          "A wrong client code still reports no user exists.",
+          "Invite is available even if the row temporarily says Offline, and sending it either refreshes delivery or fails with a real transport error instead of being hidden.",
+          "Accepting an invite joins the host session through the NAT-aware path and returns cleanly to the connected Social lobby/room flow."
+        ]
+      },
+      "subtasks": [
+        {
+          "id": "c3828-s1",
+          "title": "Fix presence identity binding and online state after add-by-code",
+          "status": "done",
+          "order": 1000,
+          "notes": "Fixed in social_store.c and presence.c: loaded save-slot agent name is stored locally, signed frames carry agent/status separately, and incoming signatures validate against pubkey-only compatibility plus per-agent handles."
+        },
+        {
+          "id": "c3828-s2",
+          "title": "Make Invite available and attempt send despite stale offline display",
+          "status": "done",
+          "order": 2000,
+          "notes": "Friend rows and profile modal now show Invite regardless of displayed presence state so stale Offline does not block recovery."
+        },
+        {
+          "id": "c3828-s3",
+          "title": "Route invite acceptance through the hole-punch-aware join path",
+          "status": "done",
+          "order": 3000,
+          "notes": "Invite/group-session and live spectator handoffs now call netStartClientWithHolePunch, pinned by static interoperability coverage."
+        },
+        {
+          "id": "c3828-s4",
+          "title": "Remove Main Menu Online Play and rename Solo Play to Play",
+          "status": "done",
+          "order": 4000,
+          "notes": "Main Menu now presents Play, clamps retired view 4, and no longer exposes the old Online Play direct-connect/recent-server view or graph edge."
+        },
+        {
+          "id": "c3828-s5",
+          "title": "Verify focused presence/menu/invite tests and update context",
+          "status": "done",
+          "order": 5000,
+          "notes": "Focused c3828, connect-code UI, menu graph static tests and isolated all-target build passed; context and release-note updates tracked in this session."
+        }
+      ]
+    },
+    {
       "id": "c3827",
       "title": "B-362: Falcon 2 mission-start beam stretches to center",
       "description": "Mike reported that starting a mission with the Falcon 2 points the gun down while geometry stretches to the center of the screen. Root cause is the Falcon laser-sight beam rendering during weapon-change/equip frames, plus an unchecked laser-sight node matrix index.",

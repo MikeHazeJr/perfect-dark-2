@@ -236,6 +236,43 @@ TEST_CASE("Social tabs and menu tab navigation stay action-map owned", "[input][
     REQUIRE(mainmenu.find("ImGui::IsKeyPressed(ImGuiKey_PageDown") == std::string::npos);
 }
 
+TEST_CASE("Social presence and invites use per-agent identity and stale-offline recovery",
+          "[social][presence][static][c3828]")
+{
+    const std::string socialH = readTextFile("port/include/social.h");
+    const std::string socialStore = readTextFile("port/src/social_store.c");
+    const std::string presence = readTextFile("port/src/presence.c");
+    const std::string friends = readTextFile("port/fast3d/pdgui_friends.cpp");
+    const std::string group = readTextFile("port/src/net/group_session.c");
+
+    REQUIRE_FALSE(socialH.empty());
+    REQUIRE_FALSE(socialStore.empty());
+    REQUIRE_FALSE(presence.empty());
+    REQUIRE_FALSE(friends.empty());
+    REQUIRE_FALSE(group.empty());
+
+    REQUIRE(socialH.find("socialHandleBindsPubkeyForAgent") != std::string::npos);
+    REQUIRE(socialStore.find("static char            s_MyAgentName[SOCIAL_AGENTNAME_MAX]") != std::string::npos);
+    REQUIRE(socialStore.find("setLocalAgentName(agent_name)") != std::string::npos);
+    REQUIRE(socialStore.find("deriveHandleFromPubkeyAgent(pub, agent)") != std::string::npos);
+    REQUIRE(socialStore.find("socialHandleBindsPubkeyForAgent(handle, pubkey, NULL)") != std::string::npos);
+
+    REQUIRE(presence.find("PRESENCE_AGENT_OFFSET") != std::string::npos);
+    REQUIRE(presence.find("PRESENCE_STATUS_OFFSET") != std::string::npos);
+    REQUIRE(presence.find("writeFixedString(packet + PRESENCE_AGENT_OFFSET") != std::string::npos);
+    REQUIRE(presence.find("socialHandleBindsPubkeyForAgent(from_handle, sender_pub, agent)") != std::string::npos);
+    REQUIRE(presence.find("socialFriendUpdateAgentName(f->connect_code, agent)") != std::string::npos);
+    REQUIRE(presence.find("*out_port = PRESENCE_PORT;") != std::string::npos);
+
+    REQUIRE(friends.find("if (actionButton(\"Invite\"))") != std::string::npos);
+    REQUIRE(friends.find("const bool can_invite") == std::string::npos);
+    REQUIRE(friends.find("Attempt even when the displayed state is stale/offline") != std::string::npos);
+
+    REQUIRE(group.find("#include \"net/netholepunch.h\"") != std::string::npos);
+    REQUIRE(group.find("netStartClientWithHolePunch(addr)") != std::string::npos);
+    REQUIRE(group.find("netStartClient(addr)") == std::string::npos);
+}
+
 TEST_CASE("ACTION_VOICE_PTT id is 85", "[actionmap][imc][voice][ptt][pin]")
 {
     REQUIRE(ACT_VOICE_PTT == 85);

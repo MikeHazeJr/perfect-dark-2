@@ -29,6 +29,8 @@
 - Memory Review now parses live memory task groups and stores review markup separately from the source memory file.
 - Weapon behavior graphs now feed more runtime weapon actions, including recoil/recovery, throw/special handling, projectile spawn values, auto-aim, and sight behavior behind the debug graph-runtime toggle.
 - Replaced the old Settings Controls surface with a single actionmap-backed Input binding table.
+- Main Menu now presents Play instead of Solo Play and removes the old Online Play direct-connect entry; online friend play now routes through Social invites/joins.
+- Social friend invites are available even when a friend row is showing a stale Offline state.
 - Cutscene skipping now uses a held button with a contextual radial progress prompt instead of an accidental tap.
 - Startup asset extraction now reuses validated per-family cache stamps and shows a centered progress modal with smoother time-weighted progress.
 
@@ -38,6 +40,7 @@
 - Cleared stale Kanban Bug Tracker rows B-318 through B-326.
 - Fixed Combat Simulator post-match endscreen X and Quit/Disconnect confirmation clicks so the visible results screen can be exited normally.
 - Fixed online post-match return-to-room resync so clients replay room assignment, match settings, and playlist state instead of returning with partial room state.
+- Fixed friend presence so added players using per-agent client codes can validate signed presence, appear online, and use invite/join handoffs through the NAT-aware path.
 - Fixed failed online match asset transfers so active match prep declines the manifest and returns to lobby instead of repeatedly requesting the same failed content.
 - Fixed listen-host logging during early startup so hosted smoke and diagnostics write to the host log before normal system init.
 - Fixed Main Menu Escape/title-X closing so the menu actually exits instead of playing cancel and reopening.

@@ -39,8 +39,7 @@
     { (id_), (action_), (label_), MENU_GRAPH_DEST_LOCAL_OP, { .local_op = (op_) } }
 
 static const MenuGraphEdge s_MainMenuEdges[] = {
-    EDGE_PUSH("solo_play", ACTION_MENU_ACCEPT, "Solo Play", MENU_TYPE_MAIN_SOLO_VIEW),
-    EDGE_PUSH("online_play", ACTION_MENU_ACCEPT, "Online Play", MENU_TYPE_MAIN_ONLINE_VIEW),
+    EDGE_PUSH("solo_play", ACTION_MENU_ACCEPT, "Play", MENU_TYPE_MAIN_SOLO_VIEW),
     EDGE_PUSH("social", ACTION_MENU_ACCEPT, "Social", MENU_TYPE_SOCIAL_SHELL),
     EDGE_PUSH("public_mods", ACTION_MENU_ACCEPT, "Public Mods", MENU_TYPE_SOCIAL_SHELL),
     EDGE_PUSH("change_agent", ACTION_MENU_ACCEPT, "Change Agent", MENU_TYPE_AGENT_SELECT),
@@ -73,12 +72,6 @@ static const MenuGraphEdge s_CinemaEdges[] = {
 
 static const MenuGraphEdge s_MainModdingEdges[] = {
     EDGE_PUSH("open_hub", ACTION_MENU_ACCEPT, "Open Modding Hub", MENU_TYPE_MODDING_HUB),
-    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
-};
-
-static const MenuGraphEdge s_MainOnlineEdges[] = {
-    EDGE_NETWORK("connect", ACTION_MENU_ACCEPT, "Connect", "client"),
-    EDGE_NETWORK("recent_server", ACTION_MENU_ACCEPT, "Recent Server", "client"),
     EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
 };
 
@@ -327,7 +320,6 @@ static const MenuGraphNode s_Nodes[] = {
     NODE(MENU_TYPE_MAIN_SETTINGS_VIEW, "main_settings_view", s_MainSettingsEdges),
     NODE(MENU_TYPE_CI_OPTIONS, "ci_options", s_CiOptionsEdges),
     NODE(MENU_TYPE_MAIN_MODDING_VIEW, "main_modding_view", s_MainModdingEdges),
-    NODE(MENU_TYPE_MAIN_ONLINE_VIEW, "main_online_view", s_MainOnlineEdges),
     NODE(MENU_TYPE_MAIN_STATS_VIEW, "main_stats_view", s_MainStatsEdges),
     NODE(MENU_TYPE_GRID_SUBMENU, "grid_submenu", s_GridEdges),
     NODE(MENU_TYPE_CINEMA, "cinema", s_CinemaEdges),

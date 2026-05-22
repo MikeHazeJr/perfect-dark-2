@@ -531,13 +531,10 @@ static void renderFriendRow(s32 idx, const social_friend_t *f)
 		return hit;
 	};
 
-	const bool can_invite = (pstate == PRESENCE_ONLINE_IDLE) ||
-	                         (pstate == PRESENCE_IN_MATCH) ||
-	                         (pstate == PRESENCE_IN_MISSION);
-	if (can_invite) {
-		if (actionButton("Invite")) {
-			presenceSendInvite(f->handle, PRESENCE_INVITE_KIND_MATCH);
-		}
+	if (actionButton("Invite")) {
+		/* Attempt even when the displayed state is stale/offline; the
+		 * endpoint cache or LAN discovery may still be good enough. */
+		presenceSendInvite(f->handle, PRESENCE_INVITE_KIND_MATCH);
 	}
 
 	const bool can_spectate = (pstate == PRESENCE_IN_MATCH) ||
@@ -855,16 +852,12 @@ static void renderProfileModal(void)
 		ImGui::Spacing();
 		ImGui::Separator();
 
-		const presence_state_t pstate = p ? p->state : PRESENCE_OFFLINE;
-		const bool can_invite = (pstate == PRESENCE_ONLINE_IDLE) ||
-		                         (pstate == PRESENCE_IN_MATCH) ||
-		                         (pstate == PRESENCE_IN_MISSION);
-		if (can_invite) {
-			if (ImGui::Button("Invite to play", ImVec2(180, 0))) {
-				presenceSendInvite(f->handle, PRESENCE_INVITE_KIND_MATCH);
-			}
-			ImGui::SameLine();
+		/* Attempt even when the displayed state is stale/offline; the
+		 * transport can refresh presence or fail with a real delivery error. */
+		if (ImGui::Button("Invite to play", ImVec2(180, 0))) {
+			presenceSendInvite(f->handle, PRESENCE_INVITE_KIND_MATCH);
 		}
+		ImGui::SameLine();
 		if (ImGui::Button("Subscribe to listening room", ImVec2(220, 0))) {
 			listeningRoomSubscribe(f->handle);
 		}

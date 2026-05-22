@@ -229,6 +229,21 @@ TEST_CASE("net bot authority: bot move count is validated before state writes",
     REQUIRE(authorized < apply_write);
 }
 
+TEST_CASE("net interoperability: friend remote handoffs use hole-punch-aware joins",
+          "[net][interoperability][static][c3828]")
+{
+    const std::string group = read_text_file("port/src/net/group_session.c");
+    const std::string spectator = read_text_file("port/src/spectator.c");
+
+    REQUIRE(group.find("#include \"net/netholepunch.h\"") != std::string::npos);
+    REQUIRE(group.find("netStartClientWithHolePunch(addr)") != std::string::npos);
+    REQUIRE(group.find("netStartClient(addr)") == std::string::npos);
+
+    REQUIRE(spectator.find("#include \"net/netholepunch.h\"") != std::string::npos);
+    REQUIRE(spectator.find("netStartClientWithHolePunch(addr)") != std::string::npos);
+    REQUIRE(spectator.find("netStartClient(addr)") == std::string::npos);
+}
+
 TEST_CASE("net lifecycle: rejected Counter-Op start does not commit mode state",
           "[net][lifecycle][static]")
 {

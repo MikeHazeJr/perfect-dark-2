@@ -68,6 +68,7 @@ static u32             s_NotifMask  = SOCIAL_NOTIF_DEFAULT;
 
 static u32             s_MyHandle;
 static char            s_MyConnectCode[SOCIAL_CONNECTCODE_MAX];
+static char            s_MyAgentName[SOCIAL_AGENTNAME_MAX];
 static s32             s_Ready;
 
 #define SOCIAL_DOMAIN "pd-social-connect-v1\n"
@@ -128,10 +129,52 @@ static u32 deriveHandleFromBytes(const u8 *bytes, u32 len)
 	     | ((u32)digest[3] << 24);
 }
 
-s32 socialHandleBindsPubkey(u32 handle, const u8 pubkey[SOCIAL_PUBKEY_LEN])
+static void setLocalAgentName(const char *agent_name)
+{
+	const char *agent = (agent_name && agent_name[0]) ? agent_name : "Agent";
+	strncpy(s_MyAgentName, agent, SOCIAL_AGENTNAME_MAX - 1);
+	s_MyAgentName[SOCIAL_AGENTNAME_MAX - 1] = '\0';
+}
+
+static u32 deriveHandleFromPubkeyAgent(const u8 pubkey[SOCIAL_PUBKEY_LEN],
+		const char *agent_name)
 {
 	if (!pubkey) return 0;
-	return deriveHandleFromBytes(pubkey, SOCIAL_PUBKEY_LEN) == handle ? 1 : 0;
+	if (!agent_name || !agent_name[0]) {
+		return deriveHandleFromBytes(pubkey, SOCIAL_PUBKEY_LEN);
+	}
+
+	u8 combined[SOCIAL_PUBKEY_LEN + SOCIAL_AGENTNAME_MAX];
+	memcpy(combined, pubkey, SOCIAL_PUBKEY_LEN);
+	const u32 alen = (u32)strnlen(agent_name, SOCIAL_AGENTNAME_MAX - 1);
+	if (alen > 0) {
+		memcpy(combined + SOCIAL_PUBKEY_LEN, agent_name, alen);
+	}
+	return deriveHandleFromBytes(combined, SOCIAL_PUBKEY_LEN + alen);
+}
+
+s32 socialHandleBindsPubkeyForAgent(u32 handle,
+		const u8 pubkey[SOCIAL_PUBKEY_LEN],
+		const char *agent_name)
+{
+	if (!pubkey) return 0;
+	if (deriveHandleFromBytes(pubkey, SOCIAL_PUBKEY_LEN) == handle) return 1;
+	if (agent_name && agent_name[0] &&
+			deriveHandleFromPubkeyAgent(pubkey, agent_name) == handle) {
+		return 1;
+	}
+
+	const social_friend_t *f = socialFriendByHandle(handle);
+	if (f && f->agent_name[0] &&
+			deriveHandleFromPubkeyAgent(pubkey, f->agent_name) == handle) {
+		return 1;
+	}
+	return 0;
+}
+
+s32 socialHandleBindsPubkey(u32 handle, const u8 pubkey[SOCIAL_PUBKEY_LEN])
+{
+	return socialHandleBindsPubkeyForAgent(handle, pubkey, NULL);
 }
 
 s32 socialEncodeHandle(u32 handle, char *out, u32 outsize)
@@ -751,6 +794,7 @@ const char *socialMyConnectCode(void) { return s_MyConnectCode; }
 
 const char *socialMyAgentName(void)
 {
+	if (s_MyAgentName[0]) return s_MyAgentName;
 	identity_profile_t *p = identityGetActiveProfile();
 	if (p && p->name[0]) return p->name;
 	return "Agent";
@@ -770,23 +814,15 @@ const char *socialMyAgentName(void)
 void socialRebindToActiveAgent(const char *agent_name)
 {
 	const u8 *pub = identityGetPubkey();
-	const char *agent = (agent_name && agent_name[0]) ? agent_name : socialMyAgentName();
 	const u32 prev_handle = s_MyHandle;
 	char prev_code[32];
 	strncpy(prev_code, s_MyConnectCode, sizeof(prev_code) - 1);
 	prev_code[sizeof(prev_code) - 1] = '\0';
+	setLocalAgentName(agent_name);
+	const char *agent = socialMyAgentName();
 
 	if (pub) {
-		/* Compose (pubkey || agent_name) into a single derivation buffer.
-		 * SOCIAL_PUBKEY_LEN is 32; agent names are short, so a fixed
-		 * 128-byte combined buffer covers any reasonable length. */
-		u8 combined[SOCIAL_PUBKEY_LEN + 96];
-		memcpy(combined, pub, SOCIAL_PUBKEY_LEN);
-		const u32 alen = agent ? (u32)strnlen(agent, sizeof(combined) - SOCIAL_PUBKEY_LEN) : 0;
-		if (alen > 0 && agent) {
-			memcpy(combined + SOCIAL_PUBKEY_LEN, agent, alen);
-		}
-		s_MyHandle = deriveHandleFromBytes(combined, SOCIAL_PUBKEY_LEN + alen);
+		s_MyHandle = deriveHandleFromPubkeyAgent(pub, agent);
 	} else {
 		/* Pre-keypair fallback: device-uuid hash unchanged. */
 		pd_identity_t *ident = identityGet();

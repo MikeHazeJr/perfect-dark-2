@@ -1,5 +1,34 @@
 # Session Log (Active)
 
+## Session (`c3828-social-presence-invites`) - 2026-05-21 - friend presence, invites, and Main Menu Play cleanup
+
+Mike reported that he and Chris could add each other by correct client code, and wrong codes correctly returned no user, but both clients showed each other Offline. He also asked to remove the obsolete Main Menu Online Play entry, rename Solo Play to Play, and make friend invites available even when the displayed state is stale/offline.
+
+### Implemented
+
+- Created Kanban `c3828` to track the live social-presence goal; it remains active/pending completion until Mike+Chris confirm real two-client online state, invite, and join.
+- Fixed the per-agent presence mismatch: `socialRebindToActiveAgent` now stores the loaded save-slot agent name, and inbound signed presence validates against pubkey-only compatibility plus `(pubkey || agent_name)` via `socialHandleBindsPubkeyForAgent`.
+- Split presence frame agent name and status blurb into separate signed fields, and valid incoming presence updates the stored friend agent name before marking the peer online.
+- Fixed LAN presence bootstrap to use the P2P-discovered IP but send to UDP 27105, not the P2P LAN advertisement port.
+- Made Invite visible in both friend rows and profile modal even if the displayed row says Offline, so stale presence does not hide the recovery action.
+- Routed invite/group-session and live-spectator remote handoffs through `netStartClientWithHolePunch`.
+- Removed the obsolete Main Menu Online Play button/view/graph edge, retired/clamped view 4, and renamed top-level Solo Play to Play.
+- Updated static guards across social presence, network interoperability, connect-code UI, and menu graph cleanup. Logged B-364.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session c3828social -Selector "[c3828]" -BuildTimeoutSeconds 180` passed: 42 assertions / 3 cases.
+- `.\devtools\run-pd-tests.ps1 -Session c3828social -Selector "[connectcode][security][static]" -NoBuild` passed: 45 assertions / 1 case.
+- `.\devtools\run-pd-tests.ps1 -Session c3828social -Selector "[input][menu_graph][static]" -NoBuild` passed: 688 assertions / 35 cases.
+- `git diff --check` passed with only existing CRLF normalization warnings.
+- `.\devtools\build-session.ps1 -Session c3828social -Target all -BuildTimeoutSeconds 300` passed for client/updater.
+
+### Manual Gate
+
+Mike+Chris live retest remains before closure: both load agents, add each other by valid client code, both rows flip online within the presence window, wrong code still reports no user, Invite can be sent from a stale Offline row, accepting the invite joins the host session, and leaving returns through the connected Social/lobby/room flow.
+
+---
+
 ## Session (`netmatch-sweep-c3813`) - 2026-05-21 - networking and match-flow sweep
 
 Mike asked to run the new large-change sweep against networking and match flow so there are no gaps, stubs, or disconnects.

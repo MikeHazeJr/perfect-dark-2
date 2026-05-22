@@ -68,7 +68,7 @@ The codebase is roughly 60% of the way to the target architecture. The substrate
 
 - `pdgui_menu_mainmenu.cpp` flat `s_MenuView` model. Settings (2), Mods (3), Online (4), Stats (5), Grid (6) are intra-menu states with no pool acquire/release per sub-view; back-out is a `s_MenuView=0` write.
 - Direct `mainChangeToStage()` from `pdgui_menu_solomission.cpp:2953` (Restart Mission), `pdgui_menu_forge.cpp:73,109` (Forge entry), `pdgui_debugmenu.cpp:245` (debug stage jump), `pdgui_menu_mainmenu.cpp:4622` indirectly via `pdguiForgeStartSessionOn`.
-- Direct `netStartClientWithHolePunch(addr)` from inside `pdgui_menu_mainmenu.cpp:5050+` (Online Play row click) AND from `pdgui_menu_network.cpp:446`. Two paths to the same effect, neither registered as a graph edge.
+- Historical direct `netStartClientWithHolePunch(addr)` from the Main Menu Online Play row and the Network menu. c3828 retires the Main Menu Online Play direct-connect view; friend invite/join now lives in Social and routes through the connectivity handoff path.
 - Three pause menus share namespace: `pdgui_menu_pausemenu.cpp` is MP combat-sim pause, `pdgui_menu_solomission.cpp` has solo pause inline at line 2880+, `pdgui_menu_mppause.cpp` is in-game MP pause. None of the three lists its outgoing edges as data.
 
 **Cutscene state is global, not per-player.** `g_InCutscene`, `g_CutsceneAnimNum`, `g_CutsceneCurAnimFrame60`, `g_CutsceneSkipRequested`, `g_CutsceneCurTotalFrame60f`, and `g_Vars.in_cutscene` are all single globals. `bmoveSetModeForAllPlayers(MOVEMODE_CUTSCENE)` flips every player in lockstep. The net protocol broadcasts `SVC_CUTSCENE active=1/0` server-authoritative; clients freeze input. There is no per-player cutscene state, no per-player skip request, no invulnerable-and-invisible flag separate from the cutscene flag.
@@ -398,7 +398,7 @@ The 30 ImGui menus map onto ~25 distinct `menu_type_t` values (some share, e.g. 
 4. `MENU_TYPE_ENDSCREEN_SOLO`, `MENU_TYPE_ENDSCREEN_MP` (Continue / Retry / Main Menu / Disconnect all become edges).
 5. `MENU_TYPE_PAUSE_MENU`, `MENU_TYPE_MP_PAUSE`, the solo pause inside `pdgui_menu_solomission.cpp` (dedup the three pauses while we are here, see Decision K.4).
 6. `MENU_TYPE_SOCIAL_LOBBY` (Create Room, Disconnect).
-7. `MENU_TYPE_NETWORK` (Host, Join, Back). The duplicate path in main menu's Online Play sub-view migrates to fire the same edges.
+7. `MENU_TYPE_NETWORK` (Host, Join, Back). The historical duplicate path in the main menu's Online Play sub-view is retired by c3828; Social friend invite/join is the live player-facing online path.
 8. `MENU_TYPE_AGENT_SELECT` (Load, Create, Save default).
 9. `MENU_TYPE_WARNING_MODAL` (a meta-node; its edges are dynamic per invocation, declared in the SELECTABLE handler).
 
@@ -854,13 +854,13 @@ Verification: isolated build session `ix46` built `pd` and `pd-server`; isolated
 
 ### L.17 Network menu graph migration (2026-04-28)
 
-The next menu graph slice migrated the Network priority node and the duplicate main-menu Online connect path.
+The next menu graph slice migrated the Network priority node and the then-live duplicate main-menu Online connect path. This main-menu Online path was later retired by c3828.
 
 - Added `menuGraphFireNetworkOp()` and `menuGraphFirePop()`.
 - Added `MENU_TYPE_NETWORK_JOINING` and registered `g_NetJoiningDialog` so the Joining dialog has a typed graph and menu-pool destination.
 - Network menu Stop Hosting, pre-host disconnect, Host, host-success pop, Join, Joining dialog push, and Back now route through graph helpers.
-- The main-menu Online subview's direct connect and recent-server connect paths now route through `MENU_TYPE_MAIN_ONLINE_VIEW` graph network edges.
-- Static pd-tests guard the Network menu and main-menu Online renderers against reintroducing direct `netStart*`, `netDisconnect`, `menuPushDialog(&g_NetJoiningDialog)`, or `menuPopDialog()` calls in those paths.
+- Historical note: the main-menu Online subview's direct connect and recent-server connect paths routed through `MENU_TYPE_MAIN_ONLINE_VIEW` graph network edges before c3828 retired the subview.
+- Static pd-tests guarded the Network menu and main-menu Online renderers against direct `netStart*`, `netDisconnect`, `menuPushDialog(&g_NetJoiningDialog)`, or `menuPopDialog()` calls in those paths; c3828 now additionally guards that the main-menu Online renderer path is not exposed.
 
 Verification: isolated build session `ix46` built `pd` and `pd-server`; isolated `pd-tests.exe` passed 296 test cases / 16953 assertions.
 
@@ -961,7 +961,7 @@ Verification: direct isolated Ninja in `.claude/session-builds/ix46` built the a
 The next menu graph slice connected already-declared main-menu inline edges to the subview pool helper.
 
 - Added `pdguiMainMenuFireSubviewEdge()` to validate `MENU_TYPE_MAIN_MENU` graph edges before changing inline views.
-- Solo Play, Online Play, Settings, Mods, Stats, and The Grid now fire their declared graph edges before delegating to `pdguiMainMenuSetView()`.
+- Historical note: Solo Play, Online Play, Settings, Mods, Stats, and The Grid fired their declared graph edges before delegating to `pdguiMainMenuSetView()`; c3828 later renamed Solo Play to Play and retired Online Play.
 - The existing subview pool ownership behavior is unchanged; the graph helper validates the destination menu-pool type first.
 - Static pd-tests guard the edge lookup, destination validation, and absence of direct top-level `pdguiMainMenuSetView(1..6, "open-*")` calls.
 

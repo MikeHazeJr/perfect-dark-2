@@ -205,6 +205,16 @@ s32 socialFriendGetEndpoint(u32 handle, u32 *out_ipv4, u16 *out_port);
  */
 s32 socialHandleBindsPubkey(u32 handle, const u8 pubkey[SOCIAL_PUBKEY_LEN]);
 
+/**
+ * Per-agent handles derive from (pubkey || agent_name). Presence carries
+ * the remote agent name in its signed frame, so first contact can validate
+ * the handle before TOFU pubkey lock. The legacy pubkey-only handle remains
+ * accepted for older records and early-init fallback.
+ */
+s32 socialHandleBindsPubkeyForAgent(u32 handle,
+		const u8 pubkey[SOCIAL_PUBKEY_LEN],
+		const char *agent_name);
+
 /* -------------------------------------------------------------------------
  * Block list.
  *

@@ -15,6 +15,7 @@
 #include "net/group_session.h"
 #include "net/p2p.h"
 #include "net/net.h"
+#include "net/netholepunch.h"
 #include "social.h"
 #include "presence.h"
 #include "system.h"
@@ -296,10 +297,10 @@ static void onPairOpen(group_peer_t *p, const p2p_endpoint_t *ep)
 	enterState(p, GROUP_PEER_CONNECTED);
 
 	/* Hand off to the existing match-start flow.  Format the resolved
-	 * endpoint as "ip:port" and call netStartClient if we are the
+	 * endpoint as "ip:port" and call the hole-punch-aware client path if we are the
 	 * joining peer. The joining peer is by default whichever side
 	 * accepted the invite (presence.c sets in_session = 1 just before
-	 * us). For Phase 1 we let netStartClient happen unconditionally on
+	 * us). For Phase 1 we let the client handoff happen unconditionally on
 	 * the first successful pair -- the existing CLC_AUTH lobby flow
 	 * handles the rest. */
 	char addr[64];
@@ -311,14 +312,14 @@ static void onPairOpen(group_peer_t *p, const p2p_endpoint_t *ep)
 	         (unsigned)ep->port);
 
 	/* If we are not yet talking to anyone via ENet, become the joining
-	 * peer. If a netStartClient is already in flight, this is harmless
+	 * peer. If a client connect is already in flight, this is harmless
 	 * (returns immediately). The actual lobby-state transitions are
 	 * owned by net.c. */
 	extern s32 g_NetMode;
 	if (g_NetMode == 0) {
-		s32 rc = netStartClient(addr);
+		s32 rc = netStartClientWithHolePunch(addr);
 		sysLogPrintf(LOG_NOTE,
-		             "GROUP.SESSION: handing peer 0x%08x to netStartClient(%s) rc=%d",
+		             "GROUP.SESSION: handing peer 0x%08x to netStartClientWithHolePunch(%s) rc=%d",
 		             (unsigned)p->handle, addr, (int)rc);
 	}
 

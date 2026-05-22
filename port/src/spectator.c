@@ -21,6 +21,7 @@
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "net/netbuf.h"
+#include "net/netholepunch.h"
 #include "presence.h"
 #include "scene.h"
 #include <stdio.h>
@@ -173,10 +174,10 @@ s32 spectatorBeginLive(u32 host_friend_handle)
 	             f && f->agent_name[0] ? f->agent_name : "?");
 
 	/* Resolve host endpoint from social store (populated by presence)
-	 * and connect via the existing netStartClient pipeline. The CLC_AUTH
-	 * handshake completes normally; once we land in CLSTATE_GAME we
-	 * promote ourselves with CLC_SPECTATE_REQUEST. The state machine
-	 * accepts SVC_STATE_FRAME packets after that. */
+	 * and connect via the same hole-punch-aware pipeline as player joins.
+	 * The CLC_AUTH handshake completes normally; once we land in
+	 * CLSTATE_GAME we promote ourselves with CLC_SPECTATE_REQUEST. The
+	 * state machine accepts SVC_STATE_FRAME packets after that. */
 	u32 ipv4 = 0;
 	u16 port = 0;
 	if (!socialFriendGetEndpoint(host_friend_handle, &ipv4, &port)) {
@@ -197,8 +198,8 @@ s32 spectatorBeginLive(u32 host_friend_handle)
 		         (unsigned)((ipv4 >>  8) & 0xFF),
 		         (unsigned)((ipv4 >>  0) & 0xFF),
 		         (unsigned)port);
-		const s32 rc = netStartClient(addr);
-		sysLogPrintf(LOG_NOTE, "SPECTATOR: netStartClient(%s) rc=%d", addr, rc);
+		const s32 rc = netStartClientWithHolePunch(addr);
+		sysLogPrintf(LOG_NOTE, "SPECTATOR: netStartClientWithHolePunch(%s) rc=%d", addr, rc);
 	}
 
 	/* CLC_SPECTATE_REQUEST is sent after CLC_AUTH succeeds. We rely on

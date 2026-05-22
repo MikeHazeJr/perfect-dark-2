@@ -343,7 +343,7 @@ void menuTick(void)
 	 *
 	 * Sources that arm g_PostExitMainMenuView:
 	 *   - menutick MENUROOT_ENDSCREEN cleanup (campaign mission "Exit to
-	 *     Main Menu") -> view 1 (Solo Play / Mission Select).
+	 *     Main Menu") -> view 1 (Play / Mission Select).
 	 *   - mainEndStage's forge-active branch (Forge "End Match" via Fix 4)
 	 *     -> view 0 (top-level Main Menu).
 	 *
@@ -761,7 +761,7 @@ void menuTick(void)
 				/* B-303 (2026-05-01): post-exit auto-pop. After a campaign
 				 * "Exit to Main Menu" the OG path drops the player at CI in
 				 * free-roam (no menu). The PC port modernization auto-pops
-				 * the Main Menu on Solo Play (Mission Select) view so the
+				 * the Main Menu on Play (Mission Select) view so the
 				 * just-played mission is the focused row and the user can
 				 * re-enter / advance / back to Main Menu without walking to
 				 * an in-CI terminal. Only fires on the "Main Menu" choice
@@ -774,7 +774,7 @@ void menuTick(void)
 				if (g_Vars.restartlevel) {
 					mainChangeToStage(mainGetStageNum());
 				} else {
-					g_PostExitMainMenuView = 1; /* MainMenu view 1 = Solo Play */
+					g_PostExitMainMenuView = 1; /* MainMenu view 1 = Play */
 					mainChangeToStage(STAGE_TITLE);
 				}
 				break;

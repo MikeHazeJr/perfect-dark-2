@@ -4,8 +4,9 @@
  * Replaces g_CiMenuViaPcMenuDialog and g_CiMenuViaPauseMenuDialog
  * ("Perfect Menu" — the Carrington Institute hub).
  *
- * Layout: Two tabs — "Play" and "Settings".
- *   Play:     Solo Missions, Combat Simulator, Co-Op, Counter-Op, Network Game
+ * Layout: Top-level Play, Social, Public Mods, Agent, Settings, Mods,
+ * Cheats, Stats, and Grid entries.
+ *   Play:     Solo Missions and Combat Simulator
  *   Settings: Unified settings that merge original PD options + port extended options
  *
  * Each Play button invokes the same game functions as the original PD menu handlers
@@ -25,7 +26,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 /* S306: direct.h / unistd.h provide rmdir() for the BATCH 2 theme/mod
  * deletion flow. MinGW uses _rmdir; POSIX uses rmdir. */
 #ifdef _WIN32
@@ -54,7 +54,6 @@
 #include "system.h"
 #include "inputctx.h"
 #include "assetcatalog.h"
-#include "connectcode.h"
 #include "net/netmanifest.h"
 
 extern "C" {
@@ -102,7 +101,6 @@ extern struct menudialogdef g_CiControlPlayer2MenuDialog;
 /* Play target dialogs */
 extern struct menudialogdef g_SelectMissionMenuDialog;
 extern struct menudialogdef g_CombatSimulatorMenuDialog;
-extern struct menudialogdef g_NetMenuDialog;
 extern struct menudialogdef g_ChangeAgentMenuDialog;
 extern struct menudialogdef g_FilemgrFileSelectMenuDialog; /* canonical agent picker */
 extern struct menudialogdef g_CheatsMenuDialog;
@@ -420,31 +418,6 @@ s32  pdguiModdingHubIsVisible(void);
 void pdguiSoloRoomOpen(void);
 s32  pdguiSoloRoomIsActive(void);
 void pdguiSoloMissionReset(void); /* F-1.2 */
-
-/* Recent server list — layout must match struct netrecentserver in net.h exactly.
- * NET_MAX_ADDR=256, NET_MAX_NAME=MAX_PLAYERNAME=15. */
-#define PD_NET_MAX_RECENT_SERVERS 8
-struct netrecentserver {
-    char addr[257];       /* NET_MAX_ADDR + 1 */
-    u32  protocol;
-    u8   flags;
-    u8   numclients;
-    u8   maxclients;
-    u8   stagenum;
-    u8   scenario;
-    char hostname[15];    /* NET_MAX_NAME */
-    u32  lastresponse;
-    bool online;
-};
-extern struct netrecentserver g_NetRecentServers[PD_NET_MAX_RECENT_SERVERS];
-extern s32 g_NetNumRecentServers;
-
-/* Network connect + async recent-server ping (net.c / netholepunch.c) */
-s32 netStartClient(const char *addr);
-s32 netStartClientWithHolePunch(const char *addr);
-void netQueryRecentServersAsync(void);
-void netPollRecentServers(void);
-extern bool g_NetQueryInFlight;
 
 /* Persistent memory diagnostics -- from memp.c */
 void *mempPCAlloc(u32 size, const char *tag);
@@ -3837,7 +3810,7 @@ static void renderSettingsGame(float scale)
  * ImGui Render Callback
  * ======================================================================== */
 
-/* Menu view state: 0 = top-level (Play/Settings/Quit), 1 = Play, 2 = Settings */
+/* Menu view state: 0 = top-level, 1 = Play, 2 = Settings */
 static s32 s_MenuView = 0;
 
 static menu_type_t pdguiMainMenuViewPoolType(s32 view)
@@ -3846,7 +3819,6 @@ static menu_type_t pdguiMainMenuViewPoolType(s32 view)
     case 1: return MENU_TYPE_MAIN_SOLO_VIEW;
     case 2: return MENU_TYPE_MAIN_SETTINGS_VIEW;
     case 3: return MENU_TYPE_MAIN_MODDING_VIEW;
-    case 4: return MENU_TYPE_MAIN_ONLINE_VIEW;
     case 5: return MENU_TYPE_MAIN_STATS_VIEW;
     case 6: return MENU_TYPE_GRID_SUBMENU;
     default: return MENU_TYPE_NONE;
@@ -3855,7 +3827,7 @@ static menu_type_t pdguiMainMenuViewPoolType(s32 view)
 
 static void pdguiMainMenuSetView(s32 view, const char *reason)
 {
-    if (view < 0 || view > 6) {
+    if (view < 0 || view > 6 || view == 4) {
         view = 0;
     }
 
@@ -3954,15 +3926,6 @@ static s32 pdguiMainMenuFireSubviewBackEdge(const char *reason)
 
     pdguiMainMenuSetView(0, reason);
     return 0;
-}
-
-static s32 pdguiMainMenuGraphStartClient(void *userdata)
-{
-    const char *addr = static_cast<const char *>(userdata);
-    if (!addr) {
-        return -99;
-    }
-    return netStartClientWithHolePunch(addr);
 }
 
 static s32 pdguiMainMenuGraphSoloMissions(void *userdata)
@@ -5799,10 +5762,9 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
     /* Determine title based on current view */
     const char *windowTitle = "Perfect Dark";
-    if (s_MenuView == 1) windowTitle = "Solo Play";
+    if (s_MenuView == 1) windowTitle = "Play";
     else if (s_MenuView == 2) windowTitle = "Settings";
     else if (s_MenuView == 3) windowTitle = "Modding";
-    else if (s_MenuView == 4) windowTitle = "Online Play";
     else if (s_MenuView == 5) windowTitle = "Player Statistics";
     else if (s_MenuView == 6) windowTitle = "The Grid";
 
@@ -5873,8 +5835,6 @@ static s32 renderMainMenu(struct menudialog *dialog,
             } else if (s_MenuView == 3) {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — modding hub CLOSE (view 3->0)");
                 pdguiModdingHubHide();
-            } else if (s_MenuView == 4) {
-                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — online play CLOSE (view 4->0)");
             } else if (s_MenuView == 5) {
                 pdguiMenuStatsHide();
             } else if (s_MenuView == 6) {
@@ -5895,7 +5855,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
     if (s_MenuView == 0) {
         /* ================================================================
-         * TOP LEVEL: Solo Play / Online Play / Change Agent / Settings
+         * TOP LEVEL: Play / Social / Public Mods / Change Agent / Settings
          * Quit Game docked to bottom-right, opens canonical S385 confirm
          * modal (M-Q-A 2026-04-19 — replaces the old inline
          * button-toggle-between-Quit-Game-and-Confirm-Quit pattern).
@@ -5910,19 +5870,10 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
         ImGui::Dummy(ImVec2(0, 8.0f * scale));
 
-        /* Solo Play -- opens local lobby (no server connection) */
+        /* Play -- local missions and Combat Simulator; Social owns invite/join. */
         if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
-        if (PdButton("Solo Play", ImVec2(buttonW, buttonH * 1.2f))) {
+        if (PdButton("Play", ImVec2(buttonW, buttonH * 1.2f))) {
             pdguiMainMenuFireSubviewEdge("solo_play", 1, "open-solo");
-        }
-
-        ImGui::Dummy(ImVec2(0, spacing));
-
-        /* Online Play */
-        if (PdButton("Online Play", ImVec2(buttonW, buttonH * 1.2f))) {
-            if (pdguiMainMenuFireSubviewEdge("online_play", 4, "open-online") == 0) {
-                pdguiPlaySound(PDGUI_SND_SELECT);
-            }
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
@@ -6056,9 +6007,8 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
     } else if (s_MenuView == 1) {
         /* ================================================================
-         * SOLO PLAY SUB-MENU
-         * Campaign missions, local combat sim, co-op, counter-op.
-         * Online play is accessed from the top-level "Online Play" button.
+         * PLAY SUB-MENU
+         * Campaign missions and Combat Simulator.
          * ================================================================ */
         ImGui::Dummy(ImVec2(0, 4.0f * scale));
 
@@ -6127,204 +6077,6 @@ static s32 renderMainMenu(struct menudialog *dialog,
             if (PdButton("Back", ImVec2(buttonW * 0.65f, buttonH))) {
                 pdguiMainMenuFireSubviewBackEdge("modding-back");
                 pdguiPlaySound(PDGUI_SND_SWIPE);
-            }
-        }
-
-    } else if (s_MenuView == 4) {
-        /* ================================================================
-         * ONLINE PLAY
-         * Join a server by connect code.
-         * After connecting, transitions to the server lobby.
-         * ================================================================ */
-        /* Format a unix timestamp as a compact relative-time string.
-         * buf must be at least 32 bytes. Returns buf. */
-        auto fmtRelTime = [](char *buf, size_t bufsz, u32 ts) -> const char * {
-            if (ts == 0) { snprintf(buf, bufsz, "never"); return buf; }
-            time_t now = time(NULL);
-            if ((time_t)ts > now) { snprintf(buf, bufsz, "just now"); return buf; }
-            long diff = (long)(now - (time_t)ts);
-            if (diff < 60)             snprintf(buf, bufsz, "%lds ago", diff);
-            else if (diff < 3600)      snprintf(buf, bufsz, "%ldm ago", diff / 60);
-            else if (diff < 86400)     snprintf(buf, bufsz, "%ldh ago", diff / 3600);
-            else                       snprintf(buf, bufsz, "%ldd ago", diff / 86400);
-            return buf;
-        };
-        auto addrStringToConnectCode = [](const char *addrStr, char *buf, size_t bufsz) -> bool {
-            unsigned a = 0, b = 0, c = 0, d = 0, port = CONNECT_DEFAULT_PORT;
-            int consumed = 0;
-
-            if (sscanf(addrStr, " %u.%u.%u.%u:%u %n", &a, &b, &c, &d, &port, &consumed) == 5) {
-                if (addrStr[consumed] != '\0') return false;
-            } else {
-                consumed = 0;
-                if (sscanf(addrStr, " %u.%u.%u.%u %n", &a, &b, &c, &d, &consumed) != 4) return false;
-                if (addrStr[consumed] != '\0') return false;
-            }
-
-            if (a > 255 || b > 255 || c > 255 || d > 255 || port < 1 || port > 65535) return false;
-
-            u32 ip = (u32)a | ((u32)b << 8) | ((u32)c << 16) | ((u32)d << 24);
-            return connectCodeEncodeWithPort(ip, (u16)port, buf, (s32)bufsz) >= 0;
-        };
-        auto connectCodeToAddrString = [](const char *code, char *buf, size_t bufsz) -> bool {
-            u32 ip = 0;
-            u16 port = 0;
-
-            if (connectCodeDecodeWithPort(code, &ip, &port) != 0 || ip == 0 || port == 0) return false;
-
-            snprintf(buf, bufsz, "%u.%u.%u.%u:%u",
-                ip & 0xff, (ip >> 8) & 0xff,
-                (ip >> 16) & 0xff, (ip >> 24) & 0xff, port);
-            return true;
-        };
-        static char s_JoinCodeInput[64] = "";
-        static char s_JoinStatus[128] = "";
-        static ImVec4 s_JoinStatusColor = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
-        static Uint32 s_LastQueryMs = 0;
-#define ONLINE_PLAY_REQUERY_MS 12000
-
-        /* Fire async ping queries when the view opens and every 12 s. */
-        {
-            Uint32 nowMs = SDL_GetTicks();
-            if (s_ViewJustChanged || (nowMs - s_LastQueryMs) >= ONLINE_PLAY_REQUERY_MS) {
-                netQueryRecentServersAsync();
-                s_LastQueryMs = nowMs;
-            }
-        }
-
-        /* Drain any pending ping responses each frame. */
-        netPollRecentServers();
-
-        ImGui::Dummy(ImVec2(0, 8.0f * scale));
-        ImGui::TextColored(ImVec4(0.85f, 0.65f, 0.13f, 1.0f), "Join Server");
-        ImGui::Separator();
-        ImGui::Dummy(ImVec2(0, 4.0f * scale));
-
-        ImGui::Text("Enter the connect code shared by the server host:");
-        ImGui::Dummy(ImVec2(0, 4.0f * scale));
-
-        ImGui::SetNextItemWidth(buttonW);
-        if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
-        ImGui::InputText("##joincode", s_JoinCodeInput, sizeof(s_JoinCodeInput));
-
-        ImGui::Dummy(ImVec2(0, 4.0f * scale));
-
-        if (PdButton("Connect", ImVec2(buttonW, 32.0f * scale))) {
-            if (s_JoinCodeInput[0]) {
-                char addrStr[64];
-
-                /* Connect code is the ONLY accepted input.
-                 * No direct IP addresses allowed -- the code is a security layer
-                 * that prevents sharing raw public IPs. */
-                if (connectCodeToAddrString(s_JoinCodeInput, addrStr, sizeof(addrStr))) {
-                    /* Code validated -- resolve internally and connect. */
-                    sysLogPrintf(LOG_NOTE, "JOIN: code validated, connecting...");
-
-                    if (menuGraphFireNetworkOp(MENU_TYPE_MAIN_ONLINE_VIEW, "connect",
-                            pdguiMainMenuGraphStartClient, addrStr) == 0) {
-                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connecting...");
-                        s_JoinStatusColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
-                    } else {
-                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Server unreachable");
-                        s_JoinStatusColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
-                    }
-                } else {
-                    snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Invalid connect code");
-                    s_JoinStatusColor = ImVec4(1.0f, 0.5f, 0.2f, 1.0f);
-                }
-            }
-        }
-
-        if (s_JoinStatus[0]) {
-            ImGui::Dummy(ImVec2(0, 4.0f * scale));
-            ImGui::TextColored(s_JoinStatusColor, "%s", s_JoinStatus);
-        }
-
-        ImGui::Dummy(ImVec2(0, 8.0f * scale));
-        ImGui::TextDisabled("Enter a 4-word or 6-word connect code from the server host");
-        ImGui::TextDisabled("Example: fat vampire running to the park");
-
-        /* Server History */
-        ImGui::Dummy(ImVec2(0, 8.0f * scale));
-        ImGui::Separator();
-
-        /* Header: title + in-flight indicator or Refresh button */
-        ImGui::TextColored(pdguiVec4TitleGlow(), "Recent Servers");
-        ImGui::SameLine();
-        if (g_NetQueryInFlight) {
-            /* Pulse the dot between yellow and white while queries are in flight. */
-            float pulse = (float)(0.5 + 0.5 * ImGui::GetTime() * 4.0);
-            float p = (float)(0.55 + 0.45 * sin(pulse));
-            ImGui::TextColored(ImVec4(1.0f, p, 0.1f, 1.0f), " ●");
-        } else {
-            ImGui::SameLine(buttonW - pdguiScale(96.0f));
-            if (ImGui::SmallButton("Refresh")) {
-                netQueryRecentServersAsync();
-                s_LastQueryMs = SDL_GetTicks();
-            }
-        }
-
-        ImGui::Dummy(ImVec2(0, 4.0f * scale));
-        if (g_NetNumRecentServers == 0) {
-            ImGui::TextDisabled("No recent servers");
-        } else {
-            /* Entries are stored oldest-first; display newest first. */
-            for (s32 i = g_NetNumRecentServers - 1; i >= 0; --i) {
-                struct netrecentserver *srv = &g_NetRecentServers[i];
-
-                /* Build connect code from stored addr "a.b.c.d[:port]". */
-                char code[CONNECT_CODE_MAX] = "";
-                addrStringToConnectCode(srv->addr, code, sizeof(code));
-
-                /* Online/offline dot — pulsing amber while query in flight. */
-                if (g_NetQueryInFlight) {
-                    float pulse = (float)(0.5 + 0.5 * ImGui::GetTime() * 4.0);
-                    float p = (float)(0.55 + 0.45 * sin(pulse));
-                    ImGui::TextColored(ImVec4(1.0f, p, 0.1f, 1.0f), "◌");
-                } else {
-                    ImGui::TextColored(
-                        srv->online ? ImVec4(0.2f, 0.9f, 0.2f, 1.0f)
-                                    : ImVec4(0.45f, 0.45f, 0.45f, 1.0f),
-                        srv->online ? "●" : "○");
-                }
-                ImGui::SameLine();
-
-                /* Clickable row — hostname (or code fallback) + player count. */
-                const char *name = (srv->hostname[0] != '\0') ? srv->hostname : (code[0] ? code : "Server");
-                char rowText[256];
-                if (srv->online && srv->maxclients > 0) {
-                    snprintf(rowText, sizeof(rowText), "%s  [%u/%u]",
-                        name, (u32)srv->numclients, (u32)srv->maxclients);
-                } else {
-                    snprintf(rowText, sizeof(rowText), "%s", name);
-                }
-
-                ImGui::PushID(i);
-                if (ImGui::Selectable(rowText, false, ImGuiSelectableFlags_None,
-                        ImVec2(buttonW - pdguiScale(36.0f), 0.0f))) {
-                    if (menuGraphFireNetworkOp(MENU_TYPE_MAIN_ONLINE_VIEW, "recent_server",
-                            pdguiMainMenuGraphStartClient, srv->addr) == 0) {
-                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connecting...");
-                        s_JoinStatusColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
-                    } else {
-                        snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Server unreachable");
-                        s_JoinStatusColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
-                    }
-                }
-                ImGui::PopID();
-
-                /* Show connect code and last-seen time beneath the hostname. */
-                {
-                    char timebuf[32];
-                    fmtRelTime(timebuf, sizeof(timebuf), srv->lastresponse);
-                    if (srv->hostname[0] != '\0' && code[0] != '\0') {
-                        ImGui::TextDisabled("    %s  ·  %s", code, timebuf);
-                    } else {
-                        ImGui::TextDisabled("    %s", timebuf);
-                    }
-                }
-
-                ImGui::Dummy(ImVec2(0, pdguiScale(3.0f)));
             }
         }
 
@@ -6898,7 +6650,7 @@ void pdguiMainMenuReset(void)
  * canonical g_CiMenuViaPauseMenuDialog (same dialog the Pause press opens)
  * so menu pool dedup, input context attachment, and chrome rendering all
  * match the manual path; then sets the inline view so the menu opens
- * directly on Solo Play / Mission Select (view=1) for the campaign exit
+ * directly on Play / Mission Select (view=1) for the campaign exit
  * case, or on the top-level Main Menu (view=0) for the Forge exit case.
  *
  * Idempotent: if the dialog is already open (e.g. raced with a manual

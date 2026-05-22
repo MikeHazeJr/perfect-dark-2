@@ -16,8 +16,10 @@
  *   18  1    invite_kind / invite_response (0/1)
  *   19  1    input_class (privacy-safe ACTIONMAP_INPUT_CLASS_*)
  *   20  4    nonce
- *   24 64    status blurb / agent name (utf-8, null-padded)
- *   88 32    sender Ed25519 pubkey (matches handle via SHA256(pubkey||domain)[:4])
+ *   24 16    sender agent name (utf-8, null-padded)
+ *   40 48    status blurb (utf-8, null-padded)
+ *   88 32    sender Ed25519 pubkey (matches legacy pubkey handle or
+ *            per-agent SHA256(pubkey||agent_name) handle)
  *  120 64    Ed25519 signature over bytes[0..120) + the domain string
  *  184
  *
@@ -67,7 +69,11 @@
 #define PRESENCE_SIG_OFFSET       120
 #define PRESENCE_SIG_LEN          64
 #define PRESENCE_FRAME_LEN        184
+#define PRESENCE_AGENT_OFFSET     24
+#define PRESENCE_AGENT_LEN        SOCIAL_AGENTNAME_MAX
+#define PRESENCE_STATUS_OFFSET    (PRESENCE_AGENT_OFFSET + PRESENCE_AGENT_LEN)
 #define PRESENCE_BLURB_LEN        64
+#define PRESENCE_STATUS_LEN       (PRESENCE_BLURB_LEN - PRESENCE_AGENT_LEN)
 #define PRESENCE_SIG_DOMAIN       "pd-presence-v3"
 #define PRESENCE_SIG_DOMAIN_LEN   14
 #define PRESENCE_ENDPOINT_TTL_S   300 /* 5 minutes -- decision: connectivity-phase1-decisions.md */
@@ -154,6 +160,29 @@ static u16 rU16(const u8 **p) {
 static u32 rU32(const u8 **p) {
 	u32 v = ((u32)((*p)[0])      ) | ((u32)((*p)[1])<< 8) |
 	        ((u32)((*p)[2]) << 16) | ((u32)((*p)[3])<<24); *p+=4; return v;
+}
+
+static void copyFixedString(char *out, u32 outsize, const u8 *src, u32 srclen)
+{
+	if (!out || outsize == 0) return;
+	u32 n = 0;
+	if (src) {
+		while (n + 1 < outsize && n < srclen && src[n] != '\0') {
+			out[n] = (char)src[n];
+			n++;
+		}
+	}
+	out[n] = '\0';
+}
+
+static void writeFixedString(u8 *dst, u32 dstlen, const char *src)
+{
+	if (!dst || dstlen == 0) return;
+	memset(dst, 0, dstlen);
+	if (!src || !src[0]) return;
+	size_t n = strlen(src);
+	if (n > dstlen - 1) n = dstlen - 1;
+	memcpy(dst, src, n);
 }
 
 static s32 socketSetNonblock(SOCKET s)
@@ -269,7 +298,7 @@ static s32 verifyFrame(const u8 *body, const u8 *sig, const u8 *pubkey)
 }
 
 static void sendFrame(u32 ipv4, u16 port, u8 kind, u32 target_handle,
-                       u32 nonce, u8 invite_kind, const char *blurb_or_agent)
+                       u32 nonce, u8 invite_kind, const char *status_blurb)
 {
 	if (!s_SocketReady) return;
 	const u8 *mypub = identityGetPubkey();
@@ -287,11 +316,10 @@ static void sendFrame(u32 ipv4, u16 port, u8 kind, u32 target_handle,
 	wU16(&w, NET_PROTOCOL_VER);
 	wU16(&w, (u16)(((u16)actionmapGetLastInputClass() << 8) | invite_kind));
 	wU32(&w, nonce);
-	if (blurb_or_agent) {
-		size_t n = strlen(blurb_or_agent);
-		if (n > PRESENCE_BLURB_LEN - 1) n = PRESENCE_BLURB_LEN - 1;
-		memcpy(packet + 24, blurb_or_agent, n);
-	}
+	writeFixedString(packet + PRESENCE_AGENT_OFFSET, PRESENCE_AGENT_LEN,
+	                 socialMyAgentName());
+	writeFixedString(packet + PRESENCE_STATUS_OFFSET, PRESENCE_STATUS_LEN,
+	                 status_blurb);
 	memcpy(packet + PRESENCE_PUBKEY_OFFSET, mypub, PRESENCE_PUBKEY_LEN);
 
 	if (!signFrame(packet, packet + PRESENCE_SIG_OFFSET)) {
@@ -382,7 +410,7 @@ void presenceShutdown(void)
 		presence_peer_t *p = &s_Peers[i];
 		if (p->cached_ipv4 == 0 || p->cached_port == 0) continue;
 		sendFrame(p->cached_ipv4, p->cached_port, PRESENCE_KIND_BYE,
-		          p->handle, 0, 0, socialMyAgentName());
+		          p->handle, 0, 0, s_LocalBlurb);
 	}
 
 	closesocket(s_Sock);
@@ -414,7 +442,8 @@ const char *presenceGetLocalBlurb(void) { return s_LocalBlurb; }
  * ------------------------------------------------------------------------- */
 
 static void recordPong(u32 handle, u8 state, u16 proto, u8 input_class,
-                        u32 src_ipv4, u16 src_port, const char *blurb)
+                        u32 src_ipv4, u16 src_port, const char *agent,
+                        const char *status_blurb)
 {
 	presence_peer_t *p = touchPeer(handle);
 	if (!p) return;
@@ -427,12 +456,17 @@ static void recordPong(u32 handle, u8 state, u16 proto, u8 input_class,
 	p->input_class = input_class;
 	p->cached_ipv4 = src_ipv4;
 	p->cached_port = src_port;
-	if (blurb) {
-		strncpy(p->status_blurb, blurb, sizeof(p->status_blurb) - 1);
+	if (status_blurb) {
+		strncpy(p->status_blurb, status_blurb, sizeof(p->status_blurb) - 1);
 		p->status_blurb[sizeof(p->status_blurb) - 1] = '\0';
 	}
 	const social_friend_t *f = socialFriendByHandle(handle);
 	if (f) {
+		if (agent && agent[0]) {
+			socialFriendUpdateAgentName(f->connect_code, agent);
+			f = socialFriendByHandle(handle);
+			if (!f) return;
+		}
 		socialFriendTouchSeen(f->connect_code);
 		/* Refresh the persistent endpoint cache (Section 3 endpoint
 		 * resolution flow). TTL is 5 minutes; design decision logged in
@@ -543,9 +577,15 @@ static void drainReceive(void)
 
 		const u8 *sender_pub = packet + PRESENCE_PUBKEY_OFFSET;
 		const u8 *sender_sig = packet + PRESENCE_SIG_OFFSET;
+		char agent[SOCIAL_AGENTNAME_MAX];
+		char status_blurb[PRESENCE_STATUS_LEN];
+		copyFixedString(agent, sizeof(agent),
+		                packet + PRESENCE_AGENT_OFFSET, PRESENCE_AGENT_LEN);
+		copyFixedString(status_blurb, sizeof(status_blurb),
+		                packet + PRESENCE_STATUS_OFFSET, PRESENCE_STATUS_LEN);
 
 		/* Step 1: handle / key bind (cheap, drops obvious spoofs first). */
-		if (!socialHandleBindsPubkey(from_handle, sender_pub)) {
+		if (!socialHandleBindsPubkeyForAgent(from_handle, sender_pub, agent)) {
 			sysLogPrintf(LOG_WARNING,
 			             "PRESENCE: drop -- handle 0x%08x does not bind sender pubkey",
 			             (unsigned)from_handle);
@@ -572,30 +612,33 @@ static void drainReceive(void)
 
 		const u32 src_ipv4 = ntohl(src.sin_addr.s_addr);
 		const u16 src_port = ntohs(src.sin_port);
-		const char *blurb = (const char *)(packet + 24);
 
 		switch (kind) {
 			case PRESENCE_KIND_PING: {
 				/* Reply pong. */
-				recordPong(from_handle, state, proto, input_class, src_ipv4, src_port, blurb);
+				recordPong(from_handle, state, proto, input_class, src_ipv4, src_port,
+				           agent, status_blurb);
 				sendFrame(src_ipv4, src_port, PRESENCE_KIND_PONG, from_handle,
 				          nonce, 0, s_LocalBlurb);
 				break;
 			}
 			case PRESENCE_KIND_PONG: {
-				recordPong(from_handle, state, proto, input_class, src_ipv4, src_port, blurb);
+				recordPong(from_handle, state, proto, input_class, src_ipv4, src_port,
+				           agent, status_blurb);
 				break;
 			}
 			case PRESENCE_KIND_INVITE: {
 				/* Cache sender endpoint for the upcoming p2p path. */
-				recordPong(from_handle, state, proto, input_class, src_ipv4, src_port, blurb);
+				recordPong(from_handle, state, proto, input_class, src_ipv4, src_port,
+				           agent, status_blurb);
 				const social_friend_t *f = socialFriendByHandle(from_handle);
-				const char *agent = (f && f->agent_name[0]) ? f->agent_name : blurb;
-				enqueueInvite(from_handle, invite_kind, agent);
+				const char *display_agent = (f && f->agent_name[0]) ? f->agent_name : agent;
+				enqueueInvite(from_handle, invite_kind, display_agent);
 				break;
 			}
 			case PRESENCE_KIND_INVITE_RESP: {
-				recordPong(from_handle, state, proto, input_class, src_ipv4, src_port, blurb);
+				recordPong(from_handle, state, proto, input_class, src_ipv4, src_port,
+				           agent, status_blurb);
 				/* The low byte of input_meta encodes the response: 1 =
 				 * accepted, 0 = declined. group_session moves the peer to
 				 * RESOLVING (kicks p2p) or FAILED (REJECTED). */
@@ -660,7 +703,11 @@ static s32 resolveEndpoint(u32 handle, u32 *out_ipv4, u16 *out_port)
 	u32 lan_ipv4 = 0; u16 lan_port = 0;
 	if (p2pLanLookup(handle, &lan_ipv4, &lan_port)) {
 		*out_ipv4 = lan_ipv4;
-		*out_port = lan_port ? lan_port : PRESENCE_PORT;
+		/* P2P.LAN advertises the NAT/probe discovery port. Presence has
+		 * its own fixed socket, so use the LAN cache for the peer IP only
+		 * until an actual presence frame gives us a source port. */
+		*out_port = PRESENCE_PORT;
+		(void)lan_port;
 		return 1;
 	}
 	return 0;
@@ -806,7 +853,7 @@ s32 presenceSendInvite(u32 friend_handle, u8 kind)
 
 	const u32 nonce = (u32)SDL_GetTicks() ^ friend_handle;
 	sendFrame(ipv4, port, PRESENCE_KIND_INVITE, friend_handle, nonce, kind,
-	          socialMyAgentName());
+	          s_LocalBlurb);
 
 	/* Track the invite in the group session.  The actual p2p pair starts
 	 * when the friend's INVITE_RESP arrives -- racing to open the pair
@@ -845,7 +892,7 @@ s32 presenceInviteAccept(s32 idx)
 	const u32 nonce = (u32)SDL_GetTicks() ^ e.from_handle;
 	if (ipv4 != 0) {
 		sendFrame(ipv4, port, PRESENCE_KIND_INVITE_RESP, e.from_handle, nonce, 1,
-		          socialMyAgentName());
+		          s_LocalBlurb);
 	}
 
 	/* Hand the acceptance to the group session, which begins the p2p
@@ -872,7 +919,7 @@ s32 presenceInviteDecline(s32 idx)
 	if (resolveEndpoint(e->from_handle, &ipv4, &port)) {
 		const u32 nonce = (u32)SDL_GetTicks() ^ e->from_handle;
 		sendFrame(ipv4, port, PRESENCE_KIND_INVITE_RESP, e->from_handle, nonce, 0,
-		          socialMyAgentName());
+		          s_LocalBlurb);
 	}
 
 	memmove(&s_Inbox[idx], &s_Inbox[idx + 1],

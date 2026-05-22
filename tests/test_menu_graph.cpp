@@ -104,7 +104,6 @@ TEST_CASE("menu graph: main menu subviews have dedicated pool identities", "[inp
     REQUIRE(header.find("MENU_TYPE_MAIN_SOLO_VIEW") != std::string::npos);
     REQUIRE(header.find("MENU_TYPE_MAIN_SETTINGS_VIEW") != std::string::npos);
     REQUIRE(header.find("MENU_TYPE_MAIN_MODDING_VIEW") != std::string::npos);
-    REQUIRE(header.find("MENU_TYPE_MAIN_ONLINE_VIEW") != std::string::npos);
     REQUIRE(header.find("MENU_TYPE_MAIN_STATS_VIEW") != std::string::npos);
     REQUIRE(header.find("MENU_TYPE_GRID_SUBMENU") != std::string::npos);
     REQUIRE(header.find("MENU_TYPE_NETWORK_JOINING") != std::string::npos);
@@ -112,7 +111,6 @@ TEST_CASE("menu graph: main menu subviews have dedicated pool identities", "[inp
     REQUIRE(pool.find("[MENU_TYPE_MAIN_SOLO_VIEW]      = \"main_solo_view\"") != std::string::npos);
     REQUIRE(pool.find("[MENU_TYPE_MAIN_SETTINGS_VIEW]  = \"main_settings_view\"") != std::string::npos);
     REQUIRE(pool.find("[MENU_TYPE_MAIN_MODDING_VIEW]   = \"main_modding_view\"") != std::string::npos);
-    REQUIRE(pool.find("[MENU_TYPE_MAIN_ONLINE_VIEW]    = \"main_online_view\"") != std::string::npos);
     REQUIRE(pool.find("[MENU_TYPE_MAIN_STATS_VIEW]     = \"main_stats_view\"") != std::string::npos);
     REQUIRE(pool.find("[MENU_TYPE_NETWORK_JOINING]     = \"network_joining\"") != std::string::npos);
     REQUIRE(pool.find("REG(&g_NetJoiningDialog,             MENU_TYPE_NETWORK_JOINING)") != std::string::npos);
@@ -344,9 +342,9 @@ TEST_CASE("menu graph: main menu view changes go through subview pool helper", "
     REQUIRE(map.find("case 1: return MENU_TYPE_MAIN_SOLO_VIEW;") != std::string::npos);
     REQUIRE(map.find("case 2: return MENU_TYPE_MAIN_SETTINGS_VIEW;") != std::string::npos);
     REQUIRE(map.find("case 3: return MENU_TYPE_MAIN_MODDING_VIEW;") != std::string::npos);
-    REQUIRE(map.find("case 4: return MENU_TYPE_MAIN_ONLINE_VIEW;") != std::string::npos);
     REQUIRE(map.find("case 5: return MENU_TYPE_MAIN_STATS_VIEW;") != std::string::npos);
     REQUIRE(map.find("case 6: return MENU_TYPE_GRID_SUBMENU;") != std::string::npos);
+    REQUIRE(set.find("view == 4") != std::string::npos);
 
     REQUIRE(set.find("menupoolRelease(oldType)") != std::string::npos);
     REQUIRE(set.find("menupoolAcquire(newType, NULL, NULL)") != std::string::npos);
@@ -366,13 +364,12 @@ TEST_CASE("menu graph: main menu view changes go through subview pool helper", "
     REQUIRE(source.find("pdguiMainMenuFireSubviewEdge(\"solo_play\", 1, \"open-solo\")") != std::string::npos);
     REQUIRE(source.find("pdguiMainMenuFireSubviewEdge(\"settings\", 2, \"open-settings\")") != std::string::npos);
     REQUIRE(source.find("pdguiMainMenuFireSubviewEdge(\"modding\", 3, \"open-modding\")") != std::string::npos);
-    REQUIRE(source.find("pdguiMainMenuFireSubviewEdge(\"online_play\", 4, \"open-online\")") != std::string::npos);
+    REQUIRE(source.find("pdguiMainMenuFireSubviewEdge(\"online_play\", 4, \"open-online\")") == std::string::npos);
     REQUIRE(source.find("pdguiMainMenuFireSubviewEdge(\"stats\", 5, \"open-stats\")") != std::string::npos);
     REQUIRE(source.find("pdguiMainMenuFireSubviewEdge(\"grid\", 6, \"open-grid\")") != std::string::npos);
     REQUIRE(source.find("pdguiMainMenuSetView(1, \"open-solo\")") == std::string::npos);
     REQUIRE(source.find("pdguiMainMenuSetView(2, \"open-settings\")") == std::string::npos);
     REQUIRE(source.find("pdguiMainMenuSetView(3, \"open-modding\")") == std::string::npos);
-    REQUIRE(source.find("pdguiMainMenuSetView(4, \"open-online\")") == std::string::npos);
     REQUIRE(source.find("pdguiMainMenuSetView(5, \"open-stats\")") == std::string::npos);
     REQUIRE(source.find("pdguiMainMenuSetView(6, \"open-grid\")") == std::string::npos);
     REQUIRE(source.find("pdguiMainMenuFireSubviewBackEdge(\"close-subview\")") != std::string::npos);
@@ -721,18 +718,25 @@ TEST_CASE("menu graph: Network menu uses graph helpers for network transitions",
     REQUIRE(render.find("menuPopDialog()") == std::string::npos);
 }
 
-TEST_CASE("menu graph: main-menu Online subview uses graph network edges", "[input][menu_graph][network][static]")
+TEST_CASE("menu graph: Main Menu no longer exposes legacy Online Play", "[input][menu_graph][network][static][c3828]")
 {
     const std::string mainmenu = readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp");
+    const std::string graph = readTextFile("port/src/menugraph.c");
 
     REQUIRE_FALSE(mainmenu.empty());
+    REQUIRE_FALSE(graph.empty());
 
     const std::string render = functionBlock(mainmenu, "renderMainMenu");
     REQUIRE_FALSE(render.empty());
 
-    REQUIRE(mainmenu.find("pdguiMainMenuGraphStartClient") != std::string::npos);
-    REQUIRE(render.find("menuGraphFireNetworkOp(MENU_TYPE_MAIN_ONLINE_VIEW, \"connect\"") != std::string::npos);
-    REQUIRE(render.find("menuGraphFireNetworkOp(MENU_TYPE_MAIN_ONLINE_VIEW, \"recent_server\"") != std::string::npos);
+    REQUIRE(render.find("PdButton(\"Play\"") != std::string::npos);
+    REQUIRE(render.find("PdButton(\"Solo Play\"") == std::string::npos);
+    REQUIRE(render.find("PdButton(\"Online Play\"") == std::string::npos);
+    REQUIRE(render.find("menuGraphFireNetworkOp(MENU_TYPE_MAIN_ONLINE_VIEW") == std::string::npos);
+    REQUIRE(mainmenu.find("pdguiMainMenuGraphStartClient") == std::string::npos);
+    REQUIRE(graph.find("EDGE_PUSH(\"solo_play\", ACTION_MENU_ACCEPT, \"Play\"") != std::string::npos);
+    REQUIRE(graph.find("online_play") == std::string::npos);
+    REQUIRE(graph.find("NODE(MENU_TYPE_MAIN_ONLINE_VIEW") == std::string::npos);
     REQUIRE(render.find("netStartClientWithHolePunch(") == std::string::npos);
 }
 

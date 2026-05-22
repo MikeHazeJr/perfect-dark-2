@@ -81,15 +81,15 @@ s32 var80087260 = 0x00000000;
  * Parallels var80087260 but pops the canonical Main Menu over CI rather
  * than the Combat Simulator setup dialog. Set in menutick's MENUROOT_
  * ENDSCREEN cleanup branch (campaign mission "Exit to Main Menu" -> view 1
- * Solo Play / Mission Select) and in mainEndStage's forge-active branch
+ * Play / Mission Select) and in mainEndStage's forge-active branch
  * (Forge "End Match" -> view 0 top-level). Read in menutick's CI-on-spawn
  * block; one-shot, cleared on consumption.
  *
  *   -1 = inactive (default; no auto-pop)
  *    0 = top-level Main Menu page
- *    1 = Solo Play (Mission Select)
- *    2 = Settings, 3 = Modding, 4 = Online Play, 5 = Player Stats,
- *    6 = The Grid
+ *    1 = Play (Mission Select)
+ *    2 = Settings, 3 = Modding, 5 = Player Stats, 6 = The Grid
+ *    4 = reserved/deprecated (clamped to top-level by the UI)
  *
  * Combat Sim "Quit" deliberately does NOT use this -- the OG var80087260=3
  * path pops g_CombatSimulatorMenuDialog with persisted g_MpSetup settings,

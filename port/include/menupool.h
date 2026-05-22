@@ -71,10 +71,10 @@ typedef enum {
 
     /* Legacy dialog-backed — registered via dialogdef→type pairs. */
     MENU_TYPE_MAIN_MENU,          /* CI + Settings variants */
-    MENU_TYPE_MAIN_SOLO_VIEW,     /* pure ImGui main-menu Solo Play subview */
+    MENU_TYPE_MAIN_SOLO_VIEW,     /* pure ImGui main-menu Play subview */
     MENU_TYPE_MAIN_SETTINGS_VIEW, /* pure ImGui main-menu Settings subview */
     MENU_TYPE_MAIN_MODDING_VIEW,  /* pure ImGui main-menu Modding subview */
-    MENU_TYPE_MAIN_ONLINE_VIEW,   /* pure ImGui main-menu Online Play subview */
+    MENU_TYPE_MAIN_ONLINE_VIEW,   /* reserved: retired main-menu Online Play subview */
     MENU_TYPE_MAIN_STATS_VIEW,    /* pure ImGui main-menu Stats subview */
     MENU_TYPE_CI_OPTIONS,         /* nextsibling auto-open partner of MAIN */
     MENU_TYPE_SOLO_MISSION,       /* select / difficulty / briefing / accept */

@@ -55,19 +55,19 @@ void pdguiToggle(void);
 void pdguiConsoleToggle(void);
 
 /* Reset the main menu to the top-level view (s_MenuView = 0).
- * Call on disconnect so the menu re-opens at the root, not "Online Play". */
+ * Call on disconnect so the menu re-opens at the root. */
 void pdguiMainMenuReset(void);
 
 /* B-303 (2026-05-01): open the canonical Main Menu dialog over CI and switch
  * its inline view to the requested page. Used by the post-exit auto-pop
  * mechanism in menutick: after a campaign Mission "Exit to Main Menu" we
- * auto-pop with view=1 (Solo Play / Mission Select); after a Forge "End
+ * auto-pop with view=1 (Play / Mission Select); after a Forge "End
  * Match" exit we auto-pop with view=0 (top-level Main Menu). View indices
  * match s_MenuView in pdgui_menu_mainmenu.cpp:
- *   0 = top-level Main Menu (Solo / Combat Sim / Settings / etc.)
- *   1 = Solo Play (Mission Select)
- *   2 = Settings, 3 = Modding, 4 = Online Play, 5 = Player Stats,
- *   6 = The Grid.
+ *   0 = top-level Main Menu (Play / Social / Settings / etc.)
+ *   1 = Play (Mission Select)
+ *   2 = Settings, 3 = Modding, 5 = Player Stats, 6 = The Grid.
+ *   4 is reserved/deprecated and is clamped back to the top level.
  * Negative values are clamped to 0. The push uses g_CiMenuViaPauseMenuDialog
  * (the same dialog that the in-game Pause press opens) so the menu pool
  * dedup, input context attachment, and animated chrome all match the manual

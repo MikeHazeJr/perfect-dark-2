@@ -254,8 +254,9 @@ TEST_CASE("connectcode UI: join surfaces stay connect-code only",
     REQUIRE(config_init < sanitize);
 
     REQUIRE(mainmenu.find("Join a server by connect code or direct IP") == std::string::npos);
-    REQUIRE(mainmenu.find("connectCodeToAddrString(s_JoinCodeInput") != std::string::npos);
-    REQUIRE(mainmenu.find("connectCodeEncodeWithPort(ip, (u16)port") != std::string::npos);
+    REQUIRE(mainmenu.find("connectCodeToAddrString(s_JoinCodeInput") == std::string::npos);
+    REQUIRE(mainmenu.find("menuGraphFireNetworkOp(MENU_TYPE_MAIN_ONLINE_VIEW") == std::string::npos);
+    REQUIRE(mainmenu.find("PdButton(\"Online Play\"") == std::string::npos);
 
     REQUIRE(lobby.find("ipAddr = a | (b << 8) | (c << 16) | (d << 24)") != std::string::npos);
     REQUIRE(lobby.find("connectCodeEncodeWithPort(ipAddr, (u16)port") != std::string::npos);

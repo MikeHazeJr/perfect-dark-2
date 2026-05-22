@@ -103,9 +103,17 @@ Ping interval 30s, online window 60s. Friends pinged via social friend list iter
 
 Connect-code UI surfaces (`pdguiFriendsStatusIndicatorRender` top-right pill) early-return on `!presenceIsAgentLoaded()` so the code is hidden through Agent Select.
 
+2026-05-21 c3828 fix: presence verification now matches the per-agent connect-code contract. `socialRebindToActiveAgent` stores the loaded save-slot agent name locally, presence frames carry agent name and status blurb in separate signed fields, and inbound frames validate through `socialHandleBindsPubkeyForAgent()` so pubkey-only historical handles still work while `(pubkey || agent_name)` friends are accepted. Valid incoming presence also refreshes the stored friend agent name before marking the peer seen. LAN bootstrap uses the P2P LAN-discovered IP only; outbound presence pings target UDP 27105, not the P2P LAN advertisement port 27101. This addresses the add-by-code succeeds / both friends remain Offline bug class (B-364).
+
 ### Input class presence
 
 Presence v3 uses byte 19 of the signed frame for a coarse `ACTIONMAP_INPUT_CLASS_*` category. Social UI can show MKB, Controller, Custom, Accessibility, HOTAS, or HOSAS for connected friends without exposing raw device GUIDs, vendor IDs, product names, or per-device identity. This is UI/social metadata only; gameplay input authority remains local to each client and still flows through the action map.
+
+### Social invites and friend joins
+
+Invite controls in the Social friend row and profile modal are intentionally available even when the displayed presence state says Offline. Offline can be stale while signed presence is recovering, so the button should attempt delivery and let transport/presence produce a real result instead of hiding the recovery action.
+
+Friend remote handoffs use the same NAT-aware path as player-facing connect-code joins. `group_session.c::onPairOpen()` and `spectator.c::spectatorBeginLive()` call `netStartClientWithHolePunch()` rather than raw `netStartClient()`, so invite acceptance, group-session peer open, and live-spectator join all enter the direct-connect -> hole-punch waterfall.
 
 ---
 
