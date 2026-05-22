@@ -298,6 +298,7 @@ enum WeaponImportTarget {
 };
 
 static bool s_WeaponEditActive = false;
+static bool s_WeaponTemplateMenuOpen = false;
 static s32  s_WeaponEditWeaponId = -1;
 static bool s_WeaponEditDualWieldable = false;
 static char s_WeaponEditTemplateId[CATALOG_ID_LEN] = "";
@@ -1840,6 +1841,7 @@ static void weaponToolStartTemplate(const asset_entry_t *e)
     }
 
     s_WeaponEditActive = true;
+    s_WeaponTemplateMenuOpen = true;
     weaponSetStatus(true, "Template ready. Edit fields, then save as a weapon mod.");
 }
 
@@ -2580,6 +2582,105 @@ static void weaponRenderGraphBuilder(float scale)
     }
 }
 
+static void weaponRenderTemplateEditor(float scale)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow());
+    ImGui::Text("Weapon Template Editor");
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    if (PdButton("Back to Weapon Browser", ImVec2(184.0f * scale, 28.0f * scale))) {
+        s_WeaponTemplateMenuOpen = false;
+        return;
+    }
+    ImGui::Separator();
+
+    if (!s_WeaponEditActive) {
+        ImGui::TextDisabled("Use the selected weapon as a template to start a new weapon mod.");
+        return;
+    }
+
+    ImGui::Text("Template: %s", s_WeaponEditTemplateId);
+    ImGui::Text("Saves to: mods/Weapons/%s/%s.pdweapon",
+                s_WeaponEditSlug[0] ? s_WeaponEditSlug : "(slug)",
+                s_WeaponEditSlug[0] ? s_WeaponEditSlug : "(slug)");
+    ImGui::Separator();
+
+    ImGui::SetNextItemWidth(300.0f * scale);
+    ImGui::InputText("Display Name", s_WeaponEditDisplayName,
+                     sizeof(s_WeaponEditDisplayName));
+    ImGui::SetNextItemWidth(220.0f * scale);
+    ImGui::InputText("Slug", s_WeaponEditSlug,
+                     sizeof(s_WeaponEditSlug));
+    char catalogPreview[CATALOG_ID_LEN];
+    char slugRaw[sizeof(s_WeaponEditSlug)];
+    char slugPreview[sizeof(s_WeaponEditSlug)];
+    snprintf(slugRaw, sizeof(slugRaw), "%s", s_WeaponEditSlug);
+    weaponToolSlugify(slugRaw, slugPreview, sizeof(slugPreview));
+    snprintf(catalogPreview, sizeof(catalogPreview), "user:%s",
+             slugPreview[0] ? slugPreview : "(invalid)");
+    ImGui::Text("Catalog ID: %s", catalogPreview);
+    ImGui::SetNextItemWidth(120.0f * scale);
+    ImGui::InputInt("Weapon ID", &s_WeaponEditWeaponId);
+    ImGui::Checkbox("Dual wieldable", &s_WeaponEditDualWieldable);
+
+    ImGui::Separator();
+    ImGui::Columns(2, "##weapon_editor_cols", false);
+    weaponRenderCatalogPicker("Model Catalog", ASSET_MODEL,
+                              s_WeaponEditModelRef,
+                              sizeof(s_WeaponEditModelRef));
+    weaponRenderCatalogPicker("Texture Catalog", ASSET_TEXTURE,
+                              s_WeaponEditTextureRef,
+                              sizeof(s_WeaponEditTextureRef));
+    weaponRenderCatalogPicker("Animation Catalog", ASSET_ANIMATION,
+                              s_WeaponEditAnimationRef,
+                              sizeof(s_WeaponEditAnimationRef));
+    weaponRenderCatalogPicker("Audio Catalog", ASSET_AUDIO,
+                              s_WeaponEditAudioRef,
+                              sizeof(s_WeaponEditAudioRef));
+    ImGui::NextColumn();
+    weaponRenderCatalogPicker("Projectile Catalog", ASSET_PROJECTILE,
+                              s_WeaponEditProjectileRef,
+                              sizeof(s_WeaponEditProjectileRef));
+    weaponRenderCatalogPicker("Entity Catalog", ASSET_ENTITY,
+                              s_WeaponEditEntityRef,
+                              sizeof(s_WeaponEditEntityRef));
+    ImGui::Columns(1);
+
+    ImGui::Separator();
+    weaponRenderImportRow("Import Model", WEAPON_IMPORT_MODEL,
+                          ".pdmesh;.gltf;.glb;.obj");
+    weaponRenderImportRow("Import Texture", WEAPON_IMPORT_TEXTURE,
+                          ".pdtexture;.png;.tga;.jpg;.bmp");
+    weaponRenderImportRow("Import Animation", WEAPON_IMPORT_ANIMATION,
+                          ".pdanim");
+    weaponRenderImportRow("Import Audio", WEAPON_IMPORT_AUDIO,
+                          ".pdsfx;.pdvoice;.pdsong;.wav;.ogg;.mp3");
+    weaponRenderImportRow("Import Projectile", WEAPON_IMPORT_PROJECTILE,
+                          ".pdprojectile");
+    weaponRenderImportRow("Import Entity", WEAPON_IMPORT_ENTITY,
+                          ".pdentity");
+    weaponRenderImportRow("Import Graph JSON", WEAPON_IMPORT_GRAPH,
+                          ".json");
+
+    ImGui::Separator();
+    weaponRenderGraphBuilder(scale);
+    ImGui::Text("Nested Payloads");
+    ImGui::InputTextMultiline("##weapon_edit_nested",
+                              s_WeaponEditNested,
+                              sizeof(s_WeaponEditNested),
+                              ImVec2(-1.0f, 92.0f * scale),
+                              ImGuiInputTextFlags_AllowTabInput);
+
+    bool canSave = s_WeaponEditDisplayName[0] &&
+                   s_WeaponEditSlug[0] &&
+                   s_WeaponEditTemplateArchive[0];
+    if (!canSave) ImGui::BeginDisabled();
+    if (PdButton("Save Weapon Mod", ImVec2(164.0f * scale, 28.0f * scale))) {
+        weaponToolSaveCustom();
+    }
+    if (!canSave) ImGui::EndDisabled();
+}
+
 static void renderWeaponTool(float contentW, float contentH, float scale)
 {
     if (s_WeaponImportTarget != WEAPON_IMPORT_NONE && pdguiFileBrowserIsOpen()) {
@@ -2672,6 +2773,12 @@ static void renderWeaponTool(float contentW, float contentH, float scale)
     if (PdButton("Use as Template", ImVec2(142.0f * scale, 28.0f * scale))) {
         weaponToolStartTemplate(e);
     }
+    if (s_WeaponEditActive) {
+        ImGui::SameLine();
+        if (PdButton("Open Template Editor", ImVec2(164.0f * scale, 28.0f * scale))) {
+            s_WeaponTemplateMenuOpen = true;
+        }
+    }
     ImGui::SameLine();
     ImGui::TextDisabled("%s",
                         e->bundled ? "Base weapon is read-only; templates save as a new mod."
@@ -2682,6 +2789,12 @@ static void renderWeaponTool(float contentW, float contentH, float scale)
                                            : pdguiVec4TextWarning(220));
     ImGui::TextWrapped("%s", s_WeaponStatus[0] ? s_WeaponStatus : "Ready");
     ImGui::PopStyleColor();
+
+    if (s_WeaponTemplateMenuOpen) {
+        weaponRenderTemplateEditor(scale);
+        ImGui::EndChild();
+        return;
+    }
 
     if (ImGui::BeginTabBar("##weapon_detail_tabs")) {
         if (ImGui::BeginTabItem("Descriptor")) {
@@ -2703,93 +2816,6 @@ static void renderWeaponTool(float contentW, float contentH, float scale)
                               ImGuiWindowFlags_HorizontalScrollbar);
             ImGui::TextUnformatted(s_WeaponNestedPreview[0] ? s_WeaponNestedPreview : "(nested_payloads.json unavailable)");
             ImGui::EndChild();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Template")) {
-            if (!s_WeaponEditActive) {
-                ImGui::TextDisabled("Use the selected weapon as a template to start a new weapon mod.");
-            } else {
-                ImGui::Text("Template: %s", s_WeaponEditTemplateId);
-                ImGui::Text("Saves to: mods/Weapons/%s/%s.pdweapon",
-                            s_WeaponEditSlug[0] ? s_WeaponEditSlug : "(slug)",
-                            s_WeaponEditSlug[0] ? s_WeaponEditSlug : "(slug)");
-                ImGui::Separator();
-
-                ImGui::SetNextItemWidth(300.0f * scale);
-                ImGui::InputText("Display Name", s_WeaponEditDisplayName,
-                                 sizeof(s_WeaponEditDisplayName));
-                ImGui::SetNextItemWidth(220.0f * scale);
-                ImGui::InputText("Slug", s_WeaponEditSlug,
-                                 sizeof(s_WeaponEditSlug));
-                char catalogPreview[CATALOG_ID_LEN];
-                char slugRaw[sizeof(s_WeaponEditSlug)];
-                char slugPreview[sizeof(s_WeaponEditSlug)];
-                snprintf(slugRaw, sizeof(slugRaw), "%s", s_WeaponEditSlug);
-                weaponToolSlugify(slugRaw, slugPreview, sizeof(slugPreview));
-                snprintf(catalogPreview, sizeof(catalogPreview), "user:%s",
-                         slugPreview[0] ? slugPreview : "(invalid)");
-                ImGui::Text("Catalog ID: %s", catalogPreview);
-                ImGui::SetNextItemWidth(120.0f * scale);
-                ImGui::InputInt("Weapon ID", &s_WeaponEditWeaponId);
-                ImGui::Checkbox("Dual wieldable", &s_WeaponEditDualWieldable);
-
-                ImGui::Separator();
-                ImGui::Columns(2, "##weapon_editor_cols", false);
-                weaponRenderCatalogPicker("Model Catalog", ASSET_MODEL,
-                                          s_WeaponEditModelRef,
-                                          sizeof(s_WeaponEditModelRef));
-                weaponRenderCatalogPicker("Texture Catalog", ASSET_TEXTURE,
-                                          s_WeaponEditTextureRef,
-                                          sizeof(s_WeaponEditTextureRef));
-                weaponRenderCatalogPicker("Animation Catalog", ASSET_ANIMATION,
-                                          s_WeaponEditAnimationRef,
-                                          sizeof(s_WeaponEditAnimationRef));
-                weaponRenderCatalogPicker("Audio Catalog", ASSET_AUDIO,
-                                          s_WeaponEditAudioRef,
-                                          sizeof(s_WeaponEditAudioRef));
-                ImGui::NextColumn();
-                weaponRenderCatalogPicker("Projectile Catalog", ASSET_PROJECTILE,
-                                          s_WeaponEditProjectileRef,
-                                          sizeof(s_WeaponEditProjectileRef));
-                weaponRenderCatalogPicker("Entity Catalog", ASSET_ENTITY,
-                                          s_WeaponEditEntityRef,
-                                          sizeof(s_WeaponEditEntityRef));
-                ImGui::Columns(1);
-
-                ImGui::Separator();
-                weaponRenderImportRow("Import Model", WEAPON_IMPORT_MODEL,
-                                      ".pdmesh;.gltf;.glb;.obj");
-                weaponRenderImportRow("Import Texture", WEAPON_IMPORT_TEXTURE,
-                                      ".pdtexture;.png;.tga;.jpg;.bmp");
-                weaponRenderImportRow("Import Animation", WEAPON_IMPORT_ANIMATION,
-                                      ".pdanim");
-                weaponRenderImportRow("Import Audio", WEAPON_IMPORT_AUDIO,
-                                      ".pdsfx;.pdvoice;.pdsong;.wav;.ogg;.mp3");
-                weaponRenderImportRow("Import Projectile", WEAPON_IMPORT_PROJECTILE,
-                                      ".pdprojectile");
-                weaponRenderImportRow("Import Entity", WEAPON_IMPORT_ENTITY,
-                                      ".pdentity");
-                weaponRenderImportRow("Import Graph JSON", WEAPON_IMPORT_GRAPH,
-                                      ".json");
-
-                ImGui::Separator();
-                weaponRenderGraphBuilder(scale);
-                ImGui::Text("Nested Payloads");
-                ImGui::InputTextMultiline("##weapon_edit_nested",
-                                          s_WeaponEditNested,
-                                          sizeof(s_WeaponEditNested),
-                                          ImVec2(-1.0f, 92.0f * scale),
-                                          ImGuiInputTextFlags_AllowTabInput);
-
-                bool canSave = s_WeaponEditDisplayName[0] &&
-                               s_WeaponEditSlug[0] &&
-                               s_WeaponEditTemplateArchive[0];
-                if (!canSave) ImGui::BeginDisabled();
-                if (PdButton("Save Weapon Mod", ImVec2(164.0f * scale, 28.0f * scale))) {
-                    weaponToolSaveCustom();
-                }
-                if (!canSave) ImGui::EndDisabled();
-            }
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();

@@ -23,6 +23,26 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - c3812, typed-pdxxx-basic, self-contained archive, dependency closure, assetcatalog_scanner, model_file, hand_model_file, geometry_file, strings_tsv, c3809
 
+## Task 3: Complete `.pdweapon` self-contained dependency closure and record the archive-contract cut line, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T00-04-19-UIZy-pdweapon_self_contained_closure.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\20\rollout-2026-05-20T20-04-19-019e47d8-ecb6-7093-b728-38f6a580fd88.jsonl, updated_at=2026-05-21T19:04:37+00:00, thread_id=019e47d8-ecb6-7093-b728-38f6a580fd88, `.pdweapon` packaging/export now embeds authored dependency closure; runtime parity remains separate)
+
+### keywords
+
+- pdweapon, pdprojectile, pdentity, dependency_closure, embedded.v2, modVfs, fsDataPathFor, romextract_pdweapon, c3814, no .pdwpn
+
+## Task 4: Compare clean self-contained archive layouts and stage the family-by-family cleanup card, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T19-30-37-c7Ve-asset_pipeline_clean_archive_layout_kanban_card.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T15-30-37-019e4c04-b49e-7453-9811-5e7a1a982c78.jsonl, updated_at=2026-05-21T19:46:41+00:00, thread_id=019e4c04-b49e-7453-9811-5e7a1a982c78, examples-vs-output audit and new `c3824` layout cleanup card)
+
+### keywords
+
+- typed-pdxxx, self-contained archive, examples.zip, _meta, c3824, clean layout, root descriptor, release tree audit
+
 ## User preferences
 
 - when project memory or docs describe the archive system, the user corrected: "it isn’t really the Mod Pipeline ... it is the Asset pipeline, and is intended to treat all asstes, base game or mod, natively and equally" -> use Asset Pipeline language and make base/mod parity explicit [Task 1]
@@ -30,6 +50,9 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - when the user said "Each asset should serve as a fully self contained archive" -> default acceptance should be archive self-containment, not just descriptor presence [Task 2]
 - when the user said "Run until all asset types pass their appropriate file and dependency file test" -> keep iterating until every family passes a dependency-aware gate [Task 2]
 - when the user asked "List the asset types and the General file contents in each assert archive type" -> final reporting should be inventory-style and contents-specific [Task 2]
+- when the user’s archive-contract clarification showed that opening one typed archive should expose "the descriptor plus the authored dependency closure needed to edit/clone/share/load it" -> fail packaging/export rather than silently emitting a reference-only archive when an embedded dependency cannot be resolved [Task 3]
+- when the user asked for "a breakdown of the pros and cons" and then "How would we do that in the context of keeping it clean but fully functional and self contained?" -> compare conceptual layout tradeoffs before implementation, but keep closure/portability as non-negotiable [Task 4]
+- when the user said "Make a kanban card with that sort of layout breakdown for each asset type" -> stage broad archive-contract cleanup as a family-by-family execution card instead of burying it in notes [Task 4]
 
 ## Reusable knowledge
 
@@ -42,6 +65,13 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - The archive gate is stronger than "file exists": tests should validate both required files and intra-archive dependency closure for descriptor paths, GLTF `uri`, OBJ `mtllib`, and MTL texture refs [Task 2]
 - The scanner’s source-path keys are the contract surface for internal references: `model_file`, `hand_model_file`, `geometry_file`, `pads_file`, `setup_file`, `rooms_file`, `props_file`, `objectives_file`, `animation_file`, `texture_file`, `font_file`, `strings_file`, `strings_tsv`, `file_path`, and related keys in `assetcatalog_scanner` [Task 2]
 - The current `typed-pdxxx-basic` examples cover every current non-weapon family plus the older `tri_weapon.pdwpn` fixture that existed during `c3812`; newer weapon-specific archive direction now lives in the `PD2 Weapon Graph Asset Archives` block because the weapon lane moved to `.pdweapon` [Task 2]
+- `modVfs` supports nested `archive::entry` lookups, so authored files inside typed archives can be resolved without extraction when packaging/importing dependency closure [Task 3]
+- `fsDataPathFor(rel, ...)` is the canonical helper for `data/<romid>/...` save/extractor paths in this lane [Task 3]
+- For the weapon lane, dependency closure is now embedded in `.pdweapon` archives with `dependency_closure = embedded.v2`; remaining `c3814` work after this slice is runtime parity/adapters, not packaging/export [Task 3]
+- `.pdwpn` remains explicitly unsupported/deprecated; the active weapon authoring format is `.pdweapon` [Task 3]
+- The clean archive direction is a two-zone contract: authored/root files stay human-facing, while `_meta/` quarantines manifest, inventory, provenance, validation, SHA rows, and compatibility bookkeeping [Task 4]
+- Keep duplication for portability/cloneability inside authored archives, then dedupe after ingestion by catalog identity / SHA-256 instead of trying to make the archive sparse at authoring time [Task 4]
+- New emitters should write `_meta/`, scanners/loaders may accept older metadata roots temporarily during transition, and release validation should reject stale outputs once emitters are updated [Task 4]
 
 ## Failures and how to do differently
 
@@ -50,9 +80,11 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - A minimal "descriptor + one source file" check was insufficient once the user clarified the fully self-contained requirement [Task 2]
 - If archive fixtures mix older simple OBJ faces with newer UV-indexed faces, make the shared assertion accept both forms instead of forcing one legacy fixture shape everywhere [Task 2]
 - A sandboxed wrapper run that cannot find `pd-tests.exe` is not trustworthy verification for this lane; rerun from the real checkout/build output before treating the archive gate as passing [Task 2]
+- If an embedded dependency cannot be resolved during packaging/export, do not emit a reference-only archive and hope runtime finds the missing file later [Task 3]
+- Release/install trees can lag behind repo build output; compare both explicitly instead of assuming the example zip, build output, and installed release tree match [Task 4]
 
 # Task Group: PD2 Weapon Graph Asset Archives
-scope: Weapon-specific authored archive contracts, graph emission, nested payload packaging, and Kanban sprint handoff for weapon behavior data.
+scope: Weapon-specific authored archive contracts, graph emission, nested payload packaging, Modding Hub authoring surfaces, and Kanban sprint handoff for weapon behavior data.
 applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for PD2 weapon-archive authoring, extractor/output, and card-handoff work when `.pdweapon`, nested payloads, or weapon behavior modularization are in scope.
 
 ## Task 1: Clarify weapon behavior modularization as authored asset data instead of new gameplay design, success
@@ -75,12 +107,23 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - pdweapon, pdprojectile, pdentity, base_weapon_graph_v1, nested_payloads.json, c3814, romextract_pdweapon, no .pdwpn, CLI sprint, state.json
 
+## Task 3: Add structured graph authoring to the Modding Hub Weapons tab instead of JSON-only editing, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-22T03-30-57-mpVE-weapon_graph_builder_ui.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T23-30-57-019e4dbc-784c-7d51-bcd3-c1dc37ce129a.jsonl, updated_at=2026-05-22T03:45:46+00:00, thread_id=019e4dbc-784c-7d51-bcd3-c1dc37ce129a, graph-builder UI landed as `c3814-s23`)
+
+### keywords
+
+- behavior.graph.json, Modding Hub, Weapons tab, pdgui_menu_moddinghub, c3814-s23, graph builder, presets, modules, exports, validation
+
 ## User preferences
 
 - when the user said "All the behavior exists in the game already, we just need to modularize it and use it from our own asset files" -> treat weapon-behavior requests as modularization/export of existing behavior, not a request to invent new mechanics [Task 1]
 - when behavior examples include "when trigger pulled", rapid fire, hold fire, charge/release, secondary modes, melee, zoom levels, reticle / overlay / zoom camera effects, and ammo-display behavior -> preserve those examples as required coverage when updating the weapon authored-data contract [Task 1]
 - when the user asked to "Update the Kanban card with completed vs incomplete work, and I will use CLI to sprint us to completion" -> structure weapon-lane board updates as a sprint ledger with completed work first and remaining order explicit [Task 2]
 - when the weapon-graph lane says weapons should embed/catalog nested projectile/entity assets so each weapon archive stays self-contained -> default to self-contained weapon archives rather than split payload delivery [Task 2]
+- when the user said "The weapon mod menu should allow us to create weapon behavior graphs, not just look at their json" -> default the Weapons tab to a structured authoring workflow, with raw JSON kept as an advanced/fallback path rather than the main experience [Task 3]
 
 ## Reusable knowledge
 
@@ -91,6 +134,9 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - `weapon_graph_archive` centralizes descriptor/text reads, root validation, derived nested IDs, duplicate-ID collision checks, canonical archive-content SHA-256, and nested payload inventory formatting [Task 2]
 - The `.pdweapon` root archive contract is `weapon.ini`, `manifest.json`, `behavior.graph.json`, and `nested_payloads.json` [Task 2]
 - `tools/kanban/state.json` now treats `c3814` as a sprint-ready execution surface: `c3814-s13` done, `c3814-s14` active, `c3814-s15..s18` backlog, with lockouts preserved for no `.pdwpn` and self-contained nested payloads [Task 2]
+- `port/fast3d/pdgui_menu_moddinghub.cpp` is the right place for weapon-editor workflow changes; the Weapons tab already had preview, clone, import, and save plumbing, so graph-builder controls can be layered there instead of inventing a new screen [Task 3]
+- The graph-builder UI now covers seed presets, named module insertion, editable node params, edge add/remove, primary/secondary export selection, validation, and a generated JSON view for `behavior.graph.json` [Task 3]
+- The active `c3814` lane now records `c3814-s23` as done for the graph-builder UI, while deeper runtime execution remains in later subtasks [Task 3]
 
 ## Failures and how to do differently
 
@@ -99,6 +145,51 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - A temp-path resolution failure in the payload planner must roll back the planned slot and decrement the count instead of leaving a half-filled payload entry [Task 2]
 - The first graph pass was too adapter-centric; replace temporary compatibility layers with graph-shaped emission once the target contract is known [Task 2]
 - If the first Kanban rewrite is too historical, recast it into a completed-vs-incomplete CLI ledger after reading the exact live card block instead of patching by assumption [Task 2]
+- If new static coverage fails on the wrong generated-string shape, align the assertion with the literal source form instead of the rendered JSON you expected [Task 3]
+
+# Task Group: PD2 Startup Asset Extraction and Boot Progress UI
+scope: Startup extraction latency, typed-asset cache behavior, and boot-overlay progress presentation during initial content work.
+applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for PD2 boot/startup work in this checkout, but keep `.pdanim` caching claims conservative because its shared extension/directory shape breaks the per-family cache rule used elsewhere.
+
+## Task 1: Add per-family typed-asset cache stamps so later boots skip unchanged extraction work, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T17-40-11-zo1h-boot_asset_fast_cache_progress_ui.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T13-40-11-019e4b9f-9b83-7ab1-9c2e-8bd421f882f7.jsonl, updated_at=2026-05-21T18:45:30+00:00, thread_id=019e4b9f-9b83-7ab1-9c2e-8bd421f882f7, fast-cache stamps for typed families and existing-install boot smoke)
+
+### keywords
+
+- bootfast, pdextract-cache, typed asset families, LOADER.UNIVERSAL.SUMMARY, boot_smoke, romextract_pd_cache, .pdanim
+
+## Task 2: Rework the boot progress surface into a centered modal with smoother motion, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T17-40-11-zo1h-boot_asset_fast_cache_progress_ui.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T13-40-11-019e4b9f-9b83-7ab1-9c2e-8bd421f882f7.jsonl, updated_at=2026-05-21T18:45:30+00:00, thread_id=019e4b9f-9b83-7ab1-9c2e-8bd421f882f7, centered modal boot overlay and timing-based progress smoothing)
+
+### keywords
+
+- boot overlay, centered modal, progress smoothing, pdgui_bootoverlay, boot_progress, startup acceleration, c3823
+
+## User preferences
+
+- when the user asked to "speed up our startup" -> optimize startup wall time, not just one emitter in isolation [Task 1]
+- when the user asked to show progress while catalog work is happening -> make startup work visibly progress during the expensive phase, not only after the fact [Task 1][Task 2]
+- when the user asked for the load bar to be more accurate and centered -> prefer centered readability and smoother motion over a bottom-edge progress bar [Task 2]
+
+## Reusable knowledge
+
+- `.pdextract-cache` stamps typed-asset output families with schema, kind, file count, total bytes, and latest mtime so unchanged families can be skipped on later boots [Task 1]
+- Cached boot logs showed skips for `.pdweapon`, `.pdmesh`, `.pdhead`, `.pdbody`, `.pdcharacter`, `.pdarena/.pdscenario`, `.pdsfx`, `.pdvoice`, `.pdsong`, `.pdfont`, and `.pdlang` after the cache landed [Task 1]
+- `.pdanim` stays on its older per-archive validation path because weapon/inventory and character animation archives share the same extension/directory layout [Task 1]
+- The boot overlay changed from a bottom bar to a centered modal-style panel with the status label above the bar and progress that blends item completion with conservative phase timing estimates [Task 2]
+- Existing-install `boot_smoke` showed `LOADER.UNIVERSAL.SUMMARY` at 1.85s and `BOOT_OVERLAY: dismissed (visible for 1.51s)` after the fast-cache/progress work [Task 1][Task 2]
+
+## Failures and how to do differently
+
+- Do not assume every typed family can share one cache heuristic; `.pdanim` is the exception because its ownership is ambiguous across multiple archive lanes [Task 1]
+- A config-entry-cap warning in the smoke log was not the real boot-cost driver here; avoid pivoting off a nearby warning until the timing data supports it [Task 1]
+- If the repo is already dirty, keep boot/UI edits scoped to startup and tracking files instead of broadening the change set [Task 2]
 
 # Task Group: PD2 Weapon Export and Beam Coordinate Diagnostics
 scope: Weapon-model extraction, held-weapon transform handling, and live beam/effect coordinate-space diagnosis for visible weapon artifacts.
@@ -221,12 +312,23 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - c020, actionWasTap, actionHeldForMs, actionConsumeHold, actionHoldProgress, natural-stop consumers, ACTION_WEAPON_NEXT, ACTION_CROUCH, Kanban split
 
+## Task 3: Fix PC Campaign weapon switching and stale weapon-function HUD text, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T19-59-06-o4xN-c3814_mkb_weapon_switch_function_hud_fix.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T15-59-06-019e4c1e-c747-7ce2-849d-b0acea9e4c1f.jsonl, updated_at=2026-05-21T20:49:32+00:00, thread_id=019e4c1e-c747-7ce2-849d-b0acea9e4c1f, `ACTION_WEAPON_NEXT` and HUD-label regression fix in the `c3814` lane)
+
+### keywords
+
+- ACTION_WEAPON_NEXT, VKL_Q, mouse wheel, up_time_ms, actionWasTap, bondmove.c, bondgun.c, weapon function HUD, c3814-s15, B-363
+
 ## User preferences
 
 - when the user says "I can still interact by just tapping the input, instead of the required hold" -> treat tap-vs-hold as a strict gameplay contract, not a UI-only distinction [Task 1]
 - when the user says the radial "should max out and then be consumed as though it were released" -> after a consumed hold, make the ring behave like release instead of staying full until physical button-up [Task 1]
 - when the user asks to "Update the Kanban card with completed vs incomplete work, and I will use CLI to sprint us to completion" -> make the completed-vs-remaining split explicit enough that the next CLI pass can continue without re-deriving scope [Task 2]
 - when the user treats press and hold as one underlying primitive with different thresholds/consumption rules -> keep the primitive vs consumer-adoption distinction explicit instead of inventing a new primitive for each downstream case [Task 2]
+- when an input/display regression affects both weapon switching and the weapon-function HUD, treat it as a gameplay contract issue rather than UI polish and verify both the action path and the displayed state [Task 3]
 
 ## Reusable knowledge
 
@@ -236,6 +338,9 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - In this lane, the real tap/hold contract crosses `src/game/bondmove.c`, `port/src/actionmap.cpp`, and the interact prompt renderer; fixing only the visible radial is incomplete [Task 1]
 - `actionHoldProgress()` should return `0` for consumed holds after the brief full-ring pin, even if the button is still physically down [Task 1]
 - The current verified consumers for the shared primitive are `ACTION_USE`, `ACTION_WEAPON_NEXT`, and `ACTION_CROUCH`; remaining follow-up work is consumer-specific natural-stop adoption for cases such as full-charge fire, beam/overheat cooldown, ammo-empty stop, and one-shot door/open interactions [Task 2]
+- `ACTION_WEAPON_NEXT` is now the canonical PC Campaign next-weapon tap/hold surface in this checkout: tap cycles, hold opens the radial wheel, and `Q` plus mouse wheel feed the same action path [Task 3]
+- Mouse-wheel weapon cycling depends on wheel-release timestamps refreshing `up_time_ms`; otherwise `actionWasTap()` can reject the gesture as stale [Task 3]
+- The weapon-function HUD text cache must reset when weapon or function identity changes, or stale labels can leak across weapon transitions [Task 3]
 
 ## Failures and how to do differently
 
@@ -243,6 +348,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - If a patch misses because the file context moved, re-apply against the exact live block instead of forcing a brittle edit [Task 1]
 - Do not leave a press/hold card in `done` when subtasks still represent the remaining sprint work; reopen it as active/watch and surface the incomplete natural-stop consumers directly on the card [Task 2]
 - When the user asks for a Kanban split, prefer a card-level split (active follow-up plus subtasks) over burying the open work in notes only [Task 2]
+- Do not stop at the input binding when the visible regression includes stale weapon-function text; display caches can hide gameplay-state fixes unless both surfaces are checked [Task 3]
 
 # Task Group: PD2 Dev Window v2 CLI Launchers
 scope: Dev Window v2 launcher behavior for Codex CLI, elevated Windows shells, and project-root landing behavior.
@@ -367,11 +473,22 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - B-339, meshcollision, capsule Stage 2, rendered-prop floor acquisition, model_rodata_guard, ACCESS_VIOLATION, Defection Perfect
 
+## Task 4: Clamp the remaining airborne wall/ceiling/corner entry path after B-350, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-22T03-28-30-jCbF-pd2_jump_wall_ceiling_corner_clamp_followup.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T23-28-30-019e4dba-38e0-7d63-9d0f-bd646671bd13.jsonl, updated_at=2026-05-22T03:45:26+00:00, thread_id=019e4dba-38e0-7d63-9d0f-bd646671bd13, B-367 airborne lateral clamp follow-up)
+
+### keywords
+
+- B-367, bwalkClampAirborneLateralEntry, wall clipping, ceiling clipping, corner clipping, bondwalk.c, [physics][jump], c136
+
 ## User preferences
 
 - when the user reports collision regressions in concrete playtest terms such as "I could jump through the sides of overhead objects" and "I also seemed to get stuck above a doorway", preserve the exact symptom shape and look for the movement-order gap they described instead of broadening into unrelated movement work [Task 2]
 - when dynamic objects are reported as still behaving correctly, preserve that behavior unless the evidence says otherwise; do not regress the couch/moving-prop path while fixing overhead blockers [Task 2]
 - when Mike’s playtest is still the closure gate, keep the board/context distinction between build/test verified and Mike-pending runtime validation [Task 1][Task 2]
+- when the user reports "jumping player clipping into walls ... ceilings or corners" -> stay tightly scoped to the named jump symptom and inspect horizontal-vs-vertical movement ordering before widening into broader collision refactors [Task 4]
 
 ## Reusable knowledge
 
@@ -379,12 +496,15 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - If a jump bug involves entering geometry from the side, a purely vertical sweep is insufficient; `bwalkClampAirborneSideEntry()` adds the needed upward diagonal `capsuleSweep()` before vertical resolution [Task 2]
 - Movement collision should not depend on `func0f0849dc()`, `capsuleRenderedPropRayCast`, `model->matrices`, or other render-owned transient state; the stable ownership layer is `meshcollision` with `g_WorldMesh` and `prop->colmesh` [Task 3]
 - `model_rodata_guard` is the right safety boundary for model rodata / GDL / Vtx extraction in this codebase, and fail-closed colmesh creation is acceptable if safe triangles cannot be extracted [Task 3]
+- The remaining B-367 gap was the airborne horizontal half of the frame: `bwalkClampAirborneLateralEntry()` now runs immediately after horizontal movement and before speed correction, rolling X/Z back on wall/ceiling/corner hits while ignoring floor-class hits [Task 4]
+- For jump regressions in this checkout, both the horizontal and vertical phases need to be checked; repairing only the vertical sweep can still leave the player inside geometry before correction runs [Task 2][Task 4]
 
 ## Failures and how to do differently
 
 - Do not assume a rendered-surface or capsule bug is necessarily a mesh-ownership bug; the remaining gap can be movement ordering, especially a horizontal-first / vertical-second split [Task 2]
 - Do not claim bot jump parity just because the shared vertical path changed; keep bot behavior marked unverified until there is focused runtime evidence [Task 1]
 - When the first crash fix moves the failure forward into the next boundary, inspect the new stack instead of assuming the earlier architecture change fully closed the bug [Task 3]
+- If the first airborne gate for a new clamp is too loose, tighten it so stray vertical velocity does not trigger collision rollback when the player is not genuinely airborne [Task 4]
 
 # Task Group: Kanban Board Planning and Staleness Rules
 scope: `tools/kanban` board behavior, review surfaces, active-card ordering, same-session tracking, and stale-card maintenance.
@@ -442,6 +562,16 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - Memory Review, memory-review.json, /api/memory-review, review-only staging, own tab, check responses first
 
+## Task 6: Make Memory Review live-source and writable, add durable bug deletion, and replace the old morning flow with Codex automations, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T19-56-56-IRQn-pd2_tooling_dynamic_memory_review_and_morning_automations.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T15-56-56-019e4c1c-cd71-78c1-95bd-242d957b6db3.jsonl, updated_at=2026-05-21T20:09:40+00:00, thread_id=019e4c1c-cd71-78c1-95bd-242d957b6db3, `c3825` live memory-review overlay, bug delete endpoint, and morning automations)
+
+### keywords
+
+- /api/bugs/delete, /api/memory-review/apply, memory-review.json, tools/bugs/state.json, live-source overlay, pd2-daily-flow, pd2-architecture-review, 5:00 AM, 6:00 AM, c3825
+
 ## User preferences
 
 - when reviewing completion surfaces, the user said "I don't need to see the verbose details in the review unless I expand it, but rather the higher-level task that it represents." -> default review rows to concise title-first presentation and hide dense detail behind an expander [Task 1]
@@ -449,6 +579,9 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - when the user said "Add to / Update the Kanban board, even if you both started and completed a task during this session it should still be tracked." -> always create or update a board record for same-session work instead of omitting it [Task 3]
 - when the user warned that context would be compacted, preserve the current priority chain in durable board/context artifacts instead of relying on conversation memory [Task 4]
 - when the user asked for a decision-response workflow to be "it's own tab" and that new sessions should "always check my responses unless directed specifically to do something else" -> surface repeated review workflows as first-class tabs and check that surface before choosing work unless the latest message overrides it [Task 5]
+- when the user said Memory Review should be "dynamic and based on actual entries in memories.md" and they want to "modify at any time" with the actual memory file updated from markup -> treat review state as an overlay on live source, not as the source of truth itself [Task 6]
+- when the user said they "can't delete them myself" about stale bug rows -> treat stale tracker rows as actionable cleanup and add a supported delete path instead of one-off file surgery [Task 6]
+- when the user asked for a daily 5:00am flow plus a 6:00am architecture review -> default recurring maintenance to morning automations instead of manual orchestration [Task 6]
 
 ## Reusable knowledge
 
@@ -458,6 +591,10 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - Active sort is star -> priority -> order, so reprioritization requires updating the underlying `order`, `priority`, and sometimes `flag`/`flagged_at` fields [Task 4]
 - After the priority pass, the explicit ship-critical chain was asset pipeline -> input -> collision -> gameplay stability / drop-in-drop-out, with `c3813` as the explicit new stability card and `c083` blocked until a fresh Combat Sim crash log exists [Task 4]
 - The Memory Review staging surface is separate from `tools/kanban/state.json`; it is a review-only queue sourced from `MEMORY.md` and served by GET/PATCH `/api/memory-review` [Task 5]
+- `tools/bugs/state.json` is the bug tracker source of truth, and `POST /api/bugs/delete` is now the supported permanent-delete path used by the UI `Del` action [Task 6]
+- `GET /api/memory-review` now parses live `# Task Group:` blocks from `C:\Users\mikeh\.codex\memories\MEMORY.md`, while `tools/kanban/memory-review.json` stores only review markup keyed to those live rows [Task 6]
+- `POST /api/memory-review/apply` applies `Remove` deletions and `Adjust` replacements back to the source file, but `Adjust` only fires when the note contains a full replacement block beginning with `# Task Group:` [Task 6]
+- The accepted Codex automation IDs for this checkout are `pd2-daily-flow` at 5:00 AM and `pd2-architecture-review` at 6:00 AM [Task 6]
 
 ## Failures and how to do differently
 
@@ -465,6 +602,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - Full unscoped `git status` timed out once during heavy board work; scoped status checks are safer in this repo for similar sessions [Task 4]
 - This board already had overlapping card IDs during adjacent work; always validate uniqueness across the full card list after edits and avoid renumbering the same canonical card repeatedly [Task 3]
 - Review/API smoke can create stray generated artifacts such as `NUL` or `__pycache__`; clean only the artifacts created by the current task and leave unrelated dirty state alone [Task 5]
+- If automation creation rejects the first payload, mirror the accepted worktree/local-environment shape instead of assuming a simpler cron payload will work [Task 6]
 
 # Task Group: PD2 Read-Only Assessments and Scope Expansion
 scope: Read-only assessments, plan-first reviews, and architectural discovery runs where the user asks for diagnosis before code changes.
@@ -594,6 +732,32 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - client-hosted online, connect code, NAT traversal, dedicated server deferred, stale direct-IP UI
 
+## Task 2: Fix social presence/invite handling, remove obsolete Main Menu Online Play, and leave the card pending live retest, partial
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T21-14-02-sdcU-c3828_social_presence_invites_main_menu_play.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T17-14-02-019e4c63-64df-7c13-9ff2-dd0dbce0f6d4.jsonl, updated_at=2026-05-21T23:59:24+00:00, thread_id=019e4c63-64df-7c13-9ff2-dd0dbce0f6d4, code/build verified but still pending Mike+Chris live retest)
+
+### keywords
+
+- c3828, B-364, social presence, invite, Play, Online Play, socialRebindToActiveAgent, UDP 27105, netStartClientWithHolePunch, pending_completion
+
+## Task 3: Fix the second-pass existing-agent startup gap so sidecar-loaded agents actually come online, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-22T03-39-01-hpX4-existing_agent_presence_startup_second_pass.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T23-39-01-019e4dc3-d9ec-7e42-9f88-5b06acdf446a.jsonl, updated_at=2026-05-22T03:48:57+00:00, thread_id=019e4dc3-d9ec-7e42-9f88-5b06acdf446a, existing-agent social-hub startup fix after `c3828`)
+
+### keywords
+
+- prefsAgentLoad, socialHubBringOnline, presenceMarkAgentLoaded, existing agent, sidecar, c3828, B-364, Offline rows
+
+## User preferences
+
+- when the user reports that players can add each other by code but "aren’t appearing as online to one another" -> trace the live online path end-to-end instead of assuming the connect-code join path proves presence is healthy [Task 2][Task 3]
+- when the user asks to make invites work even with stale Offline display -> keep recovery actions visible instead of hard-gating them behind presence badges [Task 2]
+- when code/build verification passes but the user still needs a real two-client check, keep the board item pending completion instead of marking it simply done [Task 2]
+
 ## Reusable knowledge
 
 - Current online scope is listen-host/client-hosted behavior; dedicated-server productization is deferred unless Mike explicitly revives it [Task 1]
@@ -601,10 +765,17 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - Stale direct-IP UI, docs, or tests are bugs once product behavior is connect-code-only [Task 1]
 - Player-facing remote handoffs should use the hole-punch-aware client path instead of bypassing NAT traversal [Task 1]
 - Mod transfer integrity, malformed wire strings, and listen-host trust boundaries are security surfaces, not polish [Task 1]
+- Per-agent connect codes in this checkout derive from `(pubkey || agent_name)`, so presence validation and social handle binding must account for the active save-slot agent name, not only a device-level identity [Task 2]
+- Presence frames now carry agent-name and status fields separately, and invite/group-session/live-spectator handoffs should go through the NAT-aware `netStartClientWithHolePunch` path [Task 2]
+- The main player-facing online entry is now the Social-based `Play` flow; the old Main Menu `Online Play` direct-connect surface is deprecated/removed [Task 2]
+- `prefsAgentLoad()` has two meaningful paths, and both the no-sidecar and successful sidecar branches must call `socialHubBringOnline()` before `presenceMarkAgentLoaded()` or existing agents will stay Offline [Task 3]
+- `socialHubBringOnline()` is the actual socket-start gate; `presenceMarkAgentLoaded()` only flips the presence-ready state [Task 3]
 
 ## Failures and how to do differently
 
 - When working in a dirty tree on online lanes, categorize dirty files by lane and avoid sweeping unrelated changes into the online work [Task 1]
+- Do not close presence/invite work after code/build verification alone; the common configured existing-agent path can still be broken until a real two-client retest says otherwise [Task 2][Task 3]
+- If a first-pass presence fix only validates no-sidecar/bootstrap behavior, explicitly retest sidecar-loaded existing agents before declaring the lane finished [Task 3]
 
 # Task Group: PD2 Mod Sharing and Public Mods Trust Rules
 scope: Public Mods, direct mod sharing, online-required mod delivery, and received-mod enable policy.
@@ -667,11 +838,22 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - Combat Simulator, post-match screen, Save Player prompt, mpPushEndscreenDialog, g_MpEndscreenSavePlayerMenuDialog, OPTION_ASKEDSAVEPLAYER, B-356
 
+## Task 4: Fix Main Menu root-close so X/Escape actually exit instead of reopening the menu, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T20-21-40-siKb-pd2_main_menu_root_close_exits_cleanly.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T16-21-40-019e4c33-7086-7063-8e03-f0b1e3a1ecb7.jsonl, updated_at=2026-05-21T20:32:33+00:00, thread_id=019e4c33-7086-7063-8e03-f0b1e3a1ecb7, root-pop now closes both menu ownership layers)
+
+### keywords
+
+- menuClose, menupoolReleaseAll, POP_ROOT, X button, Escape double sound, Main Menu, B-361
+
 ## User preferences
 
 - when the correct fix is architectural, the user expects the architecture to be cleaned up rather than hidden behind small ad hoc stack-state patches [Task 1][Task 2]
 - when the user reports that ending a Combat Simulator match appeared to route toward the post-match screen but "the post-match screen never appeared and the game had to be force-closed" -> inspect the endscreen/dialog stack, not just the visible match-end flow [Task 3]
 - for controller-facing menu work, preserve real controller usability and transitions across the whole surface, not just a static migration [Task 1]
+- when the user reports "I can't exit menus with the X button" and Escape plays the sound twice but keeps the menu open -> treat duplicate-close feedback as a split state/ownership bug, not just a binding issue [Task 4]
 
 ## Reusable knowledge
 
@@ -680,6 +862,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - The room screen is a valid menu-pool occupant even when the legacy dialog stack is empty; the watchdog fix boundary is "release only legacy-stack leaks" rather than "release less everywhere" [Task 2]
 - `mpPushEndscreenDialog()` can be the visible root and still be obscured by a later legacy prompt; on PC, the legacy NTSC save-player prompt is a no-op ImGui surface and must not become the current dialog above the post-match screen [Task 3]
 - The actual B-356 fix boundary was to mark `OPTION_ASKEDSAVEPLAYER` but not push `g_MpEndscreenSavePlayerMenuDialog` on PC, with `tests/test_menu_graph.cpp` pinning that the MP game-over root stays visible [Task 3]
+- Root-pop edges are not fully closed by `menupoolReleaseAll()` alone; if the legacy root dialog survives, `menuClose()` must run too or the Main Menu can re-open on the next frame [Task 4]
 
 ## Failures and how to do differently
 
@@ -687,6 +870,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - Do not treat standalone pure-ImGui overlays as leaks just because the legacy stack is empty [Task 2]
 - If a new static assertion fails on wording such as `hidden` vs `hiding`, align the test to the live source/comment phrasing before rerunning the focused selector [Task 3]
 - Do not record a post-match dialog-stack fix as fully advanced until the focused `[input][menu_graph]` selector and the all-target build both pass; move it from fixed-pending-build to fixed-pending-playtest only after that evidence exists [Task 3]
+- If closing a menu appears to work for one ownership layer but the surface re-opens immediately, inspect surviving legacy dialogs in addition to menu-pool/input-context state [Task 4]
 
 # Task Group: PD2 Log-First Runtime Diagnostics
 scope: Runtime bug diagnosis for black screens, load failures, catalog misses, lifecycle cleanup, and scenario/debug-launch issues.
@@ -733,12 +917,23 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - B-345, black screen, missing props, Elvis medical bed, PhoverbedZ, BODY_CHICROB, head_canon=NULL for headnum=0, auto_campaign_first_cycle
 
+## Task 5: Fix the Infiltration robot-attack build exception with fail-closed guards and a stage-specific smoke replay, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-22T01-38-10-rIJM-infiltration_robot_attack_exception_fix.md (cwd=C:\Users\mikeh\Documents\Codex\2026-05-21\goal-i-playtested-in-build-and, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T21-38-10-019e4d55-3467-7021-a558-89e0a6da73be.jsonl, updated_at=2026-05-22T02:04:26+00:00, thread_id=019e4d55-3467-7021-a558-89e0a6da73be, build-log-first B-365 robot attack exception fix in the PD2 repo)
+
+### keywords
+
+- chrTickRobotAttack, robotSetMuzzleFlash, ROBOT.ATTACK.GUARD, base:infiltration, auto_campaign_infiltration_robot_attack, [chraction][robot][static][b365], B-365
+
 ## User preferences
 
 - when the user says "Start match or mission, leave. Try to start a new one." -> treat it as a lifecycle/restart bug and inspect teardown plus re-entry instead of only the visible crash site [Task 1]
 - when the user points at a runtime log or says "Log is in build folder" or "Check the log in build, I got an exception." -> start from the log rather than from prior issue state or source guesses [Task 1][Task 2][Task 3]
 - when the user rejects a "fixed" card because some mission starts still look black or miss a visible prop, treat the complaint as a concrete runtime artifact problem and investigate the named object or mission start directly [Task 4]
 - when a user names a specific missing object such as the Elvis medical bed, add a targeted smoke fixture for that exact object/path instead of relying only on a broad campaign run [Task 4]
+- when the user reports a build/playtest exception and points at the build log, start from the newest runtime log and exact stage path before guessing from the symptom alone [Task 5]
 
 ## Reusable knowledge
 
@@ -749,6 +944,8 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - Symbolication can help, but recent evidence showed the log breadcrumbs were often more useful than raw `addr2line` output when the backtrace came back `??` [Task 2]
 - The mission-start lifecycle fix moved dynamic prop-mesh teardown into a live-prop cleanup pass before `MEMPOOL_STAGE` reset, and later smoke cleanup removed stale free-tail traversal artifacts [Task 4]
 - The broad `auto_campaign_first_cycle` fixture can be useful for proving early mission-start health even if it times out before full campaign completion; judge it by the target assertions and named artifact loads [Task 4]
+- `chrTickRobotAttack()` / `robotSetMuzzleFlash()` are the exact retrieval handles for the Infiltration robot-attack exception, and the durable fix is fail-closed validation of chr/model/prop/target/beam state before muzzle/beam writes proceed [Task 5]
+- `ROBOT.ATTACK.GUARD:` is now the diagnostic string for invalid robot attack state, and `tools/smoke-verify/tests/auto_campaign_infiltration_robot_attack.json` is the narrow replay path for this crash class [Task 5]
 
 ## Failures and how to do differently
 
@@ -757,6 +954,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - Do not assume the first crash fix closed the issue just because the crash moved; inspect the next stack and keep the architecture if the new failure is only at a still-unguarded boundary [Task 3]
 - Do not over-trust broad smokes for closure when the useful signal is a named mission-start path or object load; add a narrow smoke fixture [Task 4]
 - When cleaning up after runtime-smoke work, remove generated smoke artifacts from the current session but do not sweep unrelated dirty files [Task 4]
+- If a crash occurs in a repeatable stage such as Infiltration, add a stage-specific smoke replay instead of waiting for a longer whole-campaign runner to reach the same point [Task 5]
 
 # Task Group: PD2 Catalog as Asset Reference Authority
 scope: Catalog-owned asset identity, lookup, provider, and reference behavior.

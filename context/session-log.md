@@ -1,5 +1,27 @@
 # Session Log (Active)
 
+## Session (`wtemplmenu`) - 2026-05-22 - weapon template editor separate menu
+
+Mike corrected the Modding Hub Weapons UX: Template should not be another preview tab.
+
+### Implemented
+
+- Moved the weapon template editor into a separate right-panel menu state opened by `Use as Template`.
+- Added `Open Template Editor` for returning to an active template edit session and `Back to Weapon Browser` to return to the weapon archive previews.
+- Removed the `Template` preview tab and added static coverage that rejects `BeginTabItem("Template")`.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wtemplmenu -Selector "[weapon_graph][ui][editor][c3814]" -BuildTimeoutSeconds 240` passed: 98 assertions / 3 cases.
+- `.\devtools\build-session.ps1 -Session wtemplmenu -Target all -BuildTimeoutSeconds 300` passed for client/updater.
+- Removed isolated session build `wtemplmenu`.
+
+### Next
+
+- Keep `c3832` as the active `.pdweapon` clean-format priority after this UX correction is verified.
+
+---
+
 ## Session (`weapon-format-card`) - 2026-05-22 - clean `.pdweapon` format priority
 
 Mike asked to create a top-priority card for the full weapon asset format, then track the broader format-definition and extractor rebuild process as the main Asset Pipeline priority.

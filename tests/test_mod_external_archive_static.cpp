@@ -2291,9 +2291,15 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(!hub.empty());
 
 	REQUIRE(hub.find("Use as Template") != std::string::npos);
+	REQUIRE(hub.find("Open Template Editor") != std::string::npos);
+	REQUIRE(hub.find("Weapon Template Editor") != std::string::npos);
+	REQUIRE(hub.find("Back to Weapon Browser") != std::string::npos);
 	REQUIRE(hub.find("weaponToolStartTemplate") != std::string::npos);
+	REQUIRE(hub.find("weaponRenderTemplateEditor") != std::string::npos);
+	REQUIRE(hub.find("s_WeaponTemplateMenuOpen") != std::string::npos);
 	REQUIRE(hub.find("weaponToolSaveCustom") != std::string::npos);
 	REQUIRE(hub.find("Save Weapon Mod") != std::string::npos);
+	REQUIRE(hub.find("BeginTabItem(\"Template\")") == std::string::npos);
 	REQUIRE(hub.find("modArchiveBegin(archivePath)") != std::string::npos);
 	REQUIRE(hub.find("weaponCopyTemplatePayloads") != std::string::npos);
 	REQUIRE(hub.find("modArchiveAddFileDisk") != std::string::npos);

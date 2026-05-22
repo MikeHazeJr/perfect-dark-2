@@ -33,6 +33,7 @@
 - Replaced the old Settings Controls surface with a single actionmap-backed Input binding table.
 - Main Menu now presents Play instead of Solo Play and removes the old Online Play direct-connect entry; online friend play now routes through Social invites/joins.
 - Social friend invites are available even when a friend row is showing a stale Offline state.
+- The Modding Hub weapon template editor now opens as a separate menu instead of appearing as another preview tab.
 - Cutscene skipping now uses a held button with a contextual radial progress prompt instead of an accidental tap.
 - Startup asset extraction now reuses validated per-family cache stamps and shows a centered progress modal with smoother time-weighted progress.
 

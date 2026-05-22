@@ -3147,12 +3147,12 @@
     {
       "id": "c3824",
       "title": "Asset Pipeline: clean self-contained archive layouts",
-      "description": "Normalize every typed asset archive to a clean two-zone layout now that c3812/c3814 foundations exist. Human-authored files stay obvious at archive root or in purpose-named folders; machine/provenance/validation data moves under _meta/. Every archive remains fully self-contained: all descriptor, source-format, material, graph, nested-descriptor, and payload references must resolve inside the archive or inside an embedded typed archive. .pdmod remains transport only.",
+      "description": "Define the clean self-contained format for every typed asset family first, then rebuild extraction/examples/validators to match those frozen contracts. Human-authored files stay obvious at archive root or in purpose-named folders; machine/provenance/validation data moves under _meta/. Every archive remains fully self-contained: all descriptor, source-format, material, graph, nested-descriptor, and payload references must resolve inside the archive or inside an embedded typed archive. .pdmod remains transport only.",
       "pillar": "modding",
       "column": "active",
       "order": 800,
       "priority": 1,
-      "notes": "Created 2026-05-21 from Mike's request to walk each asset type and implement the clean-but-functional archive shape. Reprioritized 2026-05-22 as the top Asset Pipeline migration plan. Shared contract: root descriptor required; no .pdwpn; no authored .bin; no reference-only dependency closure; duplicate embedded payloads are allowed on disk and deduped after ingestion by catalog identity and canonical SHA-256. Preferred archive zones are authoring files first, nested typed dependencies second, and _meta/ for manifest.json, inventory.json, provenance.json, validation reports, source handles, SHA rows, and compatibility bookkeeping. During transition, scanners/loaders may accept old root manifest.json and root SHA sidecars but new emitters should write _meta/ and release validation should fail stale installed outputs that are non-zip, .pdwpn, .bin-backed, descriptor-less, or unresolved internally. c3832 is the detailed .pdweapon format card and sits immediately under this migration plan.",
+      "notes": "Created 2026-05-21 from Mike's request to walk each asset type and implement the clean-but-functional archive shape. Reprioritized 2026-05-22 as the top Asset Pipeline migration plan. Process order is locked: first define every asset-family format, starting with c3832 for .pdweapon; then freeze the contracts; then rebuild extraction/examples/validators in the full sweep. Shared contract: root descriptor required; no .pdwpn; no authored .bin; no reference-only dependency closure; duplicate embedded payloads are allowed on disk and deduped after ingestion by catalog identity and canonical SHA-256. Preferred archive zones are authoring files first, nested typed dependencies second, and _meta/ for manifest.json, inventory.json, provenance.json, validation reports, source handles, SHA rows, and compatibility bookkeeping. During transition, scanners/loaders may accept old root manifest.json and root SHA sidecars but new emitters should write _meta/ and release validation should fail stale installed outputs that are non-zip, .pdwpn, .bin-backed, descriptor-less, or unresolved internally. c3832 is the detailed .pdweapon format card and sits immediately under this migration plan.",
       "subtasks": [
         {
           "id": "c3824-s1",
@@ -3277,8 +3277,22 @@
           "id": "c3824-s18",
           "title": "Examples, docs, and release/package gate",
           "status": "backlog",
-          "order": 18000,
+          "order": 20000,
           "notes": "After family layouts land, refresh examples/modding/typed-pdxxx-basic to show the clean two-zone shape for all current families including .pdcharacter, .pdprojectile, and .pdentity. Add or update docs/UI copy so modders see authoring files by default and internal metadata only by choice. Add release/package validation that fails stale installed data with root manifest clutter, missing _meta migration, unresolved refs, non-zip typed files, .pdwpn, authored .bin, or missing root descriptors."
+        },
+        {
+          "id": "c3824-s19",
+          "title": "Freeze all asset-family formats before implementation sweep",
+          "status": "backlog",
+          "order": 18000,
+          "notes": "Do not start the broad extraction rebuild until every current typed asset family has an explicit target layout recorded and reviewed: .pdweapon, .pdprojectile, .pdentity, .pdcharacter, .pdhead, .pdbody, .pdarena, .pdscenario, .pdmesh, .pdanim, .pdsfx, .pdvoice, .pdsong, .pdui, .pdfont, and .pdlang. The freeze should call out canonical folders, required descriptors, dependency/fallback rules, _meta contents, and stale old-system references to remove."
+        },
+        {
+          "id": "c3824-s20",
+          "title": "Rebuild extraction after format freeze",
+          "status": "backlog",
+          "order": 19000,
+          "notes": "Only after c3824-s19 freezes the family formats, update base extractors, Modding Hub save/export paths, example archives, validators, and release gates to emit the clean layouts consistently. This is the full sweep, not the place to keep inventing individual asset contracts."
         }
       ],
       "flag": "star",
@@ -3358,7 +3372,7 @@
       "flagged_at": "2026-05-22T00:00:00-04:00",
       "pending_completion": null,
       "created": "2026-05-22T00:00:00-04:00",
-      "updated": "2026-05-22T00:00:00-04:00"
+      "updated": "2026-05-22T20:10:54.029Z"
     },
     {
       "id": "c3814",
@@ -3525,6 +3539,13 @@
           "notes": "Done 2026-05-22: the Modding Hub Weapons Template flow now uses a Blueprint-style ImGui node canvas powered by vendored imgui-node-editor. It supports palette/search, draggable nodes, Bezier links, selection/delete, pin/link/node/canvas context menus, inspector param editing, shared context toggles, node context-ref checkboxes, primary/secondary export actions, imported/template graph round-trip, Advanced JSON fallback, and authoring-only editor.layout.nodes positions that do not affect runtime IR hashes. Verification: focused [weapon_graph][compiler][c3814],[weapon_graph][ui][c3814] passed 147 assertions / 8 cases; isolated all-target build session wgraphnode passed for client/updater and was removed."
         },
         {
+          "id": "c3814-s26",
+          "title": "Move template editor out of preview tabs",
+          "status": "done",
+          "order": 4100,
+          "notes": "Done 2026-05-22: the Modding Hub weapon template editor now opens as a separate right-panel menu from Use as Template, can be reopened with Open Template Editor, and returns to archive previews with Back to Weapon Browser. Static coverage rejects reintroducing BeginTabItem(\"Template\"). Verification: focused [weapon_graph][ui][editor][c3814] passed 98 assertions / 3 cases; isolated all-target build session wtemplmenu passed for client/updater and was removed."
+        },
+        {
           "id": "c3814-s3",
           "title": "Define archive layouts and nested catalog rules",
           "status": "done",
@@ -3550,7 +3571,7 @@
       "flagged_at": "2026-05-21T00:00:00Z",
       "pending_completion": null,
       "created": "2026-05-21T00:00:00Z",
-      "updated": "2026-05-22T00:00:00-04:00"
+      "updated": "2026-05-22T20:35:00-04:00"
     },
     {
       "id": "c3812",
