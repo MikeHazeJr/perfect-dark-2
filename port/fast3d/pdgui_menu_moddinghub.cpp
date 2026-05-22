@@ -23,6 +23,7 @@
 #include <sys/stat.h>
 #include <stdint.h>
 #include <errno.h>
+#include <stdarg.h>
 
 #include "glad/glad.h"
 #include "imgui/imgui.h"
@@ -270,6 +271,9 @@ static bool     s_IniEmptyLogged = false;
  * ======================================================================== */
 
 #define HUB_WEAPON_TEXT_PREVIEW_LEN 8192
+#define HUB_WEAPON_GRAPH_MAX_NODES  16
+#define HUB_WEAPON_GRAPH_MAX_EDGES  32
+#define HUB_WEAPON_GRAPH_PARAM_LEN  512
 
 static char s_WeaponSelectedId[CATALOG_ID_LEN] = "";
 static char s_WeaponLoadedId[CATALOG_ID_LEN] = "";
@@ -315,6 +319,33 @@ static char s_WeaponImportGraphPath[FS_MAXPATH] = "";
 static char s_WeaponEditGraph[HUB_WEAPON_TEXT_PREVIEW_LEN] = "";
 static char s_WeaponEditNested[4096] = "";
 static WeaponImportTarget s_WeaponImportTarget = WEAPON_IMPORT_NONE;
+
+struct WeaponGraphModuleDef {
+    const char *label;
+    const char *kind;
+    const char *default_params;
+};
+
+struct WeaponGraphNodeEdit {
+    char id[WEAPON_GRAPH_IR_ID_LEN];
+    char kind[WEAPON_GRAPH_IR_ID_LEN];
+    char params[HUB_WEAPON_GRAPH_PARAM_LEN];
+};
+
+struct WeaponGraphEdgeEdit {
+    int from;
+    int to;
+};
+
+static WeaponGraphNodeEdit s_WeaponGraphNodes[HUB_WEAPON_GRAPH_MAX_NODES];
+static WeaponGraphEdgeEdit s_WeaponGraphEdges[HUB_WEAPON_GRAPH_MAX_EDGES];
+static int s_WeaponGraphNodeCount = 0;
+static int s_WeaponGraphEdgeCount = 0;
+static int s_WeaponGraphModulePick = 0;
+static int s_WeaponGraphEdgeFrom = 0;
+static int s_WeaponGraphEdgeTo = 0;
+static int s_WeaponGraphPrimaryExport = -1;
+static int s_WeaponGraphSecondaryExport = -1;
 
 /* ========================================================================
  * INI Editor — helpers
@@ -733,6 +764,417 @@ static void weaponDefaultGraph(const char *catalogId, char *out, size_t outSize)
         catalogId && catalogId[0] ? catalogId : "user:weapon");
 }
 
+static const WeaponGraphModuleDef s_WeaponGraphModules[] = {
+    {
+        "Single Shot",
+        "fire.hitscan",
+        "{ \"mode\": \"primary\", \"function_type\": \"shoot_single\", "
+        "\"trigger_policy\": \"press\", \"ammo_slot\": 0, \"damage\": 8.0, "
+        "\"spread\": 0.0, \"duration_ticks60\": 6, "
+        "\"recoverytime_ticks60\": 12, \"impactforce\": 1.0, "
+        "\"penetration\": 0 }"
+    },
+    {
+        "Automatic Fire",
+        "fire.auto_cadence",
+        "{ \"mode\": \"primary\", \"function_type\": \"shoot_automatic\", "
+        "\"trigger_policy\": \"hold\", \"ammo_slot\": 0, "
+        "\"initial_rpm\": 450.0, \"max_rpm\": 650.0, "
+        "\"turret_accel\": 0, \"turret_decel\": 0, "
+        "\"recoverytime_ticks60\": 4 }"
+    },
+    {
+        "Burst",
+        "fire.burst",
+        "{ \"mode\": \"primary\", \"function_type\": \"shoot_single\", "
+        "\"trigger_policy\": \"press\", \"ammo_slot\": 0, \"burst_count\": 3, "
+        "\"damage\": 6.0, \"duration_ticks60\": 5, "
+        "\"recoverytime_ticks60\": 18 }"
+    },
+    {
+        "Charge Release",
+        "fire.charge_release",
+        "{ \"mode\": \"secondary\", \"function_type\": \"shoot_single\", "
+        "\"trigger_policy\": \"hold_release\", \"ammo_slot\": 0, "
+        "\"damage\": 24.0, \"duration_ticks60\": 8, "
+        "\"recoverytime_ticks60\": 24 }"
+    },
+    {
+        "Beam Tick",
+        "fire.beam_tick",
+        "{ \"mode\": \"primary\", \"function_type\": \"shoot_automatic\", "
+        "\"trigger_policy\": \"hold\", \"ammo_slot\": 0, \"damage\": 1.0, "
+        "\"duration_ticks60\": 1, \"recoverytime_ticks60\": 1 }"
+    },
+    {
+        "Fired Projectile",
+        "spawn.fired_projectile",
+        "{ \"mode\": \"primary\", \"function_type\": \"shoot_projectile\", "
+        "\"trigger_policy\": \"press\", "
+        "\"projectile_ref\": \"user:projectile\", "
+        "\"projectile_model_ref\": \"MODEL_rocket\", \"speed\": 120.0, "
+        "\"travel_distance\": 3000, \"timer_ticks60\": 180, "
+        "\"scale\": 1.0, \"soundnum\": 0, \"recoverytime_ticks60\": 24 }"
+    },
+    {
+        "Thrown Physical",
+        "spawn.thrown_physical",
+        "{ \"mode\": \"secondary\", \"function_type\": \"throw\", "
+        "\"trigger_policy\": \"hold_release\", \"payload_ref\": \"user:payload\", "
+        "\"speed\": 80.0, \"activation_time_ticks60\": 24, "
+        "\"recovery_time_ticks60\": 30 }"
+    },
+    {
+        "Melee Strike",
+        "melee.strike",
+        "{ \"mode\": \"secondary\", \"function_type\": \"melee\", "
+        "\"trigger_policy\": \"press\", \"damage\": 12.0, \"range\": 120.0, "
+        "\"recoverytime_ticks60\": 20 }"
+    },
+    {
+        "Remote Detonator",
+        "special.remote_detonator",
+        "{ \"mode\": \"secondary\", \"function_type\": \"special\", "
+        "\"trigger_policy\": \"press\", \"detonator_ref\": \"user:remote_mine\", "
+        "\"specialfunc\": 0, \"recovery_time_ticks60\": 20 }"
+    },
+    {
+        "Device Activate",
+        "device.activate",
+        "{ \"mode\": \"primary\", \"function_type\": \"device\", "
+        "\"trigger_policy\": \"press\", \"device\": 0, "
+        "\"recovery_time_ticks60\": 12 }"
+    },
+    {
+        "Weapon Visibility",
+        "presentation.weapon_visibility",
+        "{ \"mode\": \"primary\", \"part_id\": \"ammo_display\", "
+        "\"ammo_slot\": 0, \"thresholds\": [0, 1], "
+        "\"visibility_state\": \"visible_when_loaded\" }"
+    },
+    {
+        "Reticle / Overlay / Camera",
+        "presentation.reticle_overlay_camera",
+        "{ \"mode\": \"primary\", \"reticle_ref\": \"default\", "
+        "\"overlay_ref\": \"\", \"zoom_fovs\": [60.0], "
+        "\"camera_effect\": \"none\" }"
+    },
+};
+
+static bool weaponAppendf(char *dst, size_t dstSize, size_t *pos,
+                          const char *fmt, ...)
+{
+    if (!dst || dstSize == 0 || !pos || *pos >= dstSize) return false;
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(dst + *pos, dstSize - *pos, fmt, ap);
+    va_end(ap);
+    if (n < 0) return false;
+    if ((size_t)n >= dstSize - *pos) {
+        dst[dstSize - 1] = '\0';
+        *pos = dstSize - 1;
+        return false;
+    }
+    *pos += (size_t)n;
+    return true;
+}
+
+static void weaponGraphBuilderClear(void)
+{
+    memset(s_WeaponGraphNodes, 0, sizeof(s_WeaponGraphNodes));
+    memset(s_WeaponGraphEdges, 0, sizeof(s_WeaponGraphEdges));
+    s_WeaponGraphNodeCount = 0;
+    s_WeaponGraphEdgeCount = 0;
+    s_WeaponGraphEdgeFrom = 0;
+    s_WeaponGraphEdgeTo = 0;
+    s_WeaponGraphPrimaryExport = -1;
+    s_WeaponGraphSecondaryExport = -1;
+}
+
+static const char *weaponGraphNodeLabel(int index)
+{
+    if (index < 0 || index >= s_WeaponGraphNodeCount) return "(none)";
+    return s_WeaponGraphNodes[index].id[0]
+        ? s_WeaponGraphNodes[index].id
+        : s_WeaponGraphNodes[index].kind;
+}
+
+static void weaponEditCatalogIdPreview(char *out, size_t outSize)
+{
+    if (!out || outSize == 0) return;
+    char slugRaw[sizeof(s_WeaponEditSlug)];
+    char slugPreview[sizeof(s_WeaponEditSlug)];
+    snprintf(slugRaw, sizeof(slugRaw), "%s", s_WeaponEditSlug);
+    weaponToolSlugify(slugRaw, slugPreview, sizeof(slugPreview));
+    snprintf(out, outSize, "user:%s",
+             slugPreview[0] ? slugPreview : "weapon");
+}
+
+static bool weaponGraphBuilderSyncJson(void)
+{
+    char assetId[CATALOG_ID_LEN];
+    char escapedAsset[CATALOG_ID_LEN + 16];
+    size_t pos = 0;
+    bool ok = true;
+
+    weaponEditCatalogIdPreview(assetId, sizeof(assetId));
+    weaponJsonEscape(assetId, escapedAsset, sizeof(escapedAsset));
+
+    if (s_WeaponGraphNodeCount <= 0) {
+        weaponSetStatus(false, "Add at least one graph module before generating");
+        return false;
+    }
+
+    s_WeaponEditGraph[0] = '\0';
+    ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
+        "{\n"
+        "  \"schema\": \"pd.weapon_graph.v1\",\n"
+        "  \"asset_id\": \"%s\",\n"
+        "  \"graph_id\": \"custom\",\n"
+        "  \"nodes\": [\n", escapedAsset);
+
+    for (int i = 0; ok && i < s_WeaponGraphNodeCount; i++) {
+        char escapedId[WEAPON_GRAPH_IR_ID_LEN + 16];
+        char escapedKind[WEAPON_GRAPH_IR_ID_LEN + 16];
+        weaponJsonEscape(s_WeaponGraphNodes[i].id, escapedId, sizeof(escapedId));
+        weaponJsonEscape(s_WeaponGraphNodes[i].kind, escapedKind, sizeof(escapedKind));
+        ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
+            "    { \"id\": \"%s\", \"kind\": \"%s\", \"params\": %s }%s\n",
+            escapedId,
+            escapedKind,
+            s_WeaponGraphNodes[i].params[0] ? s_WeaponGraphNodes[i].params : "{}",
+            (i + 1 < s_WeaponGraphNodeCount) ? "," : "");
+    }
+
+    ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
+        "  ],\n"
+        "  \"edges\": [\n");
+
+    for (int i = 0; ok && i < s_WeaponGraphEdgeCount; i++) {
+        if (s_WeaponGraphEdges[i].from < 0 ||
+                s_WeaponGraphEdges[i].from >= s_WeaponGraphNodeCount ||
+                s_WeaponGraphEdges[i].to < 0 ||
+                s_WeaponGraphEdges[i].to >= s_WeaponGraphNodeCount) {
+            continue;
+        }
+        char from[WEAPON_GRAPH_IR_ID_LEN + 16];
+        char to[WEAPON_GRAPH_IR_ID_LEN + 16];
+        weaponJsonEscape(s_WeaponGraphNodes[s_WeaponGraphEdges[i].from].id,
+                         from, sizeof(from));
+        weaponJsonEscape(s_WeaponGraphNodes[s_WeaponGraphEdges[i].to].id,
+                         to, sizeof(to));
+        ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
+            "    { \"from\": \"%s\", \"to\": \"%s\" }%s\n",
+            from, to, (i + 1 < s_WeaponGraphEdgeCount) ? "," : "");
+    }
+
+    ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
+        "  ],\n"
+        "  \"exports\": [\n");
+
+    bool wroteExport = false;
+    if (s_WeaponGraphPrimaryExport >= 0 &&
+            s_WeaponGraphPrimaryExport < s_WeaponGraphNodeCount) {
+        char node[WEAPON_GRAPH_IR_ID_LEN + 16];
+        weaponJsonEscape(s_WeaponGraphNodes[s_WeaponGraphPrimaryExport].id,
+                         node, sizeof(node));
+        ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
+            "    { \"name\": \"primary\", \"node\": \"%s\" }",
+            node);
+        wroteExport = true;
+    }
+    if (s_WeaponGraphSecondaryExport >= 0 &&
+            s_WeaponGraphSecondaryExport < s_WeaponGraphNodeCount) {
+        char node[WEAPON_GRAPH_IR_ID_LEN + 16];
+        weaponJsonEscape(s_WeaponGraphNodes[s_WeaponGraphSecondaryExport].id,
+                         node, sizeof(node));
+        ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
+            "%s    { \"name\": \"secondary\", \"node\": \"%s\" }",
+            wroteExport ? ",\n" : "", node);
+        wroteExport = true;
+    }
+    if (wroteExport) {
+        ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos, "\n");
+    }
+    ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
+        "  ]\n"
+        "}\n");
+
+    if (!ok) {
+        weaponSetStatus(false, "Graph builder output is too large");
+        return false;
+    }
+
+    char graphErr[192];
+    if (weaponGraphValidateJson(ASSET_WEAPON, s_WeaponEditGraph,
+            (u32)strlen(s_WeaponEditGraph), graphErr, sizeof(graphErr)) != 0) {
+        char msg[240];
+        snprintf(msg, sizeof(msg), "Graph builder validation failed: %s", graphErr);
+        weaponSetStatus(false, msg);
+        return false;
+    }
+
+    weaponSetStatus(true, "Graph builder updated behavior.graph.json");
+    return true;
+}
+
+static void weaponGraphBuilderMakeNodeId(const char *kind, char *out, size_t outSize)
+{
+    if (!out || outSize == 0) return;
+    size_t j = 0;
+    const char *src = kind && kind[0] ? kind : "node";
+    for (size_t i = 0; src[i] && j + 1 < outSize; i++) {
+        char c = src[i];
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+            out[j++] = c;
+        } else if (j > 0 && out[j - 1] != '_') {
+            out[j++] = '_';
+        }
+    }
+    while (j > 0 && out[j - 1] == '_') j--;
+    if (j + 5 < outSize) {
+        snprintf(out + j, outSize - j, "_%02d", s_WeaponGraphNodeCount + 1);
+    } else {
+        out[j] = '\0';
+    }
+}
+
+static bool weaponGraphBuilderAddModule(int moduleIndex, bool syncNow)
+{
+    if (moduleIndex < 0 ||
+            moduleIndex >= (int)(sizeof(s_WeaponGraphModules) /
+                                 sizeof(s_WeaponGraphModules[0]))) {
+        return false;
+    }
+    if (s_WeaponGraphNodeCount >= HUB_WEAPON_GRAPH_MAX_NODES) {
+        weaponSetStatus(false, "Graph builder node limit reached");
+        return false;
+    }
+    WeaponGraphNodeEdit &node = s_WeaponGraphNodes[s_WeaponGraphNodeCount];
+    memset(&node, 0, sizeof(node));
+    weaponGraphBuilderMakeNodeId(s_WeaponGraphModules[moduleIndex].kind,
+                                 node.id, sizeof(node.id));
+    strncpy(node.kind, s_WeaponGraphModules[moduleIndex].kind,
+            sizeof(node.kind) - 1);
+    strncpy(node.params, s_WeaponGraphModules[moduleIndex].default_params,
+            sizeof(node.params) - 1);
+    if (s_WeaponGraphPrimaryExport < 0) {
+        s_WeaponGraphPrimaryExport = s_WeaponGraphNodeCount;
+    }
+    s_WeaponGraphNodeCount++;
+    if (syncNow) {
+        return weaponGraphBuilderSyncJson();
+    }
+    return true;
+}
+
+static int weaponGraphModuleIndexByKind(const char *kind)
+{
+    if (!kind) return 0;
+    for (int i = 0;
+            i < (int)(sizeof(s_WeaponGraphModules) / sizeof(s_WeaponGraphModules[0]));
+            i++) {
+        if (strcmp(s_WeaponGraphModules[i].kind, kind) == 0) return i;
+    }
+    return 0;
+}
+
+static void weaponGraphBuilderAddEdge(int from, int to, bool syncNow)
+{
+    if (from < 0 || from >= s_WeaponGraphNodeCount ||
+            to < 0 || to >= s_WeaponGraphNodeCount) {
+        weaponSetStatus(false, "Choose valid graph nodes before adding an edge");
+        return;
+    }
+    if (from == to) {
+        weaponSetStatus(false, "Graph edges cannot point to the same node");
+        return;
+    }
+    if (s_WeaponGraphEdgeCount >= HUB_WEAPON_GRAPH_MAX_EDGES) {
+        weaponSetStatus(false, "Graph builder edge limit reached");
+        return;
+    }
+    s_WeaponGraphEdges[s_WeaponGraphEdgeCount].from = from;
+    s_WeaponGraphEdges[s_WeaponGraphEdgeCount].to = to;
+    s_WeaponGraphEdgeCount++;
+    if (syncNow) {
+        weaponGraphBuilderSyncJson();
+    }
+}
+
+static void weaponGraphBuilderRemoveNode(int index)
+{
+    if (index < 0 || index >= s_WeaponGraphNodeCount) return;
+    for (int i = index; i + 1 < s_WeaponGraphNodeCount; i++) {
+        s_WeaponGraphNodes[i] = s_WeaponGraphNodes[i + 1];
+    }
+    s_WeaponGraphNodeCount--;
+
+    int out = 0;
+    for (int i = 0; i < s_WeaponGraphEdgeCount; i++) {
+        int from = s_WeaponGraphEdges[i].from;
+        int to = s_WeaponGraphEdges[i].to;
+        if (from == index || to == index) continue;
+        if (from > index) from--;
+        if (to > index) to--;
+        s_WeaponGraphEdges[out].from = from;
+        s_WeaponGraphEdges[out].to = to;
+        out++;
+    }
+    s_WeaponGraphEdgeCount = out;
+
+    if (s_WeaponGraphPrimaryExport == index) s_WeaponGraphPrimaryExport = -1;
+    if (s_WeaponGraphSecondaryExport == index) s_WeaponGraphSecondaryExport = -1;
+    if (s_WeaponGraphPrimaryExport > index) s_WeaponGraphPrimaryExport--;
+    if (s_WeaponGraphSecondaryExport > index) s_WeaponGraphSecondaryExport--;
+    if (s_WeaponGraphEdgeFrom >= s_WeaponGraphNodeCount) s_WeaponGraphEdgeFrom = 0;
+    if (s_WeaponGraphEdgeTo >= s_WeaponGraphNodeCount) s_WeaponGraphEdgeTo = 0;
+    weaponGraphBuilderSyncJson();
+}
+
+static void weaponGraphBuilderRemoveEdge(int index)
+{
+    if (index < 0 || index >= s_WeaponGraphEdgeCount) return;
+    for (int i = index; i + 1 < s_WeaponGraphEdgeCount; i++) {
+        s_WeaponGraphEdges[i] = s_WeaponGraphEdges[i + 1];
+    }
+    s_WeaponGraphEdgeCount--;
+    weaponGraphBuilderSyncJson();
+}
+
+static void weaponGraphBuilderSeedSingleShot(void)
+{
+    weaponGraphBuilderClear();
+    weaponGraphBuilderAddModule(weaponGraphModuleIndexByKind("fire.hitscan"), false);
+    s_WeaponGraphPrimaryExport = 0;
+    weaponGraphBuilderSyncJson();
+}
+
+static void weaponGraphBuilderSeedAutomatic(void)
+{
+    weaponGraphBuilderClear();
+    weaponGraphBuilderAddModule(weaponGraphModuleIndexByKind("fire.auto_cadence"), false);
+    s_WeaponGraphPrimaryExport = 0;
+    weaponGraphBuilderSyncJson();
+}
+
+static void weaponGraphBuilderSeedProjectile(void)
+{
+    weaponGraphBuilderClear();
+    weaponGraphBuilderAddModule(weaponGraphModuleIndexByKind("spawn.fired_projectile"), false);
+    s_WeaponGraphPrimaryExport = 0;
+    weaponGraphBuilderSyncJson();
+}
+
+static void weaponGraphBuilderSeedThrown(void)
+{
+    weaponGraphBuilderClear();
+    weaponGraphBuilderAddModule(weaponGraphModuleIndexByKind("spawn.thrown_physical"), false);
+    s_WeaponGraphSecondaryExport = 0;
+    weaponGraphBuilderSyncJson();
+}
+
 static char *weaponImportPathMutableForTarget(WeaponImportTarget target)
 {
     switch (target) {
@@ -880,6 +1322,7 @@ static void weaponToolStartTemplate(const asset_entry_t *e)
     memset(s_WeaponImportProjectilePath, 0, sizeof(s_WeaponImportProjectilePath));
     memset(s_WeaponImportEntityPath, 0, sizeof(s_WeaponImportEntityPath));
     memset(s_WeaponImportGraphPath, 0, sizeof(s_WeaponImportGraphPath));
+    weaponGraphBuilderClear();
 
     strncpy(s_WeaponEditTemplateId, e->id, sizeof(s_WeaponEditTemplateId) - 1);
     strncpy(s_WeaponEditTemplateArchive, s_WeaponArchivePath,
@@ -1532,6 +1975,176 @@ static void weaponRenderImportRow(const char *label,
     }
 }
 
+static bool weaponRenderGraphNodeCombo(const char *label, int *value, bool allowNone)
+{
+    if (!value) return false;
+    bool changed = false;
+    const char *preview = (*value >= 0 && *value < s_WeaponGraphNodeCount)
+        ? weaponGraphNodeLabel(*value)
+        : "(none)";
+    if (ImGui::BeginCombo(label, preview)) {
+        if (allowNone && ImGui::Selectable("(none)", *value < 0)) {
+            *value = -1;
+            changed = true;
+        }
+        for (int i = 0; i < s_WeaponGraphNodeCount; i++) {
+            bool selected = *value == i;
+            if (ImGui::Selectable(weaponGraphNodeLabel(i), selected)) {
+                *value = i;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
+static void weaponRenderGraphBuilder(float scale)
+{
+    ImGui::Text("Graph Builder");
+    ImGui::SameLine();
+    ImGui::TextDisabled("%d modules, %d edges",
+                        s_WeaponGraphNodeCount, s_WeaponGraphEdgeCount);
+
+    if (PdButton("Seed Single Shot", ImVec2(132.0f * scale, 26.0f * scale))) {
+        weaponGraphBuilderSeedSingleShot();
+    }
+    ImGui::SameLine();
+    if (PdButton("Seed Automatic", ImVec2(132.0f * scale, 26.0f * scale))) {
+        weaponGraphBuilderSeedAutomatic();
+    }
+    ImGui::SameLine();
+    if (PdButton("Seed Projectile", ImVec2(132.0f * scale, 26.0f * scale))) {
+        weaponGraphBuilderSeedProjectile();
+    }
+    ImGui::SameLine();
+    if (PdButton("Seed Thrown", ImVec2(112.0f * scale, 26.0f * scale))) {
+        weaponGraphBuilderSeedThrown();
+    }
+    ImGui::SameLine();
+    if (PdButton("Clear", ImVec2(72.0f * scale, 26.0f * scale))) {
+        weaponGraphBuilderClear();
+        weaponDefaultGraph(s_WeaponEditCatalogId, s_WeaponEditGraph,
+                           sizeof(s_WeaponEditGraph));
+        weaponSetStatus(true, "Graph builder cleared");
+    }
+
+    const char *modulePreview = s_WeaponGraphModules[s_WeaponGraphModulePick].label;
+    ImGui::SetNextItemWidth(220.0f * scale);
+    if (ImGui::BeginCombo("Module", modulePreview)) {
+        for (int i = 0;
+                i < (int)(sizeof(s_WeaponGraphModules) /
+                          sizeof(s_WeaponGraphModules[0]));
+                i++) {
+            bool selected = s_WeaponGraphModulePick == i;
+            char label[128];
+            snprintf(label, sizeof(label), "%s  (%s)",
+                     s_WeaponGraphModules[i].label,
+                     s_WeaponGraphModules[i].kind);
+            if (ImGui::Selectable(label, selected)) {
+                s_WeaponGraphModulePick = i;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    if (PdButton("Add Module", ImVec2(112.0f * scale, 26.0f * scale))) {
+        weaponGraphBuilderAddModule(s_WeaponGraphModulePick, true);
+    }
+
+    ImGui::BeginChild("##weapon_graph_builder_nodes",
+                      ImVec2(-1.0f, 190.0f * scale), true,
+                      ImGuiWindowFlags_HorizontalScrollbar);
+    if (s_WeaponGraphNodeCount == 0) {
+        ImGui::TextDisabled("No graph modules.");
+    }
+    for (int i = 0; i < s_WeaponGraphNodeCount; i++) {
+        WeaponGraphNodeEdit &node = s_WeaponGraphNodes[i];
+        ImGui::PushID(i);
+        ImGui::Text("%s", node.kind);
+        ImGui::SameLine();
+        if (PdButton("Remove", ImVec2(76.0f * scale, 0))) {
+            ImGui::PopID();
+            weaponGraphBuilderRemoveNode(i);
+            break;
+        }
+        ImGui::SetNextItemWidth(190.0f * scale);
+        if (ImGui::InputText("Node ID", node.id, sizeof(node.id))) {
+            weaponGraphBuilderSyncJson();
+        }
+        ImGui::InputTextMultiline("Params",
+                                  node.params,
+                                  sizeof(node.params),
+                                  ImVec2(-1.0f, 58.0f * scale),
+                                  ImGuiInputTextFlags_AllowTabInput);
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            weaponGraphBuilderSyncJson();
+        }
+        ImGui::Separator();
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    if (s_WeaponGraphNodeCount > 0) {
+        ImGui::SetNextItemWidth(190.0f * scale);
+        weaponRenderGraphNodeCombo("From", &s_WeaponGraphEdgeFrom, false);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(190.0f * scale);
+        weaponRenderGraphNodeCombo("To", &s_WeaponGraphEdgeTo, false);
+        ImGui::SameLine();
+        if (PdButton("Add Edge", ImVec2(94.0f * scale, 26.0f * scale))) {
+            weaponGraphBuilderAddEdge(s_WeaponGraphEdgeFrom,
+                                      s_WeaponGraphEdgeTo, true);
+        }
+    }
+
+    for (int i = 0; i < s_WeaponGraphEdgeCount; i++) {
+        ImGui::PushID(1000 + i);
+        ImGui::Text("%s -> %s",
+                    weaponGraphNodeLabel(s_WeaponGraphEdges[i].from),
+                    weaponGraphNodeLabel(s_WeaponGraphEdges[i].to));
+        ImGui::SameLine();
+        if (PdButton("Remove", ImVec2(76.0f * scale, 0))) {
+            ImGui::PopID();
+            weaponGraphBuilderRemoveEdge(i);
+            break;
+        }
+        ImGui::PopID();
+    }
+
+    ImGui::SetNextItemWidth(220.0f * scale);
+    if (weaponRenderGraphNodeCombo("Primary Export",
+                                   &s_WeaponGraphPrimaryExport, true)) {
+        weaponGraphBuilderSyncJson();
+    }
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(220.0f * scale);
+    if (weaponRenderGraphNodeCombo("Secondary Export",
+                                   &s_WeaponGraphSecondaryExport, true)) {
+        weaponGraphBuilderSyncJson();
+    }
+    ImGui::SameLine();
+    if (PdButton("Validate Graph", ImVec2(124.0f * scale, 26.0f * scale))) {
+        char graphErr[192];
+        if (weaponGraphValidateJson(ASSET_WEAPON, s_WeaponEditGraph,
+                (u32)strlen(s_WeaponEditGraph), graphErr, sizeof(graphErr)) == 0) {
+            weaponSetStatus(true, "Graph validation passed");
+        } else {
+            char msg[240];
+            snprintf(msg, sizeof(msg), "Graph validation failed: %s", graphErr);
+            weaponSetStatus(false, msg);
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Generated JSON")) {
+        ImGui::InputTextMultiline("##weapon_edit_graph",
+                                  s_WeaponEditGraph,
+                                  sizeof(s_WeaponEditGraph),
+                                  ImVec2(-1.0f, 150.0f * scale),
+                                  ImGuiInputTextFlags_AllowTabInput);
+    }
+}
+
 static void renderWeaponTool(float contentW, float contentH, float scale)
 {
     if (s_WeaponImportTarget != WEAPON_IMPORT_NONE && pdguiFileBrowserIsOpen()) {
@@ -1547,6 +2160,7 @@ static void renderWeaponTool(float contentW, float contentH, float scale)
                                                      sizeof(s_WeaponEditGraph),
                                                      "asset_id",
                                                      s_WeaponEditCatalogId);
+                        weaponGraphBuilderClear();
                         weaponSetStatus(true, "Imported behavior graph JSON");
                     } else {
                         weaponSetStatus(false, "Could not read graph JSON file");
@@ -1723,12 +2337,7 @@ static void renderWeaponTool(float contentW, float contentH, float scale)
                                       ".json");
 
                 ImGui::Separator();
-                ImGui::Text("Behavior Graph");
-                ImGui::InputTextMultiline("##weapon_edit_graph",
-                                          s_WeaponEditGraph,
-                                          sizeof(s_WeaponEditGraph),
-                                          ImVec2(-1.0f, 160.0f * scale),
-                                          ImGuiInputTextFlags_AllowTabInput);
+                weaponRenderGraphBuilder(scale);
                 ImGui::Text("Nested Payloads");
                 ImGui::InputTextMultiline("##weapon_edit_nested",
                                           s_WeaponEditNested,

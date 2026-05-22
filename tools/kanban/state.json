@@ -97,18 +97,19 @@
       "pillar": "networking",
       "column": "active",
       "order": 3828000,
-      "notes": "Code/build verified 2026-05-21; pending Mike+Chris live two-client confirmation before the goal can close. Fixed the offline-after-add root cause by validating signed presence against per-agent handles and storing the loaded save-slot agent name instead of the generic identity profile. Presence frames now carry agent name and status separately, LAN bootstrap sends presence to the presence port, Social friend rows and profile modals expose Invite even when the displayed state is stale/offline, invite/group-session and live-spectator handoffs use the hole-punch-aware join path, and Main Menu now shows Play instead of Solo Play with the obsolete Online Play direct-connect view removed. Verification: [c3828] passed, [connectcode][security][static] passed, [input][menu_graph][static] passed, git diff --check passed with existing CRLF warnings only, and isolated all-target build c3828social passed for client/updater.",
+      "notes": "Second-pass code/build verified 2026-05-22; pending Mike+Chris live two-client confirmation before the goal can close. First pass fixed the offline-after-add root cause by validating signed presence against per-agent handles, storing the loaded save-slot agent name, splitting presence agent/status fields, sending LAN bootstrap presence to UDP 27105, exposing Invite from stale Offline rows, routing invite/group-session/spectator handoffs through the NAT-aware path, and cleaning up Main Menu Play. Second pass fixed the existing-agent lifecycle gap: successful prefs sidecar loads re-bound the per-agent code and marked presence loaded but skipped socialHubBringOnline(), so P2P LAN and presence sockets never opened. `prefsAgentLoad()` now calls socialHubBringOnline() before presenceMarkAgentLoaded() on both sidecar and no-sidecar paths. Verification: online367 [c3828] passed with 44 assertions / 3 cases and online367 all-target build passed.",
       "flag": "star",
       "flagged_at": "2026-05-21T19:25:00-04:00",
       "created": "2026-05-21T19:25:00-04:00",
-      "updated": "2026-05-21T19:51:46-04:00",
+      "updated": "2026-05-22T00:00:00-04:00",
       "pending_completion": {
         "marked_by": "codex-c3828-social-presence",
-        "summary": "Presence identity, stale-offline invite recovery, NAT-aware friend handoffs, and Main Menu Play cleanup are code/build verified.",
-        "verify_notes": "Verified 2026-05-21 in isolated session c3828social: [c3828] passed with 42 assertions / 3 cases; [connectcode][security][static] passed with 45 assertions / 1 case; [input][menu_graph][static] passed with 688 assertions / 35 cases; git diff --check passed with existing CRLF warnings only; all-target build passed for client/updater. Needs Mike+Chris live retest before closure.",
+        "summary": "Presence identity, existing-agent social hub startup, stale-offline invite recovery, NAT-aware friend handoffs, and Main Menu Play cleanup are code/build verified.",
+        "verify_notes": "Verified 2026-05-21 in isolated session c3828social: [c3828] passed with 42 assertions / 3 cases; [connectcode][security][static] passed with 45 assertions / 1 case; [input][menu_graph][static] passed with 688 assertions / 35 cases; all-target build passed for client/updater. Second-pass 2026-05-22: online367 [c3828] passed with 44 assertions / 3 cases and online367 all-target build passed after fixing existing-agent prefs sidecar loads to call socialHubBringOnline(). Needs Mike+Chris live retest before closure.",
         "files": [
           "port/src/social_store.c",
           "port/src/presence.c",
+          "port/src/prefs_agent.c",
           "port/fast3d/pdgui_friends.cpp",
           "port/src/net/group_session.c",
           "port/src/spectator.c",
@@ -132,7 +133,7 @@
           "title": "Fix presence identity binding and online state after add-by-code",
           "status": "done",
           "order": 1000,
-          "notes": "Fixed in social_store.c and presence.c: loaded save-slot agent name is stored locally, signed frames carry agent/status separately, and incoming signatures validate against pubkey-only compatibility plus per-agent handles."
+          "notes": "Fixed in social_store.c, presence.c, and prefs_agent.c: loaded save-slot agent name is stored locally, signed frames carry agent/status separately, incoming signatures validate against pubkey-only compatibility plus per-agent handles, and existing-agent sidecar loads bring the social hub online before presence is marked loaded."
         },
         {
           "id": "c3828-s2",
@@ -160,7 +161,7 @@
           "title": "Verify focused presence/menu/invite tests and update context",
           "status": "done",
           "order": 5000,
-          "notes": "Focused c3828, connect-code UI, menu graph static tests and isolated all-target build passed; context and release-note updates tracked in this session."
+          "notes": "First-pass focused c3828/connect-code/menu graph tests and all-target build passed. Second-pass online367 [c3828] and all-target build passed after pinning existing-agent social hub startup; context and release-note updates tracked in this session."
         }
       ]
     },
@@ -225,27 +226,29 @@
     },
     {
       "id": "c3830",
-      "title": "B-366: Falcon 2 extracted OBJ barrel stretch",
-      "description": "Mike reported that Falcon 2 loads with the end of the barrel stretched/skewed and the extracted OBJ has the same bad shape, then asked to check all weapons for a model extraction process issue.",
+      "title": "B-366: Falcon 2 OBJ and in-game barrel stretch",
+      "description": "Mike reported that Falcon 2 loads with the end of the barrel stretched/skewed and the extracted OBJ has the same bad shape, then asked to check all weapons for a model extraction process issue. He later confirmed the in-game stretch persisted with the tip staying fixed while the model moved.",
       "pillar": "modding",
       "column": "active",
       "order": 3830000,
-      "notes": "Code/build/smoke verified 2026-05-22; pending Mike's visual retest of Falcon 2 and its extracted OBJ before closure. Root cause was .pdmesh OBJ export ignoring G_MTX/G_POPMTX modelview commands and the SPSEGMENT_MODEL_MTX table used by weapon display lists, so local unposed weapon parts could be written into OBJ data and then embedded into .pdweapon archives. The exporter now builds default model matrices from model position nodes, applies the matrix stack while emitting OBJ vertices, writes model_obj_mtx_v2/export_version.txt metadata, and bumps .pdmesh plus .pdweapon cache markers so stale standalone and nested held meshes rebuild. Verification: focused mesh extractor test passed, focused .pdweapon test passed, isolated falconmesh all-target build passed, per-test boot_smoke passed, and fresh all-weapon sweep found 86 weapon archives, 152 nested weapon meshes, 303 standalone meshes, 0 nested issues, 0 stale standalone version issues, and 0 nested weapon meshes without model matrix references. Broad c3812 static selector still has one unrelated pre-existing scenario visual-export literal assertion.",
+      "notes": "Code/build/smoke verified 2026-05-22; pending Mike's visual retest of Falcon 2 in-game and its extracted OBJ before closure. Extracted OBJ root cause was .pdmesh OBJ export ignoring G_MTX/G_POPMTX modelview commands and the SPSEGMENT_MODEL_MTX table used by weapon display lists, so local unposed weapon parts could be written into OBJ data and then embedded into .pdweapon archives. The exporter now builds default model matrices from model position nodes, applies the matrix stack while emitting OBJ vertices, writes model_obj_mtx_v2/export_version.txt metadata, and bumps .pdmesh plus .pdweapon cache markers so stale standalone and nested held meshes rebuild. Remaining in-game root cause matched Mike's tip-fixed-while-model-moved clue: the Falcon laser beam could render while the first-person gun root was moving, with the far endpoint anchored at the crosshair. The beam now renders only in steady aim-capable states and is freed during busy/non-steady gun animation. Verification: focused mesh extractor test passed, focused .pdweapon test passed, isolated falconmesh all-target build passed, per-test boot_smoke passed, fresh all-weapon sweep found 86 weapon archives, 152 nested weapon meshes, 303 standalone meshes, 0 nested issues, 0 stale standalone version issues, and 0 nested weapon meshes without model matrix references; focused [bondgun][laser][static] passed 18 assertions / 3 cases and isolated falconanim all-target build passed. Broad c3812 static selector still has one unrelated pre-existing scenario visual-export literal assertion.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-22T00:00:00-04:00",
       "updated": "2026-05-22T00:00:00-04:00",
       "pending_completion": {
-        "marked_by": "codex-falconmesh-b366",
-        "summary": "Weapon OBJ extraction now applies model matrices before standalone .pdmesh and nested .pdweapon held meshes are written, addressing the Falcon 2 extracted-OBJ barrel stretch class across all weapons.",
-        "verify_notes": "Verified 2026-05-22: scoped diff check passed; focused base mesh extractor test passed with 64 assertions / 1 case; focused pdweapon-only test passed with 61 assertions / 1 case; isolated all-target build falconmesh passed; per-test boot_smoke wrote 303 .pdmesh and 86 .pdweapon archives; all-weapon sweep found 86 weapon archives, 152 nested weapon meshes, 303 standalone meshes, nested_issues=0, standalone_version_issues=0, and zero_matrix_ref_meshes=0. Needs Mike visual retest of Falcon 2 in-game and the extracted Falcon 2 OBJ before closure.",
+        "marked_by": "codex-falconanim-b366",
+        "summary": "Weapon OBJ extraction now applies model matrices before standalone .pdmesh and nested .pdweapon held meshes are written, and Falcon laser rendering is suppressed during moving gun-root animations so the in-game beam no longer reads as a stretched barrel tip.",
+        "verify_notes": "Verified 2026-05-22: scoped diff check passed; focused base mesh extractor test passed with 64 assertions / 1 case; focused pdweapon-only test passed with 61 assertions / 1 case; isolated all-target build falconmesh passed; per-test boot_smoke wrote 303 .pdmesh and 86 .pdweapon archives; all-weapon sweep found 86 weapon archives, 152 nested weapon meshes, 303 standalone meshes, nested_issues=0, standalone_version_issues=0, and zero_matrix_ref_meshes=0; focused [bondgun][laser][static] passed with 18 assertions / 3 cases; isolated all-target build falconanim passed. Needs Mike visual retest of Falcon 2 in-game and the extracted Falcon 2 OBJ before closure.",
         "files": [
           "port/src/romextract_pdmesh.c",
           "port/src/romextract_pdweapon.c",
-          "tests/test_mod_external_archive_static.cpp"
+          "tests/test_mod_external_archive_static.cpp",
+          "src/game/bondgun.c",
+          "tests/test_bondgun_cache.cpp"
         ],
         "manual_checks": [
-          "Start a mission with Falcon 2 and confirm the barrel end no longer appears stretched/skewed.",
+          "Start a mission with Falcon 2 and confirm the barrel end no longer appears stretched/skewed while equipping, moving, or firing.",
           "Open the freshly extracted Falcon 2 OBJ and confirm the barrel end placement is corrected.",
           "Spot-check one or two other held weapon OBJs if Falcon 2 is clean, since the exporter fix applies to all weapon meshes."
         ]
@@ -278,6 +281,13 @@
           "status": "done",
           "order": 4000,
           "notes": "Fresh boot-generated archive sweep checked 86 weapon archives, 152 nested weapon meshes, and 303 standalone meshes with 0 nested issues, 0 stale standalone version issues, and 0 zero-matrix-reference weapon meshes."
+        },
+        {
+          "id": "c3830-s5",
+          "title": "Fix live laser-root animation stretch",
+          "status": "done",
+          "order": 5000,
+          "notes": "Falcon laser beams now render only in steady aim-capable hand states and are freed during busy/non-steady first-person gun animation, matching Mike's tip-fixed-while-model-moved repro."
         }
       ]
     },
@@ -2698,7 +2708,7 @@
       "column": "active",
       "order": 3000,
       "priority": 1,
-      "notes": "Code/build slice completed 2026-05-19. Root cause: player airborne movement applied horizontal X/Z first, then bwalkUpdateVertical() only swept move=(0, verticalDelta, 0), so side-entry during a jump could bypass the side plane before vertical clamping. Fix: src/game/bondwalk.c adds bwalkClampAirborneSideEntry(), an upward diagonal capsuleSweep() from bondprevpos to the already-applied X/Z plus verticalDelta; on hit it rolls X/Z back to the safe fraction and clamps/kills upward velocity for ceiling-class hits. Test fixture now covers side-wall rendered triangles. Verification passed: scoped git diff --check, b350side tests target, focused [physics][jump] (99 assertions / 4 cases), and b350side all-target build. Manual CI Training retest remains the closure gate.\nPriority pass 2026-05-20: Collision critical path. Manual CI Training retest remains the gate before broader gameplay-stability work is treated as reliable.",
+      "notes": "Code/build slice completed 2026-05-19. Root cause: player airborne movement applied horizontal X/Z first, then bwalkUpdateVertical() only swept move=(0, verticalDelta, 0), so side-entry during a jump could bypass the side plane before vertical clamping. Fix: src/game/bondwalk.c adds bwalkClampAirborneSideEntry(), an upward diagonal capsuleSweep() from bondprevpos to the already-applied X/Z plus verticalDelta; on hit it rolls X/Z back to the safe fraction and clamps/kills upward velocity for ceiling-class hits. Test fixture now covers side-wall rendered triangles. Verification passed: scoped git diff --check, b350side tests target, focused [physics][jump] (99 assertions / 4 cases), and b350side all-target build. Manual CI Training retest remains the closure gate.\n2026-05-22 B-367 follow-up: Mike reported the jumping player still clips into walls, ceilings, or corners. Root cause was the remaining horizontal half of the movement-order split: apex/descent lateral motion still committed through the legacy cylinder path before any capsule mesh repair ran. Fix: bwalkClampAirborneLateralEntry() now runs immediately after horizontal movement and before speed correction when airborne, uses the collision-owned capsule mesh sweep from bondprevpos, rolls X/Z back on wall/ceiling/corner hits, and ignores floor-class hits. Verification passed: focused [physics][jump] (105 assertions / 4 cases) and jump367 all-target build. Manual retest remains the closure gate.\nPriority pass 2026-05-20: Collision critical path. Manual CI Training retest remains the gate before broader gameplay-stability work is treated as reliable.",
       "subtasks": [
         {
           "id": "c136-s1",
@@ -2724,24 +2734,32 @@
         {
           "id": "c136-s4",
           "title": "Manual CI Training collision retest",
-          "status": "done",
+          "status": "active",
           "order": 4000,
-          "notes": "Retest the CI Training overhead blockers/doorway. Expected: side-entry blocks without trapping the player in the wall, and moved couch dynamic collision still supports landing/jumping from its new position."
+          "notes": "Retest the CI Training overhead blockers/doorway plus the new B-367 wall, ceiling, and corner repro. Expected: side-entry and lateral airborne clipping block without trapping the player in the wall, and moved couch dynamic collision still supports landing/jumping from its new position."
+        },
+        {
+          "id": "c136-s5",
+          "title": "Patch airborne lateral wall/corner clamp",
+          "status": "done",
+          "order": 5000,
+          "notes": "Added bwalkClampAirborneLateralEntry() after horizontal movement and before speed correction. It performs a horizontal capsule mesh sweep from bondprevpos while airborne, rolls X/Z back on wall/ceiling/corner hits, and ignores floor-class hits. Verification passed: focused [physics][jump] (105 assertions / 4 cases) and jump367 all-target build."
         }
       ],
       "flag": "watch",
       "flagged_at": "2026-05-19T18:16:48Z",
       "created": "2026-05-19T18:16:48Z",
-      "updated": "2026-05-20T21:22:57.831Z",
+      "updated": "2026-05-22T03:39:33.174Z",
       "pending_completion": {
-        "marked_at": "2026-05-19T18:16:48Z",
-        "marked_by": "session-main-checkout-2026-05-19-jump-side-entry-b350",
-        "summary": "B-350 is code-fixed and build/test verified; the remaining closure gate is Mike's CI Training playtest of overhead blocker side-entry, doorway sticking, and moved-couch dynamic collision.",
+        "marked_at": "2026-05-22T03:39:33Z",
+        "marked_by": "session-jump367",
+        "summary": "B-350 and B-367 are code-fixed and build/test verified; the remaining closure gate is Mike's playtest of jumping into walls, ceilings, and corners plus CI Training blocker/doorway and moved-couch dynamic collision.",
         "evidence_refs": [
           "context/bugs.md#B-350",
+          "context/bugs.md#B-367",
           "src/game/bondwalk.c",
           "tests/test_jump_two_stage_design.cpp",
-          "context/session-log.md#main-checkout-2026-05-19-jump-side-entry-b350"
+          "context/session-log.md#jump367"
         ]
       }
     },
@@ -3213,7 +3231,7 @@
       "column": "active",
       "order": 900,
       "priority": 1,
-      "notes": "Sprint status 2026-05-21. COMPLETED: c3814-s1..s15, c3814-s20, c3814-s21, and c3814-s22 self-contained archive save/export slice are done. This includes canonical .pdweapon/.pdprojectile/.pdentity schema/design, base weapon behavior audit, 86-weapon parameter matrix, named graph modules, runtime cutover plan, .pdweapon-only live cutover with .pdwpn removed from code/tests/examples, first-class .pdprojectile/.pdentity catalog/scanner/packer/manifest/UI metadata, weapon_graph_archive helper APIs, base base_weapon_graph_v1 emission with embedded projectile/entity payloads, graph validation and deterministic IR compilation, Debug Settings UI/config storage for the graph runtime toggle, Mods Hub Weapons browser/template/save flows, and the expanded graph-backed held/player/AI runtime adapter. c3814-s15 now feeds graph IR into shared gameplay accessors, direct held shooting helpers, recoil/recovery, trigger dispatch function type, throw/special/device handling, sight and auto-aim checks, device state toggles, player projectile spawn values, thrown physical spawn values, and AI projectile spawn values. B-363 follow-up fixed the MKB Campaign weapon-switch and function-HUD edge: Q tap/hold reaches cycle/radial, scroll wheel next/previous reaches gameplay, number keys direct-select inventory, and function text no longer holds stale labels from another weapon. INCOMPLETE / CLI SPRINT ORDER: c3814-s16 ACTIVE - implement deeper .pdprojectile IR execution for projectile motion, homing, Slayer fly-by-wire, Devastator wall-hugger, grenade/N-Bomb/bolt/knife/mine impact, trail, timer, sticky, pickup, and transition behavior; c3814-s17 - implement .pdentity IR execution for armed explosives, proxy/remote/timed detonatables, N-Bomb storm, Laptop autogun, sticky devices, owner cleanup, and pickup/recover; c3814-s18 - parity tests/removal guards, including saved custom weapon hot-register/runtime parity; c3814-s19 - finish gameplay callsite gating and presentation graph modules for reticles, overlays, zoom, model visibility, and any remaining legacy fallback removal. LOCKED: .pdwpn remains unsupported because it was never released; .pdentity is behavior/archetype data, not an ASSET_PROP replacement; weapons stay self-contained by embedding/cataloging nested projectile/entity assets.",
+      "notes": "Sprint status 2026-05-22. COMPLETED: c3814-s1..s15, c3814-s20, c3814-s21, c3814-s22 self-contained archive save/export slice, and c3814-s23 graph-builder UI are done. This includes canonical .pdweapon/.pdprojectile/.pdentity schema/design, base weapon behavior audit, 86-weapon parameter matrix, named graph modules, runtime cutover plan, .pdweapon-only live cutover with .pdwpn removed from code/tests/examples, first-class .pdprojectile/.pdentity catalog/scanner/packer/manifest/UI metadata, weapon_graph_archive helper APIs, base base_weapon_graph_v1 emission with embedded projectile/entity payloads, graph validation and deterministic IR compilation, Debug Settings UI/config storage for the graph runtime toggle, Mods Hub Weapons browser/template/graph-builder/save flows, and the expanded graph-backed held/player/AI runtime adapter. c3814-s15 now feeds graph IR into shared gameplay accessors, direct held shooting helpers, recoil/recovery, trigger dispatch function type, throw/special/device handling, sight and auto-aim checks, device state toggles, player projectile spawn values, thrown physical spawn values, and AI projectile spawn values. c3814-s23 adds graph presets, named module insertion, editable node params, edge editing, primary/secondary export selection, validation, and generated JSON as an advanced view so the Weapons tab can author behavior graphs without hand-writing JSON. B-363 follow-up fixed the MKB Campaign weapon-switch and function-HUD edge: Q tap/hold reaches cycle/radial, scroll wheel next/previous reaches gameplay, number keys direct-select inventory, function text no longer holds stale labels from another weapon, and the second-pass Magsec/Falcon report now pins HUD plus active-menu primary/secondary text to the actual equipped weapon instead of mixed inventory cursor or hand transition state. INCOMPLETE / CLI SPRINT ORDER: c3814-s16 ACTIVE - implement deeper .pdprojectile IR execution for projectile motion, homing, Slayer fly-by-wire, Devastator wall-hugger, grenade/N-Bomb/bolt/knife/mine impact, trail, timer, sticky, pickup, and transition behavior; c3814-s17 - implement .pdentity IR execution for armed explosives, proxy/remote/timed detonatables, N-Bomb storm, Laptop autogun, sticky devices, owner cleanup, and pickup/recover; c3814-s18 - parity tests/removal guards, including saved custom weapon hot-register/runtime parity; c3814-s19 - finish gameplay callsite gating and presentation graph modules for reticles, overlays, zoom, model visibility, and any remaining legacy fallback removal. LOCKED: .pdwpn remains unsupported because it was never released; .pdentity is behavior/archetype data, not an ASSET_PROP replacement; weapons stay self-contained by embedding/cataloging nested projectile/entity assets.",
       "subtasks": [
         {
           "id": "c3814-s1",
@@ -3297,7 +3315,7 @@
           "title": "Adapt held weapon behavior to graph IR",
           "status": "done",
           "order": 3000,
-          "notes": "Done 2026-05-21: expanded the held/player/AI graph runtime adapter behind the Debug Settings toggle. The runtime IR now captures function type ids, symbolic/numeric SFX, recoil/recovery, projectile refs/model refs, projectile spawn values, throw activation/recovery, melee range, special function/recovery/sound, and device ids. Shared gameplay accessors, direct held shooting helpers, throw/special/device paths, sight/auto-aim checks, player projectile spawn, thrown physical spawn, and AI projectile launch now read graph-backed values with legacy fallback. Follow-up B-363 fixed the PC input/display edge for Campaign weapon switching: Q tap/hold, scroll next/previous, number-key direct inventory selection, and current weapon-function HUD text are pinned by [input][weapon][static][c3814]. Verification: focused [modding][pdxxx][weapon_graph] passed 250 assertions / 12 cases, focused [input][weapon][static][c3814] passed 14 assertions / 1 case, and queued all-target sessions wgraph/wpinput passed for client/updater."
+          "notes": "Done 2026-05-22: expanded the held/player/AI graph runtime adapter behind the Debug Settings toggle. The runtime IR now captures function type ids, symbolic/numeric SFX, recoil/recovery, projectile refs/model refs, projectile spawn values, throw activation/recovery, melee range, special function/recovery/sound, and device ids. Shared gameplay accessors, direct held shooting helpers, throw/special/device paths, sight/auto-aim checks, player projectile spawn, thrown physical spawn, and AI projectile launch now read graph-backed values with legacy fallback. Follow-up B-363 fixed the PC input/display edge for Campaign weapon switching: Q tap/hold, scroll next/previous, number-key direct inventory selection, current weapon-function HUD text, and the second-pass Magsec/Falcon primary/secondary display-source mismatch are pinned by [input][weapon][static][c3814]. Verification: focused [modding][pdxxx][weapon_graph] passed 250 assertions / 12 cases, first-pass focused [input][weapon][static][c3814] passed 14 assertions / 1 case, second-pass focused [input][weapon][static][c3814] passed 24 assertions / 1 case, and queued all-target sessions wgraph/wpinput/wpuitxt passed for client/updater."
         },
         {
           "id": "c3814-s16",
@@ -3349,6 +3367,13 @@
           "notes": "Done 2026-05-21: Save Weapon Mod writes mods/Weapons/<slug>/<slug>.pdweapon with weapon.ini, manifest.json, behavior.graph.json, nested_payloads.json, dependency_closure=embedded.v2, copied non-root template payloads, imported model/texture/animation/audio/projectile/entity files, and embedded catalog-selected payload archives. The save fails instead of producing a reference-only archive when a selected catalog payload cannot be resolved and embedded. Graph JSON is validated before save; mod.json is written, mods are rescanned, and the new mod is enabled. Deeper saved custom weapon hot-register/runtime parity remains under c3814-s18."
         },
         {
+          "id": "c3814-s23",
+          "title": "Add weapon behavior graph builder UI",
+          "status": "done",
+          "order": 3800,
+          "notes": "Done 2026-05-22: the Modding Hub Weapons Template flow now creates behavior graphs through presets, named module insertion, editable node params, edge add/remove, primary/secondary export selection, validation, and generated JSON as an advanced view. Existing graph JSON import/edit remains as a fallback, but the normal authoring flow no longer requires hand-writing behavior.graph.json. Verified focused [weapon_graph][ui][c3814] and queued all-target build session wgraphui."
+        },
+        {
           "id": "c3814-s3",
           "title": "Define archive layouts and nested catalog rules",
           "status": "done",
@@ -3374,7 +3399,7 @@
       "flagged_at": "2026-05-21T00:00:00Z",
       "pending_completion": null,
       "created": "2026-05-21T00:00:00Z",
-      "updated": "2026-05-21T16:22:00-04:00"
+      "updated": "2026-05-22T00:00:00-04:00"
     },
     {
       "id": "c3812",

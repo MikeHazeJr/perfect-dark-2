@@ -516,9 +516,11 @@ void prefsAgentLoad(const char *agent_name)
     /* Mike directive 2026-05-17: agent has loaded. Rebind the connect-
      * code to this agent so the published join target reflects the
      * active profile (two agents on the same install -> two distinct
-     * connect codes), then flip the presence gate so outbound pings
-     * announce the right identity. Both calls are idempotent. */
+     * connect codes), bring the online sockets up, then flip the presence
+     * gate so outbound pings announce the right identity. These calls are
+     * idempotent. */
     socialRebindToActiveAgent(agent_name);
+    socialHubBringOnline();
     presenceMarkAgentLoaded();
 }
 

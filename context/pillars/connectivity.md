@@ -105,6 +105,8 @@ Connect-code UI surfaces (`pdguiFriendsStatusIndicatorRender` top-right pill) ea
 
 2026-05-21 c3828 fix: presence verification now matches the per-agent connect-code contract. `socialRebindToActiveAgent` stores the loaded save-slot agent name locally, presence frames carry agent name and status blurb in separate signed fields, and inbound frames validate through `socialHandleBindsPubkeyForAgent()` so pubkey-only historical handles still work while `(pubkey || agent_name)` friends are accepted. Valid incoming presence also refreshes the stored friend agent name before marking the peer seen. LAN bootstrap uses the P2P LAN-discovered IP only; outbound presence pings target UDP 27105, not the P2P LAN advertisement port 27101. This addresses the add-by-code succeeds / both friends remain Offline bug class (B-364).
 
+2026-05-22 c3828 second pass: existing agent profiles with prefs sidecars must bring the social hub online before marking presence loaded. `prefsAgentLoad()` now calls `socialHubBringOnline()` on both the no-sidecar and successful sidecar-load paths before `presenceMarkAgentLoaded()`. Without this, established agents could rebind to the correct per-agent connect code but never open P2P LAN or presence sockets, leaving friends Offline even though the presence signature path was fixed.
+
 ### Input class presence
 
 Presence v3 uses byte 19 of the signed frame for a coarse `ACTIONMAP_INPUT_CLASS_*` category. Social UI can show MKB, Controller, Custom, Accessibility, HOTAS, or HOSAS for connected friends without exposing raw device GUIDs, vendor IDs, product names, or per-device identity. This is UI/social metadata only; gameplay input authority remains local to each client and still flows through the action map.

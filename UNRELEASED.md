@@ -21,6 +21,7 @@
 - Added named input profile slots and per-controller profile assignment, including custom/raw controller devices.
 - Added Blender-ready map visual exports inside scenario/arena archives, including OBJ/MTL scenes, decoded TGA wall/floor textures, and material TSV ledgers.
 - Added self-contained weapon archives that embed model, animation, audio, projectile, and entity payloads for editing and sharing.
+- Added a Modding Hub weapon graph builder for creating behavior graphs from presets, modules, edges, and primary/secondary exports instead of hand-authoring JSON.
 
 ## Changed
 
@@ -40,13 +41,15 @@
 - Cleared stale Kanban Bug Tracker rows B-318 through B-326.
 - Fixed Combat Simulator post-match endscreen X and Quit/Disconnect confirmation clicks so the visible results screen can be exited normally.
 - Fixed online post-match return-to-room resync so clients replay room assignment, match settings, and playlist state instead of returning with partial room state.
-- Fixed friend presence so added players using per-agent client codes can validate signed presence, appear online, and use invite/join handoffs through the NAT-aware path.
+- Fixed friend presence so existing agents using per-agent client codes start the social hub, validate signed presence, appear online, and use invite/join handoffs through the NAT-aware path.
 - Fixed failed online match asset transfers so active match prep declines the manifest and returns to lobby instead of repeatedly requesting the same failed content.
 - Fixed listen-host logging during early startup so hosted smoke and diagnostics write to the host log before normal system init.
 - Fixed Main Menu Escape/title-X closing so the menu actually exits instead of playing cancel and reopening.
 - Fixed Main Menu entry timing so the Carrington Institute camera intro finishes before the menu opens and accepts input.
 - Fixed gameplay interaction prompts so labels like Open door do not appear during cutscenes.
 - Fixed Falcon 2 mission-start viewmodel stretch by hiding the laser sight beam during weapon equip and bounding its muzzle matrix lookup.
-- Fixed mouse/keyboard Campaign weapon switching: Q tap/hold, scroll wheel next/previous, number-key direct select, and stale weapon-function HUD labels now use the current weapon state.
+- Fixed the remaining Falcon 2 in-game barrel stretch by hiding its laser sight during moving gun-root animations.
+- Fixed mouse/keyboard Campaign weapon switching: Q tap/hold, scroll wheel next/previous, number-key direct select, and equipped primary/secondary function labels now stay tied to the actual weapon instead of stale inventory or transition state.
 - Fixed an Infiltration campaign exception by making robot muzzle flash and robot attack setup fail closed when robot model parts or target state are incomplete.
 - Fixed weapon OBJ extraction so held weapon meshes apply model matrices before being embedded in `.pdweapon` archives.
+- Fixed jump collision follow-through so airborne horizontal movement is clamped against rendered wall, ceiling, and corner geometry before the player can clip into it.

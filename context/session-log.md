@@ -1,5 +1,124 @@
 # Session Log (Active)
 
+## Session (`wpuitxt-b363`) - 2026-05-22 - B-363 weapon function UI text second pass
+
+Mike reported that equipped weapon primary/secondary UI text could still be wrong; the concrete example was Magsec firemode text showing "Falcon 2".
+
+### Implemented
+
+- Verified this was not bad Magsec authored data: Magsec still points at `Single Shot` / `3-Round Burst`.
+- Found the remaining display-source mismatch: the HUD could resolve the weapon name from the current inventory cursor while resolving function text from `hand->gset.weaponnum`; the active-menu function screen also read the hand gset directly during transitions.
+- Changed the HUD to resolve the function label from `player->gunctrl.weaponnum`, and to use the inventory-current weapon name only when that inventory entry matches the actually equipped weapon.
+- Changed the active-menu function labels to resolve primary/secondary from `bgunGetWeaponNum(HAND_RIGHT)`.
+- Added a bounds check to `weaponGetFunctionById()` so invalid function indexes fail closed instead of reading adjacent weapon fields as a function pointer.
+- Expanded the focused static coverage for this exact display-source regression.
+
+### Verification
+
+- `git diff --check -- src/game/game_0b0fd0.c src/game/bondgun.c src/game/activemenu.c tests/test_mod_external_archive_static.cpp` PASS.
+- `.\devtools\run-pd-tests.ps1 -Session wpuitxt -Selector "[input][weapon][static][c3814]" -BuildTimeoutSeconds 240` PASS: 24 assertions / 1 case.
+- `.\devtools\build-session.ps1 -Session wpuitxt -Target all -BuildTimeoutSeconds 300` PASS for client/updater.
+- Removed isolated session build `wpuitxt`.
+
+### Manual Gate
+
+Mike should retest Magsec/Falcon weapon switches in Campaign and confirm primary/secondary/firemode text follows the equipped weapon immediately, including during quick switch/fader transitions.
+
+---
+
+## Session (`online367`) - 2026-05-22 - B-364/c3828 existing-agent presence startup
+
+Mike reported that players still were not appearing online to one another after the c3828 retest.
+
+### Implemented
+
+- Treated the report as the B-364/c3828 live retest failing and traced the remaining gap through the agent-load lifecycle.
+- Found that `prefsAgentLoad()` only called `socialHubBringOnline()` on the no-sidecar path. Existing agents with a prefs sidecar re-bound the per-agent connect code and marked presence loaded, but never opened the social hub sockets, so P2P LAN and presence never started.
+- Added `socialHubBringOnline()` to the successful sidecar-load path before `presenceMarkAgentLoaded()`, matching the no-sidecar and CLI fast-path ordering.
+- Extended `[c3828]` static coverage to pin that both `prefsAgentLoad()` branches bring the social hub online before presence is marked loaded.
+- Updated B-364, c3828, the connectivity pillar, and release notes as the second-pass fix.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session online367 -Selector "[c3828]" -BuildTimeoutSeconds 240` passed: 44 assertions / 3 cases.
+- `.\devtools\build-session.ps1 -Session online367 -Target all -BuildTimeoutSeconds 300` passed.
+
+### Manual Gate
+
+Mike and Chris should retest with their normal existing agents: after both load agents, rows should flip online within the presence window. The log should include `SOCIAL.HUB: bring online` / `PRESENCE: socket bound on UDP 27105` after the agent load.
+
+---
+
+## Session (`wgraphui`) - 2026-05-22 - Modding Hub weapon graph builder
+
+Mike pointed out that the weapon mod menu should create weapon behavior graphs, not only display their JSON.
+
+### Implemented
+
+- Added structured graph-builder state to the Modding Hub Weapons Template flow.
+- Added seed presets for single-shot, automatic, fired projectile, and thrown physical weapon behaviors.
+- Added named module insertion for current `.pdweapon` v1 modules, editable node params, edge add/remove, primary/secondary export selection, validation, and generated JSON behind an advanced expander.
+- Kept existing graph JSON import/edit fallback, but the default creation path is now module/edge/export authoring.
+- Added static UI coverage for the graph-builder controls and updated `c3814` tracking plus release notes.
+
+### Verification
+
+- `git diff --check -- port/fast3d/pdgui_menu_moddinghub.cpp tests/test_mod_external_archive_static.cpp` passed.
+- `.\devtools\run-pd-tests.ps1 -Session wgraphui -Selector "[weapon_graph][ui][c3814]" -BuildTimeoutSeconds 240` passed: 50 assertions / 3 cases.
+- `.\devtools\build-session.ps1 -Session wgraphui -Target all -BuildTimeoutSeconds 300` passed for client and updater.
+
+### Next
+
+- Continue `c3814-s16`: deeper `.pdprojectile` runtime execution for motion, guidance, impact, timer, sticky, pickup, and transition behavior.
+
+---
+
+## Session (`jump367`) - 2026-05-22 - airborne wall, ceiling, and corner clamp follow-up
+
+Mike reported the jumping player still clips into walls, ceilings, or corners after the B-350 side-entry pass.
+
+### Implemented
+
+- Traced the remaining gap to movement order: horizontal X/Z movement still committed through the legacy cylinder path before `bwalkUpdateVertical()` ran, while B-350 only repaired upward diagonal side-entry.
+- Added `bwalkClampAirborneLateralEntry()` in `bondwalk.c` after horizontal movement and before speed correction, gated to airborne player states.
+- The new helper runs a horizontal collision-owned capsule mesh sweep from `bondprevpos`, rolls X/Z back to a safe fraction on wall/ceiling/corner hits, ignores floor-class hits, and leaves the existing upward diagonal ceiling/corner sweep in place.
+- Extended `[physics][jump]` static/fixture coverage so the source guard pins the lateral helper and the rendered-triangle fixture covers horizontal side-wall hits.
+- Logged B-367, updated `c136`, and added the release-note/context entries.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session jump367 -Selector "[physics][jump]" -BuildTimeoutSeconds 240` passed: 105 assertions / 4 cases.
+- `.\devtools\build-session.ps1 -Session jump367 -Target all -BuildTimeoutSeconds 300` passed.
+- Scoped `git diff --check` passed for touched files; repo-wide diff-check still prints pre-existing line-ending warnings outside this slice.
+
+### Manual Gate
+
+Mike should retest jumping into walls, ceilings, and corners, including the CI Training blockers/doorway and moved-couch dynamic collision.
+
+---
+
+## Session (`falconanim-b366`) - 2026-05-22 - Falcon 2 live laser-root stretch follow-up
+
+Mike confirmed the Falcon 2 still stretched in-game after the OBJ/exporter fix, and described the tip staying fixed while the model moved. That matched the live laser-sight beam path rather than exported mesh geometry.
+
+### Implemented
+
+- Kept the matrix-aware `.pdmesh` / `.pdweapon` extraction fix from `falconmesh-b366`; that remains the extracted-OBJ fix.
+- Updated `bgunShouldRenderLasersight()` so Falcon laser beams render only in steady aim-capable hand states.
+- Freed/hidden the Falcon laser sight during busy gun animations and other non-steady first-person hand states, preventing the crosshair-anchored beam end from appearing as stretched barrel geometry while the gun root moves.
+- Added focused static coverage for the busy-animation/non-steady-state laser gate.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session falconanim -Selector "[bondgun][laser][static]" -BuildTimeoutSeconds 180` passed: 18 assertions / 3 cases.
+- `.\devtools\build-session.ps1 -Session falconanim -Target all -BuildTimeoutSeconds 240` passed.
+
+### Manual Gate
+
+Mike should inspect Falcon 2 in-game while equipping, moving, and firing; the barrel end should no longer stretch toward a fixed screen/crosshair point. The extracted OBJ should still be checked from the earlier exporter fix.
+
+---
+
 ## Session (`falconmesh-b366`) - 2026-05-22 - weapon OBJ matrix extraction sweep
 
 Mike reported that the Falcon 2 loads with the end of the barrel stretched/skewed, and the extracted OBJ has the same bad shape. He asked to check all weapons to see whether model extraction was the problem.

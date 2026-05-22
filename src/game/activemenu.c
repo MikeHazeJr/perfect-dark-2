@@ -422,6 +422,7 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 	s32 modulo;
 	struct weaponfunc *prifunc;
 	struct weaponfunc *secfunc;
+	s32 equippedweaponnum;
 
 	switch (g_AmMenus[g_AmIndex].screenindex) {
 	case 0: // Weapon screen
@@ -470,8 +471,9 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 		if (slot == 4) {
 			strncpy(label, langGet(L_MISC_171), 31); label[31] = '\0'; // "Function"
 		} else if (slot == 1 || slot == 7) {
-			prifunc = weaponGetFunction(&g_Vars.currentplayer->hands[HAND_RIGHT].gset, FUNC_PRIMARY);
-			secfunc = weaponGetFunction(&g_Vars.currentplayer->hands[HAND_RIGHT].gset, FUNC_SECONDARY);
+			equippedweaponnum = bgunGetWeaponNum(HAND_RIGHT);
+			prifunc = weaponGetFunctionById(equippedweaponnum, FUNC_PRIMARY);
+			secfunc = weaponGetFunctionById(equippedweaponnum, FUNC_SECONDARY);
 
 			if (slot == 1) {
 				if (!secfunc || !FUNCISSEC()) {

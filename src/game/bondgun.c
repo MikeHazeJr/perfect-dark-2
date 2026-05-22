@@ -7548,6 +7548,19 @@ static bool bgunShouldRenderLasersight(struct hand *hand)
 		return false;
 	}
 
+	/* Keep the crosshair-anchored beam out of moving root animations; otherwise
+	 * the fixed beam end reads as stretched barrel geometry. */
+	if (hand->animmode == HANDANIMMODE_BUSY) {
+		return false;
+	}
+
+	if (hand->state != HANDSTATE_IDLE
+			&& hand->state != HANDSTATE_2
+			&& hand->state != HANDSTATE_ATTACKEMPTY
+			&& hand->state != HANDSTATE_ATTACK) {
+		return false;
+	}
+
 	return true;
 }
 
@@ -13746,11 +13759,14 @@ Gfx *bgunDrawHud(Gfx *gdl)
 	s32 reserveheight = 36;
 	s32 clipheight = 57;
 	s32 xpos;
-	struct weapon *weapon = weaponFindById(player->gunctrl.weaponnum);
+	s32 displayweaponnum = player->gunctrl.weaponnum;
+	struct weapon *weapon = weaponFindById(displayweaponnum);
 	u32 alpha;
 	u32 fncolour;
 	s32 funcnum;
 	s32 fnfaderinc;
+	s32 currentindex;
+	s32 currentindexweaponnum;
 #if VERSION >= VERSION_NTSC_1_0
 	s32 tmpfuncnum;
 	struct handweaponinfo info;
@@ -13868,12 +13884,14 @@ Gfx *bgunDrawHud(Gfx *gdl)
 
 	// Draw weapon name and function name
 	if (optionsGetShowGunFunction(g_Vars.currentplayerstats->mpindex)) {
-#if VERSION >= VERSION_NTSC_1_0
-		func = weaponGetFunctionById(hand->gset.weaponnum, funcnum);
-#else
-		func = weaponGetFunctionById(hand->gset.weaponnum, hand->gset.weaponfunc);
-#endif
-		nameid = invGetNameIdByIndex(invGetCurrentIndex());
+		func = weaponGetFunctionById(displayweaponnum, funcnum);
+		currentindex = invGetCurrentIndex();
+		currentindexweaponnum = invGetWeaponNumByIndex(currentindex);
+		if (currentindexweaponnum == displayweaponnum) {
+			nameid = invGetNameIdByIndex(currentindex);
+		} else {
+			nameid = bgunGetNameId(displayweaponnum);
+		}
 		str = langGet(nameid);
 
 		if (ctrl->curgunstr != nameid) {

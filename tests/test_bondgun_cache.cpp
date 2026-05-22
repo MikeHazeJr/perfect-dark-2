@@ -159,6 +159,23 @@ TEST_CASE("Falcon laser sight is hidden during weapon change", "[bondgun][laser]
 	REQUIRE(source.find("lasersightFree(handnum);") != std::string::npos);
 }
 
+TEST_CASE("Falcon laser sight is hidden while the gun root is moving", "[bondgun][laser][static]") {
+	const std::string source = readBondgunSource();
+	const std::size_t start = source.find("static bool bgunShouldRenderLasersight");
+	REQUIRE(start != std::string::npos);
+
+	const std::size_t end = source.find("static void bgunCullLasersightsBeforeRender", start);
+	REQUIRE(end != std::string::npos);
+
+	const std::string helper = source.substr(start, end - start);
+
+	REQUIRE(helper.find("hand->animmode == HANDANIMMODE_BUSY") != std::string::npos);
+	REQUIRE(helper.find("hand->state != HANDSTATE_IDLE") != std::string::npos);
+	REQUIRE(helper.find("hand->state != HANDSTATE_2") != std::string::npos);
+	REQUIRE(helper.find("hand->state != HANDSTATE_ATTACKEMPTY") != std::string::npos);
+	REQUIRE(helper.find("hand->state != HANDSTATE_ATTACK") != std::string::npos);
+}
+
 TEST_CASE("Falcon laser sight matrix lookup is bounded", "[bondgun][laser][static]") {
 	const std::string source = readBondgunSource();
 

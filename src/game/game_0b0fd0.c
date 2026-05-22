@@ -34,6 +34,10 @@ struct weaponfunc *weaponGetFunctionById(u32 weaponnum, u32 which)
 {
 	struct weapon *weapon = weaponFindById(weaponnum);
 
+	if (which >= 2) {
+		return NULL;
+	}
+
 	if (weapon) {
 		return weapon->functions[which];
 	}

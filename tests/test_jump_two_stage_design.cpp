@@ -222,9 +222,14 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
     requireNotContains(lv, "meshDetachFromProp(&g_Vars.props[i])");
     requireContains(bondwalk, "sweep.selfprop = g_Vars.currentplayer->prop");
     requireContains(bondwalk, "bwalkClampAirborneSideEntry");
+    requireContains(bondwalk, "bwalkClampAirborneLateralEntry");
+    requireContains(bondwalk, "bwalkPlayerNeedsAirborneLateralClamp");
     requireContains(bondwalk, "player->bondprevpos");
     requireContains(bondwalk, "sweep.move.x = lateralMove.x");
+    requireContains(bondwalk, "sweep.move.y = 0.0f");
     requireContains(bondwalk, "sweep.move.y = *verticalDelta");
+    requireContains(bondwalk, "geomtype == CAPSULE_HIT_FLOOR");
+    requireContains(bondwalk, "JUMP_LATERAL_SWEEP");
     requireContains(bondwalk, "JUMP_SIDE_SWEEP");
     requireContains(bondwalk, "capsuleFindFloorForProp(g_Vars.currentplayer->prop");
     requireContains(bondwalk, "capsuleFindCeilingForProp(g_Vars.currentplayer->prop");
@@ -302,6 +307,10 @@ TEST_CASE("jump capsule rendered-triangle fixture catches unflagged floor, ceili
         {25.0f, 150.0f, 0.0f},
         {25.0f, 0.0f, 60.0f},
     };
+    const struct coord moveSideOnly = {40.0f, 0.0f, 0.0f};
+    REQUIRE(renderedTriangleWouldBlockCapsuleSampleBundle(start, moveSideOnly,
+        radius, ymin, ymax, sideWallTri, CAPSULE_HIT_WALL));
+
     const struct coord moveSideUp = {40.0f, 40.0f, 0.0f};
     REQUIRE(renderedTriangleWouldBlockCapsuleSampleBundle(start, moveSideUp,
         radius, ymin, ymax, sideWallTri, CAPSULE_HIT_WALL));

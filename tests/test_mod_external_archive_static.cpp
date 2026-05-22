@@ -1407,8 +1407,20 @@ TEST_CASE("PC weapon switching and function HUD consume action-map state",
 
 	const std::string bondgun = readFile("src/game/bondgun.c");
 	REQUIRE(bondgun.find("ctrl->curfnstr = 0") != std::string::npos);
+	REQUIRE(bondgun.find("displayweaponnum = player->gunctrl.weaponnum") != std::string::npos);
+	REQUIRE(bondgun.find("weaponGetFunctionById(displayweaponnum, funcnum)") != std::string::npos);
+	REQUIRE(bondgun.find("invGetWeaponNumByIndex(currentindex)") != std::string::npos);
+	REQUIRE(bondgun.find("weaponGetFunctionById(hand->gset.weaponnum, funcnum)") == std::string::npos);
 	REQUIRE(bondgun.find("if (ctrl->curfnstr != func->name)") != std::string::npos);
 	REQUIRE(bondgun.find("ctrl->curfnstr != func->name && ctrl->fnfader > 128") == std::string::npos);
+
+	const std::string activemenu = readFile("src/game/activemenu.c");
+	REQUIRE(activemenu.find("equippedweaponnum = bgunGetWeaponNum(HAND_RIGHT)") != std::string::npos);
+	REQUIRE(activemenu.find("weaponGetFunctionById(equippedweaponnum, FUNC_PRIMARY)") != std::string::npos);
+	REQUIRE(activemenu.find("weaponGetFunction(&g_Vars.currentplayer->hands[HAND_RIGHT].gset, FUNC_PRIMARY)") == std::string::npos);
+
+	const std::string accessors = readFile("src/game/game_0b0fd0.c");
+	REQUIRE(accessors.find("if (which >= 2)") != std::string::npos);
 }
 
 TEST_CASE("public mods share folder mods as validated pdmod archives",
@@ -2155,6 +2167,27 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	        std::string::npos);
 	REQUIRE(hub.find("ASSET_PROJECTILE") != std::string::npos);
 	REQUIRE(hub.find("ASSET_ENTITY") != std::string::npos);
+}
+
+TEST_CASE("Modding Hub weapon tool builds graph modules without raw JSON authoring",
+          "[modding][pdxxx][weapon_graph][ui][editor][c3814]") {
+	const std::string hub = readFile("port/fast3d/pdgui_menu_moddinghub.cpp");
+	REQUIRE(!hub.empty());
+
+	REQUIRE(hub.find("Graph Builder") != std::string::npos);
+	REQUIRE(hub.find("s_WeaponGraphNodes") != std::string::npos);
+	REQUIRE(hub.find("s_WeaponGraphEdges") != std::string::npos);
+	REQUIRE(hub.find("weaponGraphBuilderSyncJson") != std::string::npos);
+	REQUIRE(hub.find("Seed Single Shot") != std::string::npos);
+	REQUIRE(hub.find("Seed Automatic") != std::string::npos);
+	REQUIRE(hub.find("Seed Projectile") != std::string::npos);
+	REQUIRE(hub.find("Add Module") != std::string::npos);
+	REQUIRE(hub.find("Add Edge") != std::string::npos);
+	REQUIRE(hub.find("Primary Export") != std::string::npos);
+	REQUIRE(hub.find("Generated JSON") != std::string::npos);
+	REQUIRE(hub.find("\"fire.hitscan\"") != std::string::npos);
+	REQUIRE(hub.find("\"spawn.fired_projectile\"") != std::string::npos);
+	REQUIRE(hub.find("\\\"exports\\\"") != std::string::npos);
 }
 
 TEST_CASE("base arena extractor emits zip-openable pdarena archives",

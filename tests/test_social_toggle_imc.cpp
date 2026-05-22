@@ -93,6 +93,20 @@ std::string readTextFile(const char *path)
     return ss.str();
 }
 
+std::size_t countSubstring(const std::string &haystack, const std::string &needle)
+{
+    if (needle.empty()) {
+        return 0;
+    }
+    std::size_t count = 0;
+    std::size_t pos = 0;
+    while ((pos = haystack.find(needle, pos)) != std::string::npos) {
+        count++;
+        pos += needle.size();
+    }
+    return count;
+}
+
 /* Build IMCs that mirror today's binding tables, scoped to Tab. */
 PureCtx makeGameplay()
 {
@@ -242,12 +256,14 @@ TEST_CASE("Social presence and invites use per-agent identity and stale-offline 
     const std::string socialH = readTextFile("port/include/social.h");
     const std::string socialStore = readTextFile("port/src/social_store.c");
     const std::string presence = readTextFile("port/src/presence.c");
+    const std::string prefsAgent = readTextFile("port/src/prefs_agent.c");
     const std::string friends = readTextFile("port/fast3d/pdgui_friends.cpp");
     const std::string group = readTextFile("port/src/net/group_session.c");
 
     REQUIRE_FALSE(socialH.empty());
     REQUIRE_FALSE(socialStore.empty());
     REQUIRE_FALSE(presence.empty());
+    REQUIRE_FALSE(prefsAgent.empty());
     REQUIRE_FALSE(friends.empty());
     REQUIRE_FALSE(group.empty());
 
@@ -263,6 +279,7 @@ TEST_CASE("Social presence and invites use per-agent identity and stale-offline 
     REQUIRE(presence.find("socialHandleBindsPubkeyForAgent(from_handle, sender_pub, agent)") != std::string::npos);
     REQUIRE(presence.find("socialFriendUpdateAgentName(f->connect_code, agent)") != std::string::npos);
     REQUIRE(presence.find("*out_port = PRESENCE_PORT;") != std::string::npos);
+    REQUIRE(countSubstring(prefsAgent, "socialHubBringOnline();") >= 2);
 
     REQUIRE(friends.find("if (actionButton(\"Invite\"))") != std::string::npos);
     REQUIRE(friends.find("const bool can_invite") == std::string::npos);
