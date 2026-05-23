@@ -1026,6 +1026,102 @@ TEST_CASE("weapon graph runtime compiler validates modules and deterministic IR"
 	REQUIRE(std::string(fromArchive.ir_sha256) == std::string(a.ir_sha256));
 }
 
+TEST_CASE("weapon mod save contract supports shotgun template dual wield save",
+          "[modding][pdxxx][weapon_graph][compiler][ui][c3814]") {
+	const std::string graph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"mod:weapon_needler\",\n"
+		"  \"graph_id\": \"shotgun_template_save\",\n"
+		"  \"nodes\": [\n"
+		"    {\n"
+		"      \"id\": \"primary_action\",\n"
+		"      \"kind\": \"fire.hitscan\",\n"
+		"      \"params\": {\n"
+		"        \"recoverytime_ticks60\": 12,\n"
+		"        \"projectile_ref\": null,\n"
+		"        \"damage\": 1.25,\n"
+		"        \"ammo_slot\": 0,\n"
+		"        \"mode\": \"primary\"\n"
+		"      }\n"
+		"    },\n"
+		"    {\n"
+		"      \"id\": \"secondary_action\",\n"
+		"      \"kind\": \"fire.hitscan\",\n"
+		"      \"params\": {\n"
+		"        \"recoverytime_ticks60\": 18,\n"
+		"        \"projectile_ref\": null,\n"
+		"        \"damage\": 1.75,\n"
+		"        \"ammo_slot\": 0,\n"
+		"        \"mode\": \"secondary\"\n"
+		"      }\n"
+		"    }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [\n"
+		"    { \"name\": \"primary\", \"node\": \"primary_action\" },\n"
+		"    { \"name\": \"secondary\", \"node\": \"secondary_action\" }\n"
+		"  ]\n"
+		"}\n";
+
+	char err[256] = {};
+	weapon_graph_ir_t ir;
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+		static_cast<u32>(graph.size()), &ir, err, sizeof(err)) == 0);
+	REQUIRE(ir.export_count == 2);
+
+	const std::string weaponIni =
+		"[weapon]\n"
+		"schema = pd.weapon.v1\n"
+		"dependency_closure = embedded.v2\n"
+		"catalog_id = mod:weapon_needler\n"
+		"name = Needler\n"
+		"manifest = manifest.json\n"
+		"behavior_graph = behavior.graph.json\n"
+		"nested_payloads = nested_payloads.json\n"
+		"model_file = models/held_hi.pdmesh\n"
+		"dual_wieldable = 1\n"
+		"\n"
+		"[references]\n"
+		"template = base:shotgun\n"
+		"model_ref = base:model_shotgun_hi\n";
+	const std::string manifest =
+		"{\n"
+		"  \"schema\": \"pd.weapon.manifest.v1\",\n"
+		"  \"catalog_id\": \"mod:weapon_needler\",\n"
+		"  \"name\": \"Needler\",\n"
+		"  \"creator\": \"Agent\",\n"
+		"  \"template\": \"base:shotgun\",\n"
+		"  \"dependency_closure\": \"embedded.v2\"\n"
+		"}\n";
+	const std::string nested =
+		"{\"schema\":\"pd.weapon_nested_payloads.v1\",\"asset_id\":\"mod:weapon_needler\",\"payloads\":[]}\n";
+	TempArchive saved = writeArchiveEntries("shotgun-template-save", {
+		{ "weapon.ini", weaponIni },
+		{ "manifest.json", manifest },
+		{ "behavior.graph.json", graph },
+		{ "nested_payloads.json", nested },
+	});
+
+	REQUIRE(weaponGraphArchiveValidateRootFile(saved.path.string().c_str(),
+		ASSET_WEAPON, err, sizeof(err)) == 0);
+	weapon_graph_archive_descriptor_t desc;
+	REQUIRE(weaponGraphArchiveReadDescriptorFile(saved.path.string().c_str(),
+		ASSET_WEAPON, &desc, err, sizeof(err)) == 0);
+	REQUIRE(std::string(desc.catalog_id) == "mod:weapon_needler");
+	REQUIRE(weaponGraphCompileArchiveFile(saved.path.string().c_str(),
+		ASSET_WEAPON, &ir, err, sizeof(err)) == 0);
+
+	const std::string savedIni =
+		readArchiveEntryText(saved.path.string().c_str(), "weapon.ini");
+	REQUIRE(savedIni.find("catalog_id = mod:weapon_needler") != std::string::npos);
+	REQUIRE(savedIni.find("name = Needler") != std::string::npos);
+	REQUIRE(savedIni.find("model_file = models/held_hi.pdmesh") != std::string::npos);
+	REQUIRE(savedIni.find("template = base:shotgun") != std::string::npos);
+	REQUIRE(savedIni.find("dual_wieldable = 1") != std::string::npos);
+	REQUIRE(savedIni.find("weapon_id") == std::string::npos);
+}
+
 TEST_CASE("weapon graph runtime preserves modular subgraphs and shared context",
           "[modding][pdxxx][weapon_graph][compiler][context][c3814]") {
 	const std::string graph =
@@ -2300,6 +2396,9 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("weaponToolStartTemplate") != std::string::npos);
 	REQUIRE(hub.find("weaponToolPopulateTemplateRefs") != std::string::npos);
 	REQUIRE(hub.find("weaponIniGetValue") != std::string::npos);
+	REQUIRE(hub.find("weaponCopyCatalogOrArchiveRef") != std::string::npos);
+	REQUIRE(hub.find("s_WeaponEditTemplateModelFile") != std::string::npos);
+	REQUIRE(hub.find("models/held_hi.pdmesh") != std::string::npos);
 	REQUIRE(hub.find("weaponArchiveReadNestedCatalogId") != std::string::npos);
 	REQUIRE(hub.find("weaponTsvFirstField") != std::string::npos);
 	REQUIRE(hub.find("weaponJsonFindFirstStringField") != std::string::npos);
@@ -2319,8 +2418,19 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("Save Weapon Mod") != std::string::npos);
 	REQUIRE(hub.find("Save Weapon Mod##weapon_save_options") != std::string::npos);
 	REQUIRE(hub.find("Creator") != std::string::npos);
-	REQUIRE(hub.find("Mod Name") != std::string::npos);
-	REQUIRE(hub.find("Catalog Name: user:%s") != std::string::npos);
+	REQUIRE(hub.find("InputText(\"Display Name\", s_WeaponSaveDisplayName") !=
+	        std::string::npos);
+	REQUIRE(hub.find("InputText(\"Mod Name\", s_WeaponSave") == std::string::npos);
+	REQUIRE(hub.find("weaponCatalogSlugForDisplayName") != std::string::npos);
+	REQUIRE(hub.find("weaponCatalogIdForDisplayName") != std::string::npos);
+	REQUIRE(hub.find("Catalog Name: mod:%s") != std::string::npos);
+	REQUIRE(hub.find("WEAPONMOD.SAVE.BEGIN") != std::string::npos);
+	REQUIRE(hub.find("WEAPONMOD.SAVE.PAYLOAD_FAIL slot=model_ref") !=
+	        std::string::npos);
+	REQUIRE(hub.find("weaponSaveFail(\"GRAPH_FAIL\"") != std::string::npos);
+	REQUIRE(hub.find("weaponSaveFail(\"MODINVALID\"") != std::string::npos);
+	REQUIRE(hub.find("weaponSaveFail(\"MODDISCOVER_FAIL\"") != std::string::npos);
+	REQUIRE(hub.find("WEAPONMOD.SAVE.OK") != std::string::npos);
 	REQUIRE(hub.find("Create + Enable") != std::string::npos);
 	REQUIRE(hub.find("identityGetActiveProfile") != std::string::npos);
 	REQUIRE(hub.find("modmgrGetModValid") != std::string::npos);
@@ -2352,6 +2462,7 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("ASSET_MODEL") != std::string::npos);
 	REQUIRE(hub.find("modArchiveBegin(archivePath)") != std::string::npos);
 	REQUIRE(hub.find("weaponCopyTemplatePayloads") != std::string::npos);
+	REQUIRE(hub.find("modelTemplateEntry") != std::string::npos);
 	REQUIRE(hub.find("modArchiveAddFileDisk") != std::string::npos);
 	REQUIRE(hub.find("weaponAddCatalogAssetArchive") != std::string::npos);
 	REQUIRE(hub.find("weaponAddArchiveRefPayload") != std::string::npos);
@@ -2363,6 +2474,10 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("projectile_archive = %s") != std::string::npos);
 	REQUIRE(hub.find("entity_archive = %s") != std::string::npos);
 	REQUIRE(hub.find("weaponGraphValidateJson") != std::string::npos);
+	REQUIRE(hub.find("snprintf(newModId, sizeof(newModId), \"mod.%s\"") !=
+	        std::string::npos);
+	REQUIRE(hub.find("\"user.%s.weapon\"") == std::string::npos);
+	REQUIRE(hub.find("\"user:%s\"") == std::string::npos);
 	REQUIRE(hub.find("mods/Weapons/%s") != std::string::npos);
 	REQUIRE(scanner.find("catalog_id = mod:weapon_catalog_name") !=
 	        std::string::npos);

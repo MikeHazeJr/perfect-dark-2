@@ -1,5 +1,31 @@
 # Session Log (Active)
 
+## Session (`wshotmod`) - 2026-05-22 - weapon mod save diagnostics and catalog naming
+
+Mike reported a weapon-mod save error after using Shotgun as a template and enabling dual wield, and clarified that generated custom weapon catalog IDs should be `mod:[asset type]_[name]` while the player customizes only Display Name.
+
+### Implemented
+
+- Checked the current client logs first. The existing log showed Modding Hub/Mod Manager activity but no `Save Weapon Mod` stage lines or useful save failure detail, so the original failure was not diagnosable from the log.
+- Changed custom weapon naming so Display Name derives the hidden catalog ID as `mod:weapon_<display-name-slug>` and the generated mod package id as `mod.weapon_<display-name-slug>`.
+- Renamed the save modal field from `Mod Name` to `Display Name`; Creator still seeds from the active Agent.
+- Added `WEAPONMOD.TEMPLATE.START` and `WEAPONMOD.SAVE.*` logging around template start, graph validation, payload embedding, archive finalization, `mod.json` write, mod discovery/validation/enable, catalog apply, and final success.
+- Added per-slot payload failure logs (`slot=model_ref`, `slot=template`, etc.) so incomplete template stats or missing embedded assets identify the failing reference.
+- Preserved archive-local template model paths when hydrating a template, so a base weapon whose `weapon.ini` has `model_file = models/...` keeps that local payload path while copied template payloads are written into the new `.pdweapon`.
+- Added automated shotgun-template save coverage that compiles a `mod:weapon_needler` graph, writes a `.pdweapon` with `template = base:shotgun` and `dual_wieldable = 1`, validates the archive root, compiles from the archive, and verifies no `weapon_id` is written.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wshotmod -Selector "[weapon_graph][compiler][c3814],[weapon_graph][ui][c3814]" -BuildTimeoutSeconds 240` passed: 240 assertions / 9 cases.
+- `.\devtools\build-session.ps1 -Session wshotmod -Target all -BuildTimeoutSeconds 300` passed.
+- Removed isolated session build `wshotmod`.
+
+### Next
+
+- Manual in-game pass: Shotgun > Use as Template > enable Dual wieldable > Save Weapon Mod as a named weapon such as Needler. If it fails, the client log should now contain a `WEAPONMOD.SAVE.*` line naming the exact failing stage or payload slot.
+
+---
+
 ## Session (`wsavemod`) - 2026-05-22 - weapon save confirmation and hot-enable
 
 Mike reported that `Save Weapon Mod` gave no clear feedback, and clarified that custom weapon authoring should use catalog names rather than numeric weapon IDs.
