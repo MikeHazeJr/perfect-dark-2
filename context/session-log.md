@@ -1,5 +1,31 @@
 # Session Log (Active)
 
+## Session (`wsavemod`) - 2026-05-22 - weapon save confirmation and hot-enable
+
+Mike reported that `Save Weapon Mod` gave no clear feedback, and clarified that custom weapon authoring should use catalog names rather than numeric weapon IDs.
+
+### Implemented
+
+- Changed `Save Weapon Mod` to open an opaque modal with `Creator` and `Mod Name` before writing.
+- Seeded `Creator` from the active Agent profile and derived the custom weapon catalog name from `Mod Name` as `user:<catalog-name>`.
+- Kept success/failure feedback visible in the modal after save.
+- After writing the `.pdweapon` and `mod.json`, the tool rescans mods, validates the discovered mod, enables it, calls `modmgrApplyChanges()` to rebuild the catalog in-place, refreshes the Mod Manager snapshot, and refreshes the Weapons catalog list.
+- Removed numeric weapon-ID authoring from the weapon creator UI and saved custom `weapon.ini`; the scanner's generated weapon template now points authors at catalog names instead of `weapon_id`.
+- Tracked the slice as Kanban subtask `c3814-s27` and updated the modding pillar, tasks, and release notes.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wsavemod -Selector "[weapon_graph][ui][editor][c3814]" -BuildTimeoutSeconds 240` passed: 152 assertions / 3 cases.
+- `.\devtools\run-pd-tests.ps1 -Session wsavemod -Selector "[weapon_graph][compiler][c3814],[weapon_graph][ui][c3814]" -BuildTimeoutSeconds 240` passed: 207 assertions / 8 cases.
+- `.\devtools\build-session.ps1 -Session wsavemod2 -Target all -BuildTimeoutSeconds 300` passed.
+- Removed isolated session builds `wsavemod` and `wsavemod2`.
+
+### Next
+
+- Manual in-game pass: create a weapon from a base template, confirm the save modal appears with the active Agent name, save with a mod name, and verify the new weapon appears enabled in Mod Manager and listed in the Weapons catalog without restart.
+
+---
+
 ## Session (`wtemplview`) - 2026-05-22 - weapon creator in-place drill-in view
 
 Mike corrected the prior creator window: it should behave like a Main Menu -> Settings subview using the same menu shell, and the popup/window background should not appear transparent.

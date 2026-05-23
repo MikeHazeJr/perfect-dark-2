@@ -2288,7 +2288,9 @@ TEST_CASE("Modding Hub exposes weapon graph browser tab",
 TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
           "[modding][pdxxx][weapon_graph][ui][editor][c3814]") {
 	const std::string hub = readFile("port/fast3d/pdgui_menu_moddinghub.cpp");
+	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
 	REQUIRE(!hub.empty());
+	REQUIRE(!scanner.empty());
 
 	REQUIRE(hub.find("Use as Template") != std::string::npos);
 	REQUIRE(hub.find("Open Creator") != std::string::npos);
@@ -2315,6 +2317,19 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("s_WeaponTemplateMenuOpen") != std::string::npos);
 	REQUIRE(hub.find("weaponToolSaveCustom") != std::string::npos);
 	REQUIRE(hub.find("Save Weapon Mod") != std::string::npos);
+	REQUIRE(hub.find("Save Weapon Mod##weapon_save_options") != std::string::npos);
+	REQUIRE(hub.find("Creator") != std::string::npos);
+	REQUIRE(hub.find("Mod Name") != std::string::npos);
+	REQUIRE(hub.find("Catalog Name: user:%s") != std::string::npos);
+	REQUIRE(hub.find("Create + Enable") != std::string::npos);
+	REQUIRE(hub.find("identityGetActiveProfile") != std::string::npos);
+	REQUIRE(hub.find("modmgrGetModValid") != std::string::npos);
+	REQUIRE(hub.find("modmgrApplyChanges();") != std::string::npos);
+	REQUIRE(hub.find("Saved, enabled, and catalog updated") != std::string::npos);
+	REQUIRE(hub.find("s_WeaponEditWeaponId") == std::string::npos);
+	REQUIRE(hub.find("InputInt(\"Weapon ID\"") == std::string::npos);
+	REQUIRE(hub.find("\"weapon_id = %d") == std::string::npos);
+	REQUIRE(hub.find("Runtime Index:") == std::string::npos);
 	REQUIRE(hub.find("BeginTabItem(\"Details\")") != std::string::npos);
 	REQUIRE(hub.find("BeginTabItem(\"Assets\")") != std::string::npos);
 	REQUIRE(hub.find("BeginTabItem(\"Primary Graph\")") != std::string::npos);
@@ -2349,6 +2364,9 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("entity_archive = %s") != std::string::npos);
 	REQUIRE(hub.find("weaponGraphValidateJson") != std::string::npos);
 	REQUIRE(hub.find("mods/Weapons/%s") != std::string::npos);
+	REQUIRE(scanner.find("catalog_id = mod:weapon_catalog_name") !=
+	        std::string::npos);
+	REQUIRE(scanner.find("weapon_id = -1") == std::string::npos);
 	REQUIRE(hub.find("pdguiFileBrowserOpen(label, \"mods\", filters)") !=
 	        std::string::npos);
 	REQUIRE(hub.find("ASSET_PROJECTILE") != std::string::npos);

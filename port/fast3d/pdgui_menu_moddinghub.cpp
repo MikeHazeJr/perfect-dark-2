@@ -42,6 +42,7 @@
 #include "system.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "identity.h"
 #include "pdgui_charpreview.h"
 #include "fs.h"
 #include "modarchive.h"
@@ -61,6 +62,9 @@ void modmgrApplyChanges(void);
 void modmgrRescanDirectory(void);
 s32  modmgrGetCount(void);
 const char *modmgrGetModId(s32 index);
+const char *modmgrGetModValidationError(s32 index);
+s32  modmgrGetModEnabled(s32 index);
+s32  modmgrGetModValid(s32 index);
 void modmgrSetEnabled(s32 index, s32 enabled);
 void modmgrSaveConfig(void);
 s32  viGetWidth(void);
@@ -302,7 +306,6 @@ static bool s_WeaponEditActive = false;
 static bool s_WeaponTemplateMenuOpen = false;
 static bool s_WeaponMeshPickerOpen = false;
 static bool s_WeaponMeshPickerShowNonWeapon = false;
-static s32  s_WeaponEditWeaponId = -1;
 static bool s_WeaponEditDualWieldable = false;
 static char s_WeaponEditTemplateId[CATALOG_ID_LEN] = "";
 static char s_WeaponEditTemplateArchive[FS_MAXPATH] = "";
@@ -326,6 +329,12 @@ static char s_WeaponMeshPickerSelected[CATALOG_ID_LEN] = "";
 static char s_WeaponEditGraph[HUB_WEAPON_TEXT_PREVIEW_LEN] = "";
 static char s_WeaponEditNested[4096] = "";
 static WeaponImportTarget s_WeaponImportTarget = WEAPON_IMPORT_NONE;
+static bool s_WeaponSaveModalOpen = false;
+static bool s_WeaponSaveComplete = false;
+static bool s_WeaponSaveStatusOk = true;
+static char s_WeaponSaveCreator[64] = "";
+static char s_WeaponSaveModName[96] = "";
+static char s_WeaponSaveStatus[192] = "";
 
 typedef PdWeaponGraphModuleDef WeaponGraphModuleDef;
 typedef PdWeaponGraphContextDef WeaponGraphContextDef;
@@ -631,6 +640,11 @@ static void weaponSetStatus(bool ok, const char *msg)
 {
     s_WeaponStatusOk = ok;
     snprintf(s_WeaponStatus, sizeof(s_WeaponStatus), "%s", msg ? msg : "");
+    if (s_WeaponSaveModalOpen) {
+        s_WeaponSaveStatusOk = ok;
+        snprintf(s_WeaponSaveStatus, sizeof(s_WeaponSaveStatus), "%s",
+                 msg ? msg : "");
+    }
 }
 
 static void weaponToolSlugify(const char *src, char *dst, size_t dstSize)
@@ -674,6 +688,12 @@ static void weaponJsonEscape(const char *src, char *dst, size_t dstSize)
         }
     }
     dst[j] = '\0';
+}
+
+static const char *weaponActiveAgentName(void)
+{
+    identity_profile_t *profile = identityGetActiveProfile();
+    return (profile && profile->name[0]) ? profile->name : "Agent";
 }
 
 static const char *weaponPathLeaf(const char *path)
@@ -2122,7 +2142,6 @@ static void weaponToolStartTemplate(const asset_entry_t *e)
     strncpy(s_WeaponEditTemplateId, e->id, sizeof(s_WeaponEditTemplateId) - 1);
     strncpy(s_WeaponEditTemplateArchive, s_WeaponArchivePath,
             sizeof(s_WeaponEditTemplateArchive) - 1);
-    s_WeaponEditWeaponId = e->ext.weapon.weapon_id;
     s_WeaponEditDualWieldable = e->ext.weapon.dual_wieldable != 0;
 
     const char *name = e->ext.weapon.name[0] ? e->ext.weapon.name : e->id;
@@ -2135,6 +2154,14 @@ static void weaponToolStartTemplate(const asset_entry_t *e)
     }
     snprintf(s_WeaponEditCatalogId, sizeof(s_WeaponEditCatalogId),
              "user:%s", s_WeaponEditSlug);
+    snprintf(s_WeaponSaveModName, sizeof(s_WeaponSaveModName), "%s",
+             s_WeaponEditDisplayName);
+    snprintf(s_WeaponSaveCreator, sizeof(s_WeaponSaveCreator), "%s",
+             weaponActiveAgentName());
+    s_WeaponSaveModalOpen = false;
+    s_WeaponSaveComplete = false;
+    s_WeaponSaveStatusOk = true;
+    s_WeaponSaveStatus[0] = '\0';
 
     if (e->ext.weapon.model_file[0]) {
         strncpy(s_WeaponEditModelRef, e->ext.weapon.model_file,
@@ -2439,14 +2466,21 @@ static bool weaponToolSaveCustom(void)
         weaponSetStatus(false, "Create a template before saving");
         return false;
     }
-    char rawSlug[sizeof(s_WeaponEditSlug)];
-    snprintf(rawSlug, sizeof(rawSlug), "%s",
-             s_WeaponEditSlug[0] ? s_WeaponEditSlug : s_WeaponEditDisplayName);
+    const char *modName = s_WeaponSaveModName[0]
+        ? s_WeaponSaveModName
+        : s_WeaponEditDisplayName;
+    const char *creator = s_WeaponSaveCreator[0]
+        ? s_WeaponSaveCreator
+        : weaponActiveAgentName();
+    char rawSlug[sizeof(s_WeaponSaveModName)];
+    snprintf(rawSlug, sizeof(rawSlug), "%s", modName);
     weaponToolSlugify(rawSlug, s_WeaponEditSlug, sizeof(s_WeaponEditSlug));
     if (!s_WeaponEditSlug[0]) {
-        weaponSetStatus(false, "Use a valid weapon name or slug");
+        weaponSetStatus(false, "Use a valid mod name for the catalog name");
         return false;
     }
+    snprintf(s_WeaponEditDisplayName, sizeof(s_WeaponEditDisplayName), "%s",
+             modName);
     snprintf(s_WeaponEditCatalogId, sizeof(s_WeaponEditCatalogId),
              "user:%s", s_WeaponEditSlug);
     weaponReplaceJsonStringField(s_WeaponEditGraph, sizeof(s_WeaponEditGraph),
@@ -2572,7 +2606,6 @@ static bool weaponToolSaveCustom(void)
         "schema = pd.weapon.v1\n"
         "dependency_closure = embedded.v2\n"
         "catalog_id = %s\n"
-        "weapon_id = %d\n"
         "name = %s\n"
         "manifest = manifest.json\n"
         "behavior_graph = behavior.graph.json\n"
@@ -2595,7 +2628,6 @@ static bool weaponToolSaveCustom(void)
         "projectile_archive = %s\n"
         "entity_archive = %s\n",
         s_WeaponEditCatalogId,
-        (int)s_WeaponEditWeaponId,
         s_WeaponEditDisplayName,
         modelFile ? modelFile : "",
         s_WeaponEditDualWieldable ? 1 : 0,
@@ -2619,8 +2651,10 @@ static bool weaponToolSaveCustom(void)
     }
 
     char escName[192];
+    char escCreator[128];
     char escTemplate[128];
     weaponJsonEscape(s_WeaponEditDisplayName, escName, sizeof(escName));
+    weaponJsonEscape(creator, escCreator, sizeof(escCreator));
     weaponJsonEscape(s_WeaponEditTemplateId, escTemplate, sizeof(escTemplate));
 
     char manifest[4096];
@@ -2629,6 +2663,7 @@ static bool weaponToolSaveCustom(void)
         "  \"schema\": \"pd.weapon.manifest.v1\",\n"
         "  \"catalog_id\": \"%s\",\n"
         "  \"name\": \"%s\",\n"
+        "  \"creator\": \"%s\",\n"
         "  \"template\": \"%s\",\n"
         "  \"dependency_closure\": \"embedded.v2\",\n"
         "  \"refs\": {\n"
@@ -2648,7 +2683,7 @@ static bool weaponToolSaveCustom(void)
         "    \"entity\": \"%s\"\n"
         "  }\n"
         "}\n",
-        s_WeaponEditCatalogId, escName, escTemplate,
+        s_WeaponEditCatalogId, escName, escCreator, escTemplate,
         s_WeaponEditModelRef, s_WeaponEditTextureRef,
         s_WeaponEditAnimationRef, s_WeaponEditAudioRef,
         s_WeaponEditProjectileRef, s_WeaponEditEntityRef,
@@ -2693,11 +2728,11 @@ static bool weaponToolSaveCustom(void)
         "  \"name\": \"%s\",\n"
         "  \"version\": \"1.0.0\",\n"
         "  \"description\": \"Weapon mod created with the Weapons tool.\",\n"
-        "  \"author\": \"Player\",\n"
+        "  \"author\": \"%s\",\n"
         "  \"tags\": [\"weapon\", \"pdweapon\", \"user\"],\n"
         "  \"enabled\": true\n"
         "}\n",
-        s_WeaponEditSlug, escName);
+        s_WeaponEditSlug, escName, escCreator);
     bool writeOk = !ferror(mf);
     fclose(mf);
     if (!writeOk) {
@@ -2709,14 +2744,35 @@ static bool weaponToolSaveCustom(void)
     snprintf(newModId, sizeof(newModId), "user.%s.weapon", s_WeaponEditSlug);
     modmgrRescanDirectory();
     s32 modCount = modmgrGetCount();
+    bool foundMod = false;
+    bool enabledMod = false;
     for (s32 i = 0; i < modCount; i++) {
         const char *id = modmgrGetModId(i);
         if (id && strcmp(id, newModId) == 0) {
+            foundMod = true;
+            if (!modmgrGetModValid(i)) {
+                const char *err = modmgrGetModValidationError(i);
+                char msg[192];
+                snprintf(msg, sizeof(msg),
+                         "Saved .pdweapon, but Mod Manager rejected it: %s",
+                         err && err[0] ? err : "invalid mod manifest");
+                weaponSetStatus(false, msg);
+                return false;
+            }
             modmgrSetEnabled(i, 1);
+            enabledMod = modmgrGetModEnabled(i) != 0;
             break;
         }
     }
-    modmgrSaveConfig();
+    if (!foundMod) {
+        weaponSetStatus(false, "Saved .pdweapon, but Mod Manager did not discover it");
+        return false;
+    }
+    if (!enabledMod) {
+        weaponSetStatus(false, "Saved .pdweapon, but Mod Manager could not enable it");
+        return false;
+    }
+    modmgrApplyChanges();
     pdguiModManagerRefreshSnapshot();
     weaponToolRefresh();
     strncpy(s_WeaponSelectedId, s_WeaponEditCatalogId,
@@ -2724,9 +2780,110 @@ static bool weaponToolSaveCustom(void)
     s_WeaponSelectedId[sizeof(s_WeaponSelectedId) - 1] = '\0';
 
     char status[192];
-    snprintf(status, sizeof(status), "Saved weapon mod: %s", archivePath);
+    snprintf(status, sizeof(status),
+             "Saved, enabled, and catalog updated: %s", s_WeaponEditCatalogId);
     weaponSetStatus(true, status);
+    s_WeaponSaveComplete = true;
     return true;
+}
+
+static void weaponOpenSaveModal(void)
+{
+    if (!s_WeaponEditActive) {
+        weaponSetStatus(false, "Create a template before saving");
+        return;
+    }
+    snprintf(s_WeaponSaveCreator, sizeof(s_WeaponSaveCreator), "%s",
+             weaponActiveAgentName());
+    snprintf(s_WeaponSaveModName, sizeof(s_WeaponSaveModName), "%s",
+             s_WeaponEditDisplayName[0]
+                 ? s_WeaponEditDisplayName
+                 : "Custom Weapon");
+    s_WeaponSaveStatus[0] = '\0';
+    s_WeaponSaveStatusOk = true;
+    s_WeaponSaveComplete = false;
+    s_WeaponSaveModalOpen = true;
+}
+
+static void weaponRenderSaveModal(float scale)
+{
+    if (s_WeaponSaveModalOpen) {
+        ImGui::OpenPopup("Save Weapon Mod##weapon_save_options");
+    }
+
+    if (s_WeaponSaveModalOpen ||
+            ImGui::IsPopupOpen("Save Weapon Mod##weapon_save_options")) {
+        pdguiPopupDarkenBehind(0.55f);
+    }
+
+    const float viewportW = (float)viGetWidth();
+    float popupW = 520.0f * scale;
+    if (popupW > viewportW - 80.0f * scale) popupW = viewportW - 80.0f * scale;
+    if (popupW < 420.0f * scale) popupW = 420.0f * scale;
+    ImGui::SetNextWindowSize(ImVec2(popupW, 0.0f), ImGuiCond_Appearing);
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoSavedSettings
+                           | ImGuiWindowFlags_NoCollapse;
+    ImGui::PushStyleColor(ImGuiCol_PopupBg,
+                          ImVec4(0.035f, 0.045f, 0.065f, 0.98f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg,
+                          ImVec4(0.035f, 0.045f, 0.065f, 0.98f));
+    if (ImGui::BeginPopupModal("Save Weapon Mod##weapon_save_options",
+                               &s_WeaponSaveModalOpen, flags)) {
+        if (s_WeaponSaveComplete) ImGui::BeginDisabled();
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputText("Creator", s_WeaponSaveCreator,
+                         sizeof(s_WeaponSaveCreator));
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputText("Mod Name", s_WeaponSaveModName,
+                         sizeof(s_WeaponSaveModName));
+        if (s_WeaponSaveComplete) ImGui::EndDisabled();
+
+        char slugPreview[sizeof(s_WeaponEditSlug)];
+        weaponToolSlugify(s_WeaponSaveModName, slugPreview,
+                          sizeof(slugPreview));
+        ImGui::Separator();
+        if (slugPreview[0]) {
+            ImGui::Text("Catalog Name: user:%s", slugPreview);
+            ImGui::Text("Output: mods/Weapons/%s/%s.pdweapon",
+                        slugPreview, slugPreview);
+        } else {
+            ImGui::TextDisabled("Catalog Name: (enter a valid mod name)");
+        }
+        ImGui::TextDisabled("Saving enables the mod and rebuilds the catalog immediately.");
+
+        if (s_WeaponSaveStatus[0]) {
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                                  s_WeaponSaveStatusOk
+                                      ? ImVec4(0.55f, 0.90f, 0.68f, 0.92f)
+                                      : pdguiVec4TextWarning(240));
+            ImGui::TextWrapped("%s", s_WeaponSaveStatus);
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::Separator();
+        if (s_WeaponSaveComplete) {
+            if (PdButton("Done", ImVec2(92.0f * scale, 28.0f * scale))) {
+                s_WeaponSaveModalOpen = false;
+                ImGui::CloseCurrentPopup();
+            }
+        } else {
+            bool canCreate = slugPreview[0] && s_WeaponSaveCreator[0] &&
+                             s_WeaponEditTemplateArchive[0];
+            if (!canCreate) ImGui::BeginDisabled();
+            if (PdButton("Create + Enable", ImVec2(152.0f * scale, 28.0f * scale))) {
+                weaponToolSaveCustom();
+            }
+            if (!canCreate) ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (PdButton("Cancel", ImVec2(92.0f * scale, 28.0f * scale))) {
+                s_WeaponSaveModalOpen = false;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleColor(2);
 }
 
 static void weaponRenderCatalogPicker(const char *label,
@@ -3138,9 +3295,7 @@ static void weaponRenderTemplateEditor(float scale)
     }
 
     ImGui::Text("Template: %s", s_WeaponEditTemplateId);
-    ImGui::Text("Saves to: mods/Weapons/%s/%s.pdweapon",
-                s_WeaponEditSlug[0] ? s_WeaponEditSlug : "(slug)",
-                s_WeaponEditSlug[0] ? s_WeaponEditSlug : "(slug)");
+    ImGui::TextDisabled("Save Weapon Mod opens mod options before writing.");
     ImGui::Separator();
 
     if (ImGui::BeginTabBar("##weapon_creator_tabs")) {
@@ -3148,19 +3303,14 @@ static void weaponRenderTemplateEditor(float scale)
             ImGui::SetNextItemWidth(300.0f * scale);
             ImGui::InputText("Display Name", s_WeaponEditDisplayName,
                              sizeof(s_WeaponEditDisplayName));
-            ImGui::SetNextItemWidth(220.0f * scale);
-            ImGui::InputText("Slug", s_WeaponEditSlug,
-                             sizeof(s_WeaponEditSlug));
             char catalogPreview[CATALOG_ID_LEN];
-            char slugRaw[sizeof(s_WeaponEditSlug)];
+            char slugRaw[sizeof(s_WeaponEditDisplayName)];
             char slugPreview[sizeof(s_WeaponEditSlug)];
-            snprintf(slugRaw, sizeof(slugRaw), "%s", s_WeaponEditSlug);
+            snprintf(slugRaw, sizeof(slugRaw), "%s", s_WeaponEditDisplayName);
             weaponToolSlugify(slugRaw, slugPreview, sizeof(slugPreview));
             snprintf(catalogPreview, sizeof(catalogPreview), "user:%s",
                      slugPreview[0] ? slugPreview : "(invalid)");
-            ImGui::Text("Catalog ID: %s", catalogPreview);
-            ImGui::SetNextItemWidth(120.0f * scale);
-            ImGui::InputInt("Weapon ID", &s_WeaponEditWeaponId);
+            ImGui::Text("Default Catalog Name: %s", catalogPreview);
             ImGui::Checkbox("Dual wieldable", &s_WeaponEditDualWieldable);
             ImGui::EndTabItem();
         }
@@ -3227,13 +3377,13 @@ static void weaponRenderTemplateEditor(float scale)
     }
 
     bool canSave = s_WeaponEditDisplayName[0] &&
-                   s_WeaponEditSlug[0] &&
                    s_WeaponEditTemplateArchive[0];
     if (!canSave) ImGui::BeginDisabled();
-    if (PdButton("Save Weapon Mod", ImVec2(164.0f * scale, 28.0f * scale))) {
-        weaponToolSaveCustom();
+    if (PdButton("Save Weapon Mod", ImVec2(188.0f * scale, 28.0f * scale))) {
+        weaponOpenSaveModal();
     }
     if (!canSave) ImGui::EndDisabled();
+    weaponRenderSaveModal(scale);
 }
 
 static void renderWeaponTool(float contentW, float contentH, float scale)
@@ -3318,14 +3468,12 @@ static void renderWeaponTool(float contentW, float contentH, float scale)
     ImGui::TextDisabled("%s", e->bundled ? "Base" : "Mod");
     ImGui::Separator();
 
-    ImGui::Text("Catalog ID: %s", e->id);
-    ImGui::Text("Weapon ID: %d", (int)e->ext.weapon.weapon_id);
-    ImGui::Text("Runtime Index: %d", (int)e->runtime_index);
+    ImGui::Text("Catalog Name: %s", e->id);
     ImGui::Text("Model: %s", e->ext.weapon.model_file[0] ? e->ext.weapon.model_file : "(catalog/runtime)");
     ImGui::Text("Dual Wield: %s", e->ext.weapon.dual_wieldable ? "yes" : "no");
     ImGui::Text("Archive: %s", s_WeaponArchivePath[0] ? s_WeaponArchivePath : "(not resolved)");
 
-    if (PdButton("Use as Template", ImVec2(176.0f * scale, 28.0f * scale))) {
+    if (PdButton("Use as Template", ImVec2(204.0f * scale, 28.0f * scale))) {
         weaponToolStartTemplate(e);
     }
     if (s_WeaponEditActive) {
