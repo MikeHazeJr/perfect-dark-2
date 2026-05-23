@@ -66,8 +66,8 @@ static ImVec4 categoryColor(const char *kind)
 static ImVec4 pinColor(int pinKind)
 {
 	switch (pinKind) {
-	case 1: return ImVec4(0.20f, 0.92f, 1.0f, 1.0f);
-	case 2: return ImVec4(0.20f, 0.92f, 1.0f, 1.0f);
+	case 1: return ImVec4(0.96f, 0.96f, 0.96f, 1.0f);
+	case 2: return ImVec4(0.96f, 0.96f, 0.96f, 1.0f);
 	case 3: return ImVec4(0.50f, 0.92f, 0.56f, 1.0f);
 	case 4: return ImVec4(0.92f, 0.74f, 0.28f, 1.0f);
 	default: return ImVec4(0.65f, 0.80f, 0.95f, 1.0f);
@@ -376,28 +376,36 @@ static void renderNode(PdWeaponGraphEditModel *model, int index)
 	ImGui::SameLine();
 	ImGui::TextDisabled("[%s]", node.subgraph[0] ? node.subgraph : "primary");
 	ImGui::TextColored(color, "%s", node.kind);
-	float rowStartX = ImGui::GetCursorPosX();
-	float inputLabelX = rowStartX + kWeaponGraphPinSocketSize + kWeaponGraphPinRowGap;
-	float outputPinX = rowStartX + kWeaponGraphNodeWidth - kWeaponGraphPinSocketSize;
-	float outputLabelX = outputPinX - 38.0f;
-	ed::BeginPin(nodePinId(node, 1), ed::PinKind::Input);
-	ed::PinPivotAlignment(ImVec2(0.0f, 0.5f));
-	renderPinSocket("##exec_in_pin", "Exec input: drag from another node's output to connect",
-		pinColor(1));
-	ed::EndPin();
-	ImGui::SameLine();
-	ImGui::SetCursorPosX(inputLabelX);
-	ImGui::TextColored(pinColor(1), "exec");
-	ImGui::SameLine();
-	ImGui::SetCursorPosX(outputLabelX);
-	ImGui::TextColored(pinColor(2), "exec");
-	ImGui::SameLine();
-	ImGui::SetCursorPosX(outputPinX);
-	ed::BeginPin(nodePinId(node, 2), ed::PinKind::Output);
-	ed::PinPivotAlignment(ImVec2(1.0f, 0.5f));
-	renderPinSocket("##exec_out_pin", "Exec output: drag to another node's input to connect",
-		pinColor(2));
-	ed::EndPin();
+	if (ImGui::BeginTable("##exec_pin_row", 4,
+			ImGuiTableFlags_SizingStretchProp |
+			ImGuiTableFlags_NoPadOuterX |
+			ImGuiTableFlags_NoPadInnerX,
+			ImVec2(kWeaponGraphNodeWidth, 0.0f))) {
+		ImGui::TableSetupColumn("##in_pin", ImGuiTableColumnFlags_WidthFixed,
+			kWeaponGraphPinSocketSize + kWeaponGraphPinRowGap);
+		ImGui::TableSetupColumn("##in_label", ImGuiTableColumnFlags_WidthStretch);
+		ImGui::TableSetupColumn("##out_label", ImGuiTableColumnFlags_WidthFixed, 38.0f);
+		ImGui::TableSetupColumn("##out_pin", ImGuiTableColumnFlags_WidthFixed,
+			kWeaponGraphPinSocketSize);
+		ImGui::TableNextRow();
+		ImGui::TableSetColumnIndex(0);
+		ed::BeginPin(nodePinId(node, 1), ed::PinKind::Input);
+		ed::PinPivotAlignment(ImVec2(0.0f, 0.5f));
+		renderPinSocket("##exec_in_pin", "Exec input: drag from another node's output to connect",
+			pinColor(1));
+		ed::EndPin();
+		ImGui::TableSetColumnIndex(1);
+		ImGui::TextColored(pinColor(1), "exec");
+		ImGui::TableSetColumnIndex(2);
+		ImGui::TextColored(pinColor(2), "exec");
+		ImGui::TableSetColumnIndex(3);
+		ed::BeginPin(nodePinId(node, 2), ed::PinKind::Output);
+		ed::PinPivotAlignment(ImVec2(1.0f, 0.5f));
+		renderPinSocket("##exec_out_pin", "Exec output: drag to another node's input to connect",
+			pinColor(2));
+		ed::EndPin();
+		ImGui::EndTable();
+	}
 	if (strstr(node.params, "context_refs")) {
 		ImGui::TextDisabled("context refs");
 		ImGui::SameLine();
