@@ -1,5 +1,30 @@
 # Session Log (Active)
 
+## Session (`tinynoplayer`) - 2026-05-23 - Tiny Mode player size correction
+
+Mike clarified that Tiny Mode should not make the player tiny.
+
+### Implemented
+
+- Removed the player-side Tiny Mode model scale branch, so player bodies instantiate at normal scale.
+- Removed Tiny Mode first-person camera/head/movement scaling from walk, grab, and movement update paths.
+- Kept player crouch collision offsets normal instead of using the old tiny-player offset.
+- Kept player shadows and shelf-pickup range normal while preserving non-player Tiny Mode shadow scaling and the Play As Elvis shelf-pickup helper.
+- Added static coverage that fails if Tiny Mode is wired back into the player-size paths.
+
+### Verification
+
+- Scoped `git diff --check` passed for the touched gameplay/test/release/context files.
+- `.\devtools\run-pd-tests.ps1 -Session tinynoplayer -Selector "[cheats][tiny][spawn][static]" -BuildTimeoutSeconds 240` passed: 67 assertions / 5 cases.
+- `.\devtools\build-session.ps1 -Session tinynoplayer -Target all -BuildTimeoutSeconds 240` passed.
+- Removed isolated session build `tinynoplayer`.
+
+### Next
+
+- Manual retest: enable Tiny Mode and confirm the player remains normal-sized with normal camera height and movement, while ordinary enemies still appear as spaced tripled tiny enemies.
+
+---
+
 ## Session (`tinyfast`) - 2026-05-23 - Tiny Mode movement speed
 
 Mike asked for the Tiny Mode tripled tiny enemies to move about 30% faster than they currently moved in Tiny Mode.

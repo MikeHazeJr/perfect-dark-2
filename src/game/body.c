@@ -472,10 +472,6 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					if (cheatIsActive(CHEAT_DKMODE)) {
 						scale *= 1.25f;
 					}
-				} else {
-					if (cheatIsActive(CHEAT_SMALLJO)) {
-						scale *= 0.4f;
-					}
 				}
 			}
 		} else if (bodymodeldef->skel == &g_SkelSkedar) {

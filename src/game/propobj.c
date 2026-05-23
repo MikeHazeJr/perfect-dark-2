@@ -18139,7 +18139,7 @@ s32 objTestForPickup(struct prop *prop)
 		u32 stack;
 
 		usebigrange = (obj->flags3 & OBJFLAG3_ONSHELF)
-			&& (cheatIsActive(CHEAT_SMALLJO) || cheatIsActive(CHEAT_PLAYASELVIS));
+			&& cheatIsActive(CHEAT_PLAYASELVIS);
 
 		if (g_Vars.currentplayer->magnetattracttime >= 60) {
 			pickup = xdiff * xdiff + zdiff * zdiff <= 350 * 350 && ydiff >= -500 && ydiff <= 500;

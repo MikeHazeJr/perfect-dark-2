@@ -7,7 +7,7 @@
  *
  * Tiny Mode should triple authored non-unique enemy setup chrs without
  * widening into scripted clone spawners, story characters, multiplayer bots,
- * or non-enemies.
+ * non-enemies, or the player.
  */
 
 #include "catch.hpp"
@@ -104,4 +104,22 @@ TEST_CASE("tiny-mode spawn: generic enemies move faster while tiny",
 	REQUIRE(chraction.find("chrApplyTinyModeMovementSpeed(chr, 0.5f)") != std::string::npos);
 	REQUIRE(chraction.find("speed = chrApplyTinyModeMovementSpeed(chr, speed);") != std::string::npos);
 	REQUIRE(chraction.find("animspeed = chrApplyTinyModeMovementSpeed(chr, animspeed);") != std::string::npos);
+}
+
+TEST_CASE("tiny-mode spawn: player remains normal sized",
+          "[cheats][tiny][spawn][static]") {
+	const std::string body = readFile("src/game/body.c");
+	const std::string bondwalk = readFile("src/game/bondwalk.c");
+	const std::string bondmove = readFile("src/game/bondmove.c");
+	const std::string bondgrab = readFile("src/game/bondgrab.c");
+	const std::string chr = readFile("src/game/chr.c");
+	const std::string propobj = readFile("src/game/propobj.c");
+
+	REQUIRE(body.find("if (!isplayer) {\n\t\t\t\t\tif (cheatIsActive(CHEAT_SMALLJO))") != std::string::npos);
+	REQUIRE(body.find("} else {\n\t\t\t\t\tif (cheatIsActive(CHEAT_SMALLJO))") == std::string::npos);
+	REQUIRE(bondwalk.find("cheatIsActive(CHEAT_SMALLJO)") == std::string::npos);
+	REQUIRE(bondmove.find("cheatIsActive(CHEAT_SMALLJO)") == std::string::npos);
+	REQUIRE(bondgrab.find("cheatIsActive(CHEAT_SMALLJO)") == std::string::npos);
+	REQUIRE(chr.find("prop->type != PROPTYPE_PLAYER && cheatIsActive(CHEAT_SMALLJO)") != std::string::npos);
+	REQUIRE(propobj.find("cheatIsActive(CHEAT_SMALLJO) || cheatIsActive(CHEAT_PLAYASELVIS)") == std::string::npos);
 }

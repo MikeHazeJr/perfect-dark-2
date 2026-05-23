@@ -3266,7 +3266,6 @@ void bmoveUpdateVerta(void)
 void bmove0f0cc19c(struct coord *arg)
 {
 	f32 min;
-	f32 mult;
 
 	g_Vars.currentplayer->bond2.unk10.x = arg->x;
 	g_Vars.currentplayer->bond2.unk10.y = arg->y;
@@ -3282,30 +3281,6 @@ void bmove0f0cc19c(struct coord *arg)
 
 	if (g_Vars.currentplayer->vv_verta < 0) {
 		g_Vars.currentplayer->bond2.unk10.y += -(1.0f - g_Vars.currentplayer->vv_cosverta) * g_Vars.currentplayer->bondleandown;
-	}
-
-	if (cheatIsActive(CHEAT_SMALLJO)) {
-		if (g_Vars.currentplayer->bondmovemode == MOVEMODE_BIKE) {
-			mult = g_Vars.currentplayer->bondentert * 0.6f + 0.4f;
-		} else if (g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK && g_Vars.currentplayer->walkinitmove) {
-			mult = (1.0f - g_Vars.currentplayer->walkinitt) * 0.6f + 0.4f;
-			g_Vars.currentplayer->bond2.unk10.y += (g_Vars.currentplayer->crouchoffsetreal - g_Vars.currentplayer->crouchoffsetrealsmall) * g_Vars.currentplayer->walkinitt;
-		} else if (g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK) {
-			mult = 0.4f;
-			g_Vars.currentplayer->bond2.unk10.y += (g_Vars.currentplayer->crouchoffsetreal - g_Vars.currentplayer->crouchoffsetrealsmall);
-		} else {
-			mult = 0.4f;
-		}
-
-		g_Vars.currentplayer->bond2.unk10.y = (g_Vars.currentplayer->bond2.unk10.y - g_Vars.currentplayer->vv_manground) * mult;
-
-#if VERSION < VERSION_NTSC_1_0
-		if (g_Vars.currentplayer->bond2.unk10.y < 30) {
-			g_Vars.currentplayer->bond2.unk10.y = 30;
-		}
-#endif
-
-		g_Vars.currentplayer->bond2.unk10.y += g_Vars.currentplayer->vv_manground;
 	}
 
 #if VERSION >= VERSION_NTSC_1_0

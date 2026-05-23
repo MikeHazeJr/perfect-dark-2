@@ -1086,13 +1086,6 @@ void bgrab0f0ce924(void)
 		sp84 = g_Vars.currentplayer->headpos.x;
 		sp80 = g_Vars.currentplayer->headpos.z;
 
-#if VERSION >= VERSION_NTSC_1_0
-		if (cheatIsActive(CHEAT_SMALLJO)) {
-			sp84 *= 0.4f;
-			sp80 *= 0.4f;
-		}
-#endif
-
 		sp74.x += (sp80 * g_Vars.currentplayer->bond2.unk00.f[0] - sp84 * g_Vars.currentplayer->bond2.unk00.f[2]) * g_Vars.lvupdate60freal;
 		sp74.z += (sp80 * g_Vars.currentplayer->bond2.unk00.f[2] + sp84 * g_Vars.currentplayer->bond2.unk00.f[0]) * g_Vars.lvupdate60freal;
 
