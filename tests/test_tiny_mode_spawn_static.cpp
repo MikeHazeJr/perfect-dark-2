@@ -32,12 +32,14 @@ TEST_CASE("tiny-mode spawn: generic enemy predicate stays narrow",
           "[cheats][tiny][spawn][static]") {
 	const std::string body = readFile("src/game/body.c");
 	const std::string chr = readFile("src/game/chr.c");
+	const std::string constants = readFile("src/include/constants.h");
 
 	REQUIRE(body.find("BODY_TINY_MODE_ENEMY_MULTIPLIER 3") != std::string::npos);
 	REQUIRE(body.find("return cheatIsActive(CHEAT_SMALLJO);") != std::string::npos);
 	REQUIRE(body.find("CHEAT_SMALLCHARACTERS") == std::string::npos);
 	REQUIRE(chr.find("cheatIsActive(CHEAT_SMALLJO)") != std::string::npos);
 	REQUIRE(chr.find("cheatIsActive(CHEAT_SMALLCHARACTERS)") == std::string::npos);
+	REQUIRE(constants.find("CHRCFLAG_TINYMODE_MOVESPEED") != std::string::npos);
 	REQUIRE(body.find("packed->team != TEAM_ENEMY") != std::string::npos);
 	REQUIRE(body.find("packed->spawnflags & SPAWNFLAG_BASICGUARD") != std::string::npos);
 	REQUIRE(body.find("packed->spawnflags & SPAWNFLAG_INVINCIBLE") != std::string::npos);
@@ -89,4 +91,17 @@ TEST_CASE("tiny-mode spawn: generic enemies are made physically small",
 	REQUIRE(body.find("chr->radius = (s32)(chr->radius * BODY_TINY_MODE_ENEMY_SCALE);") != std::string::npos);
 	REQUIRE(body.find("chr->height = (s32)(chr->height * BODY_TINY_MODE_ENEMY_SCALE);") != std::string::npos);
 	REQUIRE(body.find("bodyTinyModeScaleGenericEnemy(chr, packed, bodynum);") != std::string::npos);
+}
+
+TEST_CASE("tiny-mode spawn: generic enemies move faster while tiny",
+          "[cheats][tiny][spawn][static]") {
+	const std::string body = readFile("src/game/body.c");
+	const std::string chraction = readFile("src/game/chraction.c");
+
+	REQUIRE(body.find("chr->chrflags |= CHRCFLAG_TINYMODE_MOVESPEED;") != std::string::npos);
+	REQUIRE(chraction.find("CHR_TINY_MODE_MOVEMENT_SPEED_SCALE 1.3f") != std::string::npos);
+	REQUIRE(chraction.find("chrApplyTinyModeMovementSpeed") != std::string::npos);
+	REQUIRE(chraction.find("chrApplyTinyModeMovementSpeed(chr, 0.5f)") != std::string::npos);
+	REQUIRE(chraction.find("speed = chrApplyTinyModeMovementSpeed(chr, speed);") != std::string::npos);
+	REQUIRE(chraction.find("animspeed = chrApplyTinyModeMovementSpeed(chr, animspeed);") != std::string::npos);
 }

@@ -260,6 +260,8 @@ static void bodyTinyModeScaleGenericEnemy(struct chrdata *chr, const struct pack
 		return;
 	}
 
+	chr->chrflags |= CHRCFLAG_TINYMODE_MOVESPEED;
+
 	modelscalealreadyapplied = cheatIsActive(CHEAT_SMALLJO) && bodyGetRace(bodynum) == RACE_HUMAN;
 
 	if (!modelscalealreadyapplied && chr->model != NULL) {

@@ -77,6 +77,17 @@ f32 g_PlayerDamageRxScale = 1;
 f32 g_PlayerDamageTxScale = 1;
 f32 g_AttackWalkDurationScale = 1;
 
+#define CHR_TINY_MODE_MOVEMENT_SPEED_SCALE 1.3f
+
+static f32 chrApplyTinyModeMovementSpeed(struct chrdata *chr, f32 speed)
+{
+	if (chr != NULL && (chr->chrflags & CHRCFLAG_TINYMODE_MOVESPEED)) {
+		speed *= CHR_TINY_MODE_MOVEMENT_SPEED_SCALE;
+	}
+
+	return speed;
+}
+
 #if VERSION >= VERSION_NTSC_1_0
 s32 g_NumChrsWithPlayerTarget = 0;
 s32 g_NumChrsSeenPlayer = 0;
@@ -2080,27 +2091,33 @@ void chrSidestepChooseAnimation(struct chrdata *chr)
 	if (race == RACE_HUMAN) {
 		if (allowflip == false) {
 			if (chr->act_sidestep.side) {
-				modelSetAnimation(chr->model, ANIM_0068, true, 5, chrGetRangedSpeed(chr, 0.55, 0.88000005), 16);
+				modelSetAnimation(chr->model, ANIM_0068, true, 5,
+						chrApplyTinyModeMovementSpeed(chr, chrGetRangedSpeed(chr, 0.55, 0.88000005)), 16);
 				modelSetAnimEndFrame(chr->model, 36);
 			} else {
-				modelSetAnimation(chr->model, ANIM_0068, false, 5, chrGetRangedSpeed(chr, 0.55, 0.88000005), 16);
+				modelSetAnimation(chr->model, ANIM_0068, false, 5,
+						chrApplyTinyModeMovementSpeed(chr, chrGetRangedSpeed(chr, 0.55, 0.88000005)), 16);
 				modelSetAnimEndFrame(chr->model, 36);
 			}
 		} else {
 			if ((chr->act_sidestep.side && !flip) || (chr->act_sidestep.side == 0 && flip)) {
-				modelSetAnimation(chr->model, ANIM_003B, flip, 5, chrGetRangedSpeed(chr, 0.7, 1.12), 16);
+				modelSetAnimation(chr->model, ANIM_003B, flip, 5,
+						chrApplyTinyModeMovementSpeed(chr, chrGetRangedSpeed(chr, 0.7, 1.12)), 16);
 				modelSetAnimEndFrame(chr->model, 34);
 			} else {
-				modelSetAnimation(chr->model, ANIM_003A, flip, 5, chrGetRangedSpeed(chr, 0.7, 1.12), 16);
+				modelSetAnimation(chr->model, ANIM_003A, flip, 5,
+						chrApplyTinyModeMovementSpeed(chr, chrGetRangedSpeed(chr, 0.7, 1.12)), 16);
 				modelSetAnimEndFrame(chr->model, 32);
 			}
 		}
 	} else if (race == RACE_SKEDAR) {
 		if (chr->act_sidestep.side) {
-			modelSetAnimation(chr->model, ANIM_0328, false, 5, chrGetRangedSpeed(chr, 0.55, 0.88000005), 16);
+			modelSetAnimation(chr->model, ANIM_0328, false, 5,
+					chrApplyTinyModeMovementSpeed(chr, chrGetRangedSpeed(chr, 0.55, 0.88000005)), 16);
 			modelSetAnimEndFrame(chr->model, 27);
 		} else {
-			modelSetAnimation(chr->model, ANIM_0328, true, 5, chrGetRangedSpeed(chr, 0.55, 0.88000005), 16);
+			modelSetAnimation(chr->model, ANIM_0328, true, 5,
+					chrApplyTinyModeMovementSpeed(chr, chrGetRangedSpeed(chr, 0.55, 0.88000005)), 16);
 			modelSetAnimEndFrame(chr->model, 27);
 		}
 	}
@@ -2135,10 +2152,12 @@ void chrJumpOutChooseAnimation(struct chrdata *chr)
 	}
 
 	if ((chr->act_jumpout.side && !flip) || (chr->act_jumpout.side == 0 && flip)) {
-		modelSetAnimation(chr->model, ANIM_0068, true, 5, chrGetRangedSpeed(chr, 0.55, 0.88000005), 16);
+		modelSetAnimation(chr->model, ANIM_0068, true, 5,
+				chrApplyTinyModeMovementSpeed(chr, chrGetRangedSpeed(chr, 0.55, 0.88000005)), 16);
 		modelSetAnimEndFrame(chr->model, 36);
 	} else {
-		modelSetAnimation(chr->model, ANIM_0068, false, 5, chrGetRangedSpeed(chr, 0.55, 0.88000005), 16);
+		modelSetAnimation(chr->model, ANIM_0068, false, 5,
+				chrApplyTinyModeMovementSpeed(chr, chrGetRangedSpeed(chr, 0.55, 0.88000005)), 16);
 		modelSetAnimEndFrame(chr->model, 36);
 	}
 }
@@ -2182,7 +2201,7 @@ void chrRunPosChooseAnimation(struct chrdata *chr)
 
 	if (race == RACE_HUMAN) {
 		if (heavy) {
-			f32 mult = 0.5;
+			f32 mult = chrApplyTinyModeMovementSpeed(chr, 0.5f);
 #if PAL
 			chr->act_runpos.eta60 = 1.0f / (func0f02dff0(ANIM_RUNNING_TWOHANDGUN) * mult) * distance * 0.83333331346512f;
 #else
@@ -2190,7 +2209,7 @@ void chrRunPosChooseAnimation(struct chrdata *chr)
 #endif
 			modelSetAnimation(chr->model, ANIM_RUNNING_TWOHANDGUN, flip, 0, mult, 16);
 		} else {
-			f32 mult = 0.5;
+			f32 mult = chrApplyTinyModeMovementSpeed(chr, 0.5f);
 #if PAL
 			chr->act_runpos.eta60 = 1.0f / (func0f02dff0(ANIM_RUNNING_ONEHANDGUN) * mult) * distance * 0.83333331346512f;
 #else
@@ -2199,7 +2218,7 @@ void chrRunPosChooseAnimation(struct chrdata *chr)
 			modelSetAnimation(chr->model, ANIM_RUNNING_ONEHANDGUN, flip, 0, mult, 16);
 		}
 	} else if (race == RACE_SKEDAR) {
-		f32 mult = 0.5;
+		f32 mult = chrApplyTinyModeMovementSpeed(chr, 0.5f);
 #if PAL
 		chr->act_runpos.eta60 = 1.0f / (func0f02dff0(ANIM_SKEDAR_RUNNING) * mult) * distance * 0.83333331346512f;
 #else
@@ -2350,7 +2369,8 @@ void chrAttackWalkChooseAnimation(struct chrdata *chr)
 {
 	if (chr->aibot == NULL) {
 		modelSetAnimation(chr->model, chr->act_attackwalk.animcfg->animnum,
-				chr->act_attackwalk.flip, chr->act_attackwalk.animcfg->unk10, 0.5, 16);
+				chr->act_attackwalk.flip, chr->act_attackwalk.animcfg->unk10,
+				chrApplyTinyModeMovementSpeed(chr, 0.5f), 16);
 	}
 }
 
@@ -6200,9 +6220,11 @@ void chrGoPosChooseAnimation(struct chrdata *chr)
 	}
 
 	if (anim >= 0) {
+		speed = chrApplyTinyModeMovementSpeed(chr, speed);
 		modelSetAnimation(chr->model, anim, flip, 0, speed, sp60);
 
 		if (animspeed > 0) {
+			animspeed = chrApplyTinyModeMovementSpeed(chr, animspeed);
 			modelSetAnimSpeed(chr->model, animspeed, startframe);
 		}
 	}
@@ -6353,9 +6375,10 @@ void chrPatrolChooseAnimation(struct chrdata *chr)
 		}
 
 		if (race == RACE_SKEDAR) {
-			modelSetAnimation(chr->model, ANIM_0392, flip, 0, 0.25f, 16);
+			modelSetAnimation(chr->model, ANIM_0392, flip, 0, chrApplyTinyModeMovementSpeed(chr, 0.25f), 16);
 		} else {
 			speed = 0.5f * func0f02dff0(ANIM_0028) / func0f02dff0(ANIM_006B);
+			speed = chrApplyTinyModeMovementSpeed(chr, speed);
 
 			if (heavy) {
 				modelSetAnimation(chr->model, rngRandom() % 2 ? ANIM_0018 : ANIM_0028, flip, 0, speed, 16);
@@ -6367,9 +6390,9 @@ void chrPatrolChooseAnimation(struct chrdata *chr)
 			}
 		}
 	} else if (race == RACE_DRCAROLL) {
-		modelSetAnimation(chr->model, ANIM_015F, false, 0, 0.5f, 16);
+		modelSetAnimation(chr->model, ANIM_015F, false, 0, chrApplyTinyModeMovementSpeed(chr, 0.5f), 16);
 	} else if (race == RACE_ROBOT) {
-		modelSetAnimation(chr->model, ANIM_0238, false, 0, 0.5f, 16);
+		modelSetAnimation(chr->model, ANIM_0238, false, 0, chrApplyTinyModeMovementSpeed(chr, 0.5f), 16);
 	}
 }
 

@@ -656,7 +656,7 @@
 #define CHRCFLAG_RUNFASTER                   0x00080000
 #define CHRCFLAG_KILLCOUNTABLE               0x00100000
 #define CHRCFLAG_TRIGGERSHOTLIST             0x00200000
-#define CHRCFLAG_00400000                    0x00400000 // Not used
+#define CHRCFLAG_TINYMODE_MOVESPEED          0x00400000 // Tiny Mode generic enemy movement boost
 #define CHRCFLAG_UNPLAYABLE                  0x00800000
 #define CHRCFLAG_PUSHABLE                    0x01000000 // Typically set on allies during init
 #define CHRCFLAG_SHIELDDAMAGED               0x02000000

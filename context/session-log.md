@@ -1,5 +1,29 @@
 # Session Log (Active)
 
+## Session (`tinyfast`) - 2026-05-23 - Tiny Mode movement speed
+
+Mike asked for the Tiny Mode tripled tiny enemies to move about 30% faster than they currently moved in Tiny Mode.
+
+### Implemented
+
+- Reused the existing narrow generic-enemy predicate so named/story/special cases remain single and unboosted.
+- Marked qualifying Tiny Mode generic enemies with `CHRCFLAG_TINYMODE_MOVESPEED` as they are scaled down.
+- Applied a `1.3x` movement animation-speed multiplier to those marked enemies across run-to-position, go-to-position, patrol, attack-walk, sidestep, and jump-out animation paths.
+- Updated static Tiny Mode coverage and release notes for the movement-speed follow-up.
+
+### Verification
+
+- Scoped `git diff --check` passed for the touched gameplay/test/release/context files.
+- `.\devtools\run-pd-tests.ps1 -Session tinyfast -Selector "[cheats][tiny][spawn][static]" -BuildTimeoutSeconds 240` passed: 54 assertions / 4 cases.
+- `.\devtools\build-session.ps1 -Session tinyfast -Target all -BuildTimeoutSeconds 240` passed.
+- Removed isolated session build `tinyfast`.
+
+### Next
+
+- Manual retest: enable Tiny Mode, load a guard-heavy mission, and confirm ordinary tiny tripled enemies have enough room and now move about 30% faster while named/story characters remain single.
+
+---
+
 ## Session (`tinyspread`) - 2026-05-23 - Tiny Mode pitch and spawn spacing
 
 Mike asked for Tiny Mode voices to pitch up more comically and for the tripled tiny enemies to spawn spaced apart instead of inside each other.
