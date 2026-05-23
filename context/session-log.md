@@ -1,5 +1,30 @@
 # Session Log (Active)
 
+## Session (`wtemplview`) - 2026-05-22 - weapon creator in-place drill-in view
+
+Mike corrected the prior creator window: it should behave like a Main Menu -> Settings subview using the same menu shell, and the popup/window background should not appear transparent.
+
+### Implemented
+
+- Removed the floating `Create Weapon Mod` ImGui window path.
+- Replaced it with an in-place Modding Hub `CREATE WEAPON MOD` drill-in view opened by `Use as Template`; the tool selector is hidden while the creator is active, and Back/Escape/title-X return to the Weapons browser.
+- Kept the creator tabs, template hydration, primary/secondary graph scope filtering, payload editing, and save flow inside the new subview.
+- Gave the mesh picker modal an explicit dark popup/window background plus modal dimming so it does not render transparent.
+- Updated static UI coverage to reject the old floating creator window path and require the in-place creator child.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wtemplview -Selector "[weapon_graph][ui][editor][c3814]" -BuildTimeoutSeconds 240` passed: 135 assertions / 3 cases.
+- `.\devtools\run-pd-tests.ps1 -Session wtemplview -Selector "[weapon_graph][compiler][c3814],[weapon_graph][ui][c3814]" -BuildTimeoutSeconds 240` passed: 190 assertions / 8 cases.
+- `.\devtools\build-session.ps1 -Session wtemplview -Target all -BuildTimeoutSeconds 300` passed for client/updater.
+- Removed isolated session build `wtemplview`.
+
+### Next
+
+- Manual in-game pass: Modding Hub > Weapons > Use as Template should replace the hub body with the creator view, Back/Escape should return to the weapon browser, and Select Weapon Mesh should render with an opaque background.
+
+---
+
 ## Session (`kanban-layout`) - 2026-05-22 - Kanban two-pane priority layout
 
 Mike requested a different Kanban layout: card titles and priority order on the left, selected card contents on the right, fixed scroll areas for description/subtasks, bottom-docked card actions, numbered/reorderable cards, and a docked special-notes modal for AI sessions.

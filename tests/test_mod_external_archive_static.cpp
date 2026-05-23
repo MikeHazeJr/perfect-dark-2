@@ -2294,7 +2294,7 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("Open Creator") != std::string::npos);
 	REQUIRE(hub.find("Create Weapon Mod") != std::string::npos);
 	REQUIRE(hub.find("Weapon Mod Creation") != std::string::npos);
-	REQUIRE(hub.find("Close Creator") != std::string::npos);
+	REQUIRE(hub.find("Back to Weapons") != std::string::npos);
 	REQUIRE(hub.find("weaponToolStartTemplate") != std::string::npos);
 	REQUIRE(hub.find("weaponToolPopulateTemplateRefs") != std::string::npos);
 	REQUIRE(hub.find("weaponIniGetValue") != std::string::npos);
@@ -2307,7 +2307,10 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("\"projectile_ref\"") != std::string::npos);
 	REQUIRE(hub.find("\"entity_ref\"") != std::string::npos);
 	REQUIRE(hub.find("\"payload_ref\"") != std::string::npos);
-	REQUIRE(hub.find("weaponRenderTemplateWindow") != std::string::npos);
+	REQUIRE(hub.find("weaponRenderTemplateWindow") == std::string::npos);
+	REQUIRE(hub.find("ImGui::Begin(\"Create Weapon Mod\"") == std::string::npos);
+	REQUIRE(hub.find("##modhub_weapon_creator") != std::string::npos);
+	REQUIRE(hub.find("weaponCreatorView") != std::string::npos);
 	REQUIRE(hub.find("weaponRenderTemplateEditor") != std::string::npos);
 	REQUIRE(hub.find("s_WeaponTemplateMenuOpen") != std::string::npos);
 	REQUIRE(hub.find("weaponToolSaveCustom") != std::string::npos);
@@ -2326,6 +2329,8 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	        std::string::npos);
 	REQUIRE(hub.find("Show non-weapon meshes") != std::string::npos);
 	REQUIRE(hub.find("Select Weapon Mesh") != std::string::npos);
+	REQUIRE(hub.find("pdguiPopupDarkenBehind") != std::string::npos);
+	REQUIRE(hub.find("ImGuiCol_PopupBg") != std::string::npos);
 	REQUIRE(hub.find("weaponMeshEntryIsWeaponMesh") != std::string::npos);
 	REQUIRE(hub.find("pdguiModelPreviewDrawEx") != std::string::npos);
 	REQUIRE(hub.find("PDGUI_MP_WEAPON") != std::string::npos);

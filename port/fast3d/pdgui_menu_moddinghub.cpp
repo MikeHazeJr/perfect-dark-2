@@ -2891,6 +2891,11 @@ static void weaponRenderMeshPickerPopup(float scale)
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoSavedSettings
                            | ImGuiWindowFlags_NoCollapse;
+    if (s_WeaponMeshPickerOpen || ImGui::IsPopupOpen("Select Weapon Mesh")) {
+        pdguiPopupDarkenBehind(0.55f);
+    }
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.035f, 0.045f, 0.065f, 0.98f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.035f, 0.045f, 0.065f, 0.98f));
     if (ImGui::BeginPopupModal("Select Weapon Mesh",
                                &s_WeaponMeshPickerOpen, flags)) {
         ImGui::Checkbox("Show non-weapon meshes",
@@ -2955,6 +2960,7 @@ static void weaponRenderMeshPickerPopup(float scale)
 
         ImGui::EndPopup();
     }
+    ImGui::PopStyleColor(2);
 }
 
 static void weaponRenderImportRow(const char *label,
@@ -3119,8 +3125,9 @@ static void weaponRenderTemplateEditor(float scale)
     ImGui::Text("Weapon Mod Creation");
     ImGui::PopStyleColor();
     ImGui::SameLine();
-    if (PdButton("Close Creator", ImVec2(132.0f * scale, 28.0f * scale))) {
+    if (PdButton("Back to Weapons", ImVec2(156.0f * scale, 28.0f * scale))) {
         s_WeaponTemplateMenuOpen = false;
+        s_WeaponMeshPickerOpen = false;
         return;
     }
     ImGui::Separator();
@@ -3227,35 +3234,6 @@ static void weaponRenderTemplateEditor(float scale)
         weaponToolSaveCustom();
     }
     if (!canSave) ImGui::EndDisabled();
-}
-
-static void weaponRenderTemplateWindow(s32 winW, s32 winH, float scale)
-{
-    if (!s_WeaponTemplateMenuOpen) return;
-
-    float windowW = 1120.0f * scale;
-    float windowH = 720.0f * scale;
-    if (windowW > (float)winW - 64.0f * scale) windowW = (float)winW - 64.0f * scale;
-    if (windowH > (float)winH - 64.0f * scale) windowH = (float)winH - 64.0f * scale;
-    if (windowW < 760.0f * scale) windowW = 760.0f * scale;
-    if (windowH < 520.0f * scale) windowH = 520.0f * scale;
-
-    ImGui::SetNextWindowSize(ImVec2(windowW, windowH), ImGuiCond_Appearing);
-    ImGui::SetNextWindowPos(ImVec2(((float)winW - windowW) * 0.5f,
-                                   ((float)winH - windowH) * 0.5f),
-                            ImGuiCond_Appearing);
-
-    ImGuiWindowFlags flags = ImGuiWindowFlags_NoSavedSettings
-                           | ImGuiWindowFlags_NoCollapse;
-    if (ImGui::Begin("Create Weapon Mod", &s_WeaponTemplateMenuOpen, flags)) {
-        weaponRenderTemplateEditor(scale);
-        weaponRenderMeshPickerPopup(scale);
-        if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)
-                && pdguiMenuCancelPressed()) {
-            s_WeaponTemplateMenuOpen = false;
-        }
-    }
-    ImGui::End();
 }
 
 static void renderWeaponTool(float contentW, float contentH, float scale)
@@ -4333,15 +4311,19 @@ static void renderModdingHub(s32 winW, s32 winH)
         return;
     }
 
+    const bool weaponCreatorView = s_WeaponTemplateMenuOpen;
+
     /* ---- Hub header ---- */
     pdguiSetCursorBelowTitle(0.0f); /* content-inset: protect left/top from chrome border */
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-    ImGui::Text("MODDING");
+    ImGui::Text("%s", weaponCreatorView ? "CREATE WEAPON MOD" : "MODDING");
     ImGui::PopStyleColor();
     ImGui::Separator();
 
     /* ---- Tool selector bar ---- */
-    {
+    if (weaponCreatorView) {
+        ImGui::TextDisabled("Weapons > Create Weapon Mod");
+    } else {
         const float btnW = 120.0f * scale;
         const float btnH = 28.0f * scale;
         static const int NUM_TOOLS = 10;
@@ -4462,11 +4444,18 @@ static void renderModdingHub(s32 winW, s32 winH)
             "##modhub_weapons"
         };
 
+        const char *childId = weaponCreatorView
+                            ? "##modhub_weapon_creator"
+                            : childIds[s_ActiveTool];
+
         /* Priority L (2026-04-25): NavFlattened tool body. */
-        if (ImGui::BeginChild(childIds[s_ActiveTool],
+        if (ImGui::BeginChild(childId,
                               ImVec2(dialogW, contentH),
                               ImGuiChildFlags_NavFlattened, cfFlags)) {
-            if (s_ActiveTool == 0) {
+            if (weaponCreatorView) {
+                weaponRenderTemplateEditor(scale);
+                weaponRenderMeshPickerPopup(scale);
+            } else if (s_ActiveTool == 0) {
                 s32 wantsClose = 0;
                 pdguiModManagerRenderContent(dialogW, contentH, scale, &wantsClose);
                 if (wantsClose) moddingHubClose("mod-manager-request");
@@ -4506,27 +4495,48 @@ static void renderModdingHub(s32 winW, s32 winH)
         "Import a .ttf/.otf font as a mod",
         "Browse weapon archives and graph payloads"
     };
-    ImGui::TextDisabled("%s", toolDescs[s_ActiveTool]);
+    if (weaponCreatorView) {
+        ImGui::TextDisabled("Create a self-contained .pdweapon from the selected weapon template");
+    } else {
+        ImGui::TextDisabled("%s", toolDescs[s_ActiveTool]);
+    }
 
     if (pdguiBeginActionBar("##modhub_ab")) {
-        if (pdguiActionBarButton("Close", 1, ImGui::GetContentRegionAvail().x)) {
-            moddingHubCloseFromUi("close-button");
+        if (weaponCreatorView) {
+            if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
+                s_WeaponTemplateMenuOpen = false;
+                s_WeaponMeshPickerOpen = false;
+            }
+        } else {
+            if (pdguiActionBarButton("Close", 1, ImGui::GetContentRegionAvail().x)) {
+                moddingHubCloseFromUi("close-button");
+            }
         }
     }
     pdguiEndActionBar();
 
     /* Back input mirrors footer Close behavior.  S311: title X button
      * also closes via pdguiConsumeTitleClose (first-click reliability). */
-    if (!s_WeaponTemplateMenuOpen
-            && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
+    if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
         if (pdguiConsumeTitleClose()) {
-            moddingHubCloseFromUi("title-x-button");
+            if (weaponCreatorView) {
+                s_WeaponTemplateMenuOpen = false;
+                s_WeaponMeshPickerOpen = false;
+            } else {
+                moddingHubCloseFromUi("title-x-button");
+            }
         } else if (pdguiMenuCancelPressed()) {
             if (s_ModHubOpenFrame < 0
                 || (ImGui::GetFrameCount() - s_ModHubOpenFrame) >= 5) {
-                /* B-213: Escape leaves paint session first; second Escape closes hub. */
-                if (!(s_ActiveTool == 5 && pdguiSkinEditorTryConsumeHubEscape())) {
-                    moddingHubCloseFromUi("escape-or-b-button");
+                if (weaponCreatorView) {
+                    s_WeaponTemplateMenuOpen = false;
+                    s_WeaponMeshPickerOpen = false;
+                    pdguiPlaySound(PDGUI_SND_SWIPE);
+                } else {
+                    /* B-213: Escape leaves paint session first; second Escape closes hub. */
+                    if (!(s_ActiveTool == 5 && pdguiSkinEditorTryConsumeHubEscape())) {
+                        moddingHubCloseFromUi("escape-or-b-button");
+                    }
                 }
             }
         }
@@ -4534,8 +4544,6 @@ static void renderModdingHub(s32 winW, s32 winH)
 
     ImGui::EndChild();
     ImGui::End();
-
-    weaponRenderTemplateWindow(winW, winH, scale);
 
     if (s_LastLoggedTool != s_ActiveTool) {
         sysLogPrintf(LOG_NOTE, "modhub: active tool -> %d (%s)",
@@ -5924,8 +5932,7 @@ void pdguiModdingHubRender(s32 winW, s32 winH)
 
     /* Click-outside-to-close: if the user clicks outside the dialog area,
      * dismiss the modding hub.  Uses pdguiMenuPos/Size for the hub bounds. */
-    if (!s_WeaponTemplateMenuOpen
-            && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)
+    if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)
             && ImGui::IsMouseClicked(0)) {
         ImVec2 mp = ImGui::GetMousePos();
         ImVec2 hubPos  = pdguiMenuPos();

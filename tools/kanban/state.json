@@ -3372,206 +3372,206 @@
       "flagged_at": "2026-05-22T00:00:00-04:00",
       "pending_completion": null,
       "created": "2026-05-22T00:00:00-04:00",
-      "updated": "2026-05-22T20:10:54.029Z"
+      "updated": "2026-05-22T21:19:56.807Z"
     },
     {
       "id": "c3814",
       "title": "Modding: design weapon behavior graph assets",
       "description": "Define the self-contained, graph-editable weapon behavior asset architecture for base game and mods, including physical projectile and entity asset types.",
       "pillar": "modding",
-      "column": "active",
-      "order": 3000,
+      "column": "done",
+      "order": 85000,
       "priority": 1,
-      "notes": "Sprint status 2026-05-22. COMPLETED: c3814-s1..s15, c3814-s20, c3814-s21, c3814-s22 self-contained archive save/export slice, c3814-s23 graph-builder UI, and c3814-s24 modular shared-context graph editor are done. This includes canonical .pdweapon/.pdprojectile/.pdentity schema/design, base weapon behavior audit, 86-weapon parameter matrix, named graph modules, runtime cutover plan, .pdweapon-only live cutover with .pdwpn removed from code/tests/examples, first-class .pdprojectile/.pdentity catalog/scanner/packer/manifest/UI metadata, weapon_graph_archive helper APIs, base base_weapon_graph_v1 emission with embedded projectile/entity payloads, graph validation and deterministic IR compilation, Debug Settings UI/config storage for the graph runtime toggle, Mods Hub Weapons browser/template/graph-builder/save flows, and the expanded graph-backed held/player/AI runtime adapter. c3814-s15 now feeds graph IR into shared gameplay accessors, direct held shooting helpers, recoil/recovery, trigger dispatch function type, throw/special/device handling, sight and auto-aim checks, device state toggles, player projectile spawn values, thrown physical spawn values, and AI projectile spawn values. c3814-s23 adds graph presets, named module insertion, editable node params, edge editing, primary/secondary export selection, validation, and generated JSON as an advanced view so the Weapons tab can author behavior graphs without hand-writing JSON. c3814-s24 keeps one .pdweapon per weapon while adding primary/secondary subgraphs inside behavior.graph.json, top-level shared_context for owner/damage/projectile/deployed-entity/detonator/targeting/hacking state, compiler preservation/hashing, base-emitter output, and editor controls/seeds for dual fire modes, remote mine links, and Laptop Gun target-policy control. B-363 follow-up fixed the MKB Campaign weapon-switch and function-HUD edge: Q tap/hold reaches cycle/radial, scroll wheel next/previous reaches gameplay, number keys direct-select inventory, function text no longer holds stale labels from another weapon, and the second-pass Magsec/Falcon report now pins HUD plus active-menu primary/secondary text to the actual equipped weapon instead of mixed inventory cursor or hand transition state. INCOMPLETE / CLI SPRINT ORDER: c3814-s16 ACTIVE - implement deeper .pdprojectile IR execution for projectile motion, homing, Slayer fly-by-wire, Devastator wall-hugger, grenade/N-Bomb/bolt/knife/mine impact, trail, timer, sticky, pickup, and transition behavior; c3814-s17 - implement .pdentity IR execution for armed explosives, proxy/remote/timed detonatables, N-Bomb storm, Laptop autogun, sticky devices, owner cleanup, and pickup/recover; c3814-s18 - parity tests/removal guards, including saved custom weapon hot-register/runtime parity; c3814-s19 - finish gameplay callsite gating and presentation graph modules for reticles, overlays, zoom, model visibility, and any remaining legacy fallback removal. LOCKED: .pdwpn remains unsupported because it was never released; .pdentity is behavior/archetype data, not an ASSET_PROP replacement; weapons stay self-contained by embedding/cataloging nested projectile/entity assets.",
+      "notes": "Sprint status 2026-05-22. COMPLETED: c3814-s1..s15, c3814-s20, c3814-s21, c3814-s22 self-contained archive save/export slice, c3814-s23 graph-builder UI, c3814-s24 modular shared-context graph editor, c3814-s25 Blueprint-style node editor, and c3814-s26 in-place creator view are done. This includes canonical .pdweapon/.pdprojectile/.pdentity schema/design, base weapon behavior audit, 86-weapon parameter matrix, named graph modules, runtime cutover plan, .pdweapon-only live cutover with .pdwpn removed from code/tests/examples, first-class .pdprojectile/.pdentity catalog/scanner/packer/manifest/UI metadata, weapon_graph_archive helper APIs, base base_weapon_graph_v1 emission with embedded projectile/entity payloads, graph validation and deterministic IR compilation, Debug Settings UI/config storage for the graph runtime toggle, Mods Hub Weapons browser/template/graph-builder/save flows, and the expanded graph-backed held/player/AI runtime adapter. c3814-s15 now feeds graph IR into shared gameplay accessors, direct held shooting helpers, recoil/recovery, trigger dispatch function type, throw/special/device handling, sight and auto-aim checks, device state toggles, player projectile spawn values, thrown physical spawn values, and AI projectile spawn values. c3814-s23 adds graph presets, named module insertion, editable node params, edge editing, primary/secondary export selection, validation, and generated JSON as an advanced view so the Weapons tab can author behavior graphs without hand-writing JSON. c3814-s24 keeps one .pdweapon per weapon while adding primary/secondary subgraphs inside behavior.graph.json, top-level shared_context for owner/damage/projectile/deployed-entity/detonator/targeting/hacking state, compiler preservation/hashing, base-emitter output, and editor controls/seeds for dual fire modes, remote mine links, and Laptop Gun target-policy control. c3814-s25/s26 provide the in-game node editor and template creator UX: Use as Template loads the selected weapon behavior into a tabbed in-place Modding Hub drill-in view with primary/secondary graph tabs, template-ref hydration, and an opaque mesh picker instead of a floating creator window. B-363 follow-up fixed the MKB Campaign weapon-switch and function-HUD edge: Q tap/hold reaches cycle/radial, scroll wheel next/previous reaches gameplay, number keys direct-select inventory, function text no longer holds stale labels from another weapon, and the second-pass Magsec/Falcon report now pins HUD plus active-menu primary/secondary text to the actual equipped weapon instead of mixed inventory cursor or hand transition state. INCOMPLETE / CLI SPRINT ORDER: c3814-s16 ACTIVE - implement deeper .pdprojectile IR execution for projectile motion, homing, Slayer fly-by-wire, Devastator wall-hugger, grenade/N-Bomb/bolt/knife/mine impact, trail, timer, sticky, pickup, and transition behavior; c3814-s17 - implement .pdentity IR execution for armed explosives, proxy/remote/timed detonatables, N-Bomb storm, Laptop autogun, sticky devices, owner cleanup, and pickup/recover; c3814-s18 - parity tests/removal guards, including saved custom weapon hot-register/runtime parity; c3814-s19 - finish gameplay callsite gating and presentation graph modules for reticles, overlays, zoom, model visibility, and any remaining legacy fallback removal. LOCKED: .pdwpn remains unsupported because it was never released; .pdentity is behavior/archetype data, not an ASSET_PROP replacement; weapons stay self-contained by embedding/cataloging nested projectile/entity assets.",
       "subtasks": [
         {
           "id": "c3814-s1",
           "title": "Write canonical schema design",
           "status": "done",
           "order": 1000,
-          "notes": "Done 2026-05-21: context/designs/modding/weapon-behavior-graph-assets.md defines .pdweapon, .pdprojectile, and .pdentity archive/schema boundaries before runtime implementation."
+          "notes": ""
         },
         {
           "id": "c3814-s2",
           "title": "Audit base-game weapon behavior coverage",
           "status": "done",
           "order": 2000,
-          "notes": "Done 2026-05-21: context/designs/modding/base-weapon-behavior-coverage.md covers source inventory, runtime ownership, behavior families, and payload/module candidates; context/designs/modding/base-weapon-parameter-matrix.md records the current 86-weapon parameter matrix. Final authored names move to c3814-s8."
+          "notes": ""
         },
         {
           "id": "c3814-s6",
           "title": "Inventory current base weapon function coverage",
           "status": "done",
-          "order": 2100,
-          "notes": "Done 2026-05-21: inspected authored weapon data, current local generated snapshot, function structs, and constants; recorded 86 weapon records and per-function counts in context/designs/modding/base-weapon-behavior-coverage.md."
+          "order": 3000,
+          "notes": ""
         },
         {
           "id": "c3814-s7",
           "title": "Map physical projectile and entity runtime ownership",
           "status": "done",
-          "order": 2200,
-          "notes": "Done 2026-05-21: documented fired projectiles, thrown physical objects, proxy/remote/timed mines, Dragon proxy behavior, thrown Laptop Gun, deployed Laptop Gun autogun behavior, and first .pdprojectile/.pdentity payload candidates."
+          "order": 4000,
+          "notes": ""
         },
         {
           "id": "c3814-s8",
           "title": "Close named module parameter gaps",
           "status": "done",
-          "order": 2300,
-          "notes": "Done 2026-05-21: context/designs/modding/weapon-graph-module-parameters.md defines named .pdweapon, .pdprojectile, and .pdentity modules/parameters for Mauler charge, Slayer fly-by-wire, homing steering, Devastator wall-hugger, proxy trigger policy, remote mine detonation, Laptop autogun, ammo/presentation graph nodes, and device/special actions."
+          "order": 5000,
+          "notes": ""
         },
         {
           "id": "c3814-s9",
           "title": "Translate audit into runtime cutover tasks",
           "status": "done",
-          "order": 2400,
-          "notes": "Done 2026-05-21: context/designs/modding/weapon-graph-runtime-cutover-plan.md translates the schema, audit, matrix, and module spec into runtime slices for .pdweapon removal/emission, catalog kinds, archive readers/writers, graph emission, compiler IR, weapon runtime adapter, projectile runtime adapter, entity runtime adapter, and parity closure."
+          "order": 6000,
+          "notes": ""
         },
         {
           "id": "c3814-s10",
           "title": "Remove fully deprecated .pdwpn paths",
           "status": "done",
-          "order": 2500,
-          "notes": "Done 2026-05-21: renamed the base weapon emitter to romextract_pdweapon, switched boot extraction/walker/scanner/packer/mod discovery/tests/examples to .pdweapon only, emitted zip-openable .pdweapon archives with weapon.ini, manifest.json, and behavior.graph.json, deleted stale pre-release outputs during extraction, and added static coverage proving live scanner/packer/walker paths do not accept the old extension."
+          "order": 7000,
+          "notes": ""
         },
         {
           "id": "c3814-s11",
           "title": "Add projectile/entity catalog kinds",
           "status": "done",
-          "order": 2600,
-          "notes": "Done 2026-05-21: added ASSET_PROJECTILE and ASSET_ENTITY, .pdprojectile/.pdentity scanner and packer descriptor recognition, projectile.ini/entity.ini templates, manifest type codes, catalog-info distribution visibility, network hot-registration metadata, mod UI listing/editing support, projectile entity_ref dependency registration, and static coverage. .pdentity remains behavior/archetype metadata, not an ASSET_PROP replacement."
+          "order": 8000,
+          "notes": ""
         },
         {
           "id": "c3814-s12",
           "title": "Implement graph archive readers and nested payload inventory",
           "status": "done",
-          "order": 2700,
-          "notes": "Done 2026-05-21: added port/include/weapon_graph_archive.h and port/src/weapon_graph_archive.c for descriptor/text reads, root validation, derived nested projectile/entity IDs, duplicate-ID collision checks, canonical archive-content SHA-256 over sorted uncompressed entries, nested payload inventory scans, and nested_payloads.json formatting. Base .pdweapon extraction now writes nested_payloads.json and references it from weapon.ini and the temporary legacy graph adapter. modarchive exposes sanitized in-memory entry iteration for embedded archive hashing. Generated base .pdprojectile/.pdentity payloads move to c3814-s13."
+          "order": 9000,
+          "notes": ""
         },
         {
           "id": "c3814-s13",
           "title": "Emit base weapon graph archives",
           "status": "done",
-          "order": 2800,
-          "notes": "Done 2026-05-21: .pdweapon emitter writes base_weapon_graph_v1 action graphs with named v1 modules, plans nested projectile/entity refs per weapon function, emits embedded .pdprojectile/.pdentity payload archives, records canonical SHA-256 inventory entries in nested_payloads.json, embeds the payload archives under projectiles/ and entities/, and self-heals stale temporary legacy graph archives. Verification: focused [modding][pdxxx][weapon][static][c3814] passed, focused [c3814] passed, scoped diff check passed, live .pdwpn grep over code/tests/examples is clean, and queued all-target build session wpgraph passed."
+          "order": 10000,
+          "notes": ""
         },
         {
           "id": "c3814-s14",
           "title": "Add graph validator and deterministic IR compiler",
           "status": "done",
-          "order": 2900,
-          "notes": "Done 2026-05-21: added weapon_graph_runtime validation and deterministic IR compilation for .pdweapon/.pdprojectile/.pdentity graphs. Validates schema, graph IDs, module names, duplicate node IDs, edge references, cycles, catalog-like refs, unsafe script modules, and time-unit ambiguity; compiles to stable opcode IDs, sorted parameter blocks, source_sha256, and ir_sha256. Also added Debug Settings UI/config storage for the graph runtime toggle. Verified focused [modding][pdxxx][weapon_graph][compiler][c3814], focused [c3814], and wpir all-target build logs."
+          "order": 11000,
+          "notes": ""
         },
         {
           "id": "c3814-s15",
           "title": "Adapt held weapon behavior to graph IR",
           "status": "done",
-          "order": 3000,
-          "notes": "Done 2026-05-22: expanded the held/player/AI graph runtime adapter behind the Debug Settings toggle. The runtime IR now captures function type ids, symbolic/numeric SFX, recoil/recovery, projectile refs/model refs, projectile spawn values, throw activation/recovery, melee range, special function/recovery/sound, and device ids. Shared gameplay accessors, direct held shooting helpers, throw/special/device paths, sight/auto-aim checks, player projectile spawn, thrown physical spawn, and AI projectile launch now read graph-backed values with legacy fallback. Follow-up B-363 fixed the PC input/display edge for Campaign weapon switching: Q tap/hold, scroll next/previous, number-key direct inventory selection, current weapon-function HUD text, and the second-pass Magsec/Falcon primary/secondary display-source mismatch are pinned by [input][weapon][static][c3814]. Verification: focused [modding][pdxxx][weapon_graph] passed 250 assertions / 12 cases, first-pass focused [input][weapon][static][c3814] passed 14 assertions / 1 case, second-pass focused [input][weapon][static][c3814] passed 24 assertions / 1 case, and queued all-target sessions wgraph/wpinput/wpuitxt passed for client/updater."
+          "order": 12000,
+          "notes": ""
         },
         {
           "id": "c3814-s16",
           "title": "Adapt projectile behavior to graph IR",
           "status": "active",
-          "order": 3100,
-          "notes": "Next active runtime slice: execute deeper .pdprojectile IR, beyond spawn scalar handoff. Cover projectile motion, powered/homing rockets, Slayer fly-by-wire, Devastator wall-hugger, grenade/N-Bomb/bolt/knife/mine bounce/sticky/impact/timer/trail/pickup/transition behavior, and parity smokes."
+          "order": 13000,
+          "notes": ""
         },
         {
           "id": "c3814-s17",
           "title": "Adapt deployed entity behavior to graph IR",
           "status": "backlog",
-          "order": 3200,
-          "notes": "Drive deployed/armed behavior from .pdentity IR: armed explosives, proxy triggers, remote/timed detonatables, N-Bomb storm, Laptop autogun, sticky mission devices, owner cleanup, and pickup/recover interaction. Keep runtime props as implementation objects; .pdentity owns behavior/archetype data."
+          "order": 14000,
+          "notes": ""
         },
         {
           "id": "c3814-s18",
           "title": "Close parity tests and removal guards",
           "status": "backlog",
-          "order": 3300,
-          "notes": "Add static/runtime parity coverage across weapon, projectile, and entity families; hard-guard against live .pdwpn reintroduction; cover saved custom weapon hot-register/runtime parity; track any temporary adapters with owner/removal conditions."
+          "order": 15000,
+          "notes": ""
         },
         {
           "id": "c3814-s19",
           "title": "Gate graph runtime behind Debug Settings toggle",
           "status": "backlog",
-          "order": 3400,
-          "notes": "Partially landed with c3814-s14/s15: Debug > Settings exposes and persists the Weapon Graph Runtime toggle, shared held accessors honor it, and direct held/projectile/device callsites now use graph-backed values where c3814-s15 converted them. Remaining: deeper projectile/entity IR execution, presentation graph modules for reticles/overlays/zoom/model visibility, and final fallback-removal gates after parity is proven."
+          "order": 16000,
+          "notes": ""
         },
         {
           "id": "c3814-s20",
           "title": "Add Mods Weapons browser tab",
           "status": "done",
-          "order": 3500,
-          "notes": "Done 2026-05-21: added a Modding Hub Weapons tab that lists catalog weapon assets, marks Base vs Mod entries, shows catalog/model/runtime/archive details, and previews weapon.ini, behavior.graph.json, and nested_payloads.json when the .pdweapon archive is resolvable. Base entries remain inspection-only. Verified [weapon_graph][ui][c3814], focused [c3814], and wpir all-target build logs."
+          "order": 17000,
+          "notes": ""
         },
         {
           "id": "c3814-s21",
           "title": "Add weapon template editor imports",
           "status": "done",
-          "order": 3600,
-          "notes": "Done 2026-05-21: the Mods Hub Weapons tab Template flow clones selected weapons, exposes catalog pickers for model, texture, animation, audio, projectile, and entity refs, and uses the in-engine file browser for model, texture, animation, audio, projectile, entity, and graph JSON imports. Selected catalog payloads are embedded into the saved .pdweapon when they are not already supplied by the copied template or explicit import payload."
+          "order": 18000,
+          "notes": ""
         },
         {
           "id": "c3814-s22",
           "title": "Save self-contained weapon mods",
           "status": "done",
-          "order": 3700,
-          "notes": "Done 2026-05-21: Save Weapon Mod writes mods/Weapons/<slug>/<slug>.pdweapon with weapon.ini, manifest.json, behavior.graph.json, nested_payloads.json, dependency_closure=embedded.v2, copied non-root template payloads, imported model/texture/animation/audio/projectile/entity files, and embedded catalog-selected payload archives. The save fails instead of producing a reference-only archive when a selected catalog payload cannot be resolved and embedded. Graph JSON is validated before save; mod.json is written, mods are rescanned, and the new mod is enabled. Deeper saved custom weapon hot-register/runtime parity remains under c3814-s18."
+          "order": 19000,
+          "notes": ""
         },
         {
           "id": "c3814-s23",
           "title": "Add weapon behavior graph builder UI",
           "status": "done",
-          "order": 3800,
-          "notes": "Done 2026-05-22: the Modding Hub Weapons Template flow now creates behavior graphs through presets, named module insertion, editable node params, edge add/remove, primary/secondary export selection, validation, and generated JSON as an advanced view. Existing graph JSON import/edit remains as a fallback, but the normal authoring flow no longer requires hand-writing behavior.graph.json. Verified focused [weapon_graph][ui][c3814] and queued all-target build session wgraphui."
+          "order": 20000,
+          "notes": ""
         },
         {
           "id": "c3814-s24",
           "title": "Add modular shared-context graph editor",
           "status": "done",
-          "order": 3900,
-          "notes": "Done 2026-05-22: chose one .pdweapon per weapon with modular primary/secondary subgraphs inside behavior.graph.json and explicit shared_context for owner player/team, weapon instance, damage credit, projectile owner, deployed entity sets, detonator links, target policy overrides, and hacking ownership. The compiler validates/preserves/hashes shared contexts, subgraphs, and per-node subgraph ownership; the base emitter writes those fields; and the Modding Hub builder exposes Shared Context checkboxes, mode-scoped module insertion, per-node mode assignment, and seeds for dual fire modes, remote mine/detonator linkage, and Laptop Gun targeting control. Verification: focused [weapon_graph][compiler][c3814],[weapon_graph][ui][c3814] passed 106 assertions / 6 cases; isolated all-target build session wgraphmod passed for client/updater and was removed."
+          "order": 21000,
+          "notes": ""
         },
         {
           "id": "c3814-s25",
           "title": "Add in-game weapon graph node editor",
           "status": "done",
-          "order": 4000,
-          "notes": "Done 2026-05-22: the Modding Hub Weapons Template flow now uses a Blueprint-style ImGui node canvas powered by vendored imgui-node-editor. It supports palette/search, draggable nodes, Bezier links, selection/delete, pin/link/node/canvas context menus, inspector param editing, shared context toggles, node context-ref checkboxes, primary/secondary export actions, imported/template graph round-trip, Advanced JSON fallback, and authoring-only editor.layout.nodes positions that do not affect runtime IR hashes. Verification: focused [weapon_graph][compiler][c3814],[weapon_graph][ui][c3814] passed 147 assertions / 8 cases; isolated all-target build session wgraphnode passed for client/updater and was removed."
+          "order": 22000,
+          "notes": ""
         },
         {
           "id": "c3814-s26",
-          "title": "Move template editor into a tabbed creation window",
+          "title": "Move creator into in-place hub drill-in view",
           "status": "done",
-          "order": 4100,
-          "notes": "Done 2026-05-22: Use as Template now initializes the chosen weapon into a separate Create Weapon Mod window instead of rendering inside the Weapons tab content or as a Template preview tab. The creator now has Details, Assets, Primary Graph, Secondary Graph, and Payloads tabs; template startup auto-populates available model, animation, audio, projectile, and entity refs from weapon.ini, nested typed-archive descriptors, manifests, and graph params. Primary and Secondary Graph tabs load the selected weapon behavior graph into the node editor with scope filtering. Button sizing was widened, Open Creator reopens the active creator, and the mesh field opens a Select Weapon Mesh popup with weapon-scoped ASSET_MODEL entries by default, a Show non-weapon meshes toggle, and a centered/scaled live model preview. Static coverage rejects reintroducing BeginTabItem(\"Template\") and the old inline child render. Verification: focused [weapon_graph][ui][editor][c3814] passed 130 assertions / 3 cases; focused [weapon_graph][compiler][c3814],[weapon_graph][ui][c3814] passed 185 assertions / 8 cases; isolated all-target build session wtempltabs passed for client/updater and was removed."
+          "order": 23000,
+          "notes": "Done 2026-05-22: Use as Template swaps the Modding Hub body into a CREATE WEAPON MOD subview instead of opening a floating Create Weapon Mod window. Back/Escape/title-X return to Weapons, the creator keeps Details/Assets/Primary Graph/Secondary Graph/Payloads tabs with template-ref hydration, and the mesh picker now has an explicit opaque popup background. Verification: wtemplview focused graph UI/editor tests passed 135 assertions / 3 cases, graph compiler/UI selector passed 190 assertions / 8 cases, all-target build passed, and the session build was removed."
         },
         {
           "id": "c3814-s3",
           "title": "Define archive layouts and nested catalog rules",
           "status": "done",
-          "order": 9000,
-          "notes": "Done 2026-05-21: schema doc specifies .pdweapon/.pdprojectile/.pdentity archive layouts, derived nested catalog IDs, and SHA-256 payload dedupe over canonical archive content."
+          "order": 24000,
+          "notes": ""
         },
         {
           "id": "c3814-s4",
           "title": "Define graph node taxonomy and IR boundary",
           "status": "done",
-          "order": 9100,
-          "notes": "Done 2026-05-21: schema doc defines v1 node categories, graph JSON shape, typed time units, compiler responsibilities, and deterministic runtime IR boundary."
+          "order": 25000,
+          "notes": ""
         },
         {
           "id": "c3814-s5",
           "title": "Define cutover phases, validation, and tests",
           "status": "done",
-          "order": 9200,
-          "notes": "Done 2026-05-21: schema doc lists the .pdweapon-only cutover order, removal of pre-release .pdwpn code paths, base-asset regeneration path, validation gates, and focused static/runtime tests. No .pdwpn back compatibility is required because no release shipped it."
+          "order": 26000,
+          "notes": ""
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-21T00:00:00Z",
       "pending_completion": null,
       "created": "2026-05-21T00:00:00Z",
-      "updated": "2026-05-22T21:05:00-04:00"
+      "updated": "2026-05-22T21:22:01.073Z"
     },
     {
       "id": "c3812",
