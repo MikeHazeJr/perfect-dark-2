@@ -1,5 +1,39 @@
 # Session Log (Active)
 
+## Session (`modspawncrash`) - 2026-05-23 - mod weapon match-start crash
+
+Mike reported an exception when starting a match after selecting the modded weapon as a map spawn/custom weapon.
+
+### Findings
+
+- Checked `Build/logs/game client/pd-client.log`.
+- The repro used `mod:weapon_dxw_shotgun` in every custom weapon slot, while `g_MpSetup.weapons[]` kept stale legacy slots (`1 4 1 7 0 40`).
+- Manifest validation warned that COMPONENT entry `mod.weapon_dxw_shotgun` was not found in the asset catalog.
+- The crash PC `+0x42c338` symbolized to `modelPromoteNodeOffsetsToPointers()` in `src/lib/model.c:3997`.
+- Mechanism: manifest/stage load treated a non-bundled `.pdweapon` as a raw modeldef payload and tried to promote archive/nested payload bytes as a model tree.
+
+### Implemented
+
+- Removed `ASSET_WEAPON` from the model-payload lifecycle path and routed it through metadata/runtime activation instead.
+- Manifest validation now handles `MANIFEST_TYPE_COMPONENT` through `modmgrFindMod()` instead of asset catalog lookup.
+- Active-set manifest weapon enumeration now skips NONE, DISABLED, SHIELD, and invalid MP weapon slots.
+- Match setup now disables a legacy MP weapon slot when the selected catalog weapon has no MPWEAPON binding, instead of leaving stale base weapon slots active.
+- Added static regression guards for the lifecycle and Combat Simulator custom weapon paths.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session modspawncrash -Selector "typed catalog model lifecycle activates model payloads,menu graph: Combat Sim limits and custom weapons are catalog-native" -BuildTimeoutSeconds 240` passed: 39 assertions / 2 cases.
+- `.\devtools\build-session.ps1 -Session modspawncrash -Target all -BuildTimeoutSeconds 300` passed.
+- Removed isolated session build `modspawncrash`.
+- Broad `[catalog][provider][static]` still has an unrelated existing static failure in `rom-backed catalog registration helpers populate provider handles`.
+
+### Next
+
+- Manual retest: save/enable the weapon mod, select it in Combat Simulator Custom weapon slots/map spawn setup, start the match, and confirm no model-promotion crash.
+- Full saved-custom weapon runtime binding remains under `c3814-s18`; this fix prevents the crash and stale legacy-slot contamination but does not complete custom weapon gameplay parity.
+
+---
+
 ## Session (`wgraphlinks2`) - 2026-05-23 - weapon graph node links and params
 
 Mike asked to add a Kanban card numerically behind the asset archive format decision/implementation work for per-asset mod utilities, and reported that weapon behavior graph nodes did not show usable connection wires, links did not seem creatable, and specific node options did not seem editable.

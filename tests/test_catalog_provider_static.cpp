@@ -25,6 +25,30 @@ static std::string readTextFile(const char *path)
 	return ss.str();
 }
 
+static std::string functionBlock(const std::string &text, const std::string &name)
+{
+	const size_t start = text.find(name);
+	if (start == std::string::npos) {
+		return "";
+	}
+	const size_t brace = text.find('{', start);
+	if (brace == std::string::npos) {
+		return "";
+	}
+	int depth = 0;
+	for (size_t i = brace; i < text.size(); i++) {
+		if (text[i] == '{') {
+			depth++;
+		} else if (text[i] == '}') {
+			depth--;
+			if (depth == 0) {
+				return text.substr(start, i - start + 1);
+			}
+		}
+	}
+	return "";
+}
+
 static std::string normalizePath(const fs::path &path)
 {
 	std::string s = path.generic_string();
@@ -435,7 +459,14 @@ TEST_CASE("typed catalog model lifecycle activates model payloads", "[catalog][p
 	REQUIRE(catalogLoad.find("s_catalogLoadEntryModelPayload") != std::string::npos);
 	REQUIRE(catalogLoad.find("modeldefLoadToNewFromHandle") != std::string::npos);
 	REQUIRE(catalogLoad.find("model payload has no provider handle") != std::string::npos);
-	REQUIRE(catalogLoad.find("case ASSET_WEAPON:") != std::string::npos);
+	const std::string modelPayloadBlock =
+		functionBlock(catalogLoad, "s_catalogTypeUsesModelPayload");
+	const std::string metadataPayloadBlock =
+		functionBlock(catalogLoad, "s_catalogTypeUsesMetadataRuntimePayload");
+	REQUIRE(!modelPayloadBlock.empty());
+	REQUIRE(!metadataPayloadBlock.empty());
+	REQUIRE(modelPayloadBlock.find("case ASSET_WEAPON:") == std::string::npos);
+	REQUIRE(metadataPayloadBlock.find("type == ASSET_WEAPON") != std::string::npos);
 	REQUIRE(catalogLoad.find("catalogGetLoadedModeldef") != std::string::npos);
 	REQUIRE(api.find("catalogGetLoadedModeldef") != std::string::npos);
 }

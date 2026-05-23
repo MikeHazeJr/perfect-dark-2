@@ -883,9 +883,10 @@ s32 matchStart(void)
 					} else {
 						sysLogPrintf(LOG_NOTE,
 							"MATCHSETUP: weapon slot %d uses catalog-only weapon '%s' "
-							"(no MPWEAPON binding yet); leaving legacy slot %u",
+							"(no MPWEAPON binding yet); disabling legacy slot %u",
 							wi, g_MatchConfig.weapon_ids[wi],
 							(unsigned)g_MpSetup.weapons[wi]);
+						g_MpSetup.weapons[wi] = MPWEAPON_DISABLED;
 					}
 				}
 			}

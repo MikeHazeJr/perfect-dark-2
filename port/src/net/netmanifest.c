@@ -80,6 +80,14 @@ struct manifestWeaponPoolCtx {
     s32               skipped_invalid;
 };
 
+static s32 s_manifestSkipMpWeaponSlot(s32 wid)
+{
+    return wid <= MPWEAPON_NONE
+        || wid >= NUM_MPWEAPONS
+        || wid == MPWEAPON_DISABLED
+        || wid == MPWEAPON_SHIELD;
+}
+
 static void s_manifestWeaponPoolCb(const asset_entry_t *e, void *ud)
 {
     struct manifestWeaponPoolCtx *ctx = (struct manifestWeaponPoolCtx *)ud;
@@ -88,10 +96,7 @@ static void s_manifestWeaponPoolCb(const asset_entry_t *e, void *ud)
         return;
     }
     s32 wid = (s32)e->ext.weapon.weapon_id;
-    if (wid >= NUM_MPWEAPONS
-            || wid == MPWEAPON_NONE
-            || wid == MPWEAPON_DISABLED
-            || wid == MPWEAPON_SHIELD) {
+    if (s_manifestSkipMpWeaponSlot(wid)) {
         ctx->skipped_filtered++;
         return;
     }
@@ -524,7 +529,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
         const u8 wnum = g_MpSetup.weapons[i];
         const char *canon_id;
         const asset_entry_t *e;
-        if (wnum == 0) {
+        if (s_manifestSkipMpWeaponSlot((s32)wnum)) {
             continue;
         }
         canon_id = catalogWeaponIdByMpWeaponId((s32)wnum);
@@ -856,7 +861,7 @@ void manifestBuildForHost(match_manifest_t *out)
         const u8 wnum = g_MpSetup.weapons[i];
         const char *canon_id;
         const asset_entry_t *e;
-        if (wnum == 0) {
+        if (s_manifestSkipMpWeaponSlot((s32)wnum)) {
             continue;
         }
         canon_id = catalogWeaponIdByMpWeaponId((s32)wnum);
@@ -1751,6 +1756,19 @@ s32 manifestValidate(manifest_diff_t *diff)
 
         if (!entry->id[0]) {
             continue; /* already cleared by a prior pass */
+        }
+
+        if (entry->type == MANIFEST_TYPE_COMPONENT) {
+            modinfo_t *mod = modmgrFindMod(entry->id);
+            if (!mod || !mod->enabled || !mod->valid || !mod->has_modjson) {
+                sysLogPrintf(LOG_WARNING,
+                             "MANIFEST-VALIDATE: WARN: component '%s'"
+                             " not enabled/valid locally, skipping",
+                             entry->id);
+                entry->id[0] = '\0';
+                invalid_count++;
+            }
+            continue;
         }
 
         /* Resolve strictly by catalog ID string.  Manifest boundaries are

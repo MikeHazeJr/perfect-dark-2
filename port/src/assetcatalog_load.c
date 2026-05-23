@@ -416,7 +416,6 @@ static s32 s_catalogTypeUsesModelPayload(asset_type_e type)
 {
     switch (type) {
     case ASSET_MODEL:
-    case ASSET_WEAPON:
     case ASSET_BODY:
     case ASSET_HEAD:
     case ASSET_PROP:
@@ -555,6 +554,7 @@ static s32 s_catalogLoadEntryAudioPayload(asset_entry_t *entry, asset_data_handl
 static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type)
 {
     return type == ASSET_MAP
+        || type == ASSET_WEAPON
         || type == ASSET_CHARACTER
         || type == ASSET_ANIMATION
         || type == ASSET_TEXTURES

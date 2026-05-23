@@ -828,10 +828,13 @@ TEST_CASE("menu graph: Combat Sim limits and custom weapons are catalog-native",
 
     REQUIRE(matchsetup.find("mpw >= 0 && mpw < NUM_MPWEAPONS") != std::string::npos);
     REQUIRE(matchsetup.find("catalog-only weapon") != std::string::npos);
+    REQUIRE(matchsetup.find("g_MpSetup.weapons[wi] = MPWEAPON_DISABLED") != std::string::npos);
     REQUIRE(netmsg.find("strncpy(g_MatchConfig.weapon_ids[wi], wid") != std::string::npos);
     REQUIRE(netmsg.find("no MPWEAPON binding yet") != std::string::npos);
     REQUIRE(netmanifest.find("catalog-native custom slots") != std::string::npos);
-    REQUIRE(netmanifest.find("wid >= NUM_MPWEAPONS") != std::string::npos);
+    REQUIRE(netmanifest.find("s_manifestSkipMpWeaponSlot") != std::string::npos);
+    REQUIRE(netmanifest.find("entry->type == MANIFEST_TYPE_COMPONENT") != std::string::npos);
+    REQUIRE(netmanifest.find("modmgrFindMod(entry->id)") != std::string::npos);
 }
 
 TEST_CASE("menu graph: weapon and arena picker surfaces alphabetize catalog entries", "[input][menu_graph][room][static]")
