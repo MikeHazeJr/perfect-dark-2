@@ -1,5 +1,31 @@
 # Session Log (Active)
 
+## Session (`tinycheats`) - 2026-05-23 - Tiny Mode cheat consolidation and controller fixes
+
+Mike reported that Tiny Mode should be the only small-character cheat, that `Unlock All...` did not work from controller navigation, and that Tiny Mode was not appearing clearly in Cheats.
+
+### Implemented
+
+- Made `CHEAT_SMALLJO` the only runtime small-character trigger for Tiny Mode spawn tripling, non-player model scaling, generic-enemy footprint shrink, and character shadow shrink.
+- Hid the old `CHEAT_SMALLCHARACTERS` row from the active ImGui Cheats menu and the legacy Fun menu definition while leaving the numeric legacy id intact so cheat bit positions do not shift.
+- Renamed the visible `CHEAT_SMALLJO` row to `Tiny Mode` and special-cased the legacy name helper so stale language text does not surface as `Small Jo`.
+- Added controller Accept handling for focused cheat checkboxes, buddy radio rows, and focused action-bar buttons.
+- Replaced the hard-coded Cheats action-bar Back focus with tracked action focus so controller navigation can reach `Turn Off All`, `Unlock All...`, and `Back`.
+- Added static coverage for the single Tiny Mode row and the Cheats controller activation contract.
+
+### Verification
+
+- `git diff --check` passed, with pre-existing line-ending warnings from unrelated files.
+- `.\devtools\run-pd-tests.ps1 -Session tinycheats -Selector "[cheats][tiny][spawn][static],[cheats][menu][static]" -BuildTimeoutSeconds 240` passed: 52 assertions / 4 cases.
+- `.\devtools\build-session.ps1 -Session tinycheats -Target all -BuildTimeoutSeconds 240` passed.
+- Removed isolated session build `tinycheats`.
+
+### Next
+
+- Manual retest: open Cheats with a controller, use A on focused rows, open `Unlock All...`, confirm it, and verify `Tiny Mode` appears and toggles as the only small-character cheat.
+
+---
+
 ## Session (`tinyspawn`) - 2026-05-23 - Tiny Mode generic enemy tripling
 
 Mike asked for Tiny Mode to spawn three tiny non-unique enemies in place of each normal non-unique enemy.
