@@ -31,6 +31,29 @@ Mike reported that weapon behavior graph nodes still looked disconnected, or tha
 
 ---
 
+## Session (`wgraphpins`) - 2026-05-23 - weapon graph pin docking and wire colors
+
+Mike confirmed the connected graph fix worked, then reported that node pins appeared left-aligned: input pins should dock to the left, output pins should dock to the right, and wires should be colored by pin type.
+
+### Implemented
+
+- Replaced the node row's fixed `SameLine(130.0f)` output placement with a fixed node content width and explicit right-edge output socket placement.
+- Set imgui-node-editor pin pivot alignment to the outside edge of each socket: input pins pivot from the left side, output pins from the right side.
+- Changed exec pin color from white to cyan and made link drawing use `linkColorForPinKind(2)` so the wire color is derived from the output pin type.
+- Added static test coverage for the fixed node width, right-edge output position, pin pivot alignment, and pin-derived link color.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wgraphpins -Selector "[weapon_graph][compiler][c3814],[weapon_graph][ui][c3814]" -BuildTimeoutSeconds 240` passed: 269 assertions / 9 cases.
+- `.\devtools\build-session.ps1 -Session wgraphpins -Target all -BuildTimeoutSeconds 300` passed.
+- Removed isolated session build `wgraphpins`.
+
+### Next
+
+- Manual retest: open a weapon template's Primary/Secondary Graph tab and confirm input sockets sit on the left edge, output sockets sit on the right edge, and the exec wires leave/enter the correct side.
+
+---
+
 ## Session (`modspawncrash`) - 2026-05-23 - mod weapon match-start crash
 
 Mike reported an exception when starting a match after selecting the modded weapon as a map spawn/custom weapon.
