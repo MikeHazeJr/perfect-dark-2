@@ -6,6 +6,7 @@
 
 bool sndIsFiltered(s32 audioid);
 bool sndIsPlayingMp3(void);
+f32 sndApplyTinyVoicePitch(s16 sound, s32 channeltype, f32 pitch);
 u16 snd0000e9dc(void);
 void sndSetSfxVolume(u16 volume);
 void snd0000ea80(u16 volume);

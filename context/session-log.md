@@ -1,5 +1,71 @@
 # Session Log (Active)
 
+## Session (`tinypitch`) - 2026-05-23 - Tiny Mode voice pitch
+
+Mike asked for Tiny Mode to make voice lines play at a slightly higher pitch.
+
+### Implemented
+
+- Added `sndApplyTinyVoicePitch()` in `src/lib/snd.c` and exposed it through `src/include/lib/snd.h`.
+- When `CHEAT_SMALLJO` is active, configured dialogue/voice sound refs now start at `1.12x` pitch.
+- Character talk prop-sound channels (`PSTYPE_CHRTALK`) now use the same Tiny Mode pitch on first play, covering guard/civilian bark paths that use plain SFX ids instead of the high-bit voice config refs.
+- Added static audio coverage in `tests/test_audio_voice_retag.cpp` so the Tiny Mode hook stays wired through both `sndStart()` and the character-talk start path.
+
+### Verification
+
+- Scoped `git diff --check` passed for the touched audio/test files.
+- First queued all-target build hit the default 60s active-build watchdog while the client was linking; removed the partial isolated build and reran the same session with `-BuildTimeoutSeconds 240`.
+- `.\devtools\build-session.ps1 -Session tinypitch -Target all -BuildTimeoutSeconds 240` passed.
+- `.\devtools\run-pd-tests.ps1 -Session tinypitch -Selector "[audio][voice][tiny][static]"` passed: 11 assertions / 2 cases.
+- Removed isolated session build `tinypitch`.
+
+### Next
+
+- Manual retest: enable Tiny Mode, trigger character barks or CI greeting dialogue, and confirm spoken lines sound slightly higher without affecting normal mode.
+
+---
+
+## Session (`graphcard`) - 2026-05-23 - shared gameplay node editor Kanban card
+
+Mike clarified that all node wires should use the colors of the pins they connect, and that the node editor will eventually serve gameplay scripts beyond weapon behavior graphs. This is future architecture work, not another narrow immediate weapon-graph patch.
+
+### Implemented
+
+- Added Kanban card `c3835`, `Modding: shared gameplay node editor foundation`, in `tools/kanban/state.json`.
+- Placed it at active order `4000`, immediately behind the Asset Pipeline block: `c3824`, `c3832`, and `c3834`.
+- Shifted the existing active cards that were order `4000+` down by one slot so the numbered board order stays explicit.
+- Scoped `c3835` to typed pin rendering, wires colored from connected pin types, reusable graph model/render separation, shared context refs, inspector editing, validation UX, saved layouts, weapon adapter boundaries, and future gameplay-script graph reuse.
+- Updated `context/tasks.md` and the Modding pillar with the new priority/order.
+
+### Verification
+
+- Parsed `tools/kanban/state.json` and confirmed the active order starts `c3824`, `c3832`, `c3834`, `c3835`, then the previous active queue.
+
+---
+
+## Session (`wgraphpins2`) - 2026-05-23 - weapon graph fixed-column pin docking
+
+Mike reported that the first pin-docking pass did not visibly change the Primary Graph: the output Exec pin still sat left/center of the node, and the Exec label/link color no longer matched the white Exec socket.
+
+### Implemented
+
+- Replaced cursor-offset output socket placement with a fixed-width four-column pin row: input socket, input label, output label, output socket.
+- Kept input Exec pins docked to the left edge and output Exec pins docked to the right edge through imgui-node-editor pivot alignment.
+- Restored Exec pin and wire color to white so the socket, label, and link match.
+- Updated static UI guards to require the fixed-column row and right-side output column.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wgraphpins2 -Selector "[weapon_graph][compiler][c3814],[weapon_graph][ui][c3814]" -BuildTimeoutSeconds 240` passed: 270 assertions / 9 cases.
+- `.\devtools\build-session.ps1 -Session wgraphpins2 -Target all -BuildTimeoutSeconds 300` passed.
+- Removed isolated session build `wgraphpins2`.
+
+### Next
+
+- Manual retest: open a weapon template's Primary Graph tab and confirm Exec input sits on the left edge, Exec output sits on the right edge, and the connecting Exec wire is white.
+
+---
+
 ## Session (`wgraphwire`) - 2026-05-23 - weapon graph connected wires
 
 Mike reported that weapon behavior graph nodes still looked disconnected, or that connection wires still were not appearing.

@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "n_libaudio.h"
 #include "constants.h"
+#include "game/cheats.h"
 #include "game/file.h"
 #include "game/lv.h"
 #include "game/music.h"
@@ -32,6 +33,7 @@
 
 #define NUM_CACHE_SLOTS 45
 #define NUM_KEYTHINGS 9
+#define SND_TINY_VOICE_PITCH_SCALE 1.12f
 
 struct sndcache {
 	/*0x0000*/ u16 *indexes; // indexed by sfxnum, value is cache index (0-44) or 0xffff
@@ -174,6 +176,51 @@ enum audioconfig_e {
 	AUDIOCONFIG_60
 #endif
 };
+
+static bool sndAudioConfigIsVoice(s32 config)
+{
+	switch (config) {
+	case AUDIOCONFIG_01:
+	case AUDIOCONFIG_02:
+	case AUDIOCONFIG_03:
+	case AUDIOCONFIG_47:
+	case AUDIOCONFIG_48:
+	case AUDIOCONFIG_60:
+#if VERSION >= VERSION_NTSC_1_0
+	case AUDIOCONFIG_62:
+#endif
+		return true;
+	}
+
+	return false;
+}
+
+static bool sndSoundRefHasVoiceConfig(s16 sound)
+{
+	union soundnumhack ref;
+
+	ref.packed = sound;
+
+	if (ref.hasconfig && ref.confignum < (u32)g_NumAudioRussMappings) {
+		return sndAudioConfigIsVoice(g_AudioRussMappings[ref.confignum].audioconfig_index);
+	}
+
+	return false;
+}
+
+f32 sndApplyTinyVoicePitch(s16 sound, s32 channeltype, f32 pitch)
+{
+	if (cheatIsActive(CHEAT_SMALLJO)
+			&& (channeltype == PSTYPE_CHRTALK || sndSoundRefHasVoiceConfig(sound))) {
+		if (pitch <= 0.0f) {
+			pitch = 1.0f;
+		}
+
+		return pitch * SND_TINY_VOICE_PITCH_SCALE;
+	}
+
+	return pitch;
+}
 
 struct audiorussmapping g_AudioRussMappings[] = {
 	/*0x0000*/ { 0x85ba, AUDIOCONFIG_59 },
@@ -1986,6 +2033,7 @@ bool sndIsFiltered(s32 audio_id)
 void sndAdjust(struct sndstate **handle, bool ismp3, s32 vol, s32 pan, s32 soundnum, f32 pitch, s32 fxbus, s32 fxmixarg, bool forcefxmix)
 {
 	s32 fxmix = -1;
+	s16 originalsoundnum = (s16)soundnum;
 	union soundnumhack sp20;
 	union soundnumhack sp1c;
 	struct audioconfig *config;
@@ -2056,6 +2104,7 @@ void sndAdjust(struct sndstate **handle, bool ismp3, s32 vol, s32 pan, s32 sound
 		}
 
 		if (pitch != -1.0f) {
+			pitch = sndApplyTinyVoicePitch(originalsoundnum, PSTYPE_NONE, pitch);
 			audioPostEvent(*handle, AL_SNDP_PITCH_EVT, *(s32 *)&pitch);
 		}
 
@@ -2149,6 +2198,8 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 	if (g_SndDisabled) {
 		return NULL;
 	}
+
+	pitch = sndApplyTinyVoicePitch(sound, PSTYPE_NONE, pitch);
 
 	sp40.packed = sp44.hasconfig ? g_AudioRussMappings[sp44.confignum].soundnum : sp44.packed;
 

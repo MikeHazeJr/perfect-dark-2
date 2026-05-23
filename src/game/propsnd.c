@@ -427,6 +427,7 @@ void psTickChannel(s32 channelnum)
 		 */
 		if ((channel->flags & PSFLAG_OUTOFRANGE) == 0) {
 			if (channel->flags & PSFLAG_FIRSTTICK) {
+				f32 startpitch = sndApplyTinyVoicePitch(channel->soundnum26, channel->type, newpitch);
 #if VERSION < VERSION_NTSC_1_0
 				osSyncPrintf("SND : Propsound needs play : Id %d is flaged g\n", channelnum);
 #endif
@@ -439,17 +440,17 @@ void psTickChannel(s32 channelnum)
 					if (channel->flags & PSFLAG_0400) {
 						if (newvol) {
 							snd00010718(&channel->audiohandle, channel->flags & PSFLAG_ISMP3, newvol, newpan,
-									channel->soundnum26, newpitch, channel->fxbus, newfx, 1);
+									channel->soundnum26, startpitch, channel->fxbus, newfx, 1);
 						}
 					} else {
 						if (newvol) {
 							snd00010718(&channel->audiohandle, channel->flags & PSFLAG_ISMP3, newvol, newpan,
-									channel->soundnum26, newpitch, channel->fxbus, newfx, 1);
+									channel->soundnum26, startpitch, channel->fxbus, newfx, 1);
 						}
 					}
 #else
 					snd00010718(&channel->audiohandle, channel->flags & PSFLAG_ISMP3, newvol, newpan,
-							channel->soundnum26, newpitch, channel->fxbus, newfx, 1);
+							channel->soundnum26, startpitch, channel->fxbus, newfx, 1);
 #endif
 				}
 

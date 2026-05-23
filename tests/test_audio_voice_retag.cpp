@@ -122,3 +122,24 @@ TEST_CASE("voice-retag: g_NumAudioRussMappings symbol shipped from snd.c",
 	std::string data = readFile("src/include/data.h");
 	REQUIRE(data.find("extern const s32 g_NumAudioRussMappings") != std::string::npos);
 }
+
+TEST_CASE("tiny voice pitch: Tiny Mode cheat scales voice-config starts",
+          "[audio][voice][tiny][static]") {
+	std::string snd = readFile("src/lib/snd.c");
+
+	REQUIRE(snd.find("#include \"game/cheats.h\"") != std::string::npos);
+	REQUIRE(snd.find("SND_TINY_VOICE_PITCH_SCALE 1.12f") != std::string::npos);
+	REQUIRE(snd.find("sndSoundRefHasVoiceConfig") != std::string::npos);
+	REQUIRE(snd.find("cheatIsActive(CHEAT_SMALLJO)") != std::string::npos);
+	REQUIRE(snd.find("sndApplyTinyVoicePitch(sound, PSTYPE_NONE, pitch)") != std::string::npos);
+}
+
+TEST_CASE("tiny voice pitch: character talk channels get the same start pitch",
+          "[audio][voice][tiny][static]") {
+	std::string propsnd = readFile("src/game/propsnd.c");
+	std::string header = readFile("src/include/lib/snd.h");
+
+	REQUIRE(header.find("sndApplyTinyVoicePitch") != std::string::npos);
+	REQUIRE(propsnd.find("sndApplyTinyVoicePitch(channel->soundnum26, channel->type, newpitch)") != std::string::npos);
+	REQUIRE(propsnd.find("channel->soundnum26, startpitch, channel->fxbus") != std::string::npos);
+}
