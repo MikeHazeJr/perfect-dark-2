@@ -1,5 +1,36 @@
 # Session Log (Active)
 
+## Session (`wgraphwire`) - 2026-05-23 - weapon graph connected wires
+
+Mike reported that weapon behavior graph nodes still looked disconnected, or that connection wires still were not appearing.
+
+### Findings
+
+- The first B-370 pass made link creation easier, but base `.pdweapon` templates still loaded as disconnected action-only graphs.
+- Base weapon extraction emitted `base_weapon_graph_v1` with `primary_action` and `secondary_action` nodes and an empty `edges` array. In that state the canvas had no wire to draw.
+- Imported/template graphs also might not include `editor.layout.nodes[]`; without layout metadata, loaded nodes could appear stacked before any connection state was obvious.
+
+### Implemented
+
+- Bumped generated base weapon behavior to `base_weapon_graph_v2` and made existing v1 archives stale so startup extraction regenerates them.
+- Added explicit trigger-entry nodes to generated base weapon graphs and connected `primary_trigger -> primary_action` plus `secondary_trigger -> secondary_action`.
+- Added trigger event modules to the Modding Hub graph palette and changed presets to create connected trigger-to-action graphs.
+- Added fallback node positioning for imported graphs without saved editor layout.
+- Made canvas links thicker/cyan and added an inspector `Current Links` list with `Remove Link`, plus a visible-link count in the editor status strip.
+- Updated B-370, tasks, the Modding pillar, and release notes.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wgraphwire -Selector "[weapon_graph][compiler][c3814],[weapon_graph][ui][c3814]" -BuildTimeoutSeconds 240` passed: 264 assertions / 9 cases.
+- `.\devtools\build-session.ps1 -Session wgraphwire -Target all -BuildTimeoutSeconds 300` passed.
+- Removed isolated session build `wgraphwire`.
+
+### Next
+
+- Manual retest: open a base weapon template in Modding Hub, inspect Primary Graph and Secondary Graph, and confirm trigger/action nodes are separated and connected by visible wires. Create another link using pin drag or `Connect Selected`; confirm it appears both on canvas and in `Current Links`.
+
+---
+
 ## Session (`modspawncrash`) - 2026-05-23 - mod weapon match-start crash
 
 Mike reported an exception when starting a match after selecting the modded weapon as a map spawn/custom weapon.

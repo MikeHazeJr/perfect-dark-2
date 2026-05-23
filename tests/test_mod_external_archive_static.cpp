@@ -674,10 +674,17 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	const std::string extractor = readFile("port/src/romextract_pdweapon.c");
 	REQUIRE(extractor.find("nested_payloads = nested_payloads.json") != std::string::npos);
 	REQUIRE(extractor.find("WEAPON_GRAPH_ARCHIVE_NESTED_PAYLOADS_ENTRY") != std::string::npos);
-	REQUIRE(extractor.find("base_weapon_graph_v1") != std::string::npos);
+	REQUIRE(extractor.find("base_weapon_graph_v2") != std::string::npos);
 	REQUIRE(extractor.find("\"shared_context\"") != std::string::npos);
 	REQUIRE(extractor.find("\"subgraphs\"") != std::string::npos);
 	REQUIRE(extractor.find("\"subgraph\"") != std::string::npos);
+	REQUIRE(extractor.find("primary_trigger") != std::string::npos);
+	REQUIRE(extractor.find("secondary_trigger") != std::string::npos);
+	REQUIRE(extractor.find("event.trigger_pressed") != std::string::npos);
+	REQUIRE(extractor.find("event.trigger_held") != std::string::npos);
+	REQUIRE(extractor.find("event.trigger_released") != std::string::npos);
+	REQUIRE(extractor.find("primary_trigger\", 0)") != std::string::npos);
+	REQUIRE(extractor.find("secondary_trigger\", 0)") != std::string::npos);
 	REQUIRE(extractor.find("damage_credit_player") != std::string::npos);
 	REQUIRE(extractor.find("base_legacy_adapter") == std::string::npos);
 	REQUIRE(extractor.find("spawn.fired_projectile") != std::string::npos);
@@ -2529,6 +2536,11 @@ TEST_CASE("Modding Hub weapon tool builds visual graph modules without raw JSON 
 	REQUIRE(hub.find("Seed Mine Link") != std::string::npos);
 	REQUIRE(hub.find("Seed Laptop Control") != std::string::npos);
 	REQUIRE(editor.find("Shared Context") != std::string::npos);
+	REQUIRE(hub.find("\"event.trigger_pressed\"") != std::string::npos);
+	REQUIRE(hub.find("\"event.trigger_held\"") != std::string::npos);
+	REQUIRE(hub.find("\"event.trigger_released\"") != std::string::npos);
+	REQUIRE(hub.find("weaponGraphBuilderAddTriggeredModuleInScope") !=
+	        std::string::npos);
 	REQUIRE(hub.find("Owner Player") != std::string::npos);
 	REQUIRE(hub.find("Detonator Link") != std::string::npos);
 	REQUIRE(hub.find("Target Policy Override") != std::string::npos);
@@ -2550,6 +2562,9 @@ TEST_CASE("Modding Hub weapon tool builds visual graph modules without raw JSON 
 	REQUIRE(editor.find("##exec_out_pin") != std::string::npos);
 	REQUIRE(editor.find("Connect Selected") != std::string::npos);
 	REQUIRE(editor.find("Connect To") != std::string::npos);
+	REQUIRE(editor.find("Visible links: %d/%d") != std::string::npos);
+	REQUIRE(editor.find("Current Links") != std::string::npos);
+	REQUIRE(editor.find("Remove Link") != std::string::npos);
 	REQUIRE(editor.find("BeginDelete") != std::string::npos);
 	REQUIRE(editor.find("Add Node") != std::string::npos);
 	REQUIRE(editor.find("Delete Node") != std::string::npos);
@@ -2569,6 +2584,7 @@ TEST_CASE("Modding Hub weapon tool builds visual graph modules without raw JSON 
 	REQUIRE(editor.find("pdguiWeaponGraphModelLoadJson") != std::string::npos);
 	REQUIRE(editor.find("scope_filter") != std::string::npos);
 	REQUIRE(editor.find("nodeVisibleForScope") != std::string::npos);
+	REQUIRE(editor.find("seedMissingNodeLayout") != std::string::npos);
 	REQUIRE(editor.find("Links must stay inside the visible graph tab") !=
 	        std::string::npos);
 	REQUIRE(header.find("scope_filter") != std::string::npos);

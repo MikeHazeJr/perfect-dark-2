@@ -150,6 +150,34 @@ static bool edgeExists(const PdWeaponGraphEditModel *model, int from, int to)
 	return false;
 }
 
+static bool nodeVisibleForScope(const PdWeaponGraphEditorDesc *desc,
+		const PdWeaponGraphEditModel *model,
+		int index);
+
+static bool edgeVisibleForScope(const PdWeaponGraphEditorDesc *desc,
+		const PdWeaponGraphEditModel *model,
+		const PdWeaponGraphEdgeEdit &edge)
+{
+	if (!model) return false;
+	if (edge.from < 0 || edge.from >= model->node_count ||
+			edge.to < 0 || edge.to >= model->node_count) {
+		return false;
+	}
+	return nodeVisibleForScope(desc, model, edge.from) &&
+		nodeVisibleForScope(desc, model, edge.to);
+}
+
+static int visibleEdgeCount(const PdWeaponGraphEditorDesc *desc,
+		const PdWeaponGraphEditModel *model)
+{
+	if (!model) return 0;
+	int count = 0;
+	for (int i = 0; i < model->edge_count; i++) {
+		if (edgeVisibleForScope(desc, model, model->edges[i])) count++;
+	}
+	return count;
+}
+
 static void outputAction(PdWeaponGraphEditorResult *result,
 		PdWeaponGraphEditorAction action,
 		int a,
@@ -260,6 +288,35 @@ static bool paramsSetContext(char *params,
 	if (dumped.size() >= params_cap) return false;
 	snprintf(params, params_cap, "%s", dumped.c_str());
 	return true;
+}
+
+static void seedMissingNodeLayout(PdWeaponGraphEditModel *model)
+{
+	if (!model) return;
+	int shared = 0;
+	int primary = 0;
+	int secondary = 0;
+	for (int i = 0; i < model->node_count; i++) {
+		PdWeaponGraphNodeEdit &node = model->nodes[i];
+		if (node.pos_valid) continue;
+		const char *scope = node.subgraph[0] ? node.subgraph : "primary";
+		int *ordinal = &primary;
+		float baseY = 176.0f;
+		if (strcmp(scope, "shared") == 0) {
+			ordinal = &shared;
+			baseY = 48.0f;
+		} else if (strcmp(scope, "secondary") == 0) {
+			ordinal = &secondary;
+			baseY = 304.0f;
+		}
+		int lane = *ordinal / 2;
+		(*ordinal)++;
+		bool leftSide = strncmp(node.kind, "event.", 6) == 0 ||
+			strncmp(node.kind, "gate.", 5) == 0;
+		node.pos_x = leftSide ? 48.0f : 300.0f;
+		node.pos_y = baseY + (float)lane * 128.0f;
+		node.pos_valid = true;
+	}
 }
 
 static bool paramsRewrite(char *params, size_t params_cap, const crude_json::value &root)
@@ -413,6 +470,38 @@ static void renderSharedContext(const PdWeaponGraphEditorDesc *desc,
 	}
 }
 
+static void renderAttachedLinks(const PdWeaponGraphEditorDesc *desc,
+		PdWeaponGraphEditorResult *result,
+		int selected)
+{
+	PdWeaponGraphEditModel *model = desc->model;
+	int outgoing = 0;
+	int incoming = 0;
+	ImGui::Separator();
+	ImGui::TextUnformatted("Current Links");
+	for (int i = 0; i < model->edge_count; i++) {
+		const PdWeaponGraphEdgeEdit &edge = model->edges[i];
+		if (!edgeVisibleForScope(desc, model, edge)) continue;
+		if (edge.from != selected && edge.to != selected) continue;
+		bool isOutgoing = edge.from == selected;
+		if (isOutgoing) outgoing++; else incoming++;
+		ImGui::PushID(72000 + i);
+		ImGui::TextDisabled("%s %s",
+			isOutgoing ? "Out to" : "In from",
+			nodeLabel(model, isOutgoing ? edge.to : edge.from));
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Remove Link")) {
+			outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_REMOVE_EDGE,
+				i, -1);
+			editorSetStatus(result, true, "Graph link removed");
+		}
+		ImGui::PopID();
+	}
+	if (outgoing == 0 && incoming == 0) {
+		ImGui::TextDisabled("This node has no links in the visible graph.");
+	}
+}
+
 static int firstVisibleConnectTarget(const PdWeaponGraphEditorDesc *desc, int selected)
 {
 	PdWeaponGraphEditModel *model = desc->model;
@@ -463,6 +552,7 @@ static void renderInspectorConnectControls(const PdWeaponGraphEditorDesc *desc,
 			editorSetStatus(result, true, "Graph link added");
 		}
 	}
+	renderAttachedLinks(desc, result, selected);
 }
 
 static void renderNodeParamControls(PdWeaponGraphNodeEdit &node,
@@ -713,18 +803,11 @@ static void renderCanvas(const PdWeaponGraphEditorDesc *desc,
 	}
 	for (int i = 0; i < model->edge_count; i++) {
 		const PdWeaponGraphEdgeEdit &edge = model->edges[i];
-		if (edge.from < 0 || edge.from >= model->node_count ||
-				edge.to < 0 || edge.to >= model->node_count) {
-			continue;
-		}
-		if (!nodeVisibleForScope(desc, model, edge.from) ||
-				!nodeVisibleForScope(desc, model, edge.to)) {
-			continue;
-		}
+		if (!edgeVisibleForScope(desc, model, edge)) continue;
 		ed::Link(linkEditorId(edge),
 			nodePinId(model->nodes[edge.from], 2),
 			nodePinId(model->nodes[edge.to], 1),
-			ImVec4(0.94f, 0.86f, 0.54f, 1.0f), 2.0f);
+			ImVec4(0.20f, 0.92f, 1.0f, 1.0f), 4.0f);
 	}
 	if (!model->canvas_layout_seeded) {
 		for (int i = 0; i < model->node_count; i++) {
@@ -1024,6 +1107,7 @@ bool pdguiWeaponGraphModelLoadJson(PdWeaponGraphEditModel *model,
 		if (err && err_cap) snprintf(err, err_cap, "graph has no editable nodes");
 		return false;
 	}
+	seedMissingNodeLayout(model);
 	return true;
 }
 
@@ -1057,7 +1141,8 @@ bool pdguiWeaponGraphNodeEditorRender(const PdWeaponGraphEditorDesc *desc,
 
 	ImGui::Separator();
 	ImGui::TextDisabled(
-		"Canvas: drag nodes, drag exec pins to link, right-click canvas/node/link/pin, Alt-click pin to break, Delete removes selection, F frames visible nodes.");
+		"Canvas: drag nodes, drag exec pins to link, right-click canvas/node/link/pin, Alt-click pin to break, Delete removes selection, F frames visible nodes. Visible links: %d/%d.",
+		visibleEdgeCount(desc, desc->model), desc->model->edge_count);
 	if (desc->model->selected_node >= 0) {
 		ImGui::SameLine();
 		ImGui::TextDisabled("Selected: %s", nodeLabel(desc->model, desc->model->selected_node));

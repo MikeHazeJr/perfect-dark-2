@@ -60,6 +60,6 @@
 - Fixed custom weapon authoring so saved weapon mods no longer expose or write numeric weapon IDs; catalog names are used for author-facing references.
 - Fixed weapon-mod saving diagnostics and template payload handling so shotgun-based dual-wield saves report each save stage in the log and preserve archive-local template model and animation files.
 - Fixed Combat Simulator weapon and arena pickers so catalog entries are alphabetized, custom weapon mods appear by catalog name, and No Score Limit stores the runtime unlimited sentinel.
-- Fixed weapon behavior graph editing so node links can be created from larger exec sockets or the inspector, and simple node params can be edited without raw JSON.
+- Fixed weapon behavior graph editing so template graphs load with connected trigger/action nodes, visible wires, inspector link lists, larger exec sockets, and simple node-param controls.
 - Fixed a match-start crash when a saved `.pdweapon` mod was selected in Combat Simulator custom weapon slots.
 - Fixed jump collision follow-through so airborne horizontal movement is clamped against rendered wall, ceiling, and corner geometry before the player can clip into it.

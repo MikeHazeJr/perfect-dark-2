@@ -877,6 +877,24 @@ static const WeaponGraphContextDef s_WeaponGraphContextDefs[] = {
 
 static const WeaponGraphModuleDef s_WeaponGraphModules[] = {
     {
+        "Trigger Pressed Event",
+        "event.trigger_pressed",
+        "{ \"mode\": \"primary\", \"trigger\": \"pressed\", "
+        "\"context_refs\": [\"owner_player\", \"weapon_instance\"] }"
+    },
+    {
+        "Trigger Held Event",
+        "event.trigger_held",
+        "{ \"mode\": \"primary\", \"trigger\": \"held\", "
+        "\"context_refs\": [\"owner_player\", \"weapon_instance\"] }"
+    },
+    {
+        "Trigger Released Event",
+        "event.trigger_released",
+        "{ \"mode\": \"secondary\", \"trigger\": \"released\", "
+        "\"context_refs\": [\"owner_player\", \"weapon_instance\"] }"
+    },
+    {
         "Single Shot",
         "fire.hitscan",
         "{ \"mode\": \"primary\", \"function_type\": \"shoot_single\", "
@@ -1419,6 +1437,20 @@ static int weaponGraphBuilderAddModuleInScope(const char *kind,
     return addedIndex;
 }
 
+static void weaponGraphBuilderAddEdge(int from, int to, bool syncNow);
+
+static int weaponGraphBuilderAddTriggeredModuleInScope(const char *eventKind,
+                                                       const char *actionKind,
+                                                       const char *scope)
+{
+    int event = weaponGraphBuilderAddModuleInScope(eventKind, scope);
+    int action = weaponGraphBuilderAddModuleInScope(actionKind, scope);
+    if (event >= 0 && action >= 0) {
+        weaponGraphBuilderAddEdge(event, action, false);
+    }
+    return action;
+}
+
 static void weaponGraphBuilderAddEdge(int from, int to, bool syncNow)
 {
     if (from < 0 || from >= s_WeaponGraphNodeCount ||
@@ -1554,7 +1586,8 @@ static void weaponGraphBuilderBreakPin(int nodeIndex, int pinKind)
 static void weaponGraphBuilderSeedSingleShot(void)
 {
     weaponGraphBuilderClear();
-    int primary = weaponGraphBuilderAddModuleInScope("fire.hitscan", "primary");
+    int primary = weaponGraphBuilderAddTriggeredModuleInScope(
+        "event.trigger_pressed", "fire.hitscan", "primary");
     s_WeaponGraphPrimaryExport = primary;
     weaponGraphBuilderSyncJson();
 }
@@ -1562,7 +1595,8 @@ static void weaponGraphBuilderSeedSingleShot(void)
 static void weaponGraphBuilderSeedAutomatic(void)
 {
     weaponGraphBuilderClear();
-    int primary = weaponGraphBuilderAddModuleInScope("fire.auto_cadence", "primary");
+    int primary = weaponGraphBuilderAddTriggeredModuleInScope(
+        "event.trigger_held", "fire.auto_cadence", "primary");
     s_WeaponGraphPrimaryExport = primary;
     weaponGraphBuilderSyncJson();
 }
@@ -1570,8 +1604,10 @@ static void weaponGraphBuilderSeedAutomatic(void)
 static void weaponGraphBuilderSeedDualFireModes(void)
 {
     weaponGraphBuilderClear();
-    int primary = weaponGraphBuilderAddModuleInScope("fire.hitscan", "primary");
-    int secondary = weaponGraphBuilderAddModuleInScope("fire.burst", "secondary");
+    int primary = weaponGraphBuilderAddTriggeredModuleInScope(
+        "event.trigger_pressed", "fire.hitscan", "primary");
+    int secondary = weaponGraphBuilderAddTriggeredModuleInScope(
+        "event.trigger_pressed", "fire.burst", "secondary");
     s_WeaponGraphPrimaryExport = primary;
     s_WeaponGraphSecondaryExport = secondary;
     weaponGraphBuilderSyncJson();
@@ -1581,7 +1617,8 @@ static void weaponGraphBuilderSeedProjectile(void)
 {
     weaponGraphBuilderClear();
     weaponGraphBuilderEnableContext("projectile_owner");
-    int primary = weaponGraphBuilderAddModuleInScope("spawn.fired_projectile", "primary");
+    int primary = weaponGraphBuilderAddTriggeredModuleInScope(
+        "event.trigger_pressed", "spawn.fired_projectile", "primary");
     s_WeaponGraphPrimaryExport = primary;
     weaponGraphBuilderSyncJson();
 }
@@ -1590,7 +1627,8 @@ static void weaponGraphBuilderSeedThrown(void)
 {
     weaponGraphBuilderClear();
     weaponGraphBuilderEnableContext("deployed_entity_set");
-    int secondary = weaponGraphBuilderAddModuleInScope("spawn.thrown_physical", "secondary");
+    int secondary = weaponGraphBuilderAddTriggeredModuleInScope(
+        "event.trigger_released", "spawn.thrown_physical", "secondary");
     s_WeaponGraphSecondaryExport = secondary;
     weaponGraphBuilderSyncJson();
 }
@@ -1600,8 +1638,10 @@ static void weaponGraphBuilderSeedMineLink(void)
     weaponGraphBuilderClear();
     weaponGraphBuilderEnableContext("deployed_entity_set");
     weaponGraphBuilderEnableContext("detonator_link_group");
-    int primary = weaponGraphBuilderAddModuleInScope("spawn.thrown_physical", "primary");
-    int secondary = weaponGraphBuilderAddModuleInScope("special.remote_detonator", "secondary");
+    int primary = weaponGraphBuilderAddTriggeredModuleInScope(
+        "event.trigger_released", "spawn.thrown_physical", "primary");
+    int secondary = weaponGraphBuilderAddTriggeredModuleInScope(
+        "event.trigger_pressed", "special.remote_detonator", "secondary");
     s_WeaponGraphPrimaryExport = primary;
     s_WeaponGraphSecondaryExport = secondary;
     weaponGraphBuilderSyncJson();
@@ -1613,8 +1653,10 @@ static void weaponGraphBuilderSeedLaptopControl(void)
     weaponGraphBuilderEnableContext("deployed_entity_set");
     weaponGraphBuilderEnableContext("target_policy_override");
     weaponGraphBuilderEnableContext("hacked_by_player");
-    int primary = weaponGraphBuilderAddModuleInScope("fire.auto_cadence", "primary");
-    int secondary = weaponGraphBuilderAddModuleInScope("spawn.thrown_physical", "secondary");
+    int primary = weaponGraphBuilderAddTriggeredModuleInScope(
+        "event.trigger_held", "fire.auto_cadence", "primary");
+    int secondary = weaponGraphBuilderAddTriggeredModuleInScope(
+        "event.trigger_released", "spawn.thrown_physical", "secondary");
     int policy = weaponGraphBuilderAddModuleInScope("gate.target_lock", "shared");
     if (policy >= 0 && primary >= 0) {
         weaponGraphBuilderAddEdge(policy, primary, false);

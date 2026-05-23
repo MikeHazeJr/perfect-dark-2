@@ -114,7 +114,7 @@ static s32 s_existingWeaponArchiveGraphCurrent(const char *relpath)
 		return 0;
 	}
 	s32 current =
-		strstr(graph, "\"graph_id\": \"base_weapon_graph_v1\"") != NULL &&
+		strstr(graph, "\"graph_id\": \"base_weapon_graph_v2\"") != NULL &&
 		strstr(graph, "temporary.legacy_weapon_manifest") == NULL;
 	free(graph);
 	return current;
@@ -1690,6 +1690,46 @@ static void s_emitWeaponGraphNode(jw_t *w, const char *node_id,
 	fputs(last ? "}\n" : "},\n", w->fp);
 }
 
+static const char *s_weaponTriggerEventKind(const char *catalog_id,
+                                            s32 mode,
+                                            const struct weaponfunc *f)
+{
+	if (!f) return "event.trigger_pressed";
+	if (strcmp(s_weaponModuleKind(catalog_id, mode, f), "fire.charge_release") == 0) {
+		return "event.trigger_released";
+	}
+	if (f->type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC) {
+		return "event.trigger_held";
+	}
+	if (f->type == INVENTORYFUNCTYPE_THROW) {
+		return "event.trigger_released";
+	}
+	return "event.trigger_pressed";
+}
+
+static void s_emitWeaponGraphEventNode(jw_t *w, const char *node_id,
+                                       const char *catalog_id, s32 mode,
+                                       const struct weaponfunc *f,
+                                       s32 last)
+{
+	const char *kind = s_weaponTriggerEventKind(catalog_id, mode, f);
+	const char *trigger = strstr(kind, "held") ? "held" :
+		(strstr(kind, "released") ? "released" : "pressed");
+	jw_indent(w);
+	fputs("{\n", w->fp);
+	w->indent++;
+	jw_field_str(w, "id", node_id, 0);
+	jw_field_str(w, "kind", kind, 0);
+	jw_field_str(w, "subgraph", s_modeName(mode), 0);
+	jw_open_object(w, "params");
+	jw_field_str(w, "mode", s_modeName(mode), 0);
+	jw_field_str(w, "trigger", trigger, 1);
+	jw_close_object(w, 1);
+	w->indent--;
+	jw_indent(w);
+	fputs(last ? "}\n" : "},\n", w->fp);
+}
+
 static void s_emitWeaponGraphContext(jw_t *w, const char *name,
                                      const char *scope, const char *source,
                                      const char *type, const char *lifetime,
@@ -1744,7 +1784,7 @@ static s32 s_emitWeaponGraphFile(const char *graph_tmp_relpath,
 	w.indent = 1;
 	jw_field_str(&w, "schema", "pd.weapon_graph.v1", 0);
 	jw_field_str(&w, "asset_id", catalog_id, 0);
-	jw_field_str(&w, "graph_id", "base_weapon_graph_v1", 0);
+	jw_field_str(&w, "graph_id", "base_weapon_graph_v2", 0);
 	jw_open_object(&w, "compatibility");
 	jw_field_str(&w, "manifest", "manifest.json", 0);
 	jw_field_str(&w, "nested_payloads", WEAPON_GRAPH_ARCHIVE_NESTED_PAYLOADS_ENTRY, 0);
@@ -1763,20 +1803,32 @@ static s32 s_emitWeaponGraphFile(const char *graph_tmp_relpath,
 	jw_close_array(&w, 0);
 
 	jw_open_array(&w, "subgraphs");
-	s_emitWeaponGraphSubgraph(&w, "primary", "primary_action", 0);
-	s_emitWeaponGraphSubgraph(&w, "secondary", "secondary_action", 1);
+	s_emitWeaponGraphSubgraph(&w, "primary", "primary_trigger", 0);
+	s_emitWeaponGraphSubgraph(&w, "secondary", "secondary_trigger", 1);
 	jw_close_array(&w, 0);
 
 	jw_open_array(&w, "nodes");
+	s_emitWeaponGraphEventNode(&w, "primary_trigger", catalog_id, 0,
+		(const struct weaponfunc *)wpn->functions[0], 0);
 	s_emitWeaponGraphNode(&w, "primary_action", catalog_id, 0,
 		(const struct weaponfunc *)wpn->functions[0],
 		projectile_refs[0], entity_refs[0], 0);
+	s_emitWeaponGraphEventNode(&w, "secondary_trigger", catalog_id, 1,
+		(const struct weaponfunc *)wpn->functions[1], 0);
 	s_emitWeaponGraphNode(&w, "secondary_action", catalog_id, 1,
 		(const struct weaponfunc *)wpn->functions[1],
 		projectile_refs[1], entity_refs[1], 1);
 	jw_close_array(&w, 0);
 
 	jw_open_array(&w, "edges");
+	jw_open_object(&w, NULL);
+	jw_field_str(&w, "from", "primary_trigger", 0);
+	jw_field_str(&w, "to", "primary_action", 1);
+	jw_close_object(&w, 0);
+	jw_open_object(&w, NULL);
+	jw_field_str(&w, "from", "secondary_trigger", 0);
+	jw_field_str(&w, "to", "secondary_action", 1);
+	jw_close_object(&w, 1);
 	jw_close_array(&w, 0);
 
 	jw_open_array(&w, "exports");
