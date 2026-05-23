@@ -128,7 +128,7 @@ TEST_CASE("tiny voice pitch: Tiny Mode cheat scales voice-config starts",
 	std::string snd = readFile("src/lib/snd.c");
 
 	REQUIRE(snd.find("#include \"game/cheats.h\"") != std::string::npos);
-	REQUIRE(snd.find("SND_TINY_VOICE_PITCH_SCALE 1.12f") != std::string::npos);
+	REQUIRE(snd.find("SND_TINY_VOICE_PITCH_SCALE 1.35f") != std::string::npos);
 	REQUIRE(snd.find("sndSoundRefHasVoiceConfig") != std::string::npos);
 	REQUIRE(snd.find("cheatIsActive(CHEAT_SMALLJO)") != std::string::npos);
 	REQUIRE(snd.find("sndApplyTinyVoicePitch(sound, PSTYPE_NONE, pitch)") != std::string::npos);

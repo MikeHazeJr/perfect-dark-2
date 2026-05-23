@@ -68,11 +68,16 @@ TEST_CASE("tiny-mode spawn: setup allocates slots and copies safely",
 	REQUIRE(setup.find("CHRSLOTS: added %d Tiny Mode generic-enemy slots") != std::string::npos);
 
 	REQUIRE(setup.find("static void setupCreateTinyModeExtraChrs(") != std::string::npos);
+	REQUIRE(setup.find("SETUP_TINY_MODE_EXTRA_SPACING 48.0f") != std::string::npos);
+	REQUIRE(setup.find("setupPositionTinyModeExtraChr(") != std::string::npos);
+	REQUIRE(setup.find("setupTinyModeSpawnPosIsOpen") != std::string::npos);
+	REQUIRE(setup.find("cdTestVolume(pos, radius, rooms, CDTYPE_ALL, CHECKVERTICAL_YES") != std::string::npos);
+	REQUIRE(setup.find("chrSetPos(chr, &pos, rooms, theta, !open);") != std::string::npos);
 	REQUIRE(setup.find("clone.chrnum = chrsGetNextUnusedChrnum();") != std::string::npos);
 	REQUIRE(setup.find("clone.spawnflags |= SPAWNFLAG_IGNORECOLLISION;") != std::string::npos);
 	REQUIRE(setup.find("struct chrdata *chr = bodyAllocateChr(stagenum, packed, index);") != std::string::npos);
 	REQUIRE(setup.find("if (chr != NULL)") != std::string::npos);
-	REQUIRE(setup.find("setupCreateTinyModeExtraChrs(stagenum, packed, index);") != std::string::npos);
+	REQUIRE(setup.find("setupCreateTinyModeExtraChrs(stagenum, packed, index, chr);") != std::string::npos);
 }
 
 TEST_CASE("tiny-mode spawn: generic enemies are made physically small",

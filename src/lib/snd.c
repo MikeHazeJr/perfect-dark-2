@@ -33,7 +33,7 @@
 
 #define NUM_CACHE_SLOTS 45
 #define NUM_KEYTHINGS 9
-#define SND_TINY_VOICE_PITCH_SCALE 1.12f
+#define SND_TINY_VOICE_PITCH_SCALE 1.35f
 
 struct sndcache {
 	/*0x0000*/ u16 *indexes; // indexed by sfxnum, value is cache index (0-44) or 0xffff

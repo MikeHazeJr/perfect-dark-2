@@ -12,6 +12,7 @@
 #include "game/botmgr.h"
 #include "game/bot.h"
 #include "game/chr.h"
+#include "game/chraction.h"
 #include "game/chrmgr.h"
 #include "game/body.h"
 #include "game/prop.h"
@@ -54,6 +55,9 @@ void langManifestRecordBank(s32 bank);
 s32 g_SetupCurMpLocation;
 static s32 s_SetupMpWeaponLocationCount;
 static s32 s_SetupMpCreatedWeaponCount;
+
+#define SETUP_TINY_MODE_EXTRA_SPACING 48.0f
+#define SETUP_TINY_MODE_OFFSET_ATTEMPTS 8
 
 struct tvscreen var80061a80 = {
 	g_TvCmdlist00, // cmdlist
@@ -447,12 +451,117 @@ static s32 setupCountTinyModeExtraChrs(void)
 	return count;
 }
 
-static void setupCreateTinyModeExtraChrs(s32 stagenum, const struct packedchr *packed, s32 cmdindex)
+static void setupTinyModeGetSpawnBasis(const struct packedchr *packed, f32 *forwardx, f32 *forwardz, f32 *sidex, f32 *sidez)
+{
+	struct pad pad;
+	f32 len;
+
+	padUnpack(packed->padnum, PADFIELD_LOOK, &pad);
+
+	*forwardx = pad.look.x;
+	*forwardz = pad.look.z;
+
+	len = sqrtf(*forwardx * *forwardx + *forwardz * *forwardz);
+
+	if (len > 0.001f) {
+		*forwardx /= len;
+		*forwardz /= len;
+	} else {
+		*forwardx = 0.0f;
+		*forwardz = 1.0f;
+	}
+
+	*sidex = *forwardz;
+	*sidez = -*forwardx;
+}
+
+static f32 setupTinyModeThetaFromChr(struct chrdata *chr)
+{
+	f32 theta = 360.0f - BADRAD2DEG(chrGetInverseTheta(chr));
+
+	while (theta >= 360.0f) {
+		theta -= 360.0f;
+	}
+
+	while (theta < 0.0f) {
+		theta += 360.0f;
+	}
+
+	return theta;
+}
+
+static bool setupTinyModeSpawnPosIsOpen(struct chrdata *chr, struct coord *pos, RoomNum *rooms)
+{
+	f32 radius;
+	f32 ymax;
+
+	if (chr == NULL || rooms == NULL) {
+		return false;
+	}
+
+	radius = chr->radius > 4.0f ? chr->radius : 4.0f;
+	ymax = chr->height > 24.0f ? chr->height : 24.0f;
+
+	return cdTestVolume(pos, radius, rooms, CDTYPE_ALL, CHECKVERTICAL_YES, ymax + 20.0f, -20.0f) != CDRESULT_COLLISION;
+}
+
+static void setupPositionTinyModeExtraChr(struct chrdata *chr, const struct chrdata *origin, const struct packedchr *packed, s32 extraindex)
+{
+	static const f32 attempts[SETUP_TINY_MODE_OFFSET_ATTEMPTS][2] = {
+		{  1.0f,  0.0f },
+		{ -1.0f,  0.0f },
+		{  0.8f,  0.8f },
+		{ -0.8f,  0.8f },
+		{  0.0f,  1.0f },
+		{  0.0f, -1.0f },
+		{  1.4f,  0.0f },
+		{ -1.4f,  0.0f },
+	};
+	struct coord base;
+	RoomNum *rooms;
+	f32 forwardx;
+	f32 forwardz;
+	f32 sidex;
+	f32 sidez;
+	f32 sign;
+	f32 theta;
+	s32 attempt;
+
+	if (chr == NULL || chr->prop == NULL || origin == NULL || origin->prop == NULL || packed == NULL) {
+		return;
+	}
+
+	base = origin->prop->pos;
+	rooms = origin->prop->rooms;
+	sign = (extraindex & 1) == 0 ? 1.0f : -1.0f;
+	theta = setupTinyModeThetaFromChr(chr);
+
+	setupTinyModeGetSpawnBasis(packed, &forwardx, &forwardz, &sidex, &sidez);
+
+	for (attempt = 0; attempt < SETUP_TINY_MODE_OFFSET_ATTEMPTS; attempt++) {
+		f32 side = attempts[attempt][0] * sign;
+		f32 forward = attempts[attempt][1];
+		struct coord pos = base;
+		bool open;
+
+		pos.x += (sidex * side + forwardx * forward) * SETUP_TINY_MODE_EXTRA_SPACING;
+		pos.z += (sidez * side + forwardz * forward) * SETUP_TINY_MODE_EXTRA_SPACING;
+
+		open = setupTinyModeSpawnPosIsOpen(chr, &pos, rooms);
+
+		if (open || attempt == SETUP_TINY_MODE_OFFSET_ATTEMPTS - 1) {
+			chrSetPos(chr, &pos, rooms, theta, !open);
+			return;
+		}
+	}
+}
+
+static void setupCreateTinyModeExtraChrs(s32 stagenum, const struct packedchr *packed, s32 cmdindex, struct chrdata *origin)
 {
 	s32 extra;
 	s32 i;
 
-	if (packed == NULL) {
+	if (packed == NULL || origin == NULL) {
 		return;
 	}
 
@@ -465,7 +574,7 @@ static void setupCreateTinyModeExtraChrs(s32 stagenum, const struct packedchr *p
 		clone.chrnum = chrsGetNextUnusedChrnum();
 		clone.spawnflags |= SPAWNFLAG_IGNORECOLLISION;
 
-		bodyAllocateChr(stagenum, &clone, cmdindex);
+		setupPositionTinyModeExtraChr(bodyAllocateChr(stagenum, &clone, cmdindex), origin, packed, i);
 	}
 }
 
@@ -1910,7 +2019,7 @@ void setupCreateProps(s32 stagenum)
 						struct chrdata *chr = bodyAllocateChr(stagenum, packed, index);
 
 						if (chr != NULL) {
-							setupCreateTinyModeExtraChrs(stagenum, packed, index);
+							setupCreateTinyModeExtraChrs(stagenum, packed, index, chr);
 						}
 					}
 					break;

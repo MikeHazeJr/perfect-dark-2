@@ -1,5 +1,31 @@
 # Session Log (Active)
 
+## Session (`tinyspread`) - 2026-05-23 - Tiny Mode pitch and spawn spacing
+
+Mike asked for Tiny Mode voices to pitch up more comically and for the tripled tiny enemies to spawn spaced apart instead of inside each other.
+
+### Implemented
+
+- Raised Tiny Mode voice pitch from `1.12x` to `1.35x` for dialogue refs and `PSTYPE_CHRTALK` character bark channels.
+- Kept the existing non-unique-enemy tripling predicate, so named/story/special cases remain single.
+- Changed extra Tiny Mode enemy copies from same-position placement to pad-facing offset placement around the original spawn.
+- Added collision-checked candidate positions with side/forward fallbacks and a final `chrSetPos` fallback so the extra copies prefer open nearby space while still spawning if the authored pad is cramped.
+- Updated static coverage for the new pitch constant, spacing constant, collision probe, and clone placement call path.
+- Updated release notes for the stronger Tiny Mode voice pitch and spaced tripled spawns.
+
+### Verification
+
+- Scoped `git diff --check` passed for the touched gameplay/audio/test/release-note files.
+- `.\devtools\run-pd-tests.ps1 -Session tinyspread -Selector "[audio][voice][tiny][static],[cheats][tiny][spawn][static]" -BuildTimeoutSeconds 240` passed: 55 assertions / 5 cases.
+- `.\devtools\build-session.ps1 -Session tinyspread -Target all -BuildTimeoutSeconds 240` passed.
+- Removed isolated session build `tinyspread`.
+
+### Next
+
+- Manual retest: enable Tiny Mode, trigger spoken character lines, and confirm the pitch is comically higher. Load a guard-heavy mission and confirm ordinary enemies appear as three spaced tiny enemies with enough room to move.
+
+---
+
 ## Session (`tinycheats`) - 2026-05-23 - Tiny Mode cheat consolidation and controller fixes
 
 Mike reported that Tiny Mode should be the only small-character cheat, that `Unlock All...` did not work from controller navigation, and that Tiny Mode was not appearing clearly in Cheats.
