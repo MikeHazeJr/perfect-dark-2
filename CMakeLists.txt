@@ -806,6 +806,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_bondgun_cache.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_checked.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_spawn_predicate.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_tiny_mode_spawn_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_bodies_headcount.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_integrated_head_guard.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_options_forced.cpp

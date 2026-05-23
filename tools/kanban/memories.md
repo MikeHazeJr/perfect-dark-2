@@ -1030,7 +1030,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-05-22T01-38-10-rIJM-infiltration_robot_attack_exception_fix.md (cwd=C:\Users\mikeh\Documents\Codex\2026-05-21\goal-i-playtested-in-build-and, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T21-38-10-019e4d55-3467-7021-a558-89e0a6da73be.jsonl, updated_at=2026-05-22T02:04:26+00:00, thread_id=019e4d55-3467-7021-a558-89e0a6da73be, build-log-first B-365 robot attack exception fix in the PD2 repo)
+- rollout_summaries/2026-05-22T01-38-10-rIJM-infiltration_robot_attack_exception_fix.md (cwd=C:\Users\mikeh\Documents\Codex\2026-05-21\goal-i-playtested-in-build-and, rollout_path=C:\Users\mikeh\.codex\archived_sessions\rollout-2026-05-21T21-38-10-019e4d55-3467-7021-a558-89e0a6da73be.jsonl, updated_at=2026-05-22T02:04:26+00:00, thread_id=019e4d55-3467-7021-a558-89e0a6da73be, build-log-first B-365 robot attack exception fix in the PD2 repo)
 
 ### keywords
 

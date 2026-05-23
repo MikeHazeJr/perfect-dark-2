@@ -40,6 +40,7 @@
 - Cutscene skipping now uses a held button with a contextual radial progress prompt instead of an accidental tap.
 - Startup asset extraction now reuses validated per-family cache stamps and shows a centered progress modal with smoother time-weighted progress.
 - Tiny Mode now makes spoken character voice lines play at a slightly higher pitch while the cheat is active.
+- Tiny Mode now triples ordinary non-unique enemy spawns into tiny enemies while keeping named/story characters single.
 
 ## Fixed
 

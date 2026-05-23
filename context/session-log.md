@@ -1,5 +1,31 @@
 # Session Log (Active)
 
+## Session (`tinyspawn`) - 2026-05-23 - Tiny Mode generic enemy tripling
+
+Mike asked for Tiny Mode to spawn three tiny non-unique enemies in place of each normal non-unique enemy.
+
+### Implemented
+
+- Added a narrow generic-enemy predicate for authored setup chrs: solo only, `TEAM_ENEMY`, `SPAWNFLAG_BASICGUARD`, no invincible/conversation/chair/clone-hearspawn/Chuck Norris/story-body cases.
+- Stage setup now adds the extra model and chr slots while Tiny Mode is active, so the multiplied enemies fit the existing pools.
+- `bodyAllocateChr()` now returns the allocated chr pointer; setup uses that to create copies only after the original enemy successfully spawned.
+- Each extra copy keeps the authored setup data but gets a fresh chr id and `SPAWNFLAG_IGNORECOLLISION` for initial same-place placement.
+- Tiny Mode shrinks qualifying generic enemies visually and shrinks their radius/height footprint for the tripled setup path.
+- Added static coverage in `tests/test_tiny_mode_spawn_static.cpp`.
+
+### Verification
+
+- Scoped `git diff --check` passed for the touched gameplay/test/context files.
+- `.\devtools\run-pd-tests.ps1 -Session tinyspawn -Selector "[cheats][tiny][spawn][static]" -BuildTimeoutSeconds 240` passed: 35 assertions / 3 cases.
+- `.\devtools\build-session.ps1 -Session tinyspawn -Target all -BuildTimeoutSeconds 240` passed.
+- Removed isolated session build `tinyspawn`.
+
+### Next
+
+- Manual retest: enable Tiny Mode, load a guard-heavy mission, and confirm normal guards appear as three tiny enemies while named/story characters remain single.
+
+---
+
 ## Session (`tinypitch`) - 2026-05-23 - Tiny Mode voice pitch
 
 Mike asked for Tiny Mode to make voice lines play at a slightly higher pitch.

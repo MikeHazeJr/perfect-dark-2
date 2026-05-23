@@ -429,6 +429,46 @@ s32 setupCountCommandType(u32 type)
 	return count;
 }
 
+static s32 setupCountTinyModeExtraChrs(void)
+{
+	struct defaultobj *obj = (struct defaultobj *)g_StageSetup.props;
+	s32 count = 0;
+
+	if (obj) {
+		while (obj->type != OBJTYPE_END) {
+			if (obj->type == OBJTYPE_CHR) {
+				count += bodyTinyModeExtraChrCountForPacked((struct packedchr *)obj);
+			}
+
+			obj = (struct defaultobj *)((u32 *)obj + setupGetCmdLength((u32 *)obj));
+		}
+	}
+
+	return count;
+}
+
+static void setupCreateTinyModeExtraChrs(s32 stagenum, const struct packedchr *packed, s32 cmdindex)
+{
+	s32 extra;
+	s32 i;
+
+	if (packed == NULL) {
+		return;
+	}
+
+	extra = bodyTinyModeExtraChrCountForPacked(packed);
+
+	for (i = 0; i < extra; i++) {
+		struct packedchr clone = *packed;
+
+		clone.chrindex = -1;
+		clone.chrnum = chrsGetNextUnusedChrnum();
+		clone.spawnflags |= SPAWNFLAG_IGNORECOLLISION;
+
+		bodyAllocateChr(stagenum, &clone, cmdindex);
+	}
+}
+
 static bool setupResolvePropsInLoadedSetup(struct stagesetup *setup, s32 loadedsize, u32 **props)
 {
 	uintptr_t base;
@@ -1569,6 +1609,16 @@ void setupLoadFiles(s32 stagenum)
 		// Count the number of chrs and objects so enough model slots can be allocated
 		numchrs += setupCountCommandType(OBJTYPE_CHR);
 
+		{
+			s32 tiny_extra = setupCountTinyModeExtraChrs();
+			if (tiny_extra > 0) {
+				numchrs += tiny_extra;
+				sysLogPrintf(LOG_NOTE,
+					"TINYMODE: added %d generic-enemy chr slots for model allocation; numchrs=%d",
+					tiny_extra, numchrs);
+			}
+		}
+
 		if (!g_Vars.normmplayerisrunning && g_MissionConfig.iscoop && g_Vars.numaibuddies > 0) {
 			// @bug? The Hotshot buddy has two guns, but only one is counted here.
 			numchrs += g_Vars.numaibuddies;
@@ -1703,6 +1753,16 @@ void setupCreateProps(s32 stagenum)
 			s32 numchrs = 0;
 
 			numchrs += setupCountCommandType(OBJTYPE_CHR);
+
+			{
+				s32 tiny_extra = setupCountTinyModeExtraChrs();
+				if (tiny_extra > 0) {
+					numchrs += tiny_extra;
+					sysLogPrintf(LOG_NOTE,
+						"CHRSLOTS: added %d Tiny Mode generic-enemy slots; numchrs=%d",
+						tiny_extra, numchrs);
+				}
+			}
 
 			if (g_Vars.normmplayerisrunning == false
 					&& g_MissionConfig.iscoop
@@ -1846,7 +1906,12 @@ void setupCreateProps(s32 stagenum)
 					 * other slots (door / lift / weapon spawn / monitors)
 					 * still load so the geometry + visuals are intact. */
 					if (withchrs && !forgeIsCanvasMode()) {
-						bodyAllocateChr(stagenum, (struct packedchr *) obj, index);
+						struct packedchr *packed = (struct packedchr *) obj;
+						struct chrdata *chr = bodyAllocateChr(stagenum, packed, index);
+
+						if (chr != NULL) {
+							setupCreateTinyModeExtraChrs(stagenum, packed, index);
+						}
 					}
 					break;
 				case OBJTYPE_DOOR:

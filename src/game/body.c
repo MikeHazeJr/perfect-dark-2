@@ -161,6 +161,128 @@ u32 bodyGetRace(s32 bodynum)
 	return RACE_HUMAN;
 }
 
+#define BODY_TINY_MODE_ENEMY_MULTIPLIER 3
+#define BODY_TINY_MODE_ENEMY_SCALE 0.4f
+
+static bool bodyTinyModeCheatActive(void)
+{
+	return cheatIsActive(CHEAT_SMALLJO) || cheatIsActive(CHEAT_SMALLCHARACTERS);
+}
+
+static bool bodyTinyModeIsUniqueBody(s32 bodynum)
+{
+	switch (bodynum) {
+	case BODY_DJBOND:
+	case BODY_CONNERY:
+	case BODY_DALTON:
+	case BODY_MOORE:
+	case BODY_ELVIS1:
+	case BODY_CARRINGTON:
+	case BODY_TRENT:
+	case BODY_CASSANDRA:
+	case BODY_THEKING:
+	case BODY_DRCAROLL:
+	case BODY_EYESPY:
+	case BODY_TESTCHR:
+	case BODY_CHICROB:
+	case BODY_PRESIDENT:
+	case BODY_PRESIDENT_CLONE:
+	case BODY_PRESIDENT_CLONE2:
+	case BODY_CARREVENINGSUIT:
+	case BODY_JONATHAN:
+	case BODY_SKEDARKING:
+	case BODY_ELVISWAISTCOAT:
+		return true;
+	}
+
+	return false;
+}
+
+static bool bodyTinyModeIsGenericEnemy(const struct packedchr *packed, s32 bodynum)
+{
+	if (packed == NULL) {
+		return false;
+	}
+
+	if (g_Vars.normmplayerisrunning || g_Vars.mplayerisrunning) {
+		return false;
+	}
+
+	if (packed->team != TEAM_ENEMY) {
+		return false;
+	}
+
+	if ((packed->spawnflags & SPAWNFLAG_BASICGUARD) == 0) {
+		return false;
+	}
+
+	if (packed->spawnflags & SPAWNFLAG_INVINCIBLE) {
+		return false;
+	}
+
+	if (packed->chair != -1 || packed->convtalk != 0) {
+		return false;
+	}
+
+	if (packed->flags & (CHRFLAG0_CAN_HEARSPAWN | CHRFLAG0_CHUCKNORRIS)) {
+		return false;
+	}
+
+	return !bodyTinyModeIsUniqueBody(bodynum);
+}
+
+s32 bodyTinyModeExtraChrCountForPacked(const struct packedchr *packed)
+{
+	s32 bodynum;
+
+	if (!bodyTinyModeCheatActive() || packed == NULL) {
+		return 0;
+	}
+
+	bodynum = packed->bodynum == 255 ? body0f02d3f8() : packed->bodynum;
+
+	if (!bodyTinyModeIsGenericEnemy(packed, bodynum)) {
+		return 0;
+	}
+
+	return BODY_TINY_MODE_ENEMY_MULTIPLIER - 1;
+}
+
+static void bodyTinyModeScaleGenericEnemy(struct chrdata *chr, const struct packedchr *packed, s32 bodynum)
+{
+	bool modelscalealreadyapplied;
+
+	if (!bodyTinyModeCheatActive() || !bodyTinyModeIsGenericEnemy(packed, bodynum)) {
+		return;
+	}
+
+	if (chr == NULL) {
+		return;
+	}
+
+	modelscalealreadyapplied = cheatIsActive(CHEAT_SMALLCHARACTERS) && bodyGetRace(bodynum) == RACE_HUMAN;
+
+	if (!modelscalealreadyapplied && chr->model != NULL) {
+		modelSetScale(chr->model, chr->model->scale * BODY_TINY_MODE_ENEMY_SCALE);
+	}
+
+	if (chr->radius > 4) {
+		chr->radius = (s32)(chr->radius * BODY_TINY_MODE_ENEMY_SCALE);
+
+		if (chr->radius < 4) {
+			chr->radius = 4;
+		}
+	}
+
+	if (chr->height > 24) {
+		chr->height = (s32)(chr->height * BODY_TINY_MODE_ENEMY_SCALE);
+
+		if (chr->height < 24) {
+			chr->height = 24;
+		}
+	}
+}
+
 /* B-314 (2026-05-03): centralised allocator for chr->unk348[] fireslot/beam
  * pair used by RACE_ROBOT chrs (BODY_CHICROB). propsRenderBeams (propobj.c
  * around line 11723) does `chr->unk348[0]->beam` and `chr->unk348[1]->beam`
@@ -516,7 +638,7 @@ s32 bodyChooseHead(s32 bodynum)
  * Chr definitions are stored in a packed format in each stage's setup file.
  * The packed format is used for space saving reasons.
  */
-void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
+struct chrdata *bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 {
 	struct pad pad;
 	RoomNum rooms[2];
@@ -542,7 +664,7 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 		sysLogPrintf(LOG_NOTE,
 			"GRID.CANVAS: bodyAllocateChr(stagenum=0x%02x cmdindex=%d) suppressed",
 			stagenum, cmdindex);
-		return;
+		return NULL;
 	}
 
 	padUnpack(packed->padnum, PADFIELD_POS | PADFIELD_LOOK | PADFIELD_ROOM, &pad);
@@ -553,12 +675,12 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 	if (cdTestVolume(&pad.pos, 20, rooms, CDTYPE_ALL, CHECKVERTICAL_YES, 200, -200) == CDRESULT_COLLISION
 			&& packed->chair == -1
 			&& (packed->spawnflags & SPAWNFLAG_IGNORECOLLISION) == 0) {
-		return;
+		return NULL;
 	}
 
 	if (packed->spawnflags & (SPAWNFLAG_ONLYONA | SPAWNFLAG_ONLYONSA | SPAWNFLAG_ONLYONPA)) {
 		if ((packed->spawnflags & (SPAWNFLAG_ONLYONA | SPAWNFLAG_ONLYONSA | SPAWNFLAG_ONLYONPA)) == 0) {
-			return;
+			return NULL;
 		}
 
 		if (((packed->spawnflags & SPAWNFLAG_ONLYONA) && lvGetDifficulty() == DIFF_A)
@@ -566,7 +688,7 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 				|| ((packed->spawnflags & SPAWNFLAG_ONLYONPA) && lvGetDifficulty() == DIFF_PA)) {
 			// ok
 		} else {
-			return;
+			return NULL;
 		}
 	}
 
@@ -729,8 +851,14 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 			if (CHRRACE(chr) == RACE_SKEDAR) {
 				chr->chrflags |= CHRCFLAG_FORCEAUTOAIM;
 			}
+
+			bodyTinyModeScaleGenericEnemy(chr, packed, bodynum);
+
+			return chr;
 		}
 	}
+
+	return NULL;
 }
 
 struct prop *bodyAllocateEyespy(struct pad *pad, RoomNum room)

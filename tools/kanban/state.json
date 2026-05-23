@@ -3152,7 +3152,7 @@
       "column": "active",
       "order": 1000,
       "priority": 1,
-      "notes": "Created 2026-05-21 from Mike's request to walk each asset type and implement the clean-but-functional archive shape. Reprioritized 2026-05-22 as the top Asset Pipeline migration plan. Process order is locked: first define every asset-family format, starting with c3832 for .pdweapon; then freeze the contracts; then rebuild extraction/examples/validators in the full sweep. Shared contract: root descriptor required; no .pdwpn; no authored .bin; no reference-only dependency closure; duplicate embedded payloads are allowed on disk and deduped after ingestion by catalog identity and canonical SHA-256. Preferred archive zones are authoring files first, nested typed dependencies second, and _meta/ for manifest.json, inventory.json, provenance.json, validation reports, source handles, SHA rows, and compatibility bookkeeping. During transition, scanners/loaders may accept old root manifest.json and root SHA sidecars but new emitters should write _meta/ and release validation should fail stale installed outputs that are non-zip, .pdwpn, .bin-backed, descriptor-less, or unresolved internally. c3832 is the detailed .pdweapon format card and sits immediately under this migration plan. Approved 2026-05-23 first format decisions: .pdweapon, .pdprojectile, .pdentity, .pdmaterial, and .pdtexture are recorded on this single tracker. Higher-level assets link typed dependencies by catalog ID and self-contained exports embed those dependency assets as intact typed archives under dependencies/assets; they do not absorb dependency internals into the parent schema. Approved 2026-05-23 second format batch: .pdcharacter, .pdhead, .pdbody, .pdarena, and .pdscenario are recorded on this single tracker. Character is an assembler/meta asset; body owns skeleton and first-person hands; head owns head-specific rig/expression data; arena wraps playable multiplayer selection metadata around an embedded scenario; scenario owns level content and spawn profiles for default, gametype/team, CTF/objective, and mission-phase respawn cases. Continue family prompts after .pdscenario.",
+      "notes": "Created 2026-05-21 from Mike's request to walk each asset type and implement the clean-but-functional archive shape. Reprioritized 2026-05-22 as the top Asset Pipeline migration plan. Process order is locked: first define every asset-family format, starting with c3832 for .pdweapon; then freeze the contracts; then rebuild extraction/examples/validators in the full sweep. Shared contract: root descriptor required; no .pdwpn; no authored .bin; no reference-only dependency closure; duplicate embedded payloads are allowed on disk and deduped after ingestion by catalog identity and canonical SHA-256. Preferred archive zones are authoring files first, nested typed dependencies second, and _meta/ for manifest.json, inventory.json, provenance.json, validation reports, source handles, SHA rows, and compatibility bookkeeping. During transition, scanners/loaders may accept old root manifest.json and root SHA sidecars but new emitters should write _meta/ and release validation should fail stale installed outputs that are non-zip, .pdwpn, .bin-backed, descriptor-less, or unresolved internally. c3832 is the detailed .pdweapon format card and sits immediately under this migration plan. Approved 2026-05-23 first format decisions: .pdweapon, .pdprojectile, .pdentity, .pdmaterial, and .pdtexture are recorded on this single tracker. Higher-level assets link typed dependencies by catalog ID and self-contained exports embed those dependency assets as intact typed archives under dependencies/assets; they do not absorb dependency internals into the parent schema. Approved 2026-05-23 second format batch: .pdcharacter, .pdhead, .pdbody, .pdarena, and .pdscenario are recorded on this single tracker. Character is an assembler/meta asset; body owns skeleton and first-person hands; head owns head-specific rig/expression data; arena wraps playable multiplayer selection metadata around an embedded scenario; scenario owns level content and spawn profiles for default, gametype/team, CTF/objective, and mission-phase respawn cases. Approved 2026-05-23 third format batch: .pdmesh, .pdanim, .pdsfx, .pdvoice, and .pdsong are recorded on this single tracker. Mesh owns reusable geometry and rig-facing model data; animation owns reusable timelines/events/retargeting metadata; SFX owns atomic sound sources and playback metadata; voice owns spoken-line metadata, per-locale audio variants, subtitle bindings, voice-mod override compatibility, and global-language fallback behavior while .pdlang owns text strings; song owns editable sequence/track music data and adaptive playback metadata. Continue family prompts after .pdsong.",
       "subtasks": [
         {
           "id": "c3824-s1",
@@ -3234,37 +3234,37 @@
         {
           "id": "c3824-s10",
           "title": ".pdmesh layout",
-          "status": "backlog",
+          "status": "done",
           "order": 10000,
-          "notes": "Target layout: model.ini at root; model.obj plus model.mtl for base extraction, or model.gltf/model.glb for authored hierarchy/skinning; textures/ carries all material images. _meta/ holds manifest, provenance, validation, source handle, format notes, and hashes. OBJ mtllib and MTL texture refs must resolve inside the archive."
+          "notes": "Approved 2026-05-23: .pdmesh is a reusable mesh/model asset with mesh.ini at root. It owns geometry, hierarchy, skinning/rig binding data, sockets, LODs, optional collision proxy, and import/export settings. Material and texture payloads remain typed dependencies embedded under dependencies/assets for self-contained exports. _meta/ holds manifest, provenance, validation, source handles, format notes, and hashes."
         },
         {
           "id": "c3824-s11",
           "title": ".pdanim layout",
-          "status": "backlog",
+          "status": "done",
           "order": 11000,
-          "notes": "Target layout: animation.ini at root; animation.gltf for authored skeletal animation when available, header.tsv and frames.tsv for decoded character animation, or opcodes.json for weapon/inventory gun scripts. _meta/ holds manifest, target rig/model provenance, validation, source handle, and hashes. Keep target/body/weapon references resolvable through embedded typed archives or clear catalog dependencies plus embedded payloads where required for closure."
+          "notes": "Approved 2026-05-23: .pdanim is a reusable animation asset with animation.ini at root. It owns timeline/channel data, events/notifies, target rig or weapon binding metadata, retargeting metadata, and optional legacy opcode listings. Body, weapon, mesh, and audio dependencies remain catalog-ID refs and are embedded as typed archives under dependencies/assets where required for self-contained exports. _meta/ holds manifest, target rig/model provenance, validation, source handles, and hashes."
         },
         {
           "id": "c3824-s12",
           "title": ".pdsfx layout",
-          "status": "backlog",
+          "status": "done",
           "order": 12000,
-          "notes": "Target layout: sound.ini and sample.wav at root or audio/sample.wav. _meta/ holds manifest, source_format, codec provenance, validation, and hashes. Base ROM codec details belong in _meta/ or descriptor provenance, not as authored sample.bin payloads."
+          "notes": "Approved 2026-05-23: .pdsfx is an atomic reusable sound-effect asset with sound.ini at root. It owns editable source audio, one-shot or looping SFX metadata, loop points, attenuation and mixer tags, and import settings. Authored codec/sample .bin payloads are rejected; generated codec/runtime cache remains private and rebuildable. _meta/ holds manifest, source_format, codec provenance, validation, and hashes."
         },
         {
           "id": "c3824-s13",
           "title": ".pdvoice layout",
-          "status": "backlog",
+          "status": "done",
           "order": 13000,
-          "notes": "Target layout: voice.ini and sample.wav at root or audio/sample.wav. _meta/ holds manifest, voice bank/source provenance, source_format, validation, and hashes. Keep the shape parallel to .pdsfx while preserving voice-specific category metadata."
+          "notes": "Approved 2026-05-23: .pdvoice is a voice-line asset with voice.ini at root. It owns speaker, context, category, subtitle binding, per-locale audio variant, take, priority/playback, and voice-mod override metadata. .pdlang remains the text-string owner; .pdvoice binds to subtitle/localization keys, follows global language selection, and supports locale fallback behavior for self-contained exports and overrides. Typed dependencies are embedded under dependencies/assets where needed. Generated runtime cache remains private and rebuildable. _meta/ holds manifest, voice bank/source provenance, source_format, validation, and hashes."
         },
         {
           "id": "c3824-s14",
           "title": ".pdsong layout",
-          "status": "backlog",
+          "status": "done",
           "order": 14000,
-          "notes": "Target layout: music.ini, sequence.mid, and sequence.tsv at root or under sequence/. Optional authored track.wav, track.ogg, or track.mp3 stays visible. _meta/ holds manifest, RareZip/source provenance, validation, compiler notes, and hashes. No raw data.bin fallback in authored archives."
+          "notes": "Approved 2026-05-23: .pdsong is a reusable music asset with music.ini at root. It owns sequence or track source files, loop points, sections/cues, tempo and transition tags, optional adaptive layers, and typed dependencies. Visible authored sources may include sequence.mid, sequence.tsv, track.wav, track.ogg, or track.mp3. Authored data.bin fallback is rejected; generated runtime cache remains private and rebuildable. _meta/ holds manifest, RareZip/source provenance, validation, compiler notes, and hashes."
         },
         {
           "id": "c3824-s15",
@@ -3313,7 +3313,7 @@
       "flagged_at": "2026-05-21T15:45:19-04:00",
       "pending_completion": null,
       "created": "2026-05-21T15:45:19-04:00",
-      "updated": "2026-05-23T16:31:22.2428749-04:00"
+      "updated": "2026-05-23T17:50:19.2515604-04:00"
     },
     {
       "id": "c3832",
