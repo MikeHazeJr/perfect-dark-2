@@ -16,6 +16,9 @@
 namespace ed = ax::NodeEditor;
 
 static ed::EditorContext *s_WeaponGraphEditor = nullptr;
+static const float kWeaponGraphNodeWidth = 228.0f;
+static const float kWeaponGraphPinSocketSize = 18.0f;
+static const float kWeaponGraphPinRowGap = 8.0f;
 static int s_ContextNodeId = 0;
 static int s_ContextLinkId = 0;
 static int s_ContextPinId = 0;
@@ -63,12 +66,17 @@ static ImVec4 categoryColor(const char *kind)
 static ImVec4 pinColor(int pinKind)
 {
 	switch (pinKind) {
-	case 1: return ImVec4(0.96f, 0.96f, 0.96f, 1.0f);
-	case 2: return ImVec4(0.96f, 0.96f, 0.96f, 1.0f);
+	case 1: return ImVec4(0.20f, 0.92f, 1.0f, 1.0f);
+	case 2: return ImVec4(0.20f, 0.92f, 1.0f, 1.0f);
 	case 3: return ImVec4(0.50f, 0.92f, 0.56f, 1.0f);
 	case 4: return ImVec4(0.92f, 0.74f, 0.28f, 1.0f);
 	default: return ImVec4(0.65f, 0.80f, 0.95f, 1.0f);
 	}
+}
+
+static ImVec4 linkColorForPinKind(int pinKind)
+{
+	return pinColor(pinKind);
 }
 
 static int nextEditorId(PdWeaponGraphEditModel *model)
@@ -332,7 +340,7 @@ static void renderPinSocket(const char *id, const char *tip, const ImVec4 &color
 {
 	ImDrawList *draw = ImGui::GetWindowDrawList();
 	ImVec2 p = ImGui::GetCursorScreenPos();
-	float size = 18.0f;
+	float size = kWeaponGraphPinSocketSize;
 	float r = 6.0f;
 	ImGui::InvisibleButton(id, ImVec2(size, size));
 	ImVec2 c(p.x + size * 0.5f, p.y + size * 0.5f);
@@ -368,16 +376,25 @@ static void renderNode(PdWeaponGraphEditModel *model, int index)
 	ImGui::SameLine();
 	ImGui::TextDisabled("[%s]", node.subgraph[0] ? node.subgraph : "primary");
 	ImGui::TextColored(color, "%s", node.kind);
+	float rowStartX = ImGui::GetCursorPosX();
+	float inputLabelX = rowStartX + kWeaponGraphPinSocketSize + kWeaponGraphPinRowGap;
+	float outputPinX = rowStartX + kWeaponGraphNodeWidth - kWeaponGraphPinSocketSize;
+	float outputLabelX = outputPinX - 38.0f;
 	ed::BeginPin(nodePinId(node, 1), ed::PinKind::Input);
+	ed::PinPivotAlignment(ImVec2(0.0f, 0.5f));
 	renderPinSocket("##exec_in_pin", "Exec input: drag from another node's output to connect",
 		pinColor(1));
 	ed::EndPin();
 	ImGui::SameLine();
-	ImGui::TextDisabled("exec");
-	ImGui::SameLine(130.0f);
-	ImGui::TextDisabled("exec");
+	ImGui::SetCursorPosX(inputLabelX);
+	ImGui::TextColored(pinColor(1), "exec");
 	ImGui::SameLine();
+	ImGui::SetCursorPosX(outputLabelX);
+	ImGui::TextColored(pinColor(2), "exec");
+	ImGui::SameLine();
+	ImGui::SetCursorPosX(outputPinX);
 	ed::BeginPin(nodePinId(node, 2), ed::PinKind::Output);
+	ed::PinPivotAlignment(ImVec2(1.0f, 0.5f));
 	renderPinSocket("##exec_out_pin", "Exec output: drag to another node's input to connect",
 		pinColor(2));
 	ed::EndPin();
@@ -807,7 +824,7 @@ static void renderCanvas(const PdWeaponGraphEditorDesc *desc,
 		ed::Link(linkEditorId(edge),
 			nodePinId(model->nodes[edge.from], 2),
 			nodePinId(model->nodes[edge.to], 1),
-			ImVec4(0.20f, 0.92f, 1.0f, 1.0f), 4.0f);
+			linkColorForPinKind(2), 4.0f);
 	}
 	if (!model->canvas_layout_seeded) {
 		for (int i = 0; i < model->node_count; i++) {

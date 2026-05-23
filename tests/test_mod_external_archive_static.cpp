@@ -2560,6 +2560,13 @@ TEST_CASE("Modding Hub weapon tool builds visual graph modules without raw JSON 
 	REQUIRE(editor.find("renderPinSocket") != std::string::npos);
 	REQUIRE(editor.find("InvisibleButton") != std::string::npos);
 	REQUIRE(editor.find("##exec_out_pin") != std::string::npos);
+	REQUIRE(editor.find("kWeaponGraphNodeWidth") != std::string::npos);
+	REQUIRE(editor.find("outputPinX") != std::string::npos);
+	REQUIRE(editor.find("PinPivotAlignment(ImVec2(0.0f, 0.5f))") !=
+	        std::string::npos);
+	REQUIRE(editor.find("PinPivotAlignment(ImVec2(1.0f, 0.5f))") !=
+	        std::string::npos);
+	REQUIRE(editor.find("linkColorForPinKind(2)") != std::string::npos);
 	REQUIRE(editor.find("Connect Selected") != std::string::npos);
 	REQUIRE(editor.find("Connect To") != std::string::npos);
 	REQUIRE(editor.find("Visible links: %d/%d") != std::string::npos);
