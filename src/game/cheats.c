@@ -52,8 +52,8 @@ struct cheat g_Cheats[] = {
 #else
 	{ L_MPWEAPONS_084, TIME(5 m, 13 s),   SOLOSTAGEINDEX_DEEPSEA,        DIFF_PA, CHEATFLAG_TIMED                              }, // FarSight
 #endif
-	{ L_MPWEAPONS_085, 0,                 SOLOSTAGEINDEX_G5BUILDING,     DIFF_A,  CHEATFLAG_COMPLETION                         }, // Small Jo
-	{ L_MPWEAPONS_086, 0,                 SOLOSTAGEINDEX_INFILTRATION,   DIFF_A,  CHEATFLAG_COMPLETION                         }, // Small Characters
+	{ L_MPWEAPONS_085, 0,                 SOLOSTAGEINDEX_G5BUILDING,     DIFF_A,  CHEATFLAG_COMPLETION                         }, // Tiny Mode
+	{ L_MPWEAPONS_086, 0,                 SOLOSTAGEINDEX_INFILTRATION,   DIFF_A,  CHEATFLAG_COMPLETION                         }, // Hidden legacy small-characters slot
 	{ L_MPWEAPONS_087, 0,                 SOLOSTAGEINDEX_DEFENSE,        DIFF_A,  CHEATFLAG_COMPLETION                         }, // Enemy Shields
 	{ L_MPWEAPONS_088, 0,                 SOLOSTAGEINDEX_DEEPSEA,        DIFF_A,  CHEATFLAG_COMPLETION                         }, // Jo Shield
 #if VERSION >= VERSION_NTSC_1_0
@@ -376,6 +376,10 @@ MenuItemHandlerResult cheatMenuHandleBuddyCheckbox(s32 operation, struct menuite
 char *cheatGetNameIfUnlocked(struct menuitem *item)
 {
 	if (cheatIsUnlocked(item->param)) {
+		if (item->param == CHEAT_SMALLJO) {
+			return "Tiny Mode";
+		}
+
 		return langGet(g_Cheats[item->param].nametextid);
 	}
 
@@ -929,14 +933,6 @@ struct menuitem g_CheatsFunMenuItems[] = {
 	{
 		MENUITEMTYPE_CHECKBOX,
 		CHEAT_SMALLJO,
-		0,
-		(uintptr_t)&cheatGetNameIfUnlocked,
-		0,
-		cheatCheckboxMenuHandler,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		CHEAT_SMALLCHARACTERS,
 		0,
 		(uintptr_t)&cheatGetNameIfUnlocked,
 		0,

@@ -166,7 +166,7 @@ u32 bodyGetRace(s32 bodynum)
 
 static bool bodyTinyModeCheatActive(void)
 {
-	return cheatIsActive(CHEAT_SMALLJO) || cheatIsActive(CHEAT_SMALLCHARACTERS);
+	return cheatIsActive(CHEAT_SMALLJO);
 }
 
 static bool bodyTinyModeIsUniqueBody(s32 bodynum)
@@ -260,7 +260,7 @@ static void bodyTinyModeScaleGenericEnemy(struct chrdata *chr, const struct pack
 		return;
 	}
 
-	modelscalealreadyapplied = cheatIsActive(CHEAT_SMALLCHARACTERS) && bodyGetRace(bodynum) == RACE_HUMAN;
+	modelscalealreadyapplied = cheatIsActive(CHEAT_SMALLJO) && bodyGetRace(bodynum) == RACE_HUMAN;
 
 	if (!modelscalealreadyapplied && chr->model != NULL) {
 		modelSetScale(chr->model, chr->model->scale * BODY_TINY_MODE_ENEMY_SCALE);
@@ -463,7 +463,7 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 				}
 
 				if (!isplayer) {
-					if (cheatIsActive(CHEAT_SMALLCHARACTERS)) {
+					if (cheatIsActive(CHEAT_SMALLJO)) {
 						scale *= 0.4f;
 					}
 

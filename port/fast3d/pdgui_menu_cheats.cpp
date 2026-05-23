@@ -195,6 +195,7 @@ static bool s_Registered      = false;
 static s32  s_CheatsTab       = SC_TAB_FUN;   /* currently-shown tab */
 static s32  s_PendingTab      = -1;           /* set by redirect renderer */
 static bool s_ConfirmUnlockModal = false;     /* inline confirm open? */
+static s32  s_CheatsActionFocus = 2;          /* 0=off, 1=unlock, 2=back */
 /* S300: s_CheatsHubPushedCtx removed — menu pool owns the ctx for
  * MENU_TYPE_CHEATS via menupoolAcquireDialog / menupoolReleaseDialog. */
 
@@ -208,11 +209,9 @@ struct CheatRow {
                             * from langGet(g_Cheats[cheat_id].nametextid) */
 };
 
-/* Rows mirror the legacy g_CheatsFunMenuItems etc. exactly (cheats.c:940..). */
 static const CheatRow k_FunRows[] = {
     { SC_CHEAT_DKMODE,           "DK Mode" },
-    { SC_CHEAT_SMALLJO,          "Small Jo" },
-    { SC_CHEAT_SMALLCHARACTERS,  "Small Characters" },
+    { SC_CHEAT_SMALLJO,          "Tiny Mode" },
     { SC_CHEAT_TEAMHEADSONLY,    "Team Heads Only" },
     { SC_CHEAT_PLAYASELVIS,      "Play as Elvis" },
     { SC_CHEAT_SLOMO,            "Slo-mo Single Player" },
@@ -333,11 +332,20 @@ static inline void sc_TurnOffAllCheats(void)
 
 static const char *sc_localizedCheatName(s32 cheat_id, const char *fallback)
 {
+    if (cheat_id == SC_CHEAT_SMALLJO) {
+        return "Tiny Mode";
+    }
+
     /* g_Cheats layout is stable; nametextid is a u16 lang id.  langSafe
      * tolerates NULL/empty and returns "". */
     const char *name = langSafe((s32)g_Cheats[cheat_id].nametextid);
     if (name && name[0]) return name;
     return fallback;
+}
+
+static bool sc_FocusedItemAcceptPressed(void)
+{
+    return ImGui::IsItemFocused() && pdguiMenuAcceptPressed();
 }
 
 static const char *sc_stageName(s32 stage_index, char *buf, size_t bufn)
@@ -521,7 +529,10 @@ static s32 renderCheatsHub(struct menudialog *dialog,
                                     ImGui::SetTooltip("%s", tip);
                                 }
                             } else {
-                                if (ImGui::RadioButton(name, enabled)) {
+                                bool clicked = ImGui::RadioButton(name, enabled);
+                                bool accepted = sc_FocusedItemAcceptPressed();
+
+                                if ((clicked || accepted) && !enabled) {
                                     sc_SelectBuddy(br.param);
                                     pdguiPlaySound(PDGUI_SND_SELECT);
                                 }
@@ -554,7 +565,15 @@ static s32 renderCheatsHub(struct menudialog *dialog,
                                 }
                             } else {
                                 bool before = enabled;
-                                if (ImGui::Checkbox(name, &enabled)) {
+                                bool clicked = ImGui::Checkbox(name, &enabled);
+                                bool accepted = false;
+
+                                if (!clicked && sc_FocusedItemAcceptPressed()) {
+                                    enabled = !before;
+                                    accepted = true;
+                                }
+
+                                if (clicked || accepted) {
                                     if (before != enabled) {
                                         sc_ToggleCheat(cr.cheat_id);
                                         pdguiPlaySound(enabled
@@ -584,18 +603,55 @@ static s32 renderCheatsHub(struct menudialog *dialog,
     if (pdguiBeginActionBar("##cheats_ab")) {
         float barW  = ImGui::GetContentRegionAvail().x;
         float btnW  = barW / 3.0f;
+        bool actionBarFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
-        if (pdguiActionBarButton("Turn Off All", 0, btnW)) {
+        if (actionBarFocused) {
+            if (pdguiMenuLeftPressed()) {
+                s_CheatsActionFocus = (s_CheatsActionFocus + 2) % 3;
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            }
+            if (pdguiMenuRightPressed()) {
+                s_CheatsActionFocus = (s_CheatsActionFocus + 1) % 3;
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            }
+        }
+
+        bool turnOffPressed = pdguiActionBarButton("Turn Off All", actionBarFocused && s_CheatsActionFocus == 0, btnW);
+        if (!turnOffPressed && sc_FocusedItemAcceptPressed()) {
+            turnOffPressed = true;
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
+        if (turnOffPressed) {
             wantTurnOffAll = true;
         }
+        if (ImGui::IsItemFocused() || ImGui::IsItemHovered()) {
+            s_CheatsActionFocus = 0;
+        }
         ImGui::SameLine();
-        if (pdguiActionBarButton("Unlock All...", 0, btnW)) {
+        bool unlockPressed = pdguiActionBarButton("Unlock All...", actionBarFocused && s_CheatsActionFocus == 1, btnW);
+        if (!unlockPressed && sc_FocusedItemAcceptPressed()) {
+            unlockPressed = true;
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
+        if (unlockPressed) {
             wantUnlockModal = true;
         }
+        if (ImGui::IsItemFocused() || ImGui::IsItemHovered()) {
+            s_CheatsActionFocus = 1;
+        }
         ImGui::SameLine();
-        if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
+        bool backPressed = pdguiActionBarButton("Back", actionBarFocused && s_CheatsActionFocus == 2, ImGui::GetContentRegionAvail().x);
+        if (!backPressed && sc_FocusedItemAcceptPressed()) {
+            backPressed = true;
+            pdguiPlaySound(PDGUI_SND_SELECT);
+        }
+        if (backPressed) {
             wantClose = true;
         }
+        if (ImGui::IsItemFocused() || ImGui::IsItemHovered()) {
+            s_CheatsActionFocus = 2;
+        }
+        ImGui::SetItemDefaultFocus();
     }
     pdguiEndActionBar();
 

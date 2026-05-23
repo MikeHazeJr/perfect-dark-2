@@ -41,6 +41,7 @@
 - Startup asset extraction now reuses validated per-family cache stamps and shows a centered progress modal with smoother time-weighted progress.
 - Tiny Mode now makes spoken character voice lines play at a slightly higher pitch while the cheat is active.
 - Tiny Mode now triples ordinary non-unique enemy spawns into tiny enemies while keeping named/story characters single.
+- Tiny Mode is now the only small-character cheat shown in Cheats; the old Small Characters slot is hidden as a legacy id.
 
 ## Fixed
 
@@ -62,6 +63,7 @@
 - Fixed custom weapon authoring so saved weapon mods no longer expose or write numeric weapon IDs; catalog names are used for author-facing references.
 - Fixed weapon-mod saving diagnostics and template payload handling so shotgun-based dual-wield saves report each save stage in the log and preserve archive-local template model and animation files.
 - Fixed Combat Simulator weapon and arena pickers so catalog entries are alphabetized, custom weapon mods appear by catalog name, and No Score Limit stores the runtime unlimited sentinel.
+- Fixed Cheats menu controller activation for focused cheat rows and the Unlock All action.
 - Fixed weapon behavior graph editing so template graphs load with connected trigger/action nodes, left/right docked pins, pin-colored wires, inspector link lists, larger exec sockets, and simple node-param controls.
 - Fixed a match-start crash when a saved `.pdweapon` mod was selected in Combat Simulator custom weapon slots.
 - Fixed jump collision follow-through so airborne horizontal movement is clamped against rendered wall, ceiling, and corner geometry before the player can clip into it.

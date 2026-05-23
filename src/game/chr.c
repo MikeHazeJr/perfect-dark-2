@@ -3851,7 +3851,7 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 							shadowalpha = shadowalpha * (400 - gaptoground) * 0.004f;
 						}
 
-						if (cheatIsActive(CHEAT_SMALLCHARACTERS)) {
+						if (cheatIsActive(CHEAT_SMALLJO)) {
 							radius *= 0.4f;
 						}
 

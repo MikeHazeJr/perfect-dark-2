@@ -179,6 +179,28 @@ TEST_CASE("menu action helpers replace raw confirm-modal key polling", "[input][
     REQUIRE(chrome.find("ImGuiFocusedFlags_RootAndChildWindows") != std::string::npos);
 }
 
+TEST_CASE("cheats menu exposes one Tiny Mode row with controller actions", "[cheats][menu][static]")
+{
+    const std::string cheats = readTextFile("port/fast3d/pdgui_menu_cheats.cpp");
+    const std::string legacy = readTextFile("src/game/cheats.c");
+
+    REQUIRE_FALSE(cheats.empty());
+    REQUIRE_FALSE(legacy.empty());
+
+    REQUIRE(cheats.find("{ SC_CHEAT_SMALLJO,          \"Tiny Mode\" }") != std::string::npos);
+    REQUIRE(cheats.find("{ SC_CHEAT_SMALLCHARACTERS,  \"Small Characters\" }") == std::string::npos);
+    REQUIRE(cheats.find("if (cheat_id == SC_CHEAT_SMALLJO)") != std::string::npos);
+    REQUIRE(legacy.find("if (item->param == CHEAT_SMALLJO)") != std::string::npos);
+    REQUIRE(legacy.find("MENUITEMTYPE_CHECKBOX,\n\t\tCHEAT_SMALLCHARACTERS") == std::string::npos);
+
+    REQUIRE(cheats.find("ImGui::IsItemFocused() && pdguiMenuAcceptPressed()") != std::string::npos);
+    REQUIRE(cheats.find("sc_FocusedItemAcceptPressed()") != std::string::npos);
+    REQUIRE(cheats.find("s_CheatsActionFocus") != std::string::npos);
+    REQUIRE(cheats.find("pdguiActionBarButton(\"Unlock All...\", actionBarFocused && s_CheatsActionFocus == 1") != std::string::npos);
+    REQUIRE(cheats.find("pdguiActionBarButton(\"Back\", 1") == std::string::npos);
+    REQUIRE(cheats.find("menuGraphFirePushDialog(MENU_TYPE_CHEATS, \"unlock_all\"") != std::string::npos);
+}
+
 TEST_CASE("menu action helpers replace priority navigation and tab polling", "[input][menu_action][static]")
 {
     const std::string agent = readTextFile("port/fast3d/pdgui_menu_agentselect.cpp");

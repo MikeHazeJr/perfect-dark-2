@@ -31,9 +31,13 @@ std::string readFile(const char *path) {
 TEST_CASE("tiny-mode spawn: generic enemy predicate stays narrow",
           "[cheats][tiny][spawn][static]") {
 	const std::string body = readFile("src/game/body.c");
+	const std::string chr = readFile("src/game/chr.c");
 
 	REQUIRE(body.find("BODY_TINY_MODE_ENEMY_MULTIPLIER 3") != std::string::npos);
-	REQUIRE(body.find("CHEAT_SMALLJO) || cheatIsActive(CHEAT_SMALLCHARACTERS)") != std::string::npos);
+	REQUIRE(body.find("return cheatIsActive(CHEAT_SMALLJO);") != std::string::npos);
+	REQUIRE(body.find("CHEAT_SMALLCHARACTERS") == std::string::npos);
+	REQUIRE(chr.find("cheatIsActive(CHEAT_SMALLJO)") != std::string::npos);
+	REQUIRE(chr.find("cheatIsActive(CHEAT_SMALLCHARACTERS)") == std::string::npos);
 	REQUIRE(body.find("packed->team != TEAM_ENEMY") != std::string::npos);
 	REQUIRE(body.find("packed->spawnflags & SPAWNFLAG_BASICGUARD") != std::string::npos);
 	REQUIRE(body.find("packed->spawnflags & SPAWNFLAG_INVINCIBLE") != std::string::npos);
