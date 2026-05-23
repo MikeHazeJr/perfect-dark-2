@@ -1,5 +1,35 @@
 # Session Log (Active)
 
+## Session (`wshotanim`) - 2026-05-22 - shotgun template animation payload save failure
+
+Mike asked to check the build-folder client log after the Shotgun template save still errored.
+
+### Findings
+
+- Checked `Build/logs/game client/pd-client.log`.
+- The failing save was `template=base:shotgun`, `display='DxW Shotgun'`, `dual=1`, `catalog=mod:weapon_dxw_shotgun`.
+- The logged root cause was `WEAPONMOD.SAVE.PAYLOAD_FAIL slot=animation_ref ref='base:invanim_shotgun_singleshot'`, followed by `WEAPONMOD.SAVE.PAYLOAD_EMBED_FAIL`.
+- That means the Shotgun template save was not failing because of incomplete stats; it was trying to re-embed a base animation catalog ref even though the template archive already carries the animation under `animations/invanim_shotgun_singleshot.pdanim`.
+
+### Implemented
+
+- Added template-local animation tracking alongside the existing template-local model tracking.
+- When a template has `animations_manifest.tsv`, the creator now maps the selected animation catalog ref back to the matching `archive_entry` and verifies that entry exists in the template archive.
+- Save now uses copied template animation entries before trying to resolve the animation as a separate catalog asset, so shotgun-derived weapon mods keep `animation_archive = animations/invanim_shotgun_singleshot.pdanim`.
+- If the user changes the Animation Catalog picker, the template-local animation fallback is cleared so an explicit catalog selection can be embedded normally.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session wshotanim -Selector "[weapon_graph][compiler][c3814],[weapon_graph][ui][c3814]" -BuildTimeoutSeconds 240` passed: 246 assertions / 9 cases.
+- `.\devtools\build-session.ps1 -Session wshotanim -Target all -BuildTimeoutSeconds 300` passed.
+- Removed isolated session build `wshotanim`.
+
+### Next
+
+- Manual in-game pass: Shotgun > Use as Template > enable Dual wieldable > Save Weapon Mod. The previous `slot=animation_ref ref='base:invanim_shotgun_singleshot'` failure should be gone; a successful run should log `WEAPONMOD.SAVE.OK`.
+
+---
+
 ## Session (`wshotmod`) - 2026-05-22 - weapon mod save diagnostics and catalog naming
 
 Mike reported a weapon-mod save error after using Shotgun as a template and enabling dual wield, and clarified that generated custom weapon catalog IDs should be `mod:[asset type]_[name]` while the player customizes only Display Name.

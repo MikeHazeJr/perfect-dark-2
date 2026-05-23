@@ -313,6 +313,7 @@ static char s_WeaponEditDisplayName[96] = "";
 static char s_WeaponEditSlug[64] = "";
 static char s_WeaponEditCatalogId[CATALOG_ID_LEN] = "";
 static char s_WeaponEditTemplateModelFile[FS_MAXPATH] = "";
+static char s_WeaponEditTemplateAnimationFile[FS_MAXPATH] = "";
 static char s_WeaponEditModelRef[CATALOG_ID_LEN] = "";
 static char s_WeaponEditTextureRef[CATALOG_ID_LEN] = "";
 static char s_WeaponEditAnimationRef[CATALOG_ID_LEN] = "";
@@ -1961,6 +1962,16 @@ static bool weaponArchiveReadEntryText(const char *archivePath,
     return true;
 }
 
+static bool weaponArchiveHasEntry(const char *archivePath, const char *entry)
+{
+    if (!archivePath || !archivePath[0] || !entry || !entry[0]) return false;
+    mod_archive_t *arc = modArchiveOpen(archivePath);
+    if (!arc) return false;
+    const bool found = modArchiveFindEntry(arc, entry) >= 0;
+    modArchiveClose(arc);
+    return found;
+}
+
 static bool weaponTsvFirstField(const char *tsv, const char *field,
                                 char *out, size_t outSize)
 {
@@ -2005,6 +2016,76 @@ static bool weaponTsvFirstField(const char *tsv, const char *field,
                 if (cellEnd >= lineEnd) break;
                 cell = cellEnd + 1;
                 col++;
+            }
+        }
+        line = *lineEnd ? lineEnd + 1 : lineEnd;
+    }
+    return false;
+}
+
+static bool weaponTsvFindFieldForRow(const char *tsv,
+                                     const char *matchField,
+                                     const char *matchValue,
+                                     const char *outField,
+                                     char *out,
+                                     size_t outSize)
+{
+    if (out && outSize) out[0] = '\0';
+    if (!tsv || !matchField || !matchField[0] ||
+            !matchValue || !matchValue[0] ||
+            !outField || !outField[0] || !out || outSize == 0) {
+        return false;
+    }
+
+    const char *headerEnd = tsv;
+    while (*headerEnd && *headerEnd != '\n') headerEnd++;
+    int matchCol = -1;
+    int outCol = -1;
+    int col = 0;
+    const char *cell = tsv;
+    while (cell <= headerEnd) {
+        const char *cellEnd = cell;
+        while (cellEnd < headerEnd && *cellEnd != '\t') cellEnd++;
+        char name[64];
+        weaponCopyTrimmedRange(name, sizeof(name), cell, cellEnd);
+        if (strcmp(name, matchField) == 0) matchCol = col;
+        if (strcmp(name, outField) == 0) outCol = col;
+        if (cellEnd >= headerEnd) break;
+        cell = cellEnd + 1;
+        col++;
+    }
+    if (matchCol < 0 || outCol < 0) return false;
+
+    const char *line = *headerEnd ? headerEnd + 1 : headerEnd;
+    while (*line) {
+        const char *lineEnd = line;
+        while (*lineEnd && *lineEnd != '\n') lineEnd++;
+        const char *trim = line;
+        while (trim < lineEnd && weaponCharIsSpace(*trim)) trim++;
+        if (trim < lineEnd && *trim != '#') {
+            char match[CATALOG_ID_LEN];
+            char found[FS_MAXPATH];
+            match[0] = '\0';
+            found[0] = '\0';
+            col = 0;
+            cell = line;
+            while (cell <= lineEnd) {
+                const char *cellEnd = cell;
+                while (cellEnd < lineEnd && *cellEnd != '\t') cellEnd++;
+                if (col == matchCol) {
+                    weaponCopyTrimmedRange(match, sizeof(match), cell, cellEnd);
+                }
+                if (col == outCol) {
+                    weaponCopyTrimmedRange(found, sizeof(found), cell, cellEnd);
+                }
+                if (cellEnd >= lineEnd) break;
+                cell = cellEnd + 1;
+                col++;
+            }
+            if (strcmp(match, matchValue) == 0 && found[0]) {
+                strncpy(out, found, outSize - 1);
+                out[outSize - 1] = '\0';
+                return true;
             }
         }
         line = *lineEnd ? lineEnd + 1 : lineEnd;
@@ -2069,7 +2150,7 @@ static bool weaponArchiveReadNestedCatalogId(const char *archivePath,
 
 static void weaponToolPopulateTemplateRefs(const asset_entry_t *e)
 {
-    char value[CATALOG_ID_LEN];
+    char value[FS_MAXPATH];
     if (weaponIniGetValue(s_WeaponIniPreview, "model_ref",
             value, sizeof(value)) ||
             weaponIniGetValue(s_WeaponIniPreview, "model_file",
@@ -2111,16 +2192,38 @@ static void weaponToolPopulateTemplateRefs(const asset_entry_t *e)
 
     if (weaponIniGetValue(s_WeaponIniPreview, "animation_ref",
             value, sizeof(value))) {
-        weaponCopyCatalogRef(s_WeaponEditAnimationRef,
+        weaponCopyCatalogOrArchiveRef(s_WeaponEditAnimationRef,
             sizeof(s_WeaponEditAnimationRef), value);
+        if (!strchr(value, ':') &&
+                weaponArchiveHasEntry(s_WeaponEditTemplateArchive, value)) {
+            strncpy(s_WeaponEditTemplateAnimationFile, value,
+                    sizeof(s_WeaponEditTemplateAnimationFile) - 1);
+            s_WeaponEditTemplateAnimationFile[sizeof(s_WeaponEditTemplateAnimationFile) - 1] = '\0';
+        }
     }
-    if (!s_WeaponEditAnimationRef[0]) {
+    {
         char tsv[4096];
         if (weaponArchiveReadEntryText(s_WeaponEditTemplateArchive,
-                "animations_manifest.tsv", tsv, sizeof(tsv)) &&
-                weaponTsvFirstField(tsv, "catalog_id", value, sizeof(value))) {
-            weaponCopyCatalogRef(s_WeaponEditAnimationRef,
-                sizeof(s_WeaponEditAnimationRef), value);
+                "animations_manifest.tsv", tsv, sizeof(tsv))) {
+            if (!s_WeaponEditAnimationRef[0] &&
+                    weaponTsvFirstField(tsv, "catalog_id",
+                    value, sizeof(value))) {
+                weaponCopyCatalogRef(s_WeaponEditAnimationRef,
+                    sizeof(s_WeaponEditAnimationRef), value);
+            }
+            if (!s_WeaponEditTemplateAnimationFile[0] &&
+                    s_WeaponEditAnimationRef[0]) {
+                char archiveEntry[FS_MAXPATH];
+                if (weaponTsvFindFieldForRow(tsv, "catalog_id",
+                        s_WeaponEditAnimationRef, "archive_entry",
+                        archiveEntry, sizeof(archiveEntry)) &&
+                        weaponArchiveHasEntry(s_WeaponEditTemplateArchive,
+                        archiveEntry)) {
+                    strncpy(s_WeaponEditTemplateAnimationFile, archiveEntry,
+                            sizeof(s_WeaponEditTemplateAnimationFile) - 1);
+                    s_WeaponEditTemplateAnimationFile[sizeof(s_WeaponEditTemplateAnimationFile) - 1] = '\0';
+                }
+            }
         }
     }
 
@@ -2190,6 +2293,7 @@ static void weaponToolStartTemplate(const asset_entry_t *e)
     memset(s_WeaponEditTemplateId, 0, sizeof(s_WeaponEditTemplateId));
     memset(s_WeaponEditTemplateArchive, 0, sizeof(s_WeaponEditTemplateArchive));
     memset(s_WeaponEditTemplateModelFile, 0, sizeof(s_WeaponEditTemplateModelFile));
+    memset(s_WeaponEditTemplateAnimationFile, 0, sizeof(s_WeaponEditTemplateAnimationFile));
     memset(s_WeaponEditModelRef, 0, sizeof(s_WeaponEditModelRef));
     memset(s_WeaponEditTextureRef, 0, sizeof(s_WeaponEditTextureRef));
     memset(s_WeaponEditAnimationRef, 0, sizeof(s_WeaponEditAnimationRef));
@@ -2606,6 +2710,7 @@ static bool weaponToolSaveCustom(void)
     char modelTemplateEntry[FS_MAXPATH] = "";
     char textureCatalogEntry[FS_MAXPATH] = "";
     char animCatalogEntry[FS_MAXPATH] = "";
+    char animTemplateEntry[FS_MAXPATH] = "";
     char audioCatalogEntry[FS_MAXPATH] = "";
     char projectileCatalogEntry[FS_MAXPATH] = "";
     char entityCatalogEntry[FS_MAXPATH] = "";
@@ -2686,6 +2791,13 @@ static bool weaponToolSaveCustom(void)
         }
     }
     if (ok && !animEntry[0]) {
+        if (s_WeaponEditTemplateAnimationFile[0]) {
+            strncpy(animTemplateEntry, s_WeaponEditTemplateAnimationFile,
+                    sizeof(animTemplateEntry) - 1);
+            animTemplateEntry[sizeof(animTemplateEntry) - 1] = '\0';
+        }
+    }
+    if (ok && !animEntry[0] && !animTemplateEntry[0]) {
         if (!weaponAddCatalogAssetArchive(w, ASSET_ANIMATION,
                 s_WeaponEditAnimationRef, "animations", animCatalogEntry,
                 sizeof(animCatalogEntry))) {
@@ -2735,7 +2847,8 @@ static bool weaponToolSaveCustom(void)
     const char *textureFile = textureEntry[0] ? textureEntry :
         (textureCatalogEntry[0] ? textureCatalogEntry : "");
     const char *animFile = animEntry[0] ? animEntry :
-        (animCatalogEntry[0] ? animCatalogEntry : "");
+        (animTemplateEntry[0] ? animTemplateEntry :
+            (animCatalogEntry[0] ? animCatalogEntry : ""));
     const char *audioFile = audioEntry[0] ? audioEntry :
         (audioCatalogEntry[0] ? audioCatalogEntry : "");
     const char *projectileFile = projectileEntry[0] ? projectileEntry :
@@ -3471,9 +3584,16 @@ static void weaponRenderTemplateEditor(float scale)
             weaponRenderCatalogPicker("Texture Catalog", ASSET_TEXTURE,
                                       s_WeaponEditTextureRef,
                                       sizeof(s_WeaponEditTextureRef));
+            char beforeAnimationRef[CATALOG_ID_LEN];
+            strncpy(beforeAnimationRef, s_WeaponEditAnimationRef,
+                    sizeof(beforeAnimationRef) - 1);
+            beforeAnimationRef[sizeof(beforeAnimationRef) - 1] = '\0';
             weaponRenderCatalogPicker("Animation Catalog", ASSET_ANIMATION,
                                       s_WeaponEditAnimationRef,
                                       sizeof(s_WeaponEditAnimationRef));
+            if (strcmp(beforeAnimationRef, s_WeaponEditAnimationRef) != 0) {
+                s_WeaponEditTemplateAnimationFile[0] = '\0';
+            }
             weaponRenderCatalogPicker("Audio Catalog", ASSET_AUDIO,
                                       s_WeaponEditAudioRef,
                                       sizeof(s_WeaponEditAudioRef));

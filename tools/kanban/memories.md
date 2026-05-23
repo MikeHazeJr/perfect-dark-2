@@ -43,6 +43,26 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - typed-pdxxx, self-contained archive, examples.zip, _meta, c3824, clean layout, root descriptor, release tree audit
 
+## Task 5: Fix archive-level misses exposed by the Combat Simulator audit run, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T14-36-44-FI4k-combat_sim_start_crash_and_extraction_fallback_fix.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T10-36-44-019e4af7-a56e-7883-9a83-543e185f5924.jsonl, updated_at=2026-05-21T16:00:50+00:00, thread_id=019e4af7-a56e-7883-9a83-543e185f5924, typed archive and fallback misses uncovered during Combat Simulator crash work)
+
+### keywords
+
+- pdanim, pdmesh, CATALOG.MISS, MANIFEST-SP: late-add, failed=0, typed archive, GDL decode, segment-4 vertex, base:sp_body_108
+
+## Task 6: Define the clean `.pdweapon` archive format and make the broader rollout explicitly freeze formats before the sweep, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-22T12-51-20-xKwG-pdweapon_format_process_order_and_asset_pipeline_reprioritiz.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\22\rollout-2026-05-22T08-51-25-019e4fbd-849e-7e92-8a0d-1042167f762a.jsonl, updated_at=2026-05-22T20:25:26+00:00, thread_id=019e4fbd-849e-7e92-8a0d-1042167f762a, `c3824`/`c3832` process-order clarification and clean `.pdweapon` format note)
+
+### keywords
+
+- c3824, c3832, pdweapon, freeze contracts, implementation sweep, _meta, weapon.ini, process order, asset family formats
+
 ## User preferences
 
 - when project memory or docs describe the archive system, the user corrected: "it isn’t really the Mod Pipeline ... it is the Asset pipeline, and is intended to treat all asstes, base game or mod, natively and equally" -> use Asset Pipeline language and make base/mod parity explicit [Task 1]
@@ -53,6 +73,8 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - when the user’s archive-contract clarification showed that opening one typed archive should expose "the descriptor plus the authored dependency closure needed to edit/clone/share/load it" -> fail packaging/export rather than silently emitting a reference-only archive when an embedded dependency cannot be resolved [Task 3]
 - when the user asked for "a breakdown of the pros and cons" and then "How would we do that in the context of keeping it clean but fully functional and self contained?" -> compare conceptual layout tradeoffs before implementation, but keep closure/portability as non-negotiable [Task 4]
 - when the user said "Make a kanban card with that sort of layout breakdown for each asset type" -> stage broad archive-contract cleanup as a family-by-family execution card instead of burying it in notes [Task 4]
+- when archive validation found bad outputs even though the summary said `failed=0`, the user’s workflow favors fixing the actual archive/fallback contract instead of trusting the headline status [Task 5]
+- when the user asked, "Does the card reflect the ongoing process, specifically, defining the format for each other asset type before implementing the full sweep?" -> make the freeze-first / rebuild-later sequence explicit in the board and docs, not just implied [Task 6]
 
 ## Reusable knowledge
 
@@ -72,6 +94,10 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - The clean archive direction is a two-zone contract: authored/root files stay human-facing, while `_meta/` quarantines manifest, inventory, provenance, validation, SHA rows, and compatibility bookkeeping [Task 4]
 - Keep duplication for portability/cloneability inside authored archives, then dedupe after ingestion by catalog identity / SHA-256 instead of trying to make the archive sparse at authoring time [Task 4]
 - New emitters should write `_meta/`, scanners/loaders may accept older metadata roots temporarily during transition, and release validation should reject stale outputs once emitters are updated [Task 4]
+- Archive correctness in this lane is stronger than a green summary footer: `.pdanim` outputs must be zip-openable typed archives with `animation.ini`, `manifest.json`, and `opcodes.json`, while `.pdmesh` extraction must honor runtime-aligned GDL / vertex decoding including low-bit marker masking and segment-4 vertex resolution [Task 5]
+- Local Combat Simulator can still hit SP fallback paths such as `MANIFEST-SP: late-add` unless the MP manifest is prepared before stage change, and random bot body selection must exclude SP-only rows such as `base:sp_body_108` [Task 5]
+- The current layout migration now has an explicit phased order: `c3824` is the umbrella migration-plan card, `c3832` is the concrete clean `.pdweapon` format card beneath it, and the broad extraction/examples/validators sweep belongs after asset-family formats are frozen [Task 6]
+- The documented clean `.pdweapon` target is `weapon.ini` plus purpose folders such as `models/`, `materials/`, `textures/`, `animations/`, `sounds/`, `behavior/`, `projectiles/`, `entities/`, `ui/`, with `_meta/` holding manifest, inventory, provenance, validation, and hash material [Task 6]
 
 ## Failures and how to do differently
 
@@ -82,9 +108,12 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - A sandboxed wrapper run that cannot find `pd-tests.exe` is not trustworthy verification for this lane; rerun from the real checkout/build output before treating the archive gate as passing [Task 2]
 - If an embedded dependency cannot be resolved during packaging/export, do not emit a reference-only archive and hope runtime finds the missing file later [Task 3]
 - Release/install trees can lag behind repo build output; compare both explicitly instead of assuming the example zip, build output, and installed release tree match [Task 4]
+- Do not trust `failed=0` alone as proof that produced archives and fallback paths are sound; inspect the actual output archives and runtime-loaded assets before closing the lane [Task 5]
+- If a raw HUD model filenum or similar catalog miss appears during runtime validation, treat it as a real provider/catalog gap instead of hand-waving it as a transient quirk [Task 5]
+- If the card wording says "clean self-contained archive layouts" but does not make the sequence obvious, rewrite the board order and subtasks until the freeze-first / implement-later process is visible at a glance [Task 6]
 
 # Task Group: PD2 Weapon Graph Asset Archives
-scope: Weapon-specific authored archive contracts, graph emission, nested payload packaging, Modding Hub authoring surfaces, and Kanban sprint handoff for weapon behavior data.
+scope: Weapon-specific authored behavior contracts, graph authoring surfaces, and Modding Hub workflow for weapon behavior data.
 applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for PD2 weapon-archive authoring, extractor/output, and card-handoff work when `.pdweapon`, nested payloads, or weapon behavior modularization are in scope.
 
 ## Task 1: Clarify weapon behavior modularization as authored asset data instead of new gameplay design, success
@@ -97,17 +126,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - weapon behavior, modularize existing behavior, authored asset format, c3812, trigger pulled, hold fire, charge release, zoom, reticle, ammo display
 
-## Task 2: Emit base `.pdweapon` graph archives with embedded payloads and convert the card into a CLI sprint ledger, success
-
-### rollout_summary_files
-
-- rollout_summaries/2026-05-21T00-39-23-o7K9-pdweapon_base_graph_and_kanban_sprint_update.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\20\rollout-2026-05-20T20-39-23-019e47f9-0958-7f33-b2c2-099b71f53b99.jsonl, updated_at=2026-05-21T05:23:35+00:00, thread_id=019e47f9-0958-7f33-b2c2-099b71f53b99, superseding weapon archive direction with `.pdweapon` and sprint-ready `c3814` board state)
-
-### keywords
-
-- pdweapon, pdprojectile, pdentity, base_weapon_graph_v1, nested_payloads.json, c3814, romextract_pdweapon, no .pdwpn, CLI sprint, state.json
-
-## Task 3: Add structured graph authoring to the Modding Hub Weapons tab instead of JSON-only editing, success
+## Task 2: Add structured graph authoring to the Modding Hub Weapons tab instead of JSON-only editing, success
 
 ### rollout_summary_files
 
@@ -121,31 +140,20 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - when the user said "All the behavior exists in the game already, we just need to modularize it and use it from our own asset files" -> treat weapon-behavior requests as modularization/export of existing behavior, not a request to invent new mechanics [Task 1]
 - when behavior examples include "when trigger pulled", rapid fire, hold fire, charge/release, secondary modes, melee, zoom levels, reticle / overlay / zoom camera effects, and ammo-display behavior -> preserve those examples as required coverage when updating the weapon authored-data contract [Task 1]
-- when the user asked to "Update the Kanban card with completed vs incomplete work, and I will use CLI to sprint us to completion" -> structure weapon-lane board updates as a sprint ledger with completed work first and remaining order explicit [Task 2]
-- when the weapon-graph lane says weapons should embed/catalog nested projectile/entity assets so each weapon archive stays self-contained -> default to self-contained weapon archives rather than split payload delivery [Task 2]
-- when the user said "The weapon mod menu should allow us to create weapon behavior graphs, not just look at their json" -> default the Weapons tab to a structured authoring workflow, with raw JSON kept as an advanced/fallback path rather than the main experience [Task 3]
+- when the user said "The weapon mod menu should allow us to create weapon behavior graphs, not just look at their json" -> default the Weapons tab to a structured authoring workflow, with raw JSON kept as an advanced/fallback path rather than the main experience [Task 2]
 
 ## Reusable knowledge
 
 - The earlier weapon-behavior clarification was about authored asset modularization, not a separate gameplay system: the target behavior layer should represent trigger-pulled cadence in centiseconds, custom projectile selection, looping/rapid fire, hold-fire beams, charge-and-release, secondary modes, melee, zoom, reticles, overlays, zoom-camera effects, and ammo-driven presentation [Task 1]
-- The newer `c3814` lane supersedes the older weapon-extension direction: `.pdweapon` is the active weapon behavior archive extension, `.pdwpn` is deprecated/unsupported in this lane, and live code/tests/examples were verified clean of `.pdwpn` matches [Task 2]
-- `romextract_pdweapon.c` now emits `base_weapon_graph_v1` instead of the temporary legacy-manifest graph, with named modules for hitscan, auto cadence, burst, charge/release, beam tick, fired projectile, thrown physical, melee, specials, and devices [Task 2]
-- Physical weapon behavior now emits embedded `.pdprojectile` and `.pdentity` archives under `projectiles/` and `entities/`, with `nested_payloads.json` recording canonical SHA-256 inventory rows [Task 2]
-- `weapon_graph_archive` centralizes descriptor/text reads, root validation, derived nested IDs, duplicate-ID collision checks, canonical archive-content SHA-256, and nested payload inventory formatting [Task 2]
-- The `.pdweapon` root archive contract is `weapon.ini`, `manifest.json`, `behavior.graph.json`, and `nested_payloads.json` [Task 2]
-- `tools/kanban/state.json` now treats `c3814` as a sprint-ready execution surface: `c3814-s13` done, `c3814-s14` active, `c3814-s15..s18` backlog, with lockouts preserved for no `.pdwpn` and self-contained nested payloads [Task 2]
-- `port/fast3d/pdgui_menu_moddinghub.cpp` is the right place for weapon-editor workflow changes; the Weapons tab already had preview, clone, import, and save plumbing, so graph-builder controls can be layered there instead of inventing a new screen [Task 3]
-- The graph-builder UI now covers seed presets, named module insertion, editable node params, edge add/remove, primary/secondary export selection, validation, and a generated JSON view for `behavior.graph.json` [Task 3]
-- The active `c3814` lane now records `c3814-s23` as done for the graph-builder UI, while deeper runtime execution remains in later subtasks [Task 3]
+- `port/fast3d/pdgui_menu_moddinghub.cpp` is the right place for weapon-editor workflow changes; the Weapons tab already had preview, clone, import, and save plumbing, so graph-builder controls can be layered there instead of inventing a new screen [Task 2]
+- The graph-builder UI now covers seed presets, named module insertion, editable node params, edge add/remove, primary/secondary export selection, validation, and a generated JSON view for `behavior.graph.json` [Task 2]
+- The active `c3814` lane now records `c3814-s23` as done for the graph-builder UI, while deeper runtime execution remains in later subtasks [Task 2]
 
 ## Failures and how to do differently
 
 - Avoid interpreting behavior requests as permission to invent a parallel gameplay system; the user explicitly corrected that framing [Task 1]
 - Keep weapon-contract updates additive and scoped to the active archive lane instead of broad unrelated refactors when the repo already has many concurrent changes [Task 1]
-- A temp-path resolution failure in the payload planner must roll back the planned slot and decrement the count instead of leaving a half-filled payload entry [Task 2]
-- The first graph pass was too adapter-centric; replace temporary compatibility layers with graph-shaped emission once the target contract is known [Task 2]
-- If the first Kanban rewrite is too historical, recast it into a completed-vs-incomplete CLI ledger after reading the exact live card block instead of patching by assumption [Task 2]
-- If new static coverage fails on the wrong generated-string shape, align the assertion with the literal source form instead of the rendered JSON you expected [Task 3]
+- If new static coverage fails on the wrong generated-string shape, align the assertion with the literal source form instead of the rendered JSON you expected [Task 2]
 
 # Task Group: PD2 Startup Asset Extraction and Boot Progress UI
 scope: Startup extraction latency, typed-asset cache behavior, and boot-overlay progress presentation during initial content work.
@@ -302,15 +310,15 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - ACTION_USE, tap reload only, hold interact only, hold_consumed, actionHoldProgress, press-hold, b340
 
-## Task 2: Reopen `c020` as an active press/hold follow-up and split completed primitive work from remaining natural-stop consumers, success
+## Task 2: Make cutscenes own input, require hold-to-skip, and suppress gameplay prompts, success
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-05-21T03-59-33-ndop-pd2_combat_sim_postmatch_and_press_hold_kanban_sprint.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\20\rollout-2026-05-20T23-59-33-019e48b0-4bd3-7072-afa4-5b4da5e89925.jsonl, updated_at=2026-05-21T05:27:25+00:00, thread_id=019e48b0-4bd3-7072-afa4-5b4da5e89925, sprint handoff for `c020`)
+- rollout_summaries/2026-05-21T18-03-22-3G8c-main_menu_ci_camera_and_cutscene_hold_skip.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T14-03-22-019e4bb4-d4ea-7002-bc6b-965a7a79923c.jsonl, updated_at=2026-05-21T18:43:37+00:00, thread_id=019e4bb4-d4ea-7002-bc6b-965a7a79923c, cutscene hold-to-skip prompt and interact suppression)
 
 ### keywords
 
-- c020, actionWasTap, actionHeldForMs, actionConsumeHold, actionHoldProgress, natural-stop consumers, ACTION_WEAPON_NEXT, ACTION_CROUCH, Kanban split
+- cutscene, ACTION_SKIP_CUTSCENE_HOLD_THRESHOLD_MS, pdguiCutsceneSkipPromptRender, g_ImcCutscene, pdguiCiIntroBlocksInteractPrompt, actionConsumeHold
 
 ## Task 3: Fix PC Campaign weapon switching and stale weapon-function HUD text, success
 
@@ -326,18 +334,17 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - when the user says "I can still interact by just tapping the input, instead of the required hold" -> treat tap-vs-hold as a strict gameplay contract, not a UI-only distinction [Task 1]
 - when the user says the radial "should max out and then be consumed as though it were released" -> after a consumed hold, make the ring behave like release instead of staying full until physical button-up [Task 1]
-- when the user asks to "Update the Kanban card with completed vs incomplete work, and I will use CLI to sprint us to completion" -> make the completed-vs-remaining split explicit enough that the next CLI pass can continue without re-deriving scope [Task 2]
-- when the user treats press and hold as one underlying primitive with different thresholds/consumption rules -> keep the primitive vs consumer-adoption distinction explicit instead of inventing a new primitive for each downstream case [Task 2]
+- when cutscene/menu-transition behavior should wait for the scene to finish, prefer structural gating and held-input ownership over transient tap behavior during the transition [Task 2]
 - when an input/display regression affects both weapon switching and the weapon-function HUD, treat it as a gameplay contract issue rather than UI polish and verify both the action path and the displayed state [Task 3]
 
 ## Reusable knowledge
 
 - Press and hold are the same physical input until release timing or the held threshold decides the semantic result; releasing before threshold is a press, crossing threshold is a held input [Task 1]
-- `actionWasTap`, `actionHeldForMs`, `actionConsumeHold`, and `actionHoldProgress` are the canonical press/hold primitives in this checkout [Task 2]
-- Held-input consumption depends on the action, not a single global rule. Door/open interactions can consume immediately after threshold activation, while sustained actions stay active until a natural stop condition, and those sustained lanes own their own natural-stop rule [Task 1][Task 2]
+- `actionWasTap`, `actionHeldForMs`, `actionConsumeHold`, and `actionHoldProgress` are the canonical press/hold primitives in this checkout [Task 1][Task 2][Task 3]
 - In this lane, the real tap/hold contract crosses `src/game/bondmove.c`, `port/src/actionmap.cpp`, and the interact prompt renderer; fixing only the visible radial is incomplete [Task 1]
 - `actionHoldProgress()` should return `0` for consumed holds after the brief full-ring pin, even if the button is still physically down [Task 1]
-- The current verified consumers for the shared primitive are `ACTION_USE`, `ACTION_WEAPON_NEXT`, and `ACTION_CROUCH`; remaining follow-up work is consumer-specific natural-stop adoption for cases such as full-charge fire, beam/overheat cooldown, ammo-empty stop, and one-shot door/open interactions [Task 2]
+- `ACTION_SKIP_CUTSCENE_HOLD_THRESHOLD_MS` is the cutscene skip threshold constant, and `pdguiCutsceneSkipPromptRender()` is the dedicated hold-to-skip overlay path that uses the existing hold-ring rendering primitives [Task 2]
+- `pdguiCiIntroBlocksInteractPrompt()` is the suppression hook for preventing gameplay interact prompts from bleeding through active cutscenes, and the glyph resolver must check `g_ImcCutscene` so the cutscene prompt shows the right binding first [Task 2]
 - `ACTION_WEAPON_NEXT` is now the canonical PC Campaign next-weapon tap/hold surface in this checkout: tap cycles, hold opens the radial wheel, and `Q` plus mouse wheel feed the same action path [Task 3]
 - Mouse-wheel weapon cycling depends on wheel-release timestamps refreshing `up_time_ms`; otherwise `actionWasTap()` can reject the gesture as stale [Task 3]
 - The weapon-function HUD text cache must reset when weapon or function identity changes, or stale labels can leak across weapon transitions [Task 3]
@@ -346,8 +353,8 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - Do not preserve stale alternate tap/double-tap interaction ideas once the current lane has been corrected to reload-only taps and hold-only interact [Task 1]
 - If a patch misses because the file context moved, re-apply against the exact live block instead of forcing a brittle edit [Task 1]
-- Do not leave a press/hold card in `done` when subtasks still represent the remaining sprint work; reopen it as active/watch and surface the incomplete natural-stop consumers directly on the card [Task 2]
-- When the user asks for a Kanban split, prefer a card-level split (active follow-up plus subtasks) over burying the open work in notes only [Task 2]
+- If a cutscene hold selector test becomes too literal after the implementation shifts to a reusable skip-action array, align the assertion with the actual source shape instead of the older exact string [Task 2]
+- If an all-target wrapper prints a truncated JSON warning but the build itself completes, judge the build lane by the wrapper's final pass/fail state plus the focused selector evidence [Task 2]
 - Do not stop at the input binding when the visible regression includes stale weapon-function text; display caches can hide gameplay-state fixes unless both surfaces are checked [Task 3]
 
 # Task Group: PD2 Dev Window v2 CLI Launchers
@@ -358,7 +365,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-05-21T05-16-47-Vi9J-dev_window_v2_codex_cli_admin_launcher.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T01-16-47-019e48f6-fff3-7863-a2c3-f42026af848b.jsonl, updated_at=2026-05-21T05:24:07+00:00, thread_id=019e48f6-fff3-7863-a2c3-f42026af848b)
+- rollout_summaries/2026-05-21T05-16-47-Vi9J-dev_window_codex_admin_launch_and_powershell_input_hardening.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T01-16-47-019e48f6-fff3-7863-a2c3-f42026af848b.jsonl, updated_at=2026-05-21T15:05:19+00:00, thread_id=019e48f6-fff3-7863-a2c3-f42026af848b)
 
 ### keywords
 
@@ -368,30 +375,102 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-05-21T05-16-47-Vi9J-dev_window_v2_codex_cli_admin_launcher.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T01-16-47-019e48f6-fff3-7863-a2c3-f42026af848b.jsonl, updated_at=2026-05-21T05:24:07+00:00, thread_id=019e48f6-fff3-7863-a2c3-f42026af848b, post-UAC landing correction)
+- rollout_summaries/2026-05-21T05-16-47-Vi9J-dev_window_codex_admin_launch_and_powershell_input_hardening.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T01-16-47-019e48f6-fff3-7863-a2c3-f42026af848b.jsonl, updated_at=2026-05-21T15:05:19+00:00, thread_id=019e48f6-fff3-7863-a2c3-f42026af848b, post-UAC landing correction)
 
 ### keywords
 
 - System32, WorkingDirectory, cd /d, UAC, cmd.exe, project root, elevated console
+
+## Task 3: Investigate broken PowerShell input symptoms and harden the Codex launcher without touching Windows-wide state, partial
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T05-16-47-Vi9J-dev_window_codex_admin_launch_and_powershell_input_hardening.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T01-16-47-019e48f6-fff3-7863-a2c3-f42026af848b.jsonl, updated_at=2026-05-21T15:05:19+00:00, thread_id=019e48f6-fff3-7863-a2c3-f42026af848b, profileless PowerShell host hardening after Backspace/Enter complaints)
+
+### keywords
+
+- PowerShell, PSReadLine, pwsh.exe, NoProfile, TERM, COLORTERM, EncodedCommand, ConsoleHost_history.txt, wt.exe, Backspace, Enter
 
 ## User preferences
 
 - when the user says "I dont need prompting assistance, just a button to launch the CLI (as admin)" -> prefer a direct launcher rather than routing the request back through prompt-composition UI [Task 1]
 - when the user says the elevated shell should open "at our project directory, not in System32" -> verify the visible post-UAC landing directory, not just the intended working-directory property [Task 2]
 - when the user says they are not using Claude CLI for now -> keep the Claude panel intact, but do not make it the only CLI path when Codex is the requested tool [Task 1]
+- when the user says "my powershell seems somewhat broken" and "Don't break Windows" -> investigate and harden the launcher first, but avoid registry edits, cache purges, or other Windows-wide changes unless strongly justified [Task 3]
 
 ## Reusable knowledge
 
 - `devtools/dev-window-v2/dev-window-v2.ps1` already had a Claude-oriented CLI tab; the Codex launcher fit as a separate button in the existing launch row rather than a replacement workflow [Task 1]
 - `Get-CliCodexExe` resolves Codex from common Windows install paths or `PATH`, and the launcher entry points added in this lane were `BtnCliLaunchCodex` and `Invoke-CliLaunchCodexAdmin` [Task 1]
 - Under UAC elevation, `cmd.exe` can still open in `System32` even when `ProcessStartInfo.WorkingDirectory` is set; the reliable fix here was to launch `cd /d "C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike" && "codex.exe"` [Task 2]
-- Focused verification for this surface was PowerShell AST parse plus XAML load, with the button name present and `git diff --check` clean after the final launcher command change [Task 1][Task 2]
+- `wt.exe` was not installed/discoverable in this environment, so the launcher could not offload cleanly into Windows Terminal [Task 3]
+- No PowerShell profile script was loaded in the investigated session, and PSReadLine key bindings for Enter / Backspace were normal, so the launcher hardening path focused on host isolation rather than profile surgery [Task 3]
+- The hardened launcher now prefers `pwsh.exe`, uses `-NoProfile`, sets `TERM=xterm-256color` and `COLORTERM=truecolor`, routes PSReadLine history to a temp per-process path, and uses `-EncodedCommand` to avoid quoting/path fragility [Task 3]
+- Focused verification for this surface was PowerShell AST parse plus XAML load, with the button name present and `git diff --check` clean after the final launcher command change [Task 1][Task 2][Task 3]
 
 ## Failures and how to do differently
 
 - Do not assume an existing Claude prompt box should be reused when the user asked for a plain CLI launcher [Task 1]
 - Keep elevated-launch code separate from prompt-generation code paths so the launcher remains reusable and easy to reason about [Task 1]
 - `WorkingDirectory` alone was not enough for the elevated console; when the landing directory matters, enforce it inside the launched command with `cd /d` [Task 2]
+- If the first hardening pass relies on a quoted `-Command` string, replace it with encoded-command startup before treating the launcher as robust [Task 3]
+- When the user's symptom may come from a history/cache path but they did not ask for system repair, isolate the launched console from that state instead of modifying the user cache directly [Task 3]
+
+# Task Group: PD2 Dev Window v2 Project State Sync and Release Closeout
+scope: Git-tracked live project state, selectable pull behavior, and concise release-note generation in the Dev Window v2 / release tooling lane.
+applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for Dev Window v2 build/release/push/pull workflows and release-note upkeep in this checkout.
+
+## Task 1: Mirror live project state into tracked files and commit it with code, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T14-50-10-i1ce-pd2_devwindow_live_state_git_sync_release_notes.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T10-50-10-019e4b03-f40c-7fd2-b463-0d97408cc3fa.jsonl, updated_at=2026-05-21T15:06:01+00:00, thread_id=019e4b03-f40c-7fd2-b463-0d97408cc3fa, Git-tracked Kanban/memory state sync before build/release/push)
+
+### keywords
+
+- project-state-sync, tools/kanban/memories.md, c3818, Sync-ProjectMindState, Get-ProjectStateCommitBody, live state, GitHub
+
+## Task 2: Make Pull choose a remote commit instead of blindly advancing, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T14-50-10-i1ce-pd2_devwindow_live_state_git_sync_release_notes.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T10-50-10-019e4b03-f40c-7fd2-b463-0d97408cc3fa.jsonl, updated_at=2026-05-21T15:06:01+00:00, thread_id=019e4b03-f40c-7fd2-b463-0d97408cc3fa, fetch-first selectable pull flow)
+
+### keywords
+
+- selectable pull, git fetch, Show-GitPullCommitDialog, Start-GitPullMerge, fast-forward, remote commits
+
+## Task 3: Replace stale release text with a running simplified change list, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T14-50-10-i1ce-pd2_devwindow_live_state_git_sync_release_notes.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T10-50-10-019e4b03-f40c-7fd2-b463-0d97408cc3fa.jsonl, updated_at=2026-05-21T15:06:01+00:00, thread_id=019e4b03-f40c-7fd2-b463-0d97408cc3fa, simplified `UNRELEASED.md` closeout flow)
+
+### keywords
+
+- UNRELEASED.md, simplified release notes, Highlights, Added, Changed, Fixed, stale notes
+
+## User preferences
+
+- when the user said they wanted to "also track our Kanban board and memories.md using GitHub" and "commit those as well" -> treat live board/memory state as part of the shippable project state, not a side note [Task 1]
+- when the user described `memories.md` as "the active mind / perception / live state of the project at any given moment" -> mirror that state before build/release/push so code and project state stay synchronized [Task 1]
+- when the user said "when I select Pull, it should let me choose a commit to pull" -> expose remote commit choice instead of defaulting to a blind pull [Task 2]
+- when the user asked for a running list of "simplified" change descriptions and complained about the "same outdated commit message / description" -> keep release notes concise, current, and explicitly maintained during closeout [Task 3]
+
+## Reusable knowledge
+
+- `devtools/project-state-sync.ps1` is the reusable sync helper for this lane, with `Sync-ProjectMindState`, `Get-ProjectStateCommitBody`, and `Test-ReleaseNotesLookStale` coordinating live-state mirroring and release-note checks [Task 1][Task 3]
+- The tracked mirror for Codex memory in this repo is `tools/kanban/memories.md`, which is fed from `C:\Users\mikeh\.codex\memories\MEMORY.md` before build/release/push flows [Task 1]
+- In this workflow, release/build/push sync should mirror state first, then stage/commit, then derive commit/release text from the same staged live-state files [Task 1][Task 3]
+- The safer pull UX here is fetch-first, choose from remote commits not yet local, then fast-forward to the selected commit or report that fast-forward is not possible [Task 2]
+- `UNRELEASED.md` is the current release-notes source of truth, and a short `Highlights / Added / Changed / Fixed` running list is the accepted shape for user-facing release text [Task 3]
+
+## Failures and how to do differently
+
+- If a new tooling card ID collides with an existing live card, validate against the current `tools/kanban/state.json` list and move the new work to a fresh ID instead of renumbering the established card underneath it [Task 1]
+- In a dirty tree, broad `git diff --check` or similar whole-tree validation can time out; scoped checks on the touched files are the reliable validation path for this lane [Task 1]
+- The selectable-pull flow is intentionally fast-forward only; do not present it as a general divergent-history resolver [Task 2]
+- If `UNRELEASED.md` still looks like an old baseline, rewrite it before release rather than letting stale placeholder text keep propagating into releases [Task 3]
 
 # Task Group: PD2 Skedar Benchmark Parity and Surface Locomotion
 scope: Skedar swarm benchmark behavior, CPU/GPU parity, and benchmark-local wall/jump surface locomotion.
@@ -689,7 +768,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - Do not assume the first `pd-tests.exe` path is still valid in this checkout; the isolated build layout has drifted from older flat-path examples [Task 1]
 
 # Task Group: PD2 Targeted pd-tests Routing
-scope: Focused `pd-tests` execution, selector use, and keeping test/doc updates aligned with product rules.
+scope: Focused `pd-tests` execution, Windows test-launch runtime, selector use, and keeping test/doc updates aligned with product rules.
 applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for targeted verification work in this checkout where a narrow suite can prove the relevant behavior.
 
 ## Task 1: Use focused selectors for menu-graph, F6, jump, and hold semantics verification, success
@@ -705,18 +784,35 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - run-pd-tests.ps1, -Scope, -Selector, [input][menu_graph], [debug][campaign][f6], [press-hold], [physics][jump]
 
+## Task 2: Fix the Windows `clock_gettime64` loader popup by making `pd-tests.exe` resolve `winpthread` locally, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T16-03-36-thOE-pd_tests_clock_gettime64_loader_popup_fix.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T12-03-36-019e4b47-2c05-7ab2-b44e-3467b5d91e80.jsonl, updated_at=2026-05-21T16:23:09+00:00, thread_id=019e4b47-2c05-7ab2-b44e-3467b5d91e80, local `libwinpthread-1.dll` copy and wrapper hardening)
+
+### keywords
+
+- clock_gettime64, libwinpthread-1.dll, objdump -p, WINPTHREAD_STATIC=1, pd-tests.exe, run-pd-tests-smoke.ps1, B-355
+
 ## User preferences
 
 - when product rules change, the user expects focused verification tied to the named behavior instead of a broad undifferentiated test pass [Task 1]
+- when the user says automated tests keep hitting a Windows loader popup, treat it as a real automation blocker and prefer a durable binary/environment fix over manual launch workarounds [Task 2]
 
 ## Reusable knowledge
 
 - Prefer `devtools/run-pd-tests.ps1` with `-Scope` or `-Selector` for focused `pd-tests` lanes when applicable, and keep test/docs alignment in the same slice when product rules change [Task 1]
 - The recent reliable focused selectors in this checkout were `[input][menu_graph]`, `[debug][campaign][f6]`, `[press-hold]`, and `[physics][jump]` [Task 1]
+- For Windows `pd-tests.exe` popup issues, check the binary import table first (`objdump -p`) before assuming the wrapper is the only culprit [Task 2]
+- The durable fix for B-355 was not removing the dependency entirely but copying the matching `libwinpthread-1.dll` beside `pd-tests.exe` so Windows resolves the local runtime before `PATH` [Task 2]
+- `devtools/run-pd-tests.ps1`, Dev Window v2, and `tools/smoke-verify/run-pd-tests-smoke.ps1` all matter for this lane; a test-launch fix is incomplete if only one wrapper is hardened [Task 2]
+- The smoke wrapper must accept both singular and plural Catch2 success footers when parsing output (`test case` / `test cases`) [Task 2]
 
 ## Failures and how to do differently
 
 - Stale historical runner-failure details should not dominate future verification choices unless they recur in the current repo state [Task 1]
+- If a first attempt to make `pd-tests` fully static still leaves `libwinpthread-1.dll` in the import table, stop assuming the static-link comment is true and validate the actual binary/runtime pair [Task 2]
+- When `build-session.ps1` fails under sandbox Git ownership issues, rerun from the real checkout before treating the loader popup lane as a code failure [Task 2]
 
 # Task Group: PD2 Client-Hosted Online and Connect-Code Contract
 scope: Listen-host/client-hosted online, connect-code UI, NAT-aware handoffs, and trust/security hardening.
@@ -828,15 +924,15 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - menuPoolConsistencyCheck, MENU_TYPE_ROOM, standalone overlays, leak-only cleanup, menupoolReleaseAll
 
-## Task 3: Keep the Combat Simulator post-match endscreen visible by suppressing the legacy save-player prompt on PC, success
+## Task 3: Fix Combat Simulator post-match endscreen interaction after the screen was already visible, success
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-05-21T03-59-33-ndop-pd2_combat_sim_postmatch_and_press_hold_kanban_sprint.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\20\rollout-2026-05-20T23-59-33-019e48b0-4bd3-7072-afa4-5b4da5e89925.jsonl, updated_at=2026-05-21T05:27:25+00:00, thread_id=019e48b0-4bd3-7072-afa4-5b4da5e89925, B-356 post-match dialog stack fix)
+- rollout_summaries/2026-05-21T03-59-33-ndop-pd2_combat_sim_postmatch_endscreen_interaction_fix.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\20\rollout-2026-05-20T23-59-33-019e48b0-4bd3-7072-afa4-5b4da5e89925.jsonl, updated_at=2026-05-21T16:57:08+00:00, thread_id=019e48b0-4bd3-7072-afa4-5b4da5e89925, second-pass B-356 interaction fix for visible MP endscreen)
 
 ### keywords
 
-- Combat Simulator, post-match screen, Save Player prompt, mpPushEndscreenDialog, g_MpEndscreenSavePlayerMenuDialog, OPTION_ASKEDSAVEPLAYER, B-356
+- Combat Simulator, post-match screen, B-356, pdguiRenderConfirmModal, pdguiConsumeTitleClose, ImGuiFocusedFlags_RootAndChildWindows, confirm popup scope, title X
 
 ## Task 4: Fix Main Menu root-close so X/Escape actually exit instead of reopening the menu, success
 
@@ -848,29 +944,42 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - menuClose, menupoolReleaseAll, POP_ROOT, X button, Escape double sound, Main Menu, B-361
 
+## Task 5: Gate Main Menu entry on the Carrington Institute camera finishing across all entry paths, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T18-03-22-3G8c-main_menu_ci_camera_and_cutscene_hold_skip.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T14-03-22-019e4bb4-d4ea-7002-bc6b-965a7a79923c.jsonl, updated_at=2026-05-21T18:43:37+00:00, thread_id=019e4bb4-d4ea-7002-bc6b-965a7a79923c, CI camera readiness gate for cold boot and return flows)
+
+### keywords
+
+- Main Menu, Carrington Institute, ciReadyForMenuOpen, ciHoldMenuOpenUntilCameraReady, g_PostExitMainMenuView, var80087260, c3821
+
 ## User preferences
 
 - when the correct fix is architectural, the user expects the architecture to be cleaned up rather than hidden behind small ad hoc stack-state patches [Task 1][Task 2]
-- when the user reports that ending a Combat Simulator match appeared to route toward the post-match screen but "the post-match screen never appeared and the game had to be force-closed" -> inspect the endscreen/dialog stack, not just the visible match-end flow [Task 3]
+- when the user reports that a Combat Simulator post-match screen is visible but the X or Quit/Disconnect confirm "does not respond" -> inspect popup scope and title-close focus routing, not just the renderer [Task 3]
 - for controller-facing menu work, preserve real controller usability and transitions across the whole surface, not just a static migration [Task 1]
 - when the user reports "I can't exit menus with the X button" and Escape plays the sound twice but keeps the menu open -> treat duplicate-close feedback as a split state/ownership bug, not just a binding issue [Task 4]
+- when the user says Main Menu loading "should work for all entries ... including returning there from game matches or missions ending" -> cover cold boot and return paths together when menu-entry timing is the issue [Task 5]
 
 ## Reusable knowledge
 
 - Prefer proper menu architecture over ad hoc push/pop or one-off state flags; the graph is now the controller-facing abstraction for the active ImGui menu surface [Task 1]
 - `menuGraphFireReplaceDialog` is the pattern for pop-then-push transitions that should not expose raw stack calls, and `EDGE_PUSH_ANY` is the escape hatch for legacy/unregistered dialogdefs during migration [Task 1]
 - The room screen is a valid menu-pool occupant even when the legacy dialog stack is empty; the watchdog fix boundary is "release only legacy-stack leaks" rather than "release less everywhere" [Task 2]
-- `mpPushEndscreenDialog()` can be the visible root and still be obscured by a later legacy prompt; on PC, the legacy NTSC save-player prompt is a no-op ImGui surface and must not become the current dialog above the post-match screen [Task 3]
-- The actual B-356 fix boundary was to mark `OPTION_ASKEDSAVEPLAYER` but not push `g_MpEndscreenSavePlayerMenuDialog` on PC, with `tests/test_menu_graph.cpp` pinning that the MP game-over root stays visible [Task 3]
+- A visible menu can still be effectively dead if confirm popups are opened from a child scope and rendered from the parent scope; defer the popup open until after the child closes, then render/open it from the parent endscreen scope [Task 3]
+- `pdguiConsumeTitleClose()` should accept root-and-child focus when the title X must work after focus moves into nested action/content children [Task 3]
 - Root-pop edges are not fully closed by `menupoolReleaseAll()` alone; if the legacy root dialog survives, `menuClose()` must run too or the Main Menu can re-open on the next frame [Task 4]
+- The Main Menu camera-readiness gate lives in `src/game/menutick.c`; `ciReadyForMenuOpen()` / `ciHoldMenuOpenUntilCameraReady()` are the right enforcement point for cold boot plus `g_PostExitMainMenuView` / `var80087260` return paths [Task 5]
 
 ## Failures and how to do differently
 
 - If the wrapper build summary is incomplete, do not assume the menu lane is verified; confirm client/updater, tests, and server separately [Task 1]
 - Do not treat standalone pure-ImGui overlays as leaks just because the legacy stack is empty [Task 2]
-- If a new static assertion fails on wording such as `hidden` vs `hiding`, align the test to the live source/comment phrasing before rerunning the focused selector [Task 3]
-- Do not record a post-match dialog-stack fix as fully advanced until the focused `[input][menu_graph]` selector and the all-target build both pass; move it from fixed-pending-build to fixed-pending-playtest only after that evidence exists [Task 3]
+- If a visible post-match screen still ignores clicks, check popup ownership/scope and title-close focus before assuming the renderer is dead [Task 3]
+- Do not record a post-match interaction fix as advanced until the focused `[input][menu_graph]` selector and the all-target build both pass; move it to fixed-pending-playtest only after that evidence exists [Task 3]
 - If closing a menu appears to work for one ownership layer but the surface re-opens immediately, inspect surviving legacy dialogs in addition to menu-pool/input-context state [Task 4]
+- If the active worktree contains lots of generated smoke artifacts, keep the durable memory anchored on the verified source behavior and the context/Kanban updates instead of treating those artifacts as part of the feature [Task 5]
 
 # Task Group: PD2 Log-First Runtime Diagnostics
 scope: Runtime bug diagnosis for black screens, load failures, catalog misses, lifecycle cleanup, and scenario/debug-launch issues.
@@ -927,6 +1036,36 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - chrTickRobotAttack, robotSetMuzzleFlash, ROBOT.ATTACK.GUARD, base:infiltration, auto_campaign_infiltration_robot_attack, [chraction][robot][static][b365], B-365
 
+## Task 6: Diagnose the Combat Simulator start crash from the newest build log and surface the stale bot target-prop dereference, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T14-36-44-FI4k-combat_sim_start_crash_and_extraction_fallback_fix.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T10-36-44-019e4af7-a56e-7883-9a83-543e185f5924.jsonl, updated_at=2026-05-21T16:00:50+00:00, thread_id=019e4af7-a56e-7883-9a83-543e185f5924, `botJumpDecide` crash from stale target prop on Combat Sim start)
+
+### keywords
+
+- Combat Simulator, botJumpDecide, ACCESS_VIOLATION, attackpropnum, prop backlink, src/game/bot.c:3271, B-316
+
+## Task 7: Diagnose and fix the F9 diagnostics overlay crash on solo pause resume from the latest log, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T17-49-44-P10d-pd2_f9_diagnostics_overlay_crash_solo_pause_resume.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T13-49-44-019e4ba8-5717-7561-b314-2ac54c77dbd9.jsonl, updated_at=2026-05-21T17:57:29+00:00, thread_id=019e4ba8-5717-7561-b314-2ac54c77dbd9, B-359 read-only overlay crash fix)
+
+### keywords
+
+- F9 diagnostics overlay, soloMenuTitlePauseStatus, menuResolveDialogTitle, pdguiDebugFormatLegacyMenuInfo, pdguiMenuStackOverlayRender, B-359
+
+## Task 8: Record the user’s PD2 log-location shorthand for faster runtime diagnostics, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-21T00-39-23-o7K9-pd2_log_location_shorthand.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\20\rollout-2026-05-20T20-39-23-019e47f9-0958-7f33-b2c2-099b71f53b99.jsonl, updated_at=2026-05-21T14:05:41+00:00, thread_id=019e47f9-0958-7f33-b2c2-099b71f53b99, durable shorthand note for build vs release client log folders)
+
+### keywords
+
+- in build, release folder, install directory, Build\\logs\\game client, Downloads\\Perfect Dark 2.0\\logs\\game client, log shorthand
+
 ## User preferences
 
 - when the user says "Start match or mission, leave. Try to start a new one." -> treat it as a lifecycle/restart bug and inspect teardown plus re-entry instead of only the visible crash site [Task 1]
@@ -934,6 +1073,9 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - when the user rejects a "fixed" card because some mission starts still look black or miss a visible prop, treat the complaint as a concrete runtime artifact problem and investigate the named object or mission start directly [Task 4]
 - when a user names a specific missing object such as the Elvis medical bed, add a targeted smoke fixture for that exact object/path instead of relying only on a broad campaign run [Task 4]
 - when the user reports a build/playtest exception and points at the build log, start from the newest runtime log and exact stage path before guessing from the symptom alone [Task 5]
+- when the user says "Investigate and surface what the failure was." for a Combat Simulator crash, report the concrete failure from the live log rather than a speculative blocked hypothesis [Task 6]
+- when the user says another session is already reviewing the extraction crash, stand down on that bug and record only the durable environment shorthand they asked for [Task 8]
+- when the user defines phrases like "in build" or "release folder / install directory", treat them as stable path shorthand and map them directly to the exact log folders [Task 8]
 
 ## Reusable knowledge
 
@@ -946,6 +1088,11 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - The broad `auto_campaign_first_cycle` fixture can be useful for proving early mission-start health even if it times out before full campaign completion; judge it by the target assertions and named artifact loads [Task 4]
 - `chrTickRobotAttack()` / `robotSetMuzzleFlash()` are the exact retrieval handles for the Infiltration robot-attack exception, and the durable fix is fail-closed validation of chr/model/prop/target/beam state before muzzle/beam writes proceed [Task 5]
 - `ROBOT.ATTACK.GUARD:` is now the diagnostic string for invalid robot attack state, and `tools/smoke-verify/tests/auto_campaign_infiltration_robot_attack.json` is the narrow replay path for this crash class [Task 5]
+- The Combat Sim start crash class in `botJumpDecide` came from dereferencing `tprop->chr` after `tprop = &g_Vars.props[chr->aibot->attackpropnum]`; validating only `attackpropnum >= 0` is insufficient without prop-pool range checks and `prop->chr` / `chr->prop` backlink validation [Task 6]
+- The useful stack for that crash class was `botJumpDecide -> botJumpTickEval -> botTickUnpaused -> botTick -> propsTickPlayer -> lvRender -> mainTick`, with the faulting read at `src/game/bot.c:3271` [Task 6]
+- Read-only diagnostics surfaces can still crash runtime: `pdguiDebugFormatLegacyMenuInfo()` should only resolve literal or lang-backed titles, while callback-backed legacy titles must render as placeholders such as `<dynamic title>` [Task 7]
+- `soloMenuTitlePauseStatus()` must tolerate `curdialog == NULL` or `curdialog->definition == NULL` if the pause dialog is already released during overlay render [Task 7]
+- The user’s shorthand log roots in this checkout are `C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\Build\logs\game client` for "in build" and `C:\Users\mikeh\Downloads\Perfect Dark 2.0\logs\game client` for "release folder / install directory" [Task 8]
 
 ## Failures and how to do differently
 
@@ -955,6 +1102,9 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - Do not over-trust broad smokes for closure when the useful signal is a named mission-start path or object load; add a narrow smoke fixture [Task 4]
 - When cleaning up after runtime-smoke work, remove generated smoke artifacts from the current session but do not sweep unrelated dirty files [Task 4]
 - If a crash occurs in a repeatable stage such as Infiltration, add a stage-specific smoke replay instead of waiting for a longer whole-campaign runner to reach the same point [Task 5]
+- Once a fresh runtime log exists, stop treating the issue as a blocked-log mystery and update the memory to the concrete observed failure [Task 6]
+- If a crash appears to happen during resume or gameplay teardown but the stack points into a read-only diagnostics overlay, follow the latest log and fix the actual callback/title path instead of the first suspected subsystem [Task 7]
+- Do not keep pushing an extraction-crash investigation after the user says another session owns it; preserve the environment shorthand and hand off cleanly [Task 8]
 
 # Task Group: PD2 Catalog as Asset Reference Authority
 scope: Catalog-owned asset identity, lookup, provider, and reference behavior.

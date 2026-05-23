@@ -1084,7 +1084,9 @@ TEST_CASE("weapon mod save contract supports shotgun template dual wield save",
 		"\n"
 		"[references]\n"
 		"template = base:shotgun\n"
-		"model_ref = base:model_shotgun_hi\n";
+		"model_ref = base:model_shotgun_hi\n"
+		"animation_ref = base:invanim_shotgun_singleshot\n"
+		"animation_archive = animations/invanim_shotgun_singleshot.pdanim\n";
 	const std::string manifest =
 		"{\n"
 		"  \"schema\": \"pd.weapon.manifest.v1\",\n"
@@ -1101,6 +1103,7 @@ TEST_CASE("weapon mod save contract supports shotgun template dual wield save",
 		{ "manifest.json", manifest },
 		{ "behavior.graph.json", graph },
 		{ "nested_payloads.json", nested },
+		{ "animations/invanim_shotgun_singleshot.pdanim", "pdanim" },
 	});
 
 	REQUIRE(weaponGraphArchiveValidateRootFile(saved.path.string().c_str(),
@@ -1118,6 +1121,8 @@ TEST_CASE("weapon mod save contract supports shotgun template dual wield save",
 	REQUIRE(savedIni.find("name = Needler") != std::string::npos);
 	REQUIRE(savedIni.find("model_file = models/held_hi.pdmesh") != std::string::npos);
 	REQUIRE(savedIni.find("template = base:shotgun") != std::string::npos);
+	REQUIRE(savedIni.find("animation_archive = animations/invanim_shotgun_singleshot.pdanim") !=
+	        std::string::npos);
 	REQUIRE(savedIni.find("dual_wieldable = 1") != std::string::npos);
 	REQUIRE(savedIni.find("weapon_id") == std::string::npos);
 }
@@ -2398,9 +2403,12 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("weaponIniGetValue") != std::string::npos);
 	REQUIRE(hub.find("weaponCopyCatalogOrArchiveRef") != std::string::npos);
 	REQUIRE(hub.find("s_WeaponEditTemplateModelFile") != std::string::npos);
+	REQUIRE(hub.find("s_WeaponEditTemplateAnimationFile") != std::string::npos);
 	REQUIRE(hub.find("models/held_hi.pdmesh") != std::string::npos);
 	REQUIRE(hub.find("weaponArchiveReadNestedCatalogId") != std::string::npos);
+	REQUIRE(hub.find("weaponArchiveHasEntry") != std::string::npos);
 	REQUIRE(hub.find("weaponTsvFirstField") != std::string::npos);
+	REQUIRE(hub.find("weaponTsvFindFieldForRow") != std::string::npos);
 	REQUIRE(hub.find("weaponJsonFindFirstStringField") != std::string::npos);
 	REQUIRE(hub.find("models/held_hi.pdmesh") != std::string::npos);
 	REQUIRE(hub.find("animations_manifest.tsv") != std::string::npos);
@@ -2426,6 +2434,8 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("Catalog Name: mod:%s") != std::string::npos);
 	REQUIRE(hub.find("WEAPONMOD.SAVE.BEGIN") != std::string::npos);
 	REQUIRE(hub.find("WEAPONMOD.SAVE.PAYLOAD_FAIL slot=model_ref") !=
+	        std::string::npos);
+	REQUIRE(hub.find("WEAPONMOD.SAVE.PAYLOAD_FAIL slot=animation_ref") !=
 	        std::string::npos);
 	REQUIRE(hub.find("weaponSaveFail(\"GRAPH_FAIL\"") != std::string::npos);
 	REQUIRE(hub.find("weaponSaveFail(\"MODINVALID\"") != std::string::npos);
@@ -2463,6 +2473,7 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("modArchiveBegin(archivePath)") != std::string::npos);
 	REQUIRE(hub.find("weaponCopyTemplatePayloads") != std::string::npos);
 	REQUIRE(hub.find("modelTemplateEntry") != std::string::npos);
+	REQUIRE(hub.find("animTemplateEntry") != std::string::npos);
 	REQUIRE(hub.find("modArchiveAddFileDisk") != std::string::npos);
 	REQUIRE(hub.find("weaponAddCatalogAssetArchive") != std::string::npos);
 	REQUIRE(hub.find("weaponAddArchiveRefPayload") != std::string::npos);
