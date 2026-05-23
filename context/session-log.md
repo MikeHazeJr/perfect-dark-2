@@ -1,5 +1,63 @@
 # Session Log (Active)
 
+## Session (`wgraphlinks2`) - 2026-05-23 - weapon graph node links and params
+
+Mike asked to add a Kanban card numerically behind the asset archive format decision/implementation work for per-asset mod utilities, and reported that weapon behavior graph nodes did not show usable connection wires, links did not seem creatable, and specific node options did not seem editable.
+
+### Implemented
+
+- Added Kanban card `c3834` at order `3000`, directly behind `c3824` and `c3832`, for per-family Modding Hub/CLI utility contracts: create/import/clone/edit/validate/package flows, pickers/previews, template hydration, hot-enable/catalog rebuild behavior, payload preservation, `_meta/` handling, and catalog-name-only references.
+- Enlarged weapon graph exec input/output pins into actual ImGui socket hit targets with hover tooltips so drag-to-connect has a reliable grab area.
+- Kept the Blueprint-style pin drag path and added an inspector fallback: selecting a node now exposes `Connect To` and `Connect Selected` to create an outgoing edge without relying on drag precision.
+- Added typed inspector controls for simple JSON node params (`bool`, `number`, `string`) before the Advanced JSON fallback, and made raw JSON edits sync immediately while typing.
+- Recorded B-370 for the graph editor interaction regression.
+
+### Verification
+
+- Kanban `tools/kanban/state.json` parses and `c3834` reports order `3000`, active column, and 10 subtasks.
+- Scoped `git diff --check` passed for touched source/test/Kanban files.
+- `.\devtools\run-pd-tests.ps1 -Session wgraphlinks2 -Selector "[weapon_graph][compiler][c3814],[weapon_graph][ui][c3814]" -BuildTimeoutSeconds 240` passed: 256 assertions / 9 cases.
+- `.\devtools\build-session.ps1 -Session wgraphlinks2 -Target all -BuildTimeoutSeconds 300` passed.
+- Removed isolated session build `wgraphlinks2`.
+
+### Next
+
+- Manual retest: open a template weapon's Primary/Secondary Graph tab, create a link by dragging exec sockets or using `Connect Selected`, confirm the Bezier wire appears, edit a node parameter in the inspector, validate, and save.
+- Continue `c3824`/`c3832`/`c3834` in order before the broad extraction/examples/validators sweep.
+
+---
+
+## Session (`csweaponlist`) - 2026-05-23 - Combat Simulator custom weapon visibility and limits
+
+Mike reported that a weapon mod showed as created/enabled but did not appear in Combat Simulator menus, asked for weapon/arena surfaces to be alphabetical, and noted No Time Limit / No Score Limit were not functional.
+
+### Findings
+
+- The saved custom weapon path correctly stopped writing authored numeric `weapon_id`, but the Combat Simulator Custom weapon slots still used legacy `mpGetWeaponLabel()` / `mpSetWeaponSlot()` helpers that require MPWEAPON numeric bindings.
+- Catalog-only custom weapons therefore produced blank labels and were skipped by the old slot combo.
+- Match setup/network read paths could cast `weapon_id=-1` to legacy slot `255`, and the manifest's weapon-pool enumeration filtered catalog-only custom weapons out.
+- No Time Limit already used the runtime sentinel shape (`timelimit=60`), but No Score Limit was wrong: the UI labeled stored `scorelimit=99` as unlimited while runtime requires `scorelimit>=100`.
+
+### Implemented
+
+- Replaced the Combat Simulator Custom weapon slot picker with a sorted ASSET_WEAPON catalog list that writes `g_MatchConfig.weapon_ids[]` directly.
+- Preserved catalog-only custom weapon IDs through match setup/network read and avoided invalid legacy casts; match manifests now include catalog-native custom slots.
+- Adjusted the manifest weapon pool so catalog-only mod weapons are included for distribution while invalid high legacy IDs still filter out.
+- Fixed No Score Limit to store `scorelimit=100`.
+- Alphabetized Modding Hub weapon browser entries and the debug/test arena picker; existing Room/MpSetup/Grid arena paths remain sorted.
+
+### Verification
+
+- `.\devtools\run-pd-tests.ps1 -Session csweaponlist -Selector "[input][menu_graph]" -BuildTimeoutSeconds 240` passed: 723 assertions / 37 cases.
+- `.\devtools\build-session.ps1 -Session csweaponlist -Target all -BuildTimeoutSeconds 300` passed.
+- Removed isolated session build `csweaponlist`.
+
+### Next
+
+- Manual retest: create/save/enable a custom weapon mod, open Combat Simulator Custom weapon slots, confirm the mod weapon appears alphabetically, and start a match with Time and Score set to No limit.
+
+---
+
 ## Session (`wshotanim`) - 2026-05-22 - shotgun template animation payload save failure
 
 Mike asked to check the build-folder client log after the Shotgun template save still errored.

@@ -3375,6 +3375,93 @@
       "updated": "2026-05-22T21:19:56.807Z"
     },
     {
+      "id": "c3834",
+      "title": "Asset Pipeline: define mod utilities for each clean archive",
+      "description": "After asset archive format decisions and before the broad implementation sweep, define the Modding Hub and command-line utility contract for every typed asset family. Each family needs create/import/clone/edit/validate/package flows that preserve the clean self-contained archive layout, expose appropriate pickers and previews, hydrate template data, preserve archive-local payloads, and keep catalog-name references authoritative.",
+      "pillar": "modding",
+      "column": "active",
+      "order": 3000,
+      "priority": 1,
+      "notes": "Created 2026-05-23 from Mike's request to place mod utilities numerically just behind the asset archive format decision/implementation cards. Process order: c3824 owns the umbrella clean archive migration plan, c3832 owns the concrete .pdweapon format, this card defines the matching per-family mod utility workflows, then c3824-s20 performs the broad extraction/examples/validators sweep after formats and utilities are frozen. Utility designs must follow the clean two-zone archive rule, never introduce numeric asset identity, and use catalog names for all asset references.",
+      "subtasks": [
+        {
+          "id": "c3834-s1",
+          "title": "Shared mod utility contract and UX standards",
+          "status": "active",
+          "order": 1000,
+          "notes": "Define the common create/import/clone/edit/validate/package contract for typed archives, including self-contained payload closure, _meta visibility, template hydration, hot-enable behavior, catalog-name-only references, validation messages, and release/package gates."
+        },
+        {
+          "id": "c3834-s2",
+          "title": ".pdweapon mod utility flow",
+          "status": "backlog",
+          "order": 2000,
+          "notes": "Define the weapon creator/editor utility against the clean .pdweapon layout: template hydration, mesh/material/skin pickers, primary/secondary behavior graph editors, projectile/entity dependency editing, save modal, hot-enable, catalog rebuild, and archive validation."
+        },
+        {
+          "id": "c3834-s3",
+          "title": ".pdprojectile mod utility flow",
+          "status": "backlog",
+          "order": 3000,
+          "notes": "Define projectile creation/editing utilities for motion, impact, visual/audio, behavior graph, nested transition targets, preview, validation, and dependency packaging."
+        },
+        {
+          "id": "c3834-s4",
+          "title": ".pdentity mod utility flow",
+          "status": "backlog",
+          "order": 4000,
+          "notes": "Define entity/archetype creation/editing utilities for deployed explosives, devices, pickups, Laptop-style autonomous tools, owner/context references, validation, and dependency packaging."
+        },
+        {
+          "id": "c3834-s5",
+          "title": ".pdcharacter/.pdhead/.pdbody utility flows",
+          "status": "backlog",
+          "order": 5000,
+          "notes": "Define character, head, and body utility flows for part composition, mesh and texture pickers, rig/animation handling, preview, validation, and embedded dependency packaging."
+        },
+        {
+          "id": "c3834-s6",
+          "title": ".pdarena/.pdscenario utility flows",
+          "status": "backlog",
+          "order": 6000,
+          "notes": "Define arena and scenario utilities for stage/scenario import, setup data editing, visual preview, scenario embedding, validation, and package/export behavior."
+        },
+        {
+          "id": "c3834-s7",
+          "title": ".pdmesh/.pdanim utility flows",
+          "status": "backlog",
+          "order": 7000,
+          "notes": "Define mesh and animation utilities for model import, material/texture resolution, skeleton/target binding, preview, validation, and clean archive packaging."
+        },
+        {
+          "id": "c3834-s8",
+          "title": ".pdsfx/.pdvoice/.pdsong utility flows",
+          "status": "backlog",
+          "order": 8000,
+          "notes": "Define audio utility flows for sample/voice/music import, playback preview, source/provenance handling, codec notes, validation, and package/export behavior."
+        },
+        {
+          "id": "c3834-s9",
+          "title": ".pdui/.pdfont/.pdlang utility flows",
+          "status": "backlog",
+          "order": 9000,
+          "notes": "Define UI texture, font, and localization utility flows for editable source files, previews, locale/string validation, and clean archive packaging."
+        },
+        {
+          "id": "c3834-s10",
+          "title": "Utility docs, examples, and release gates",
+          "status": "backlog",
+          "order": 10000,
+          "notes": "After per-family utility contracts are frozen, update Modding Hub docs, example workflows, static tests, and release/package validation so utilities and archive formats evolve together."
+        }
+      ],
+      "flag": "star",
+      "flagged_at": "2026-05-23T00:00:00-04:00",
+      "pending_completion": null,
+      "created": "2026-05-23T00:00:00-04:00",
+      "updated": "2026-05-23T00:00:00-04:00"
+    },
+    {
       "id": "c3814",
       "title": "Modding: design weapon behavior graph assets",
       "description": "Define the self-contained, graph-editable weapon behavior asset architecture for base game and mods, including physical projectile and entity asset types.",

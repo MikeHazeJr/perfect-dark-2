@@ -563,6 +563,65 @@ static void buildSpawnWeaponList(void)
     }
 }
 
+/* Combat Sim custom weapon slots.
+ *
+ * This picker is intentionally catalog-ID native. Mod-authored weapons do not
+ * have authored MPWEAPON_* IDs, so the menu cannot use mpGetWeaponLabel() /
+ * mpSetWeaponSlot(), which are legacy numeric helpers.
+ */
+struct weaponoption_entry {
+    char catalog_id[64];
+    char name[64];
+    s32  mp_weapon_id;
+};
+
+#define MAX_COMBAT_WEAPON_OPTIONS 128
+static weaponoption_entry s_CombatWeaponOptions[MAX_COMBAT_WEAPON_OPTIONS];
+static int s_NumCombatWeaponOptions = 0;
+
+static void combatWeaponOptionCollect(const asset_entry_t *e, void *userdata)
+{
+    (void)userdata;
+    if (!e || e->type != ASSET_WEAPON) return;
+    if (s_NumCombatWeaponOptions >= MAX_COMBAT_WEAPON_OPTIONS) return;
+
+    weaponoption_entry *w = &s_CombatWeaponOptions[s_NumCombatWeaponOptions++];
+    strncpy(w->catalog_id, e->id, sizeof(w->catalog_id) - 1);
+    w->catalog_id[sizeof(w->catalog_id) - 1] = '\0';
+    const char *name = e->ext.weapon.name[0] ? e->ext.weapon.name : e->id;
+    strncpy(w->name, name, sizeof(w->name) - 1);
+    w->name[sizeof(w->name) - 1] = '\0';
+    w->mp_weapon_id = e->ext.weapon.weapon_id;
+}
+
+static void buildCombatWeaponOptionList(void)
+{
+    s_NumCombatWeaponOptions = 0;
+    assetCatalogIterateUnlockedByType(ASSET_WEAPON,
+                                      combatWeaponOptionCollect, NULL);
+    if (s_NumCombatWeaponOptions > 1) {
+        std::sort(s_CombatWeaponOptions,
+                  s_CombatWeaponOptions + s_NumCombatWeaponOptions,
+                  [](const weaponoption_entry &a,
+                     const weaponoption_entry &b) {
+                      int cmp = strcasecmp(a.name, b.name);
+                      if (cmp != 0) return cmp < 0;
+                      return strcasecmp(a.catalog_id, b.catalog_id) < 0;
+                  });
+    }
+}
+
+static const weaponoption_entry *findCombatWeaponOptionById(const char *id)
+{
+    if (!id || !id[0]) return NULL;
+    for (int i = 0; i < s_NumCombatWeaponOptions; i++) {
+        if (strcmp(s_CombatWeaponOptions[i].catalog_id, id) == 0) {
+            return &s_CombatWeaponOptions[i];
+        }
+    }
+    return NULL;
+}
+
 /* ========================================================================
  * Scenario names
  * ======================================================================== */
@@ -3197,20 +3256,20 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
         if (!leader) ImGui::EndDisabled();
     }
 
-    /* Score limit: slider shows 1–100 kills directly.
-     * Stored as 0-based (scorelimit = kills - 1); 100 = no limit. */
+    /* Score limit: slider shows 1–100 kills directly; 101 = no limit.
+     * Stored as 0-based (scorelimit = kills - 1); storage value 100 = no limit. */
     {
         if (!leader) ImGui::BeginDisabled();
         int sl = (int)g_MatchConfig.scorelimit + 1;  /* convert to 1-based for display */
         ImGui::SetNextItemWidth(comboW * 0.6f);
         /* Priority L (2026-04-25): label LEFT via pdguiSliderInt. */
-        if (pdguiSliderInt("Score", &sl, 1, 100)) {
+        if (pdguiSliderInt("Score", &sl, 1, 101)) {
             g_MatchConfig.scorelimit = (u8)(sl - 1);  /* store 0-based */
             s_RoomSettingsDirty = true;
         }
         roomCsSectionTrackLastItem(ROOM_CS_LIMITS);
         ImGui::SameLine();
-        if (g_MatchConfig.scorelimit >= 99) {  /* 99+1=100: show "No limit" */
+        if (g_MatchConfig.scorelimit >= 100) {
             ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.5f, 1.0f), "No limit");
         } else {
             ImGui::Text("%d kills", sl);  /* sl already equals scorelimit+1 */
@@ -3266,7 +3325,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     /* --- Custom Weapon Slots (visible when Custom set selected) --- */
     if (g_MpWeaponSetNum == WEAPONSET_CUSTOM) {
         ImGui::Spacing();
-        s32 numWeaponOptions = mpGetNumWeaponOptions();
+        buildCombatWeaponOptionList();
         static const char *slotLabels[NUM_MPWEAPONSLOTS] = {
             "Slot 1##cws", "Slot 2##cws", "Slot 3##cws",
             "Slot 4##cws", "Slot 5##cws", "Slot 6##cws"
@@ -3274,25 +3333,29 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
 
         if (!leader) ImGui::BeginDisabled();
         for (s32 slot = 0; slot < NUM_MPWEAPONSLOTS; slot++) {
-            s32 curWeapon = mpGetWeaponSlot(slot);
-            char *curWeaponName = mpGetWeaponLabel(curWeapon);
+            const char *curCatalogId = g_MatchConfig.weapon_ids[slot][0]
+                ? g_MatchConfig.weapon_ids[slot]
+                : matchGetWeaponSlotCatalogId(slot);
+            const weaponoption_entry *curWeapon =
+                findCombatWeaponOptionById(curCatalogId);
+            const char *curWeaponName = curWeapon ? curWeapon->name
+                : (curCatalogId && curCatalogId[0] ? curCatalogId : "None");
             ImGui::SetNextItemWidth(comboW);
             if (ImGui::BeginCombo(slotLabels[slot],
                                   curWeaponName ? curWeaponName : "???")) {
-                for (s32 w = 0; w < numWeaponOptions; w++) {
-                    char *wName = mpGetWeaponLabel(w);
-                    if (!wName || !wName[0]) continue;
-                    bool isSel = (w == curWeapon);
+                for (s32 w = 0; w < s_NumCombatWeaponOptions; w++) {
+                    const weaponoption_entry *opt = &s_CombatWeaponOptions[w];
+                    bool isSel = (curCatalogId && curCatalogId[0]
+                        && strcmp(curCatalogId, opt->catalog_id) == 0);
                     char wLabel[64];
-                    snprintf(wLabel, sizeof(wLabel), "%s##cws%d_%d", wName, slot, w);
+                    snprintf(wLabel, sizeof(wLabel), "%s##cws%d_%d",
+                             opt->name, slot, w);
                     if (ImGui::Selectable(wLabel, isSel)) {
-                        mpSetWeaponSlot(slot, w);
-                        /* M0.1c: sync catalog ID to weapon_ids[] (PRIMARY) */
-                        const char *wCatalogId = matchGetWeaponSlotCatalogId(slot);
-                        strncpy(g_MatchConfig.weapon_ids[slot], wCatalogId,
+                        strncpy(g_MatchConfig.weapon_ids[slot], opt->catalog_id,
                                 sizeof(g_MatchConfig.weapon_ids[slot]) - 1);
                         g_MatchConfig.weapon_ids[slot][sizeof(g_MatchConfig.weapon_ids[slot]) - 1] = '\0';
                         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                        s_RoomSettingsDirty = true;
                     }
                     if (isSel) ImGui::SetItemDefaultFocus();
                 }

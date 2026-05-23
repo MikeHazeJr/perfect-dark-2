@@ -5364,8 +5364,20 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			const char *wid = wid_str ? wid_str : "";
 			if (wid[0]) {
 				const asset_entry_t *we = assetCatalogResolve(wid);
+				strncpy(g_MatchConfig.weapon_ids[wi], wid,
+				        sizeof(g_MatchConfig.weapon_ids[wi]) - 1);
+				g_MatchConfig.weapon_ids[wi][sizeof(g_MatchConfig.weapon_ids[wi]) - 1] = '\0';
 				if (we && we->type == ASSET_WEAPON) {
-					g_MpSetup.weapons[wi] = (u8)we->ext.weapon.weapon_id;
+					s32 mpw = we->ext.weapon.weapon_id;
+					if (mpw >= 0 && mpw < NUM_MPWEAPONS) {
+						g_MpSetup.weapons[wi] = (u8)mpw;
+					} else {
+						sysLogPrintf(LOG_NOTE,
+							"NET: CLC_LOBBY_START weapon slot %d '%s' is catalog-only "
+							"(no MPWEAPON binding yet)",
+							wi, wid);
+						g_MpSetup.weapons[wi] = 0;
+					}
 				} else {
 					sysLogPrintf(LOG_ERROR,
 					             "NET: CLC_LOBBY_START weapon slot %d '%s' not in catalog -- skipping",
@@ -5373,6 +5385,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 					g_MpSetup.weapons[wi] = 0;
 				}
 			} else {
+				g_MatchConfig.weapon_ids[wi][0] = '\0';
 				g_MpSetup.weapons[wi] = 0;
 			}
 		}

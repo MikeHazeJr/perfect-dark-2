@@ -4338,6 +4338,28 @@ static void renderSettingsDebug(float scale)
                 },
                 &ctx);
 
+            for (int i = 0; i < s_NumArenas - 1; i++) {
+                for (int j = i + 1; j < s_NumArenas; j++) {
+                    if (strcasecmp(s_ArenaNames[i], s_ArenaNames[j]) > 0) {
+                        char tmpId[64];
+                        char tmpName[48];
+                        u8 tmpCanvas = s_ArenaIsCanvas[i];
+                        strncpy(tmpId, s_ArenaStageIds[i], sizeof(tmpId));
+                        strncpy(tmpName, s_ArenaNames[i], sizeof(tmpName));
+                        strncpy(s_ArenaStageIds[i], s_ArenaStageIds[j],
+                                sizeof(s_ArenaStageIds[i]));
+                        strncpy(s_ArenaNames[i], s_ArenaNames[j],
+                                sizeof(s_ArenaNames[i]));
+                        s_ArenaIsCanvas[i] = s_ArenaIsCanvas[j];
+                        strncpy(s_ArenaStageIds[j], tmpId,
+                                sizeof(s_ArenaStageIds[j]));
+                        strncpy(s_ArenaNames[j], tmpName,
+                                sizeof(s_ArenaNames[j]));
+                        s_ArenaIsCanvas[j] = tmpCanvas;
+                    }
+                }
+            }
+
             for (int i = 0; i < s_NumArenas; i++) {
                 s_ArenaNamePtrs[i] = s_ArenaNames[i];
                 if (strcmp(s_ArenaStageIds[i], "base:mp_felicity") == 0) {

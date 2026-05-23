@@ -2545,6 +2545,11 @@ TEST_CASE("Modding Hub weapon tool builds visual graph modules without raw JSON 
 	REQUIRE(editor.find("Weapon Behavior Graph Canvas") != std::string::npos);
 	REQUIRE(editor.find("QueryNewLink") != std::string::npos);
 	REQUIRE(editor.find("AcceptNewItem") != std::string::npos);
+	REQUIRE(editor.find("renderPinSocket") != std::string::npos);
+	REQUIRE(editor.find("InvisibleButton") != std::string::npos);
+	REQUIRE(editor.find("##exec_out_pin") != std::string::npos);
+	REQUIRE(editor.find("Connect Selected") != std::string::npos);
+	REQUIRE(editor.find("Connect To") != std::string::npos);
 	REQUIRE(editor.find("BeginDelete") != std::string::npos);
 	REQUIRE(editor.find("Add Node") != std::string::npos);
 	REQUIRE(editor.find("Delete Node") != std::string::npos);
@@ -2553,6 +2558,11 @@ TEST_CASE("Modding Hub weapon tool builds visual graph modules without raw JSON 
 	REQUIRE(editor.find("Set Secondary") != std::string::npos);
 	REQUIRE(editor.find("Break Pin Links") != std::string::npos);
 	REQUIRE(editor.find("Alt-click pin") != std::string::npos);
+	REQUIRE(editor.find("Node Parameters") != std::string::npos);
+	REQUIRE(editor.find("Advanced JSON") != std::string::npos);
+	REQUIRE(editor.find("InputFloat") != std::string::npos);
+	REQUIRE(editor.find("Checkbox") != std::string::npos);
+	REQUIRE(editor.find("Node parameter updated") != std::string::npos);
 	REQUIRE(editor.find("Node Context Refs") != std::string::npos);
 	REQUIRE(editor.find("Choose a compatible node from the add-node menu") !=
 	        std::string::npos);

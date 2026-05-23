@@ -262,12 +262,39 @@ static bool paramsSetContext(char *params,
 	return true;
 }
 
-static void renderPinDot(const ImVec4 &color)
+static bool paramsRewrite(char *params, size_t params_cap, const crude_json::value &root)
+{
+	if (!params || params_cap == 0) return false;
+	std::string dumped = root.dump(0);
+	if (dumped.size() >= params_cap) return false;
+	snprintf(params, params_cap, "%s", dumped.c_str());
+	return true;
+}
+
+static void renderPinSocket(const char *id, const char *tip, const ImVec4 &color)
+{
+	ImDrawList *draw = ImGui::GetWindowDrawList();
+	ImVec2 p = ImGui::GetCursorScreenPos();
+	float size = 18.0f;
+	float r = 6.0f;
+	ImGui::InvisibleButton(id, ImVec2(size, size));
+	ImVec2 c(p.x + size * 0.5f, p.y + size * 0.5f);
+	ImU32 fill = ImGui::ColorConvertFloat4ToU32(color);
+	ImU32 border = ImGui::ColorConvertFloat4ToU32(ImVec4(0.06f, 0.07f, 0.08f, 1.0f));
+	draw->AddCircleFilled(c, r, fill);
+	draw->AddCircle(c, r + 2.0f, border, 16, 2.0f);
+	if (ImGui::IsItemHovered() && tip && tip[0]) {
+		ImGui::SetTooltip("%s", tip);
+	}
+}
+
+static void renderDecorPinDot(const ImVec4 &color)
 {
 	ImDrawList *draw = ImGui::GetWindowDrawList();
 	ImVec2 p = ImGui::GetCursorScreenPos();
 	float r = 4.0f;
-	draw->AddCircleFilled(ImVec2(p.x + r, p.y + r), r, ImGui::ColorConvertFloat4ToU32(color));
+	draw->AddCircleFilled(ImVec2(p.x + r, p.y + r), r,
+		ImGui::ColorConvertFloat4ToU32(color));
 	ImGui::Dummy(ImVec2(r * 2.0f, r * 2.0f));
 }
 
@@ -285,7 +312,8 @@ static void renderNode(PdWeaponGraphEditModel *model, int index)
 	ImGui::TextDisabled("[%s]", node.subgraph[0] ? node.subgraph : "primary");
 	ImGui::TextColored(color, "%s", node.kind);
 	ed::BeginPin(nodePinId(node, 1), ed::PinKind::Input);
-	renderPinDot(pinColor(1));
+	renderPinSocket("##exec_in_pin", "Exec input: drag from another node's output to connect",
+		pinColor(1));
 	ed::EndPin();
 	ImGui::SameLine();
 	ImGui::TextDisabled("exec");
@@ -293,12 +321,13 @@ static void renderNode(PdWeaponGraphEditModel *model, int index)
 	ImGui::TextDisabled("exec");
 	ImGui::SameLine();
 	ed::BeginPin(nodePinId(node, 2), ed::PinKind::Output);
-	renderPinDot(pinColor(2));
+	renderPinSocket("##exec_out_pin", "Exec output: drag to another node's input to connect",
+		pinColor(2));
 	ed::EndPin();
 	if (strstr(node.params, "context_refs")) {
 		ImGui::TextDisabled("context refs");
 		ImGui::SameLine();
-		renderPinDot(pinColor(4));
+		renderDecorPinDot(pinColor(4));
 	}
 	ImGui::PopID();
 	ed::EndNode();
@@ -384,6 +413,116 @@ static void renderSharedContext(const PdWeaponGraphEditorDesc *desc,
 	}
 }
 
+static int firstVisibleConnectTarget(const PdWeaponGraphEditorDesc *desc, int selected)
+{
+	PdWeaponGraphEditModel *model = desc->model;
+	for (int i = 0; i < model->node_count; i++) {
+		if (i != selected && nodeVisibleForScope(desc, model, i)) return i;
+	}
+	return -1;
+}
+
+static void renderInspectorConnectControls(const PdWeaponGraphEditorDesc *desc,
+		PdWeaponGraphEditorResult *result,
+		int selected)
+{
+	PdWeaponGraphEditModel *model = desc->model;
+	int target = model->edge_to;
+	if (target < 0 || target >= model->node_count || target == selected ||
+			!nodeVisibleForScope(desc, model, target)) {
+		target = firstVisibleConnectTarget(desc, selected);
+	}
+	model->edge_from = selected;
+	model->edge_to = target;
+	ImGui::Separator();
+	ImGui::TextUnformatted("Outgoing Link");
+	if (target < 0) {
+		ImGui::TextDisabled("No compatible node in this graph tab.");
+		return;
+	}
+	ImGui::SetNextItemWidth(-1.0f);
+	if (ImGui::BeginCombo("Connect To", nodeLabel(model, target))) {
+		for (int i = 0; i < model->node_count; i++) {
+			if (i == selected || !nodeVisibleForScope(desc, model, i)) continue;
+			bool isSelected = i == target;
+			if (ImGui::Selectable(nodeLabel(model, i), isSelected)) {
+				model->edge_to = i;
+				target = i;
+			}
+		}
+		ImGui::EndCombo();
+	}
+	if (ImGui::Button("Connect Selected", ImVec2(-1.0f, 0.0f))) {
+		if (target < 0 || target >= model->node_count) {
+			editorSetStatus(result, false, "Choose a node to connect to");
+		} else if (edgeExists(model, selected, target)) {
+			editorSetStatus(result, false, "That graph link already exists");
+		} else {
+			outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_ADD_EDGE,
+				selected, target);
+			editorSetStatus(result, true, "Graph link added");
+		}
+	}
+}
+
+static void renderNodeParamControls(PdWeaponGraphNodeEdit &node,
+		PdWeaponGraphEditorResult *result)
+{
+	crude_json::value root = crude_json::value::parse(node.params[0] ? node.params : "{}");
+	if (!root.is_object()) {
+		ImGui::TextDisabled("Parameter JSON is invalid; use Advanced JSON.");
+		return;
+	}
+	crude_json::object &obj = root.get<crude_json::object>();
+	bool changed = false;
+	bool anyEditable = false;
+	ImGui::TextUnformatted("Node Parameters");
+	for (auto &entry : obj) {
+		if (entry.first == "context_refs") continue;
+		crude_json::value &value = entry.second;
+		ImGui::PushID(entry.first.c_str());
+		if (value.is_boolean()) {
+			bool edited = value.get<crude_json::boolean>();
+			if (ImGui::Checkbox(entry.first.c_str(), &edited)) {
+				value = edited;
+				changed = true;
+			}
+			anyEditable = true;
+		} else if (value.is_number()) {
+			float edited = (float)value.get<crude_json::number>();
+			ImGui::SetNextItemWidth(-1.0f);
+			if (ImGui::InputFloat(entry.first.c_str(), &edited, 0.0f, 0.0f, "%.3f")) {
+				value = (crude_json::number)edited;
+				changed = true;
+			}
+			anyEditable = true;
+		} else if (value.is_string()) {
+			char buf[192];
+			snprintf(buf, sizeof(buf), "%s", value.get<crude_json::string>().c_str());
+			ImGui::SetNextItemWidth(-1.0f);
+			if (ImGui::InputText(entry.first.c_str(), buf, sizeof(buf))) {
+				value = crude_json::string(buf);
+				changed = true;
+			}
+			anyEditable = true;
+		} else {
+			ImGui::TextDisabled("%s: edit in Advanced JSON", entry.first.c_str());
+		}
+		ImGui::PopID();
+	}
+	if (!anyEditable) {
+		ImGui::TextDisabled("No simple parameters on this node.");
+	}
+	if (changed) {
+		if (paramsRewrite(node.params, sizeof(node.params), root)) {
+			result->model_changed = true;
+			editorSetStatus(result, true, "Node parameter updated");
+		} else {
+			editorSetStatus(result, false, "Node params are too large after edit");
+		}
+	}
+}
+
 static void renderInspector(const PdWeaponGraphEditorDesc *desc,
 		PdWeaponGraphEditorResult *result,
 		float width,
@@ -418,10 +557,12 @@ static void renderInspector(const PdWeaponGraphEditorDesc *desc,
 		}
 		ImGui::EndCombo();
 	}
-	ImGui::InputTextMultiline("Params", node.params, sizeof(node.params),
-		ImVec2(-1.0f, 112.0f * desc->scale),
-		ImGuiInputTextFlags_AllowTabInput);
-	if (ImGui::IsItemDeactivatedAfterEdit()) {
+	renderNodeParamControls(node, result);
+	ImGui::Separator();
+	ImGui::TextUnformatted("Advanced JSON");
+	if (ImGui::InputTextMultiline("Params", node.params, sizeof(node.params),
+			ImVec2(-1.0f, 112.0f * desc->scale),
+			ImGuiInputTextFlags_AllowTabInput)) {
 		result->model_changed = true;
 	}
 	if (ImGui::CollapsingHeader("Node Context Refs")) {
@@ -454,6 +595,7 @@ static void renderInspector(const PdWeaponGraphEditorDesc *desc,
 	if (ImGui::Button("Delete Node", ImVec2(108.0f * desc->scale, 0.0f))) {
 		outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_REMOVE_NODE, selected, -1);
 	}
+	renderInspectorConnectControls(desc, result, selected);
 	ImGui::Separator();
 	ImGui::TextDisabled("Primary: %s", nodeLabel(model, model->primary_export));
 	ImGui::TextDisabled("Secondary: %s", nodeLabel(model, model->secondary_export));

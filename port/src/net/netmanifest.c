@@ -88,7 +88,7 @@ static void s_manifestWeaponPoolCb(const asset_entry_t *e, void *ud)
         return;
     }
     s32 wid = (s32)e->ext.weapon.weapon_id;
-    if (wid <= 0 || wid >= NUM_MPWEAPONS
+    if (wid >= NUM_MPWEAPONS
             || wid == MPWEAPON_NONE
             || wid == MPWEAPON_DISABLED
             || wid == MPWEAPON_SHIELD) {
@@ -539,6 +539,19 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
         }
     }
 
+    /* ---- Weapons (catalog-native custom slots) ----
+     * g_MatchConfig.weapon_ids[] is the primary identity. Catalog-only mod
+     * weapons intentionally have no authored MPWEAPON_* binding, so they will
+     * not be discoverable from g_MpSetup.weapons[] above. */
+    for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+        const char *wid = g_MatchConfig.weapon_ids[i];
+        const asset_entry_t *e = wid[0] ? assetCatalogResolve(wid) : NULL;
+        if (e && e->type == ASSET_WEAPON) {
+            manifestAddEntry(out, e->id,
+                             MANIFEST_TYPE_WEAPON, MANIFEST_SLOT_MATCH);
+        }
+    }
+
     /* ---- Weapons (host-eligible Random/Fiesta pool, S483 2026-04-27) ----
      * Adds every host-unlocked ASSET_WEAPON entry (minus NONE/DISABLED/SHIELD)
      * so clients receive the full pool the host rolls Random/Fiesta from.
@@ -849,6 +862,16 @@ void manifestBuildForHost(match_manifest_t *out)
         canon_id = catalogWeaponIdByMpWeaponId((s32)wnum);
         e = canon_id ? assetCatalogResolve(canon_id) : NULL;
         if (e) {
+            manifestAddEntry(out, e->id,
+                             MANIFEST_TYPE_WEAPON, MANIFEST_SLOT_MATCH);
+        }
+    }
+
+    /* ---- Weapons (catalog-native custom slots) ---- */
+    for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+        const char *wid = g_MatchConfig.weapon_ids[i];
+        const asset_entry_t *e = wid[0] ? assetCatalogResolve(wid) : NULL;
+        if (e && e->type == ASSET_WEAPON) {
             manifestAddEntry(out, e->id,
                              MANIFEST_TYPE_WEAPON, MANIFEST_SLOT_MATCH);
         }

@@ -3656,6 +3656,20 @@ static void weaponRenderTemplateEditor(float scale)
     weaponRenderSaveModal(scale);
 }
 
+struct modhub_weapon_list_entry {
+    const asset_entry_t *entry;
+    char name[64];
+};
+
+static int modhubWeaponListCompare(const void *a, const void *b)
+{
+    const modhub_weapon_list_entry *wa = (const modhub_weapon_list_entry *)a;
+    const modhub_weapon_list_entry *wb = (const modhub_weapon_list_entry *)b;
+    int cmp = strcasecmp(wa->name, wb->name);
+    if (cmp != 0) return cmp;
+    return strcasecmp(wa->entry->id, wb->entry->id);
+}
+
 static void renderWeaponTool(float contentW, float contentH, float scale)
 {
     if (s_WeaponImportTarget != WEAPON_IMPORT_NONE && pdguiFileBrowserIsOpen()) {
@@ -3691,9 +3705,26 @@ static void renderWeaponTool(float contentW, float contentH, float scale)
 
     ImGui::BeginChild("##weapon_list", ImVec2(listW, contentH), true);
     const s32 poolSize = assetCatalogGetPoolSize();
+    modhub_weapon_list_entry *weapons = (modhub_weapon_list_entry *)malloc(
+        (size_t)poolSize * sizeof(modhub_weapon_list_entry));
+    s32 weaponCount = 0;
     for (s32 i = 0; i < poolSize; i++) {
         const asset_entry_t *e = assetCatalogGetByIndex(i);
         if (!e || e->type != ASSET_WEAPON) continue;
+        if (!weapons) continue;
+        weapons[weaponCount].entry = e;
+        const char *entryName = e->ext.weapon.name[0] ? e->ext.weapon.name : e->id;
+        strncpy(weapons[weaponCount].name, entryName,
+                sizeof(weapons[weaponCount].name) - 1);
+        weapons[weaponCount].name[sizeof(weapons[weaponCount].name) - 1] = '\0';
+        weaponCount++;
+    }
+    if (weapons && weaponCount > 1) {
+        qsort(weapons, (size_t)weaponCount, sizeof(modhub_weapon_list_entry),
+              modhubWeaponListCompare);
+    }
+    for (s32 i = 0; weapons && i < weaponCount; i++) {
+        const asset_entry_t *e = weapons[i].entry;
         if (!haveSelection && !s_WeaponSelectedId[0]) {
             strncpy(s_WeaponSelectedId, e->id, sizeof(s_WeaponSelectedId) - 1);
             s_WeaponSelectedId[sizeof(s_WeaponSelectedId) - 1] = '\0';
@@ -3710,6 +3741,7 @@ static void renderWeaponTool(float contentW, float contentH, float scale)
             weaponToolRefresh();
         }
     }
+    free(weapons);
     if (!haveSelection) {
         ImGui::TextDisabled("No weapon assets registered.");
     }

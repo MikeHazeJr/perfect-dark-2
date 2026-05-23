@@ -22,6 +22,7 @@
 - Added Blender-ready map visual exports inside scenario/arena archives, including OBJ/MTL scenes, decoded TGA wall/floor textures, and material TSV ledgers.
 - Added self-contained weapon archives that embed model, animation, audio, projectile, and entity payloads for editing and sharing.
 - Added a Blueprint-style Modding Hub weapon graph node editor for modular primary/secondary subgraphs, shared owner/damage/detonator/targeting context, presets, draggable nodes, links, inspector editing, and JSON validation.
+- Added an Asset Pipeline planning card for per-family mod utility flows behind the clean archive format decisions.
 
 ## Changed
 
@@ -58,4 +59,6 @@
 - Fixed weapon OBJ extraction so held meshes apply model matrices before being embedded in `.pdweapon` archives, and Falcon 2 exports no longer include the detached skewed effect group.
 - Fixed custom weapon authoring so saved weapon mods no longer expose or write numeric weapon IDs; catalog names are used for author-facing references.
 - Fixed weapon-mod saving diagnostics and template payload handling so shotgun-based dual-wield saves report each save stage in the log and preserve archive-local template model and animation files.
+- Fixed Combat Simulator weapon and arena pickers so catalog entries are alphabetized, custom weapon mods appear by catalog name, and No Score Limit stores the runtime unlimited sentinel.
+- Fixed weapon behavior graph editing so node links can be created from larger exec sockets or the inspector, and simple node params can be edited without raw JSON.
 - Fixed jump collision follow-through so airborne horizontal movement is clamped against rendered wall, ceiling, and corner geometry before the player can clip into it.

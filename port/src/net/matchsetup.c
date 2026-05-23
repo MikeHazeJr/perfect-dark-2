@@ -877,7 +877,16 @@ s32 matchStart(void)
 			if (g_MatchConfig.weapon_ids[wi][0]) {
 				const asset_entry_t *we = assetCatalogResolve(g_MatchConfig.weapon_ids[wi]);
 				if (we && we->type == ASSET_WEAPON) {
-					g_MpSetup.weapons[wi] = (u8)we->ext.weapon.weapon_id;
+					s32 mpw = we->ext.weapon.weapon_id;
+					if (mpw >= 0 && mpw < NUM_MPWEAPONS) {
+						g_MpSetup.weapons[wi] = (u8)mpw;
+					} else {
+						sysLogPrintf(LOG_NOTE,
+							"MATCHSETUP: weapon slot %d uses catalog-only weapon '%s' "
+							"(no MPWEAPON binding yet); leaving legacy slot %u",
+							wi, g_MatchConfig.weapon_ids[wi],
+							(unsigned)g_MpSetup.weapons[wi]);
+					}
 				}
 			}
 		}

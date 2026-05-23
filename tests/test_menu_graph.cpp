@@ -797,6 +797,65 @@ TEST_CASE("menu graph: Room Start Match uses scene graph edge", "[input][menu_gr
     REQUIRE(render.find("netLobbyRequestStart(") == std::string::npos);
 }
 
+TEST_CASE("menu graph: Combat Sim limits and custom weapons are catalog-native", "[input][menu_graph][room][static][c3814]")
+{
+    const std::string room = readTextFile("port/fast3d/pdgui_menu_room.cpp");
+    const std::string matchsetup = readTextFile("port/src/net/matchsetup.c");
+    const std::string netmsg = readTextFile("port/src/net/netmsg.c");
+    const std::string netmanifest = readTextFile("port/src/net/netmanifest.c");
+
+    REQUIRE_FALSE(room.empty());
+    REQUIRE_FALSE(matchsetup.empty());
+    REQUIRE_FALSE(netmsg.empty());
+    REQUIRE_FALSE(netmanifest.empty());
+
+    const std::string combat = functionBlock(room, "renderCombatSimTab");
+    REQUIRE_FALSE(combat.empty());
+
+    REQUIRE(combat.find("pdguiSliderInt(\"Time (min)\", &tl, 1, 61)") != std::string::npos);
+    REQUIRE(combat.find("g_MatchConfig.timelimit >= 60") != std::string::npos);
+    REQUIRE(combat.find("pdguiSliderInt(\"Score\", &sl, 1, 101)") != std::string::npos);
+    REQUIRE(combat.find("g_MatchConfig.scorelimit >= 100") != std::string::npos);
+
+    REQUIRE(room.find("buildCombatWeaponOptionList()") != std::string::npos);
+    REQUIRE(room.find("assetCatalogIterateUnlockedByType(ASSET_WEAPON") != std::string::npos);
+    REQUIRE(room.find("std::sort(s_CombatWeaponOptions") != std::string::npos);
+    REQUIRE(room.find("strcasecmp(a.name, b.name)") != std::string::npos);
+    REQUIRE(combat.find("mpGetNumWeaponOptions()") == std::string::npos);
+    REQUIRE(combat.find("mpSetWeaponSlot(slot, w)") == std::string::npos);
+    REQUIRE(combat.find("g_MatchConfig.weapon_ids[slot]") != std::string::npos);
+    REQUIRE(combat.find("s_RoomSettingsDirty = true") != std::string::npos);
+
+    REQUIRE(matchsetup.find("mpw >= 0 && mpw < NUM_MPWEAPONS") != std::string::npos);
+    REQUIRE(matchsetup.find("catalog-only weapon") != std::string::npos);
+    REQUIRE(netmsg.find("strncpy(g_MatchConfig.weapon_ids[wi], wid") != std::string::npos);
+    REQUIRE(netmsg.find("no MPWEAPON binding yet") != std::string::npos);
+    REQUIRE(netmanifest.find("catalog-native custom slots") != std::string::npos);
+    REQUIRE(netmanifest.find("wid >= NUM_MPWEAPONS") != std::string::npos);
+}
+
+TEST_CASE("menu graph: weapon and arena picker surfaces alphabetize catalog entries", "[input][menu_graph][room][static]")
+{
+    const std::string room = readTextFile("port/fast3d/pdgui_menu_room.cpp");
+    const std::string mainmenu = readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp");
+    const std::string mpsetup = readTextFile("port/fast3d/pdgui_menu_mpsetup.cpp");
+    const std::string modhub = readTextFile("port/fast3d/pdgui_menu_moddinghub.cpp");
+
+    REQUIRE_FALSE(room.empty());
+    REQUIRE_FALSE(mainmenu.empty());
+    REQUIRE_FALSE(mpsetup.empty());
+    REQUIRE_FALSE(modhub.empty());
+
+    REQUIRE(room.find("Sort arenas") != std::string::npos);
+    REQUIRE(room.find("std::sort(s_SpawnWeapons + 2") != std::string::npos);
+    REQUIRE(room.find("std::sort(s_CombatWeaponOptions") != std::string::npos);
+    REQUIRE(mpsetup.find("mpsetupArenaCompare") != std::string::npos);
+    REQUIRE(mainmenu.find("strcasecmp(s_ArenaNames[i], s_ArenaNames[j])") != std::string::npos);
+    REQUIRE(mainmenu.find("gridArenaCompare") != std::string::npos);
+    REQUIRE(modhub.find("modhubWeaponListCompare") != std::string::npos);
+    REQUIRE(modhub.find("qsort(weapons") != std::string::npos);
+}
+
 TEST_CASE("menu input: Combat Sim room controller parity is wired", "[input][menu_graph][room][static][c086]")
 {
     const std::string room = readTextFile("port/fast3d/pdgui_menu_room.cpp");
