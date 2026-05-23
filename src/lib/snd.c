@@ -34,6 +34,8 @@
 #define NUM_CACHE_SLOTS 45
 #define NUM_KEYTHINGS 9
 #define SND_TINY_VOICE_PITCH_SCALE 1.35f
+#define SND_TINY_CHR_VOICE_PITCH_SCALE 1.6f
+#define SND_TINY_CHR_VOICE_VOLUME_SCALE 1.15f
 
 struct sndcache {
 	/*0x0000*/ u16 *indexes; // indexed by sfxnum, value is cache index (0-44) or 0xffff
@@ -208,18 +210,55 @@ static bool sndSoundRefHasVoiceConfig(s16 sound)
 	return false;
 }
 
+static bool sndSoundIsVoiceLike(s16 sound, s32 channeltype)
+{
+	return channeltype == PSTYPE_CHRTALK || sndSoundRefHasVoiceConfig(sound);
+}
+
+static bool sndPropIsTinyModeVoiceSource(struct prop *prop)
+{
+	return prop != NULL
+		&& prop->type == PROPTYPE_CHR
+		&& prop->chr != NULL
+		&& (prop->chr->chrflags & CHRCFLAG_TINYMODE_MOVESPEED);
+}
+
+static f32 sndApplyVoicePitchScale(f32 pitch, f32 scale)
+{
+	if (pitch <= 0.0f) {
+		pitch = 1.0f;
+	}
+
+	return pitch * scale;
+}
+
 f32 sndApplyTinyVoicePitch(s16 sound, s32 channeltype, f32 pitch)
 {
-	if (cheatIsActive(CHEAT_SMALLJO)
-			&& (channeltype == PSTYPE_CHRTALK || sndSoundRefHasVoiceConfig(sound))) {
-		if (pitch <= 0.0f) {
-			pitch = 1.0f;
-		}
-
-		return pitch * SND_TINY_VOICE_PITCH_SCALE;
+	if (cheatIsActive(CHEAT_SMALLJO) && sndSoundIsVoiceLike(sound, channeltype)) {
+		return sndApplyVoicePitchScale(pitch, SND_TINY_VOICE_PITCH_SCALE);
 	}
 
 	return pitch;
+}
+
+f32 sndApplyTinyVoicePitchForProp(struct prop *prop, s16 sound, s32 channeltype, f32 pitch)
+{
+	if (sndPropIsTinyModeVoiceSource(prop) && sndSoundIsVoiceLike(sound, channeltype)) {
+		return sndApplyVoicePitchScale(pitch, SND_TINY_CHR_VOICE_PITCH_SCALE);
+	}
+
+	return pitch;
+}
+
+s32 sndApplyTinyVoiceVolumeForProp(struct prop *prop, s16 sound, s32 channeltype, s32 volume)
+{
+	if (volume > 0 && sndPropIsTinyModeVoiceSource(prop) && sndSoundIsVoiceLike(sound, channeltype)) {
+		f32 scaled = volume * SND_TINY_CHR_VOICE_VOLUME_SCALE;
+
+		return scaled > AL_VOL_FULL ? AL_VOL_FULL : (s32)scaled;
+	}
+
+	return volume;
 }
 
 struct audiorussmapping g_AudioRussMappings[] = {

@@ -134,12 +134,22 @@ TEST_CASE("tiny voice pitch: Tiny Mode cheat scales voice-config starts",
 	REQUIRE(snd.find("sndApplyTinyVoicePitch(sound, PSTYPE_NONE, pitch)") != std::string::npos);
 }
 
-TEST_CASE("tiny voice pitch: character talk channels get the same start pitch",
+TEST_CASE("tiny voice pitch: Tiny Mode enemy voices get stronger prop audio",
           "[audio][voice][tiny][static]") {
+	std::string snd = readFile("src/lib/snd.c");
 	std::string propsnd = readFile("src/game/propsnd.c");
 	std::string header = readFile("src/include/lib/snd.h");
 
-	REQUIRE(header.find("sndApplyTinyVoicePitch") != std::string::npos);
-	REQUIRE(propsnd.find("sndApplyTinyVoicePitch(channel->soundnum26, channel->type, newpitch)") != std::string::npos);
+	REQUIRE(snd.find("SND_TINY_CHR_VOICE_PITCH_SCALE 1.6f") != std::string::npos);
+	REQUIRE(snd.find("SND_TINY_CHR_VOICE_VOLUME_SCALE 1.15f") != std::string::npos);
+	REQUIRE(snd.find("prop->type == PROPTYPE_CHR") != std::string::npos);
+	REQUIRE(snd.find("prop->chr->chrflags & CHRCFLAG_TINYMODE_MOVESPEED") != std::string::npos);
+	REQUIRE(snd.find("sndApplyTinyVoicePitchForProp") != std::string::npos);
+	REQUIRE(snd.find("sndApplyTinyVoiceVolumeForProp") != std::string::npos);
+	REQUIRE(header.find("sndApplyTinyVoicePitchForProp") != std::string::npos);
+	REQUIRE(header.find("sndApplyTinyVoiceVolumeForProp") != std::string::npos);
+	REQUIRE(propsnd.find("sndApplyTinyVoicePitchForProp(channel->prop, channel->soundnum26, channel->type, newpitch)") != std::string::npos);
+	REQUIRE(propsnd.find("sndApplyTinyVoiceVolumeForProp(channel->prop, channel->soundnum26, channel->type, newvol)") != std::string::npos);
 	REQUIRE(propsnd.find("channel->soundnum26, startpitch, channel->fxbus") != std::string::npos);
+	REQUIRE(propsnd.find("channel->flags & PSFLAG_ISMP3, adjustvol, newpan") != std::string::npos);
 }

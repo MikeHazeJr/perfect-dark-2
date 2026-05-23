@@ -427,36 +427,39 @@ void psTickChannel(s32 channelnum)
 		 */
 		if ((channel->flags & PSFLAG_OUTOFRANGE) == 0) {
 			if (channel->flags & PSFLAG_FIRSTTICK) {
-				f32 startpitch = sndApplyTinyVoicePitch(channel->soundnum26, channel->type, newpitch);
+				f32 startpitch = sndApplyTinyVoicePitchForProp(channel->prop, channel->soundnum26, channel->type, newpitch);
+				s32 startvol = sndApplyTinyVoiceVolumeForProp(channel->prop, channel->soundnum26, channel->type, newvol);
 #if VERSION < VERSION_NTSC_1_0
 				osSyncPrintf("SND : Propsound needs play : Id %d is flaged g\n", channelnum);
 #endif
 
 
 				if (channel->flags & PSFLAG_ISMP3) {
-					sndStartMp3(channel->soundnum26, newvol, newpan, (channel->flags2 & PSFLAG2_RESPONDHELLO) ? 1 : 0);
+					sndStartMp3(channel->soundnum26, startvol, newpan, (channel->flags2 & PSFLAG2_RESPONDHELLO) ? 1 : 0);
 				} else {
 #if VERSION >= VERSION_NTSC_1_0
 					if (channel->flags & PSFLAG_0400) {
-						if (newvol) {
-							snd00010718(&channel->audiohandle, channel->flags & PSFLAG_ISMP3, newvol, newpan,
+						if (startvol) {
+							snd00010718(&channel->audiohandle, channel->flags & PSFLAG_ISMP3, startvol, newpan,
 									channel->soundnum26, startpitch, channel->fxbus, newfx, 1);
 						}
 					} else {
-						if (newvol) {
-							snd00010718(&channel->audiohandle, channel->flags & PSFLAG_ISMP3, newvol, newpan,
+						if (startvol) {
+							snd00010718(&channel->audiohandle, channel->flags & PSFLAG_ISMP3, startvol, newpan,
 									channel->soundnum26, startpitch, channel->fxbus, newfx, 1);
 						}
 					}
 #else
-					snd00010718(&channel->audiohandle, channel->flags & PSFLAG_ISMP3, newvol, newpan,
+					snd00010718(&channel->audiohandle, channel->flags & PSFLAG_ISMP3, startvol, newpan,
 							channel->soundnum26, startpitch, channel->fxbus, newfx, 1);
 #endif
 				}
 
 				channel->flags &= ~PSFLAG_FIRSTTICK;
 			} else {
-				sndAdjust(&channel->audiohandle, channel->flags & PSFLAG_ISMP3, newvol, newpan,
+				s32 adjustvol = sndApplyTinyVoiceVolumeForProp(channel->prop, channel->soundnum26, channel->type, newvol);
+
+				sndAdjust(&channel->audiohandle, channel->flags & PSFLAG_ISMP3, adjustvol, newpan,
 						channel->soundnum26, newpitch, channel->fxbus, newfx, channel->flags & PSFLAG_CHANGINGPAN);
 			}
 		}

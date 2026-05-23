@@ -39,7 +39,7 @@
 - Saving a weapon mod now opens a confirmation modal with Creator and Display Name, derives the custom weapon catalog name as `mod:weapon_<name>`, and enables the new mod immediately.
 - Cutscene skipping now uses a held button with a contextual radial progress prompt instead of an accidental tap.
 - Startup asset extraction now reuses validated per-family cache stamps and shows a centered progress modal with smoother time-weighted progress.
-- Tiny Mode now makes spoken character voice lines play at a more comical high pitch while the cheat is active.
+- Tiny Mode now makes spoken character voice lines play at a more comical high pitch, and the actual tripled tiny enemies now speak even higher and slightly louder.
 - Tiny Mode now triples ordinary non-unique enemy spawns into spaced-apart tiny enemies, with those tiny generic enemies moving about 30% faster than before, while keeping named/story characters single.
 - Tiny Mode now leaves the player at normal size, camera height, movement scale, shadow size, and shelf-pickup range.
 - Tiny Mode is now the only small-character cheat shown in Cheats; the old Small Characters slot is hidden as a legacy id.

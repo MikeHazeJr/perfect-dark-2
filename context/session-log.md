@@ -1,5 +1,30 @@
 # Session Log (Active)
 
+## Session (`tinyvoice2`) - 2026-05-23 - Tiny Mode enemy voice boost
+
+Mike asked for the tiny enemies' voices to be higher pitched and slightly louder.
+
+### Implemented
+
+- Added prop-scoped Tiny Mode voice helpers that detect the same `CHRCFLAG_TINYMODE_MOVESPEED` marker used by the tripled tiny generic enemies.
+- Kept the existing Tiny Mode voice-config baseline at `1.35x` pitch for direct voice-config starts.
+- Made marked tiny enemy prop-talk starts use `1.6x` pitch and `1.15x` volume, clamped to `AL_VOL_FULL`.
+- Applied the tiny enemy volume boost to later prop-sound volume adjustments too, so attenuation updates keep the same slight lift.
+- Updated static audio coverage and release notes for the stronger tiny enemy voice behavior.
+
+### Verification
+
+- Scoped `git diff --check` passed for the touched audio/test/release/context files.
+- `.\devtools\run-pd-tests.ps1 -Session tinyvoice2 -Selector "[audio][voice][tiny][static],[cheats][tiny][spawn][static]" -BuildTimeoutSeconds 240` passed: 88 assertions / 7 cases.
+- `.\devtools\build-session.ps1 -Session tinyvoice2 -Target all -BuildTimeoutSeconds 240` passed.
+- Removed isolated session build `tinyvoice2`.
+
+### Next
+
+- Manual retest: enable Tiny Mode, trigger guard barks from the tripled tiny enemies, and confirm those barks are clearly higher pitched and slightly louder than before.
+
+---
+
 ## Session (`tinynoplayer`) - 2026-05-23 - Tiny Mode player size correction
 
 Mike clarified that Tiny Mode should not make the player tiny.
