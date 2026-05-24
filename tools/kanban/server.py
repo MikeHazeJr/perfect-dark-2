@@ -35,6 +35,11 @@ Serves the dev-window UI at / and provides these API endpoints:
 
   /api/cards/:id/sessions                           GET    list card-scoped Codex sessions
   /api/cards/:id/sessions/start                     POST   start one headless Codex session for the card
+  /api/sessions                                      GET    list every Codex session
+  /api/sessions/:id                                  GET    read one Codex session with formatted events
+  /api/sessions/start                                POST   start an ad-hoc Codex session
+  /api/sessions/:id/message                          POST   send a follow-up turn to a Codex session
+  /api/sessions/:id/queue/:message_id/steer          POST   make a queued prompt the next session turn
 
   /heartbeat              POST                 page liveness ping (every ~5s while a tab is open)
   /shutdown-now           POST                 best-effort beacon when the last tab is closing
@@ -629,6 +634,55 @@ def _tail_text(path, max_bytes=12000):
         return f"[unable to read {path.name}: {exc}]"
 
 
+def _read_jsonl_events(path, max_bytes=240000, max_events=240):
+    path = pathlib.Path(path)
+    if not path.exists():
+        return []
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as f:
+            if size > max_bytes:
+                f.seek(size - max_bytes)
+            data = f.read()
+        text = data.decode("utf-8", errors="replace")
+        lines = text.splitlines()
+        if size > max_bytes and lines:
+            lines = lines[1:]
+        events = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except Exception:
+                events.append({"type": "raw", "text": line})
+        return events[-max_events:]
+    except Exception as exc:
+        return [{"type": "read_error", "text": f"unable to read {path.name}: {exc}"}]
+
+
+def _extract_thread_id(path):
+    path = pathlib.Path(path)
+    if not path.exists():
+        return ""
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as f:
+            for _ in range(400):
+                line = f.readline()
+                if not line:
+                    break
+                try:
+                    event = json.loads(line)
+                except Exception:
+                    continue
+                if event.get("type") == "thread.started" and event.get("thread_id"):
+                    return event.get("thread_id")
+    except Exception:
+        return ""
+    return ""
+
+
 def _pid_is_running(pid):
     try:
         pid = int(pid)
@@ -636,6 +690,24 @@ def _pid_is_running(pid):
         return False
     if pid <= 0:
         return False
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False
+            code = wintypes.DWORD()
+            try:
+                if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                    return False
+                return code.value == STILL_ACTIVE
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        except Exception:
+            return False
     try:
         os.kill(pid, 0)
         return True
@@ -645,22 +717,47 @@ def _pid_is_running(pid):
         return False
 
 
-def _refresh_session_statuses(data):
+def _new_session_message_id(prefix="msg"):
+    stamp = __import__("datetime").datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    return f"{prefix}-{stamp}-{uuid.uuid4().hex[:6]}"
+
+
+def _append_session_event(entry, event):
+    stdout_path = pathlib.Path(entry.get("stdout_path", ""))
+    if not stdout_path:
+        return
+    try:
+        stdout_path.parent.mkdir(parents=True, exist_ok=True)
+        with stdout_path.open("a", encoding="utf-8") as stdout_f:
+            stdout_f.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _refresh_session_statuses(data, drain_queues=True):
     changed = False
     for entry in data.get("sessions", []):
-        if entry.get("status") != "running":
-            continue
-        if _pid_is_running(entry.get("pid")):
-            continue
-        entry["status"] = "finished"
-        entry["finished_at"] = entry.get("finished_at") or _utcnow_iso()
-        changed = True
+        if not entry.get("thread_id"):
+            thread_id = _extract_thread_id(entry.get("stdout_path", ""))
+            if thread_id:
+                entry["thread_id"] = thread_id
+                changed = True
+        turn_running = entry.get("status") == "running" and _pid_is_running(entry.get("pid"))
+        if not turn_running and entry.get("status") == "running":
+            entry["status"] = "finished"
+            entry["finished_at"] = entry.get("finished_at") or _utcnow_iso()
+            changed = True
+        if drain_queues and not turn_running and entry.get("queued_messages"):
+            launched, err = _drain_session_queue(entry)
+            if launched or err:
+                changed = True
     return changed
 
 
 def _session_public(entry, include_logs=True):
     public = dict(entry)
     public.pop("prompt_path", None)
+    public["queued_count"] = len(public.get("queued_messages") or [])
     public["paths"] = {
         "session_dir": entry.get("session_dir", ""),
         "last_message": entry.get("last_message_path", ""),
@@ -671,7 +768,33 @@ def _session_public(entry, include_logs=True):
         public["last_message"] = _tail_text(entry.get("last_message_path", ""), max_bytes=10000)
         public["stdout_tail"] = _tail_text(entry.get("stdout_path", ""), max_bytes=10000)
         public["stderr_tail"] = _tail_text(entry.get("stderr_path", ""), max_bytes=10000)
+        public["events"] = _read_jsonl_events(entry.get("stdout_path", ""))
     return public
+
+
+def _all_session_entries(include_logs=False):
+    data = _load_session_index()
+    if _refresh_session_statuses(data):
+        _save_session_index(data)
+    entries = list(data.get("sessions", []))
+    entries.sort(key=lambda e: e.get("started_at") or "", reverse=True)
+    return data, [_session_public(e, include_logs=include_logs) for e in entries]
+
+
+def _find_session_entry(data, session_id):
+    for entry in data.get("sessions", []):
+        if entry.get("session_id") == session_id:
+            return entry
+    return None
+
+
+def _session_entry_by_id(session_id, drain_queues=True):
+    data = _load_session_index()
+    changed = _refresh_session_statuses(data, drain_queues=drain_queues)
+    entry = _find_session_entry(data, session_id)
+    if changed:
+        _save_session_index(data)
+    return data, entry
 
 
 def _card_session_entries(card_id):
@@ -761,6 +884,148 @@ def _build_card_session_prompt(kanban, card, session_id, request_note, running_e
     return "\n".join(lines).strip() + "\n"
 
 
+def _running_session_summaries(running_entries, exclude_session_id=None, exclude_card_id=None):
+    summaries = []
+    for entry in running_entries:
+        if entry.get("status") != "running":
+            continue
+        if exclude_session_id and entry.get("session_id") == exclude_session_id:
+            continue
+        if exclude_card_id and entry.get("card_id") == exclude_card_id:
+            continue
+        summaries.append({
+            "session_id": entry.get("session_id"),
+            "scope": entry.get("scope") or ("card" if entry.get("card_id") else "general"),
+            "card_id": entry.get("card_id"),
+            "card_title": entry.get("card_title"),
+            "title": entry.get("title") or entry.get("card_title"),
+            "started_at": entry.get("started_at"),
+            "status": entry.get("status"),
+        })
+    return summaries
+
+
+def _build_general_session_prompt(kanban, session_id, title, request_note, running_entries):
+    active_cards = [
+        _session_card_summary(c)
+        for c in kanban.get("cards", [])
+        if c.get("column") == "active"
+    ]
+    lines = [
+        "You are a headless Codex coding session launched from the PD2 mobile Kanban board.",
+        "",
+        f"Session id: {session_id}",
+        f"Workspace: {REPO_ROOT}",
+        "",
+        "This session is not tied to a Kanban card yet.",
+        f"Task title: {title}",
+        "",
+        "Task/request from Mike:",
+        str(request_note or title).strip(),
+        "",
+        "Cards currently in the Active column:",
+        json.dumps(active_cards, indent=2, ensure_ascii=False),
+        "",
+        "Other sessions currently running at launch time:",
+        json.dumps(_running_session_summaries(running_entries, exclude_session_id=session_id), indent=2, ensure_ascii=False),
+        "",
+        "Instructions:",
+        "- First decide whether this task should create or update a Kanban card. If it changes project state, update the board/context/release notes as appropriate.",
+        "- Before editing, read the project context files required by AGENTS.md and respect existing uncommitted changes.",
+        "- Avoid touching files that are clearly owned by another running session unless necessary for correctness.",
+        "- Verify with the narrowest practical parser, test, or build check before reporting completion.",
+        "- End with a concise status report and include any manual retest Mike still needs to do.",
+    ]
+    return "\n".join(lines).strip() + "\n"
+
+
+def _launch_codex_exec(entry, prompt, prompt_path, stdout_path, stderr_path, last_message_path, mode="start"):
+    codex = _find_codex_exe()
+    if not codex:
+        return None, "codex executable not found. Set KANBAN_CODEX_EXE or install Codex CLI."
+
+    prompt_path.write_text(prompt, encoding="utf-8")
+    if mode == "resume":
+        thread_id = entry.get("thread_id") or _extract_thread_id(entry.get("stdout_path", ""))
+        if not thread_id:
+            return None, "Codex thread id is not available yet. Wait for the session to emit thread.started, then retry."
+        cmd = [
+            codex,
+            "exec",
+            "resume",
+            "--json",
+            "--output-last-message",
+            str(last_message_path),
+            thread_id,
+            "-",
+        ]
+    else:
+        cmd = [
+            codex,
+            "exec",
+            "--json",
+            "--sandbox",
+            "workspace-write",
+            "--cd",
+            str(REPO_ROOT),
+            "--output-last-message",
+            str(last_message_path),
+            "-",
+        ]
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    popen_kwargs = {"creationflags": creationflags} if creationflags else {}
+    try:
+        with prompt_path.open("rb") as stdin_f, stdout_path.open("ab") as stdout_f, stderr_path.open("ab") as stderr_f:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(REPO_ROOT),
+                stdin=stdin_f,
+                stdout=stdout_f,
+                stderr=stderr_f,
+                **popen_kwargs,
+            )
+        return proc, None
+    except Exception as exc:
+        return None, str(exc)
+
+
+def _create_session_entry(index, session_id, scope, title, prompt, card=None):
+    session_dir = SESSION_BASE / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+    prompt_path = session_dir / "prompt.md"
+    stdout_path = session_dir / "stdout.jsonl"
+    stderr_path = session_dir / "stderr.log"
+    last_message_path = session_dir / "last-message.md"
+
+    entry = {
+        "session_id": session_id,
+        "scope": scope,
+        "card_id": card.get("id") if card else None,
+        "card_title": card.get("title", "") if card else "",
+        "title": title,
+        "status": "starting",
+        "pid": 0,
+        "thread_id": "",
+        "started_at": _utcnow_iso(),
+        "finished_at": None,
+        "last_user_message_at": None,
+        "session_dir": str(session_dir),
+        "prompt_path": str(prompt_path),
+        "stdout_path": str(stdout_path),
+        "stderr_path": str(stderr_path),
+        "last_message_path": str(last_message_path),
+        "messages": [],
+        "command": "codex exec --json --sandbox workspace-write",
+    }
+    proc, err = _launch_codex_exec(entry, prompt, prompt_path, stdout_path, stderr_path, last_message_path, mode="start")
+    if err:
+        return None, err
+    entry["status"] = "running"
+    entry["pid"] = proc.pid
+    index.setdefault("sessions", []).append(entry)
+    return entry, None
+
+
 def _start_card_session(card_id, payload):
     payload = payload or {}
     kanban = _load_state()
@@ -783,21 +1048,8 @@ def _start_card_session(card_id, payload):
                 "sessions": [_session_public(e) for e in entries],
             }
 
-    codex = _find_codex_exe()
-    if not codex:
-        if changed:
-            _save_session_index(index)
-        return 503, {"error": "codex executable not found. Set KANBAN_CODEX_EXE or install Codex CLI."}
-
     stamp = __import__("datetime").datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     session_id = f"{_safe_slug(card_id)}-{stamp}-{uuid.uuid4().hex[:6]}"
-    session_dir = SESSION_BASE / session_id
-    session_dir.mkdir(parents=True, exist_ok=True)
-    prompt_path = session_dir / "prompt.md"
-    stdout_path = session_dir / "stdout.jsonl"
-    stderr_path = session_dir / "stderr.log"
-    last_message_path = session_dir / "last-message.md"
-
     prompt = _build_card_session_prompt(
         kanban,
         card,
@@ -805,48 +1057,11 @@ def _start_card_session(card_id, payload):
         payload.get("note", ""),
         index.get("sessions", []),
     )
-    prompt_path.write_text(prompt, encoding="utf-8")
-
-    cmd = [
-        codex,
-        "exec",
-        "--json",
-        "--sandbox",
-        "workspace-write",
-        "--cd",
-        str(REPO_ROOT),
-        "--output-last-message",
-        str(last_message_path),
-        "-",
-    ]
-    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    popen_kwargs = {"creationflags": creationflags} if creationflags else {}
-    with prompt_path.open("rb") as stdin_f, stdout_path.open("ab") as stdout_f, stderr_path.open("ab") as stderr_f:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(REPO_ROOT),
-            stdin=stdin_f,
-            stdout=stdout_f,
-            stderr=stderr_f,
-            **popen_kwargs,
-        )
-
-    entry = {
-        "session_id": session_id,
-        "card_id": card_id,
-        "card_title": card.get("title", ""),
-        "status": "running",
-        "pid": proc.pid,
-        "started_at": _utcnow_iso(),
-        "finished_at": None,
-        "session_dir": str(session_dir),
-        "prompt_path": str(prompt_path),
-        "stdout_path": str(stdout_path),
-        "stderr_path": str(stderr_path),
-        "last_message_path": str(last_message_path),
-        "command": "codex exec --json --sandbox workspace-write",
-    }
-    index.setdefault("sessions", []).append(entry)
+    entry, err = _create_session_entry(index, session_id, "card", card.get("title", ""), prompt, card=card)
+    if err:
+        if changed:
+            _save_session_index(index)
+        return 503, {"error": err}
     _save_session_index(index)
     entries = [e for e in index.get("sessions", []) if e.get("card_id") == card_id]
     entries.sort(key=lambda e: e.get("started_at") or "", reverse=True)
@@ -855,6 +1070,252 @@ def _start_card_session(card_id, payload):
         "already_running": False,
         "session": _session_public(entry),
         "sessions": [_session_public(e) for e in entries],
+    }
+
+
+def _start_general_session(payload):
+    payload = payload or {}
+    title = (payload.get("title") or "").strip()
+    note = (payload.get("note") or payload.get("message") or "").strip()
+    if not title and note:
+        title = re.sub(r"\s+", " ", note)[:80].strip()
+    if not title:
+        return 400, {"error": "title or note required"}
+    kanban = _load_state()
+    index = _load_session_index()
+    changed = _refresh_session_statuses(index)
+    stamp = __import__("datetime").datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    session_id = f"adhoc-{stamp}-{uuid.uuid4().hex[:6]}"
+    prompt = _build_general_session_prompt(kanban, session_id, title, note or title, index.get("sessions", []))
+    entry, err = _create_session_entry(index, session_id, "general", title, prompt, card=None)
+    if err:
+        if changed:
+            _save_session_index(index)
+        return 503, {"error": err}
+    _save_session_index(index)
+    return 200, {
+        "ok": True,
+        "session": _session_public(entry),
+    }
+
+
+def _format_choice_answer_message(answer):
+    question = (answer.get("question") or answer.get("prompt") or "").strip()
+    question_id = (answer.get("question_id") or answer.get("id") or "").strip()
+    header = (answer.get("header") or "").strip()
+    selected = (answer.get("selected_label") or answer.get("selected_value") or answer.get("label") or answer.get("value") or "").strip()
+    description = (answer.get("selected_description") or answer.get("description") or "").strip()
+    freeform = (answer.get("freeform") or answer.get("text") or "").strip()
+    lines = []
+    if header:
+        lines.append(f"Question group: {header}")
+    if question_id:
+        lines.append(f"Question id: {question_id}")
+    if question:
+        lines.append(f"Question: {question}")
+    if selected:
+        lines.append(f"Selected answer: {selected}")
+    if description:
+        lines.append(f"Selected answer detail: {description}")
+    if freeform and freeform != selected:
+        lines.append(f"Additional response: {freeform}")
+    return "\n".join(lines).strip()
+
+
+def _build_session_message_prompt(record):
+    text = (record.get("text") or "").strip()
+    if record.get("kind") == "choice_answer":
+        intro = "Mike answered a choice question from the mobile Kanban session interface."
+        closing = "Use the selected answer for the pending question and continue the same session."
+    elif record.get("steered_at"):
+        intro = "Mike selected this queued prompt to steer the next turn from the mobile Kanban session interface."
+        closing = "Use this selected queued prompt as the next steering instruction for the same session."
+    elif record.get("queued_at"):
+        intro = "Mike sent this queued follow-up from the mobile Kanban session interface."
+        closing = "Continue the same session using this queued prompt. Keep the response concise unless the task requires implementation details."
+    else:
+        intro = "Mike sent this follow-up from the mobile Kanban session interface."
+        closing = "Continue the same session. Keep the response concise unless the task requires implementation details."
+    return "\n".join([
+        intro,
+        "",
+        text,
+        "",
+        closing,
+    ]).strip() + "\n"
+
+
+def _message_record_from_payload(message_id, message, answer=None, status="queued"):
+    record = {
+        "id": message_id,
+        "role": "user",
+        "kind": "choice_answer" if answer else "message",
+        "status": status,
+        "text": message,
+        "created_at": _utcnow_iso(),
+    }
+    if status == "queued":
+        record["queued_at"] = record["created_at"]
+    if answer:
+        record["answer"] = answer
+    return record
+
+
+def _launch_session_message(entry, record):
+    session_id = entry.get("session_id", "")
+    session_dir = pathlib.Path(entry.get("session_dir", SESSION_BASE / session_id))
+    messages_dir = session_dir / "messages"
+    messages_dir.mkdir(parents=True, exist_ok=True)
+    prompt_path = messages_dir / f"{record.get('id')}.md"
+    stdout_path = pathlib.Path(entry.get("stdout_path", session_dir / "stdout.jsonl"))
+    stderr_path = pathlib.Path(entry.get("stderr_path", session_dir / "stderr.log"))
+    last_message_path = pathlib.Path(entry.get("last_message_path", session_dir / "last-message.md"))
+    prompt = _build_session_message_prompt(record)
+    proc, err = _launch_codex_exec(entry, prompt, prompt_path, stdout_path, stderr_path, last_message_path, mode="resume")
+    if err:
+        return None, err
+
+    sent_record = dict(record)
+    sent_record["status"] = "sent"
+    sent_record["sent_at"] = _utcnow_iso()
+    sent_record.pop("queued_at", None)
+    event = {
+        "type": "mobile.choice_answer" if sent_record.get("kind") == "choice_answer" else "mobile.user_message",
+        "message_id": sent_record.get("id"),
+        "created_at": sent_record["sent_at"],
+        "text": sent_record.get("text", ""),
+    }
+    if record.get("queued_at"):
+        event["from_queue"] = True
+        event["queued_at"] = record.get("queued_at")
+    if sent_record.get("answer"):
+        event["answer"] = sent_record.get("answer")
+    _append_session_event(entry, event)
+
+    entry.setdefault("messages", []).append(sent_record)
+    entry["status"] = "running"
+    entry["pid"] = proc.pid
+    entry["finished_at"] = None
+    entry["last_user_message_at"] = sent_record["sent_at"]
+    entry["command"] = "codex exec resume --json"
+    entry["queue_error"] = ""
+    return proc, None
+
+
+def _queue_session_message(entry, record):
+    record = dict(record)
+    record["status"] = "queued"
+    record["queued_at"] = record.get("queued_at") or _utcnow_iso()
+    entry.setdefault("queued_messages", []).append(record)
+    event = {
+        "type": "mobile.queued_message",
+        "message_id": record.get("id"),
+        "created_at": record["queued_at"],
+        "text": record.get("text", ""),
+        "kind": record.get("kind", "message"),
+        "queue_position": len(entry.get("queued_messages") or []),
+    }
+    if record.get("answer"):
+        event["answer"] = record.get("answer")
+    _append_session_event(entry, event)
+    return record
+
+
+def _drain_session_queue(entry):
+    if entry.get("status") == "running" and _pid_is_running(entry.get("pid")):
+        return False, None
+    queue = entry.get("queued_messages") or []
+    if not queue:
+        return False, None
+    record = dict(queue[0])
+    proc, err = _launch_session_message(entry, record)
+    if err:
+        entry["queue_error"] = err
+        return False, err
+    entry["queued_messages"] = queue[1:]
+    return True, None
+
+
+def _message_session(session_id, payload):
+    payload = payload or {}
+    answer = payload.get("answer") if isinstance(payload.get("answer"), dict) else None
+    message = (payload.get("message") or "").strip()
+    if answer:
+        message = _format_choice_answer_message(answer)
+    if not message:
+        return 400, {"error": "message or answer required"}
+    data, entry = _session_entry_by_id(session_id)
+    if entry is None:
+        return 404, {"error": f"session {session_id} not found"}
+
+    message_id = _new_session_message_id()
+    record = _message_record_from_payload(message_id, message, answer=answer, status="sent")
+    turn_running = entry.get("status") == "running" and _pid_is_running(entry.get("pid"))
+    if turn_running or entry.get("queued_messages"):
+        queued = _queue_session_message(entry, record)
+        _save_session_index(data)
+        return 200, {
+            "ok": True,
+            "queued": True,
+            "queued_message": queued,
+            "session": _session_public(entry),
+        }
+
+    proc, err = _launch_session_message(entry, record)
+    if err:
+        _save_session_index(data)
+        status = 409 if "thread id" in err.lower() else 503
+        return status, {"error": err}
+
+    _save_session_index(data)
+    return 200, {
+        "ok": True,
+        "queued": False,
+        "session": _session_public(entry),
+    }
+
+
+def _steer_session_queue(session_id, message_id):
+    data, entry = _session_entry_by_id(session_id, drain_queues=False)
+    if entry is None:
+        return 404, {"error": f"session {session_id} not found"}
+    queue = entry.get("queued_messages") or []
+    found_index = -1
+    for i, item in enumerate(queue):
+        if item.get("id") == message_id:
+            found_index = i
+            break
+    if found_index < 0:
+        return 404, {"error": f"queued message {message_id} not found"}
+
+    selected = dict(queue.pop(found_index))
+    selected["steered_at"] = _utcnow_iso()
+    selected["status"] = "queued"
+    queue.insert(0, selected)
+    entry["queued_messages"] = queue
+    _append_session_event(entry, {
+        "type": "mobile.queue_steer",
+        "message_id": selected.get("id"),
+        "created_at": selected["steered_at"],
+        "text": selected.get("text", ""),
+    })
+
+    turn_running = entry.get("status") == "running" and _pid_is_running(entry.get("pid"))
+    launched = False
+    err = None
+    if not turn_running:
+        launched, err = _drain_session_queue(entry)
+    _save_session_index(data)
+    if err:
+        return 503, {
+            "error": err,
+            "session": _session_public(entry),
+        }
+    return 200, {
+        "ok": True,
+        "steered": True,
+        "launched": launched,
+        "session": _session_public(entry),
     }
 
 
@@ -947,36 +1408,57 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.require_auth():
             return
+        path = _request_path(self.path)
 
-        if self.path in ("/", "/index.html"):
+        if path in ("/", "/index.html"):
             content = INDEX_PATH.read_bytes()
             self.reply_text(200, content, content_type="text/html; charset=utf-8")
             return
 
-        if self.path == "/api/state":
+        if path == "/api/state":
             self.reply_text(200, read_text(STATE_PATH).encode("utf-8"), content_type="application/json; charset=utf-8")
             return
 
-        if self.path == "/api/parked":
+        if path == "/api/parked":
             self.reply_text(200, read_text(PARKED_PATH).encode("utf-8"), content_type="application/json; charset=utf-8")
             return
 
-        if self.path == "/api/bugs":
+        if path == "/api/bugs":
             self.reply_text(200, read_text(BUGS_PATH).encode("utf-8"), content_type="application/json; charset=utf-8")
             return
 
-        if self.path == "/api/briefing":
+        if path == "/api/briefing":
             self.reply_text(200, read_text(BRIEFING_PATH).encode("utf-8"), content_type="application/json; charset=utf-8")
             return
 
-        if self.path == "/api/memory-review":
+        if path == "/api/memory-review":
             data = _load_memory_review()
             data["summary"] = _memory_review_summary(data)
             self.reply_json(200, data)
             return
 
-        if self.path.startswith("/api/cards/") and self.path.endswith("/sessions"):
-            card_id = _decode_url_segment(self.path[len("/api/cards/"):-len("/sessions")])
+        if path == "/api/sessions":
+            _, sessions = _all_session_entries(include_logs=False)
+            self.reply_json(200, {
+                "ok": True,
+                "sessions": sessions,
+            })
+            return
+
+        if path.startswith("/api/sessions/"):
+            session_id = _decode_url_segment(path[len("/api/sessions/"):])
+            _, entry = _session_entry_by_id(session_id)
+            if entry is None:
+                self.reply_json(404, {"error": f"session {session_id} not found"})
+                return
+            self.reply_json(200, {
+                "ok": True,
+                "session": _session_public(entry),
+            })
+            return
+
+        if path.startswith("/api/cards/") and path.endswith("/sessions"):
+            card_id = _decode_url_segment(path[len("/api/cards/"):-len("/sessions")])
             _, entries = _card_session_entries(card_id)
             self.reply_json(200, {
                 "ok": True,
@@ -985,7 +1467,7 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
-        if self.path == "/api/open-questions":
+        if path == "/api/open-questions":
             data = _load_state()
             questions = []
             blocked_cards = 0
@@ -1004,7 +1486,7 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
-        if self.path == "/api/decision-requests":
+        if path == "/api/decision-requests":
             data = _load_state()
             requests = []
             for card in data.get("cards", []):
@@ -1031,8 +1513,8 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
-        if self.path.startswith("/api/cards/") and self.path.endswith("/blocked-status"):
-            card_id = self.path[len("/api/cards/"):-len("/blocked-status")]
+        if path.startswith("/api/cards/") and path.endswith("/blocked-status"):
+            card_id = path[len("/api/cards/"):-len("/blocked-status")]
             data = _load_state()
             card = _find_card(data, card_id)
             if card is None:
@@ -1048,7 +1530,7 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
-        if self.path == "/api/pending-completions":
+        if path == "/api/pending-completions":
             data = _load_state()
             pending = []
             for card in data.get("cards", []):
@@ -1081,15 +1563,16 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if not self.require_auth():
                 return
+            path = _request_path(self.path)
 
-            if self.path == "/heartbeat":
+            if path == "/heartbeat":
                 heartbeat_now()
                 # drain body if any (sendBeacon may send a tiny payload)
                 self.read_body()
                 self.reply_json(200, {"ok": True})
                 return
 
-            if self.path == "/shutdown-now":
+            if path == "/shutdown-now":
                 # cooperative: backdate the heartbeat clock so the watcher
                 # fires soon unless another tab keeps the server alive.
                 self.read_body()
@@ -1097,40 +1580,40 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply_json(200, {"ok": True})
                 return
 
-            if self.path == "/api/state":
+            if path == "/api/state":
                 written = write_json_atomic(STATE_PATH, self.read_body())
                 print(f"[kanban] state.json written ({len(written)} bytes)")
                 self.reply_json(200, {"ok": True})
                 return
 
-            if self.path == "/api/parked":
+            if path == "/api/parked":
                 written = write_json_atomic(PARKED_PATH, self.read_body())
                 print(f"[kanban] parked.json written ({len(written)} bytes)")
                 self.reply_json(200, {"ok": True})
                 return
 
-            if self.path == "/api/bugs":
+            if path == "/api/bugs":
                 BUGS_PATH.parent.mkdir(parents=True, exist_ok=True)
                 written = write_json_atomic(BUGS_PATH, self.read_body())
                 print(f"[kanban] bugs/state.json written ({len(written)} bytes)")
                 self.reply_json(200, {"ok": True})
                 return
 
-            if self.path == "/api/memory-review":
+            if path == "/api/memory-review":
                 data = json.loads(self.read_body() or b"{}")
                 written = _save_memory_review_atomic(data)
                 print(f"[kanban] memory-review markup written ({len(written)} bytes)")
                 self.reply_json(200, {"ok": True, "summary": _memory_review_summary(data)})
                 return
 
-            if self.path == "/api/memory-review/apply":
+            if path == "/api/memory-review/apply":
                 self.read_body()
                 result = _apply_memory_review_markup()
                 print(f"[kanban] memory review apply: {len(result.get('applied', []))} applied, {len(result.get('skipped', []))} skipped")
                 self.reply_json(200, result)
                 return
 
-            if self.path == "/api/park":
+            if path == "/api/park":
                 payload = json.loads(self.read_body() or b"{}")
                 card_id = payload.get("card_id")
                 rc = payload.get("resume_condition") or {"type": "date", "targets": None, "semantics": "all-of"}
@@ -1146,7 +1629,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply_json(200, {"ok": True, "parked_id": entry["id"]})
                 return
 
-            if self.path == "/api/unpark":
+            if path == "/api/unpark":
                 payload = json.loads(self.read_body() or b"{}")
                 pid = payload.get("parked_id")
                 if not pid:
@@ -1300,8 +1783,38 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
 
-            if self.path.startswith("/api/cards/") and self.path.endswith("/sessions/start"):
-                card_id = _decode_url_segment(self.path[len("/api/cards/"):-len("/sessions/start")])
+            if path == "/api/sessions/start":
+                payload = json.loads(self.read_body() or b"{}")
+                status, result = _start_general_session(payload)
+                if status == 200:
+                    print(f"[kanban] adhoc session start session={result.get('session', {}).get('session_id')}")
+                self.reply_json(status, result)
+                return
+
+            if path.startswith("/api/sessions/") and "/queue/" in path and path.endswith("/steer"):
+                prefix = "/api/sessions/"
+                rest = path[len(prefix):]
+                session_part, queue_part = rest.split("/queue/", 1)
+                message_part = queue_part[:-len("/steer")]
+                session_id = _decode_url_segment(session_part)
+                message_id = _decode_url_segment(message_part)
+                status, result = _steer_session_queue(session_id, message_id)
+                if status == 200:
+                    print(f"[kanban] session queue steer session={session_id} message={message_id} launched={result.get('launched')}")
+                self.reply_json(status, result)
+                return
+
+            if path.startswith("/api/sessions/") and path.endswith("/message"):
+                session_id = _decode_url_segment(path[len("/api/sessions/"):-len("/message")])
+                payload = json.loads(self.read_body() or b"{}")
+                status, result = _message_session(session_id, payload)
+                if status == 200:
+                    print(f"[kanban] session message session={session_id} queued={result.get('queued')}")
+                self.reply_json(status, result)
+                return
+
+            if path.startswith("/api/cards/") and path.endswith("/sessions/start"):
+                card_id = _decode_url_segment(path[len("/api/cards/"):-len("/sessions/start")])
                 payload = json.loads(self.read_body() or b"{}")
                 status, result = _start_card_session(card_id, payload)
                 if status == 200:

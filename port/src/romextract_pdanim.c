@@ -7,7 +7,7 @@
  *
  * Each .pdanim carries category="weapon_animation" per universality-
  * pivot-schemas.md Section 2.6. The archive carries animation.ini,
- * manifest.json, and opcodes.json so weapon/inventory animations use
+ * _meta/manifest.json, and opcodes.json so weapon/inventory animations use
  * the same editable compound-asset contract as the other typed assets.
  *
  * Per Mike's Q-3 ruling (2026-05-02): character anims are required
@@ -261,7 +261,7 @@ static s32 s_existingArchiveHasAnimPayloads(const char *relpath)
 	mod_archive_t *arc = modArchiveOpen(full);
 	if (!arc) return 0;
 	s32 ok = modArchiveFindEntry(arc, "animation.ini") >= 0
-	      && modArchiveFindEntry(arc, "manifest.json") >= 0
+	      && modArchiveFindEntry(arc, "_meta/manifest.json") >= 0
 	      && modArchiveFindEntry(arc, "opcodes.json") >= 0;
 	modArchiveClose(arc);
 	return ok;
@@ -336,7 +336,7 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 		"category = weapon_animation\n"
 		"source_format = gunscript_opcodes\n"
 		"opcodes_file = opcodes.json\n"
-		"manifest_file = manifest.json\n"
+		"manifest_file = _meta/manifest.json\n"
 		"opcode_count = %d\n"
 		"source_index = %d\n",
 		catalog_id, cmd_count, anim_idx);
@@ -375,9 +375,9 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 		s_textbufFree(&opcodes);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "manifest.json", manifest.data, manifest.len) != 0) {
+	if (modArchiveAddFileMem(aw, "_meta/manifest.json", manifest.data, manifest.len) != 0) {
 		sysLoudFailf("EXTRACT.PDANIM",
-			"AddFileMem manifest.json failed for \"%s\"", full);
+			"AddFileMem _meta/manifest.json failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		s_textbufFree(&manifest);
 		s_textbufFree(&opcodes);

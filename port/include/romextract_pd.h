@@ -7,11 +7,11 @@
  * weapon mesh, and one .pdanim ZIP compound per registered animation.
  *
  * Output paths under data/<romid>/:
- *   weapons/<id>.pdweapon    ZIP compound (weapon.ini + manifest.json +
+ *   weapons/<id>.pdweapon    ZIP compound (weapon.ini + _meta/manifest.json +
  *                             behavior.graph.json + nested_payloads.json)
- *   meshes/<id>.pdmesh       ZIP compound (model.ini + manifest.json +
+ *   meshes/<id>.pdmesh       ZIP compound (mesh.ini + _meta/manifest.json +
  *                             model.obj + model.mtl + sha256 sidecars)
- *   animations/<id>.pdanim   ZIP compound (animation.ini + manifest.json +
+ *   animations/<id>.pdanim   ZIP compound (animation.ini + _meta/manifest.json +
  *                             editable source files)
  *
  * Where <id> is the catalog ID with the colon replaced by underscore.
@@ -64,7 +64,7 @@ s32 romExtractAllPdmesh(s32 force_rewrite);
  * Emit one .pdanim ZIP compound per registered weapon animation in the
  * loader pool.  Each archive carries category="weapon_animation" per
  * universality-pivot-schemas.md Section 2.6 plus animation.ini,
- * manifest.json, and opcodes.json.
+ * _meta/manifest.json, and opcodes.json.
  *
  * Returns: count of files newly written; -1 on infrastructure failure.
  */
@@ -81,7 +81,7 @@ s32 romExtractAllPdanim(s32 force_rewrite);
  *                scenario dependency payloads embedded under scenario/)
  *   .pdscenario ZIP compound (one per arena's playable stage,
  *                              UNIFIED per Q-1 -- bg + tiles + pads
- *                              + setup + mpsetup + manifest in one
+ *                              + setup + mpsetup + _meta/manifest in one
  *                              ZIP)
  *
  * Output paths under data/<romid>/:
@@ -161,10 +161,10 @@ s32 romExtractAllPdarena(s32 force_rewrite);
  *
  * Compound layout per universality-pivot-schemas.md Section 2.6:
  *   animation.ini     editable descriptor
- *   manifest.json     envelope + animation metadata + provenance
+ *   _meta/manifest.json envelope + animation metadata + provenance
  *   header.tsv        editable header bytes
  *   frames.tsv        editable frame rows
- *   *.sha256          source-file SHA-256 sidecars
+ *   _meta/*.sha256   source-file SHA-256 sidecars
  *
  * Catalog IDs derive from the loaderEnumNameForAnimEnum reverse
  * lookup over k_AnimEnum (port/src/loader_enum_reverse.c). Named
@@ -355,10 +355,10 @@ s32 romExtractAllPdlang(s32 force_rewrite);
  *
  * Where <slug> matches the catalog ID minus the "base:" prefix
  * (e.g. base:ui_bg_haze -> ui_bg_haze.pdui). Each ZIP contains:
- *   manifest.json        envelope (pd_kind="ui", texture_count=1,
+ *   _meta/manifest.json  envelope (pd_kind="ui", texture_count=1,
  *                        baked-in nineslice insets, source_index)
  *   texture.tga          uncompressed 32-bit RGBA top-down TGA
- *   texture.tga.sha256   outer-file SHA-256 sidecar
+ *   _meta/texture.tga.sha256 outer-file SHA-256 sidecar
  *
  * Cross-cut from Step 3b part 1: the .pdui pipeline depends on
  * g_TexGeneralConfigs (populated by texInit/texReset in pdmain.c

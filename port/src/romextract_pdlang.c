@@ -8,9 +8,9 @@
  *
  * Per-asset ZIP layout:
  *   lang.ini              editable language descriptor
- *   manifest.json         compatibility envelope + locale + bank metadata
+ *   _meta/manifest.json   compatibility envelope + locale + bank metadata
  *   strings.tsv           escaped index<TAB>text source table
- *   strings.tsv.sha256    outer-file SHA-256 sidecar
+ *   _meta/strings.tsv.sha256 outer-file SHA-256 sidecar
  *
  * Catalog ID convention (feedback_human_readable_ids):
  *   base:lang_<bank>_<locale>   e.g. base:lang_gun_en, base:lang_propobj_en
@@ -279,6 +279,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 
 	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
 	    s_existingArchiveHasEntry(dst_rel, "lang.ini") &&
+	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
 	    s_existingArchiveHasEntry(dst_rel, "strings.tsv")) return 0;
 
 	u32 src_size = (u32)fsFileSize(src_rel);
@@ -397,10 +398,10 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		sysMemFree(src_bytes);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "manifest.json",
+	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
 	                          manifest_buf, (u32)manifest_len) != 0) {
 		sysLoudFailf("EXTRACT.PDLANG",
-			"AddFileMem manifest.json failed for \"%s\"", dst_full);
+			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		free(tsv_text);
 		sysMemFree(src_bytes);
@@ -424,7 +425,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 	hex[SHA256_HEX_SIZE] = '\0';
 	char sidecar[SHA256_HEX_SIZE + 2];
 	snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-	if (modArchiveAddFileMem(aw, "strings.tsv.sha256",
+	if (modArchiveAddFileMem(aw, "_meta/strings.tsv.sha256",
 	                          sidecar, (u32)strlen(sidecar)) != 0) {
 		sysLogPrintf(LOG_WARNING,
 			"romextract pdlang: sidecar write failed for \"%s\"",

@@ -24,6 +24,7 @@
 #include <SDL.h>
 #include <PR/ultratypes.h>
 
+#include "asset_archive_policy.h"
 #include "assetcatalog.h"
 #include "boot_pool.h"
 #include "boot_progress.h"
@@ -165,7 +166,8 @@ static s32 s_loadManifest(const char *rel_path,
     }
 
     /* ZIP compound: free the raw bytes and re-open via modArchive so we
-     * can extract just the "manifest.json" entry. */
+     * can extract _meta/manifest.json while still accepting the legacy
+     * root manifest during migration. */
     sysMemFree(raw);
 
     char fullBuf[FS_MAXPATH + 1];
@@ -175,7 +177,7 @@ static s32 s_loadManifest(const char *rel_path,
     mod_archive_t *arc = modArchiveOpen(full);
     if (!arc) return 0;
 
-    s32 idx = modArchiveFindEntry(arc, "manifest.json");
+    s32 idx = assetArchiveFindMetadataEntry(arc, ASSET_ARCHIVE_META_MANIFEST);
     if (idx < 0) {
         modArchiveClose(arc);
         return 0;

@@ -1876,7 +1876,7 @@ static void parseArena(jstream_t *s)
 
 /* Drive a parse over `json` (NUL-terminated) using the per-record
  * parser supplied by the caller. The walker scaffold passes plain
- * .pdweapon manifest.json or the manifest.json extracted from a .pdhead /
+ * .pdweapon _meta/manifest.json or the manifest envelope extracted from a .pdhead /
  * .pdbody / .pdarena ZIP -- both shapes carry the per-record fields
  * at the top level, so the same parser handles them. Returns 1 on
  * success (parser reached an end-of-record), 0 if the JSON could not
@@ -2135,4 +2135,3 @@ s32 loaderPoolGetArenasRegistered(void)
 {
 	return s_ArenasRegistered;
 }
-

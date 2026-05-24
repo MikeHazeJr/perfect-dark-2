@@ -1,5 +1,183 @@
 # Session Log (Active)
 
+## Session (`c3824-20260524-165854-961966`) - 2026-05-24 - Recursive clean archive closure, examples, and release gate
+
+Kanban launched this headless session for `c3824`, continuing the post-freeze Asset Pipeline sweep across validators and examples.
+
+### Implemented
+
+- Extended `asset_archive_policy` release validation beyond root descriptor checks: descriptor INI path keys, GLTF/JSON file-like string refs, OBJ `mtllib`, MTL texture maps, and embedded typed archives are now checked recursively against the archive's internal contents while `_meta/` provenance/source handles stay machine-owned metadata.
+- Added negative and positive policy coverage for missing GLTF image URIs, OBJ/MTL relative texture chains, missing nested typed archives, and nested typed archives with unresolved internal payloads.
+- Regenerated `examples/modding/typed-pdxxx-basic` to use `_meta/manifest.json` in every archive, switch the mesh sample to the frozen `mesh.ini` descriptor, and add missing frozen-family samples for `.pdprojectile`, `.pdentity`, `.pdmaterial`, `.pdtexture`, and `.pdcharacter`.
+- Added the final release packaging gate over the assembled distribution tree: typed archives fail the release before zip creation if they are `.pdwpn`, non-zip, descriptor-less, legacy `.pdmesh` `model.ini`, root-metadata, or `.bin`-backed.
+- Updated modding examples/docs, static example inventory/reference tests, the modding pillar, tasks, Kanban state, and release notes for the completed sweep slice.
+
+### Verification
+
+- `git diff --check` passed for the touched code, tests, and example docs.
+- Focused `[release][layout][static][c3824],[release][layout][static][c3811],[modding][pdxxx][policy][c3824],[modding][pdxxx][examples][static][c3811][c3812],[modding][pdxxx][examples][static][c3812][archive-inventory],[modding][pdxxx][examples][static][c3812][archive-refs],[modding][pdmod][static][c3809]` passed: 1587 assertions / 19 cases.
+- Isolated `c3824wrap` all-target build passed with `-BuildTimeoutSeconds 600`.
+
+### Next
+
+- `c3824` is wrapped and moved to Done. Manual retest is not required for this headless validator/examples/release-gate slice.
+
+---
+
+## Session (`c3824-20260524-160347-38e7a7`) - 2026-05-24 - Shared two-zone asset archive validation
+
+Kanban launched this headless session for `c3824-s1`, the shared two-zone validator/migration slice under the Asset Pipeline clean archive migration.
+
+### Implemented
+
+- Added `asset_archive_policy` as the shared typed archive rule table for extension, root descriptor, legacy descriptor, `_meta/` metadata lookup, and migration-vs-release validation.
+- Wired the catalog scanner and loader walker to prefer `_meta/manifest.json` while accepting legacy root `manifest.json` during migration.
+- Wired `.pdmod` package validation through the shared release gate: typed files must be zip-openable, cannot be `.pdwpn`, cannot contain authored `.bin`, must have the canonical root descriptor, and cannot keep machine metadata at archive root.
+- Updated base typed emitters and Modding Hub save paths to write `_meta/manifest.json` and `_meta/*.sha256`; `.pdmesh` release output now writes `mesh.ini`, while `model.ini` remains migration-only.
+- Updated static coverage for the policy gate, scanner/packer delegation, base emitters, and release/migration behavior.
+- Updated `c3824`, the modding pillar, tasks, Kanban state, and release notes. `c3824-s1` is done; next c3824 work is the extraction/examples/validators/release-gate sweep.
+
+### Verification
+
+- `git diff --check` passed for the touched code/test surface.
+- Isolated `c3824s1` all-target build passed after rerunning the clean build with `-BuildTimeoutSeconds 600`; the first 60-second wrapper watchdog timed out during normal client compilation with no compiler stderr.
+- Focused `[modding][pdxxx][policy][c3824]` passed: 19 assertions / 1 case.
+- Focused `[modding][pdmod][static][c3809]` passed: 525 assertions / 13 cases.
+- Focused `[modding][pdxxx][base][static][c3812]` passed: 353 assertions / 12 cases.
+
+### Next
+
+- Run the broad c3824 sweep (`c3824-s20` / `c3824-s18`) to regenerate examples and installed outputs to the clean layouts, add deeper recursive source-reference closure across descriptor/GLTF/OBJ/material graphs, and turn the release/package gate onto stale installed archives.
+
+---
+
+## Session (`kanbanremote-responses-only`) - 2026-05-24 - Mobile session transcript cleanup
+
+Mike clarified that the session view should show responses only, not internal Codex log details.
+
+### Implemented
+
+- Changed `tools/kanban/index.html` so the full-screen session timeline renders only Codex agent response text and actionable choice-question cards.
+- Hid thread-start/turn markers, command execution output, raw/read-error rows, stderr tails, queued-message events, and queue-steer bookkeeping from the main transcript.
+- Kept queued prompts in the separate queue panel and kept command/stdout/stderr data stored on disk for diagnostics.
+- Changed card-level session previews to use `last_message` only instead of falling back to stdout/stderr tails.
+- Updated `c3836`, the tooling pillar, Kanban README, tasks, and release notes for response-only transcripts.
+
+### Verification
+
+- `node` JavaScript parse check for `tools/kanban/index.html` passed.
+- Response-only timeline smoke passed: thread/turn/raw/read-error/queue/command events are hidden, agent responses still render, and choice-question cards still render.
+- `python -m py_compile tools\kanban\server.py` passed.
+- Parsed `tools/kanban/state.json` as JSON and ran scoped `git diff --check`.
+- Local Kanban HTTP smoke returned the response-only session UI and `GET /api/sessions` successfully.
+
+### Next
+
+- Mike manual phone retest: open a session with command/tool output and confirm the main transcript shows only Codex responses plus any needed choice questions.
+
+---
+
+## Session (`kanbanremote-queue`) - 2026-05-24 - Mobile session prompt queue
+
+Mike added that mobile session messaging should behave like desktop/CLI: multiple prompts can be sent while a turn is running, and a queued prompt can be selected to steer the next turn.
+
+### Implemented
+
+- Added durable `queued_messages` support to Kanban Codex session entries in `tools/kanban/server.py`.
+- Changed follow-up/choice-answer submission while a turn is running from a `409` into a queued prompt record plus `mobile.queued_message` timeline event.
+- Added automatic queue draining: when the active Codex process exits, the next queued prompt resumes the same Codex thread.
+- Added `POST /api/sessions/<session-id>/queue/<message-id>/steer` to move a selected queued prompt to the front and launch it immediately when the session is idle.
+- Added a full-screen mobile queue panel in `tools/kanban/index.html` that shows queued prompts, queued count, and `Steer` actions while keeping the composer enabled during running turns.
+- Updated `c3836`, the tooling pillar, Kanban README, tasks, and release notes for queued prompt steering.
+
+### Verification
+
+- `python -m py_compile tools\kanban\server.py` passed.
+- `node` JavaScript parse check for `tools/kanban/index.html` passed.
+- Queue UI token smoke found the queue panel, queued events, and steer action.
+- Backend queue smoke passed: enqueue while running, steer reorder while running, and idle steer launch through a stubbed Codex resume.
+- Local Kanban HTTP smoke returned the queue UI and `GET /api/sessions` successfully.
+
+### Next
+
+- Mike manual phone retest: send two or more messages while a session is running, steer a later queued prompt, and confirm the selected prompt runs next after the active turn finishes.
+
+---
+
+## Session (`kanbanremote-questions`) - 2026-05-24 - Mobile session choice answers
+
+Mike added that some Codex sessions can use a plan-mode-style question picker, and the mobile session UI needs to answer those with normal tap choices.
+
+### Implemented
+
+- Extended the full-screen Kanban session timeline to detect direct `request_user_input` events and function/tool-call argument payloads that contain `questions[]`.
+- Added mobile question cards with per-option tap buttons in `tools/kanban/index.html`.
+- Extended the existing `POST /api/sessions/<session-id>/message` path in `tools/kanban/server.py` to accept structured `answer` payloads, record `mobile.choice_answer` events, and resume the same Codex thread with the selected answer.
+- Updated `c3836`, the tooling pillar, Kanban README, tasks, and release notes for plan-mode choice-answer support.
+
+### Verification
+
+- `python -m py_compile tools\kanban\server.py` passed.
+- `node` JavaScript parse check for `tools/kanban/index.html` passed.
+- Static token smoke found the choice-question UI and answer-send paths.
+- Synthetic extraction smoke passed for direct `request_user_input` and function-call argument question shapes.
+- Choice-answer prompt formatting smoke passed.
+
+### Next
+
+- Mike manual phone retest: open a session that asks a plan-mode question, tap an answer choice, and confirm the same session continues with that answer.
+
+---
+
+## Session (`kanbanremote-interactive`) - 2026-05-24 - Interactive mobile Codex sessions
+
+Mike extended the mobile Kanban ask: card-launched Codex sessions need a full-screen phone view with formatted output and follow-up messaging, and he needs a way to start a session without first creating a card.
+
+### Implemented
+
+- Extended the Kanban session backend with global session endpoints: `GET /api/sessions`, `GET /api/sessions/<session-id>`, `POST /api/sessions/start`, and `POST /api/sessions/<session-id>/message`.
+- Added ad-hoc session start support for untracked/external tasks. These prompts include Active cards and other running sessions so they still launch with project awareness.
+- Added Codex `thread_id` extraction from JSONL output and follow-up messaging through `codex exec resume`, with one running turn per session.
+- Added a full-screen session UI in `tools/kanban/index.html`: session list, formatted agent-message/command/stderr timeline, card-session `Open Fullscreen` actions, mobile `Sessions` entry point, ad-hoc start modal, and message composer.
+- Fixed the Windows PID status helper used by session refresh. It now uses `OpenProcess`/`GetExitCodeProcess` on Windows instead of `os.kill(pid, 0)`, which can raise `SystemError`/WinError 87.
+- Updated `c3836`, the tooling pillar, tasks, Kanban README, and release notes for the interactive/ad-hoc session behavior.
+
+### Verification
+
+- `python -m py_compile tools\kanban\server.py` passed.
+- `node` JavaScript parse check for `tools/kanban/index.html` passed.
+- Static UI smoke found the session overlay, full-screen open action, ad-hoc start, and follow-up message paths.
+- Local API smoke on a temporary Kanban server passed for `GET /api/sessions`, `GET /api/sessions/<id>`, and `GET /api/cards/c3836/sessions`.
+- Unit smoke with `_find_codex_exe` stubbed to unavailable passed for ad-hoc start and follow-up message failure paths without launching a real Codex run.
+
+### Next
+
+- Mike manual retest from phone: open the remote Kanban link, tap `Sessions`, start an ad-hoc session, open a card session full-screen, and send a follow-up after the active turn finishes.
+
+---
+
+## Session (`c3824-20260524-151348-d21d54`) - 2026-05-24 - Asset archive family format freeze
+
+Kanban launched this headless session for `c3824`, the Asset Pipeline clean self-contained archive layout umbrella.
+
+### Implemented
+
+- Added [designs/modding/asset-archive-clean-formats.md](designs/modding/asset-archive-clean-formats.md) as the frozen cross-family contract for all current typed or otherwise referenceable archive families.
+- Approved the final `.pdui`, `.pdfont`, and `.pdlang` layouts: UI visual/chrome archives keep texture and layout/nine-slice authoring files visible, font archives expose vector fonts or decoded bitmap glyph/metrics/kerning files, and language archives own UTF-8 `strings.tsv` text banks while `.pdvoice` owns spoken audio.
+- Marked `c3824-s15`, `c3824-s16`, `c3824-s17`, and `c3824-s19` done in Kanban state. `c3824-s1` remains the active implementation gate for the shared two-zone validator/migration rules before the extraction/examples/validators/release-gate sweep.
+- Updated the modding pillar, tasks, context README design index, and release notes so future sessions start from the frozen format file.
+
+### Verification
+
+- Parsed `tools/kanban/state.json` as JSON after the card update.
+- Ran scoped `git diff --check` on the edited context/Kanban/release-note files.
+
+### Next
+
+- Implement `c3824-s1`: shared two-zone archive validation and migration rules. Then run the full extractor/examples/validator/release-gate rebuild from the frozen contracts.
+
+---
+
 ## Session (`kanbanremote`) - 2026-05-24 - One-click remote Kanban link
 
 Mike clarified the desired flow: a one-click `Start Kanban Server` button that produces a join link usable from a phone on a different network, without routing other PC traffic through the service.
@@ -7,10 +185,10 @@ Mike clarified the desired flow: a one-click `Start Kanban Server` button that p
 ### Implemented
 
 - Added remote-token mode to `tools/kanban/server.py`: `KANBAN_REMOTE_TOKEN` gates GET/POST/PATCH requests through query token, header token, bearer token, or an HttpOnly cookie.
-- Kept local Dev Window `Open Kanban` unchanged when `KANBAN_REMOTE_TOKEN` is not set.
-- Added `devtools/start-kanban-remote.ps1` to start the Kanban server on `127.0.0.1` with preferred port `7531` and next-free-port fallback, disable idle shutdown for the remote session, start a Cloudflare localhost tunnel, track server/tunnel pids, and write the phone URL to `.claude\scratch\kanban-remote\remote-url.txt`.
+- Kept local Dev Window `Open Kanban` tokenless: it now verifies tokenless `/api/state` before reusing a listener, skips token-gated remote listeners, and starts/opens a separate local board on `7531` or the next free local port.
+- Added `devtools/start-kanban-remote.ps1` to start the Kanban server on `127.0.0.1` while keeping local port `7531` free, preferring remote port `7533` with next-free-port fallback, disabling idle shutdown for the remote session, starting a Cloudflare localhost tunnel, tracking server/tunnel pids, and writing the phone URL to `.claude\scratch\kanban-remote\remote-url.txt`.
 - Added Dev Window v2 `Start Kanban Server` beside `Open Kanban`; it runs the remote starter in the background, logs output, copies the join link to the clipboard, and shows the link in a dialog.
-- Fixed the Dev Window button hang after Mike's first real click: the button now polls the generated `remote-url.txt` file and resets/copies/shows the link as soon as the tunnel writes it, instead of depending only on helper-process completion.
+- Fixed the Dev Window button hang after Mike's first real click: the button now starts the remote helper detached, polls the generated `remote-url.txt` file, and resets/copies/shows the link as soon as the tunnel writes it.
 - Added Dev Window v2 `Stop Kanban Server` beside the start button; it calls the tracked remote starter `-Stop` path and resets any in-progress start button state before shutting down the remote server and Cloudflare tunnel.
 - Added phone-specific Kanban layout: mobile widths hide desktop tabs/filter/sidebar, show only the card list plus a `Filters` modal, and open tapped cards as full-screen editors.
 - Added phone card controls for save/delete, Move Up/Move Down ordering, new-card creation from the Filters modal, and card-scoped `Start Session`.
@@ -23,6 +201,7 @@ Mike clarified the desired flow: a one-click `Start Kanban Server` button that p
 - `python -m py_compile tools\kanban\server.py` passed.
 - `devtools\start-kanban-remote.ps1 -Help` passed.
 - PowerShell parser checks passed for `devtools\start-kanban-remote.ps1` and `devtools\dev-window-v2\dev-window-v2.ps1`.
+- Second-pass checks passed after the start-completion/local-tokenless fix: Dev Window parser, remote starter parser/help, Kanban state JSON parse, and scoped `git diff --check`.
 - Local auth smoke passed: `/api/state` returned 401 without a token, 200 with `X-PD2-Kanban-Token`, and the `?token=` landing URL set a cookie that allowed later API requests.
 - Local no-token smoke passed: `/api/state` still returned 200 when `KANBAN_REMOTE_TOKEN` was unset.
 - Real quick-tunnel smoke passed after Mike's click: Cloudflare returned the token landing redirect and then HTTP 200 for the Kanban HTML page.

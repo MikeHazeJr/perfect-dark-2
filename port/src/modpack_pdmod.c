@@ -23,6 +23,7 @@
 
 #include "fs.h"
 #include "system.h"
+#include "asset_archive_policy.h"
 #include "assetcatalog_scanner.h"
 #include "modarchive.h"
 #include "modpack_pdmod.h"
@@ -166,21 +167,7 @@ static int folderShouldSkip(const char *leaf, const char *fullPath, const char *
 
 static s32 entryHasForbiddenBinPayload(const char *name)
 {
-	if (!name) return 0;
-
-	for (const char *p = name; *p; p++) {
-		if (p[0] != '.') {
-			continue;
-		}
-		if ((p[1] == 'b' || p[1] == 'B') &&
-		    (p[2] == 'i' || p[2] == 'I') &&
-		    (p[3] == 'n' || p[3] == 'N') &&
-		    (p[4] == '\0' || p[4] == '.' || p[4] == '/' || p[4] == '\\')) {
-			return 1;
-		}
-	}
-
-	return 0;
+	return assetArchiveEntryIsForbiddenBinPayload(name);
 }
 
 static void pathJoin(char *out, size_t cap, const char *left, const char *right)
@@ -301,44 +288,12 @@ static s32 pathEndsWithNoCase(const char *s, const char *suffix)
 
 static asset_type_e typedPdContentTypeForPath(const char *path)
 {
-	if (pathEndsWithNoCase(path, ".pdweapon"))   return ASSET_WEAPON;
-	if (pathEndsWithNoCase(path, ".pdprojectile")) return ASSET_PROJECTILE;
-	if (pathEndsWithNoCase(path, ".pdentity"))   return ASSET_ENTITY;
-	if (pathEndsWithNoCase(path, ".pdcharacter")) return ASSET_CHARACTER;
-	if (pathEndsWithNoCase(path, ".pdhead"))     return ASSET_HEAD;
-	if (pathEndsWithNoCase(path, ".pdbody"))     return ASSET_BODY;
-	if (pathEndsWithNoCase(path, ".pdarena"))    return ASSET_ARENA;
-	if (pathEndsWithNoCase(path, ".pdmesh"))     return ASSET_MODEL;
-	if (pathEndsWithNoCase(path, ".pdanim"))     return ASSET_ANIMATION;
-	if (pathEndsWithNoCase(path, ".pdsfx"))      return ASSET_AUDIO;
-	if (pathEndsWithNoCase(path, ".pdvoice"))    return ASSET_AUDIO;
-	if (pathEndsWithNoCase(path, ".pdsong"))     return ASSET_AUDIO;
-	if (pathEndsWithNoCase(path, ".pdui"))       return ASSET_UI;
-	if (pathEndsWithNoCase(path, ".pdfont"))     return ASSET_UI;
-	if (pathEndsWithNoCase(path, ".pdlang"))     return ASSET_LANG;
-	if (pathEndsWithNoCase(path, ".pdscenario")) return ASSET_GAMEMODE;
-	return ASSET_NONE;
+	return assetArchiveTypeForPath(path);
 }
 
 static const char *typedPdArchiveDescriptorLeaf(const char *path)
 {
-	if (pathEndsWithNoCase(path, ".pdweapon"))   return "weapon.ini";
-	if (pathEndsWithNoCase(path, ".pdprojectile")) return "projectile.ini";
-	if (pathEndsWithNoCase(path, ".pdentity"))   return "entity.ini";
-	if (pathEndsWithNoCase(path, ".pdcharacter")) return "character.ini";
-	if (pathEndsWithNoCase(path, ".pdhead"))     return "head.ini";
-	if (pathEndsWithNoCase(path, ".pdbody"))     return "body.ini";
-	if (pathEndsWithNoCase(path, ".pdarena"))    return "arena.ini";
-	if (pathEndsWithNoCase(path, ".pdmesh"))     return "model.ini";
-	if (pathEndsWithNoCase(path, ".pdanim"))     return "animation.ini";
-	if (pathEndsWithNoCase(path, ".pdsfx"))      return "sound.ini";
-	if (pathEndsWithNoCase(path, ".pdvoice"))    return "voice.ini";
-	if (pathEndsWithNoCase(path, ".pdsong"))     return "music.ini";
-	if (pathEndsWithNoCase(path, ".pdui"))       return "ui.ini";
-	if (pathEndsWithNoCase(path, ".pdfont"))     return "font.ini";
-	if (pathEndsWithNoCase(path, ".pdlang"))     return "lang.ini";
-	if (pathEndsWithNoCase(path, ".pdscenario")) return "scenario.ini";
-	return NULL;
+	return assetArchiveDescriptorForPath(path);
 }
 
 static void descriptorStemBaseRel(const char *srcFolder, const char *descriptorRel,
@@ -515,10 +470,17 @@ static s32 validateNoForbiddenBinsRecurse(const char *fsRoot, const char *relRoo
 				closedir(d);
 				return r;
 			}
-		} else if (S_ISREG(st.st_mode) && entryHasForbiddenBinPayload(childRel)) {
-			pdmodSetLastError("Authored .bin files are not allowed in mod content or .pdmod transport archives: %s", childRel);
-			closedir(d);
-			return MODPACK_PDMOD_ERR_LAYOUT;
+		} else if (S_ISREG(st.st_mode)) {
+			if (assetArchivePathIsDeprecated(childRel)) {
+				pdmodSetLastError("Deprecated .pdwpn files are not allowed in typed asset archives or .pdmod transport archives: %s", childRel);
+				closedir(d);
+				return MODPACK_PDMOD_ERR_LAYOUT;
+			}
+			if (entryHasForbiddenBinPayload(childRel)) {
+				pdmodSetLastError("Authored .bin files are not allowed in mod content or .pdmod transport archives: %s", childRel);
+				closedir(d);
+				return MODPACK_PDMOD_ERR_LAYOUT;
+			}
 		}
 	}
 
@@ -707,10 +669,14 @@ static s32 validateArchiveDescriptorSources(mod_archive_t *arc,
 
 static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *descriptorRel)
 {
-	asset_type_e type = typedPdContentTypeForPath(descriptorRel);
-	if (type == ASSET_NONE) {
+	if (assetArchivePathIsDeprecated(descriptorRel)) {
+		pdmodSetLastError("Deprecated .pdwpn files are not allowed in typed asset archives or .pdmod transport archives: %s", descriptorRel);
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
+	if (!assetArchivePathIsTyped(descriptorRel)) {
 		return MODPACK_PDMOD_OK;
 	}
+	asset_type_e type = typedPdContentTypeForPath(descriptorRel);
 
 	static const char *modelKeys[] = {
 		"model_file", "model", "geometry_file", "geometry", "file_path"
@@ -745,56 +711,40 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 	pathJoin(descriptorAbs, sizeof(descriptorAbs), srcFolder, descriptorRel);
 
 	ini_section_t archiveIni;
-	mod_archive_t *typedArchive = NULL;
-	if (!iniParse(descriptorAbs, &archiveIni)) {
-		typedArchive = modArchiveOpen(descriptorAbs);
-		if (typedArchive) {
-			for (s32 i = 0; i < modArchiveGetEntryCount(typedArchive); i++) {
-				const char *entry = modArchiveGetEntryName(typedArchive, i);
-				if (entryHasForbiddenBinPayload(entry)) {
-					pdmodSetLastError("%s contains forbidden authored .bin payload: %s",
-						descriptorRel, entry ? entry : "(unknown)");
-					modArchiveClose(typedArchive);
-					return MODPACK_PDMOD_ERR_LAYOUT;
-				}
-			}
+	char policyErr[256];
+	if (assetArchiveValidateFile(descriptorAbs, ASSET_ARCHIVE_VALIDATE_RELEASE,
+			policyErr, sizeof(policyErr)) != 0) {
+		pdmodSetLastError("%s", policyErr[0] ? policyErr : "typed asset archive validation failed");
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
+	mod_archive_t *typedArchive = modArchiveOpen(descriptorAbs);
+	if (!typedArchive) {
+		pdmodSetLastError("%s is not a zip-openable typed asset archive", descriptorRel);
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
+	const char *leaf = NULL;
+	s32 idx = assetArchiveFindDescriptorEntry(typedArchive, descriptorRel,
+		ASSET_ARCHIVE_VALIDATE_RELEASE, &leaf);
+	if (idx < 0) {
+		pdmodSetLastError("%s is missing its internal descriptor %s",
+			descriptorRel, typedPdArchiveDescriptorLeaf(descriptorRel));
+		modArchiveClose(typedArchive);
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
 
-			const char *leaf = typedPdArchiveDescriptorLeaf(descriptorRel);
-			s32 idx = leaf ? modArchiveFindEntry(typedArchive, leaf) : -1;
-			if (idx < 0 && type == ASSET_MODEL) {
-				idx = modArchiveFindEntry(typedArchive, "mesh.ini");
-			}
-			if (idx < 0) {
-				pdmodSetLastError("%s is missing its internal descriptor %s",
-					descriptorRel, leaf ? leaf : "(descriptor)");
-				modArchiveClose(typedArchive);
-				return MODPACK_PDMOD_ERR_LAYOUT;
-			}
-
-			u32 iniSize = 0;
-			char *iniBytes = (char *)modArchiveExtractAlloc(typedArchive,
-				idx, &iniSize);
-			if (!iniBytes) {
-				pdmodSetLastError("%s internal descriptor could not be read",
-					descriptorRel);
-				modArchiveClose(typedArchive);
-				return MODPACK_PDMOD_ERR_LAYOUT;
-			}
-			s32 parsed = iniParseBuffer(leaf ? leaf : descriptorRel,
-				iniBytes, iniSize, &archiveIni);
-			free(iniBytes);
-			if (!parsed) {
-				pdmodSetLastError("%s internal descriptor is malformed",
-					descriptorRel);
-				modArchiveClose(typedArchive);
-				return MODPACK_PDMOD_ERR_LAYOUT;
-			}
-		} else {
-			/* Legacy JSON .pd* files are still accepted by the older walker
-			 * and parser paths. The new archive contract is enforced for
-			 * zip-openable typed packages, examples, and generated packs. */
-			return MODPACK_PDMOD_OK;
-		}
+	u32 iniSize = 0;
+	char *iniBytes = (char *)modArchiveExtractAlloc(typedArchive, idx, &iniSize);
+	if (!iniBytes) {
+		pdmodSetLastError("%s internal descriptor could not be read", descriptorRel);
+		modArchiveClose(typedArchive);
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
+	s32 parsed = iniParseBuffer(leaf ? leaf : descriptorRel, iniBytes, iniSize, &archiveIni);
+	free(iniBytes);
+	if (!parsed) {
+		pdmodSetLastError("%s internal descriptor is malformed", descriptorRel);
+		modArchiveClose(typedArchive);
+		return MODPACK_PDMOD_ERR_LAYOUT;
 	}
 
 	ini_section_t *archiveIniPtr = typedArchive ? &archiveIni : NULL;
@@ -873,6 +823,18 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 		}
 		return validateDescriptorSources(srcFolder, descriptorRel,
 			audioKeys, (s32)(sizeof(audioKeys) / sizeof(audioKeys[0])),
+			NULL, 0);
+	case ASSET_TEXTURE:
+		if (typedArchive) {
+			s32 r = validateArchiveDescriptorSources(typedArchive,
+				archiveIniPtr, descriptorRel, uiKeys,
+				(s32)(sizeof(uiKeys) / sizeof(uiKeys[0])),
+				NULL, 0);
+			modArchiveClose(typedArchive);
+			return r;
+		}
+		return validateDescriptorSources(srcFolder, descriptorRel,
+			uiKeys, (s32)(sizeof(uiKeys) / sizeof(uiKeys[0])),
 			NULL, 0);
 	case ASSET_UI:
 		if (pathEndsWithNoCase(descriptorRel, ".pdfont")) {
@@ -967,7 +929,8 @@ static s32 validateTypedPdDescriptorsRecurse(const char *srcFolder,
 				return r;
 			}
 		} else if (S_ISREG(st.st_mode)
-				&& typedPdContentTypeForPath(childRel) != ASSET_NONE) {
+				&& (assetArchivePathIsTyped(childRel)
+					|| assetArchivePathIsDeprecated(childRel))) {
 			s32 r = validateTypedPdDescriptorFile(srcFolder, childRel);
 			if (r != MODPACK_PDMOD_OK) {
 				closedir(d);
@@ -1171,12 +1134,24 @@ s32 modpackPdmodWriteSingle(const char *out_path,
 	for (s32 i = 0; i < entry_count; i++) {
 		const modpack_entry_t *e = &entries[i];
 		if (!e->entry_name || !e->entry_name[0]) continue;
+		if (assetArchivePathIsDeprecated(e->entry_name)) {
+			pdmodSetLastError("Deprecated .pdwpn files are not allowed in typed asset archives or .pdmod transport archives: %s",
+				e->entry_name);
+			return MODPACK_PDMOD_ERR_LAYOUT;
+		}
 		if (entryHasForbiddenBinPayload(e->entry_name)) {
 			pdmodSetLastError("Authored .bin files are not allowed in mod content or .pdmod transport archives: %s",
 				e->entry_name);
 			return MODPACK_PDMOD_ERR_LAYOUT;
 		}
-		if (typedPdContentTypeForPath(e->entry_name) != ASSET_NONE && e->data && e->len > 0) {
+		if (assetArchivePathIsTyped(e->entry_name) && e->data && e->len > 0) {
+			char policyErr[256];
+			if (assetArchiveValidateBytes(e->data, e->len, e->entry_name,
+					ASSET_ARCHIVE_VALIDATE_RELEASE,
+					policyErr, sizeof(policyErr)) != 0) {
+				pdmodSetLastError("%s", policyErr[0] ? policyErr : "typed asset archive validation failed");
+				return MODPACK_PDMOD_ERR_LAYOUT;
+			}
 			char badNested[FS_MAXPATH + 1];
 			if (modArchiveMemFindForbiddenBinPayload(e->data, e->len,
 					badNested, sizeof(badNested))) {

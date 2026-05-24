@@ -19,7 +19,8 @@ $ServerOutPath = Join-Path $StateDir "kanban-server.out.log"
 $ServerErrPath = Join-Path $StateDir "kanban-server.err.log"
 $TunnelOutPath = Join-Path $StateDir "cloudflared.out.log"
 $TunnelErrPath = Join-Path $StateDir "cloudflared.err.log"
-$PreferredPort = 7531
+$LocalKanbanPort = 7531
+$PreferredPort = 7533
 $Port = $PreferredPort
 $TargetUrl = "http://127.0.0.1:$Port"
 $TaskName = "PD2 Remote Kanban"
@@ -143,6 +144,9 @@ function Set-RemoteTarget {
 
 function Select-RemotePort {
     for ($candidate = $PreferredPort; $candidate -le ($PreferredPort + 8); $candidate++) {
+        if ($candidate -eq $LocalKanbanPort) {
+            continue
+        }
         if ((-not (Test-PortOpen $candidate)) -and (Test-PortBindable $candidate)) {
             Set-RemoteTarget $candidate
             return
@@ -188,6 +192,7 @@ function Stop-RemoteKanban {
     $state = Read-PidState
     if ($null -eq $state) {
         Write-Host "No tracked remote Kanban session found."
+        Stop-OrphanRemoteKanban
         return
     }
     Stop-Pid ([int]$state.tunnel_pid) "cloudflared"
@@ -196,6 +201,35 @@ function Stop-RemoteKanban {
         Remove-Item -LiteralPath $PidPath -Force
     }
     Write-Host "Stopped tracked remote Kanban session."
+}
+
+function Stop-OrphanRemoteKanban {
+    $ports = New-Object System.Collections.Generic.HashSet[int]
+    if (Test-Path -LiteralPath $TunnelErrPath) {
+        $text = Get-Content -LiteralPath $TunnelErrPath -Raw -ErrorAction SilentlyContinue
+        foreach ($m in [regex]::Matches($text, "url:http://127\.0\.0\.1:(\d+)")) {
+            [void]$ports.Add([int]$m.Groups[1].Value)
+        }
+    }
+
+    try {
+        $cloudflared = Get-CimInstance Win32_Process -Filter "name = 'cloudflared.exe' OR name = 'cloudflared-windows-amd64.exe'" -ErrorAction Stop |
+            Where-Object { $_.CommandLine -match "--url\s+http://127\.0\.0\.1:753\d" }
+        foreach ($p in $cloudflared) {
+            Write-Host "Stopping orphan cloudflared pid=$($p.ProcessId)"
+            Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction SilentlyContinue
+        }
+    } catch {}
+
+    foreach ($portNum in $ports) {
+        try {
+            $listeners = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $portNum -State Listen -ErrorAction Stop
+            foreach ($listener in $listeners) {
+                Write-Host "Stopping orphan Kanban listener pid=$($listener.OwningProcess) port=$portNum"
+                Stop-Process -Id ([int]$listener.OwningProcess) -Force -ErrorAction SilentlyContinue
+            }
+        } catch {}
+    }
 }
 
 function Show-Status {
@@ -297,6 +331,26 @@ function Start-CloudflareTunnel {
     throw "Timed out waiting for cloudflared public URL. See $TunnelErrPath"
 }
 
+function Write-PidState {
+    param(
+        [System.Diagnostics.Process]$ServerProcess,
+        [System.Diagnostics.Process]$TunnelProcess,
+        [string]$TunnelUrl,
+        [string]$RemoteUrl = ""
+    )
+    $pidState = [PSCustomObject]@{
+        started_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        server_pid = $ServerProcess.Id
+        tunnel_pid = $TunnelProcess.Id
+        local_target = $TargetUrl
+        tunnel_url = $TunnelUrl
+        remote_url = $RemoteUrl
+        remote_url_file = $UrlPath
+    }
+    $json = $pidState | ConvertTo-Json -Depth 4
+    [System.IO.File]::WriteAllText($PidPath, $json, [System.Text.UTF8Encoding]::new($false))
+}
+
 if ($Help) {
     Show-Usage
     exit 0
@@ -357,17 +411,8 @@ try {
 }
 
 $remoteUrl = $tunnel.Url.TrimEnd("/") + "/?token=" + [uri]::EscapeDataString($token)
+Write-PidState -ServerProcess $serverProc -TunnelProcess $tunnel.Process -TunnelUrl $tunnel.Url -RemoteUrl $remoteUrl
 [System.IO.File]::WriteAllText($UrlPath, $remoteUrl, [System.Text.UTF8Encoding]::new($false))
-
-$pidState = [PSCustomObject]@{
-    started_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    server_pid = $serverProc.Id
-    tunnel_pid = $tunnel.Process.Id
-    local_target = $TargetUrl
-    tunnel_url = $tunnel.Url
-    remote_url_file = $UrlPath
-}
-$pidState | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $PidPath -Encoding UTF8
 
 Write-Host ""
 Write-Host "Remote Kanban is running."

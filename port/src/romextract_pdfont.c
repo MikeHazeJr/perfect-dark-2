@@ -9,7 +9,7 @@
  * data/<romid>/fonts/<id>.pdfont.
  *
  * Per c3812 typed-archive repair:
- *   manifest.json        envelope + face metadata + provenance
+ *   _meta/manifest.json  envelope + face metadata + provenance
  *   font.ini             modder-facing descriptor
  *   glyphs.pgm           decoded 8-bit grayscale glyph atlas
  *   metrics.tsv          glyph metrics and atlas coordinates
@@ -129,8 +129,8 @@ static void s_addMemSidecar(mod_archive_writer_t *aw, const char *inner_name,
 	hex[SHA256_HEX_SIZE] = '\0';
 	char sidecar[SHA256_HEX_SIZE + 2];
 	snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-	char sidecar_name[96];
-	snprintf(sidecar_name, sizeof(sidecar_name), "%s.sha256", inner_name);
+	char sidecar_name[128];
+	snprintf(sidecar_name, sizeof(sidecar_name), "_meta/%s.sha256", inner_name);
 	(void)modArchiveAddFileMem(aw, sidecar_name,
 		sidecar, (u32)strlen(sidecar));
 }
@@ -312,6 +312,7 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 
 	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
 	    s_existingArchiveHasEntry(dst_rel, "font.ini") &&
+	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
 	    s_existingArchiveHasEntry(dst_rel, "glyphs.pgm") &&
 	    s_existingArchiveHasEntry(dst_rel, "metrics.tsv")) return 0;
 
@@ -424,10 +425,10 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 		modArchiveAbort(aw);
 		goto fail;
 	}
-	if (modArchiveAddFileMem(aw, "manifest.json",
+	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
 	                          manifest_buf, (u32)manifest_len) != 0) {
 		sysLoudFailf("EXTRACT.PDFONT",
-			"AddFileMem manifest.json failed for \"%s\"", dst_full);
+			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		goto fail;
 	}

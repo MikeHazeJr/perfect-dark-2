@@ -136,6 +136,8 @@ static s32 s_emitOneBody(const body_authored_record_t *b,
 
 	if (!force_rewrite && fsFileSize(relpath) > 0 &&
 	    s_existingZipArchive(relpath) &&
+	    s_existingArchiveHasEntry(relpath, "body.ini") &&
+	    s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
 	    (b->filenum == 0 || s_existingArchiveHasEntry(relpath, "mesh.pdmesh")) &&
 	    (b->handfilenum == 0 || s_existingArchiveHasEntry(relpath, "hand.pdmesh"))) {
 		return 0;
@@ -273,10 +275,10 @@ static s32 s_emitOneBody(const body_authored_record_t *b,
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "manifest.json",
+	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
 	                          manifest_buf, (u32)manifest_len) != 0) {
 		sysLoudFailf("EXTRACT.PDBODY",
-			"AddFileMem manifest.json failed for \"%s\"", full);
+			"AddFileMem _meta/manifest.json failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		return -1;
 	}

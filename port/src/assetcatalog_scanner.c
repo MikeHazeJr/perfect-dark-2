@@ -27,6 +27,7 @@
 #include <sys/stat.h>
 #include "types.h"
 #include "constants.h"
+#include "asset_archive_policy.h"
 #include "assetcatalog.h"
 #include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
@@ -703,44 +704,12 @@ static s32 pathEndsWithNoCase(const char *s, const char *suffix)
 
 static asset_type_e typedPdContentTypeForPath(const char *path)
 {
-	if (pathEndsWithNoCase(path, ".pdweapon"))   return ASSET_WEAPON;
-	if (pathEndsWithNoCase(path, ".pdprojectile")) return ASSET_PROJECTILE;
-	if (pathEndsWithNoCase(path, ".pdentity"))   return ASSET_ENTITY;
-	if (pathEndsWithNoCase(path, ".pdcharacter")) return ASSET_CHARACTER;
-	if (pathEndsWithNoCase(path, ".pdhead"))     return ASSET_HEAD;
-	if (pathEndsWithNoCase(path, ".pdbody"))     return ASSET_BODY;
-	if (pathEndsWithNoCase(path, ".pdarena"))    return ASSET_ARENA;
-	if (pathEndsWithNoCase(path, ".pdmesh"))     return ASSET_MODEL;
-	if (pathEndsWithNoCase(path, ".pdanim"))     return ASSET_ANIMATION;
-	if (pathEndsWithNoCase(path, ".pdsfx"))      return ASSET_AUDIO;
-	if (pathEndsWithNoCase(path, ".pdvoice"))    return ASSET_AUDIO;
-	if (pathEndsWithNoCase(path, ".pdsong"))     return ASSET_AUDIO;
-	if (pathEndsWithNoCase(path, ".pdui"))       return ASSET_UI;
-	if (pathEndsWithNoCase(path, ".pdfont"))     return ASSET_UI;
-	if (pathEndsWithNoCase(path, ".pdlang"))     return ASSET_LANG;
-	if (pathEndsWithNoCase(path, ".pdscenario")) return ASSET_GAMEMODE;
-	return ASSET_NONE;
+	return assetArchiveTypeForPath(path);
 }
 
 static const char *typedPdArchiveDescriptorLeaf(const char *path)
 {
-	if (pathEndsWithNoCase(path, ".pdweapon"))   return "weapon.ini";
-	if (pathEndsWithNoCase(path, ".pdprojectile")) return "projectile.ini";
-	if (pathEndsWithNoCase(path, ".pdentity"))   return "entity.ini";
-	if (pathEndsWithNoCase(path, ".pdcharacter")) return "character.ini";
-	if (pathEndsWithNoCase(path, ".pdhead"))     return "head.ini";
-	if (pathEndsWithNoCase(path, ".pdbody"))     return "body.ini";
-	if (pathEndsWithNoCase(path, ".pdarena"))    return "arena.ini";
-	if (pathEndsWithNoCase(path, ".pdmesh"))     return "model.ini";
-	if (pathEndsWithNoCase(path, ".pdanim"))     return "animation.ini";
-	if (pathEndsWithNoCase(path, ".pdsfx"))      return "sound.ini";
-	if (pathEndsWithNoCase(path, ".pdvoice"))    return "voice.ini";
-	if (pathEndsWithNoCase(path, ".pdsong"))     return "music.ini";
-	if (pathEndsWithNoCase(path, ".pdui"))       return "ui.ini";
-	if (pathEndsWithNoCase(path, ".pdfont"))     return "font.ini";
-	if (pathEndsWithNoCase(path, ".pdlang"))     return "lang.ini";
-	if (pathEndsWithNoCase(path, ".pdscenario")) return "scenario.ini";
-	return NULL;
+	return assetArchiveDescriptorForPath(path);
 }
 
 static const char *pathLeafAnySeparator(const char *path)
@@ -1576,10 +1545,9 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 			return 0;
 		}
 
-		s32 idx = modArchiveFindEntry(arc, descriptor_leaf);
-		if (idx < 0 && expected == ASSET_MODEL) {
-			idx = modArchiveFindEntry(arc, "mesh.ini");
-		}
+		const char *found_descriptor = NULL;
+		s32 idx = assetArchiveFindDescriptorEntry(arc, descriptor_path,
+			ASSET_ARCHIVE_VALIDATE_MIGRATION, &found_descriptor);
 		if (idx < 0) {
 			modArchiveClose(arc);
 			return 0;
@@ -1592,7 +1560,8 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 			return 0;
 		}
 
-		s32 ok = iniParseBuffer(descriptor_leaf, ini_bytes, ini_size, &ini);
+		s32 ok = iniParseBuffer(found_descriptor ? found_descriptor : descriptor_leaf,
+			ini_bytes, ini_size, &ini);
 		free(ini_bytes);
 		if (!ok) {
 			sysLogPrintf(LOG_WARNING,
@@ -2201,15 +2170,14 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 			const char *descriptor_leaf = typedPdArchiveDescriptorLeaf(entry_name);
 			if (descriptor_leaf) {
 				u32 nested_size = 0;
-				char *nested_ini = (char *)modArchiveExtractMemAlloc(
-					ini_bytes, ini_size, descriptor_leaf, &nested_size);
-				if (!nested_ini && archiveExpectedTypeForPath(entry_name) == ASSET_MODEL) {
-					nested_ini = (char *)modArchiveExtractMemAlloc(
-						ini_bytes, ini_size, "mesh.ini", &nested_size);
-				}
+				const char *found_descriptor = NULL;
+				char *nested_ini = assetArchiveExtractDescriptorMemAlloc(
+					ini_bytes, ini_size, entry_name,
+					ASSET_ARCHIVE_VALIDATE_MIGRATION,
+					&nested_size, &found_descriptor);
 				if (nested_ini) {
-					parsed = iniParseBuffer(descriptor_leaf, nested_ini,
-						nested_size, &ini);
+					parsed = iniParseBuffer(found_descriptor ? found_descriptor : descriptor_leaf,
+						nested_ini, nested_size, &ini);
 					free(nested_ini);
 					if (parsed) {
 						qualifyTypedArchiveSourcePaths(&ini, entry_name);

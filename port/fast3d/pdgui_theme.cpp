@@ -2597,9 +2597,9 @@ static bool s_writeTgaToMem(const uint8_t *rgba, uint32_t w, uint32_t h,
  *
  * Per-texture .pdui ZIPs at data/<romid>/ui/<id>.pdui replace the loose
  * data/ui/textures/<name>.{tga,png,9slice.json} writers. Each ZIP carries
- * manifest envelope (pd_kind="ui", texture_count=1, baked-in nineslice
+ * _meta/manifest.json envelope (pd_kind="ui", texture_count=1, baked-in nineslice
  * insets) + texture.tga (RGBA32 top-down, from s_writeTgaToMem) +
- * texture.tga.sha256 sidecar.
+ * _meta/texture.tga.sha256 sidecar.
  *
  * The reader migration in pdguiThemeLateInit consumes these via
  * modArchiveOpen + modArchiveExtractAlloc + s_loadTgaFromMem.
@@ -2677,7 +2677,7 @@ static void s_pduiNinesliceInsets(uint32_t w, uint32_t h,
     if (b) *b = ti;
 }
 
-/* Build manifest.json for a single .pdui texture. Per Section 2.11 of
+/* Build _meta/manifest.json for a single .pdui texture. Per Section 2.11 of
  * universality-pivot-schemas.md plus the briefing's "baked-in nineslice
  * insets" rule. Returns the byte length on success, 0 on truncation. */
 static int s_pduiBuildManifest(const struct PduiEntry *e,
@@ -2777,7 +2777,8 @@ static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
     }
 
     if (!force_rewrite && fsFileSize(rel_path) > 0 &&
-        s_archiveHasEntry(rel_path, "ui.ini")) {
+        s_archiveHasEntry(rel_path, "ui.ini") &&
+        s_archiveHasEntry(rel_path, "_meta/manifest.json")) {
         return 0;
     }
 
@@ -2865,10 +2866,10 @@ static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
         free(tga_buf);
         return -1;
     }
-    if (modArchiveAddFileMem(aw, "manifest.json",
+    if (modArchiveAddFileMem(aw, "_meta/manifest.json",
                               manifest_buf, (uint32_t)manifest_len) != 0) {
         sysLoudFailf("EXTRACT.PDUI",
-            "AddFileMem manifest.json failed for '%s'", full);
+            "AddFileMem _meta/manifest.json failed for '%s'", full);
         modArchiveAbort(aw);
         free(tga_buf);
         return -1;
@@ -2881,7 +2882,7 @@ static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
         free(tga_buf);
         return -1;
     }
-    if (modArchiveAddFileMem(aw, "texture.tga.sha256",
+    if (modArchiveAddFileMem(aw, "_meta/texture.tga.sha256",
                               sidecar, (uint32_t)strlen(sidecar)) != 0) {
         sysLogPrintf(LOG_WARNING,
             "PDGUI emit: sidecar write failed for '%s' (continuing)", full);

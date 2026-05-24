@@ -2161,9 +2161,9 @@ static bool weaponArchiveReadNestedCatalogId(const char *archivePath,
     }
 
     static const char *kDescriptorEntries[] = {
-        "model.ini", "animation.ini", "sound.ini", "voice.ini",
-        "music.ini", "projectile.ini", "entity.ini", "texture.ini",
-        "textures.ini"
+        "mesh.ini", "model.ini", "animation.ini", "sound.ini", "voice.ini",
+        "music.ini", "projectile.ini", "entity.ini", "material.ini",
+        "texture.ini", "textures.ini"
     };
     bool found = false;
     for (size_t i = 0; i < sizeof(kDescriptorEntries) / sizeof(kDescriptorEntries[0]); i++) {
@@ -2650,7 +2650,8 @@ static bool weaponCopyTemplatePayloads(mod_archive_writer_t *w,
     for (s32 i = 0; i < count; i++) {
         const char *name = modArchiveGetEntryName(arc, i);
         if (!name || !name[0]) continue;
-        if (strcmp(name, "weapon.ini") == 0 ||
+        if (strncmp(name, "_meta/", 6) == 0 ||
+                strcmp(name, "weapon.ini") == 0 ||
                 strcmp(name, "manifest.json") == 0 ||
                 strcmp(name, "behavior.graph.json") == 0 ||
                 strcmp(name, "nested_payloads.json") == 0) {
@@ -2904,7 +2905,7 @@ static bool weaponToolSaveCustom(void)
         "dependency_closure = embedded.v2\n"
         "catalog_id = %s\n"
         "name = %s\n"
-        "manifest = manifest.json\n"
+        "manifest = _meta/manifest.json\n"
         "behavior_graph = behavior.graph.json\n"
         "nested_payloads = nested_payloads.json\n"
         "model_file = %s\n"
@@ -2995,7 +2996,7 @@ static bool weaponToolSaveCustom(void)
     }
 
     if (modArchiveAddFileMem(w, "weapon.ini", weaponIni, (u32)weaponIniLen) != MODARCHIVE_OK ||
-            modArchiveAddFileMem(w, "manifest.json", manifest, (u32)manifestLen) != MODARCHIVE_OK ||
+            modArchiveAddFileMem(w, "_meta/manifest.json", manifest, (u32)manifestLen) != MODARCHIVE_OK ||
             modArchiveAddFileMem(w, "behavior.graph.json", s_WeaponEditGraph,
                                  (u32)strlen(s_WeaponEditGraph)) != MODARCHIVE_OK ||
             modArchiveAddFileMem(w, "nested_payloads.json", s_WeaponEditNested,

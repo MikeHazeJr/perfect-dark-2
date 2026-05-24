@@ -859,6 +859,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_provider_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_public_mods_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/asset_archive_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/modarchive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_runtime.c

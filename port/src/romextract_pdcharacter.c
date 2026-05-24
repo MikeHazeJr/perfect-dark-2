@@ -173,6 +173,7 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 
 	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
 	    s_existingArchiveHasEntry(dst_rel, "character.ini") &&
+	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
 	    s_existingArchiveEntryContains(dst_rel, "character.ini",
 		    "dependency_closure = embedded.v2") &&
 	    s_existingArchiveHasEntry(dst_rel, "body.pdbody") &&
@@ -253,10 +254,10 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "manifest.json",
-		manifest_buf, (u32)manifest_len) != 0) {
+	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
+	                          manifest_buf, (u32)manifest_len) != 0) {
 		sysLoudFailf("EXTRACT.PDCHARACTER",
-			"AddFileMem manifest.json failed for \"%s\"", dst_full);
+			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		return -1;
 	}

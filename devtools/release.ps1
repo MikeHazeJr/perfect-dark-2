@@ -502,6 +502,132 @@ function Invoke-GhStreaming([string[]]$Arguments, [string]$Label) {
     return $proc.ExitCode
 }
 
+function Test-ArchiveEntryForbiddenBinPayload {
+    param([string]$EntryName)
+    if (-not $EntryName) { return $false }
+    $normalized = $EntryName.Replace("\", "/")
+    return ($normalized -match '(^|/)[^/]*\.bin($|[./])')
+}
+
+function Test-ArchiveEntryRootMachineMetadata {
+    param([string]$EntryName)
+    if (-not $EntryName) { return $false }
+    if ($EntryName.Contains("/") -or $EntryName.Contains("\")) { return $false }
+    if ($EntryName -in @(
+            "manifest.json",
+            "inventory.json",
+            "provenance.json",
+            "validation.json",
+            "hashes.tsv",
+            "source-format.json")) {
+        return $true
+    }
+    return $EntryName.EndsWith(".sha256", [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+$script:TypedArchiveDescriptors = @{
+    ".pdweapon"     = "weapon.ini"
+    ".pdprojectile" = "projectile.ini"
+    ".pdentity"     = "entity.ini"
+    ".pdmaterial"   = "material.ini"
+    ".pdtexture"    = "texture.ini"
+    ".pdcharacter"  = "character.ini"
+    ".pdhead"       = "head.ini"
+    ".pdbody"       = "body.ini"
+    ".pdarena"      = "arena.ini"
+    ".pdscenario"   = "scenario.ini"
+    ".pdmesh"       = "mesh.ini"
+    ".pdanim"       = "animation.ini"
+    ".pdsfx"        = "sound.ini"
+    ".pdvoice"      = "voice.ini"
+    ".pdsong"       = "music.ini"
+    ".pdui"         = "ui.ini"
+    ".pdfont"       = "font.ini"
+    ".pdlang"       = "lang.ini"
+}
+
+function Get-TypedArchiveDescriptorForPath {
+    param([string]$Path)
+    foreach ($ext in $script:TypedArchiveDescriptors.Keys) {
+        if ($Path.EndsWith($ext, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $script:TypedArchiveDescriptors[$ext]
+        }
+    }
+    return $null
+}
+
+function Test-ReleaseTypedArchiveTree {
+    param(
+        [string]$Root,
+        [string]$Label
+    )
+
+    if (-not (Test-Path -LiteralPath $Root)) { return }
+
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+    $rootFull = (Resolve-Path -LiteralPath $Root).Path
+    $errors = New-Object System.Collections.Generic.List[string]
+    $typedCount = 0
+
+    foreach ($file in (Get-ChildItem -LiteralPath $Root -Recurse -File)) {
+        $rel = $file.FullName.Substring($rootFull.Length + 1).Replace("\", "/")
+        if ($rel.EndsWith(".pdwpn", [System.StringComparison]::OrdinalIgnoreCase)) {
+            $errors.Add("$Label/$rel uses deprecated .pdwpn")
+            continue
+        }
+
+        $descriptor = Get-TypedArchiveDescriptorForPath $rel
+        if (-not $descriptor) { continue }
+        $typedCount++
+
+        try {
+            $zip = [System.IO.Compression.ZipFile]::OpenRead($file.FullName)
+        } catch {
+            $errors.Add("$Label/$rel is not a zip-openable typed archive")
+            continue
+        }
+
+        try {
+            $entryNames = @($zip.Entries | ForEach-Object { $_.FullName })
+            if (-not ($entryNames -contains $descriptor)) {
+                $errors.Add("$Label/$rel is missing root descriptor $descriptor")
+            }
+            if ($rel.EndsWith(".pdmesh", [System.StringComparison]::OrdinalIgnoreCase) -and
+                    ($entryNames -contains "model.ini")) {
+                $errors.Add("$Label/$rel uses legacy model.ini instead of mesh.ini")
+            }
+            foreach ($entryName in $entryNames) {
+                if ($entryName.EndsWith(".pdwpn", [System.StringComparison]::OrdinalIgnoreCase)) {
+                    $errors.Add("$Label/$rel embeds deprecated .pdwpn: $entryName")
+                }
+                if (Test-ArchiveEntryRootMachineMetadata $entryName) {
+                    $errors.Add("$Label/$rel keeps machine metadata at archive root: $entryName")
+                }
+                if (Test-ArchiveEntryForbiddenBinPayload $entryName) {
+                    $errors.Add("$Label/$rel contains forbidden authored .bin payload: $entryName")
+                }
+            }
+        } finally {
+            $zip.Dispose()
+        }
+    }
+
+    if ($errors.Count -gt 0) {
+        Write-Host "  ERROR: stale typed asset archive output in $Label" -ForegroundColor Red
+        $errors | Select-Object -First 25 | ForEach-Object {
+            Write-Host "    $_" -ForegroundColor Red
+        }
+        if ($errors.Count -gt 25) {
+            Write-Host "    ... plus $($errors.Count - 25) more" -ForegroundColor Red
+        }
+        throw "Release typed archive validation failed for $Label"
+    }
+
+    Write-Host "  $Label typed archives validated ($typedCount checked)" -ForegroundColor Green
+}
+
 if ($hasClient) { Write-Host "  Client:      FOUND ($ClientExe)" -ForegroundColor Green }
 else            { Write-Host "  Client:      MISSING" -ForegroundColor Yellow }
 
@@ -696,6 +822,8 @@ do not move them to a sub-folder or the game will not find them.
 "@
 Set-Content -LiteralPath $readmePath -Value $readmeContent -Encoding UTF8
 Write-Host "  put_your_rom_here.txt (ROM placement instructions)" -ForegroundColor Gray
+
+Test-ReleaseTypedArchiveTree -Root $DistDir -Label "release-dist"
 
 # ============================================================================
 # Step 2: Create zip archive

@@ -19,12 +19,14 @@
 - Added a reusable PD2 large-change sweep skill for auditing broad changes against runtime code, tests, context, Kanban, and release notes.
 - Added Dev Window v2 `Start Kanban Server` and `Stop Kanban Server` buttons for remote Kanban phone access.
 - Added a phone-first Kanban layout with filter modal, full-screen card editing, mobile card ordering controls, and card-scoped Codex session launch/status output.
+- Added full-screen Kanban Codex session viewing with response-only transcripts, phone follow-up messaging, queued prompt steering, tap-to-answer plan-mode questions, and ad-hoc session launch without requiring a card.
 - Added c3813 online lifecycle guards for listen-host/client smoke coverage and reconnect/drop-in/drop-out state restoration.
 - Added named input profile slots and per-controller profile assignment, including custom/raw controller devices.
 - Added Blender-ready map visual exports inside scenario/arena archives, including OBJ/MTL scenes, decoded TGA wall/floor textures, and material TSV ledgers.
 - Added self-contained weapon archives that embed model, animation, audio, projectile, and entity payloads for editing and sharing.
 - Added a Blueprint-style Modding Hub weapon graph node editor for modular primary/secondary subgraphs, shared owner/damage/detonator/targeting context, presets, draggable nodes, links, inspector editing, and JSON validation.
 - Added an Asset Pipeline planning card for per-family mod utility flows behind the clean archive format decisions.
+- Added frozen clean Asset Pipeline archive layout contracts for all current typed families, including `.pdui`, `.pdfont`, and `.pdlang`.
 
 ## Changed
 
@@ -33,13 +35,18 @@
 - Memory Review now parses live memory task groups and stores review markup separately from the source memory file.
 - Active Kanban now uses a numbered two-pane priority layout with manual reorder, docked card actions, and saved AI special notes.
 - Kanban remote mode now uses token-gated access over a localhost-only Cloudflare tunnel, without changing system routing or proxy settings.
-- Kanban card sessions now launch with the selected card plus context about other active cards and running card sessions.
+- Local `Open Kanban` now stays tokenless even when a remote token-gated Kanban tunnel exists, and remote startup no longer occupies the normal local board port.
+- Kanban card sessions now launch with the selected card plus context about other active cards and running card sessions, and can be resumed from the phone UI for follow-up turns, queued steering prompts, or choice-question answers.
 - Weapon behavior graphs now feed more runtime weapon actions, including recoil/recovery, throw/special handling, projectile spawn values, auto-aim, and sight behavior behind the debug graph-runtime toggle.
 - Catalog-generated base asset IDs and typed archive references now use readable names instead of legacy numeric handles.
 - Replaced the old Settings Controls surface with a single actionmap-backed Input binding table.
 - Main Menu now presents Play instead of Solo Play and removes the old Online Play direct-connect entry; online friend play now routes through Social invites/joins.
 - Social friend invites are available even when a friend row is showing a stale Offline state.
 - The Modding Hub weapon template flow now drills into an in-place tabbed weapon-creation view with auto-populated template refs, primary/secondary graph tabs, and an opaque mesh picker with live preview.
+- Typed asset archive emitters now write machine metadata and hash sidecars under `_meta/`, while migration readers still accept legacy root metadata during the cleanup window.
+- Typed asset archive validation now recursively checks descriptor, GLTF, OBJ/MTL, JSON, and embedded typed-archive references so clean `.pdxxx` packages fail when their authored closure is incomplete.
+- Typed `.pdxxx` examples now cover every frozen family, including projectile, entity, material, texture, and character samples, with `_meta/manifest.json` and the frozen `.pdmesh` `mesh.ini` descriptor.
+- Release packaging now fails stale typed asset outputs before zipping if they are `.pdwpn`, non-zip, descriptor-less, legacy `.pdmesh` `model.ini`, root-metadata, or `.bin`-backed archives.
 - Saving a weapon mod now opens a confirmation modal with Creator and Display Name, derives the custom weapon catalog name as `mod:weapon_<name>`, and enables the new mod immediately.
 - Cutscene skipping now uses a held button with a contextual radial progress prompt instead of an accidental tap.
 - Startup asset extraction now reuses validated per-family cache stamps and shows a centered progress modal with smoother time-weighted progress.

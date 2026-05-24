@@ -99,6 +99,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .kb-session-row.failed{border-color:#fca5a5;background:#fef2f2}
 .kb-session-meta{font-size:0.7rem;color:#475569;display:flex;gap:7px;flex-wrap:wrap;margin-bottom:5px}
 .kb-session-output{white-space:pre-wrap;max-height:220px;overflow:auto;background:#0f172a;color:#e2e8f0;border-radius:5px;padding:8px;font-family:ui-monospace,Consolas,monospace;font-size:0.7rem;line-height:1.45;margin-top:6px}
+.kb-session-actions{display:flex;gap:7px;align-items:center;justify-content:flex-end;margin-top:7px}
 .kb-detail-actions{flex-shrink:0;display:flex;align-items:center;gap:8px;padding:11px 18px;background:white;border-top:1px solid #e2e8f0;box-shadow:0 -6px 18px rgba(15,23,42,0.06)}
 .kb-detail-actions .modal-spacer{flex:1}
 .kb-empty-detail{height:100%;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:0.88rem;text-align:center;padding:30px}
@@ -224,6 +225,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 #mobile-filter-modal-overlay.show{display:flex}
 #mobile-filter-modal{background:white;color:#1e293b;border-radius:12px;width:100%;max-width:520px;max-height:calc(100dvh - 24px);overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,0.4);padding:16px}
 #mobile-filter-modal h3{font-size:0.9rem;font-weight:900;margin-bottom:12px}
+.mobile-board-actions{display:flex;gap:7px;align-items:center}
 .mobile-filter-section{margin-bottom:14px}
 .mobile-filter-section-title{font-size:0.66rem;font-weight:900;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:7px}
 .mobile-filter-options{display:flex;flex-direction:column;gap:7px}
@@ -625,6 +627,83 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .ai-notes-meta{font-size:0.7rem;color:#64748b;margin-top:7px}
 .ai-notes-actions{display:flex;gap:8px;align-items:center;margin-top:16px}
 
+/* Codex session fullscreen */
+#session-view-overlay{position:fixed;inset:0;z-index:700;background:#0b1220;color:#e2e8f0;display:none;flex-direction:column}
+#session-view-overlay.show{display:flex}
+.session-topbar{height:48px;flex-shrink:0;display:flex;align-items:center;gap:10px;padding:9px 12px;background:#111c30;border-bottom:1px solid #24324b}
+.session-title-wrap{min-width:0;flex:1}
+#session-view-title{font-size:0.86rem;font-weight:900;color:#f8fafc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#session-view-meta{font-size:0.68rem;color:#94a3b8;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.session-shell{flex:1;min-height:0;display:grid;grid-template-columns:280px minmax(0,1fr);background:#0b1220}
+.session-list-pane{border-right:1px solid #24324b;background:#0f172a;min-height:0;display:flex;flex-direction:column}
+.session-list-head{padding:10px 12px;border-bottom:1px solid #24324b;display:flex;gap:8px;align-items:center}
+.session-list-head-title{font-size:0.68rem;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;flex:1}
+#session-list{flex:1;min-height:0;overflow:auto;padding:8px}
+.session-list-row{width:100%;border:1px solid #24324b;border-left:4px solid #64748b;background:#172033;color:#e2e8f0;border-radius:7px;padding:9px 10px;margin-bottom:8px;text-align:left;font-family:inherit;cursor:pointer}
+.session-list-row:hover,.session-list-row.active{border-color:#38bdf8;background:#20304a}
+.session-list-row.running{border-left-color:#38bdf8}
+.session-list-row.failed{border-left-color:#ef4444}
+.session-list-title{font-size:0.78rem;font-weight:800;line-height:1.35;word-break:break-word}
+.session-list-meta{font-size:0.66rem;color:#94a3b8;margin-top:5px;display:flex;gap:6px;flex-wrap:wrap}
+.session-detail-pane{min-width:0;min-height:0;display:flex;flex-direction:column;background:#f8fafc;color:#1e293b}
+#session-timeline{flex:1;min-height:0;overflow:auto;padding:14px 16px 18px;display:flex;flex-direction:column;gap:10px}
+.session-empty{margin:auto;color:#64748b;font-size:0.86rem;text-align:center}
+.session-event{border:1px solid #dbe3ef;background:white;border-radius:8px;padding:10px 11px;box-shadow:0 1px 2px rgba(15,23,42,0.05)}
+.session-event.assistant{border-left:4px solid #3b82f6}
+.session-event.user{border-left:4px solid #22c55e;background:#f0fdf4}
+.session-event.command{border-left:4px solid #f59e0b;background:#fffbeb}
+.session-event.error{border-left:4px solid #ef4444;background:#fef2f2}
+.session-event.question{border-left:4px solid #7c3aed;background:#faf5ff}
+.session-event.marker{background:#eef2ff;color:#475569;font-size:0.72rem;text-align:center;padding:6px 8px}
+.session-event-head{display:flex;align-items:center;gap:8px;justify-content:space-between;margin-bottom:6px}
+.session-event-kind{font-size:0.64rem;font-weight:900;color:#64748b;text-transform:uppercase;letter-spacing:0.05em}
+.session-event-status{font-size:0.66rem;color:#64748b}
+.session-event-text{font-size:0.84rem;line-height:1.48;white-space:pre-wrap;word-break:break-word;color:#1e293b}
+.session-event pre{white-space:pre-wrap;overflow:auto;max-height:42vh;background:#0f172a;color:#e2e8f0;border-radius:6px;padding:9px;font-family:ui-monospace,Consolas,monospace;font-size:0.72rem;line-height:1.45;margin-top:7px}
+.session-question-block{display:flex;flex-direction:column;gap:8px}
+.session-question-title{font-size:0.72rem;font-weight:900;color:#5b21b6;text-transform:uppercase;letter-spacing:0.04em}
+.session-question-text{font-size:0.86rem;line-height:1.45;color:#1e293b;white-space:pre-wrap;word-break:break-word}
+.session-choice-list{display:flex;flex-direction:column;gap:7px;margin-top:2px}
+.session-choice{width:100%;border:1px solid #c4b5fd;background:white;color:#1e293b;border-radius:7px;padding:9px 10px;text-align:left;font-family:inherit;cursor:pointer}
+.session-choice:hover{border-color:#7c3aed;background:#f5f3ff}
+.session-choice:disabled{opacity:.58;cursor:default}
+.session-choice-label{display:block;font-size:0.82rem;font-weight:900}
+.session-choice-description{display:block;font-size:0.72rem;color:#64748b;line-height:1.35;margin-top:3px}
+.session-queue-panel{display:none;flex-shrink:0;border-top:1px solid #dbe3ef;background:#f8fafc;padding:9px 10px;max-height:28vh;overflow:auto}
+.session-queue-panel.show{display:block}
+.session-queue-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}
+.session-queue-title{font-size:0.66rem;font-weight:900;color:#64748b;text-transform:uppercase;letter-spacing:0.05em}
+.session-queue-row{border:1px solid #cbd5e1;background:white;border-radius:7px;padding:8px;margin-top:7px}
+.session-queue-row.next{border-color:#38bdf8}
+.session-queue-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:0.66rem;color:#64748b;margin-bottom:5px}
+.session-queue-text{font-size:0.78rem;line-height:1.4;color:#1e293b;white-space:pre-wrap;word-break:break-word;max-height:78px;overflow:auto}
+.session-queue-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:7px}
+.session-composer{flex-shrink:0;border-top:1px solid #dbe3ef;background:white;padding:10px;display:flex;gap:8px;align-items:flex-end}
+#session-message-input{flex:1;min-height:46px;max-height:130px;resize:vertical;overflow:auto;border:1px solid #cbd5e1;border-radius:7px;padding:8px 10px;font-family:inherit;font-size:0.84rem;color:#1e293b;line-height:1.4}
+#session-message-input:focus,#session-start-title:focus,#session-start-note:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.12)}
+#session-message-status{font-size:0.68rem;color:#64748b;min-width:90px}
+#session-start-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);display:none;align-items:center;justify-content:center;z-index:720;padding:14px}
+#session-start-modal-overlay.show{display:flex}
+#session-start-modal{background:white;color:#1e293b;border-radius:10px;width:100%;max-width:540px;box-shadow:0 24px 64px rgba(0,0,0,0.4);padding:18px}
+#session-start-modal h3{font-size:0.95rem;font-weight:900;margin-bottom:14px}
+#session-start-title,#session-start-note{width:100%;border:1px solid #cbd5e1;border-radius:7px;padding:8px 10px;font-family:inherit;color:#1e293b}
+#session-start-note{min-height:150px;resize:vertical;line-height:1.45}
+.session-start-actions{display:flex;gap:8px;align-items:center;margin-top:14px}
+@media (max-width:760px){
+  .session-topbar{height:52px}
+  .session-shell{display:block;position:relative}
+  .session-list-pane{display:none}
+  #session-view-overlay.list-mode .session-list-pane{display:flex;position:absolute;inset:0;z-index:2;border-right:none}
+  #session-view-overlay.list-mode .session-detail-pane{display:none}
+  .session-detail-pane{height:calc(100dvh - 52px)}
+  #session-timeline{padding:12px 10px 88px}
+  .session-queue-panel.show{position:fixed;left:0;right:0;bottom:70px;z-index:704;max-height:30vh}
+  .session-composer{position:fixed;left:0;right:0;bottom:0;z-index:705;padding:9px}
+  #session-message-status{display:none}
+  #session-start-modal-overlay{align-items:stretch;padding:0}
+  #session-start-modal{border-radius:0;max-width:none;height:100dvh;padding:18px 16px;overflow:auto}
+}
+
 </style>
 </head>
 <body>
@@ -642,6 +721,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
     <button class="sb-toggle" id="sb-toggle-btn" onclick="toggleParkedSidebar()" title="Show/hide parked threads">
       Parked <span class="sb-toggle-badge zero" id="sb-toggle-badge">0</span>
     </button>
+    <button class="btn btn-ghost" onclick="openSessionBrowser()">Sessions</button>
     <button class="btn btn-ghost" onclick="openSettings()">Settings</button>
   </div>
 </div>
@@ -689,7 +769,10 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
         <span id="mobile-board-title">Cards</span>
         <span id="mobile-board-count"></span>
       </div>
-      <button class="btn btn-primary btn-sm" onclick="openMobileFilters()">Filters</button>
+      <div class="mobile-board-actions">
+        <button class="btn btn-ghost btn-sm" onclick="openSessionBrowser()">Sessions</button>
+        <button class="btn btn-primary btn-sm" onclick="openMobileFilters()">Filters</button>
+      </div>
     </div>
     <div id="filters"></div>
     <div id="board"></div>
@@ -821,6 +904,57 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
       <span class="modal-spacer"></span>
       <button class="btn btn-ghost btn-sm" onclick="closeAiNotesModal()">Cancel</button>
       <button class="btn btn-primary btn-sm" onclick="saveAiNotes()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Codex session fullscreen -->
+<div id="session-view-overlay">
+  <div class="session-topbar">
+    <button class="btn btn-ghost btn-sm" onclick="closeSessionView()">Close</button>
+    <button class="btn btn-ghost btn-sm" onclick="showSessionListMode()">Sessions</button>
+    <div class="session-title-wrap">
+      <div id="session-view-title">Sessions</div>
+      <div id="session-view-meta"></div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="openAdhocSessionModal()">New Session</button>
+  </div>
+  <div class="session-shell">
+    <aside class="session-list-pane">
+      <div class="session-list-head">
+        <span class="session-list-head-title">Codex sessions</span>
+        <button class="btn btn-ghost btn-sm" onclick="loadSessionList()">Refresh</button>
+      </div>
+      <div id="session-list"></div>
+    </aside>
+    <section class="session-detail-pane">
+      <div id="session-timeline"><div class="session-empty">Select a session.</div></div>
+      <div id="session-queue-panel" class="session-queue-panel"></div>
+      <div class="session-composer">
+        <textarea id="session-message-input" placeholder="Message this session"></textarea>
+        <span id="session-message-status"></span>
+        <button class="btn btn-primary btn-sm" id="session-message-send" onclick="sendSessionMessage()">Send</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="session-start-modal-overlay" onclick="if(event.target===this)closeAdhocSessionModal()">
+  <div id="session-start-modal">
+    <h3>Start Codex session</h3>
+    <div class="form-row">
+      <label for="session-start-title">Title</label>
+      <input id="session-start-title" type="text" placeholder="Short task title">
+    </div>
+    <div class="form-row">
+      <label for="session-start-note">Request</label>
+      <textarea id="session-start-note" placeholder="What should this session work on?"></textarea>
+    </div>
+    <div class="session-start-actions">
+      <span id="session-start-status" class="ai-notes-meta"></span>
+      <span class="modal-spacer"></span>
+      <button class="btn btn-ghost btn-sm" onclick="closeAdhocSessionModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="startAdhocSession()">Start</button>
     </div>
   </div>
 </div>
@@ -1122,6 +1256,10 @@ let boardDetailDirty = false;
 let mobileCardOpen = false;
 let cardSessionCache = {};
 let cardSessionPollTimer = null;
+let sessionListCache = [];
+let activeSessionId = null;
+let activeSessionSnapshot = null;
+let sessionViewPollTimer = null;
 let saveTimer = null;
 let inlineEditingPillarId = null;
 
@@ -1883,13 +2021,22 @@ function renderCardSessionList(cardId) {
     sid.textContent = session.session_id || '';
     meta.appendChild(sid);
     row.appendChild(meta);
-    const output = (session.last_message || '').trim() || (session.stdout_tail || '').trim() || (session.stderr_tail || '').trim();
+    const output = (session.last_message || '').trim();
     if (output) {
       const pre = document.createElement('pre');
       pre.className = 'kb-session-output';
       pre.textContent = output;
       row.appendChild(pre);
     }
+    const actions = document.createElement('div');
+    actions.className = 'kb-session-actions';
+    const open = document.createElement('button');
+    open.className = 'btn btn-primary btn-sm';
+    open.type = 'button';
+    open.textContent = 'Open Fullscreen';
+    open.onclick = () => openSessionView(session.session_id);
+    actions.appendChild(open);
+    row.appendChild(actions);
     list.appendChild(row);
   }
 }
@@ -1940,9 +2087,499 @@ async function startCardSession(cardId) {
     cardSessionCache[cardId] = data.sessions || (data.session ? [data.session] : []);
     renderCardSessionList(cardId);
     queueCardSessionPoll(cardId);
+    if (data.session && data.session.session_id) openSessionView(data.session.session_id);
   } catch (err) {
     if (status) status.textContent = err.message || 'Session start failed.';
     if (btn) btn.disabled = false;
+  }
+}
+
+function sessionDisplayTitle(session) {
+  if (!session) return 'Session';
+  return session.title || session.card_title || session.card_id || session.session_id || 'Session';
+}
+
+function sessionScopeLabel(session) {
+  if (!session) return '';
+  if (session.card_id) return 'card ' + session.card_id;
+  return 'ad-hoc';
+}
+
+function setSessionMessageStatus(text) {
+  const el = document.getElementById('session-message-status');
+  if (el) el.textContent = text || '';
+}
+
+function showSessionListMode() {
+  document.getElementById('session-view-overlay').classList.add('list-mode');
+  loadSessionList();
+}
+
+function openSessionBrowser() {
+  activeSessionId = null;
+  const overlay = document.getElementById('session-view-overlay');
+  overlay.classList.add('show', 'list-mode');
+  document.getElementById('session-view-title').textContent = 'Sessions';
+  document.getElementById('session-view-meta').textContent = '';
+  document.getElementById('session-timeline').innerHTML = '<div class="session-empty">Select a session.</div>';
+  renderSessionQueue(null);
+  setSessionMessageStatus('');
+  loadSessionList();
+}
+
+function closeSessionView() {
+  clearTimeout(sessionViewPollTimer);
+  activeSessionId = null;
+  activeSessionSnapshot = null;
+  document.getElementById('session-view-overlay').classList.remove('show', 'list-mode');
+}
+
+async function loadSessionList() {
+  try {
+    const r = await fetch('/api/sessions');
+    if (!r.ok) throw new Error('session list unavailable');
+    const data = await r.json();
+    sessionListCache = data.sessions || [];
+    renderSessionList();
+  } catch (err) {
+    const list = document.getElementById('session-list');
+    if (list) list.innerHTML = `<div class="session-empty">${escapeHtml(err.message || 'Session list unavailable.')}</div>`;
+  }
+}
+
+function renderSessionList() {
+  const list = document.getElementById('session-list');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!sessionListCache.length) {
+    list.innerHTML = '<div class="session-empty">No sessions yet.</div>';
+    return;
+  }
+  for (const session of sessionListCache) {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'session-list-row ' + (session.status || '') + (session.session_id === activeSessionId ? ' active' : '');
+    row.onclick = () => openSessionView(session.session_id);
+    const title = document.createElement('div');
+    title.className = 'session-list-title';
+    title.textContent = sessionDisplayTitle(session);
+    const meta = document.createElement('div');
+    meta.className = 'session-list-meta';
+    const queued = session.queued_count || (session.queued_messages || []).length || 0;
+    meta.innerHTML = `<span>${escapeHtml(session.status || 'unknown')}</span><span>${escapeHtml(sessionScopeLabel(session))}</span><span>${escapeHtml(shortDate(session.started_at))}</span>${queued ? `<span>${queued} queued</span>` : ''}`;
+    row.appendChild(title);
+    row.appendChild(meta);
+    list.appendChild(row);
+  }
+}
+
+function openAdhocSessionModal() {
+  document.getElementById('session-start-title').value = '';
+  document.getElementById('session-start-note').value = '';
+  document.getElementById('session-start-status').textContent = '';
+  document.getElementById('session-start-modal-overlay').classList.add('show');
+  setTimeout(() => document.getElementById('session-start-title').focus(), 40);
+}
+
+function closeAdhocSessionModal() {
+  document.getElementById('session-start-modal-overlay').classList.remove('show');
+}
+
+async function startAdhocSession() {
+  const title = document.getElementById('session-start-title').value.trim();
+  const note = document.getElementById('session-start-note').value.trim();
+  const status = document.getElementById('session-start-status');
+  if (!title && !note) {
+    status.textContent = 'Title or request required.';
+    return;
+  }
+  status.textContent = 'Starting...';
+  try {
+    const r = await fetch('/api/sessions/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({title, note, source: 'mobile-kanban'})
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'session start failed');
+    closeAdhocSessionModal();
+    await loadSessionList();
+    if (data.session && data.session.session_id) openSessionView(data.session.session_id);
+  } catch (err) {
+    status.textContent = err.message || 'Session start failed.';
+  }
+}
+
+async function openSessionView(sessionId) {
+  if (!sessionId) return;
+  activeSessionId = sessionId;
+  document.getElementById('session-view-overlay').classList.add('show');
+  document.getElementById('session-view-overlay').classList.remove('list-mode');
+  await refreshSessionView(true);
+}
+
+async function refreshSessionView(forceListRender = false) {
+  if (!activeSessionId) return;
+  clearTimeout(sessionViewPollTimer);
+  try {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(activeSessionId)}`);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'session unavailable');
+    const session = data.session;
+    activeSessionSnapshot = session;
+    const queuedCount = session.queued_count || (session.queued_messages || []).length || 0;
+    document.getElementById('session-view-title').textContent = sessionDisplayTitle(session);
+    document.getElementById('session-view-meta').textContent =
+      `${session.status || 'unknown'} - ${sessionScopeLabel(session)}${queuedCount ? ` - ${queuedCount} queued` : ''} - ${session.session_id || ''}`;
+    renderSessionTimeline(session);
+    renderSessionQueue(session);
+    const input = document.getElementById('session-message-input');
+    const send = document.getElementById('session-message-send');
+    const running = session.status === 'running';
+    if (input) input.disabled = false;
+    if (send) {
+      send.disabled = false;
+      send.textContent = running || queuedCount ? 'Queue' : 'Send';
+    }
+    setSessionMessageStatus(queuedCount ? `${queuedCount} queued` : (running ? 'Running' : ''));
+    const existing = sessionListCache.findIndex(s => s.session_id === session.session_id);
+    if (existing >= 0) sessionListCache[existing] = session;
+    else sessionListCache.unshift(session);
+    if (forceListRender) renderSessionList();
+    if (running) sessionViewPollTimer = setTimeout(() => refreshSessionView(), 3500);
+  } catch (err) {
+    document.getElementById('session-timeline').innerHTML =
+      `<div class="session-empty">${escapeHtml(err.message || 'Session unavailable.')}</div>`;
+    renderSessionQueue(null);
+  }
+}
+
+function renderSessionTimeline(session) {
+  const wrap = document.getElementById('session-timeline');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  const events = session.events || [];
+  let rendered = 0;
+  for (const event of events) {
+    const node = buildEventFromCodexJson(event);
+    if (node) {
+      wrap.appendChild(node);
+      rendered++;
+    }
+  }
+  if (rendered === 0) {
+    const last = (session.last_message || '').trim();
+    if (last) {
+      wrap.appendChild(buildSessionEvent('assistant', 'Codex', last, ''));
+      rendered++;
+    }
+  }
+  if (rendered === 0) {
+    wrap.innerHTML = '<div class="session-empty">Waiting for a response.</div>';
+  } else {
+    wrap.scrollTop = wrap.scrollHeight;
+  }
+}
+
+function renderSessionQueue(session) {
+  const panel = document.getElementById('session-queue-panel');
+  if (!panel) return;
+  const queue = session ? (session.queued_messages || []) : [];
+  panel.innerHTML = '';
+  if (!queue.length) {
+    panel.classList.remove('show');
+    return;
+  }
+  panel.classList.add('show');
+  const head = document.createElement('div');
+  head.className = 'session-queue-head';
+  const title = document.createElement('div');
+  title.className = 'session-queue-title';
+  title.textContent = `${queue.length} queued prompt${queue.length === 1 ? '' : 's'}`;
+  const hint = document.createElement('div');
+  hint.className = 'session-event-status';
+  hint.textContent = session && session.status === 'running' ? 'Next after current turn' : 'Ready';
+  head.appendChild(title);
+  head.appendChild(hint);
+  panel.appendChild(head);
+  queue.forEach((item, index) => {
+    const row = document.createElement('div');
+    row.className = 'session-queue-row' + (index === 0 ? ' next' : '');
+    const meta = document.createElement('div');
+    meta.className = 'session-queue-meta';
+    const label = item.kind === 'choice_answer' ? 'choice answer' : 'prompt';
+    meta.innerHTML = `<span>${index === 0 ? 'Next' : `#${index + 1}`}</span><span>${escapeHtml(label)}</span><span>${escapeHtml(shortDate(item.queued_at || item.created_at))}</span>${item.steered_at ? '<span>steered</span>' : ''}`;
+    const text = document.createElement('div');
+    text.className = 'session-queue-text';
+    text.textContent = item.text || '';
+    const actions = document.createElement('div');
+    actions.className = 'session-queue-actions';
+    const steer = document.createElement('button');
+    steer.type = 'button';
+    steer.className = index === 0 ? 'btn btn-ghost btn-sm' : 'btn btn-primary btn-sm';
+    steer.textContent = index === 0 ? 'Next' : 'Steer';
+    steer.disabled = index === 0;
+    steer.onclick = () => steerQueuedMessage(item.id);
+    actions.appendChild(steer);
+    row.appendChild(meta);
+    row.appendChild(text);
+    row.appendChild(actions);
+    panel.appendChild(row);
+  });
+}
+
+function buildEventFromCodexJson(event) {
+  if (!event) return null;
+  const type = event.type || '';
+  const questions = extractSessionQuestions(event);
+  if (questions.length) return buildSessionQuestionEvent(questions, event);
+  if (type !== 'item.completed' && type !== 'item.started') return null;
+  const item = event.item || {};
+  if (item.type === 'agent_message') {
+    return buildSessionEvent('assistant', 'Codex', item.text || '', item.status || '');
+  }
+  return null;
+}
+
+function parseMaybeJson(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (!text) return null;
+  if (!text.startsWith('{') && !text.startsWith('[')) return null;
+  try { return JSON.parse(text); } catch (err) { return null; }
+}
+
+function extractSessionQuestions(event) {
+  const item = event.item || {};
+  const payload = event.payload || event.data || {};
+  const responseItem = event.response_item || event.output_item || {};
+  const call = event.call || event.tool_call || item.call || item.tool_call || responseItem.call || {};
+  const names = [
+    event.type, event.name, event.tool_name, event.function_name,
+    item.type, item.name, item.tool_name, item.function_name,
+    payload.type, payload.name,
+    responseItem.type, responseItem.name, responseItem.tool_name, responseItem.function_name,
+    call.type, call.name
+  ].filter(Boolean).join(' ').toLowerCase();
+  const candidates = [event, item, payload, responseItem, call];
+  for (const holder of [event, item, payload, responseItem, call]) {
+    const parsedArgs = parseMaybeJson(holder.arguments || holder.args || holder.input);
+    if (parsedArgs) candidates.push(parsedArgs);
+  }
+  const directQuestions = [];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    if (Array.isArray(candidate.questions)) {
+      for (const q of candidate.questions) directQuestions.push(q);
+    } else if ((candidate.question || candidate.prompt || candidate.text) && (candidate.options || candidate.choices || candidate.answers)) {
+      directQuestions.push(candidate);
+    }
+  }
+  if (!directQuestions.length && !/(request_user_input|ask_question|input_request|user_input|question)/.test(names)) {
+    return [];
+  }
+  return directQuestions.map((q, index) => normalizeSessionQuestion(q, index)).filter(q => q && q.options.length);
+}
+
+function normalizeSessionQuestion(q, index) {
+  if (!q || typeof q !== 'object') return null;
+  const optionSource = q.options || q.choices || q.answers || [];
+  const optionList = Array.isArray(optionSource)
+    ? optionSource
+    : (optionSource && typeof optionSource === 'object'
+      ? Object.entries(optionSource).map(([value, label]) => ({value, label}))
+      : []);
+  const options = optionList.map((opt, optIndex) => {
+    if (typeof opt === 'string') {
+      return {label: opt, description: '', value: opt, index: optIndex};
+    }
+    if (!opt || typeof opt !== 'object') return null;
+    const label = String(opt.label || opt.title || opt.text || opt.value || opt.id || `Option ${optIndex + 1}`).trim();
+    return {
+      label,
+      description: String(opt.description || opt.detail || opt.summary || opt.impact || '').trim(),
+      value: String(opt.value || opt.id || label).trim(),
+      index: optIndex
+    };
+  }).filter(Boolean);
+  const question = String(q.question || q.prompt || q.text || '').trim();
+  return {
+    id: String(q.id || q.question_id || q.key || `question-${index + 1}`),
+    header: String(q.header || q.title || q.label || 'Question').trim(),
+    question,
+    options
+  };
+}
+
+function buildSessionQuestionEvent(questions, sourceEvent) {
+  const div = document.createElement('div');
+  div.className = 'session-event question';
+  const head = document.createElement('div');
+  head.className = 'session-event-head';
+  const k = document.createElement('span');
+  k.className = 'session-event-kind';
+  k.textContent = 'Question';
+  const st = document.createElement('span');
+  st.className = 'session-event-status';
+  st.textContent = sourceEvent.type || '';
+  head.appendChild(k);
+  head.appendChild(st);
+  div.appendChild(head);
+  for (const question of questions) {
+    const block = document.createElement('div');
+    block.className = 'session-question-block';
+    const title = document.createElement('div');
+    title.className = 'session-question-title';
+    title.textContent = question.header || 'Question';
+    const text = document.createElement('div');
+    text.className = 'session-question-text';
+    text.textContent = question.question || 'Choose an answer.';
+    const list = document.createElement('div');
+    list.className = 'session-choice-list';
+    for (const option of question.options) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'session-choice';
+      const label = document.createElement('span');
+      label.className = 'session-choice-label';
+      label.textContent = option.label;
+      button.appendChild(label);
+      if (option.description) {
+        const desc = document.createElement('span');
+        desc.className = 'session-choice-description';
+        desc.textContent = option.description;
+        button.appendChild(desc);
+      }
+      button.onclick = () => sendSessionChoiceAnswer(question, option, sourceEvent);
+      list.appendChild(button);
+    }
+    block.appendChild(title);
+    block.appendChild(text);
+    block.appendChild(list);
+    div.appendChild(block);
+  }
+  return div;
+}
+
+function buildSessionMarker(text) {
+  const div = document.createElement('div');
+  div.className = 'session-event marker';
+  div.textContent = text;
+  return div;
+}
+
+function buildSessionEvent(kind, label, text, status) {
+  text = text == null ? '' : String(text);
+  const div = document.createElement('div');
+  div.className = 'session-event ' + kind;
+  const head = document.createElement('div');
+  head.className = 'session-event-head';
+  const k = document.createElement('span');
+  k.className = 'session-event-kind';
+  k.textContent = label || kind;
+  const st = document.createElement('span');
+  st.className = 'session-event-status';
+  st.textContent = status || '';
+  head.appendChild(k);
+  head.appendChild(st);
+  div.appendChild(head);
+  if (kind === 'command' || text.length > 3000) {
+    const pre = document.createElement('pre');
+    pre.textContent = text || '';
+    div.appendChild(pre);
+  } else {
+    const body = document.createElement('div');
+    body.className = 'session-event-text';
+    body.textContent = text || '';
+    div.appendChild(body);
+  }
+  return div;
+}
+
+async function sendSessionMessage() {
+  if (!activeSessionId) return;
+  const input = document.getElementById('session-message-input');
+  const send = document.getElementById('session-message-send');
+  const message = input.value.trim();
+  if (!message) return;
+  send.disabled = true;
+  const willQueue = activeSessionSnapshot && (activeSessionSnapshot.status === 'running' || ((activeSessionSnapshot.queued_messages || []).length > 0));
+  setSessionMessageStatus(willQueue ? 'Queueing...' : 'Sending...');
+  try {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(activeSessionId)}/message`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message})
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'message failed');
+    input.value = '';
+    setSessionMessageStatus(data.queued ? 'Queued.' : 'Sent.');
+    renderSessionTimeline(data.session);
+    renderSessionQueue(data.session);
+    await refreshSessionView(true);
+  } catch (err) {
+    setSessionMessageStatus(err.message || 'Message failed.');
+    send.disabled = false;
+  }
+}
+
+async function sendSessionChoiceAnswer(question, option, sourceEvent) {
+  if (!activeSessionId) return;
+  const answer = {
+    kind: 'choice_answer',
+    question_id: question.id || '',
+    header: question.header || '',
+    question: question.question || '',
+    selected_label: option.label || '',
+    selected_value: option.value || option.label || '',
+    selected_description: option.description || '',
+    source_type: (sourceEvent && sourceEvent.type) || ''
+  };
+  const willQueue = activeSessionSnapshot && (activeSessionSnapshot.status === 'running' || ((activeSessionSnapshot.queued_messages || []).length > 0));
+  setSessionMessageStatus(willQueue ? 'Queueing answer...' : 'Sending answer...');
+  const buttons = Array.from(document.querySelectorAll('.session-choice'));
+  buttons.forEach(button => button.disabled = true);
+  try {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(activeSessionId)}/message`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({answer})
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'answer failed');
+    setSessionMessageStatus(data.queued ? 'Answer queued.' : 'Answer sent.');
+    renderSessionTimeline(data.session);
+    renderSessionQueue(data.session);
+    await refreshSessionView(true);
+  } catch (err) {
+    setSessionMessageStatus(err.message || 'Answer failed.');
+    buttons.forEach(button => button.disabled = false);
+  }
+}
+
+async function steerQueuedMessage(messageId) {
+  if (!activeSessionId || !messageId) return;
+  setSessionMessageStatus('Steering...');
+  const buttons = Array.from(document.querySelectorAll('.session-queue-actions button'));
+  buttons.forEach(button => button.disabled = true);
+  try {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(activeSessionId)}/queue/${encodeURIComponent(messageId)}/steer`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: '{}'
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'steer failed');
+    setSessionMessageStatus(data.launched ? 'Steered and sent.' : 'Steered next.');
+    renderSessionTimeline(data.session);
+    renderSessionQueue(data.session);
+    await refreshSessionView(true);
+  } catch (err) {
+    setSessionMessageStatus(err.message || 'Steer failed.');
+    buttons.forEach(button => button.disabled = false);
   }
 }
 
@@ -2720,9 +3357,17 @@ function addPillar() {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    if (document.getElementById('ai-notes-modal-overlay').classList.contains('show')) closeAiNotesModal();
+    if (document.getElementById('session-start-modal-overlay').classList.contains('show')) closeAdhocSessionModal();
+    else if (document.getElementById('session-view-overlay').classList.contains('show')) closeSessionView();
+    else if (document.getElementById('ai-notes-modal-overlay').classList.contains('show')) closeAiNotesModal();
     else if (!document.getElementById('modal-overlay').classList.contains('hidden')) closeModal();
     else closeSettings();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && document.getElementById('session-view-overlay').classList.contains('show')) {
+    if (document.activeElement && document.activeElement.id === 'session-message-input') {
+      e.preventDefault();
+      sendSessionMessage();
+    }
   }
   if (e.key === 'Enter' && !document.getElementById('modal-overlay').classList.contains('hidden')) {
     if (e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'SELECT') { e.preventDefault(); saveCard(); }

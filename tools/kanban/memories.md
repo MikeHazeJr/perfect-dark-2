@@ -12,20 +12,38 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - CHEAT_SMALLJO, Tiny Mode, voice pitch, sndApplyTinyVoicePitch, sndStart, sndAdjust, PSTYPE_CHRTALK, propsnd, AL_SNDP_PITCH_EVT, [audio][voice][tiny][static], BuildTimeoutSeconds
 
+## Task 2: Correct Tiny Mode so the player stays normal while only tiny generic enemies keep size, speed, and boosted voice treatment, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-23T17-11-59-Njc1-tiny_mode_enemy_voice_and_player_normalization.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\23\rollout-2026-05-23T13-12-04-019e55d2-7fe3-72e1-9031-89e7b1ba963d.jsonl, updated_at=2026-05-23T23:55:36+00:00, thread_id=019e55d2-7fe3-72e1-9031-89e7b1ba963d, Tiny Mode contract correction for player-normal behavior and enemy-only voice boost)
+
+### keywords
+
+- Tiny Mode, CHEAT_SMALLJO, CHRCFLAG_TINYMODE_MOVESPEED, sndApplyTinyVoicePitchForProp, sndApplyTinyVoiceVolumeForProp, propsnd, player-normal, enemy tripling, voice pitch, volume boost, tests/test_tiny_mode_spawn_static.cpp, commit hook
+
 ## User preferences
 
 - when the user asked: "make all voice lines play at a slightly higher pitch" -> scope similar requests narrowly to the named gameplay/audio behavior instead of broad audio-pipeline redesign [Task 1]
+- when the user corrected the player-side effect with "I didn’t want the player to be tiny" -> keep Tiny Mode scoped to ordinary enemies, not player size, camera, movement, shadow, or pickup behavior [Task 2]
+- when the user asked "Make the tiny guys voices higher pitched, slightly louder" -> apply follow-up audio polish to the actual tiny enemies and include the slight loudness lift the user asked for, not pitch alone [Task 2]
 
 ## Reusable knowledge
 
 - `CHEAT_SMALLJO` is the Tiny Mode cheat gate for this behavior [Task 1]
 - To catch all spoken lines, cover both the config-driven voice/dialogue path in `sndStart()` and `PSTYPE_CHRTALK` prop-sound playback, because some barks use plain SFX ids instead of the high-bit voice-config path [Task 1]
 - A shared helper in `src/lib/snd.c` with a declaration in `src/include/lib/snd.h` is a workable central point when multiple call sites need the same voice-pitch rule [Task 1]
-- The focused static selector for this lane is `[audio][voice][tiny][static]`, and the added coverage lives in `tests/test_audio_voice_retag.cpp` [Task 1]
+- `CHRCFLAG_TINYMODE_MOVESPEED` is the existing marker for the tripled tiny generic enemies and is now the prop-scoped signal for enemy-only Tiny Mode voice treatment too [Task 2]
+- The final audio behavior is split into two layers: direct Tiny Mode voice-config starts keep the existing `1.35x` baseline, while actual tiny enemies get stronger prop-scoped treatment (`1.6x` pitch and `1.15x` volume) through `sndApplyTinyVoicePitchForProp()` and `sndApplyTinyVoiceVolumeForProp()` [Task 2]
+- Player-side Tiny Mode effects were removed from `src/game/body.c`, `src/game/bondwalk.c`, `src/game/bondmove.c`, `src/game/bondgrab.c`, `src/game/chr.c`, and `src/game/propobj.c`; static coverage in `tests/test_tiny_mode_spawn_static.cpp` now guards the player-normal contract [Task 2]
+- The focused static selector for this lane is `[audio][voice][tiny][static]`, and coverage now spans both `tests/test_audio_voice_retag.cpp` and `tests/test_tiny_mode_spawn_static.cpp` [Task 1][Task 2]
 
 ## Failures and how to do differently
 
 - If a clean all-target `build-session` run gets killed by the wrapper's default 60-second active-build watchdog while the linker is still making progress, rerun the same session with a longer `-BuildTimeoutSeconds` before treating it as a code failure [Task 1]
+- A global Tiny Mode voice-pitch helper was too broad once the user asked specifically about "the tiny guys"; future tiny-enemy audio changes should key off the enemy instance/prop marker rather than the cheat toggle alone [Task 2]
+- Tiny Mode can leak into player-facing movement/view code; before shipping follow-up Tiny Mode edits, explicitly scan player-side `CHEAT_SMALLJO` uses in body, walk, move, grab, shadow, and pickup paths [Task 2]
+- Commit message hooks enforce the pillar/card prefix convention in this repo; for this lane the accepted prefix was `Input - c036: ...` after an earlier mismatch was rejected [Task 2]
 
 # Task Group: PD2 Shared Gameplay Node Editor Planning
 scope: Reusable graph-editor foundation planning, active-card ordering, and context updates for modding workflows that extend beyond weapon-only graphs.

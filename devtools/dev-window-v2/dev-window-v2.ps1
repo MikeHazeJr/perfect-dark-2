@@ -200,8 +200,6 @@ $script:GitChangeCount      = 0
 $script:GitBusy             = $false
 $script:KanbanRemoteBusy    = $false
 $script:KanbanRemoteStopBusy = $false
-$script:KanbanRemotePollTimer = $null
-$script:KanbanRemoteStartedUtc = [DateTime]::MinValue
 
 $script:GhAuthOk            = $false
 $script:GhCliAvailable      = $false
@@ -2690,13 +2688,59 @@ function Test-KanbanServerUp {
     }
 }
 
+function Test-KanbanPortBindable {
+    param([int]$Port)
+    $listener = $null
+    try {
+        $address = [System.Net.IPAddress]::Parse("127.0.0.1")
+        $listener = [System.Net.Sockets.TcpListener]::new($address, $Port)
+        $listener.Start()
+        return $true
+    } catch {
+        return $false
+    } finally {
+        if ($listener) { try { $listener.Stop() } catch {} }
+    }
+}
+
+function Test-KanbanTokenlessHttp {
+    param([int]$Port)
+    try {
+        $resp = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/api/state" -TimeoutSec 2 -ErrorAction Stop
+        return ($resp.StatusCode -eq 200)
+    } catch {
+        return $false
+    }
+}
+
+function Select-LocalKanbanTarget {
+    for ($candidate = 7531; $candidate -le 7541; $candidate++) {
+        if (Test-KanbanServerUp -Port $candidate) {
+            if (Test-KanbanTokenlessHttp -Port $candidate) {
+                return [PSCustomObject]@{ Port = $candidate; Running = $true }
+            }
+            continue
+        }
+        if (Test-KanbanPortBindable -Port $candidate) {
+            return [PSCustomObject]@{ Port = $candidate; Running = $false }
+        }
+    }
+    return $null
+}
+
 function Invoke-OpenKanban {
-    $port = 7531
+    $target = Select-LocalKanbanTarget
+    if ($null -eq $target) {
+        Add-LogLine "Open Kanban: no free local port found in 7531-7541." "#B81818"
+        [System.Windows.MessageBox]::Show("No free local Kanban port was found in 7531-7541.", "Open Kanban", "OK", "Warning") | Out-Null
+        return
+    }
+    $port = [int]$target.Port
     $url = "http://localhost:$port/"
     $serverScript = Join-Path $script:ProjectRoot "tools\kanban\server.py"
 
-    if (Test-KanbanServerUp -Port $port) {
-        Add-LogSessionLine ">>> Open Kanban: server already running on $port; opening browser." "#0078A8"
+    if ($target.Running) {
+        Add-LogSessionLine ">>> Open Kanban: tokenless local server already running on $port; opening browser." "#0078A8"
         try { Start-Process $url } catch {
             Add-LogLine ("Open Kanban: Start-Process failed: " + $_.Exception.Message) "#B81818"
             [System.Windows.MessageBox]::Show("Could not open browser at $url. See the Log tab for details.", "Open Kanban", "OK", "Warning") | Out-Null
@@ -2716,19 +2760,30 @@ function Invoke-OpenKanban {
     }
 
     Add-LogSessionLine "" "#C0C8D2"
-    Add-LogSessionLine ">>> Open Kanban: starting server (python tools\kanban\server.py) on port $port..." "#0078A8"
+    Add-LogSessionLine ">>> Open Kanban: starting tokenless local server on port $port..." "#0078A8"
 
     try {
-        # Hidden background process; same launcher pattern as other dev-window
-        # side processes (BtnOpenFolder etc.). Detached so closing the dev
-        # window does not kill the kanban server -- intentional, server is
-        # cross-session.
-        $proc = Start-Process -FilePath $script:Python `
-                              -ArgumentList @($serverScript) `
+        $localStateDir = Join-Path $script:ProjectRoot ".claude\scratch\kanban-local"
+        if (-not (Test-Path -LiteralPath $localStateDir)) { New-Item -ItemType Directory -Force -Path $localStateDir | Out-Null }
+        $stdoutPath = Join-Path $localStateDir "kanban-local.out.log"
+        $stderrPath = Join-Path $localStateDir "kanban-local.err.log"
+        $psExe = (Get-Command powershell.exe -ErrorAction Stop).Source
+        $startupCommand = @(
+            "Remove-Item Env:KANBAN_REMOTE_TOKEN -ErrorAction SilentlyContinue",
+            "`$env:KANBAN_HOST = 'localhost'",
+            "`$env:KANBAN_PORT = '$port'",
+            "Set-Location -LiteralPath '$($script:ProjectRoot)'",
+            "& '$($script:Python)' '$serverScript'"
+        ) -join "; "
+        $encodedStartupCommand = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($startupCommand))
+        $proc = Start-Process -FilePath $psExe `
+                              -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $encodedStartupCommand) `
                               -WorkingDirectory $script:ProjectRoot `
                               -WindowStyle Hidden `
+                              -RedirectStandardOutput $stdoutPath `
+                              -RedirectStandardError $stderrPath `
                               -PassThru
-        Add-LogLine ("Open Kanban: spawned python pid=" + $proc.Id) "#44586C"
+        Add-LogLine ("Open Kanban: spawned local launcher pid=" + $proc.Id) "#44586C"
     } catch {
         Add-LogLine ("Open Kanban: failed to launch server: " + $_.Exception.Message) "#B81818"
         [System.Windows.MessageBox]::Show("Failed to start kanban server:`n" + $_.Exception.Message, "Open Kanban", "OK", "Warning") | Out-Null
@@ -2780,10 +2835,6 @@ function Test-KanbanRemoteStateAlive {
 }
 
 function Reset-KanbanRemoteButton {
-    if ($null -ne $script:KanbanRemotePollTimer) {
-        try { $script:KanbanRemotePollTimer.Stop() } catch {}
-        $script:KanbanRemotePollTimer = $null
-    }
     $script:KanbanRemoteBusy = $false
     $ui["BtnStartKanbanServer"].IsEnabled = $true
     $ui["BtnStartKanbanServer"].Content = "Start Kanban Server"
@@ -2801,38 +2852,6 @@ function Complete-KanbanRemoteStart {
         "OK",
         "Information"
     ) | Out-Null
-}
-
-function Start-KanbanRemotePoll {
-    param([string]$UrlFile)
-    if ($null -ne $script:KanbanRemotePollTimer) {
-        try { $script:KanbanRemotePollTimer.Stop() } catch {}
-    }
-    $script:KanbanRemoteStartedUtc = [DateTime]::UtcNow
-    $timer = New-Object System.Windows.Threading.DispatcherTimer
-    $timer.Interval = [TimeSpan]::FromMilliseconds(750)
-    $timer.Add_Tick({
-        if (-not $script:KanbanRemoteBusy) {
-            try { $this.Stop() } catch {}
-            return
-        }
-        try {
-            if (Test-Path -LiteralPath $UrlFile) {
-                $url = (Get-Content -LiteralPath $UrlFile -Raw -ErrorAction Stop).Trim()
-                if ($url -match '^https://') {
-                    Complete-KanbanRemoteStart $url
-                    return
-                }
-            }
-        } catch {}
-        if ((([DateTime]::UtcNow) - $script:KanbanRemoteStartedUtc).TotalSeconds -gt 75) {
-            Reset-KanbanRemoteButton
-            Add-LogLine "Start Kanban Server: timed out waiting for the phone link file." "#B81818"
-            [System.Windows.MessageBox]::Show("Remote Kanban startup timed out waiting for the join link. See the Log tab for details.", "Start Kanban Server", "OK", "Warning") | Out-Null
-        }
-    }.GetNewClosure())
-    $script:KanbanRemotePollTimer = $timer
-    $timer.Start()
 }
 
 function Invoke-StartKanbanRemote {
@@ -2865,13 +2884,15 @@ function Invoke-StartKanbanRemote {
     $ui["BtnStartKanbanServer"].Content = "Starting..."
     Add-LogSessionLine "" "#C0C8D2"
     Add-LogSessionLine ">>> Start Kanban Server: starting remote Kanban access..." "#0078A8"
-    Add-LogLine "Start Kanban Server: target is only http://127.0.0.1:7531; no proxy, WARP, exit node, or route changes." "#44586C"
-    Start-KanbanRemotePoll $urlFile
+    Add-LogLine "Start Kanban Server: target is a dedicated 127.0.0.1 Kanban port; no proxy, WARP, exit node, or route changes." "#44586C"
 
     Start-AsyncPoolAction `
         -Script {
             param($root, $starter)
+            $stateDir = Join-Path $root ".claude\scratch\kanban-remote"
             $urlFile = Join-Path $root ".claude\scratch\kanban-remote\remote-url.txt"
+            $outFile = Join-Path $stateDir "devwindow-start.out.log"
+            $errFile = Join-Path $stateDir "devwindow-start.err.log"
             $result = [PSCustomObject]@{
                 Ok = $false
                 ExitCode = -1
@@ -2880,18 +2901,46 @@ function Invoke-StartKanbanRemote {
                 UrlFile = $urlFile
             }
             try {
-                $psExe = (Get-Command powershell.exe -ErrorAction Stop).Source
-                $output = (& $psExe -NoProfile -ExecutionPolicy Bypass -File $starter -ReuseToken 2>&1 | Out-String)
-                $code = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
-                $url = ""
-                if (Test-Path -LiteralPath $urlFile) {
-                    $url = (Get-Content -LiteralPath $urlFile -Raw -ErrorAction SilentlyContinue).Trim()
+                if (-not (Test-Path -LiteralPath $stateDir)) {
+                    New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
                 }
-                if (-not $url) {
+                if (Test-Path -LiteralPath $outFile) { Remove-Item -LiteralPath $outFile -Force -ErrorAction SilentlyContinue }
+                if (Test-Path -LiteralPath $errFile) { Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue }
+                $psExe = (Get-Command powershell.exe -ErrorAction Stop).Source
+                $helper = Start-Process -FilePath $psExe `
+                    -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $starter, "-ReuseToken") `
+                    -WorkingDirectory $root `
+                    -WindowStyle Hidden `
+                    -RedirectStandardOutput $outFile `
+                    -RedirectStandardError $errFile `
+                    -PassThru
+                $url = ""
+                $deadline = [DateTime]::UtcNow.AddSeconds(90)
+                while ([DateTime]::UtcNow -lt $deadline) {
+                    if (Test-Path -LiteralPath $urlFile) {
+                        $url = (Get-Content -LiteralPath $urlFile -Raw -ErrorAction SilentlyContinue).Trim()
+                        if ($url -match '^https://') {
+                            $result.Ok = $true
+                            $result.ExitCode = 0
+                            $result.Url = $url
+                            return $result
+                        }
+                    }
+                    if ($helper.HasExited) {
+                        break
+                    }
+                    Start-Sleep -Milliseconds 500
+                }
+
+                $code = if ($helper.HasExited) { [int]$helper.ExitCode } else { -1 }
+                $output = ""
+                if (Test-Path -LiteralPath $outFile) { $output += Get-Content -LiteralPath $outFile -Raw -ErrorAction SilentlyContinue }
+                if (Test-Path -LiteralPath $errFile) { $output += Get-Content -LiteralPath $errFile -Raw -ErrorAction SilentlyContinue }
+                if (-not $url -and $output) {
                     $m = [regex]::Match($output, "https://\S+?trycloudflare\.com/\?token=[0-9A-Fa-f]+")
                     if ($m.Success) { $url = $m.Value }
                 }
-                $result.Ok = ($code -eq 0 -and -not [string]::IsNullOrWhiteSpace($url))
+                $result.Ok = (-not [string]::IsNullOrWhiteSpace($url))
                 $result.ExitCode = $code
                 $result.Output = $output
                 $result.Url = $url

@@ -131,6 +131,8 @@ static s32 s_emitOneHead(const head_authored_record_t *h,
 
 	if (!force_rewrite && fsFileSize(relpath) > 0 &&
 	    s_existingZipArchive(relpath) &&
+	    s_existingArchiveHasEntry(relpath, "head.ini") &&
+	    s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
 	    (h->filenum == 0 || s_existingArchiveHasEntry(relpath, "mesh.pdmesh"))) {
 		return 0;
 	}
@@ -233,10 +235,10 @@ static s32 s_emitOneHead(const head_authored_record_t *h,
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "manifest.json",
+	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
 	                          manifest_buf, (u32)manifest_len) != 0) {
 		sysLoudFailf("EXTRACT.PDHEAD",
-			"AddFileMem manifest.json failed for \"%s\"", full);
+			"AddFileMem _meta/manifest.json failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		return -1;
 	}

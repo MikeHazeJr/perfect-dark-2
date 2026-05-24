@@ -7,8 +7,8 @@
  * walk to leaf SFX indices that map (via g_AudioRussMappings) to a
  * voice audioconfig slot per the Slice 10 retag predicate.
  *
- * The emitted .pdvoice ZIP shares the .pdsfx container layout
- * (manifest.json + sample.bin + sample.bin.sha256). The manifest
+ * The emitted .pdvoice ZIP shares the clean .pdsfx container layout
+ * (_meta/manifest.json + sample.wav + _meta/sample.wav.sha256). The manifest
  * carries pd_kind="voice" plus actor/transcript/language/context
  * placeholder fields per universality-pivot-schemas.md Section 2.8;
  * a curation pass at Step 5 (or in a follow-up worktree) fills the

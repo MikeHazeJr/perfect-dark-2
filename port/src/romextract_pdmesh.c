@@ -6,10 +6,10 @@
  * per unique mesh at data/<romid>/meshes/<id>.pdmesh.
  *
  * Compound layout per universality-pivot-schemas.md Section 2.5:
- *   manifest.json       envelope + provenance
+ *   _meta/manifest.json envelope + provenance
  *   model.obj           Wavefront OBJ converted from model display lists
  *   model.mtl           material stub for OBJ tooling
- *   *.sha256            content sidecars
+ *   _meta/*.sha256     content sidecars
  *
  * Reuses port/src/modarchive.c writer subset for ZIP atomic writes.
  *
@@ -1060,7 +1060,10 @@ static s32 s_addShaSidecar(mod_archive_writer_t *aw, const char *name,
 	hex[SHA256_HEX_SIZE] = '\0';
 	char sidecar[SHA256_HEX_SIZE + 2];
 	snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-	return modArchiveAddFileMem(aw, name, sidecar, (u32)strlen(sidecar));
+	char meta_name[FS_MAXPATH + 1];
+	snprintf(meta_name, sizeof(meta_name), "_meta/%s", name ? name : "hash.sha256");
+	meta_name[sizeof(meta_name) - 1] = '\0';
+	return modArchiveAddFileMem(aw, meta_name, sidecar, (u32)strlen(sidecar));
 }
 
 /* Convert "FILE_GFALCON2" -> "base:model_falcon2_hi" given a hint
@@ -1201,6 +1204,8 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	snprintf(dst_rel, sizeof(dst_rel), "%s/%s.pdmesh", out_dir, filename_slug);
 
 	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
+	    s_existingArchiveHasEntry(dst_rel, "mesh.ini") &&
+	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
 	    s_existingArchiveHasEntry(dst_rel, "model.obj") &&
 	    s_existingArchiveEntryContains(dst_rel, "export_version.txt",
 		ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION)) return 0;
@@ -1257,7 +1262,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 
 	const char *sym_for_provenance = loaderEnumNameForFileEnum(filenum);
 
-	/* Build manifest.json text in memory. */
+	/* Build _meta/manifest.json text in memory. */
 	char manifest_buf[1024];
 	int manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
 		"{\n"
@@ -1315,7 +1320,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		s_textbufFree(&obj_buf);
 		sysLoudFailf("EXTRACT.PDMESH",
-			"model.ini snprintf truncated for filenum=0x%04x",
+			"mesh.ini snprintf truncated for filenum=0x%04x",
 			(unsigned)filenum);
 		return -1;
 	}
@@ -1337,17 +1342,17 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "model.ini", ini_buf, (u32)ini_len) != 0) {
+	if (modArchiveAddFileMem(aw, "mesh.ini", ini_buf, (u32)ini_len) != 0) {
 		sysLoudFailf("EXTRACT.PDMESH",
-			"AddFileMem model.ini failed for \"%s\"", dst_full);
+			"AddFileMem mesh.ini failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "manifest.json",
+	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
 	                          manifest_buf, (u32)manifest_len) != 0) {
 		sysLoudFailf("EXTRACT.PDMESH",
-			"AddFileMem manifest.json failed for \"%s\"", dst_full);
+			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
 		return -1;

@@ -2,7 +2,7 @@
  * loader_walker_mesh.c -- Step 4 (2026-05-03).
  *
  * Walks data/<romid>/meshes/*.pdmesh and registers each as ASSET_MODEL.
- * .pdmesh files are ZIP compounds carrying manifest.json plus standard
+ * .pdmesh files are ZIP compounds carrying _meta/manifest.json plus standard
  * model payloads such as model.obj/model.mtl. The walker scaffold handles
  * the ZIP open + manifest extraction transparently; this callback only sees
  * the manifest envelope bytes.

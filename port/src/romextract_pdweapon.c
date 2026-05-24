@@ -7,7 +7,7 @@
  * data/<romid>/weapons/<id>.pdweapon.
  *
  * The archive root carries weapon.ini for editor-facing metadata,
- * manifest.json for the current universal walker/loader_pool bridge,
+ * _meta/manifest.json for the current universal walker/loader_pool bridge,
  * graph-shaped behavior.graph.json, and nested_payloads.json for generated
  * projectile/entity payload archives.
  *
@@ -123,7 +123,7 @@ static s32 s_existingWeaponArchiveGraphCurrent(const char *relpath)
 static s32 s_existingWeaponArchiveComplete(const char *relpath)
 {
 	return s_existingArchiveHasEntry(relpath, "weapon.ini") &&
-	       s_existingArchiveHasEntry(relpath, "manifest.json") &&
+	       s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
 	       s_existingArchiveHasEntry(relpath, "behavior.graph.json") &&
 	       s_existingArchiveHasEntry(relpath, WEAPON_GRAPH_ARCHIVE_NESTED_PAYLOADS_ENTRY) &&
 	       s_existingArchiveEntryContains(relpath, "weapon.ini",
@@ -1786,7 +1786,7 @@ static s32 s_emitWeaponGraphFile(const char *graph_tmp_relpath,
 	jw_field_str(&w, "asset_id", catalog_id, 0);
 	jw_field_str(&w, "graph_id", "base_weapon_graph_v2", 0);
 	jw_open_object(&w, "compatibility");
-	jw_field_str(&w, "manifest", "manifest.json", 0);
+	jw_field_str(&w, "manifest", "_meta/manifest.json", 0);
 	jw_field_str(&w, "nested_payloads", WEAPON_GRAPH_ARCHIVE_NESTED_PAYLOADS_ENTRY, 0);
 	jw_field_str(&w, "runtime_source", "graph_ir_pending_manifest_bridge", 1);
 	jw_close_object(&w, 0);
@@ -1967,7 +1967,7 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 		"dependency_closure = " PDWEAPON_DEPENDENCY_CLOSURE_MARKER "\n"
 		"catalog_id = %s\n"
 		"weapon_id = %d\n"
-		"manifest = manifest.json\n"
+		"manifest = _meta/manifest.json\n"
 		"behavior_graph = behavior.graph.json\n"
 		"nested_payloads = nested_payloads.json\n",
 		catalog_id, weapon_id);
@@ -2073,13 +2073,13 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "manifest.json",
+	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
 	                         manifest_bytes, manifest_size) != 0) {
 		sysMemFree(graph_bytes);
 		sysMemFree(manifest_bytes);
 		s_payloadPlanCleanup(&payload_plan);
 		sysLoudFailf("EXTRACT.PDWEAPON",
-			"AddFileMem manifest.json failed for \"%s\"", full);
+			"AddFileMem _meta/manifest.json failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		return -1;
 	}

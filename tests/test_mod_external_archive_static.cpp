@@ -21,6 +21,7 @@
 #include <vector>
 
 extern "C" {
+#include "asset_archive_policy.h"
 #include "constants.h"
 #include "modarchive.h"
 #include "modvfs.h"
@@ -80,6 +81,191 @@ TempArchive writeArchiveEntries(const std::string &stem,
 	}
 	REQUIRE(modArchiveFinish(writer) == MODARCHIVE_OK);
 	return out;
+}
+
+TempArchive writeTypedArchiveEntries(const std::string &stem,
+                                     const std::string &extension,
+                                     const std::vector<std::pair<std::string, std::string>> &entries) {
+	const auto stamp =
+		std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	TempArchive out{
+		std::filesystem::temp_directory_path()
+			/ ("pd2-" + stem + "-" + std::to_string(stamp) + extension)
+	};
+
+	mod_archive_writer_t *writer = modArchiveBegin(out.path.string().c_str());
+	REQUIRE(writer != nullptr);
+	for (const auto &entry : entries) {
+		INFO("packing " << entry.first);
+		if (modArchiveAddFileMem(writer, entry.first.c_str(),
+				entry.second.data(), static_cast<u32>(entry.second.size())) != MODARCHIVE_OK) {
+			modArchiveAbort(writer);
+			FAIL("modArchiveAddFileMem failed for " << entry.first);
+		}
+	}
+	REQUIRE(modArchiveFinish(writer) == MODARCHIVE_OK);
+	return out;
+}
+
+TEST_CASE("typed asset archive policy enforces the two-zone migration boundary",
+          "[modding][pdxxx][policy][c3824]") {
+	char err[256];
+
+	auto clean = writeTypedArchiveEntries("policy-clean", ".pdweapon", {
+		{ "weapon.ini",
+		  "[weapon]\n"
+		  "catalog_id = mod:weapon_policy_clean\n"
+		  "manifest = _meta/manifest.json\n"
+		  "model_file = model.obj\n" },
+		{ "model.obj", "o model\n" },
+		{ "_meta/manifest.json", "{ \"pd_kind\": \"weapon\" }\n" },
+		{ "_meta/provenance.json", "{ \"source_path\": \"C:/rom/source/model.obj\" }\n" },
+	});
+	REQUIRE(assetArchiveValidateFile(clean.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) == 0);
+
+	OpenArchive opened;
+	opened.archive = modArchiveOpen(clean.path.string().c_str());
+	REQUIRE(opened.archive != nullptr);
+	const s32 metaIdx = assetArchiveFindMetadataEntry(opened.archive,
+		ASSET_ARCHIVE_META_MANIFEST);
+	REQUIRE(metaIdx >= 0);
+	REQUIRE(std::string(modArchiveGetEntryName(opened.archive, metaIdx))
+		== "_meta/manifest.json");
+
+	auto legacyRoot = writeTypedArchiveEntries("policy-legacy-root", ".pdweapon", {
+		{ "weapon.ini",
+		  "[weapon]\n"
+		  "catalog_id = mod:weapon_policy_legacy\n"
+		  "manifest = manifest.json\n" },
+		{ "manifest.json", "{ \"pd_kind\": \"weapon\" }\n" },
+	});
+	REQUIRE(assetArchiveValidateFile(legacyRoot.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_MIGRATION, err, sizeof(err)) == 0);
+	REQUIRE(assetArchiveValidateFile(legacyRoot.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("archive root") != std::string::npos);
+
+	auto legacyMesh = writeTypedArchiveEntries("policy-legacy-mesh", ".pdmesh", {
+		{ "model.ini",
+		  "[model]\n"
+		  "catalog_id = mod:model_policy_legacy\n"
+		  "geometry_file = model.obj\n" },
+		{ "model.obj", "o mesh\n" },
+		{ "_meta/manifest.json", "{ \"pd_kind\": \"mesh\" }\n" },
+	});
+	REQUIRE(assetArchiveValidateFile(legacyMesh.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_MIGRATION, err, sizeof(err)) == 0);
+	REQUIRE(assetArchiveValidateFile(legacyMesh.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("mesh.ini") != std::string::npos);
+
+	auto missingGltfUri = writeTypedArchiveEntries("policy-missing-gltf-uri", ".pdhead", {
+		{ "head.ini",
+		  "[head]\n"
+		  "catalog_id = mod:head_policy_missing_gltf_uri\n"
+		  "model_file = model.gltf\n" },
+		{ "model.gltf",
+		  "{ \"asset\": { \"version\": \"2.0\" }, "
+		  "\"images\": [ { \"uri\": \"texture.png\" } ] }\n" },
+		{ "_meta/manifest.json", "{ \"pd_kind\": \"head\" }\n" },
+	});
+	REQUIRE(assetArchiveValidateFile(missingGltfUri.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("texture.png") != std::string::npos);
+	const std::string missingGltfBytes =
+		readFile(missingGltfUri.path.string().c_str());
+	REQUIRE(assetArchiveValidateBytes(missingGltfBytes.data(),
+		static_cast<u32>(missingGltfBytes.size()),
+		missingGltfUri.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("texture.png") != std::string::npos);
+
+	auto objMtlChain = writeTypedArchiveEntries("policy-obj-mtl-chain", ".pdmesh", {
+		{ "mesh.ini",
+		  "[mesh]\n"
+		  "catalog_id = mod:mesh_policy_obj_mtl_chain\n"
+		  "geometry_file = geometry/model.obj\n" },
+		{ "geometry/model.obj",
+		  "mtllib materials/model.mtl\n"
+		  "v 0 0 0\n"
+		  "v 1 0 0\n"
+		  "v 0 1 0\n"
+		  "usemtl mat\n"
+		  "f 1 2 3\n" },
+		{ "geometry/materials/model.mtl",
+		  "newmtl mat\n"
+		  "map_Kd textures/diffuse.png\n" },
+		{ "geometry/materials/textures/diffuse.png", "png" },
+		{ "_meta/manifest.json", "{ \"pd_kind\": \"mesh\" }\n" },
+	});
+	REQUIRE(assetArchiveValidateFile(objMtlChain.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) == 0);
+
+	auto missingObjTexture = writeTypedArchiveEntries("policy-missing-obj-texture", ".pdmesh", {
+		{ "mesh.ini",
+		  "[mesh]\n"
+		  "catalog_id = mod:mesh_policy_missing_obj_texture\n"
+		  "geometry_file = geometry/model.obj\n" },
+		{ "geometry/model.obj", "mtllib materials/model.mtl\n" },
+		{ "geometry/materials/model.mtl",
+		  "newmtl mat\n"
+		  "map_Kd textures/diffuse.png\n" },
+		{ "_meta/manifest.json", "{ \"pd_kind\": \"mesh\" }\n" },
+	});
+	REQUIRE(assetArchiveValidateFile(missingObjTexture.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("textures/diffuse.png") != std::string::npos);
+
+	auto missingNestedArchive = writeTypedArchiveEntries("policy-missing-nested", ".pdcharacter", {
+		{ "character.ini",
+		  "[character]\n"
+		  "catalog_id = mod:character_policy_missing_nested\n"
+		  "body_archive = dependencies/assets/body/tri_body.pdbody\n" },
+		{ "_meta/manifest.json", "{ \"pd_kind\": \"character\" }\n" },
+	});
+	REQUIRE(assetArchiveValidateFile(missingNestedArchive.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("tri_body.pdbody") != std::string::npos);
+
+	auto badNestedBody = writeTypedArchiveEntries("policy-bad-nested-body", ".pdbody", {
+		{ "body.ini",
+		  "[body]\n"
+		  "catalog_id = mod:body_policy_bad_nested\n"
+		  "model_file = model.gltf\n" },
+		{ "model.gltf",
+		  "{ \"asset\": { \"version\": \"2.0\" }, "
+		  "\"images\": [ { \"uri\": \"missing_nested_texture.png\" } ] }\n" },
+		{ "_meta/manifest.json", "{ \"pd_kind\": \"body\" }\n" },
+	});
+	const std::string badNestedBytes =
+		readFile(badNestedBody.path.string().c_str());
+	auto recursiveNested = writeTypedArchiveEntries("policy-recursive-nested", ".pdcharacter", {
+		{ "character.ini",
+		  "[character]\n"
+		  "catalog_id = mod:character_policy_recursive_nested\n"
+		  "body_archive = dependencies/assets/body/bad_body.pdbody\n" },
+		{ "dependencies/assets/body/bad_body.pdbody", badNestedBytes },
+		{ "_meta/manifest.json", "{ \"pd_kind\": \"character\" }\n" },
+	});
+	REQUIRE(assetArchiveValidateFile(recursiveNested.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("missing_nested_texture.png") != std::string::npos);
+
+	const auto stamp =
+		std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	TempArchive plain{
+		std::filesystem::temp_directory_path()
+			/ ("pd2-policy-plain-" + std::to_string(stamp) + ".pdhead")
+	};
+	{
+		std::ofstream out(plain.path, std::ios::binary);
+		out << "[head]\nmodel_file = model.gltf\n";
+	}
+	REQUIRE(assetArchiveValidateFile(plain.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("zip-openable") != std::string::npos);
+	REQUIRE(assetArchivePathIsDeprecated("weapons/old.pdwpn") == 1);
 }
 
 struct MountedArchive {
@@ -203,6 +389,13 @@ std::string entryRelativePath(const std::string &baseEntry,
 	return baseEntry.substr(0, slash + 1) + relative;
 }
 
+bool archiveHasRootOrRelativeEntry(mod_archive_t *archive,
+                                   const std::string &baseEntry,
+                                   const std::string &value) {
+	return archiveHasEntry(archive, value) ||
+		archiveHasEntry(archive, entryRelativePath(baseEntry, value));
+}
+
 void requireIniPathRefsResolve(mod_archive_t *archive,
                                const char *archiveRel,
                                const char *descriptorEntry,
@@ -230,7 +423,8 @@ void requireIniPathRefsResolve(mod_archive_t *archive,
 					+ " -> " + key + " = " + value);
 				REQUIRE(value.find("..") == std::string::npos);
 				REQUIRE(value.find(':') == std::string::npos);
-				REQUIRE(archiveHasEntry(archive, value));
+				REQUIRE(archiveHasRootOrRelativeEntry(archive,
+					descriptorEntry, value));
 			}
 		}
 	}
@@ -250,8 +444,7 @@ void requireGltfUrisResolve(mod_archive_t *archive,
 		}
 		REQUIRE(uri.find("..") == std::string::npos);
 		REQUIRE(uri.find(':') == std::string::npos);
-		REQUIRE((archiveHasEntry(archive, uri) ||
-			archiveHasEntry(archive, entryRelativePath(gltfEntry, uri))));
+		REQUIRE(archiveHasRootOrRelativeEntry(archive, gltfEntry, uri));
 	}
 }
 
@@ -270,9 +463,12 @@ void requireObjRefsResolve(mod_archive_t *archive,
 		INFO(std::string(archiveRel) + "::" + objEntry + " mtllib=" + mtl);
 		REQUIRE(mtl.find("..") == std::string::npos);
 		REQUIRE(mtl.find(':') == std::string::npos);
-		REQUIRE(archiveHasEntry(archive, mtl));
+		const std::string mtlEntry = archiveHasEntry(archive, mtl)
+			? mtl
+			: entryRelativePath(objEntry, mtl);
+		REQUIRE(archiveHasEntry(archive, mtlEntry));
 
-		const std::string mtlText = readArchiveEntryText(archive, mtl.c_str());
+		const std::string mtlText = readArchiveEntryText(archive, mtlEntry.c_str());
 		std::istringstream mtlIn(mtlText);
 		std::string mtlLine;
 		while (std::getline(mtlIn, mtlLine)) {
@@ -286,7 +482,7 @@ void requireObjRefsResolve(mod_archive_t *archive,
 			INFO(std::string(archiveRel) + "::" + mtl + " texture=" + texture);
 			REQUIRE(texture.find("..") == std::string::npos);
 			REQUIRE(texture.find(':') == std::string::npos);
-			REQUIRE(archiveHasEntry(archive, texture));
+			REQUIRE(archiveHasRootOrRelativeEntry(archive, mtlEntry, texture));
 		}
 	}
 }
@@ -332,7 +528,8 @@ TEST_CASE("folder to pdmod packer validates layout and generates INI templates",
 	REQUIRE(packer.find("r = validateExternalFolderLayout(src_folder, out_path)") != std::string::npos);
 	REQUIRE(packer.find("modArchiveBegin(out_path)") != std::string::npos);
 	REQUIRE(packer.find("validateTypedPdDescriptorsRecurse(srcFolder") != std::string::npos);
-	REQUIRE(packer.find("typedPdContentTypeForPath(childRel)") != std::string::npos);
+	REQUIRE(packer.find("assetArchivePathIsTyped(childRel)") != std::string::npos);
+	REQUIRE(packer.find("assetArchiveValidateFile(descriptorAbs, ASSET_ARCHIVE_VALIDATE_RELEASE") != std::string::npos);
 	REQUIRE(packer.find("MODPACK.PDMOD: validated %u typed .pd* content descriptor(s) before packing") != std::string::npos);
 	REQUIRE(packer.find("processCanonicalFamily(srcFolder") != std::string::npos);
 	REQUIRE(packer.find("writeTemplateIfMissing") != std::string::npos);
@@ -389,7 +586,7 @@ TEST_CASE("archive mods scan INI descriptors through the shared catalog scanner"
 	REQUIRE(scanner.find("typedPdContentTypeForPath(entry_name)") != std::string::npos);
 	REQUIRE(scanner.find("typedPdDescriptorComponentDir(entry_name") != std::string::npos);
 	REQUIRE(scanner.find("typedPdArchiveDescriptorLeaf(entry_name)") != std::string::npos);
-	REQUIRE(scanner.find("modArchiveExtractMemAlloc") != std::string::npos);
+	REQUIRE(scanner.find("assetArchiveExtractDescriptorMemAlloc") != std::string::npos);
 	REQUIRE(scanner.find("qualifyTypedArchiveSourcePaths(&ini, entry_name)") != std::string::npos);
 	REQUIRE(scanner.find("qualifyArchiveIniPaths") != std::string::npos);
 	REQUIRE(scanner.find("iniGet(ini, \"catalog_id\", iniGet(ini, \"id\"") != std::string::npos);
@@ -582,20 +779,24 @@ TEST_CASE("typed pd content fixture keeps pdxxx files as content units",
 TEST_CASE("external archive scanner recognizes canonical descriptor families",
           "[modding][pdmod][static][c3809]") {
 	std::string scanner = readFile("port/src/assetcatalog_scanner.c");
-	REQUIRE(scanner.find("\"weapon.ini\"") != std::string::npos);
-	REQUIRE(scanner.find("\"head.ini\"") != std::string::npos);
-	REQUIRE(scanner.find("\"body.ini\"") != std::string::npos);
-	REQUIRE(scanner.find("\"arena.ini\"") != std::string::npos);
-	REQUIRE(scanner.find("\"scenario.ini\"") != std::string::npos);
-	REQUIRE(scanner.find("\"sound.ini\"") != std::string::npos);
-	REQUIRE(scanner.find("\"ui.ini\"") != std::string::npos);
-	REQUIRE(scanner.find("\"font.ini\"") != std::string::npos);
-	REQUIRE(scanner.find("\"lang.ini\"") != std::string::npos);
-	REQUIRE(scanner.find("\"animation.ini\"") != std::string::npos);
-	REQUIRE(scanner.find("\".pdhead\"") != std::string::npos);
-	REQUIRE(scanner.find("\".pdarena\"") != std::string::npos);
-	REQUIRE(scanner.find("\".pdanim\"") != std::string::npos);
-	REQUIRE(scanner.find("\".pdmesh\"") != std::string::npos);
+	std::string policy = readFile("port/src/asset_archive_policy.c");
+	REQUIRE(scanner.find("assetArchiveDescriptorForPath(path)") != std::string::npos);
+	REQUIRE(scanner.find("assetArchiveTypeForPath(path)") != std::string::npos);
+	REQUIRE(policy.find("\"weapon.ini\"") != std::string::npos);
+	REQUIRE(policy.find("\"head.ini\"") != std::string::npos);
+	REQUIRE(policy.find("\"body.ini\"") != std::string::npos);
+	REQUIRE(policy.find("\"arena.ini\"") != std::string::npos);
+	REQUIRE(policy.find("\"scenario.ini\"") != std::string::npos);
+	REQUIRE(policy.find("\"sound.ini\"") != std::string::npos);
+	REQUIRE(policy.find("\"ui.ini\"") != std::string::npos);
+	REQUIRE(policy.find("\"font.ini\"") != std::string::npos);
+	REQUIRE(policy.find("\"lang.ini\"") != std::string::npos);
+	REQUIRE(policy.find("\"animation.ini\"") != std::string::npos);
+	REQUIRE(policy.find("\"mesh.ini\"") != std::string::npos);
+	REQUIRE(policy.find("\".pdhead\"") != std::string::npos);
+	REQUIRE(policy.find("\".pdarena\"") != std::string::npos);
+	REQUIRE(policy.find("\".pdanim\"") != std::string::npos);
+	REQUIRE(policy.find("\".pdmesh\"") != std::string::npos);
 }
 
 TEST_CASE("legacy pd asset walkers remain registered during external pdmod migration",
@@ -607,7 +808,7 @@ TEST_CASE("legacy pd asset walkers remain registered during external pdmod migra
 	REQUIRE(common_h.find("auto-detecting plain JSON vs ZIP compound") != std::string::npos);
 	REQUIRE(common.find("if (strcmp(name + nlen - ext_len, desc->extension) != 0) continue;") != std::string::npos);
 	REQUIRE(common.find("bytes[0] == 'P' && bytes[1] == 'K'") != std::string::npos);
-	REQUIRE(common.find("manifest.json") != std::string::npos);
+	REQUIRE(common.find("assetArchiveFindMetadataEntry") != std::string::npos);
 
 	const char *scanCalls[] = {
 		"loaderWalkerScanMeshes(data_root, &kr)",
@@ -658,7 +859,6 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	const char *liveFiles[] = {
 		"port/src/loader_walker_weapon.c",
 		"port/src/assetcatalog_scanner.c",
-		"port/src/modpack_pdmod.c",
 		"port/src/modmgr.c",
 		"port/src/romextract_pdweapon.c",
 		"port/include/romextract_pd.h",
@@ -670,6 +870,11 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 		REQUIRE(src.find(".pdweapon") != std::string::npos);
 		REQUIRE(src.find(removedWeaponExt) == std::string::npos);
 	}
+
+	const std::string policy = readFile("port/src/asset_archive_policy.c");
+	const std::string packer = readFile("port/src/modpack_pdmod.c");
+	REQUIRE(policy.find(removedWeaponExt) != std::string::npos);
+	REQUIRE(packer.find("Deprecated .pdwpn files are not allowed") != std::string::npos);
 
 	const std::string extractor = readFile("port/src/romextract_pdweapon.c");
 	REQUIRE(extractor.find("nested_payloads = nested_payloads.json") != std::string::npos);
@@ -800,12 +1005,12 @@ TEST_CASE("weapon graph archive helpers derive IDs and validate graph roots",
 	const std::string weaponIni =
 		"[weapon]\n"
 		"catalog_id = base:test_weapon\n"
-		"manifest = manifest.json\n"
+		"manifest = _meta/manifest.json\n"
 		"behavior_graph = behavior.graph.json\n"
 		"nested_payloads = nested_payloads.json\n";
 	TempArchive weapon = writeArchiveEntries("weapon-graph-root", {
 		{ "weapon.ini", weaponIni },
-		{ "manifest.json", "{}\n" },
+		{ "_meta/manifest.json", "{}\n" },
 		{ "behavior.graph.json", "{\"schema\":\"pd.weapon_graph.v1\"}\n" },
 		{ "nested_payloads.json", "{\"schema\":\"pd.weapon_nested_payloads.v1\",\"payloads\":[]}\n" },
 	});
@@ -1083,7 +1288,7 @@ TEST_CASE("weapon mod save contract supports shotgun template dual wield save",
 		"dependency_closure = embedded.v2\n"
 		"catalog_id = mod:weapon_needler\n"
 		"name = Needler\n"
-		"manifest = manifest.json\n"
+		"manifest = _meta/manifest.json\n"
 		"behavior_graph = behavior.graph.json\n"
 		"nested_payloads = nested_payloads.json\n"
 		"model_file = models/held_hi.pdmesh\n"
@@ -1107,7 +1312,7 @@ TEST_CASE("weapon mod save contract supports shotgun template dual wield save",
 		"{\"schema\":\"pd.weapon_nested_payloads.v1\",\"asset_id\":\"mod:weapon_needler\",\"payloads\":[]}\n";
 	TempArchive saved = writeArchiveEntries("shotgun-template-save", {
 		{ "weapon.ini", weaponIni },
-		{ "manifest.json", manifest },
+		{ "_meta/manifest.json", manifest },
 		{ "behavior.graph.json", graph },
 		{ "nested_payloads.json", nested },
 		{ "animations/invanim_shotgun_singleshot.pdanim", "pdanim" },
@@ -1968,15 +2173,21 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 		readFile("examples/modding/typed-pdxxx-basic/README.md");
 	REQUIRE(readme.find("The content units are the typed `*.pdxxx` asset archives") != std::string::npos);
 	REQUIRE(readme.find("Change any `.pdxxx` extension to `.zip`") != std::string::npos);
-	REQUIRE(readme.find("The GLTF, OBJ, and INI files inside each archive are the authored data") != std::string::npos);
+	REQUIRE(readme.find("The GLTF, OBJ, INI, JSON, TSV, and source media files inside each archive are the authored data") != std::string::npos);
+	REQUIRE(readme.find("Machine-owned manifest and provenance data lives under `_meta/`") != std::string::npos);
 	REQUIRE(readme.find("`.pdmod` is not the authoring format") != std::string::npos);
 
 	const char *requiredFiles[] = {
 		"mod.json",
+		"characters/tri_character.pdcharacter",
 		"heads/tri_head.pdhead",
 		"bodies/tri_body.pdbody",
 		"arenas/tri_arena.pdarena",
 		"meshes/tri_mesh.pdmesh",
+		"materials/tri_material.pdmaterial",
+		"textures/tri_texture.pdtexture",
+		"entities/tri_entity.pdentity",
+		"projectiles/tri_projectile.pdprojectile",
 		"weapons/tri_weapon.pdweapon",
 		"animations/weapon_idle.pdanim",
 		"animations/character_skeletal.pdanim",
@@ -2013,6 +2224,8 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(manifest.find("\"id\": \"example_typed_pdxxx_basic\"") != std::string::npos);
 	REQUIRE(manifest.find("Wrap as .pdmod only") != std::string::npos);
 
+	const std::string characterArchivePath =
+		"examples/modding/typed-pdxxx-basic/characters/tri_character.pdcharacter";
 	const std::string headArchivePath =
 		"examples/modding/typed-pdxxx-basic/heads/tri_head.pdhead";
 	const std::string bodyArchivePath =
@@ -2021,12 +2234,25 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 		"examples/modding/typed-pdxxx-basic/arenas/tri_arena.pdarena";
 	const std::string meshArchivePath =
 		"examples/modding/typed-pdxxx-basic/meshes/tri_mesh.pdmesh";
+	const std::string materialArchivePath =
+		"examples/modding/typed-pdxxx-basic/materials/tri_material.pdmaterial";
+	const std::string textureArchivePath =
+		"examples/modding/typed-pdxxx-basic/textures/tri_texture.pdtexture";
+	const std::string entityArchivePath =
+		"examples/modding/typed-pdxxx-basic/entities/tri_entity.pdentity";
+	const std::string projectileArchivePath =
+		"examples/modding/typed-pdxxx-basic/projectiles/tri_projectile.pdprojectile";
 	const std::string weaponArchiveFullPath =
 		"examples/modding/typed-pdxxx-basic/weapons/tri_weapon.pdweapon";
 	const std::string weaponArchivePath =
 		"examples/modding/typed-pdxxx-basic/animations/weapon_idle.pdanim";
 	const std::string skeletalArchivePath =
 		"examples/modding/typed-pdxxx-basic/animations/character_skeletal.pdanim";
+
+	const std::string character = readArchiveEntryText(characterArchivePath.c_str(), "character.ini");
+	REQUIRE(character.find("catalog_id = example:tri_character") != std::string::npos);
+	REQUIRE(character.find("body_archive = dependencies/assets/body/tri_body.pdbody") != std::string::npos);
+	REQUIRE(character.find("head_archive = dependencies/assets/head/tri_head.pdhead") != std::string::npos);
 
 	const std::string head = readArchiveEntryText(headArchivePath.c_str(), "head.ini");
 	const std::string model = readArchiveEntryText(headArchivePath.c_str(), "model.gltf");
@@ -2062,12 +2288,30 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(pads.find("default_spawn = 0,0,0") != std::string::npos);
 	REQUIRE(setup.find("props = none") != std::string::npos);
 
-	const std::string mesh = readArchiveEntryText(meshArchivePath.c_str(), "model.ini");
+	const std::string mesh = readArchiveEntryText(meshArchivePath.c_str(), "mesh.ini");
 	const std::string meshModel = readArchiveEntryText(meshArchivePath.c_str(), "model.gltf");
 	REQUIRE(mesh.find("catalog_id = example:tri_mesh") != std::string::npos);
 	REQUIRE(mesh.find("model_file = model.gltf") != std::string::npos);
 	REQUIRE(meshModel.find("\"TEXCOORD_0\"") != std::string::npos);
 	REQUIRE(meshModel.find("\"baseColorTexture\"") != std::string::npos);
+
+	const std::string material = readArchiveEntryText(materialArchivePath.c_str(), "material.ini");
+	REQUIRE(material.find("catalog_id = example:tri_material") != std::string::npos);
+	REQUIRE(material.find("texture_archive = dependencies/assets/texture/tri_texture.pdtexture") != std::string::npos);
+
+	const std::string texture = readArchiveEntryText(textureArchivePath.c_str(), "texture.ini");
+	REQUIRE(texture.find("catalog_id = example:tri_texture") != std::string::npos);
+	REQUIRE(texture.find("texture_file = texture.png") != std::string::npos);
+
+	const std::string entity = readArchiveEntryText(entityArchivePath.c_str(), "entity.ini");
+	const std::string bindings = readArchiveEntryText(entityArchivePath.c_str(), "bindings.json");
+	REQUIRE(entity.find("catalog_id = example:tri_entity") != std::string::npos);
+	REQUIRE(entity.find("bindings_file = bindings.json") != std::string::npos);
+	REQUIRE(bindings.find("\"schema\": \"pd.entity.bindings.v1\"") != std::string::npos);
+
+	const std::string projectile = readArchiveEntryText(projectileArchivePath.c_str(), "projectile.ini");
+	REQUIRE(projectile.find("catalog_id = example:tri_projectile") != std::string::npos);
+	REQUIRE(projectile.find("behavior_graph = behavior.graph.json") != std::string::npos);
 
 	const std::string weapon = readArchiveEntryText(weaponArchiveFullPath.c_str(), "weapon.ini");
 	const std::string weaponGraph = readArchiveEntryText(weaponArchiveFullPath.c_str(), "behavior.graph.json");
@@ -2095,6 +2339,8 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE_FALSE(std::filesystem::exists(root / "heads/tri_head/model.gltf"));
 	REQUIRE_FALSE(std::filesystem::exists(root / "bodies/tri_body/model.gltf"));
 	REQUIRE_FALSE(std::filesystem::exists(root / "arenas/tri_arena/geometry.obj"));
+	REQUIRE_FALSE(std::filesystem::exists(root / "characters/tri_character/character.ini"));
+	REQUIRE_FALSE(std::filesystem::exists(root / "projectiles/tri_projectile/projectile.ini"));
 	REQUIRE_FALSE(std::filesystem::exists(root / "weapons/tri_weapon/model.gltf"));
 	REQUIRE_FALSE(std::filesystem::exists(root / "animations/weapon_idle/animation.gltf"));
 }
@@ -2107,91 +2353,133 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 
 	const std::vector<ExpectedPdxxxArchive> implementedArchives = {
 		{
+			"character",
+			".pdcharacter",
+			"characters/tri_character.pdcharacter",
+			{ "character.ini", "portrait.png",
+			  "dependencies/assets/body/tri_body.pdbody",
+			  "dependencies/assets/head/tri_head.pdhead",
+			  "_meta/manifest.json" },
+		},
+		{
 			"head",
 			".pdhead",
 			"heads/tri_head.pdhead",
-			{ "head.ini", "model.gltf", "texture.png" },
+			{ "head.ini", "model.gltf", "texture.png",
+			  "_meta/manifest.json" },
 		},
 		{
 			"body",
 			".pdbody",
 			"bodies/tri_body.pdbody",
-			{ "body.ini", "model.gltf", "hand.gltf", "texture.png" },
+			{ "body.ini", "model.gltf", "hand.gltf", "texture.png",
+			  "_meta/manifest.json" },
 		},
 		{
 			"arena",
 			".pdarena",
 			"arenas/tri_arena.pdarena",
 			{ "arena.ini", "geometry.obj", "arena.mtl", "arena_texture.png",
-			  "pads.ini", "setup.ini" },
+			  "pads.ini", "setup.ini", "_meta/manifest.json" },
 		},
 		{
 			"mesh/model",
 			".pdmesh",
 			"meshes/tri_mesh.pdmesh",
-			{ "model.ini", "model.gltf", "texture.png" },
+			{ "mesh.ini", "model.gltf", "texture.png",
+			  "_meta/manifest.json" },
+		},
+		{
+			"material",
+			".pdmaterial",
+			"materials/tri_material.pdmaterial",
+			{ "material.ini",
+			  "dependencies/assets/texture/tri_texture.pdtexture",
+			  "_meta/manifest.json" },
+		},
+		{
+			"texture",
+			".pdtexture",
+			"textures/tri_texture.pdtexture",
+			{ "texture.ini", "texture.png", "_meta/manifest.json" },
+		},
+		{
+			"entity",
+			".pdentity",
+			"entities/tri_entity.pdentity",
+			{ "entity.ini", "bindings.json", "behavior.graph.json",
+			  "composition.json", "_meta/manifest.json" },
+		},
+		{
+			"projectile",
+			".pdprojectile",
+			"projectiles/tri_projectile.pdprojectile",
+			{ "projectile.ini", "behavior.graph.json",
+			  "_meta/manifest.json" },
 		},
 		{
 			"weapon",
 			".pdweapon",
 			"weapons/tri_weapon.pdweapon",
 			{ "weapon.ini", "model.gltf", "hand.gltf", "weapon_texture.png",
-			  "texture.png", "reload.gltf", "fire.wav", "behavior.graph.json" },
+			  "texture.png", "reload.gltf", "fire.wav", "behavior.graph.json",
+			  "_meta/manifest.json" },
 		},
 		{
 			"weapon animation",
 			".pdanim",
 			"animations/weapon_idle.pdanim",
-			{ "animation.ini", "animation.gltf" },
+			{ "animation.ini", "animation.gltf", "_meta/manifest.json" },
 		},
 		{
 			"character animation",
 			".pdanim",
 			"animations/character_skeletal.pdanim",
-			{ "animation.ini", "animation.gltf" },
+			{ "animation.ini", "animation.gltf", "_meta/manifest.json" },
 		},
 		{
 			"sound effect",
 			".pdsfx",
 			"audio/sfx/tri_click.pdsfx",
-			{ "sound.ini", "sample.wav" },
+			{ "sound.ini", "sample.wav", "_meta/manifest.json" },
 		},
 		{
 			"voice",
 			".pdvoice",
 			"audio/voice/tri_voice.pdvoice",
-			{ "voice.ini", "sample.wav" },
+			{ "voice.ini", "sample.wav", "_meta/manifest.json" },
 		},
 		{
 			"music",
 			".pdsong",
 			"audio/music/tri_song.pdsong",
-			{ "music.ini", "track.wav" },
+			{ "music.ini", "track.wav", "_meta/manifest.json" },
 		},
 		{
 			"UI texture",
 			".pdui",
 			"ui/tri_reticle.pdui",
-			{ "ui.ini", "texture.png" },
+			{ "ui.ini", "texture.png", "_meta/manifest.json" },
 		},
 		{
 			"font",
 			".pdfont",
 			"fonts/tri_font.pdfont",
-			{ "font.ini", "font.otf" },
+			{ "font.ini", "font.otf", "_meta/manifest.json" },
 		},
 		{
 			"language",
 			".pdlang",
 			"lang/tri_lang.pdlang",
-			{ "lang.ini", "strings.tsv" },
+			{ "lang.ini", "strings.tsv", "_meta/manifest.json" },
 		},
 		{
 			"scenario",
 			".pdscenario",
 			"scenarios/tri_scenario.pdscenario",
 			{ "scenario.ini", "rooms.obj", "scenario.mtl", "room_texture.png",
-			  "props.ini", "objectives.ini", "pads.ini", "setup.ini" },
+			  "props.ini", "objectives.ini", "pads.ini", "setup.ini",
+			  "_meta/manifest.json" },
 		},
 	};
 
@@ -2199,6 +2487,9 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 		const std::filesystem::path archivePath = root / spec.relPath;
 		INFO(spec.assetType << " " << archivePath.generic_string());
 		REQUIRE(std::filesystem::is_regular_file(archivePath));
+		char err[256];
+		REQUIRE(assetArchiveValidateFile(archivePath.string().c_str(),
+			ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) == 0);
 
 		OpenArchive opened;
 		opened.archive = modArchiveOpen(archivePath.string().c_str());
@@ -2236,6 +2527,13 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 
 	const std::vector<ArchiveRefSpec> specs = {
 		{
+			"characters/tri_character.pdcharacter",
+			"character.ini",
+			{ "body_archive", "head_archive", "portrait_file" },
+			{},
+			{},
+		},
+		{
 			"heads/tri_head.pdhead",
 			"head.ini",
 			{ "model_file" },
@@ -2258,9 +2556,37 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 		},
 		{
 			"meshes/tri_mesh.pdmesh",
-			"model.ini",
+			"mesh.ini",
 			{ "model_file" },
 			{ "model.gltf" },
+			{},
+		},
+		{
+			"materials/tri_material.pdmaterial",
+			"material.ini",
+			{ "texture_archive" },
+			{},
+			{},
+		},
+		{
+			"textures/tri_texture.pdtexture",
+			"texture.ini",
+			{ "texture_file" },
+			{},
+			{},
+		},
+		{
+			"entities/tri_entity.pdentity",
+			"entity.ini",
+			{ "bindings_file", "behavior_graph", "composition_file" },
+			{ "behavior.graph.json", "bindings.json", "composition.json" },
+			{},
+		},
+		{
+			"projectiles/tri_projectile.pdprojectile",
+			"projectile.ini",
+			{ "behavior_graph" },
+			{ "behavior.graph.json" },
 			{},
 		},
 		{
@@ -2633,7 +2959,7 @@ TEST_CASE("base arena extractor emits zip-openable pdarena archives",
 	REQUIRE(arena.find("s_existingZipArchive") != std::string::npos);
 	REQUIRE(arena.find("modArchiveBegin(full)") != std::string::npos);
 	REQUIRE(arena.find("modArchiveAddFileMem(aw, \"arena.ini\"") != std::string::npos);
-	REQUIRE(arena.find("modArchiveAddFileMem(aw, \"manifest.json\"") != std::string::npos);
+	REQUIRE(arena.find("modArchiveAddFileMem(aw, \"_meta/manifest.json\"") != std::string::npos);
 	REQUIRE(arena.find("s_copyArchiveEntriesWithPrefix") != std::string::npos);
 	REQUIRE(arena.find("\"scenario/scenario.ini\"") != std::string::npos);
 	REQUIRE(arena.find("\"scenario/rooms.obj\"") != std::string::npos);
@@ -2699,11 +3025,11 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("texture_manifest_file = visual/materials.tsv") !=
 	        std::string::npos);
 	REQUIRE(arena.find("visual_format = OBJ+MTL+TGA") != std::string::npos);
-	REQUIRE(arena.find("visual_export_version = bg_visual_obj_mtl_tga_v2") !=
+	REQUIRE(arena.find("\"visual_export_version = \" PDSCENARIO_BG_VISUAL_EXPORT_VERSION") !=
 	        std::string::npos);
 	REQUIRE(arena.find("\\\"visual_format\\\": \\\"OBJ+MTL+TGA\\\"") !=
 	        std::string::npos);
-	REQUIRE(arena.find("\\\"visual_export_version\\\": \\\"bg_visual_obj_mtl_tga_v2\\\"") !=
+	REQUIRE(arena.find("\\\"visual_export_version\\\": \\\"%s\\\"") !=
 	        std::string::npos);
 	REQUIRE(arena.find("tiles.tsv") != std::string::npos);
 	REQUIRE(arena.find("pads.tsv") != std::string::npos);
@@ -2756,7 +3082,7 @@ TEST_CASE("base character extractors emit zip-openable pdhead and pdbody archive
 	REQUIRE(head.find("s_existingZipArchive") != std::string::npos);
 	REQUIRE(head.find("modArchiveBegin(full)") != std::string::npos);
 	REQUIRE(head.find("modArchiveAddFileMem(aw, \"head.ini\"") != std::string::npos);
-	REQUIRE(head.find("modArchiveAddFileMem(aw, \"manifest.json\"") != std::string::npos);
+	REQUIRE(head.find("modArchiveAddFileMem(aw, \"_meta/manifest.json\"") != std::string::npos);
 	REQUIRE(head.find("s_addRequiredArchiveFile(aw, \"mesh.pdmesh\"") !=
 	        std::string::npos);
 	REQUIRE(head.find("s_existingArchiveHasEntry(relpath, \"mesh.pdmesh\")") !=
@@ -2770,7 +3096,7 @@ TEST_CASE("base character extractors emit zip-openable pdhead and pdbody archive
 	REQUIRE(body.find("s_existingZipArchive") != std::string::npos);
 	REQUIRE(body.find("modArchiveBegin(full)") != std::string::npos);
 	REQUIRE(body.find("modArchiveAddFileMem(aw, \"body.ini\"") != std::string::npos);
-	REQUIRE(body.find("modArchiveAddFileMem(aw, \"manifest.json\"") != std::string::npos);
+	REQUIRE(body.find("modArchiveAddFileMem(aw, \"_meta/manifest.json\"") != std::string::npos);
 	REQUIRE(body.find("s_addRequiredArchiveFile(aw, \"mesh.pdmesh\"") !=
 	        std::string::npos);
 	REQUIRE(body.find("s_addRequiredArchiveFile(aw, \"hand.pdmesh\"") !=
@@ -2796,6 +3122,7 @@ TEST_CASE("base character extractor emits canonical pdcharacter archives",
 	const std::string main = readFile("port/src/main.c");
 	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
 	const std::string packer = readFile("port/src/modpack_pdmod.c");
+	const std::string policy = readFile("port/src/asset_archive_policy.c");
 	REQUIRE(!character.empty());
 
 	REQUIRE(character.find(".pdcharacter") != std::string::npos);
@@ -2818,9 +3145,9 @@ TEST_CASE("base character extractor emits canonical pdcharacter archives",
 	REQUIRE(character.find("romextract pdcharacter") != std::string::npos);
 	REQUIRE(header.find("romExtractAllPdcharacter") != std::string::npos);
 	REQUIRE(main.find("romExtractAllPdcharacter(0)") != std::string::npos);
-	REQUIRE(scanner.find("\".pdcharacter\"") != std::string::npos);
-	REQUIRE(scanner.find("\"character.ini\"") != std::string::npos);
-	REQUIRE(packer.find("\".pdcharacter\"") != std::string::npos);
+	REQUIRE(scanner.find("assetArchiveTypeForPath(path)") != std::string::npos);
+	REQUIRE(policy.find("\".pdcharacter\"") != std::string::npos);
+	REQUIRE(policy.find("\"character.ini\"") != std::string::npos);
 	REQUIRE(packer.find("\"characters\", \"character.ini\", \"character\"") !=
 	        std::string::npos);
 
@@ -2834,7 +3161,7 @@ TEST_CASE("base non-weapon zip emitters include root editable descriptors",
 		const char *descriptor;
 	};
 	const DescriptorEmitter emitters[] = {
-		{ "port/src/romextract_pdmesh.c", "model.ini" },
+		{ "port/src/romextract_pdmesh.c", "mesh.ini" },
 		{ "port/src/romextract_pdanim.c", "animation.ini" },
 		{ "port/src/romextract_pdanim_chr.c", "animation.ini" },
 		{ "port/src/romextract_pdsfx.c", "sound.ini" },
@@ -2873,7 +3200,7 @@ TEST_CASE("base audio extractors emit accessible wav payloads",
 	REQUIRE(audio.find("AL_RAW16_WAVE") != std::string::npos);
 	REQUIRE(audio.find("modArchiveAddFileMem(aw, \"sample.wav\"") !=
 	        std::string::npos);
-	REQUIRE(audio.find("modArchiveAddFileMem(aw, \"sample.wav.sha256\"") !=
+	REQUIRE(audio.find("modArchiveAddFileMem(aw, \"_meta/sample.wav.sha256\"") !=
 	        std::string::npos);
 	REQUIRE(audio.find("s_existingArchiveHasEntry(dst_rel, \"sample.wav\")") !=
 	        std::string::npos);
@@ -2901,7 +3228,7 @@ TEST_CASE("base language extractor emits editable tsv payloads",
 	REQUIRE(lang.find("strings_file = strings.tsv") != std::string::npos);
 	REQUIRE(lang.find("modArchiveAddFileMem(aw, \"strings.tsv\"") !=
 	        std::string::npos);
-	REQUIRE(lang.find("modArchiveAddFileMem(aw, \"strings.tsv.sha256\"") !=
+	REQUIRE(lang.find("modArchiveAddFileMem(aw, \"_meta/strings.tsv.sha256\"") !=
 	        std::string::npos);
 	REQUIRE(lang.find("\\\"data\\\": \\\"strings.tsv\\\"") !=
 	        std::string::npos);
@@ -3007,7 +3334,7 @@ TEST_CASE("base weapon animation extractor emits zip-openable opcode payloads",
 	REQUIRE(anim.find("modArchiveBegin(full)") != std::string::npos);
 	REQUIRE(anim.find("modArchiveAddFileMem(aw, \"animation.ini\"") !=
 	        std::string::npos);
-	REQUIRE(anim.find("modArchiveAddFileMem(aw, \"manifest.json\"") !=
+	REQUIRE(anim.find("modArchiveAddFileMem(aw, \"_meta/manifest.json\"") !=
 	        std::string::npos);
 	REQUIRE(anim.find("modArchiveAddFileMem(aw, \"opcodes.json\"") !=
 	        std::string::npos);

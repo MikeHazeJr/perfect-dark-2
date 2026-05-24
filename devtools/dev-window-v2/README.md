@@ -31,7 +31,7 @@ powershell -ExecutionPolicy Bypass -File devtools\dev-window-v2\dev-window-v2.ps
 - **Push** -- stages pending changes, commits them with the Dev Window message, pushes the current branch, then refreshes status/version labels.
 - **Check** button -- validates clean git state and runs `devtools/git-snapshot.sh`.
 - **Copy Errors / Copy Log** -- appear after builds.
-- **GitHub / Project Folder / Open Kanban / Start Kanban Server / Stop Kanban Server / Clean Build** -- utility buttons. `Start Kanban Server` starts remote phone access for the Kanban board only and copies/shows the join link; `Stop Kanban Server` stops the tracked remote server and tunnel.
+- **GitHub / Project Folder / Open Kanban / Start Kanban Server / Stop Kanban Server / Clean Build** -- utility buttons. `Open Kanban` opens a local tokenless Kanban board even when remote phone access is unavailable or token-gated; `Start Kanban Server` starts remote phone access for the Kanban board only and copies/shows the join link; `Stop Kanban Server` stops the tracked remote server and tunnel.
 
 ### Log
 - Live scrolling build output with color-coded lines (red = error, orange = warning).

@@ -6,4 +6,4 @@ These examples use typed `*.pdxxx` asset archives as the authoring surface. Chan
 
 ## Available Sets
 
-- `typed-pdxxx-basic/` - zip-openable typed asset archives for every current `.pdxxx` family: weapon, head, body, arena, mesh/model, animation, SFX, voice, music, UI texture, font, language, and scenario. Each archive carries its descriptor plus the authored files it references internally.
+- `typed-pdxxx-basic/` - zip-openable typed asset archives for every current `.pdxxx` family: weapon, projectile, entity, material, texture, character, head, body, arena, scenario, mesh/model, animation, SFX, voice, music, UI texture, font, and language. Each archive carries its descriptor plus the authored files it references internally, with machine metadata under `_meta/`.

@@ -4,9 +4,9 @@
  *
  * Walks animation .pdanim files. The .pdanim kind is a ZIP compound
  * per Section 2.6:
- *   - weapon_animation: manifest.json carries gunscript opcodes for
+ *   - weapon_animation: _meta/manifest.json carries gunscript opcodes for
  *     loaderPoolParseAnimationJson; opcodes.json is the editable source.
- *   - character_animation: manifest.json + header.tsv / frames.tsv;
+ *   - character_animation: _meta/manifest.json + header.tsv / frames.tsv;
  *     the catalog row carries enough envelope info for consumers; no
  *     pool payload (chr animation byte streams live in romextract segments).
  *

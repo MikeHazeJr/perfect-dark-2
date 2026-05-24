@@ -97,14 +97,45 @@ TEST_CASE("release package includes typed pdxxx modding examples",
 	REQUIRE(release.find("typed .pdxxx samples") != std::string::npos);
 	REQUIRE(release.find("Copy-Item -Path $examplesSource -Destination $examplesDest -Recurse -Force") !=
 	        std::string::npos);
+	REQUIRE(release.find("Test-ReleaseTypedArchiveTree -Root $DistDir") !=
+	        std::string::npos);
 
-	REQUIRE(examples.find("typed `*.pdxxx` content files as the authoring surface") !=
+	REQUIRE(examples.find("typed `*.pdxxx` asset archives as the authoring surface") !=
 	        std::string::npos);
 	REQUIRE(examples.find("`.pdmod` is only the transport wrapper") !=
 	        std::string::npos);
-	REQUIRE(sample.find("The content units are the typed `*.pdxxx` files") !=
+	REQUIRE(sample.find("The content units are the typed `*.pdxxx` asset archives") !=
+	        std::string::npos);
+	REQUIRE(sample.find("Machine-owned manifest and provenance data lives under `_meta/`") !=
 	        std::string::npos);
 	REQUIRE(sample.find("`.pdmod` is not the authoring format") !=
+	        std::string::npos);
+}
+
+TEST_CASE("release package validates clean typed asset archive outputs",
+          "[release][layout][static][c3824]")
+{
+	const std::string release = readSourceFile("devtools/release.ps1");
+	REQUIRE(!release.empty());
+
+	REQUIRE(release.find("function Test-ReleaseTypedArchiveTree") !=
+	        std::string::npos);
+	REQUIRE(release.find("$script:TypedArchiveDescriptors") !=
+	        std::string::npos);
+	REQUIRE(release.find("\".pdprojectile\"") != std::string::npos);
+	REQUIRE(release.find("\".pdentity\"") != std::string::npos);
+	REQUIRE(release.find("\".pdmaterial\"") != std::string::npos);
+	REQUIRE(release.find("\".pdtexture\"") != std::string::npos);
+	REQUIRE(release.find("\".pdcharacter\"") != std::string::npos);
+	REQUIRE(release.find("uses deprecated .pdwpn") != std::string::npos);
+	REQUIRE(release.find("is not a zip-openable typed archive") !=
+	        std::string::npos);
+	REQUIRE(release.find("is missing root descriptor") != std::string::npos);
+	REQUIRE(release.find("uses legacy model.ini instead of mesh.ini") !=
+	        std::string::npos);
+	REQUIRE(release.find("keeps machine metadata at archive root") !=
+	        std::string::npos);
+	REQUIRE(release.find("contains forbidden authored .bin payload") !=
 	        std::string::npos);
 }
 

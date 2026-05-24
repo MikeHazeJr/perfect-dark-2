@@ -82,6 +82,7 @@ Sub-bucketed by pillar. Designs that have shipped move to `_old/designs-shipped/
 
 **Modding**
 - [designs/modding/pdmod-format.md](designs/modding/pdmod-format.md) - unified mod format spec
+- [designs/modding/asset-archive-clean-formats.md](designs/modding/asset-archive-clean-formats.md) - frozen clean archive family layouts before extractor/examples/validator rebuild
 - [designs/modding/weapon-archive-clean-format.md](designs/modding/weapon-archive-clean-format.md) - target clean `.pdweapon` authoring layout before extractor rebuild
 - [designs/modding/weapon-behavior-graph-assets.md](designs/modding/weapon-behavior-graph-assets.md) - `.pdweapon`, `.pdprojectile`, `.pdentity` graph asset schema
 - [designs/modding/weapon-graph-runtime-cutover-plan.md](designs/modding/weapon-graph-runtime-cutover-plan.md) - runtime cutover slices for weapon graph implementation

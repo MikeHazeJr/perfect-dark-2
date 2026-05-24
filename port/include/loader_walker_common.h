@@ -54,7 +54,8 @@ typedef struct {
  * Receives:
  *   manifest_json        null-terminated JSON content of the manifest
  *                         (full JSON file for plain-kind .pd<ext>; the
- *                         "manifest.json" entry's bytes for ZIP compounds)
+ *                         "_meta/manifest.json" entry's bytes for ZIP compounds;
+ *                         migration readers still accept legacy root manifest.json)
  *   manifest_json_len    bytes of JSON (excluding the appended NUL)
  *   pd_kind              value of "pd_kind" field from envelope
  *   id                   value of "id" field from envelope (catalog ID)
@@ -72,7 +73,8 @@ typedef s32 (*loader_walker_register_fn)(
 /* Scan one tier directory's per-kind subdir. For each *.<ext> file:
  *   - load full file bytes via fsFileLoad
  *   - if first 2 bytes are "PK", treat as ZIP: open via modArchiveOpen,
- *     extract "manifest.json" entry into a fresh heap buffer
+ *     extract "_meta/manifest.json" entry into a fresh heap buffer, falling
+ *     back to legacy root manifest.json during migration
  *   - if first byte is '{' (or '[' as defensive fallback), treat as plain JSON
  *   - extract envelope ("pd_kind" + "id") from manifest bytes
  *   - if envelope's pd_kind does not match desc->kind_str, log

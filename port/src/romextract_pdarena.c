@@ -6,7 +6,7 @@
  *
  *   1. data/<romid>/arenas/<id>.pdarena
  *      ZIP-openable typed asset archive. The archive root carries
- *      arena.ini for the modder-facing descriptor plus manifest.json for
+ *      arena.ini for the modder-facing descriptor plus _meta/manifest.json for
  *      the legacy universal walker until the base walker consumes the INI
  *      path directly. Playable arenas also embed their authored scenario
  *      dependency closure under scenario/ so opening one .pdarena exposes
@@ -17,7 +17,7 @@
  *   2. data/<romid>/scenarios/<scenario_id>.pdscenario
  *      ZIP compound bundling rooms.obj / visual/scene.obj /
  *      visual/scene.mtl / visual/textures/*.tga / tiles.tsv / pads.tsv /
- *      setup.tsv / mpsetup.tsv plus a manifest.json envelope. UNIFIED per
+ *      setup.tsv / mpsetup.tsv plus a _meta/manifest.json envelope. UNIFIED per
  *      Q-1 (one file per stage; modder-friendly atomic distribution).
  *      Schema: universality-pivot-schemas.md Section 2.10.
  *
@@ -403,7 +403,10 @@ static s32 s_addShaSidecar(mod_archive_writer_t *aw, const char *name,
 	hex[SHA256_HEX_SIZE] = '\0';
 	char sidecar[SHA256_HEX_SIZE + 2];
 	snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-	return modArchiveAddFileMem(aw, name, sidecar, (u32)strlen(sidecar));
+	char meta_name[FS_MAXPATH + 1];
+	snprintf(meta_name, sizeof(meta_name), "_meta/%s", name ? name : "hash.sha256");
+	meta_name[sizeof(meta_name) - 1] = '\0';
+	return modArchiveAddFileMem(aw, meta_name, sidecar, (u32)strlen(sidecar));
 }
 
 static s32 s_loadStageFileRaw(u16 filenum, u8 **out_data, u32 *out_size)
@@ -1930,13 +1933,15 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 		scenario_rel, sizeof(scenario_rel));
 
 	if (!force_rewrite && fsFileSize(relpath) > 0 && s_existingZipArchive(relpath)) {
-		if (!scenario_id[0] ||
+		if (s_existingArchiveHasEntry(relpath, "arena.ini") &&
+		    s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
+		    (!scenario_id[0] ||
 		    (s_existingArchiveHasEntry(relpath, "scenario/scenario.ini") &&
 		     s_existingArchiveHasEntry(relpath, "scenario/rooms.obj") &&
 		     s_existingArchiveHasEntry(relpath, "scenario/visual/export_version.txt") &&
 		     s_existingArchiveHasEntry(relpath, "scenario/visual/scene.obj") &&
 		     s_existingArchiveHasEntry(relpath, "scenario/visual/scene.mtl") &&
-		     s_existingArchiveHasEntry(relpath, "scenario/visual/materials.tsv"))) {
+		     s_existingArchiveHasEntry(relpath, "scenario/visual/materials.tsv")))) {
 			return 0;
 		}
 	}
@@ -2026,10 +2031,10 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "manifest.json",
+	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
 	                          manifest_buf, (u32)manifest_len) != 0) {
 		sysLoudFailf("EXTRACT.PDARENA",
-			"AddFileMem manifest.json failed for \"%s\"", full);
+			"AddFileMem _meta/manifest.json failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		return -1;
 	}
@@ -2074,6 +2079,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 
 	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
 	    s_existingArchiveHasEntry(dst_rel, "scenario.ini") &&
+	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
 	    s_existingArchiveHasEntry(dst_rel, "rooms.obj") &&
 	    s_existingArchiveHasEntry(dst_rel, "visual/export_version.txt") &&
 	    s_existingArchiveHasEntry(dst_rel, "visual/scene.obj") &&
@@ -2303,7 +2309,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		}
 	}
 
-	/* Build manifest.json */
+	/* Build _meta/manifest.json */
 	const char *kind = s_kindFromCategory(a->category);
 
 	char manifest_buf[2048];
@@ -2418,10 +2424,10 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "manifest.json",
+	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
 	                          manifest_buf, (u32)n) != 0) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
-			"AddFileMem manifest.json failed for \"%s\"", dst_full);
+			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 			&setup_tsv, &mpsetup_tsv, &bg_tsv, &scene_gltf,
 			&visual_mesh, &bg_scene);

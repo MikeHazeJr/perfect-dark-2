@@ -3149,171 +3149,171 @@
       "title": "Asset Pipeline: clean self-contained archive layouts",
       "description": "Define the clean self-contained format for every typed or otherwise referenceable asset family first, then rebuild extraction/examples/validators to match those frozen contracts. Human-authored files stay obvious at archive root or in purpose-named folders; machine/provenance/validation data moves under _meta/. Every archive remains fully self-contained: all descriptor, source-format, material, graph, nested-descriptor, and payload references must resolve inside the archive or inside an embedded typed archive. .pdmod remains transport only.",
       "pillar": "modding",
-      "column": "active",
+      "column": "done",
       "order": 1000,
       "priority": 1,
-      "notes": "Created 2026-05-21 from Mike's request to walk each asset type and implement the clean-but-functional archive shape. Reprioritized 2026-05-22 as the top Asset Pipeline migration plan. Process order is locked: first define every asset-family format, starting with c3832 for .pdweapon; then freeze the contracts; then rebuild extraction/examples/validators in the full sweep. Shared contract: root descriptor required; no .pdwpn; no authored .bin; no reference-only dependency closure; duplicate embedded payloads are allowed on disk and deduped after ingestion by catalog identity and canonical SHA-256. Preferred archive zones are authoring files first, nested typed dependencies second, and _meta/ for manifest.json, inventory.json, provenance.json, validation reports, source handles, SHA rows, and compatibility bookkeeping. During transition, scanners/loaders may accept old root manifest.json and root SHA sidecars but new emitters should write _meta/ and release validation should fail stale installed outputs that are non-zip, .pdwpn, .bin-backed, descriptor-less, or unresolved internally. c3832 is the detailed .pdweapon format card and sits immediately under this migration plan. Approved 2026-05-23 first format decisions: .pdweapon, .pdprojectile, .pdentity, .pdmaterial, and .pdtexture are recorded on this single tracker. Higher-level assets link typed dependencies by catalog ID and self-contained exports embed those dependency assets as intact typed archives under dependencies/assets; they do not absorb dependency internals into the parent schema. Approved 2026-05-23 second format batch: .pdcharacter, .pdhead, .pdbody, .pdarena, and .pdscenario are recorded on this single tracker. Character is an assembler/meta asset; body owns skeleton and first-person hands; head owns head-specific rig/expression data; arena wraps playable multiplayer selection metadata around an embedded scenario; scenario owns level content and spawn profiles for default, gametype/team, CTF/objective, and mission-phase respawn cases. Approved 2026-05-23 third format batch: .pdmesh, .pdanim, .pdsfx, .pdvoice, and .pdsong are recorded on this single tracker. Mesh owns reusable geometry and rig-facing model data; animation owns reusable timelines/events/retargeting metadata; SFX owns atomic sound sources and playback metadata; voice owns spoken-line metadata, per-locale audio variants, subtitle bindings, voice-mod override compatibility, and global-language fallback behavior while .pdlang owns text strings; song owns editable sequence/track music data and adaptive playback metadata. Continue family prompts after .pdsong.",
+      "notes": "Created 2026-05-21 from Mike's request to walk each asset type and implement the clean-but-functional archive shape. Reprioritized 2026-05-22 as the top Asset Pipeline migration plan. Process order is locked: first define every asset-family format, starting with c3832 for .pdweapon; then freeze the contracts; then rebuild extraction/examples/validators in the full sweep. Shared contract: root descriptor required; no .pdwpn; no authored .bin; no reference-only dependency closure; duplicate embedded payloads are allowed on disk and deduped after ingestion by catalog identity and canonical SHA-256. Preferred archive zones are authoring files first, nested typed dependencies second, and _meta/ for manifest.json, inventory.json, provenance.json, validation reports, source handles, SHA rows, and compatibility bookkeeping. During transition, scanners/loaders may accept old root manifest.json and root SHA sidecars but new emitters should write _meta/ and release validation should fail stale installed outputs that are non-zip, .pdwpn, .bin-backed, descriptor-less, or unresolved internally. c3832 is the detailed .pdweapon format card and sits immediately under this migration plan. Approved 2026-05-23 first format decisions: .pdweapon, .pdprojectile, .pdentity, .pdmaterial, and .pdtexture are recorded on this single tracker. Higher-level assets link typed dependencies by catalog ID and self-contained exports embed those dependency assets as intact typed archives under dependencies/assets; they do not absorb dependency internals into the parent schema. Approved 2026-05-23 second format batch: .pdcharacter, .pdhead, .pdbody, .pdarena, and .pdscenario are recorded on this single tracker. Character is an assembler/meta asset; body owns skeleton and first-person hands; head owns head-specific rig/expression data; arena wraps playable multiplayer selection metadata around an embedded scenario; scenario owns level content and spawn profiles for default, gametype/team, CTF/objective, and mission-phase respawn cases. Approved 2026-05-23 third format batch: .pdmesh, .pdanim, .pdsfx, .pdvoice, and .pdsong are recorded on this single tracker. Mesh owns reusable geometry and rig-facing model data; animation owns reusable timelines/events/retargeting metadata; SFX owns atomic sound sources and playback metadata; voice owns spoken-line metadata, per-locale audio variants, subtitle bindings, voice-mod override compatibility, and global-language fallback behavior while .pdlang owns text strings; song owns editable sequence/track music data and adaptive playback metadata. Approved 2026-05-24 final format batch: .pdui, .pdfont, and .pdlang are recorded on this tracker, and all family formats are frozen in context/designs/modding/asset-archive-clean-formats.md. UI owns reusable texture/chrome assets with readable layout/nine-slice metadata; font owns vector or decoded bitmap font sources plus metrics/kerning; lang owns UTF-8 strings.tsv text banks while voice owns spoken audio. c3824-s1 shared two-zone validation/migration is done 2026-05-24: policy/scanner/loader/emitters/package gates now enforce the migration-vs-release boundary, with _meta/manifest.json and _meta/*.sha256 as new output. Next c3824 work is c3824-s20/c3824-s18, the broad extraction/examples/validators/release-gate sweep with deeper recursive internal reference closure. c3824-s18 examples/docs/package-gate slice is done 2026-05-24: recursive validation now checks descriptor, GLTF, OBJ/MTL, JSON, and embedded typed-archive references; typed-pdxxx-basic examples now cover every frozen family with _meta/manifest.json and mesh.ini. Remaining c3824 work is c3824-s20, the stale extraction/installed-output cleanup and release-gate sweep. c3824 is wrapped 2026-05-24: final release packaging gate validates the assembled dist tree before zip creation and fails stale typed outputs that are .pdwpn, non-zip, descriptor-less, legacy .pdmesh model.ini, root-metadata, or .bin-backed. No manual retest required for this headless validator/examples/release-gate card.",
       "subtasks": [
         {
           "id": "c3824-s1",
           "title": "Shared two-zone archive validator and migration rules",
-          "status": "active",
+          "status": "done",
           "order": 1000,
-          "notes": "Implement the cross-family rule before family cleanup: root descriptor and visible authored files remain in the public zone; _meta/ is reserved for manifest, inventory, provenance, validation, source handles, hashes, and compatibility data. Update scanners to read both root legacy metadata and _meta/ during migration, update emitters to write _meta/, and add release gates for zip-openable typed files, no .pdwpn, no authored .bin, root descriptor presence, and recursive internal reference closure."
+          "notes": ""
         },
         {
           "id": "c3824-s2",
           "title": ".pdweapon layout",
           "status": "done",
           "order": 2000,
-          "notes": "Approved 2026-05-23: .pdweapon is a meta asset, not a container that owns projectile/model/material internals. Root weapon.ini owns weapon identity, slots, fire-mode refs, and catalog refs. behavior/ owns weapon behavior graphs and shared variables/settings. bindings/ maps visuals, audio, projectile, entity, and UI needs to catalog-ID refs. dependencies/manifest.json records the dependency graph, and dependencies/assets/<type>/<id>.<typed-asset> embeds referenced typed archives for self-contained export. _meta/ holds manifest, provenance, validation, and hashes. .pdmod remains transport only."
+          "notes": ""
         },
         {
           "id": "c3824-s3",
           "title": ".pdprojectile layout",
           "status": "done",
           "order": 3000,
-          "notes": "Approved 2026-05-23: .pdprojectile is a reusable projectile asset with projectile.ini at root. It owns flight, collision, damage, lifecycle, and projectile behavior data. Visual, audio, effect, and entity handoff are linked by catalog-ID refs and embedded as typed archives under dependencies/assets for self-contained exports. _meta/ holds manifest, provenance, validation, and hashes. Weapons or entities load it as a dependency when referenced."
+          "notes": ""
         },
         {
           "id": "c3824-s4",
           "title": ".pdentity layout",
           "status": "done",
           "order": 4000,
-          "notes": "Approved 2026-05-23: .pdentity is a simplified runtime wrapper with entity.ini, bindings.json, optional behavior.graph.json, and optional composition.json for aggregate or child-entity cases. It owns state, lifecycle, interaction, and world participation. Visual, audio, effect, projectile, vehicle, model, material, and texture payloads stay linked typed dependencies embedded under dependencies/assets. _meta/ holds manifest, provenance, validation, and hashes. .pdentity does not replace prop, vehicle, map, model, material, texture, or effect asset families."
+          "notes": ""
         },
         {
           "id": "c3824-s21",
           "title": ".pdmaterial layout",
           "status": "done",
-          "order": 4500,
-          "notes": "Approved 2026-05-23: .pdmaterial is a first-class reusable material asset with material.ini at root. It owns render and surface parameters, render flags, slot compatibility, texture slot bindings, variants, and compatibility tags. Texture and effect dependencies are catalog-ID refs embedded as typed assets under dependencies/assets for self-contained exports. _meta/ holds manifest, provenance, validation, and hashes."
+          "order": 5000,
+          "notes": ""
         },
         {
           "id": "c3824-s22",
           "title": ".pdtexture layout",
           "status": "done",
-          "order": 4600,
-          "notes": "Approved 2026-05-23: .pdtexture is the atomic reusable texture asset with texture.ini at root. It includes editable source image data, alpha, palette, mip, import settings, usage tags, and _meta/. Authored runtime .bin is rejected; generated GPU or runtime cache data is rebuildable metadata/private cache, not the authoring payload. Texture packs or skins reference multiple .pdtexture assets instead of making one texture archive own unrelated images."
+          "order": 6000,
+          "notes": ""
         },
         {
           "id": "c3824-s5",
           "title": ".pdcharacter layout",
           "status": "done",
-          "order": 5000,
-          "notes": "Approved 2026-05-23: .pdcharacter is a top-level assembler/meta asset with character.ini at root. It owns character identity, display name, roster/faction/unlock tags, default body/head/skin/voice/animation/UI bindings, portraits, and gameplay metadata. Skeleton, body proportions, sockets, and first-person hands belong to the referenced .pdbody; head rig/socket/expression data belongs to .pdhead; skins override material slots without replacing the rig. Self-contained exports embed referenced .pdbody, .pdhead, .pdskin when present, voice, animation, UI/portrait, material, and texture assets as intact typed dependencies under dependencies/assets. _meta/ holds manifest, provenance, validation, and hashes."
+          "order": 7000,
+          "notes": ""
         },
         {
           "id": "c3824-s6",
           "title": ".pdhead layout",
           "status": "done",
-          "order": 6000,
-          "notes": "Approved 2026-05-23: .pdhead is a focused reusable head asset with head.ini at root. It owns head identity, head-to-body socket/attachment metadata, expression metadata, material slots, and bindings needed for head presentation. Mesh, material, texture, and animation payloads remain typed dependencies embedded under dependencies/assets for self-contained exports. _meta/ holds manifest, provenance, validation, and hashes. No loose sidecar dependency is required to edit, clone, share, or load a head."
+          "order": 8000,
+          "notes": ""
         },
         {
           "id": "c3824-s7",
           "title": ".pdbody layout",
           "status": "done",
-          "order": 7000,
-          "notes": "Approved 2026-05-23: .pdbody is a focused reusable body asset with body.ini at root. It owns the main skeleton/rig contract, body proportions, attachment sockets, first-person hand bindings, material slots, and gameplay tags. Mesh, material, texture, animation, and hand presentation payloads remain typed dependencies embedded under dependencies/assets for self-contained exports. _meta/ holds manifest, provenance, validation, and hashes. Body/hand roles stay explicit so dedupe does not collapse distinct archive responsibilities."
+          "order": 9000,
+          "notes": ""
         },
         {
           "id": "c3824-s8",
           "title": ".pdarena layout",
           "status": "done",
-          "order": 8000,
-          "notes": "Approved 2026-05-23: .pdarena is the multiplayer-facing arena/map-selection wrapper with arena.ini at root. It owns arena identity, preview/thumbnail, match defaults, spawn playlist metadata, and the scenario/map reference used by room and Combat Simulator selection. The map payload remains a typed .pdscenario dependency embedded under dependencies/assets for self-contained exports. _meta/ holds manifest, provenance, validation, and hashes. Arena does not replace Scenario, Gamemode, Mission, or UI asset contracts."
+          "order": 10000,
+          "notes": ""
         },
         {
           "id": "c3824-s9",
           "title": ".pdscenario layout",
           "status": "done",
-          "order": 9000,
-          "notes": "Approved 2026-05-23: .pdscenario is the actual level/map content asset with scenario.ini at root. It owns geometry, rooms, portals, pads, setup/object placements, collision/navigation, lighting/visual scene data, and typed dependencies for textures, materials, props, entities, audio, and effects. It also owns named spawn profiles: default spawns, gametype/team overrides, CTF/objective spawn sets, and mission-phase respawn areas selected by gamemode or mission metadata at runtime. _meta/ holds manifest, provenance, validation, hashes, and extraction source data."
+          "order": 11000,
+          "notes": ""
         },
         {
           "id": "c3824-s10",
           "title": ".pdmesh layout",
           "status": "done",
-          "order": 10000,
-          "notes": "Approved 2026-05-23: .pdmesh is a reusable mesh/model asset with mesh.ini at root. It owns geometry, hierarchy, skinning/rig binding data, sockets, LODs, optional collision proxy, and import/export settings. Material and texture payloads remain typed dependencies embedded under dependencies/assets for self-contained exports. _meta/ holds manifest, provenance, validation, source handles, format notes, and hashes."
+          "order": 12000,
+          "notes": ""
         },
         {
           "id": "c3824-s11",
           "title": ".pdanim layout",
           "status": "done",
-          "order": 11000,
-          "notes": "Approved 2026-05-23: .pdanim is a reusable animation asset with animation.ini at root. It owns timeline/channel data, events/notifies, target rig or weapon binding metadata, retargeting metadata, and optional legacy opcode listings. Body, weapon, mesh, and audio dependencies remain catalog-ID refs and are embedded as typed archives under dependencies/assets where required for self-contained exports. _meta/ holds manifest, target rig/model provenance, validation, source handles, and hashes."
+          "order": 13000,
+          "notes": ""
         },
         {
           "id": "c3824-s12",
           "title": ".pdsfx layout",
           "status": "done",
-          "order": 12000,
-          "notes": "Approved 2026-05-23: .pdsfx is an atomic reusable sound-effect asset with sound.ini at root. It owns editable source audio, one-shot or looping SFX metadata, loop points, attenuation and mixer tags, and import settings. Authored codec/sample .bin payloads are rejected; generated codec/runtime cache remains private and rebuildable. _meta/ holds manifest, source_format, codec provenance, validation, and hashes."
+          "order": 14000,
+          "notes": ""
         },
         {
           "id": "c3824-s13",
           "title": ".pdvoice layout",
           "status": "done",
-          "order": 13000,
-          "notes": "Approved 2026-05-23: .pdvoice is a voice-line asset with voice.ini at root. It owns speaker, context, category, subtitle binding, per-locale audio variant, take, priority/playback, and voice-mod override metadata. .pdlang remains the text-string owner; .pdvoice binds to subtitle/localization keys, follows global language selection, and supports locale fallback behavior for self-contained exports and overrides. Typed dependencies are embedded under dependencies/assets where needed. Generated runtime cache remains private and rebuildable. _meta/ holds manifest, voice bank/source provenance, source_format, validation, and hashes."
+          "order": 15000,
+          "notes": ""
         },
         {
           "id": "c3824-s14",
           "title": ".pdsong layout",
           "status": "done",
-          "order": 14000,
-          "notes": "Approved 2026-05-23: .pdsong is a reusable music asset with music.ini at root. It owns sequence or track source files, loop points, sections/cues, tempo and transition tags, optional adaptive layers, and typed dependencies. Visible authored sources may include sequence.mid, sequence.tsv, track.wav, track.ogg, or track.mp3. Authored data.bin fallback is rejected; generated runtime cache remains private and rebuildable. _meta/ holds manifest, RareZip/source provenance, validation, compiler notes, and hashes."
+          "order": 16000,
+          "notes": ""
         },
         {
           "id": "c3824-s15",
           "title": ".pdui layout",
-          "status": "backlog",
-          "order": 15000,
-          "notes": "Target layout: ui.ini at root; texture.png or texture.tga visible at root or textures/. Optional nine-slice/layout metadata stays in readable INI/TSV form. _meta/ holds manifest, source provenance, validation, GL upload guard notes, and hashes."
+          "status": "done",
+          "order": 17000,
+          "notes": ""
         },
         {
           "id": "c3824-s16",
           "title": ".pdfont layout",
-          "status": "backlog",
-          "order": 16000,
-          "notes": "Target layout: font.ini at root; authored font.ttf/font.otf when present, or base decoded glyphs.pgm, metrics.tsv, and kerning.tsv visible for ROM bitmap fonts. _meta/ holds manifest, source/provenance, validation, charset/range notes, and hashes."
+          "status": "done",
+          "order": 18000,
+          "notes": ""
         },
         {
           "id": "c3824-s17",
           "title": ".pdlang layout",
-          "status": "backlog",
-          "order": 17000,
-          "notes": "Target layout: lang.ini and strings.tsv at root. _meta/ holds manifest, source language bank provenance, validation, locale/source-handle notes, and hashes. Keep strings editable as UTF-8 TSV and reject raw data.bin authored payloads."
+          "status": "done",
+          "order": 19000,
+          "notes": ""
         },
         {
           "id": "c3824-s19",
           "title": "Freeze all asset-family formats before implementation sweep",
-          "status": "backlog",
-          "order": 18000,
-          "notes": "Do not start the broad extraction rebuild until every typed or otherwise referenceable asset family has an explicit target layout recorded and reviewed: .pdweapon, .pdprojectile, .pdentity, .pdmaterial, .pdtexture, .pdcharacter, .pdhead, .pdbody, .pdarena, .pdscenario, .pdmesh, .pdanim, .pdsfx, .pdvoice, .pdsong, .pdui, .pdfont, and .pdlang. The freeze should call out canonical folders, required descriptors, dependency/fallback rules, _meta contents, and stale old-system references to remove."
+          "status": "done",
+          "order": 20000,
+          "notes": ""
         },
         {
           "id": "c3824-s20",
           "title": "Rebuild extraction after format freeze",
-          "status": "backlog",
-          "order": 19000,
-          "notes": "Only after c3824-s19 freezes the family formats, update base extractors, Modding Hub save/export paths, example archives, validators, and release gates to emit the clean layouts consistently. This is the full sweep, not the place to keep inventing individual asset contracts."
+          "status": "done",
+          "order": 21000,
+          "notes": "Done 2026-05-24: release packaging now validates assembled dist typed archives before zip creation and fails stale .pdwpn, non-zip, descriptor-less, legacy .pdmesh model.ini, root-metadata, or .bin-backed outputs."
         },
         {
           "id": "c3824-s18",
           "title": "Examples, docs, and release/package gate",
-          "status": "backlog",
-          "order": 20000,
-          "notes": "After family layouts land, refresh examples/modding/typed-pdxxx-basic to show the clean two-zone shape for all current families including .pdcharacter, .pdprojectile, and .pdentity. Add or update docs/UI copy so modders see authoring files by default and internal metadata only by choice. Add release/package validation that fails stale installed data with root manifest clutter, missing _meta migration, unresolved refs, non-zip typed files, .pdwpn, authored .bin, or missing root descriptors."
+          "status": "done",
+          "order": 22000,
+          "notes": "Done 2026-05-24: examples/docs/package-gate slice regenerated typed-pdxxx-basic for every frozen family, added _meta/manifest.json coverage, switched .pdmesh sample to mesh.ini, and pinned recursive descriptor/source/nested-archive reference validation."
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-21T15:45:19-04:00",
       "pending_completion": null,
       "created": "2026-05-21T15:45:19-04:00",
-      "updated": "2026-05-23T17:50:19.2515604-04:00"
+      "updated": "2026-05-24T17:56:19.697Z"
     },
     {
       "id": "c3832",
@@ -3979,12 +3979,12 @@
     {
       "id": "c3836",
       "title": "Kanban: remote phone board and card sessions",
-      "description": "Add one-click Dev Window paths that start and stop the Kanban board for phone access from a different network, show/copy a join link, keep routing scoped to the Kanban localhost service only, and make the phone UI list-first with full-screen card editing plus card-scoped Codex session controls.",
+      "description": "Add one-click Dev Window paths that start and stop the Kanban board for phone access from a different network, show/copy a join link, keep routing scoped to the Kanban localhost service only, and make the phone UI list-first with full-screen card editing plus card-scoped and ad-hoc Codex session controls.",
       "pillar": "tooling",
       "column": "active",
       "order": 4500,
       "priority": 2,
-      "notes": "Remote mode uses KANBAN_REMOTE_TOKEN plus a localhost-only cloudflared tunnel to the chosen 127.0.0.1 Kanban port. It prefers 7531 and falls forward if the local board is already open. It does not enable WARP, set a system proxy, configure an exit node, or change Windows routes.",
+      "notes": "Remote mode uses KANBAN_REMOTE_TOKEN plus a localhost-only cloudflared tunnel to the chosen 127.0.0.1 Kanban port. It keeps normal local 7531 free, prefers remote port 7533, and falls forward if needed. Local Open Kanban verifies tokenless /api/state before reuse so it still works without Cloudflare or a token. Sessions can be opened full-screen from phone, render a clean response-only transcript, accept follow-up messages through codex exec resume, queue multiple prompts while a turn is running, steer a selected queued prompt to the front, answer plan-style choice questions with tap buttons, and can be started ad-hoc without a card. Remote mode does not enable WARP, set a system proxy, configure an exit node, or change Windows routes.",
       "flag": "watch",
       "flagged_at": "2026-05-24T00:34:31Z",
       "subtasks": [
@@ -4036,12 +4036,47 @@
           "status": "done",
           "order": 6000,
           "notes": "Phone widths hide the desktop tabs/filter/sidebar, show a card list plus Filters modal, open tapped cards full-screen, expose Save/Delete/Move Up/Move Down, and add Start Session with per-card session output. Session prompts include the target card, other Active cards, and other running card sessions; logs stay under .claude/scratch/kanban-sessions."
+        },
+        {
+          "id": "c3836-s8",
+          "title": "Fix Start button completion and preserve tokenless local Open Kanban",
+          "status": "done",
+          "order": 6500,
+          "notes": "Start Kanban Server now polls remote-url.txt from a detached helper and resets/copies/shows the link as soon as it exists. Remote startup keeps local 7531 free, and local Open Kanban skips token-gated listeners before starting/opening a tokenless board."
+        },
+        {
+          "id": "c3836-s9",
+          "title": "Add full-screen interactive session view and ad-hoc session launch",
+          "status": "done",
+          "order": 7000,
+          "notes": "Phone UI has a Sessions entry point, full-screen session list/detail view, formatted Codex event timeline, follow-up composer backed by codex exec resume, Open Fullscreen actions on card sessions, and ad-hoc session start for untracked/external tasks."
+        },
+        {
+          "id": "c3836-s10",
+          "title": "Render plan-mode choice questions in mobile sessions",
+          "status": "done",
+          "order": 7100,
+          "notes": "Session JSONL question/tool-call events are normalized into full-screen question cards with option buttons. Tapping an answer appends a mobile.choice_answer event and resumes the same Codex thread with the selected answer."
+        },
+        {
+          "id": "c3836-s11",
+          "title": "Queue and steer mobile session prompts",
+          "status": "done",
+          "order": 7200,
+          "notes": "Follow-up prompts and choice answers can be submitted while a Codex turn is running. They persist in queued_messages, render in the fullscreen session queue panel, drain one turn at a time after the active process exits, and a selected queued prompt can be steered to the front or launched immediately when idle."
+        },
+        {
+          "id": "c3836-s12",
+          "title": "Make mobile session transcript response-only",
+          "status": "done",
+          "order": 7300,
+          "notes": "The full-screen session timeline now hides thread markers, command execution logs, raw/stdout/stderr tails, user queue bookkeeping, and other Codex JSONL noise. It shows Codex response text plus actionable choice-question cards; queued prompts stay in the separate queue panel."
         }
       ],
       "pending_completion": {
-        "marked_at": "2026-05-24T04:55:00Z",
+        "marked_at": "2026-05-24T16:22:03Z",
         "marked_by": "Codex",
-        "summary": "One-click remote Kanban start/stop controls plus phone-first card list/detail/filter UI and card-scoped Codex session launch/status controls are implemented. Awaiting Mike phone retest through the Cloudflare link.",
+        "summary": "One-click remote Kanban start/stop controls plus phone-first card list/detail/filter UI and card-scoped/ad-hoc Codex session controls are implemented. Start now completes when the URL file appears, local Open Kanban remains tokenless even when remote tunnel mode is unavailable or token-gated, and sessions can be opened full-screen with a response-only transcript, follow-up messaging, queued prompts, selected queued-prompt steering, and tap-to-answer plan-mode choice questions from phone. Awaiting Mike phone retest through the Cloudflare link.",
         "evidence_refs": [
           "python -m py_compile tools/kanban/server.py",
           "powershell -File devtools/start-kanban-remote.ps1 -Help",
@@ -4050,13 +4085,25 @@
           "local no-token smoke: 200 when KANBAN_REMOTE_TOKEN is unset",
           "real quick-tunnel smoke: Cloudflare returned token redirect then 200 for Kanban HTML",
           "Dev Window parser check passed after adding Stop Kanban Server",
+          "Dev Window parser check passed after fixing remote start completion/local tokenless selection",
+          "remote starter help/parser checks passed after moving remote mode off local port 7531",
           "index.html JavaScript parse smoke passed",
+          "choice-question extraction smoke passed for direct request_user_input and function-call argument shapes",
+          "choice-answer prompt formatting smoke passed",
+          "queued prompt backend smoke passed: enqueue while running, steer reorder, and idle steer launch",
+          "queue UI token smoke passed",
+          "local Kanban queue UI/API smoke passed",
+          "response-only transcript static smoke passed",
+          "local Kanban response-only UI/API smoke passed",
+          "session fullscreen UI static smoke passed",
+          "GET /api/sessions and GET /api/sessions/<id> smoke passed",
+          "ad-hoc start/message no-Codex unit smokes passed",
           "local mobile DOM smoke found the phone Kanban controls at 390px width",
           "GET /api/cards/c3836/sessions returned ok"
         ]
       },
       "created": "2026-05-24T00:34:31Z",
-      "updated": "2026-05-24T04:55:00Z"
+      "updated": "2026-05-24T16:22:03Z"
     }
   ],
   "x_special_notes": {

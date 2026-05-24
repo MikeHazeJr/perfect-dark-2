@@ -103,7 +103,7 @@ static s32 s_existingArchiveHasAnimPayloads(const char *relpath)
 	mod_archive_t *arc = modArchiveOpen(full);
 	if (!arc) return 0;
 	s32 ok = modArchiveFindEntry(arc, "animation.ini") >= 0
-	      && modArchiveFindEntry(arc, "manifest.json") >= 0
+	      && modArchiveFindEntry(arc, "_meta/manifest.json") >= 0
 	      && modArchiveFindEntry(arc, "header.tsv") >= 0
 	      && modArchiveFindEntry(arc, "frames.tsv") >= 0;
 	modArchiveClose(arc);
@@ -214,7 +214,10 @@ static s32 s_addShaSidecar(mod_archive_writer_t *aw, const char *name,
 	hex[SHA256_HEX_SIZE] = '\0';
 	char sidecar[SHA256_HEX_SIZE + 2];
 	snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-	return modArchiveAddFileMem(aw, name, sidecar, (u32)strlen(sidecar));
+	char meta_name[FS_MAXPATH + 1];
+	snprintf(meta_name, sizeof(meta_name), "_meta/%s", name ? name : "hash.sha256");
+	meta_name[sizeof(meta_name) - 1] = '\0';
+	return modArchiveAddFileMem(aw, meta_name, sidecar, (u32)strlen(sidecar));
 }
 
 /* Emit one .pdanim ZIP compound. Returns 1 written, 0 skipped, -1 failed. */
@@ -298,7 +301,7 @@ static s32 s_emitOneChrAnim(s32 anim_idx,
 		return -1;
 	}
 
-	/* Build manifest.json text in memory. Schema fields per Section 2.6
+	/* Build _meta/manifest.json text in memory. Schema fields per Section 2.6
 	 * + provenance hints (source_offset, source_index) for the parity
 	 * check and Step 4 round-trip. */
 	const char *sym = loaderEnumNameForAnimEnum(anim_idx);
@@ -404,10 +407,10 @@ static s32 s_emitOneChrAnim(s32 anim_idx,
 		s_textbufFree(&frames_tsv);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "manifest.json",
+	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
 	                          manifest_buf, (u32)manifest_len) != 0) {
 		sysLoudFailf("EXTRACT.PDANIM_CHR",
-			"AddFileMem manifest.json failed for \"%s\"", dst_full);
+			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_textbufFree(&header_tsv);
 		s_textbufFree(&frames_tsv);

@@ -6,6 +6,11 @@ This folder is a permanent modder-facing sample set. The content units are the t
 - `bodies/tri_body.pdbody`
 - `arenas/tri_arena.pdarena`
 - `meshes/tri_mesh.pdmesh`
+- `materials/tri_material.pdmaterial`
+- `textures/tri_texture.pdtexture`
+- `characters/tri_character.pdcharacter`
+- `entities/tri_entity.pdentity`
+- `projectiles/tri_projectile.pdprojectile`
 - `weapons/tri_weapon.pdweapon`
 - `animations/weapon_idle.pdanim`
 - `animations/character_skeletal.pdanim`
@@ -17,7 +22,7 @@ This folder is a permanent modder-facing sample set. The content units are the t
 - `lang/tri_lang.pdlang`
 - `scenarios/tri_scenario.pdscenario`
 
-Change any `.pdxxx` extension to `.zip` to inspect the archive. The GLTF, OBJ, and INI files inside each archive are the authored data. The game may generate private readable cache under `$S/mod-cache`, but that cache is internal, deleteable, and not part of this example.
+Change any `.pdxxx` extension to `.zip` to inspect the archive. The GLTF, OBJ, INI, JSON, TSV, and source media files inside each archive are the authored data. Machine-owned manifest and provenance data lives under `_meta/`. The game may generate private readable cache under `$S/mod-cache`, but that cache is internal, deleteable, and not part of this example.
 
 The contract is strict: each asset archive should carry every authored dependency it needs internally, including model textures/UV material references, rig or mesh linkage, animation targets, weapon model/animation/audio relationships, and any other files referenced by descriptors or source formats.
 

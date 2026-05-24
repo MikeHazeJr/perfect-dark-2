@@ -3,7 +3,7 @@
  * (2026-05-03).
  *
  * Walks data/<romid>/weapons/*.pdweapon. Each archive carries
- * manifest.json with weapon_id at top level. Step 5: also feeds the
+ * _meta/manifest.json with weapon_id at top level. Step 5: also feeds the
  * heavyweight loader_pool payload (struct weapon, weaponfunc_*, ammos,
  * aim/noise/recoil settings, gunviscmds, partvis, bot_pref) by handing
  * the manifest bytes to loaderPoolParseWeaponJson.
