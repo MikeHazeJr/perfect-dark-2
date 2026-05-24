@@ -17,6 +17,8 @@
 - Added Codex daily automations for the morning maintenance flow and architecture review.
 - Added Bug Tracker delete support in the Kanban browser.
 - Added a reusable PD2 large-change sweep skill for auditing broad changes against runtime code, tests, context, Kanban, and release notes.
+- Added Dev Window v2 `Start Kanban Server` and `Stop Kanban Server` buttons for remote Kanban phone access.
+- Added a phone-first Kanban layout with filter modal, full-screen card editing, mobile card ordering controls, and card-scoped Codex session launch/status output.
 - Added c3813 online lifecycle guards for listen-host/client smoke coverage and reconnect/drop-in/drop-out state restoration.
 - Added named input profile slots and per-controller profile assignment, including custom/raw controller devices.
 - Added Blender-ready map visual exports inside scenario/arena archives, including OBJ/MTL scenes, decoded TGA wall/floor textures, and material TSV ledgers.
@@ -30,6 +32,8 @@
 - The release script mirrors Codex memory before release commits and warns if the notes file looks stale.
 - Memory Review now parses live memory task groups and stores review markup separately from the source memory file.
 - Active Kanban now uses a numbered two-pane priority layout with manual reorder, docked card actions, and saved AI special notes.
+- Kanban remote mode now uses token-gated access over a localhost-only Cloudflare tunnel, without changing system routing or proxy settings.
+- Kanban card sessions now launch with the selected card plus context about other active cards and running card sessions.
 - Weapon behavior graphs now feed more runtime weapon actions, including recoil/recovery, throw/special handling, projectile spawn values, auto-aim, and sight behavior behind the debug graph-runtime toggle.
 - Catalog-generated base asset IDs and typed archive references now use readable names instead of legacy numeric handles.
 - Replaced the old Settings Controls surface with a single actionmap-backed Input binding table.

@@ -1,5 +1,41 @@
 # Session Log (Active)
 
+## Session (`kanbanremote`) - 2026-05-24 - One-click remote Kanban link
+
+Mike clarified the desired flow: a one-click `Start Kanban Server` button that produces a join link usable from a phone on a different network, without routing other PC traffic through the service.
+
+### Implemented
+
+- Added remote-token mode to `tools/kanban/server.py`: `KANBAN_REMOTE_TOKEN` gates GET/POST/PATCH requests through query token, header token, bearer token, or an HttpOnly cookie.
+- Kept local Dev Window `Open Kanban` unchanged when `KANBAN_REMOTE_TOKEN` is not set.
+- Added `devtools/start-kanban-remote.ps1` to start the Kanban server on `127.0.0.1` with preferred port `7531` and next-free-port fallback, disable idle shutdown for the remote session, start a Cloudflare localhost tunnel, track server/tunnel pids, and write the phone URL to `.claude\scratch\kanban-remote\remote-url.txt`.
+- Added Dev Window v2 `Start Kanban Server` beside `Open Kanban`; it runs the remote starter in the background, logs output, copies the join link to the clipboard, and shows the link in a dialog.
+- Fixed the Dev Window button hang after Mike's first real click: the button now polls the generated `remote-url.txt` file and resets/copies/shows the link as soon as the tunnel writes it, instead of depending only on helper-process completion.
+- Added Dev Window v2 `Stop Kanban Server` beside the start button; it calls the tracked remote starter `-Stop` path and resets any in-progress start button state before shutting down the remote server and Cloudflare tunnel.
+- Added phone-specific Kanban layout: mobile widths hide desktop tabs/filter/sidebar, show only the card list plus a `Filters` modal, and open tapped cards as full-screen editors.
+- Added phone card controls for save/delete, Move Up/Move Down ordering, new-card creation from the Filters modal, and card-scoped `Start Session`.
+- Added token-gated card-session endpoints to list/start headless Codex sessions per card. Session prompts include the target card, other Active cards, and other running card sessions; logs and final responses are stored under `.claude/scratch/kanban-sessions/`.
+- Documented the app-scoped tunnel contract in Kanban and Dev Window docs: no WARP, no system proxy, no exit node, and no Windows route-table changes.
+- Added Kanban card `c3836` as active/pending-completion for Mike's real phone-network retest.
+
+### Verification
+
+- `python -m py_compile tools\kanban\server.py` passed.
+- `devtools\start-kanban-remote.ps1 -Help` passed.
+- PowerShell parser checks passed for `devtools\start-kanban-remote.ps1` and `devtools\dev-window-v2\dev-window-v2.ps1`.
+- Local auth smoke passed: `/api/state` returned 401 without a token, 200 with `X-PD2-Kanban-Token`, and the `?token=` landing URL set a cookie that allowed later API requests.
+- Local no-token smoke passed: `/api/state` still returned 200 when `KANBAN_REMOTE_TOKEN` was unset.
+- Real quick-tunnel smoke passed after Mike's click: Cloudflare returned the token landing redirect and then HTTP 200 for the Kanban HTML page.
+- `index.html` JavaScript parse smoke passed.
+- Local mobile DOM smoke at 390px width found the phone Kanban controls. Chrome/Edge headless screenshot capture was blocked by the local GPU/headless startup path, so this did not produce a visual screenshot.
+- `GET /api/cards/c3836/sessions` returned `ok` without launching a Codex session.
+
+### Next
+
+- Mike manual retest: ensure `cloudflared.exe` is available, click Dev Window v2 `Start Kanban Server`, open the copied link from a phone on a different network, confirm the list-first phone layout, open/edit a card, and use `Start Session` only when ready to launch a real Codex run for that card.
+
+---
+
 ## Session (`tinyvoice2`) - 2026-05-23 - Tiny Mode enemy voice boost
 
 Mike asked for the tiny enemies' voices to be higher pitched and slightly louder.

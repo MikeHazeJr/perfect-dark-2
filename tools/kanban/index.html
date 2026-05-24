@@ -36,6 +36,10 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .filter-label{font-size:0.68rem;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-right:1px;white-space:nowrap;font-weight:800}
 .board-filter-select{min-width:230px;max-width:320px;padding:6px 9px;border:1px solid #334155;background:#0f172a;color:#cbd5e1;border-radius:6px;font-size:0.76rem;font-family:inherit}
 .board-filter-select:focus{outline:none;border-color:#38bdf8;box-shadow:0 0 0 2px rgba(56,189,248,0.14)}
+#mobile-board-bar{display:none;background:#101a2d;border-bottom:1px solid #1e293b;padding:9px 12px;align-items:center;gap:10px;flex-shrink:0}
+.mobile-board-copy{min-width:0;flex:1}
+#mobile-board-title{display:block;font-size:0.78rem;font-weight:900;color:#f8fafc;letter-spacing:0.05em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mobile-board-count{display:block;font-size:0.68rem;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
 
 /* Board */
 #board{display:flex;flex:1;min-height:0;overflow:hidden;background:#0f172a}
@@ -83,6 +87,18 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .kb-st-del{width:24px;height:24px;border-radius:5px;border:1px solid #fecaca;background:white;color:#ef4444;cursor:pointer;font-size:0.75rem;font-family:inherit}
 .kb-st-del:hover{background:#fef2f2}
 .kb-detail-notes{height:54px;min-height:54px;max-height:54px;resize:none;overflow:auto;width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:7px;background:white;color:#1e293b;font-size:0.8rem;line-height:1.35;font-family:inherit}
+.kb-mobile-detail-bar{display:none;align-items:center;gap:8px;background:#0f172a;color:#e2e8f0;border-bottom:1px solid #1e293b;padding:9px 10px;flex-shrink:0}
+.kb-mobile-detail-id{font-family:ui-monospace,Consolas,monospace;font-size:0.72rem;color:#94a3b8;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kb-mobile-rank-actions{display:none;gap:8px;align-items:center;flex-wrap:wrap}
+.kb-session-box{border:1px solid #cbd5e1;border-radius:7px;background:white;padding:10px;display:flex;flex-direction:column;gap:8px}
+.kb-session-head{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.kb-session-title{font-size:0.66rem;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:0.05em}
+.kb-session-state{font-size:0.72rem;color:#64748b;line-height:1.35}
+.kb-session-row{border:1px solid #e2e8f0;border-radius:6px;padding:8px;background:#f8fafc}
+.kb-session-row.running{border-color:#38bdf8;background:#eff6ff}
+.kb-session-row.failed{border-color:#fca5a5;background:#fef2f2}
+.kb-session-meta{font-size:0.7rem;color:#475569;display:flex;gap:7px;flex-wrap:wrap;margin-bottom:5px}
+.kb-session-output{white-space:pre-wrap;max-height:220px;overflow:auto;background:#0f172a;color:#e2e8f0;border-radius:5px;padding:8px;font-family:ui-monospace,Consolas,monospace;font-size:0.7rem;line-height:1.45;margin-top:6px}
 .kb-detail-actions{flex-shrink:0;display:flex;align-items:center;gap:8px;padding:11px 18px;background:white;border-top:1px solid #e2e8f0;box-shadow:0 -6px 18px rgba(15,23,42,0.06)}
 .kb-detail-actions .modal-spacer{flex:1}
 .kb-empty-detail{height:100%;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:0.88rem;text-align:center;padding:30px}
@@ -93,6 +109,41 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
   .kb-detail-meta{grid-template-columns:1fr}
   .kb-detail-head{grid-template-columns:1fr}
   .kb-detail-id{padding-top:0}
+}
+@media (max-width:760px){
+  body{height:100dvh}
+  #header,#tabs,#parked-sidebar,#ai-notes-dock,#ready-banner,#oq-banner,#pc-banner,#oq-banner-min,#pc-banner-min{display:none !important}
+  #mobile-board-bar{display:flex}
+  #filters{display:none}
+  #main-area{display:block}
+  .panel{padding:0}
+  .panel#panel-kanban.active{height:100%;min-height:0}
+  #board{height:100%;min-height:0}
+  #board.board-empty{padding:18px 12px}
+  .kb-layout{display:block;height:100%;min-height:0}
+  .kb-list-pane{height:100%;max-height:none;border-right:none;border-bottom:none}
+  .kb-list-head{display:none}
+  .kb-list{padding:8px 10px 14px}
+  .kb-list-item{min-height:58px;grid-template-columns:32px 1fr;margin-bottom:8px;padding:9px 10px}
+  .kb-rank{width:26px;height:26px}
+  .kb-list-item.selected{box-shadow:none}
+  .kb-detail-pane{display:none;position:fixed;inset:0;z-index:500;background:#f8fafc;height:100dvh;max-height:100dvh}
+  body.mobile-card-open .kb-detail-pane{display:flex}
+  .kb-mobile-detail-bar{display:flex}
+  .kb-detail-scroll{padding:12px 12px 90px;gap:11px}
+  .kb-detail-head{grid-template-columns:1fr;gap:6px}
+  .kb-detail-id{display:none}
+  .kb-detail-meta{grid-template-columns:1fr}
+  .kb-mobile-rank-actions{display:flex}
+  .kb-detail-textarea{height:145px;min-height:145px;max-height:145px}
+  .kb-subtask-box{height:230px;min-height:230px}
+  .kb-detail-notes{height:72px;min-height:72px;max-height:72px}
+  .kb-detail-actions{position:fixed;left:0;right:0;bottom:0;z-index:510;padding:10px 12px;gap:7px;box-shadow:0 -6px 18px rgba(15,23,42,0.14);overflow-x:auto}
+  .kb-detail-actions .btn-sm{white-space:nowrap}
+  .kb-session-head{align-items:flex-start}
+  #modal-overlay{padding:0;align-items:stretch;justify-content:stretch}
+  #modal{border-radius:0;max-width:none;max-height:none;height:100dvh;padding:18px 16px}
+  .form-three-col{grid-template-columns:1fr}
 }
 
 /* Card */
@@ -169,6 +220,17 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .form-three-col .form-row{margin:0}
 .modal-actions{display:flex;gap:8px;margin-top:18px;align-items:center}
 .modal-spacer{flex:1}
+#mobile-filter-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);display:none;align-items:flex-end;justify-content:center;z-index:520;padding:12px}
+#mobile-filter-modal-overlay.show{display:flex}
+#mobile-filter-modal{background:white;color:#1e293b;border-radius:12px;width:100%;max-width:520px;max-height:calc(100dvh - 24px);overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,0.4);padding:16px}
+#mobile-filter-modal h3{font-size:0.9rem;font-weight:900;margin-bottom:12px}
+.mobile-filter-section{margin-bottom:14px}
+.mobile-filter-section-title{font-size:0.66rem;font-weight:900;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:7px}
+.mobile-filter-options{display:flex;flex-direction:column;gap:7px}
+.mobile-filter-option{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 10px;border:1px solid #cbd5e1;border-radius:7px;background:#f8fafc;color:#1e293b;font-family:inherit;font-size:0.84rem;font-weight:700;cursor:pointer;text-align:left}
+.mobile-filter-option.active{border-color:#38bdf8;background:#e0f2fe;color:#0c4a6e}
+.mobile-filter-option-count{font-size:0.72rem;color:#64748b;font-weight:800}
+.mobile-filter-actions{display:flex;gap:8px;align-items:center;margin-top:16px}
 
 /* Modal subtask section */
 .modal-section-head{display:flex;align-items:center;justify-content:space-between;margin:16px 0 8px}
@@ -622,6 +684,13 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 
 <div id="main-area">
   <div id="panel-kanban" class="panel active">
+    <div id="mobile-board-bar">
+      <div class="mobile-board-copy">
+        <span id="mobile-board-title">Cards</span>
+        <span id="mobile-board-count"></span>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="openMobileFilters()">Filters</button>
+    </div>
     <div id="filters"></div>
     <div id="board"></div>
   </div>
@@ -960,6 +1029,19 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
   </div>
 </div>
 
+<!-- Mobile filter modal -->
+<div id="mobile-filter-modal-overlay" onclick="onMobileFilterOverlayClick(event)">
+  <div id="mobile-filter-modal">
+    <h3>Filters</h3>
+    <div id="mobile-filter-modal-body"></div>
+    <div class="mobile-filter-actions">
+      <button class="btn btn-primary btn-sm" onclick="openMobileNewCard()">New Card</button>
+      <span class="modal-spacer"></span>
+      <button class="btn btn-ghost btn-sm" onclick="closeMobileFilters()">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Settings panel -->
 <div id="settings-panel">
   <div class="settings-head">
@@ -1037,6 +1119,9 @@ let editingCardId = null;
 let selectedCardId = localStorage.getItem('pd2kb-selected-card') || null;
 let listDragId = null;
 let boardDetailDirty = false;
+let mobileCardOpen = false;
+let cardSessionCache = {};
+let cardSessionPollTimer = null;
 let saveTimer = null;
 let inlineEditingPillarId = null;
 
@@ -1060,6 +1145,10 @@ function now() { return new Date().toISOString(); }
 function shortDate(iso) { return iso ? String(iso).slice(0, 10) : ''; }
 
 function getCard(id) { return state.cards.find(c => c.id === id) || null; }
+
+function isMobileKanban() {
+  return window.matchMedia && window.matchMedia('(max-width: 760px)').matches;
+}
 
 function sortedCards(cards) {
   return [...cards].sort((a, b) => {
@@ -1100,17 +1189,26 @@ async function loadState() {
 function scheduleSave() {
   clearTimeout(saveTimer);
   setSaveStatus('saving', 'saving...');
-  saveTimer = setTimeout(async () => {
-    try {
-      await fetch('/api/state', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(state, null, 2)
-      });
-      setSaveStatus('saved', 'saved');
-      setTimeout(() => setSaveStatus('', ''), 1800);
-    } catch { setSaveStatus('', 'save failed'); }
-  }, 400);
+  saveTimer = setTimeout(saveStateNow, 400);
+}
+
+async function saveStateNow() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  setSaveStatus('saving', 'saving...');
+  try {
+    await fetch('/api/state', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(state, null, 2)
+    });
+    setSaveStatus('saved', 'saved');
+    setTimeout(() => setSaveStatus('', ''), 1800);
+    return true;
+  } catch {
+    setSaveStatus('', 'save failed');
+    return false;
+  }
 }
 
 function setSaveStatus(cls, msg) {
@@ -1225,6 +1323,7 @@ function renderFilters() {
     btn.innerHTML = `${escapeHtml(columnLabel(colId))}<span class="status-tab-count">${cardsInColumn(colId).length}</span>`;
     btn.onclick = () => {
       activeKanbanColumn = colId;
+      mobileCardOpen = false;
       localStorage.setItem('pd2kb-active-status', activeKanbanColumn);
       renderFilters();
       renderBoard();
@@ -1276,6 +1375,115 @@ function renderFilters() {
   bar.appendChild(wrap);
 }
 
+function updateMobileBoardBar(visibleCards) {
+  const title = document.getElementById('mobile-board-title');
+  const count = document.getElementById('mobile-board-count');
+  if (!title || !count || !state) return;
+  title.textContent = columnLabel(activeKanbanColumn);
+  let filterText = 'All pillars';
+  if (boardFilter && boardFilter.startsWith('pillar:')) {
+    const pillar = getPillar(boardFilter.slice('pillar:'.length));
+    filterText = pillar ? pillar.name : 'Filtered';
+  }
+  count.textContent = `${visibleCards.length} cards - ${filterText}`;
+}
+
+function openMobileFilters() {
+  renderMobileFilterModal();
+  document.getElementById('mobile-filter-modal-overlay').classList.add('show');
+}
+
+function closeMobileFilters() {
+  document.getElementById('mobile-filter-modal-overlay').classList.remove('show');
+}
+
+function onMobileFilterOverlayClick(event) {
+  if (event.target.id === 'mobile-filter-modal-overlay') closeMobileFilters();
+}
+
+function mobileFilterButton(label, count, active, onclick) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'mobile-filter-option' + (active ? ' active' : '');
+  btn.onclick = onclick;
+  const name = document.createElement('span');
+  name.textContent = label;
+  const n = document.createElement('span');
+  n.className = 'mobile-filter-option-count';
+  n.textContent = count;
+  btn.appendChild(name);
+  btn.appendChild(n);
+  return btn;
+}
+
+function renderMobileFilterModal() {
+  const body = document.getElementById('mobile-filter-modal-body');
+  if (!body || !state) return;
+  body.innerHTML = '';
+
+  const statusSection = document.createElement('div');
+  statusSection.className = 'mobile-filter-section';
+  const statusTitle = document.createElement('div');
+  statusTitle.className = 'mobile-filter-section-title';
+  statusTitle.textContent = 'Status';
+  const statusOpts = document.createElement('div');
+  statusOpts.className = 'mobile-filter-options';
+  for (const colId of state.columns) {
+    statusOpts.appendChild(mobileFilterButton(
+      columnLabel(colId),
+      cardsInColumn(colId).length,
+      colId === activeKanbanColumn,
+      () => {
+        activeKanbanColumn = colId;
+        mobileCardOpen = false;
+        localStorage.setItem('pd2kb-active-status', activeKanbanColumn);
+        renderFilters();
+        renderBoard();
+        renderMobileFilterModal();
+      }
+    ));
+  }
+  statusSection.appendChild(statusTitle);
+  statusSection.appendChild(statusOpts);
+  body.appendChild(statusSection);
+
+  const cards = cardsInColumn(activeKanbanColumn);
+  const pillarSection = document.createElement('div');
+  pillarSection.className = 'mobile-filter-section';
+  const pillarTitle = document.createElement('div');
+  pillarTitle.className = 'mobile-filter-section-title';
+  pillarTitle.textContent = 'Pillar';
+  const pillarOpts = document.createElement('div');
+  pillarOpts.className = 'mobile-filter-options';
+  pillarOpts.appendChild(mobileFilterButton('All', cards.length, boardFilter === 'all', () => {
+    boardFilter = 'all';
+    mobileCardOpen = false;
+    localStorage.setItem('pd2kb-board-filter', boardFilter);
+    renderFilters();
+    renderBoard();
+    renderMobileFilterModal();
+  }));
+  for (const p of state.pillars) {
+    const value = 'pillar:' + p.id;
+    pillarOpts.appendChild(mobileFilterButton(p.name, countCardsForFilter(cards, value), boardFilter === value, () => {
+      boardFilter = value;
+      mobileCardOpen = false;
+      localStorage.setItem('pd2kb-board-filter', boardFilter);
+      renderFilters();
+      renderBoard();
+      renderMobileFilterModal();
+    }));
+  }
+  pillarSection.appendChild(pillarTitle);
+  pillarSection.appendChild(pillarOpts);
+  body.appendChild(pillarSection);
+}
+
+function openMobileNewCard() {
+  closeMobileFilters();
+  openModal(null, activeKanbanColumn);
+}
+
 function renderBoard() {
   const board = document.getElementById('board');
   const allCards = sortedCards(cardsInColumn(activeKanbanColumn));
@@ -1286,8 +1494,11 @@ function renderBoard() {
   board.ondragover = null;
   board.ondrop = null;
   board.ondragleave = null;
+  updateMobileBoardBar(visibleCards);
 
   if (visibleCards.length === 0) {
+    mobileCardOpen = false;
+    document.body.classList.remove('mobile-card-open');
     const empty = document.createElement('div');
     empty.className = 'empty-state';
     empty.textContent = 'No cards match this status and filter.';
@@ -1317,15 +1528,18 @@ function renderBoard() {
 
   const list = document.createElement('div');
   list.className = 'kb-list';
-  list.ondragover = e => onListDragOver(e, list);
-  list.ondrop = e => onListDrop(e);
-  list.ondragleave = e => { if (!list.contains(e.relatedTarget)) clearKbDropLines(list); };
+  if (!isMobileKanban()) {
+    list.ondragover = e => onListDragOver(e, list);
+    list.ondrop = e => onListDrop(e);
+    list.ondragleave = e => { if (!list.contains(e.relatedTarget)) clearKbDropLines(list); };
+  }
   visibleCards.forEach((card, idx) => list.appendChild(buildCardListItem(card, idx + 1)));
   listPane.appendChild(list);
   layout.appendChild(listPane);
 
   layout.appendChild(buildDetailPane(getCard(selectedCardId)));
   board.appendChild(layout);
+  document.body.classList.toggle('mobile-card-open', isMobileKanban() && mobileCardOpen && !!selectedCardId);
   refreshAiNotesDock();
 }
 
@@ -1337,11 +1551,15 @@ function ensureSelectedCard(visibleCards) {
 }
 
 function selectBoardCard(cardId) {
-  if (cardId === selectedCardId) return;
-  if (boardDetailDirty && !confirm('Discard unsaved card edits?')) return;
-  selectedCardId = cardId;
-  localStorage.setItem('pd2kb-selected-card', selectedCardId);
-  boardDetailDirty = false;
+  const sameCard = cardId === selectedCardId;
+  if (sameCard && !isMobileKanban()) return;
+  if (!sameCard && boardDetailDirty && !confirm('Discard unsaved card edits?')) return;
+  if (!sameCard) {
+    selectedCardId = cardId;
+    localStorage.setItem('pd2kb-selected-card', selectedCardId);
+    boardDetailDirty = false;
+  }
+  if (isMobileKanban()) mobileCardOpen = true;
   renderBoard();
 }
 
@@ -1350,7 +1568,7 @@ function buildCardListItem(card, rank) {
   el.type = 'button';
   el.className = 'kb-list-item' + (card.id === selectedCardId ? ' selected' : '');
   el.dataset.id = card.id;
-  el.draggable = true;
+  el.draggable = !isMobileKanban();
   el.style.borderLeftColor = pillarColor(card.pillar);
   el.onclick = () => selectBoardCard(card.id);
   el.addEventListener('contextmenu', e => showCtxMenu(e, card.id));
@@ -1391,17 +1609,19 @@ function buildCardListItem(card, rank) {
   main.appendChild(meta);
   el.appendChild(main);
 
-  el.addEventListener('dragstart', e => {
-    listDragId = card.id;
-    el.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', card.id);
-  });
-  el.addEventListener('dragend', () => {
-    el.classList.remove('dragging');
-    listDragId = null;
-    clearKbDropLines(null);
-  });
+  if (!isMobileKanban()) {
+    el.addEventListener('dragstart', e => {
+      listDragId = card.id;
+      el.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', card.id);
+    });
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging');
+      listDragId = null;
+      clearKbDropLines(null);
+    });
+  }
 
   return el;
 }
@@ -1422,6 +1642,27 @@ function buildDetailPane(card) {
     pane.innerHTML = '<div class="kb-empty-detail">Select a card to view or edit its contents.</div>';
     return pane;
   }
+
+  const mobileBar = document.createElement('div');
+  mobileBar.className = 'kb-mobile-detail-bar';
+  const back = document.createElement('button');
+  back.className = 'btn btn-ghost btn-sm';
+  back.type = 'button';
+  back.textContent = 'Back';
+  back.onclick = closeMobileCardDetail;
+  const mobileId = document.createElement('span');
+  mobileId.className = 'kb-mobile-detail-id';
+  mobileId.textContent = card.id;
+  const mobileStart = document.createElement('button');
+  mobileStart.className = 'btn btn-primary btn-sm';
+  mobileStart.type = 'button';
+  mobileStart.textContent = 'Start Session';
+  mobileStart.onclick = () => startCardSession(card.id);
+  mobileBar.appendChild(back);
+  mobileBar.appendChild(mobileId);
+  mobileBar.appendChild(document.createElement('span')).className = 'modal-spacer';
+  mobileBar.appendChild(mobileStart);
+  pane.appendChild(mobileBar);
 
   const scroll = document.createElement('div');
   scroll.className = 'kb-detail-scroll';
@@ -1447,6 +1688,22 @@ function buildDetailPane(card) {
   meta.appendChild(buildDetailSelect('Status', 'detail-column', state.columns.map(c => [c, columnLabel(c)]), card.column));
   meta.appendChild(buildDetailSelect('Priority', 'detail-priority', [['', 'Unset'], ['1', '1 - Critical'], ['2', '2 - High'], ['3', '3 - Medium'], ['4', '4 - Low'], ['5', '5 - Someday']], card.priority != null ? String(card.priority) : ''));
   scroll.appendChild(meta);
+
+  const rankActions = document.createElement('div');
+  rankActions.className = 'kb-mobile-rank-actions';
+  const up = document.createElement('button');
+  up.className = 'btn btn-ghost btn-sm';
+  up.type = 'button';
+  up.textContent = 'Move Up';
+  up.onclick = () => moveSelectedCardByStep(-1);
+  const down = document.createElement('button');
+  down.className = 'btn btn-ghost btn-sm';
+  down.type = 'button';
+  down.textContent = 'Move Down';
+  down.onclick = () => moveSelectedCardByStep(1);
+  rankActions.appendChild(up);
+  rankActions.appendChild(down);
+  scroll.appendChild(rankActions);
 
   const descBox = document.createElement('div');
   descBox.className = 'kb-detail-box';
@@ -1504,6 +1761,8 @@ function buildDetailPane(card) {
   notesBox.appendChild(notes);
   scroll.appendChild(notesBox);
 
+  scroll.appendChild(buildCardSessionBox(card));
+
   pane.appendChild(scroll);
 
   const actions = document.createElement('div');
@@ -1513,6 +1772,11 @@ function buildDetailPane(card) {
   del.type = 'button';
   del.textContent = 'Delete';
   del.onclick = deleteSelectedCard;
+  const start = document.createElement('button');
+  start.className = 'btn btn-ghost btn-sm';
+  start.type = 'button';
+  start.textContent = 'Start Session';
+  start.onclick = () => startCardSession(card.id);
   const cancel = document.createElement('button');
   cancel.className = 'btn btn-ghost btn-sm';
   cancel.type = 'button';
@@ -1524,12 +1788,162 @@ function buildDetailPane(card) {
   save.textContent = 'Save';
   save.onclick = saveSelectedCard;
   actions.appendChild(del);
+  actions.appendChild(start);
   actions.appendChild(document.createElement('span')).className = 'modal-spacer';
   actions.appendChild(cancel);
   actions.appendChild(save);
   pane.appendChild(actions);
+  setTimeout(() => refreshCardSessions(card.id), 0);
   boardDetailDirty = false;
   return pane;
+}
+
+function closeMobileCardDetail() {
+  if (boardDetailDirty && !confirm('Discard unsaved card edits?')) return;
+  boardDetailDirty = false;
+  mobileCardOpen = false;
+  document.body.classList.remove('mobile-card-open');
+  renderBoard();
+}
+
+function moveSelectedCardByStep(step) {
+  if (boardDetailDirty) {
+    if (!confirm('Save card edits before moving it?')) return;
+    if (!saveSelectedCard()) return;
+  }
+  const card = getCard(selectedCardId);
+  if (!card) return;
+  const visible = sortedCards(cardsInColumn(activeKanbanColumn)).filter(c => cardMatchesBoardFilter(c));
+  const idx = visible.findIndex(c => c.id === card.id);
+  const swapWith = visible[idx + step];
+  if (idx < 0 || !swapWith) return;
+  const oldOrder = card.order;
+  card.order = swapWith.order;
+  swapWith.order = oldOrder;
+  card.updated = now();
+  swapWith.updated = now();
+  boardDetailDirty = false;
+  renderBoard();
+  scheduleSave();
+}
+
+function buildCardSessionBox(card) {
+  const box = document.createElement('div');
+  box.className = 'kb-session-box';
+  const head = document.createElement('div');
+  head.className = 'kb-session-head';
+  const title = document.createElement('span');
+  title.className = 'kb-session-title';
+  title.textContent = 'Card session';
+  const start = document.createElement('button');
+  start.id = 'detail-start-session';
+  start.className = 'btn btn-primary btn-sm';
+  start.type = 'button';
+  start.textContent = 'Start Session';
+  start.onclick = () => startCardSession(card.id);
+  head.appendChild(title);
+  head.appendChild(start);
+  box.appendChild(head);
+
+  const stateLine = document.createElement('div');
+  stateLine.id = 'detail-session-status';
+  stateLine.className = 'kb-session-state';
+  stateLine.textContent = 'No session loaded.';
+  box.appendChild(stateLine);
+
+  const list = document.createElement('div');
+  list.id = 'detail-session-list';
+  list.className = 'kb-session-list';
+  box.appendChild(list);
+  return box;
+}
+
+function renderCardSessionList(cardId) {
+  const status = document.getElementById('detail-session-status');
+  const list = document.getElementById('detail-session-list');
+  if (!status || !list || selectedCardId !== cardId) return;
+  const sessions = cardSessionCache[cardId] || [];
+  list.innerHTML = '';
+  const running = sessions.filter(s => s.status === 'running');
+  const btn = document.getElementById('detail-start-session');
+  if (btn) {
+    btn.disabled = running.length > 0;
+    btn.textContent = running.length > 0 ? 'Running' : 'Start Session';
+  }
+  status.textContent = sessions.length === 0
+    ? 'No sessions for this card yet.'
+    : `${sessions.length} session${sessions.length === 1 ? '' : 's'} - ${running.length} running`;
+  for (const session of sessions) {
+    const row = document.createElement('div');
+    row.className = 'kb-session-row ' + (session.status || '');
+    const meta = document.createElement('div');
+    meta.className = 'kb-session-meta';
+    meta.appendChild(document.createTextNode(`${session.status || 'unknown'} ${shortDate(session.started_at)}`));
+    const sid = document.createElement('span');
+    sid.textContent = session.session_id || '';
+    meta.appendChild(sid);
+    row.appendChild(meta);
+    const output = (session.last_message || '').trim() || (session.stdout_tail || '').trim() || (session.stderr_tail || '').trim();
+    if (output) {
+      const pre = document.createElement('pre');
+      pre.className = 'kb-session-output';
+      pre.textContent = output;
+      row.appendChild(pre);
+    }
+    list.appendChild(row);
+  }
+}
+
+function queueCardSessionPoll(cardId) {
+  clearTimeout(cardSessionPollTimer);
+  const sessions = cardSessionCache[cardId] || [];
+  if (!sessions.some(s => s.status === 'running')) return;
+  cardSessionPollTimer = setTimeout(() => refreshCardSessions(cardId), 5000);
+}
+
+async function refreshCardSessions(cardId) {
+  if (!cardId || selectedCardId !== cardId) return;
+  try {
+    const r = await fetch(`/api/cards/${encodeURIComponent(cardId)}/sessions`);
+    if (!r.ok) return;
+    const data = await r.json();
+    cardSessionCache[cardId] = data.sessions || [];
+    renderCardSessionList(cardId);
+    queueCardSessionPoll(cardId);
+  } catch {
+    const status = document.getElementById('detail-session-status');
+    if (status && selectedCardId === cardId) status.textContent = 'Session status unavailable.';
+  }
+}
+
+async function startCardSession(cardId) {
+  const card = getCard(cardId);
+  if (!card) return;
+  if (boardDetailDirty) {
+    if (!confirm('Save card edits before starting a session?')) return;
+    if (!saveSelectedCard()) return;
+    const saved = await saveStateNow();
+    if (!saved) return;
+  }
+  const status = document.getElementById('detail-session-status');
+  const btn = document.getElementById('detail-start-session');
+  if (status) status.textContent = 'Starting session...';
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch(`/api/cards/${encodeURIComponent(cardId)}/sessions/start`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({source: 'mobile-kanban'})
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'session start failed');
+    cardSessionCache[cardId] = data.sessions || (data.session ? [data.session] : []);
+    renderCardSessionList(cardId);
+    queueCardSessionPoll(cardId);
+  } catch (err) {
+    if (status) status.textContent = err.message || 'Session start failed.';
+    if (btn) btn.disabled = false;
+  }
 }
 
 function buildDetailSelect(label, id, options, value) {
@@ -1620,9 +2034,9 @@ function markDetailDirty() {
 
 function saveSelectedCard() {
   const card = getCard(selectedCardId);
-  if (!card) return;
+  if (!card) return false;
   const title = document.getElementById('detail-title').value.trim();
-  if (!title) { document.getElementById('detail-title').focus(); return; }
+  if (!title) { document.getElementById('detail-title').focus(); return false; }
 
   const prevCol = card.column;
   const colVal = document.getElementById('detail-column').value;
@@ -1643,11 +2057,16 @@ function saveSelectedCard() {
   if (colVal !== prevCol) {
     const colCards = sortedCards(state.cards.filter(c => c.id !== card.id && c.column === colVal));
     card.order = colCards.length > 0 ? colCards[colCards.length - 1].order + 1000 : 1000;
+    if (isMobileKanban()) {
+      activeKanbanColumn = colVal;
+      localStorage.setItem('pd2kb-active-status', activeKanbanColumn);
+    }
   }
   card.updated = now();
   boardDetailDirty = false;
   render();
   scheduleSave();
+  return true;
 }
 
 function cancelSelectedCard() {
@@ -2357,6 +2776,10 @@ function openParkedSidebar() {
 
 function switchTab(name) {
   activeTab = name;
+  if (name !== 'kanban') {
+    mobileCardOpen = false;
+    document.body.classList.remove('mobile-card-open');
+  }
   for (const b of document.querySelectorAll('.tab-btn')) b.classList.toggle('active', b.dataset.tab === name);
   for (const p of document.querySelectorAll('#main-area > .panel')) p.classList.toggle('active', p.id === 'panel-' + name);
   if (name === 'bugs') renderBugs();
@@ -4079,6 +4502,20 @@ window.addEventListener('beforeunload', () => {
       fetch('/shutdown-now', { method: 'POST', keepalive: true }).catch(() => {});
     }
   } catch (e) {}
+});
+
+let mobileResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(mobileResizeTimer);
+  mobileResizeTimer = setTimeout(() => {
+    if (!state) return;
+    if (!isMobileKanban()) {
+      mobileCardOpen = false;
+      document.body.classList.remove('mobile-card-open');
+      closeMobileFilters();
+    }
+    renderBoard();
+  }, 120);
 });
 
 startHeartbeat();

@@ -33,6 +33,9 @@ Serves the dev-window UI at / and provides these API endpoints:
   /api/cards/:id/reject-completion                  POST   Mike rejects (clears flag, stays in column)
   /api/pending-completions                          GET    list every card with pending_completion non-null
 
+  /api/cards/:id/sessions                           GET    list card-scoped Codex sessions
+  /api/cards/:id/sessions/start                     POST   start one headless Codex session for the card
+
   /heartbeat              POST                 page liveness ping (every ~5s while a tab is open)
   /shutdown-now           POST                 best-effort beacon when the last tab is closing
 
@@ -46,19 +49,29 @@ counting down, so a slow browser launch is not a problem. /shutdown-now is
 a cooperative hint: it backdates the heartbeat clock to fire in
 SHUTDOWN_NOW_GRACE_S (default 6) seconds; if any other tab heartbeats inside
 that window the clock resets and the server stays up.
+
+Remote mode: set KANBAN_REMOTE_TOKEN to require a token via ?token=...,
+X-PD2-Kanban-Token, Authorization: Bearer, or the pd2kb_token cookie. The
+remote starter uses this with a localhost-only Cloudflare tunnel.
 """
 
-import json
 import hashlib
+import hmac
+import json
 import os
 import pathlib
 import re
+import shutil
+import subprocess
 import sys
 import threading
 import time
+import urllib.parse
+import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-PORT = 7531
+HOST = os.environ.get("KANBAN_HOST", "localhost")
+PORT = int(os.environ.get("KANBAN_PORT", "7531"))
 BASE = pathlib.Path(__file__).parent
 REPO_ROOT = BASE.parent.parent
 
@@ -73,11 +86,15 @@ CODEX_MEMORY_PATH = pathlib.Path(os.environ.get(
     str(pathlib.Path.home() / ".codex" / "memories" / "MEMORY.md"),
 ))
 INDEX_PATH = BASE / "index.html"
+SESSION_BASE = REPO_ROOT / ".claude" / "scratch" / "kanban-sessions"
+SESSION_INDEX_PATH = SESSION_BASE / "index.json"
 
-IDLE_TIMEOUT_S = max(1, int(os.environ.get("KANBAN_IDLE_TIMEOUT_S", "15")))
+IDLE_TIMEOUT_S = max(0, int(os.environ.get("KANBAN_IDLE_TIMEOUT_S", "15")))
 STARTUP_GRACE_S = max(0, int(os.environ.get("KANBAN_STARTUP_GRACE_S", "30")))
 SHUTDOWN_NOW_GRACE_S = max(1, int(os.environ.get("KANBAN_SHUTDOWN_GRACE_S", "6")))
 WATCHER_INTERVAL_S = 2.0
+REMOTE_TOKEN = os.environ.get("KANBAN_REMOTE_TOKEN", "").strip()
+AUTH_COOKIE_NAME = "pd2kb_token"
 
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 import parked_evaluator as pe
@@ -98,6 +115,8 @@ def heartbeat_soft_shutdown():
     """Backdate heartbeat so the idle watcher fires in SHUTDOWN_NOW_GRACE_S
     seconds unless another tab heartbeats before then (multi-tab safety)."""
     global _last_heartbeat_at
+    if IDLE_TIMEOUT_S <= 0:
+        return
     with _state_lock:
         target = time.time() - IDLE_TIMEOUT_S + SHUTDOWN_NOW_GRACE_S
         if target < _last_heartbeat_at:
@@ -126,6 +145,8 @@ def request_shutdown(reason):
 
 
 def heartbeat_watcher():
+    if IDLE_TIMEOUT_S <= 0:
+        return
     while True:
         time.sleep(WATCHER_INTERVAL_S)
         with _state_lock:
@@ -151,6 +172,32 @@ def write_json_atomic(path: pathlib.Path, body: bytes) -> str:
     tmp.write_text(serialized, encoding="utf-8")
     os.replace(tmp, path)
     return serialized
+
+
+def _request_path(raw_path: str) -> str:
+    return urllib.parse.urlsplit(raw_path).path or "/"
+
+
+def _request_query(raw_path: str):
+    return urllib.parse.parse_qs(urllib.parse.urlsplit(raw_path).query, keep_blank_values=True)
+
+
+def _cookie_value(cookie_header: str, name: str):
+    if not cookie_header:
+        return None
+    for part in cookie_header.split(";"):
+        if "=" not in part:
+            continue
+        k, v = part.split("=", 1)
+        if k.strip() == name:
+            return urllib.parse.unquote(v.strip())
+    return None
+
+
+def _token_matches(value) -> bool:
+    if not REMOTE_TOKEN or not value:
+        return False
+    return hmac.compare_digest(str(value), REMOTE_TOKEN)
 
 
 def _default_memory_review():
@@ -537,6 +584,280 @@ def _append_note(card, line):
     card["notes"] = f"{existing}\n{stamped}".strip() if existing else stamped
 
 
+# ---------- card-scoped Codex session helpers ----------
+
+def _safe_slug(value, fallback="session"):
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "")).strip("-._")
+    return slug[:72] or fallback
+
+
+def _decode_url_segment(value):
+    return urllib.parse.unquote(value or "")
+
+
+def _load_session_index():
+    if not SESSION_INDEX_PATH.exists():
+        return {"sessions": []}
+    try:
+        data = json.loads(SESSION_INDEX_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+    if not isinstance(data.get("sessions"), list):
+        data["sessions"] = []
+    return data
+
+
+def _save_session_index(data):
+    SESSION_BASE.mkdir(parents=True, exist_ok=True)
+    tmp = SESSION_INDEX_PATH.with_suffix(SESSION_INDEX_PATH.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, SESSION_INDEX_PATH)
+
+
+def _tail_text(path, max_bytes=12000):
+    path = pathlib.Path(path)
+    if not path.exists():
+        return ""
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as f:
+            if size > max_bytes:
+                f.seek(size - max_bytes)
+            data = f.read()
+        return data.decode("utf-8", errors="replace")
+    except Exception as exc:
+        return f"[unable to read {path.name}: {exc}]"
+
+
+def _pid_is_running(pid):
+    try:
+        pid = int(pid)
+    except Exception:
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def _refresh_session_statuses(data):
+    changed = False
+    for entry in data.get("sessions", []):
+        if entry.get("status") != "running":
+            continue
+        if _pid_is_running(entry.get("pid")):
+            continue
+        entry["status"] = "finished"
+        entry["finished_at"] = entry.get("finished_at") or _utcnow_iso()
+        changed = True
+    return changed
+
+
+def _session_public(entry, include_logs=True):
+    public = dict(entry)
+    public.pop("prompt_path", None)
+    public["paths"] = {
+        "session_dir": entry.get("session_dir", ""),
+        "last_message": entry.get("last_message_path", ""),
+        "stdout": entry.get("stdout_path", ""),
+        "stderr": entry.get("stderr_path", ""),
+    }
+    if include_logs:
+        public["last_message"] = _tail_text(entry.get("last_message_path", ""), max_bytes=10000)
+        public["stdout_tail"] = _tail_text(entry.get("stdout_path", ""), max_bytes=10000)
+        public["stderr_tail"] = _tail_text(entry.get("stderr_path", ""), max_bytes=10000)
+    return public
+
+
+def _card_session_entries(card_id):
+    data = _load_session_index()
+    if _refresh_session_statuses(data):
+        _save_session_index(data)
+    entries = [e for e in data.get("sessions", []) if e.get("card_id") == card_id]
+    entries.sort(key=lambda e: e.get("started_at") or "", reverse=True)
+    return data, entries
+
+
+def _find_codex_exe():
+    env_path = os.environ.get("KANBAN_CODEX_EXE", "").strip()
+    candidates = [env_path, shutil.which("codex"), shutil.which("codex.exe")]
+    if os.name == "nt":
+        base = pathlib.Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "WindowsApps"
+        try:
+            for app_dir in sorted(base.glob("OpenAI.Codex_*_x64__*"), reverse=True):
+                candidates.append(str(app_dir / "app" / "resources" / "codex.exe"))
+                candidates.append(str(app_dir / "app" / "resources" / "codex"))
+        except Exception:
+            pass
+    for candidate in candidates:
+        if not candidate:
+            continue
+        p = pathlib.Path(candidate)
+        if p.exists() or shutil.which(str(candidate)):
+            return str(candidate)
+    return None
+
+
+def _session_card_summary(card):
+    return {
+        "id": card.get("id"),
+        "title": card.get("title", ""),
+        "pillar": card.get("pillar", ""),
+        "column": card.get("column", ""),
+        "priority": card.get("priority"),
+        "flag": card.get("flag"),
+        "order": card.get("order"),
+    }
+
+
+def _build_card_session_prompt(kanban, card, session_id, request_note, running_entries):
+    active_cards = [
+        _session_card_summary(c)
+        for c in kanban.get("cards", [])
+        if c.get("column") == "active" and c.get("id") != card.get("id")
+    ]
+    running_cards = [
+        {
+            "session_id": e.get("session_id"),
+            "card_id": e.get("card_id"),
+            "card_title": e.get("card_title"),
+            "started_at": e.get("started_at"),
+            "status": e.get("status"),
+        }
+        for e in running_entries
+        if e.get("status") == "running" and e.get("card_id") != card.get("id")
+    ]
+
+    lines = [
+        "You are a headless Codex coding session launched from the PD2 mobile Kanban board.",
+        "",
+        f"Session id: {session_id}",
+        f"Workspace: {REPO_ROOT}",
+        "",
+        "Target card:",
+        json.dumps(card, indent=2, ensure_ascii=False),
+        "",
+        "Other cards currently in the Active column:",
+        json.dumps(active_cards, indent=2, ensure_ascii=False),
+        "",
+        "Other card sessions currently running at launch time:",
+        json.dumps(running_cards, indent=2, ensure_ascii=False),
+        "",
+        "Instructions:",
+        "- Work on the target card only unless the repository context makes a narrow support edit necessary.",
+        "- Before editing, read the project context files required by AGENTS.md and respect existing uncommitted changes.",
+        "- Avoid touching files that are clearly owned by another running card session unless necessary for correctness.",
+        "- Keep context, Kanban, and UNRELEASED.md updated when the work changes project state.",
+        "- Verify with the narrowest practical parser, test, or build check before reporting completion.",
+        "- End with a concise status report and include any manual retest Mike still needs to do.",
+    ]
+    if request_note:
+        lines.extend(["", "Launch note from Mike:", str(request_note).strip()])
+    return "\n".join(lines).strip() + "\n"
+
+
+def _start_card_session(card_id, payload):
+    payload = payload or {}
+    kanban = _load_state()
+    card = _find_card(kanban, card_id)
+    if card is None:
+        return 404, {"error": f"card {card_id} not found"}
+
+    index = _load_session_index()
+    changed = _refresh_session_statuses(index)
+    for entry in index.get("sessions", []):
+        if entry.get("card_id") == card_id and entry.get("status") == "running":
+            if changed:
+                _save_session_index(index)
+            entries = [e for e in index.get("sessions", []) if e.get("card_id") == card_id]
+            entries.sort(key=lambda e: e.get("started_at") or "", reverse=True)
+            return 200, {
+                "ok": True,
+                "already_running": True,
+                "session": _session_public(entry),
+                "sessions": [_session_public(e) for e in entries],
+            }
+
+    codex = _find_codex_exe()
+    if not codex:
+        if changed:
+            _save_session_index(index)
+        return 503, {"error": "codex executable not found. Set KANBAN_CODEX_EXE or install Codex CLI."}
+
+    stamp = __import__("datetime").datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    session_id = f"{_safe_slug(card_id)}-{stamp}-{uuid.uuid4().hex[:6]}"
+    session_dir = SESSION_BASE / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+    prompt_path = session_dir / "prompt.md"
+    stdout_path = session_dir / "stdout.jsonl"
+    stderr_path = session_dir / "stderr.log"
+    last_message_path = session_dir / "last-message.md"
+
+    prompt = _build_card_session_prompt(
+        kanban,
+        card,
+        session_id,
+        payload.get("note", ""),
+        index.get("sessions", []),
+    )
+    prompt_path.write_text(prompt, encoding="utf-8")
+
+    cmd = [
+        codex,
+        "exec",
+        "--json",
+        "--sandbox",
+        "workspace-write",
+        "--cd",
+        str(REPO_ROOT),
+        "--output-last-message",
+        str(last_message_path),
+        "-",
+    ]
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    popen_kwargs = {"creationflags": creationflags} if creationflags else {}
+    with prompt_path.open("rb") as stdin_f, stdout_path.open("ab") as stdout_f, stderr_path.open("ab") as stderr_f:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(REPO_ROOT),
+            stdin=stdin_f,
+            stdout=stdout_f,
+            stderr=stderr_f,
+            **popen_kwargs,
+        )
+
+    entry = {
+        "session_id": session_id,
+        "card_id": card_id,
+        "card_title": card.get("title", ""),
+        "status": "running",
+        "pid": proc.pid,
+        "started_at": _utcnow_iso(),
+        "finished_at": None,
+        "session_dir": str(session_dir),
+        "prompt_path": str(prompt_path),
+        "stdout_path": str(stdout_path),
+        "stderr_path": str(stderr_path),
+        "last_message_path": str(last_message_path),
+        "command": "codex exec --json --sandbox workspace-write",
+    }
+    index.setdefault("sessions", []).append(entry)
+    _save_session_index(index)
+    entries = [e for e in index.get("sessions", []) if e.get("card_id") == card_id]
+    entries.sort(key=lambda e: e.get("started_at") or "", reverse=True)
+    return 200, {
+        "ok": True,
+        "already_running": False,
+        "session": _session_public(entry),
+        "sessions": [_session_public(e) for e in entries],
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         msg = fmt % args
@@ -547,7 +868,7 @@ class Handler(BaseHTTPRequestHandler):
     def send_cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-PD2-Kanban-Token")
 
     def reply_json(self, status, payload):
         body = json.dumps(payload).encode("utf-8") if not isinstance(payload, (bytes, bytearray)) else bytes(payload)
@@ -572,12 +893,61 @@ class Handler(BaseHTTPRequestHandler):
             return b""
         return self.rfile.read(length)
 
+    def request_token(self):
+        header_token = self.headers.get("X-PD2-Kanban-Token", "").strip()
+        if header_token:
+            return header_token
+        auth = self.headers.get("Authorization", "").strip()
+        if auth.lower().startswith("bearer "):
+            return auth[7:].strip()
+        return _cookie_value(self.headers.get("Cookie", ""), AUTH_COOKIE_NAME)
+
+    def accept_query_token(self, raw_path, clean_path):
+        query = _request_query(raw_path)
+        token = (query.get("token") or [None])[0]
+        if not _token_matches(token):
+            return False
+        quoted = urllib.parse.quote(token, safe="")
+        self.send_response(302)
+        self.send_header("Location", clean_path or "/")
+        self.send_header(
+            "Set-Cookie",
+            f"{AUTH_COOKIE_NAME}={quoted}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200",
+        )
+        self.send_cors()
+        self.end_headers()
+        return True
+
+    def require_auth(self):
+        raw_path = self.path
+        clean_path = _request_path(raw_path)
+        if not REMOTE_TOKEN:
+            self.path = clean_path
+            return True
+        if self.accept_query_token(raw_path, clean_path):
+            return False
+        self.path = clean_path
+        if _token_matches(self.request_token()):
+            return True
+        if clean_path.startswith("/api/"):
+            self.reply_json(401, {"error": "kanban remote token required"})
+        else:
+            body = (
+                "PD2 Kanban remote token required.\n"
+                "Open the remote URL generated by devtools/start-kanban-remote.ps1.\n"
+            ).encode("utf-8")
+            self.reply_text(401, body)
+        return False
+
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_cors()
         self.end_headers()
 
     def do_GET(self):
+        if not self.require_auth():
+            return
+
         if self.path in ("/", "/index.html"):
             content = INDEX_PATH.read_bytes()
             self.reply_text(200, content, content_type="text/html; charset=utf-8")
@@ -603,6 +973,16 @@ class Handler(BaseHTTPRequestHandler):
             data = _load_memory_review()
             data["summary"] = _memory_review_summary(data)
             self.reply_json(200, data)
+            return
+
+        if self.path.startswith("/api/cards/") and self.path.endswith("/sessions"):
+            card_id = _decode_url_segment(self.path[len("/api/cards/"):-len("/sessions")])
+            _, entries = _card_session_entries(card_id)
+            self.reply_json(200, {
+                "ok": True,
+                "card_id": card_id,
+                "sessions": [_session_public(e) for e in entries],
+            })
             return
 
         if self.path == "/api/open-questions":
@@ -699,6 +1079,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            if not self.require_auth():
+                return
+
             if self.path == "/heartbeat":
                 heartbeat_now()
                 # drain body if any (sendBeacon may send a tiny payload)
@@ -915,6 +1298,15 @@ class Handler(BaseHTTPRequestHandler):
                     "matched": [{"id": e["id"]} for e in result["matched"]],
                     "flipped": [{"id": e["id"], "title": e.get("title", "")} for e in result["flipped"]],
                 })
+                return
+
+            if self.path.startswith("/api/cards/") and self.path.endswith("/sessions/start"):
+                card_id = _decode_url_segment(self.path[len("/api/cards/"):-len("/sessions/start")])
+                payload = json.loads(self.read_body() or b"{}")
+                status, result = _start_card_session(card_id, payload)
+                if status == 200:
+                    print(f"[kanban] card session start card={card_id} session={result.get('session', {}).get('session_id')} already_running={result.get('already_running')}")
+                self.reply_json(status, result)
                 return
 
             # ---------- decision-request mechanism (c121) ----------
@@ -1256,6 +1648,9 @@ class Handler(BaseHTTPRequestHandler):
             self.reply_json(400, {"error": str(exc)})
 
     def do_PATCH(self):
+        if not self.require_auth():
+            return
+
         if self.path.startswith("/api/memory-review/"):
             item_id = self.path[len("/api/memory-review/"):]
             try:
@@ -1311,11 +1706,19 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    server = HTTPServer(("localhost", PORT), Handler)
+    server = HTTPServer((HOST, PORT), Handler)
     _server = server
-    threading.Thread(target=heartbeat_watcher, daemon=True).start()
-    print(f"[kanban] listening on http://localhost:{PORT}/")
-    print(f"[kanban] idle timeout: {IDLE_TIMEOUT_S}s (override via KANBAN_IDLE_TIMEOUT_S)")
+    if IDLE_TIMEOUT_S > 0:
+        threading.Thread(target=heartbeat_watcher, daemon=True).start()
+    print(f"[kanban] listening on http://{HOST}:{PORT}/")
+    if REMOTE_TOKEN:
+        print("[kanban] remote token auth: enabled")
+    else:
+        print("[kanban] remote token auth: disabled (local/dev-window mode)")
+    if IDLE_TIMEOUT_S > 0:
+        print(f"[kanban] idle timeout: {IDLE_TIMEOUT_S}s (override via KANBAN_IDLE_TIMEOUT_S)")
+    else:
+        print("[kanban] idle timeout: disabled")
     print(f"[kanban] startup grace: {STARTUP_GRACE_S}s, shutdown-now grace: {SHUTDOWN_NOW_GRACE_S}s")
     print(f"[kanban] state file: {STATE_PATH}")
     print(f"[kanban] parked file: {PARKED_PATH}")

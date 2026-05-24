@@ -198,6 +198,10 @@ $script:TestsProcess        = $null
 $script:TestsRunning        = $false
 $script:GitChangeCount      = 0
 $script:GitBusy             = $false
+$script:KanbanRemoteBusy    = $false
+$script:KanbanRemoteStopBusy = $false
+$script:KanbanRemotePollTimer = $null
+$script:KanbanRemoteStartedUtc = [DateTime]::MinValue
 
 $script:GhAuthOk            = $false
 $script:GhCliAvailable      = $false
@@ -1015,6 +1019,10 @@ function Refresh-LatestRelease {
                                 <Button x:Name="BtnOpenFolder" Content="Project Folder" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"/>
                                 <Button x:Name="BtnOpenKanban" Content="Open Kanban" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
                                         ToolTip="Start the local kanban server if needed, then open the Active / Parked / Bugs board in the default browser (http://localhost:7531/)"/>
+                                <Button x:Name="BtnStartKanbanServer" Content="Start Kanban Server" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                        ToolTip="Start remote phone access for Kanban only, then copy and show the join link."/>
+                                <Button x:Name="BtnStopKanbanServer" Content="Stop Kanban Server" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                        ToolTip="Stop the tracked remote Kanban server and Cloudflare tunnel."/>
                                 <Button x:Name="BtnCleanBuild" Content="Clean Build" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"/>
                                 <Button x:Name="BtnPull" Content="Pull" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
                                         ToolTip="git pull (current branch, upstream)"/>
@@ -1372,7 +1380,7 @@ $namedElements = @(
     "TxtVerMajor","TxtVerMinor","TxtVerPatch",
     "BtnVerMajDown","BtnVerMajUp","BtnVerMinDown","BtnVerMinUp","BtnVerPatDown","BtnVerPatUp",
     "ChkStable","LblAuthStatus","LblLatestRelease","LblDevVersion",
-    "BtnOpenGitHub","BtnOpenFolder","BtnOpenKanban","BtnCleanBuild","BtnPull","BtnPush","BtnPruneWorktrees",
+    "BtnOpenGitHub","BtnOpenFolder","BtnOpenKanban","BtnStartKanbanServer","BtnStopKanbanServer","BtnCleanBuild","BtnPull","BtnPush","BtnPruneWorktrees",
     "BtnLogClear","BtnLogExport","ChkAutoScroll","TxtLogFilter","LogOutput",
     "DocList","DocContent",
     "BtnCliActionGoal","BtnCliActionPlan","BtnCliActionInvestigate","BtnCliActionBugFix",
@@ -2747,6 +2755,255 @@ function Invoke-OpenKanban {
         Add-LogLine ("Open Kanban: Start-Process failed: " + $_.Exception.Message) "#B81818"
         [System.Windows.MessageBox]::Show("Could not open browser at $url. See the Log tab for details.", "Open Kanban", "OK", "Warning") | Out-Null
     }
+}
+
+function Test-KanbanRemotePidAlive {
+    param([int]$ProcessId)
+    if ($ProcessId -le 0) { return $false }
+    try {
+        $p = Get-Process -Id $ProcessId -ErrorAction Stop
+        return -not $p.HasExited
+    } catch {
+        return $false
+    }
+}
+
+function Test-KanbanRemoteStateAlive {
+    param([string]$StatePath)
+    if (-not (Test-Path -LiteralPath $StatePath)) { return $false }
+    try {
+        $state = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+        return (Test-KanbanRemotePidAlive ([int]$state.server_pid)) -and (Test-KanbanRemotePidAlive ([int]$state.tunnel_pid))
+    } catch {
+        return $false
+    }
+}
+
+function Reset-KanbanRemoteButton {
+    if ($null -ne $script:KanbanRemotePollTimer) {
+        try { $script:KanbanRemotePollTimer.Stop() } catch {}
+        $script:KanbanRemotePollTimer = $null
+    }
+    $script:KanbanRemoteBusy = $false
+    $ui["BtnStartKanbanServer"].IsEnabled = $true
+    $ui["BtnStartKanbanServer"].Content = "Start Kanban Server"
+}
+
+function Complete-KanbanRemoteStart {
+    param([string]$Url)
+    if (-not $Url) { return }
+    Reset-KanbanRemoteButton
+    try { [System.Windows.Clipboard]::SetText($Url) } catch {}
+    Add-LogLine ("Start Kanban Server: phone link copied to clipboard: " + $Url) "#1A8A1A"
+    [System.Windows.MessageBox]::Show(
+        "Kanban is running for remote phone access.`n`nThe join link has been copied to the clipboard:`n`n$Url",
+        "Start Kanban Server",
+        "OK",
+        "Information"
+    ) | Out-Null
+}
+
+function Start-KanbanRemotePoll {
+    param([string]$UrlFile)
+    if ($null -ne $script:KanbanRemotePollTimer) {
+        try { $script:KanbanRemotePollTimer.Stop() } catch {}
+    }
+    $script:KanbanRemoteStartedUtc = [DateTime]::UtcNow
+    $timer = New-Object System.Windows.Threading.DispatcherTimer
+    $timer.Interval = [TimeSpan]::FromMilliseconds(750)
+    $timer.Add_Tick({
+        if (-not $script:KanbanRemoteBusy) {
+            try { $this.Stop() } catch {}
+            return
+        }
+        try {
+            if (Test-Path -LiteralPath $UrlFile) {
+                $url = (Get-Content -LiteralPath $UrlFile -Raw -ErrorAction Stop).Trim()
+                if ($url -match '^https://') {
+                    Complete-KanbanRemoteStart $url
+                    return
+                }
+            }
+        } catch {}
+        if ((([DateTime]::UtcNow) - $script:KanbanRemoteStartedUtc).TotalSeconds -gt 75) {
+            Reset-KanbanRemoteButton
+            Add-LogLine "Start Kanban Server: timed out waiting for the phone link file." "#B81818"
+            [System.Windows.MessageBox]::Show("Remote Kanban startup timed out waiting for the join link. See the Log tab for details.", "Start Kanban Server", "OK", "Warning") | Out-Null
+        }
+    }.GetNewClosure())
+    $script:KanbanRemotePollTimer = $timer
+    $timer.Start()
+}
+
+function Invoke-StartKanbanRemote {
+    $starterScript = Join-Path $script:ProjectRoot "devtools\start-kanban-remote.ps1"
+    $stateDir = Join-Path $script:ProjectRoot ".claude\scratch\kanban-remote"
+    $urlFile = Join-Path $stateDir "remote-url.txt"
+    $pidFile = Join-Path $stateDir "pids.json"
+    if ($script:KanbanRemoteBusy) {
+        [System.Windows.MessageBox]::Show("Kanban remote startup is already running.", "Start Kanban Server", "OK", "Information") | Out-Null
+        return
+    }
+    if (-not (Test-Path -LiteralPath $starterScript)) {
+        Add-LogLine ("Start Kanban Server: starter script not found at " + $starterScript) "#B81818"
+        [System.Windows.MessageBox]::Show("Remote Kanban starter not found:`n$starterScript", "Start Kanban Server", "OK", "Warning") | Out-Null
+        return
+    }
+    if ((Test-KanbanRemoteStateAlive $pidFile) -and (Test-Path -LiteralPath $urlFile)) {
+        $existingUrl = (Get-Content -LiteralPath $urlFile -Raw -ErrorAction SilentlyContinue).Trim()
+        if ($existingUrl) {
+            Complete-KanbanRemoteStart $existingUrl
+            return
+        }
+    }
+    if (Test-Path -LiteralPath $urlFile) {
+        try { Remove-Item -LiteralPath $urlFile -Force } catch {}
+    }
+
+    $script:KanbanRemoteBusy = $true
+    $ui["BtnStartKanbanServer"].IsEnabled = $false
+    $ui["BtnStartKanbanServer"].Content = "Starting..."
+    Add-LogSessionLine "" "#C0C8D2"
+    Add-LogSessionLine ">>> Start Kanban Server: starting remote Kanban access..." "#0078A8"
+    Add-LogLine "Start Kanban Server: target is only http://127.0.0.1:7531; no proxy, WARP, exit node, or route changes." "#44586C"
+    Start-KanbanRemotePoll $urlFile
+
+    Start-AsyncPoolAction `
+        -Script {
+            param($root, $starter)
+            $urlFile = Join-Path $root ".claude\scratch\kanban-remote\remote-url.txt"
+            $result = [PSCustomObject]@{
+                Ok = $false
+                ExitCode = -1
+                Output = ""
+                Url = ""
+                UrlFile = $urlFile
+            }
+            try {
+                $psExe = (Get-Command powershell.exe -ErrorAction Stop).Source
+                $output = (& $psExe -NoProfile -ExecutionPolicy Bypass -File $starter -ReuseToken 2>&1 | Out-String)
+                $code = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+                $url = ""
+                if (Test-Path -LiteralPath $urlFile) {
+                    $url = (Get-Content -LiteralPath $urlFile -Raw -ErrorAction SilentlyContinue).Trim()
+                }
+                if (-not $url) {
+                    $m = [regex]::Match($output, "https://\S+?trycloudflare\.com/\?token=[0-9A-Fa-f]+")
+                    if ($m.Success) { $url = $m.Value }
+                }
+                $result.Ok = ($code -eq 0 -and -not [string]::IsNullOrWhiteSpace($url))
+                $result.ExitCode = $code
+                $result.Output = $output
+                $result.Url = $url
+            } catch {
+                $result.Output = $_.Exception.Message
+            }
+            return $result
+        } `
+        -Arguments @($script:ProjectRoot, $starterScript) `
+        -OnComplete {
+            param($result)
+            if (-not $script:KanbanRemoteBusy) {
+                return
+            }
+
+            $r = @($result)[0]
+            if ($null -eq $r) {
+                Reset-KanbanRemoteButton
+                Add-LogLine "Start Kanban Server: startup failed before returning a result." "#B81818"
+                [System.Windows.MessageBox]::Show("Remote Kanban startup failed. See the Log tab for details.", "Start Kanban Server", "OK", "Warning") | Out-Null
+                return
+            }
+
+            if ($r.Output) {
+                foreach ($line in (($r.Output -split "`r?`n") | Where-Object { $_.Trim() })) {
+                    Add-LogLine ("Start Kanban Server: " + $line) "#44586C"
+                }
+            }
+
+            if ($r.Ok -and $r.Url) {
+                Complete-KanbanRemoteStart $r.Url
+                return
+            }
+
+            Reset-KanbanRemoteButton
+            $message = "Remote Kanban startup failed."
+            if ($r.Output -match "cloudflared\.exe was not found") {
+                $message = "cloudflared.exe was not found. Install Cloudflare cloudflared, then click Start Kanban Server again."
+            }
+            Add-LogLine ("Start Kanban Server: failed with exit code " + $r.ExitCode) "#B81818"
+            [System.Windows.MessageBox]::Show($message + "`n`nSee the Log tab for details.", "Start Kanban Server", "OK", "Warning") | Out-Null
+        }
+}
+
+function Invoke-StopKanbanRemote {
+    $starterScript = Join-Path $script:ProjectRoot "devtools\start-kanban-remote.ps1"
+    if ($script:KanbanRemoteStopBusy) {
+        [System.Windows.MessageBox]::Show("Kanban remote stop is already running.", "Stop Kanban Server", "OK", "Information") | Out-Null
+        return
+    }
+    if (-not (Test-Path -LiteralPath $starterScript)) {
+        Add-LogLine ("Stop Kanban Server: starter script not found at " + $starterScript) "#B81818"
+        [System.Windows.MessageBox]::Show("Remote Kanban starter not found:`n$starterScript", "Stop Kanban Server", "OK", "Warning") | Out-Null
+        return
+    }
+
+    Reset-KanbanRemoteButton
+    $script:KanbanRemoteStopBusy = $true
+    $ui["BtnStopKanbanServer"].IsEnabled = $false
+    $ui["BtnStopKanbanServer"].Content = "Stopping..."
+    Add-LogSessionLine "" "#C0C8D2"
+    Add-LogSessionLine ">>> Stop Kanban Server: stopping tracked remote Kanban session..." "#A07810"
+
+    Start-AsyncPoolAction `
+        -Script {
+            param($starter)
+            $result = [PSCustomObject]@{
+                Ok = $false
+                ExitCode = -1
+                Output = ""
+            }
+            try {
+                $psExe = (Get-Command powershell.exe -ErrorAction Stop).Source
+                $output = (& $psExe -NoProfile -ExecutionPolicy Bypass -File $starter -Stop 2>&1 | Out-String)
+                $code = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+                $result.Ok = ($code -eq 0)
+                $result.ExitCode = $code
+                $result.Output = $output
+            } catch {
+                $result.Output = $_.Exception.Message
+            }
+            return $result
+        } `
+        -Arguments @($starterScript) `
+        -OnComplete {
+            param($result)
+            $script:KanbanRemoteStopBusy = $false
+            $ui["BtnStopKanbanServer"].IsEnabled = $true
+            $ui["BtnStopKanbanServer"].Content = "Stop Kanban Server"
+
+            $r = @($result)[0]
+            if ($null -eq $r) {
+                Add-LogLine "Stop Kanban Server: stop failed before returning a result." "#B81818"
+                [System.Windows.MessageBox]::Show("Remote Kanban stop failed. See the Log tab for details.", "Stop Kanban Server", "OK", "Warning") | Out-Null
+                return
+            }
+
+            if ($r.Output) {
+                foreach ($line in (($r.Output -split "`r?`n") | Where-Object { $_.Trim() })) {
+                    Add-LogLine ("Stop Kanban Server: " + $line) "#44586C"
+                }
+            }
+
+            if ($r.Ok) {
+                Add-LogLine "Stop Kanban Server: tracked remote Kanban session stopped." "#1A8A1A"
+                [System.Windows.MessageBox]::Show("Remote Kanban server and tunnel stopped.", "Stop Kanban Server", "OK", "Information") | Out-Null
+                return
+            }
+
+            Add-LogLine ("Stop Kanban Server: failed with exit code " + $r.ExitCode) "#B81818"
+            [System.Windows.MessageBox]::Show("Remote Kanban stop failed. See the Log tab for details.", "Stop Kanban Server", "OK", "Warning") | Out-Null
+        }
 }
 
 function Invoke-GitPruneWorktrees {
@@ -4441,6 +4698,8 @@ $ui["BtnOpenFolder"].Add_Click({
 })
 
 $ui["BtnOpenKanban"].Add_Click({ Invoke-OpenKanban })
+$ui["BtnStartKanbanServer"].Add_Click({ Invoke-StartKanbanRemote })
+$ui["BtnStopKanbanServer"].Add_Click({ Invoke-StopKanbanRemote })
 
 $ui["BtnPull"].Add_Click({ Invoke-GitPull })
 $ui["BtnPush"].Add_Click({ Invoke-GitPush })

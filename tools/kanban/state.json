@@ -3975,6 +3975,88 @@
       ],
       "created": "2026-05-22T21:10:36.249Z",
       "updated": "2026-05-22T21:10:36.249Z"
+    },
+    {
+      "id": "c3836",
+      "title": "Kanban: remote phone board and card sessions",
+      "description": "Add one-click Dev Window paths that start and stop the Kanban board for phone access from a different network, show/copy a join link, keep routing scoped to the Kanban localhost service only, and make the phone UI list-first with full-screen card editing plus card-scoped Codex session controls.",
+      "pillar": "tooling",
+      "column": "active",
+      "order": 4500,
+      "priority": 2,
+      "notes": "Remote mode uses KANBAN_REMOTE_TOKEN plus a localhost-only cloudflared tunnel to the chosen 127.0.0.1 Kanban port. It prefers 7531 and falls forward if the local board is already open. It does not enable WARP, set a system proxy, configure an exit node, or change Windows routes.",
+      "flag": "watch",
+      "flagged_at": "2026-05-24T00:34:31Z",
+      "subtasks": [
+        {
+          "id": "c3836-s1",
+          "title": "Token-gate remote Kanban HTTP mode without changing local Dev Window use",
+          "status": "done",
+          "order": 1000,
+          "notes": "KANBAN_REMOTE_TOKEN accepts query/header/bearer/cookie tokens; local mode remains tokenless."
+        },
+        {
+          "id": "c3836-s2",
+          "title": "Add scoped remote starter script that launches Kanban plus cloudflared localhost tunnel",
+          "status": "done",
+          "order": 2000,
+          "notes": "Starter writes .claude/scratch/kanban-remote/remote-url.txt and tracks server/tunnel pids for Stop/Status."
+        },
+        {
+          "id": "c3836-s3",
+          "title": "Add Dev Window Start Kanban Server button that shows/copies the phone link",
+          "status": "done",
+          "order": 3000,
+          "notes": "Button runs the remote starter in the background, logs output, copies the URL, and displays it in a dialog. Follow-up fix polls remote-url.txt so the UI resets as soon as the tunnel writes the link."
+        },
+        {
+          "id": "c3836-s6",
+          "title": "Add Dev Window Stop Kanban Server button",
+          "status": "done",
+          "order": 3500,
+          "notes": "Button calls the tracked remote starter -Stop path, resets any in-progress start state, and reports completion through the Log tab and dialog."
+        },
+        {
+          "id": "c3836-s4",
+          "title": "Document usage and routing safety",
+          "status": "done",
+          "order": 4000,
+          "notes": "tools/kanban/README.md and Dev Window README describe the one-click flow and app-scoped tunnel."
+        },
+        {
+          "id": "c3836-s5",
+          "title": "Run parser and local auth smoke verification",
+          "status": "done",
+          "order": 5000,
+          "notes": "Python compile, PowerShell parser/help, and localhost token/cookie smoke passed. Real phone network retest remains for Mike."
+        },
+        {
+          "id": "c3836-s7",
+          "title": "Add phone list/detail/filter UI and per-card Codex session controls",
+          "status": "done",
+          "order": 6000,
+          "notes": "Phone widths hide the desktop tabs/filter/sidebar, show a card list plus Filters modal, open tapped cards full-screen, expose Save/Delete/Move Up/Move Down, and add Start Session with per-card session output. Session prompts include the target card, other Active cards, and other running card sessions; logs stay under .claude/scratch/kanban-sessions."
+        }
+      ],
+      "pending_completion": {
+        "marked_at": "2026-05-24T04:55:00Z",
+        "marked_by": "Codex",
+        "summary": "One-click remote Kanban start/stop controls plus phone-first card list/detail/filter UI and card-scoped Codex session launch/status controls are implemented. Awaiting Mike phone retest through the Cloudflare link.",
+        "evidence_refs": [
+          "python -m py_compile tools/kanban/server.py",
+          "powershell -File devtools/start-kanban-remote.ps1 -Help",
+          "PowerShell parser checks for Dev Window and remote starter",
+          "localhost token auth smoke: 401 without token, 200 with header, 200 with query-token cookie",
+          "local no-token smoke: 200 when KANBAN_REMOTE_TOKEN is unset",
+          "real quick-tunnel smoke: Cloudflare returned token redirect then 200 for Kanban HTML",
+          "Dev Window parser check passed after adding Stop Kanban Server",
+          "index.html JavaScript parse smoke passed",
+          "local mobile DOM smoke found the phone Kanban controls at 390px width",
+          "GET /api/cards/c3836/sessions returned ok"
+        ]
+      },
+      "created": "2026-05-24T00:34:31Z",
+      "updated": "2026-05-24T04:55:00Z"
     }
   ],
   "x_special_notes": {

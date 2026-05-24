@@ -10,6 +10,49 @@ python tools/kanban/server.py
 
 Then open: `http://localhost:7531/`
 
+## Remote phone access
+
+Use the remote starter when the phone is not on the local network:
+
+```powershell
+.\devtools\start-kanban-remote.ps1
+```
+
+Dev Window v2 also exposes this as one-click `Start Kanban Server` and
+`Stop Kanban Server` buttons beside `Open Kanban`. Start launches the same
+remote session, copies the phone link to the clipboard, and shows the link in
+a dialog. Stop shuts down the tracked Kanban server and Cloudflare tunnel.
+
+The starter launches this Kanban server on `127.0.0.1`, preferring port `7531`
+and choosing the next free localhost port if the local board is already open.
+It sets a per-run `KANBAN_REMOTE_TOKEN`, disables the short idle shutdown for
+the remote session, and starts `cloudflared tunnel --url <local-kanban-url>`.
+It prints a full phone URL with `?token=...` and also writes it to:
+
+```text
+.claude\scratch\kanban-remote\remote-url.txt
+```
+
+The tunnel is app-scoped. It does not enable Cloudflare WARP, does not set a
+system proxy, does not configure an exit node, and does not change Windows route
+tables. Only the local Kanban HTTP service is forwarded.
+
+Stop the tracked server and tunnel:
+
+```powershell
+.\devtools\start-kanban-remote.ps1 -Stop
+```
+
+Optional login startup task:
+
+```powershell
+.\devtools\start-kanban-remote.ps1 -InstallStartupTask
+.\devtools\start-kanban-remote.ps1 -RemoveStartupTask
+```
+
+Remote mode requires `cloudflared.exe` on PATH. Local Dev Window usage is
+unchanged and does not require a token unless `KANBAN_REMOTE_TOKEN` is set.
+
 ## Browser workflow
 
 - **Select status**: use the top status tabs (`Backlogged`, `Active`, `Blocked`, `Done`).
@@ -21,12 +64,26 @@ Then open: `http://localhost:7531/`
 - **AI special notes**: click the docked `AI Notes` button. Notes save to root `x_special_notes` in `state.json` so AI sessions can read them when directed or when noticed.
 - **Subtasks**: the right pane shows subtasks in their own scrollable box. `✅` means complete; `❎` means open. Click the indicator to toggle open/completed.
 - **Auto-sort by priority**: Settings panel, Sorting toggle. Off means manual order drives priority; on means flags and priority badges group the list before manual order.
+- **Phone layout**: the Kanban tab collapses to a card list plus a `Filters` modal. Tap a card to open a full-screen card editor. The editor can save/delete the card, move it up/down in the visible order, and start a card-scoped Codex session.
+- **Card sessions**: `Start Session` launches `codex exec` for that card only and records prompt, output, stderr, and the final response under `.claude/scratch/kanban-sessions/<session-id>/`. The session prompt includes the target card, other Active cards, and other currently running card sessions.
 
 ## AI workflow
 
 Read state: `tools/kanban/state.json`
 
 Write state: edit `state.json` directly (server must not be mid-write), or POST to `http://localhost:7531/api/state` with the full updated JSON body. The server writes atomically (temp file + rename) so direct edits are safe when the server is idle.
+
+List card sessions:
+
+```text
+GET /api/cards/<card-id>/sessions
+```
+
+Start one card session:
+
+```text
+POST /api/cards/<card-id>/sessions/start
+```
 
 **To dispatch work**: scan `state.json` for cards where `column` is `"active"` or `"backlog"`, sorted by `priority` ascending (1 = highest). Prefer `priority: 1` Critical cards, then `priority: 2` High. Within a priority level, lower `order` comes first. Move a card to `"active"` when starting it; move to `"done"` when complete. Set subtask `status` fields to reflect granular progress.
 

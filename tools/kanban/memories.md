@@ -1,3 +1,62 @@
+# Task Group: PD2 Gameplay Audio Polish
+scope: Cheat-driven voice/audio behavior, spoken-line routing, and focused verification for narrow gameplay polish changes.
+applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for PD2 audio/gameplay polish in this checkout when the request targets a specific runtime audio behavior rather than a broad audio-system redesign.
+
+## Task 1: Raise Tiny Mode voice-line pitch slightly across both dialogue and character-talk playback, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-23T20-44-50-ot87-tiny_mode_voice_pitch.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\23\rollout-2026-05-23T16-44-55-019e5695-5e5f-7232-9526-7e8946ce81ab.jsonl, updated_at=2026-05-23T21:02:18+00:00, thread_id=019e5695-5e5f-7232-9526-7e8946ce81ab, cheat-gated voice-pitch polish with focused static coverage)
+
+### keywords
+
+- CHEAT_SMALLJO, Tiny Mode, voice pitch, sndApplyTinyVoicePitch, sndStart, sndAdjust, PSTYPE_CHRTALK, propsnd, AL_SNDP_PITCH_EVT, [audio][voice][tiny][static], BuildTimeoutSeconds
+
+## User preferences
+
+- when the user asked: "make all voice lines play at a slightly higher pitch" -> scope similar requests narrowly to the named gameplay/audio behavior instead of broad audio-pipeline redesign [Task 1]
+
+## Reusable knowledge
+
+- `CHEAT_SMALLJO` is the Tiny Mode cheat gate for this behavior [Task 1]
+- To catch all spoken lines, cover both the config-driven voice/dialogue path in `sndStart()` and `PSTYPE_CHRTALK` prop-sound playback, because some barks use plain SFX ids instead of the high-bit voice-config path [Task 1]
+- A shared helper in `src/lib/snd.c` with a declaration in `src/include/lib/snd.h` is a workable central point when multiple call sites need the same voice-pitch rule [Task 1]
+- The focused static selector for this lane is `[audio][voice][tiny][static]`, and the added coverage lives in `tests/test_audio_voice_retag.cpp` [Task 1]
+
+## Failures and how to do differently
+
+- If a clean all-target `build-session` run gets killed by the wrapper's default 60-second active-build watchdog while the linker is still making progress, rerun the same session with a longer `-BuildTimeoutSeconds` before treating it as a code failure [Task 1]
+
+# Task Group: PD2 Shared Gameplay Node Editor Planning
+scope: Reusable graph-editor foundation planning, active-card ordering, and context updates for modding workflows that extend beyond weapon-only graphs.
+applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for PD2 graph-editor/modding planning work in this checkout when the task is about card framing, node-editor scope, or board/context ordering.
+
+## Task 1: Stage a reusable shared gameplay node-editor foundation card behind the Asset Pipeline decisions, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-22T03-51-04-lwD5-shared_gameplay_node_editor_kanban_card.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\21\rollout-2026-05-21T23-51-04-019e4dce-e3c1-7183-b352-d4056d84700f.jsonl, updated_at=2026-05-23T16:50:57+00:00, thread_id=019e4dce-e3c1-7183-b352-d4056d84700f, added `c3835` and updated project context)
+
+### keywords
+
+- c3835, shared gameplay node editor foundation, node editor, imgui-node-editor, typed pins, wire colors, gameplay scripts, c3824, c3832, c3834, order 4000, context/pillars/modding.md
+
+## User preferences
+
+- when the user said the node editor should eventually serve gameplay scripts beyond weapon graphs -> frame future graph-editor work as a reusable foundation rather than a weapon-only feature [Task 1]
+- when the user emphasized that wires should use the colors of the pins they connect -> treat wire color as a first-class UX rule, not a cosmetic afterthought [Task 1]
+- when the new card was placed directly behind `c3824`, `c3832`, and `c3834` -> keep shared node-editor work ordered after archive-format and per-family utility-definition decisions [Task 1]
+
+## Reusable knowledge
+
+- The active modding ordering chain is now `c3824` umbrella archive migration -> `c3832` clean `.pdweapon` format -> `c3834` per-family mod utilities -> `c3835` shared gameplay node-editor foundation [Task 1]
+- The new foundation card is intentionally broader than the current weapon graph UI: typed pins, wire colors derived from connected pin types, graph-model/render separation, shared contexts, inspector editing, validation UX, saved layouts, and reuse for future gameplay-script graphs [Task 1]
+- When inserting a new active card ahead of existing items, update both `tools/kanban/state.json` and project context surfaces such as `context/tasks.md`, `context/pillars/modding.md`, and `context/session-log.md` so the priority is visible outside the board file [Task 1]
+
+## Failures and how to do differently
+
+- No technical failure occurred here, but future board-order changes should be reflected in both Kanban and project context files rather than only in `state.json` [Task 1]
+
 # Task Group: PD2 Asset Pipeline: Typed pdxxx Asset Archives
 scope: Native asset authoring, storage, sharing, validation, and runtime consumption for base-game and mod content.
 applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for PD2 asset-pipeline, base-content rebuild, mod content, Public Mods, and online-required-content work when the typed `*.pdxxx` contract is in scope.
@@ -743,12 +802,13 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 ### rollout_summary_files
 
+- rollout_summaries/2026-05-23T20-44-50-ot87-tiny_mode_voice_pitch.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\23\rollout-2026-05-23T16-44-55-019e5695-5e5f-7232-9526-7e8946ce81ab.jsonl, updated_at=2026-05-23T21:02:18+00:00, thread_id=019e5695-5e5f-7232-9526-7e8946ce81ab, longer timeout rerun after active-build watchdog stop)
 - rollout_summaries/2026-05-18T20-35-32-kbzd-action_use_hold_only_interact_and_hold_ring_consumption.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\18\rollout-2026-05-18T16-35-32-019e3ccd-0eee-7522-8457-566820dfc363.jsonl, updated_at=2026-05-18T20:48:19+00:00, thread_id=019e3ccd-0eee-7522-8457-566820dfc363)
 - rollout_summaries/2026-05-18T16-16-37-8nu7-skedar_swarm_benchmark_parity_verified.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\18\rollout-2026-05-18T12-16-37-019e3be0-05bb-7ee0-928a-f0ff9ce3f387.jsonl, updated_at=2026-05-18T17:39:24+00:00, thread_id=019e3be0-05bb-7ee0-928a-f0ff9ce3f387, watchdog timeout example)
 
 ### keywords
 
-- hold340, skswarm, BuildTimeoutSeconds, queued isolated session, exit code 124
+- hold340, skswarm, tinypitch, BuildTimeoutSeconds, queued isolated session, active-build watchdog, exit code 124
 
 ## User preferences
 
@@ -760,11 +820,12 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - Default to `devtools/build-session.ps1 -Session <short-id> -Target all` for queued isolated verification instead of the shared `Build/` output tree [Task 1][Task 2]
 - Reuse the same session ID for reruns within one task, and locate binaries under `.claude/session-builds/<session-id>/` rather than assuming an older flat path [Task 1]
 - If the all-target wrapper summary looks incomplete, verify client/updater, tests, and server separately before judging the build state [Task 1]
+- If a clean all-target build is clearly still linking or otherwise progressing when the wrapper watchdog fires, rerun the same session with a longer `-BuildTimeoutSeconds` instead of assuming the code failed [Task 2]
 - Clean up with `devtools/build-session.ps1 -Remove -Session <short-id>` when the task is done [Task 1]
 
 ## Failures and how to do differently
 
-- Treat watchdog timeout exit code `124` as a hung-build failure unless current evidence proves otherwise; increase timeout only when the build is legitimately longer for that lane [Task 2]
+- Treat watchdog timeout exit code `124` as a hung-build failure unless current evidence proves the build is still making progress; increase timeout only when the lane is legitimately longer, such as a clean all-target link that is still active at the 60-second watchdog [Task 2]
 - Do not assume the first `pd-tests.exe` path is still valid in this checkout; the isolated build layout has drifted from older flat-path examples [Task 1]
 
 # Task Group: PD2 Targeted pd-tests Routing
@@ -775,6 +836,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 ### rollout_summary_files
 
+- rollout_summaries/2026-05-23T20-44-50-ot87-tiny_mode_voice_pitch.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\23\rollout-2026-05-23T16-44-55-019e5695-5e5f-7232-9526-7e8946ce81ab.jsonl, updated_at=2026-05-23T21:02:18+00:00, thread_id=019e5695-5e5f-7232-9526-7e8946ce81ab, `[audio][voice][tiny][static]`)
 - rollout_summaries/2026-05-19T19-58-49-VwGb-c036_controller_support_cohorts_menu_graph_complete.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\19\rollout-2026-05-19T15-58-49-019e41d1-cf2a-7320-8405-7fbb17b7658f.jsonl, updated_at=2026-05-19T20:18:35+00:00, thread_id=019e41d1-cf2a-7320-8405-7fbb17b7658f, `[input][menu_graph]`)
 - rollout_summaries/2026-05-19T18-33-07-wA5I-pd2_skedar_campaign_credits_and_b345_followup.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\19\rollout-2026-05-19T14-33-07-019e4183-5914-7902-a0a5-ee804ed93a82.jsonl, updated_at=2026-05-19T20:21:13+00:00, thread_id=019e4183-5914-7902-a0a5-ee804ed93a82, `[debug][campaign][f6]`)
 - rollout_summaries/2026-05-18T20-35-32-kbzd-action_use_hold_only_interact_and_hold_ring_consumption.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\18\rollout-2026-05-18T16-35-32-019e3ccd-0eee-7522-8457-566820dfc363.jsonl, updated_at=2026-05-18T20:48:19+00:00, thread_id=019e3ccd-0eee-7522-8457-566820dfc363, `[press-hold]`)
@@ -782,7 +844,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 ### keywords
 
-- run-pd-tests.ps1, -Scope, -Selector, [input][menu_graph], [debug][campaign][f6], [press-hold], [physics][jump]
+- run-pd-tests.ps1, -Scope, -Selector, [audio][voice][tiny][static], [input][menu_graph], [debug][campaign][f6], [press-hold], [physics][jump]
 
 ## Task 2: Fix the Windows `clock_gettime64` loader popup by making `pd-tests.exe` resolve `winpthread` locally, success
 
@@ -802,7 +864,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 ## Reusable knowledge
 
 - Prefer `devtools/run-pd-tests.ps1` with `-Scope` or `-Selector` for focused `pd-tests` lanes when applicable, and keep test/docs alignment in the same slice when product rules change [Task 1]
-- The recent reliable focused selectors in this checkout were `[input][menu_graph]`, `[debug][campaign][f6]`, `[press-hold]`, and `[physics][jump]` [Task 1]
+- The recent reliable focused selectors in this checkout were `[audio][voice][tiny][static]`, `[input][menu_graph]`, `[debug][campaign][f6]`, `[press-hold]`, and `[physics][jump]` [Task 1]
 - For Windows `pd-tests.exe` popup issues, check the binary import table first (`objdump -p`) before assuming the wrapper is the only culprit [Task 2]
 - The durable fix for B-355 was not removing the dependency entirely but copying the matching `libwinpthread-1.dll` beside `pd-tests.exe` so Windows resolves the local runtime before `PATH` [Task 2]
 - `devtools/run-pd-tests.ps1`, Dev Window v2, and `tools/smoke-verify/run-pd-tests-smoke.ps1` all matter for this lane; a test-launch fix is incomplete if only one wrapper is hardened [Task 2]
