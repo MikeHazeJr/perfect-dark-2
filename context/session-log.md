@@ -1,5 +1,29 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-24-asset-decisions-tab`) - 2026-05-24 - Kanban asset decision intake tab
+
+Mike asked for a Kanban tab with Codex recommendations for each asset archive type and the exact decisions needed from him before updating implementation cards.
+
+### Implemented
+
+- Added a top-level `Asset Decisions` tab to the Kanban browser.
+- Seeded the tab with recommendations for all frozen `.pdxxx` families, missing family candidates, and cross-family catalog/containment decisions.
+- Added editable status, Mike decision, and notes fields for each recommendation; `Save Decisions` persists the data under root `x_asset_archive_decisions` in `tools/kanban/state.json`.
+- Updated tasks and release notes so future sessions treat this as the archive-format decision intake surface before card updates.
+
+### Verification
+
+- Kanban inline JavaScript parse check passed.
+- `tools/kanban/state.json` parsed as JSON.
+- Static Asset Decisions tab content smoke passed.
+- Scoped `git diff --check` passed for the touched Kanban/context/release-note files.
+
+### Next
+
+- Mike reviews the `Asset Decisions` tab, saves statuses/notes, then Codex updates the relevant Kanban cards from those saved decisions.
+
+---
+
 ## Session (`c3824-20260524-165854-961966`) - 2026-05-24 - Recursive clean archive closure, examples, and release gate
 
 Kanban launched this headless session for `c3824`, continuing the post-freeze Asset Pipeline sweep across validators and examples.

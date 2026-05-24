@@ -20,6 +20,7 @@
 - Added Dev Window v2 `Start Kanban Server` and `Stop Kanban Server` buttons for remote Kanban phone access.
 - Added a phone-first Kanban layout with filter modal, full-screen card editing, mobile card ordering controls, and card-scoped Codex session launch/status output.
 - Added full-screen Kanban Codex session viewing with response-only transcripts, phone follow-up messaging, queued prompt steering, tap-to-answer plan-mode questions, and ad-hoc session launch without requiring a card.
+- Added an Asset Decisions Kanban tab for reviewing each `.pdxxx` archive recommendation, requested decision, status, and Mike's notes before implementation cards are updated.
 - Added c3813 online lifecycle guards for listen-host/client smoke coverage and reconnect/drop-in/drop-out state restoration.
 - Added named input profile slots and per-controller profile assignment, including custom/raw controller devices.
 - Added Blender-ready map visual exports inside scenario/arena archives, including OBJ/MTL scenes, decoded TGA wall/floor textures, and material TSV ledgers.

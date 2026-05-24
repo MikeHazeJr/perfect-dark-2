@@ -560,6 +560,32 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .decision-status.needs_interpretation,.decision-status.needs_confirmation{background:#9a3412;color:#ffedd5}
 @media (max-width:900px){.decision-layout{grid-template-columns:1fr}}
 
+/* Asset Decisions tab */
+#panel-asset-decisions{background:#0f172a}
+.asset-decision-summary{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.asset-decision-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid #334155;border-radius:6px;background:#1e293b;color:#cbd5e1;font-size:0.73rem;font-weight:700}
+.asset-decision-pill strong{color:#fef3c7}
+.asset-decision-list{display:flex;flex-direction:column;gap:14px}
+.asset-decision-group{display:flex;flex-direction:column;gap:8px}
+.asset-decision-group-head{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:0.74rem;font-weight:800;text-transform:uppercase;letter-spacing:0.06em}
+.asset-decision-group-head span:last-child{font-size:0.68rem;color:#94a3b8}
+.asset-decision-row{background:#1e293b;border:1px solid #334155;border-left:4px solid #64748b;border-radius:6px;padding:11px 12px}
+.asset-decision-row.status-approved{border-left-color:#22c55e}
+.asset-decision-row.status-change_requested,.asset-decision-row.status-more_info{border-left-color:#f97316}
+.asset-decision-row.status-defer{border-left-color:#8b5cf6}
+.asset-decision-row.status-rejected{border-left-color:#ef4444}
+.asset-decision-head{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:start;margin-bottom:8px}
+.asset-decision-target{font-size:0.9rem;color:#f8fafc;font-weight:850;font-family:ui-monospace,Consolas,monospace}
+.asset-decision-level{display:inline-block;margin-left:8px;padding:1px 6px;border-radius:999px;background:#334155;color:#cbd5e1;font-family:inherit;font-size:0.62rem;font-weight:800;text-transform:uppercase;letter-spacing:0.05em}
+.asset-decision-status{padding:5px 8px;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-family:inherit;font-size:0.74rem;font-weight:800}
+.asset-decision-copy{display:grid;grid-template-columns:minmax(260px,1fr) minmax(260px,1fr);gap:10px;margin-bottom:9px}
+.asset-decision-copy-block{background:#0f172a;border:1px solid #334155;border-radius:5px;padding:9px 10px;color:#cbd5e1;font-size:0.78rem;line-height:1.45}
+.asset-decision-copy-block strong{display:block;color:#7dd3fc;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px}
+.asset-decision-notes{display:grid;grid-template-columns:minmax(260px,1fr) minmax(260px,1fr);gap:10px}
+.asset-decision-notes textarea{width:100%;min-height:58px;resize:vertical;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-family:inherit;font-size:0.78rem;padding:7px 9px}
+.asset-decision-notes textarea:focus,.asset-decision-status:focus{outline:none;border-color:#38bdf8}
+@media (max-width:900px){.asset-decision-copy,.asset-decision-notes{grid-template-columns:1fr}.asset-decision-head{grid-template-columns:1fr}.asset-decision-status{justify-self:start}}
+
 /* Memory Review tab */
 #panel-memory-review{background:#0f172a}
 .memory-summary{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
@@ -730,6 +756,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
   <button class="tab-btn active" data-tab="kanban" onclick="switchTab('kanban')">Active Kanban</button>
   <button class="tab-btn" data-tab="bugs" onclick="switchTab('bugs')">Bug Tracker <span id="bugs-tab-count" style="opacity:0.7"></span></button>
   <button class="tab-btn" data-tab="decisions" onclick="switchTab('decisions')">Decision Requests <span id="decision-tab-count" style="opacity:0.7"></span></button>
+  <button class="tab-btn" data-tab="asset-decisions" onclick="switchTab('asset-decisions')">Asset Decisions <span id="asset-decisions-tab-count" style="opacity:0.7"></span></button>
   <button class="tab-btn" data-tab="memory-review" onclick="switchTab('memory-review')">Memory Review <span id="memory-review-tab-count" style="opacity:0.7"></span></button>
   <button class="tab-btn" data-tab="daily-flow" onclick="switchTab('daily-flow')">Daily Flow <span id="daily-flow-tab-count" style="opacity:0.7"></span></button>
 </div>
@@ -847,6 +874,19 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
         <div id="decision-response-list"></div>
       </section>
     </div>
+  </div>
+
+  <div id="panel-asset-decisions" class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Asset Decisions</span>
+      <span class="panel-count" id="asset-decisions-count"></span>
+      <div class="panel-filters">
+        <button class="btn btn-ghost btn-sm" onclick="renderAssetDecisionsTab()">Refresh</button>
+        <button class="btn btn-primary btn-sm" onclick="saveAssetDecisionsFromTab()">Save Decisions</button>
+      </div>
+    </div>
+    <div class="asset-decision-summary" id="asset-decisions-summary"></div>
+    <div class="asset-decision-list" id="asset-decisions-list"></div>
   </div>
 
   <div id="panel-memory-review" class="panel">
@@ -1240,6 +1280,302 @@ const FLAG_CONFIG = {
 };
 const FLAG_CYCLE = [null, 'star', 'alert', 'watch'];
 
+const ASSET_DECISION_STATUSES = [
+  ['needs_decision', 'Needs decision'],
+  ['approved', 'Approved'],
+  ['change_requested', 'Change requested'],
+  ['more_info', 'Need more info'],
+  ['defer', 'Defer'],
+  ['rejected', 'Reject']
+];
+
+const DEFAULT_ASSET_DECISION_ITEMS = [
+  {
+    id: 'archive-pdweapon',
+    group: 'Frozen Family Contracts',
+    target: '.pdweapon',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as the weapon meta asset: weapon.ini, weapon-owned behavior and bindings, intact typed dependency archives under dependencies/assets, and _meta. .pdmod stays transport only.',
+    decision_needed: 'Confirm this final clean layout, and confirm older sample shapes with root behavior.graph.json, hand.gltf, loose model, or loose audio should be migrated away.'
+  },
+  {
+    id: 'archive-pdprojectile',
+    group: 'Frozen Family Contracts',
+    target: '.pdprojectile',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as the projectile behavior asset: projectile.ini, flight, collision, damage, lifecycle, behavior data, typed visual/audio/effect/entity dependencies, and _meta.',
+    decision_needed: 'Confirm projectiles are first-class catalog assets even when normally embedded by weapons.'
+  },
+  {
+    id: 'archive-pdentity',
+    group: 'Frozen Family Contracts',
+    target: '.pdentity',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as the graph-authored entity/archetype asset: entity.ini, bindings.json, optional behavior.graph.json, optional composition.json, typed dependencies, and _meta.',
+    decision_needed: 'Confirm whether ordinary props remain separate .pdprop assets or are folded into .pdentity.'
+  },
+  {
+    id: 'archive-pdmaterial',
+    group: 'Frozen Family Contracts',
+    target: '.pdmaterial',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as render and surface material data: material.ini, parameters, texture slot bindings, variants, compatibility tags, typed dependencies, and _meta.',
+    decision_needed: 'Confirm .pdmaterial should get a first-class catalog type instead of mapping to ASSET_NONE.'
+  },
+  {
+    id: 'archive-pdtexture',
+    group: 'Frozen Family Contracts',
+    target: '.pdtexture',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as editable image source: texture.ini, source image data, alpha, palette, mip and import settings, usage tags, and _meta.',
+    decision_needed: 'Confirm no authored runtime .bin payload is allowed in texture archives.'
+  },
+  {
+    id: 'archive-pdcharacter',
+    group: 'Frozen Family Contracts',
+    target: '.pdcharacter',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as a character assembler asset: character.ini owns identity, roster/unlock tags, and body/head/skin/voice/animation/UI bindings.',
+    decision_needed: 'Confirm character archives embed all bound typed dependencies needed to clone or share the character.'
+  },
+  {
+    id: 'archive-pdhead',
+    group: 'Frozen Family Contracts',
+    target: '.pdhead',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as the focused head asset: head.ini, head identity, sockets, expression metadata, material slots, and typed mesh/material/texture/animation dependencies.',
+    decision_needed: 'Confirm raw model and texture sidecars should be replaced by typed embedded dependencies for release-format archives.'
+  },
+  {
+    id: 'archive-pdbody',
+    group: 'Frozen Family Contracts',
+    target: '.pdbody',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as the focused body asset: body.ini, skeleton/rig, proportions, attachment sockets, first-person hand bindings, material slots, and typed dependencies.',
+    decision_needed: 'Confirm hands stay body/character-owned, not weapon-owned, and raw sidecars migrate to typed dependencies.'
+  },
+  {
+    id: 'archive-pdarena',
+    group: 'Frozen Family Contracts',
+    target: '.pdarena',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as the multiplayer-facing wrapper: arena.ini, preview/defaults/spawn playlist metadata, and embedded .pdscenario dependency.',
+    decision_needed: 'Confirm arena archives should not directly own geometry; geometry belongs inside the embedded .pdscenario.'
+  },
+  {
+    id: 'archive-pdscenario',
+    group: 'Frozen Family Contracts',
+    target: '.pdscenario',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as level/map content: scenario.ini, geometry, rooms, portals, pads, setup, collision/navigation, visuals, typed dependencies, and spawn profiles.',
+    decision_needed: 'Confirm .pdscenario maps to ASSET_MAP or a new ASSET_SCENARIO instead of ASSET_GAMEMODE, and confirm explicit default/team/CTF/objective/mission-phase spawn profile payloads.'
+  },
+  {
+    id: 'archive-pdmesh',
+    group: 'Frozen Family Contracts',
+    target: '.pdmesh',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as reusable geometry/model data: mesh.ini, geometry, hierarchy, skinning/rig binding data, sockets, LODs, optional collision proxy, and import/export settings.',
+    decision_needed: 'Confirm materials and textures remain typed embedded dependencies, not loose sidecars.'
+  },
+  {
+    id: 'archive-pdanim',
+    group: 'Frozen Family Contracts',
+    target: '.pdanim',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as reusable animation data: animation.ini, timelines/channels, events/notifies, target rig or weapon binding metadata, retarget metadata, and optional legacy opcode listings.',
+    decision_needed: 'Confirm target rig/body/weapon dependencies must be embedded or declared with an approved base fallback.'
+  },
+  {
+    id: 'archive-pdsfx',
+    group: 'Frozen Family Contracts',
+    target: '.pdsfx',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as atomic sound-effect data: sound.ini, editable source audio, one-shot/loop metadata, loop points, attenuation/mixer tags, import settings, and private rebuildable runtime cache.',
+    decision_needed: 'Confirm .pdsfx can share ASSET_AUDIO with category metadata, or request a separate ASSET_SFX catalog type.'
+  },
+  {
+    id: 'archive-pdvoice',
+    group: 'Frozen Family Contracts',
+    target: '.pdvoice',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as voice-line data: voice.ini, speaker/context/category metadata, subtitle bindings, per-locale audio variants, takes, priority/playback tags, and voice-mod override compatibility.',
+    decision_needed: 'Confirm .pdvoice binds to .pdlang subtitle keys and includes locale fallback rules.'
+  },
+  {
+    id: 'archive-pdsong',
+    group: 'Frozen Family Contracts',
+    target: '.pdsong',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as music data: music.ini, sequence or track source files, loop points, sections/cues, tempo/transition tags, optional adaptive layers, and no authored data.bin fallback.',
+    decision_needed: 'Confirm .pdsong can share ASSET_AUDIO with category metadata, or request a separate ASSET_MUSIC catalog type.'
+  },
+  {
+    id: 'archive-pdui',
+    group: 'Frozen Family Contracts',
+    target: '.pdui',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as UI layout/widget asset: ui.ini plus layout, widgets, controller focus metadata, images/fonts/lang bindings, and _meta.',
+    decision_needed: 'Confirm HUD widgets stay under .pdui or approve a separate .pdhud family.'
+  },
+  {
+    id: 'archive-pdfont',
+    group: 'Frozen Family Contracts',
+    target: '.pdfont',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as font asset: font.ini, source font or atlas source, glyph ranges, metrics, fallback bindings, import settings, and _meta.',
+    decision_needed: 'Confirm .pdfont should get ASSET_FONT instead of sharing ASSET_UI.'
+  },
+  {
+    id: 'archive-pdlang',
+    group: 'Frozen Family Contracts',
+    target: '.pdlang',
+    recommendation_level: 'freeze',
+    recommendation: 'Keep as localization owner: language.ini, string tables, namespaces, plural/context metadata, subtitle text keys, fallback chain, and _meta.',
+    decision_needed: 'Confirm .pdlang owns text while .pdvoice only binds to keys and audio variants.'
+  },
+  {
+    id: 'archive-pdskin',
+    group: 'Missing Family Candidates',
+    target: '.pdskin',
+    recommendation_level: 'recommended',
+    recommendation: 'Add a reusable skin archive for character, body, head, and weapon material-slot override sets.',
+    decision_needed: 'Approve .pdskin as a standalone typed asset, defer it, or fold skins into .pdmaterial/.pdcharacter only?'
+  },
+  {
+    id: 'archive-pdeffect',
+    group: 'Missing Family Candidates',
+    target: '.pdeffect',
+    recommendation_level: 'recommended',
+    recommendation: 'Add a visual/effect archive for particles, glows, shader tints, screen overlays, trails, decals, and effect graphs referenced by weapons, projectiles, entities, and materials.',
+    decision_needed: 'Approve .pdeffect as a first-class typed asset, or keep effects embedded inside the referencing asset families?'
+  },
+  {
+    id: 'archive-pdprop',
+    group: 'Missing Family Candidates',
+    target: '.pdprop',
+    recommendation_level: 'recommended',
+    recommendation: 'Add a prop archive for static or interactive world objects that are not character-like graph entities.',
+    decision_needed: 'Approve .pdprop, or explicitly make .pdentity the single family for all deployable/world object archetypes?'
+  },
+  {
+    id: 'archive-pdvehicle',
+    group: 'Missing Family Candidates',
+    target: '.pdvehicle',
+    recommendation_level: 'recommended',
+    recommendation: 'Add a vehicle archive if vehicles remain referenceable/moddable: vehicle.ini, model/physics/seat/camera/audio/effect bindings, and typed dependencies.',
+    decision_needed: 'Approve .pdvehicle now, defer until vehicle modding is in scope, or fold vehicles into .pdentity?'
+  },
+  {
+    id: 'archive-pdmission',
+    group: 'Missing Family Candidates',
+    target: '.pdmission',
+    recommendation_level: 'recommended',
+    recommendation: 'Add a solo/co-op mission wrapper for briefing, objectives, intro/outro, cutscenes, scenario binding, difficulty rules, unlocks, and completion rewards.',
+    decision_needed: 'Approve .pdmission so .pdscenario stays map content rather than mission flow.'
+  },
+  {
+    id: 'archive-pdgamemode',
+    group: 'Missing Family Candidates',
+    target: '.pdgamemode',
+    recommendation_level: 'recommended',
+    recommendation: 'Add a multiplayer ruleset archive for scoring, teams, timers, equipment rules, bot rules, objective logic, and compatible arena/scenario tags.',
+    decision_needed: 'Approve .pdgamemode, rename it .pdruleset, or keep rules hardcoded for now?'
+  },
+  {
+    id: 'archive-pdbotprofile',
+    group: 'Missing Family Candidates',
+    target: '.pdbotprofile',
+    recommendation_level: 'recommended',
+    recommendation: 'Add a simulant profile archive for personality, difficulty, behavior tuning, preferred weapons, voice/character bindings, and unlock tags.',
+    decision_needed: 'Approve .pdbotprofile or keep simulants as non-archive save/config data for now?'
+  },
+  {
+    id: 'archive-pdhud',
+    group: 'Missing Family Candidates',
+    target: '.pdhud',
+    recommendation_level: 'optional',
+    recommendation: 'Add a HUD-specific archive only if crosshair, ammo, radar, health, and mission overlay widgets need standalone catalog entries outside general UI.',
+    decision_needed: 'Approve .pdhud, defer it, or fold HUD assets into .pdui?'
+  },
+  {
+    id: 'archive-pdtheme',
+    group: 'Missing Family Candidates',
+    target: '.pdtheme',
+    recommendation_level: 'optional',
+    recommendation: 'Add a UI theme archive only if menu chrome, color sets, sounds, cursor, and shared visual skinning become distributable assets.',
+    decision_needed: 'Approve .pdtheme, defer it, or fold theme payloads into .pdui/.pdmaterial?'
+  },
+  {
+    id: 'archive-pdtool',
+    group: 'Missing Family Candidates',
+    target: '.pdtool',
+    recommendation_level: 'defer',
+    recommendation: 'Defer tool/plugin archives until we intentionally ship modding tools as catalog assets.',
+    decision_needed: 'Confirm .pdtool stays out of the current asset-format implementation sweep.'
+  },
+  {
+    id: 'mapping-material',
+    group: 'Runtime Mapping Decisions',
+    target: '.pdmaterial -> ASSET_MATERIAL',
+    recommendation_level: 'recommended',
+    recommendation: 'Add ASSET_MATERIAL so material archives do not register as ASSET_NONE.',
+    decision_needed: 'Approve adding ASSET_MATERIAL to the catalog enum and archive policy.'
+  },
+  {
+    id: 'mapping-scenario',
+    group: 'Runtime Mapping Decisions',
+    target: '.pdscenario -> ASSET_MAP or ASSET_SCENARIO',
+    recommendation_level: 'recommended',
+    recommendation: 'Separate map/scenario content from multiplayer rules. .pdgamemode owns rules; .pdscenario owns map content.',
+    decision_needed: 'Choose ASSET_MAP reuse or a new ASSET_SCENARIO enum.'
+  },
+  {
+    id: 'mapping-font',
+    group: 'Runtime Mapping Decisions',
+    target: '.pdfont -> ASSET_FONT',
+    recommendation_level: 'recommended',
+    recommendation: 'Add ASSET_FONT if fonts should be independently discoverable, replaceable, and dependency-checked.',
+    decision_needed: 'Approve ASSET_FONT or keep .pdfont under ASSET_UI.'
+  },
+  {
+    id: 'mapping-audio',
+    group: 'Runtime Mapping Decisions',
+    target: '.pdsfx/.pdvoice/.pdsong -> ASSET_AUDIO',
+    recommendation_level: 'acceptable',
+    recommendation: 'Sharing ASSET_AUDIO is acceptable if strict category metadata remains mandatory and validators reject category mismatches.',
+    decision_needed: 'Confirm unified ASSET_AUDIO is final, or request separate SFX/VOICE/MUSIC enum types.'
+  },
+  {
+    id: 'mapping-model-mesh',
+    group: 'Runtime Mapping Decisions',
+    target: '.pdmesh -> ASSET_MODEL',
+    recommendation_level: 'acceptable',
+    recommendation: 'Mapping .pdmesh to ASSET_MODEL is acceptable if "model" is the runtime catalog concept and "mesh" is the archive authoring name.',
+    decision_needed: 'Confirm ASSET_MODEL reuse or request a new ASSET_MESH enum.'
+  },
+  {
+    id: 'closure-raw-sidecars',
+    group: 'Containment Fixes',
+    target: 'Raw sidecars in clean archives',
+    recommendation_level: 'recommended',
+    recommendation: 'Allow raw editable source files only when they are owned by that family. Cross-family resources should be intact embedded typed archives under dependencies/assets.',
+    decision_needed: 'Confirm release-format .pdhead, .pdbody, .pdmesh, .pdarena, and .pdweapon samples should migrate away from loose cross-family sidecars.'
+  },
+  {
+    id: 'closure-dependency-refs',
+    group: 'Containment Fixes',
+    target: 'Catalog references inside examples',
+    recommendation_level: 'recommended',
+    recommendation: 'Example archives with bindings to body/head/rig/texture/material/localization assets must embed those dependencies or use an explicit approved base fallback.',
+    decision_needed: 'Confirm validators should reject unresolved example-local dependency refs unless the ref is declared as base-game fallback.'
+  }
+].map(item => Object.assign({
+  status: 'needs_decision',
+  mike_decision: '',
+  notes: ''
+}, item));
+
 // ---------- state ----------
 
 let state = null;
@@ -1321,6 +1657,7 @@ async function loadState() {
   state = await r.json();
   if (!state.settings) state.settings = {autoSortPriority: false};
   if (!state.x_special_notes) state.x_special_notes = {text: '', updated: null};
+  ensureAssetArchiveDecisionsState();
   render();
 }
 
@@ -1397,10 +1734,13 @@ function clearAiNotes() {
 function render() {
   ensureActiveKanbanColumn();
   ensureBoardFilter();
+  ensureAssetArchiveDecisionsState();
   renderFilters();
   renderBoard();
   renderPillarList();
   refreshAiNotesDock();
+  refreshAssetDecisionTabCount();
+  if (activeTab === 'asset-decisions') renderAssetDecisionsTab();
 }
 
 function columnLabel(colId) {
@@ -3429,6 +3769,7 @@ function switchTab(name) {
   for (const p of document.querySelectorAll('#main-area > .panel')) p.classList.toggle('active', p.id === 'panel-' + name);
   if (name === 'bugs') renderBugs();
   if (name === 'decisions') renderDecisionRequestsTab();
+  if (name === 'asset-decisions') renderAssetDecisionsTab();
   if (name === 'memory-review') renderMemoryReviewTab();
   if (name === 'daily-flow') renderDailyFlowTab();
 }
@@ -3512,6 +3853,211 @@ function refreshMemoryReviewTabCount() {
   const unreviewed = summary.counts.unreviewed || 0;
   badge.textContent = summary.total ? `(${unreviewed}/${summary.total})` : '';
   badge.title = `${unreviewed} unreviewed of ${summary.total}`;
+}
+
+function cloneDefaultAssetDecisionItems() {
+  return DEFAULT_ASSET_DECISION_ITEMS.map(item => Object.assign({}, item));
+}
+
+function ensureAssetArchiveDecisionsState() {
+  if (!state) return {items: []};
+  if (!state.x_asset_archive_decisions) {
+    state.x_asset_archive_decisions = {
+      updated: null,
+      summary: 'Asset archive format freeze review recommendations before implementation.',
+      items: cloneDefaultAssetDecisionItems()
+    };
+    return state.x_asset_archive_decisions;
+  }
+
+  const box = state.x_asset_archive_decisions;
+  if (!box.summary) box.summary = 'Asset archive format freeze review recommendations before implementation.';
+  if (!Array.isArray(box.items)) box.items = [];
+
+  const existingById = new Map(box.items.map(item => [item.id, item]));
+  const defaultIds = new Set(DEFAULT_ASSET_DECISION_ITEMS.map(item => item.id));
+  const merged = [];
+  for (const base of cloneDefaultAssetDecisionItems()) {
+    const existing = existingById.get(base.id) || {};
+    merged.push(Object.assign({}, base, {
+      status: existing.status || base.status || 'needs_decision',
+      mike_decision: existing.mike_decision || '',
+      notes: existing.notes || ''
+    }));
+  }
+  for (const item of box.items) {
+    if (item && item.id && !defaultIds.has(item.id)) {
+      merged.push(Object.assign({
+        group: 'Custom',
+        target: item.id,
+        recommendation_level: 'custom',
+        recommendation: '',
+        decision_needed: '',
+        status: 'needs_decision',
+        mike_decision: '',
+        notes: ''
+      }, item));
+    }
+  }
+  box.items = merged;
+  return box;
+}
+
+function assetDecisionStatusLabel(status) {
+  for (const entry of ASSET_DECISION_STATUSES) {
+    if (entry[0] === status) return entry[1];
+  }
+  return status || 'Needs decision';
+}
+
+function assetDecisionStatusClass(status) {
+  return 'status-' + String(status || 'needs_decision').replace(/[^a-z0-9_-]/gi, '_');
+}
+
+function assetDecisionCounts(items) {
+  const counts = {total: 0, open: 0, approved: 0, change_requested: 0, more_info: 0, defer: 0, rejected: 0};
+  for (const item of items || []) {
+    const status = item.status || 'needs_decision';
+    counts.total += 1;
+    counts[status] = (counts[status] || 0) + 1;
+    if (status === 'needs_decision' || status === 'change_requested' || status === 'more_info') counts.open += 1;
+  }
+  return counts;
+}
+
+function refreshAssetDecisionTabCount() {
+  const badge = document.getElementById('asset-decisions-tab-count');
+  if (!badge || !state) return;
+  const box = ensureAssetArchiveDecisionsState();
+  const counts = assetDecisionCounts(box.items || []);
+  badge.textContent = counts.total ? `(${counts.open}/${counts.total})` : '';
+  badge.title = `${counts.open} decisions still open of ${counts.total}`;
+}
+
+function renderAssetDecisionsTab() {
+  const panelCount = document.getElementById('asset-decisions-count');
+  const summary = document.getElementById('asset-decisions-summary');
+  const list = document.getElementById('asset-decisions-list');
+  if (!summary || !list || !state) return;
+
+  const box = ensureAssetArchiveDecisionsState();
+  const items = box.items || [];
+  const counts = assetDecisionCounts(items);
+  if (panelCount) panelCount.textContent = `${counts.total} recommendations, ${counts.open} open`;
+  summary.innerHTML = [
+    `<span class="asset-decision-pill"><strong>${counts.open}</strong> open</span>`,
+    `<span class="asset-decision-pill"><strong>${counts.approved || 0}</strong> approved</span>`,
+    `<span class="asset-decision-pill"><strong>${counts.change_requested || 0}</strong> changes</span>`,
+    `<span class="asset-decision-pill"><strong>${counts.more_info || 0}</strong> info needed</span>`,
+    `<span class="asset-decision-pill"><strong>${counts.defer || 0}</strong> deferred</span>`,
+    `<span class="asset-decision-pill">saved: ${escapeHtml(shortDate(box.updated) || 'not yet')}</span>`
+  ].join('');
+
+  const groups = [];
+  const groupMap = new Map();
+  for (const item of items) {
+    const group = item.group || 'Other';
+    if (!groupMap.has(group)) {
+      const entry = {name: group, items: []};
+      groups.push(entry);
+      groupMap.set(group, entry);
+    }
+    groupMap.get(group).items.push(item);
+  }
+
+  list.innerHTML = '';
+  if (items.length === 0) {
+    list.innerHTML = '<div class="empty-state">No asset decision recommendations are available.</div>';
+    return;
+  }
+  for (const group of groups) {
+    const section = document.createElement('section');
+    section.className = 'asset-decision-group';
+    const head = document.createElement('div');
+    head.className = 'asset-decision-group-head';
+    const open = assetDecisionCounts(group.items).open;
+    head.innerHTML = `<span>${escapeHtml(group.name)}</span><span>${open} open / ${group.items.length}</span>`;
+    section.appendChild(head);
+    for (const item of group.items) section.appendChild(buildAssetDecisionRow(item));
+    list.appendChild(section);
+  }
+}
+
+function buildAssetDecisionRow(item) {
+  const row = document.createElement('div');
+  row.className = `asset-decision-row ${assetDecisionStatusClass(item.status)}`;
+
+  const head = document.createElement('div');
+  head.className = 'asset-decision-head';
+  const title = document.createElement('div');
+  title.className = 'asset-decision-target';
+  title.textContent = item.target || item.id || 'Asset decision';
+  const level = document.createElement('span');
+  level.className = 'asset-decision-level';
+  level.textContent = item.recommendation_level || 'review';
+  title.appendChild(level);
+  head.appendChild(title);
+
+  const status = document.createElement('select');
+  status.className = 'asset-decision-status';
+  status.id = 'asset-decision-status-' + item.id;
+  for (const entry of ASSET_DECISION_STATUSES) {
+    const opt = document.createElement('option');
+    opt.value = entry[0];
+    opt.textContent = entry[1];
+    status.appendChild(opt);
+  }
+  status.value = item.status || 'needs_decision';
+  head.appendChild(status);
+  row.appendChild(head);
+
+  const copy = document.createElement('div');
+  copy.className = 'asset-decision-copy';
+  const recommendation = document.createElement('div');
+  recommendation.className = 'asset-decision-copy-block';
+  recommendation.innerHTML = `<strong>Recommendation</strong>${escapeHtml(item.recommendation || '')}`;
+  copy.appendChild(recommendation);
+  const needed = document.createElement('div');
+  needed.className = 'asset-decision-copy-block';
+  needed.innerHTML = `<strong>Decision needed from Mike</strong>${escapeHtml(item.decision_needed || '')}`;
+  copy.appendChild(needed);
+  row.appendChild(copy);
+
+  const notes = document.createElement('div');
+  notes.className = 'asset-decision-notes';
+  const mikeDecision = document.createElement('textarea');
+  mikeDecision.id = 'asset-decision-mike-' + item.id;
+  mikeDecision.placeholder = 'Your decision, requested change, or approval note';
+  mikeDecision.value = item.mike_decision || '';
+  notes.appendChild(mikeDecision);
+  const implementationNotes = document.createElement('textarea');
+  implementationNotes.id = 'asset-decision-notes-' + item.id;
+  implementationNotes.placeholder = 'Extra implementation notes or follow-up questions';
+  implementationNotes.value = item.notes || '';
+  notes.appendChild(implementationNotes);
+  row.appendChild(notes);
+  return row;
+}
+
+function readAssetDecisionField(prefix, itemId) {
+  const el = document.getElementById(prefix + itemId);
+  return el ? el.value : '';
+}
+
+async function saveAssetDecisionsFromTab() {
+  if (!state) return;
+  const box = ensureAssetArchiveDecisionsState();
+  for (const item of box.items || []) {
+    item.status = readAssetDecisionField('asset-decision-status-', item.id) || item.status || 'needs_decision';
+    item.mike_decision = readAssetDecisionField('asset-decision-mike-', item.id);
+    item.notes = readAssetDecisionField('asset-decision-notes-', item.id);
+  }
+  box.updated = now();
+  const saved = await saveStateNow();
+  if (saved) {
+    refreshAssetDecisionTabCount();
+    renderAssetDecisionsTab();
+  }
 }
 
 function setMemoryReviewFilter(value) {
