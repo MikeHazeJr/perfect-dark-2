@@ -10,7 +10,8 @@
  *   lang.ini              editable language descriptor
  *   _meta/manifest.json   compatibility envelope + locale + bank metadata
  *   strings.tsv           escaped index<TAB>text source table
- *   _meta/strings.tsv.sha256 outer-file SHA-256 sidecar
+ *   _meta/*.json          shared inventory/provenance/validation/source handles
+ *   _meta/*.sha256        public-file SHA-256 sidecars
  *
  * Catalog ID convention (feedback_human_readable_ids):
  *   base:lang_<bank>_<locale>   e.g. base:lang_gun_en, base:lang_propobj_en
@@ -56,11 +57,11 @@
 #include "constants.h"
 #include "fs.h"
 #include "loader_enum_reverse.h"
+#include "asset_archive_writer.h"
 #include "modarchive.h"
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
-#include "sha256.h"
 #include "system.h"
 
 #define PDLANG_OUT_DIR "lang"
@@ -390,7 +391,21 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "lang.ini", ini_buf, (u32)ini_len) != 0) {
+	asset_archive_writer_t asset_writer;
+	if (assetArchiveWriterInit(&asset_writer, aw, "lang", catalog_id) !=
+			MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDLANG",
+			"assetArchiveWriterInit failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		free(tsv_text);
+		sysMemFree(src_bytes);
+		return -1;
+	}
+	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdlang",
+		src_rel, (s32)file_id, file_sym ? file_sym : "");
+
+	if (assetArchiveWriterAddDescriptor(&asset_writer, "lang.ini",
+			ini_buf, (u32)ini_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"AddFileMem lang.ini failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
@@ -398,8 +413,8 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		sysMemFree(src_bytes);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
-	                          manifest_buf, (u32)manifest_len) != 0) {
+	if (assetArchiveWriterAddManifestJson(&asset_writer,
+			manifest_buf, (u32)manifest_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
@@ -408,7 +423,8 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "strings.tsv", tsv_text, tsv_size) != 0) {
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "strings.tsv",
+			tsv_text, tsv_size, "strings") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"AddFileMem strings.tsv failed for bank=%d -> \"%s\"",
 			bank, dst_full);
@@ -418,18 +434,13 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		return -1;
 	}
 
-	u8 digest[SHA256_DIGEST_SIZE];
-	sha256Hash((const u8 *)tsv_text, (size_t)tsv_size, digest);
-	char hex[SHA256_HEX_SIZE + 1];
-	sha256ToHex(digest, hex);
-	hex[SHA256_HEX_SIZE] = '\0';
-	char sidecar[SHA256_HEX_SIZE + 2];
-	snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-	if (modArchiveAddFileMem(aw, "_meta/strings.tsv.sha256",
-	                          sidecar, (u32)strlen(sidecar)) != 0) {
-		sysLogPrintf(LOG_WARNING,
-			"romextract pdlang: sidecar write failed for \"%s\"",
-			dst_full);
+	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDLANG",
+			"assetArchiveWriterFinishMetadata failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		free(tsv_text);
+		sysMemFree(src_bytes);
+		return -1;
 	}
 
 	if (modArchiveFinish(aw) != 0) {

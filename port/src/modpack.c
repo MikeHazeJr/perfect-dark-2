@@ -49,14 +49,24 @@ static const char *iniFilenameForType(asset_type_e type)
         case ASSET_WEAPON:       return "weapon.ini";
         case ASSET_PROJECTILE:   return "projectile.ini";
         case ASSET_ENTITY:       return "entity.ini";
+        case ASSET_MATERIAL:     return "material.ini";
         case ASSET_TEXTURES:     return "textures.ini";
+        case ASSET_TEXTURE:      return "texture.ini";
         case ASSET_SFX:          return "sfx.ini";
         case ASSET_MUSIC:        return "music.ini";
         case ASSET_AUDIO:        return "audio.ini";
         case ASSET_PROP:         return "prop.ini";
         case ASSET_VEHICLE:      return "vehicle.ini";
         case ASSET_MISSION:      return "mission.ini";
+        case ASSET_GAMEMODE:     return "gamemode.ini";
         case ASSET_UI:           return "ui.ini";
+        case ASSET_FONT:         return "font.ini";
+        case ASSET_LANG:         return "lang.ini";
+        case ASSET_HUD:          return "hud.ini";
+        case ASSET_EFFECT:       return "effect.ini";
+        case ASSET_BOT_PROFILE:  return "botprofile.ini";
+        case ASSET_SCENARIO:     return "scenario.ini";
+        case ASSET_THEME:        return "theme.ini";
         case ASSET_TOOL:         return "tool.ini";
         default:                 return NULL;
     }
@@ -66,9 +76,11 @@ static const char *iniFilenameForType(asset_type_e type)
 static const char *s_KnownIniNames[] = {
     "map.ini", "character.ini", "bot.ini", "textures.ini",
     "skin.ini", "weapon.ini", "projectile.ini", "entity.ini",
-    "sfx.ini", "music.ini",
-    "audio.ini",
-    "prop.ini", "vehicle.ini", "mission.ini", "ui.ini", "tool.ini",
+    "material.ini", "texture.ini", "effect.ini", "sfx.ini", "music.ini",
+    "audio.ini", "sound.ini", "voice.ini",
+    "prop.ini", "vehicle.ini", "mission.ini", "gamemode.ini",
+    "botprofile.ini", "scenario.ini", "hud.ini", "ui.ini", "font.ini",
+    "lang.ini", "theme.ini", "tool.ini",
     NULL
 };
 
@@ -94,8 +106,11 @@ static const asset_entry_t *catalogFindByIdAny(const char *id)
     static const asset_type_e kTypes[] = {
         ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
         ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
-        ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
-        ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_UI, ASSET_TOOL,
+        ASSET_TEXTURES, ASSET_TEXTURE, ASSET_MATERIAL, ASSET_EFFECT,
+        ASSET_SFX, ASSET_MUSIC, ASSET_AUDIO,
+        ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_GAMEMODE,
+        ASSET_BOT_PROFILE, ASSET_SCENARIO, ASSET_HUD, ASSET_UI,
+        ASSET_FONT, ASSET_LANG, ASSET_THEME, ASSET_TOOL,
         ASSET_NONE
     };
     find_ctx_t ctx;

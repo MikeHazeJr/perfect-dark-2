@@ -48,6 +48,7 @@ static asset_type_e screenManifestCatalogAssetType(u8 manifest_type)
     case MANIFEST_TYPE_AUDIO:     return ASSET_AUDIO;
     case MANIFEST_TYPE_PROJECTILE: return ASSET_PROJECTILE;
     case MANIFEST_TYPE_ENTITY:    return ASSET_ENTITY;
+    case MANIFEST_TYPE_ASSET:     return ASSET_NONE;
     case MANIFEST_TYPE_COMPONENT: return ASSET_NONE;
     default:                      return ASSET_NONE;
     }

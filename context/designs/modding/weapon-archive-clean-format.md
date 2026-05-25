@@ -16,35 +16,39 @@ This document records the clean weapon archive shape before we rebuild extractio
 
 ```text
 weapon.ini
-models/
-  weapon.glb
-materials/
-  slots.json
-  default.materials.json
-textures/
-  default/
-    body.png
-    grip.png
-animations/
-  idle.glb
-  fire.glb
-  reload.glb
-sounds/
-  fire.wav
-  reload.wav
 behavior/
   primary.graph.json
   secondary.graph.json
   settings.json
   variables.json
   shared-context.json
-projectiles/
-  primary.pdprojectile
-entities/
-  deployed.pdentity
-ui/
-  icon.png
-  reticle.png
+bindings/
+  material-slots.json
+  grip-sockets.json
+  presentation.json
+dependencies/
+  assets/
+    models/
+      weapon.pdmesh
+    materials/
+      default.pdmaterial
+    textures/
+      body.pdtexture
+      grip.pdtexture
+    animations/
+      idle.pdanim
+      fire.pdanim
+      reload.pdanim
+    audio/
+      fire.pdsfx
+      reload.pdsfx
+    projectiles/
+      primary.pdprojectile
+    entities/
+      deployed.pdentity
+    ui/
+      icon.pdui
+      reticle.pdui
 _meta/
   manifest.json
   inventory.json
@@ -53,17 +57,17 @@ _meta/
   hashes.tsv
 ```
 
-Folders are omitted when unused. `sounds/` is the canonical new folder name; `audio/` is transition input only until the extractor, examples, and validators are rebuilt.
+Folders are omitted when unused. `dependencies/assets/` embeds cross-family assets as intact typed archives. The weapon root owns weapon identity, behavior, and bindings; it does not flatten mesh, texture, material, animation, audio, projectile, entity, or UI internals into loose root folders in release-format output. Transition readers may accept older `models/`, `materials/`, `textures/`, `animations/`, `sounds/`, `projectiles/`, `entities/`, and `ui/` folders until extraction is rebuilt, but new emitters and examples should use typed dependencies.
 
 ## Required Files
 
 `weapon.ini` is the root descriptor. It carries the weapon display name, optional authored catalog ID, mod namespace hints, default model path, material assignment path, behavior entry paths, ammo/display defaults, and base fallback declarations.
 
-`models/weapon.glb` is the normal authored model target. GLB is preferred because it keeps mesh, material bindings, and default textures together. GLTF with sidecar textures remains valid if every referenced sidecar resolves inside the archive.
+The weapon model is normally an embedded `.pdmesh` dependency. That `.pdmesh` owns geometry, hierarchy, sockets, LODs, UVs, skinning, and optional collision proxy; its own material and texture payloads remain typed dependencies. GLB/GLTF/OBJ source files may appear inside the `.pdmesh` archive, not as loose weapon-owned files.
 
 `behavior/primary.graph.json` and `behavior/secondary.graph.json` are the authoring surfaces for weapon modes. Shared state lives in `behavior/shared-context.json`, and constants/tuning live in `behavior/settings.json` plus `behavior/variables.json`. The compiler may combine these into one runtime IR, but the authored archive exposes the modes separately.
 
-`_meta/manifest.json` is machine-owned dependency metadata. It declares required and optional dependency roles, embedded archive paths, content digests, version requirements, and base-game fallbacks. Keeping it under `_meta/` prevents root clutter while preserving the manifest contract.
+`_meta/manifest.json` is machine-owned dependency metadata. It declares required and optional dependency roles, embedded archive paths under `dependencies/assets/`, content digests, version requirements, and base-game fallbacks. Keeping it under `_meta/` prevents root clutter while preserving the manifest contract.
 
 ## Models And Hands
 
@@ -77,7 +81,7 @@ Hands are character-owned, not weapon-owned. The weapon declares grip sockets, p
 
 The model exposes named material slots such as `body`, `grip`, `scope`, `magazine`, or `display`.
 
-`materials/slots.json` records the named slots and the model material elements they bind to. `materials/default.materials.json` assigns the default textures or material values for those slots. Textures that are part of the default look live in `textures/default/` unless embedded directly in GLB.
+`bindings/material-slots.json` records the named weapon slots and the model material elements they bind to. Default material and texture values live in embedded `.pdmaterial` and `.pdtexture` dependencies, not loose weapon-owned folders.
 
 Skins override material slots rather than replacing the weapon model. A weapon may include a default skin assignment, but reusable skins should become their own typed asset family when that format is defined.
 
@@ -105,7 +109,7 @@ The weapon manifest declares dependencies by role:
 {
   "role": "primary_projectile",
   "id": "mod_example:projectile_rocket",
-  "archive": "projectiles/primary.pdprojectile",
+  "archive": "dependencies/assets/projectiles/primary.pdprojectile",
   "fallback": "base:projectile_rocket"
 }
 ```
@@ -125,6 +129,7 @@ The migration must remove new emissions and examples of the older weapon layout:
 - Root `behavior.graph.json`.
 - Root `manifest.json`.
 - Root `nested_payloads.json`.
+- `models/`, `materials/`, `textures/`, `animations/`, `sounds/`, `projectiles/`, `entities/`, and `ui/` as canonical loose cross-family payload folders.
 - `audio/` as the canonical sound folder.
 - Weapon-owned `hand.gltf` or hand model descriptors.
 - Reference-only dependency manifests where custom dependencies are not embedded or packaged.
@@ -134,7 +139,7 @@ Historical notes may mention the old layout, but active docs, examples, tests, U
 
 ## Acceptance
 
-- `examples/modding/typed-pdxxx-basic` includes a `.pdweapon` that follows this layout.
+- `examples/modding/typed-pdxxx-basic` includes a `.pdweapon` that follows this layout and embeds cross-family payloads under `dependencies/assets/` as typed archives.
 - Base extractor output follows the clean layout, with legacy numeric and source-slot data confined to `_meta/provenance.json`.
 - Validators accept this layout and reject unresolved internal references, authored `.bin`, `.pdwpn`, and root machine-metadata clutter in newly emitted archives.
 - The Modding Hub Weapons tool saves this layout.

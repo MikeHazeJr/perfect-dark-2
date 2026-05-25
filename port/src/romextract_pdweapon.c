@@ -6,10 +6,10 @@
  * one .pdweapon ZIP-openable archive per weapon at
  * data/<romid>/weapons/<id>.pdweapon.
  *
- * The archive root carries weapon.ini for editor-facing metadata,
- * _meta/manifest.json for the current universal walker/loader_pool bridge,
- * graph-shaped behavior.graph.json, and nested_payloads.json for generated
- * projectile/entity payload archives.
+ * The archive root carries weapon.ini for editor-facing metadata and _meta/
+ * for the universal walker/loader_pool bridge. Clean emitted archives keep
+ * authored behavior files under behavior/ and cross-family dependency archives
+ * under dependencies/assets/.
  *
  * Source: the historical weapon static records were retired from
  * src/game/invitems.c at S484 F13. They live in port/src/weapondata_authored.c
@@ -29,6 +29,7 @@
 
 #include "boot_pool.h"
 #include "boot_progress.h"
+#include "asset_archive_writer.h"
 #include "catalog_readable_ids.h"
 #include "data.h"
 #include "types.h"
@@ -46,6 +47,20 @@
 #define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v9"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
+#define PDWEAPON_RUNTIME_GRAPH_ENTRY "behavior/runtime.graph.json"
+#define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
+#define PDWEAPON_SECONDARY_GRAPH_ENTRY "behavior/secondary.graph.json"
+#define PDWEAPON_SHARED_CONTEXT_ENTRY "behavior/shared-context.json"
+#define PDWEAPON_SETTINGS_ENTRY "behavior/settings.json"
+#define PDWEAPON_VARIABLES_ENTRY "behavior/variables.json"
+#define PDWEAPON_NESTED_PAYLOADS_ENTRY "_meta/nested-payloads.json"
+#define PDWEAPON_ANIMATIONS_MANIFEST_ENTRY "bindings/animations.tsv"
+#define PDWEAPON_AUDIO_MANIFEST_ENTRY "bindings/audio.tsv"
+#define PDWEAPON_DEP_MODELS "dependencies/assets/models"
+#define PDWEAPON_DEP_ANIMATIONS "dependencies/assets/animations"
+#define PDWEAPON_DEP_AUDIO "dependencies/assets/audio"
+#define PDWEAPON_DEP_PROJECTILES "dependencies/assets/projectiles"
+#define PDWEAPON_DEP_ENTITIES "dependencies/assets/entities"
 
 /* Convert a catalog ID like "base:falcon2" to a filename slug
  * "base_falcon2". Caller buffer must hold at least 64 bytes. */
@@ -110,7 +125,7 @@ static s32 s_existingWeaponArchiveGraphCurrent(const char *relpath)
 
 	char *graph = NULL;
 	if (weaponGraphArchiveReadTextFile(full,
-			WEAPON_GRAPH_ARCHIVE_GRAPH_ENTRY, &graph, NULL) != 0) {
+			PDWEAPON_RUNTIME_GRAPH_ENTRY, &graph, NULL) != 0) {
 		return 0;
 	}
 	s32 current =
@@ -124,8 +139,10 @@ static s32 s_existingWeaponArchiveComplete(const char *relpath)
 {
 	return s_existingArchiveHasEntry(relpath, "weapon.ini") &&
 	       s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
-	       s_existingArchiveHasEntry(relpath, "behavior.graph.json") &&
-	       s_existingArchiveHasEntry(relpath, WEAPON_GRAPH_ARCHIVE_NESTED_PAYLOADS_ENTRY) &&
+	       s_existingArchiveHasEntry(relpath, PDWEAPON_RUNTIME_GRAPH_ENTRY) &&
+	       s_existingArchiveHasEntry(relpath, PDWEAPON_PRIMARY_GRAPH_ENTRY) &&
+	       s_existingArchiveHasEntry(relpath, PDWEAPON_SECONDARY_GRAPH_ENTRY) &&
+	       s_existingArchiveHasEntry(relpath, PDWEAPON_NESTED_PAYLOADS_ENTRY) &&
 	       s_existingArchiveEntryContains(relpath, "weapon.ini",
 		"dependency_closure = " PDWEAPON_DEPENDENCY_CLOSURE_MARKER) &&
 	       s_existingWeaponArchiveGraphCurrent(relpath);
@@ -195,6 +212,13 @@ static void jw_field_uint(jw_t *w, const char *key, unsigned long long val,
 {
 	jw_indent(w);
 	fprintf(w->fp, "\"%s\": %llu%s", key, val, last ? "\n" : ",\n");
+}
+
+static void jw_field_bool(jw_t *w, const char *key, s32 val, s32 last)
+{
+	jw_indent(w);
+	fprintf(w->fp, "\"%s\": %s%s", key, val ? "true" : "false",
+		last ? "\n" : ",\n");
 }
 
 static void jw_field_f32(jw_t *w, const char *key, f32 val, s32 last)
@@ -392,12 +416,13 @@ static s32 s_meshRelForModelnum(s32 modelnum, char *out, size_t out_n)
 	return s_meshRelForFilenum(filenum, NULL, out, out_n);
 }
 
-static s32 s_addArchiveFileDiskRel(mod_archive_writer_t *aw,
+static s32 s_addArchiveFileDiskRel(asset_archive_writer_t *writer,
                                    const char *entry,
                                    const char *src_rel,
-                                   const char *context)
+                                   const char *context,
+                                   const char *role)
 {
-	if (!aw || !entry || !entry[0] || !src_rel || !src_rel[0]) return -1;
+	if (!writer || !entry || !entry[0] || !src_rel || !src_rel[0]) return -1;
 	if (fsFileSize(src_rel) <= 0) {
 		sysLogPrintf(LOG_WARNING,
 			"romextract pdweapon: missing dependency %s for %s (rel=\"%s\")",
@@ -407,10 +432,11 @@ static s32 s_addArchiveFileDiskRel(mod_archive_writer_t *aw,
 	char full_buf[FS_MAXPATH + 1];
 	const char *full = fsFullPath(src_rel, full_buf, sizeof(full_buf));
 	if (!full || !full[0]) return -1;
-	return modArchiveAddFileDisk(aw, entry, full) == 0 ? 0 : -1;
+	return assetArchiveWriterAddPublicDisk(writer, entry, full,
+		role ? role : "dependency") == 0 ? 0 : -1;
 }
 
-static s32 s_addWeaponMeshDependency(mod_archive_writer_t *aw,
+static s32 s_addWeaponMeshDependency(asset_archive_writer_t *writer,
                                      const char *catalog_id,
                                      u16 filenum,
                                      const char *hint,
@@ -419,17 +445,17 @@ static s32 s_addWeaponMeshDependency(mod_archive_writer_t *aw,
 	if (filenum == 0) return 0;
 	char src_rel[FS_MAXPATH];
 	if (!s_meshRelForFilenum(filenum, hint, src_rel, sizeof(src_rel))) return -1;
-	return s_addArchiveFileDiskRel(aw, entry, src_rel, catalog_id);
+	return s_addArchiveFileDiskRel(writer, entry, src_rel, catalog_id, "model");
 }
 
-static s32 s_addProjectileModelDependency(mod_archive_writer_t *aw,
+static s32 s_addProjectileModelDependency(asset_archive_writer_t *writer,
                                           const char *catalog_id,
                                           s32 modelnum,
                                           const char *entry)
 {
 	char src_rel[FS_MAXPATH];
 	if (!s_meshRelForModelnum(modelnum, src_rel, sizeof(src_rel))) return 0;
-	return s_addArchiveFileDiskRel(aw, entry, src_rel, catalog_id);
+	return s_addArchiveFileDiskRel(writer, entry, src_rel, catalog_id, "model");
 }
 
 static void s_sfxCatalogIdForWeapon(s32 sfx_idx, char *out, size_t out_n)
@@ -470,7 +496,7 @@ static s32 s_audioRelForSfx(s32 sfx_idx, char *out, size_t out_n,
 	return 0;
 }
 
-static s32 s_addWeaponAnimationDependency(mod_archive_writer_t *aw,
+static s32 s_addWeaponAnimationDependency(asset_archive_writer_t *writer,
                                           const char *catalog_id,
                                           const char *anim_name)
 {
@@ -480,11 +506,13 @@ static s32 s_addWeaponAnimationDependency(mod_archive_writer_t *aw,
 	snprintf(rel, sizeof(rel), "animations/base_%s.pdanim", anim_name);
 	fsDataPathFor(rel, src_rel, sizeof(src_rel));
 	char entry[FS_MAXPATH];
-	snprintf(entry, sizeof(entry), "animations/%s.pdanim", anim_name);
-	return s_addArchiveFileDiskRel(aw, entry, src_rel, catalog_id);
+	snprintf(entry, sizeof(entry), "%s/%s.pdanim",
+		PDWEAPON_DEP_ANIMATIONS, anim_name);
+	return s_addArchiveFileDiskRel(writer, entry, src_rel, catalog_id,
+		"animation");
 }
 
-static s32 s_addWeaponAudioDependency(mod_archive_writer_t *aw,
+static s32 s_addWeaponAudioDependency(asset_archive_writer_t *writer,
                                       const char *catalog_id,
                                       s32 sfx_idx)
 {
@@ -501,11 +529,11 @@ static s32 s_addWeaponAudioDependency(mod_archive_writer_t *aw,
 	}
 	s_idToFilename(id, slug, sizeof(slug));
 	char entry[FS_MAXPATH];
-	snprintf(entry, sizeof(entry), "audio/%s%s", slug, ext);
-	return s_addArchiveFileDiskRel(aw, entry, src_rel, catalog_id);
+	snprintf(entry, sizeof(entry), "%s/%s%s", PDWEAPON_DEP_AUDIO, slug, ext);
+	return s_addArchiveFileDiskRel(writer, entry, src_rel, catalog_id, "audio");
 }
 
-static s32 s_addDependencyManifests(mod_archive_writer_t *aw,
+static s32 s_addDependencyManifests(asset_archive_writer_t *writer,
                                     const pdweapon_anim_deps_t *anim_deps,
                                     const pdweapon_audio_deps_t *audio_deps)
 {
@@ -516,11 +544,14 @@ static s32 s_addDependencyManifests(mod_archive_writer_t *aw,
 	for (s32 i = 0; i < anim_deps->count && len < sizeof(anim_manifest); i++) {
 		const char *name = anim_deps->names[i] ? anim_deps->names[i] : "";
 		len += snprintf(anim_manifest + len, sizeof(anim_manifest) - len,
-			"%s\tanimations/%s.pdanim\tbase:%s\n", name, name, name);
+			"%s\t%s/%s.pdanim\tbase:%s\n", name,
+			PDWEAPON_DEP_ANIMATIONS, name, name);
 	}
 	if (len >= sizeof(anim_manifest) ||
-			modArchiveAddFileMem(aw, "animations_manifest.tsv",
-				anim_manifest, (u32)strlen(anim_manifest)) != 0) {
+			assetArchiveWriterAddPublicMem(writer,
+				PDWEAPON_ANIMATIONS_MANIFEST_ENTRY,
+				anim_manifest, (u32)strlen(anim_manifest),
+				"binding") != 0) {
 		return -1;
 	}
 
@@ -543,11 +574,14 @@ static s32 s_addDependencyManifests(mod_archive_writer_t *aw,
 		}
 		s_idToFilename(id, slug, sizeof(slug));
 		len += snprintf(audio_manifest + len, sizeof(audio_manifest) - len,
-			"%d\taudio/%s%s\n", audio_deps->sfx[i], slug, ext);
+			"%d\t%s/%s%s\n", audio_deps->sfx[i],
+			PDWEAPON_DEP_AUDIO, slug, ext);
 	}
 	if (len >= sizeof(audio_manifest) ||
-			modArchiveAddFileMem(aw, "audio_manifest.tsv",
-				audio_manifest, (u32)strlen(audio_manifest)) != 0) {
+			assetArchiveWriterAddPublicMem(writer,
+				PDWEAPON_AUDIO_MANIFEST_ENTRY,
+				audio_manifest, (u32)strlen(audio_manifest),
+				"binding") != 0) {
 		return -1;
 	}
 	return 0;
@@ -1196,7 +1230,9 @@ static pdweapon_nested_payload_t *s_payloadPlanAdd(pdweapon_payload_plan_t *plan
 	strncpy(p->catalog_id, catalog_id, sizeof(p->catalog_id) - 1);
 	if (entity_ref) strncpy(p->entity_ref, entity_ref, sizeof(p->entity_ref) - 1);
 
-	const char *folder = type == ASSET_PROJECTILE ? "projectiles" : "entities";
+	const char *folder = type == ASSET_PROJECTILE
+		? PDWEAPON_DEP_PROJECTILES
+		: PDWEAPON_DEP_ENTITIES;
 	const char *ext = weaponGraphArchiveExtensionForType(type);
 	snprintf(p->archive_entry, sizeof(p->archive_entry), "%s/%s%s",
 		folder, p->local_slug, ext ? ext : ".pdasset");
@@ -1266,6 +1302,189 @@ static s32 s_planPayloadsForFunction(pdweapon_payload_plan_t *plan,
 	return 0;
 }
 
+static void s_emitWeaponManifestDependencyRecord(jw_t *w,
+                                                 const char *role,
+                                                 const char *type,
+                                                 const char *id,
+                                                 const char *archive,
+                                                 const char *sha256,
+                                                 s32 *count)
+{
+	if (!w || !count || !id || !id[0] || !archive || !archive[0]) return;
+	if (*count > 0) {
+		fputs(",\n", w->fp);
+	}
+	jw_indent(w);
+	fputs("{\n", w->fp);
+	w->indent++;
+	jw_field_str(w, "role", role ? role : type, 0);
+	jw_field_str(w, "type", type ? type : "asset", 0);
+	jw_field_str(w, "id", id, 0);
+	jw_field_str(w, "archive", archive, 0);
+	jw_field_bool(w, "required", 1, 0);
+	jw_field_str(w, "version", "", 0);
+	jw_field_str(w, "sha256", sha256 ? sha256 : "", 0);
+	jw_open_object(w, "fallback");
+	jw_field_str(w, "id", "", 0);
+	jw_field_str(w, "reason", "", 1);
+	jw_close_object(w, 1);
+	w->indent--;
+	jw_indent(w);
+	fputs("}", w->fp);
+	(*count)++;
+}
+
+static void s_emitWeaponManifestNestedPayloadDependency(
+	jw_t *w,
+	const char *catalog_id,
+	asset_type_e type,
+	const char *local_slug,
+	s32 *count)
+{
+	if (!local_slug || !local_slug[0]) return;
+	char dep_id[CATALOG_ID_LEN];
+	if (weaponGraphArchiveDerivedNestedId(catalog_id, type, local_slug,
+			dep_id, sizeof(dep_id)) != 0) {
+		return;
+	}
+	const char *folder = type == ASSET_PROJECTILE
+		? PDWEAPON_DEP_PROJECTILES
+		: PDWEAPON_DEP_ENTITIES;
+	const char *ext = weaponGraphArchiveExtensionForType(type);
+	char archive[FS_MAXPATH];
+	snprintf(archive, sizeof(archive), "%s/%s%s", folder, local_slug,
+		ext ? ext : ".pdasset");
+	s_emitWeaponManifestDependencyRecord(w,
+		weaponGraphArchiveTypeName(type),
+		weaponGraphArchiveTypeName(type),
+		dep_id,
+		archive,
+		"",
+		count);
+}
+
+static void s_emitWeaponManifestFunctionDependencies(jw_t *w,
+                                                     const char *catalog_id,
+                                                     s32 mode,
+                                                     const struct weaponfunc *f,
+                                                     s32 *count)
+{
+	if (!f) return;
+	if (f->type == INVENTORYFUNCTYPE_SHOOT_PROJECTILE) {
+		char local_slug[WEAPON_GRAPH_ARCHIVE_LOCAL_SLUG_LEN];
+		s_projectileSlugForFunction(catalog_id, mode, f, local_slug,
+			sizeof(local_slug));
+		s_emitWeaponManifestNestedPayloadDependency(w, catalog_id,
+			ASSET_PROJECTILE, local_slug, count);
+		return;
+	}
+	if (f->type == INVENTORYFUNCTYPE_THROW) {
+		const struct weaponfunc_throw *tw =
+			(const struct weaponfunc_throw *)f;
+		const char *archetype = NULL;
+		const char *entity_slug = s_entitySlugForThrow(catalog_id, mode,
+			tw, &archetype);
+		if (entity_slug) {
+			s_emitWeaponManifestNestedPayloadDependency(w, catalog_id,
+				ASSET_ENTITY, entity_slug, count);
+		}
+		char local_slug[WEAPON_GRAPH_ARCHIVE_LOCAL_SLUG_LEN];
+		s_projectileSlugForFunction(catalog_id, mode, f, local_slug,
+			sizeof(local_slug));
+		s_emitWeaponManifestNestedPayloadDependency(w, catalog_id,
+			ASSET_PROJECTILE, local_slug, count);
+	}
+}
+
+static void s_emitWeaponManifestDependencies(jw_t *w,
+                                             const char *catalog_id,
+                                             const struct weapon *wpn,
+                                             const pdweapon_anim_deps_t *anim_deps,
+                                             const pdweapon_audio_deps_t *audio_deps)
+{
+	jw_open_array(w, "dependencies");
+	s32 count = 0;
+
+	if (wpn->hi_model) {
+		char id[128];
+		s_synthMeshCatalogId(wpn->hi_model, "hi", id, sizeof(id));
+		s_emitWeaponManifestDependencyRecord(w, "model", "model", id,
+			PDWEAPON_DEP_MODELS "/held_hi.pdmesh", "", &count);
+	}
+	if (wpn->lo_model) {
+		char id[128];
+		s_synthMeshCatalogId(wpn->lo_model, "lo", id, sizeof(id));
+		s_emitWeaponManifestDependencyRecord(w, "model", "model", id,
+			PDWEAPON_DEP_MODELS "/held_lo.pdmesh", "", &count);
+	}
+
+	for (s32 mode = 0; mode < 2; mode++) {
+		s_emitWeaponManifestFunctionDependencies(w, catalog_id, mode,
+			(const struct weaponfunc *)wpn->functions[mode], &count);
+	}
+
+	for (s32 i = 0; i < anim_deps->count; i++) {
+		const char *name = anim_deps->names[i] ? anim_deps->names[i] : "";
+		if (!name[0]) continue;
+		char id[128];
+		char archive[FS_MAXPATH];
+		snprintf(id, sizeof(id), "base:%s", name);
+		snprintf(archive, sizeof(archive), "%s/%s.pdanim",
+			PDWEAPON_DEP_ANIMATIONS, name);
+		s_emitWeaponManifestDependencyRecord(w, "animation", "animation",
+			id, archive, "", &count);
+	}
+
+	for (s32 i = 0; i < audio_deps->count; i++) {
+		char src_rel[FS_MAXPATH];
+		char ext[16];
+		if (!s_audioRelForSfx(audio_deps->sfx[i], src_rel, sizeof(src_rel),
+				ext, sizeof(ext))) {
+			continue;
+		}
+		char id[128];
+		char slug[128];
+		s_sfxCatalogIdForWeapon(audio_deps->sfx[i], id, sizeof(id));
+		if (strcmp(ext, ".pdvoice") == 0) {
+			catalogReadableVoiceId(audio_deps->sfx[i], id, sizeof(id));
+		}
+		s_idToFilename(id, slug, sizeof(slug));
+		char archive[FS_MAXPATH];
+		snprintf(archive, sizeof(archive), "%s/%s%s",
+			PDWEAPON_DEP_AUDIO, slug, ext);
+		s_emitWeaponManifestDependencyRecord(w, "audio", "audio",
+			id, archive, "", &count);
+	}
+
+	if (count > 0) {
+		fputc('\n', w->fp);
+	}
+	jw_close_array(w, 0);
+}
+
+static void s_emitWeaponManifestDependencySchema(jw_t *w, s32 last)
+{
+	jw_open_object(w, "dependency_schema");
+	jw_field_str(w, "root", "dependencies/assets", 0);
+	jw_indent(w);
+	fputs("\"required_fields\": [\n", w->fp);
+	w->indent++;
+	const char *fields[] = {
+		"role", "type", "id", "archive", "required", "version",
+		"sha256", "fallback.id", "fallback.reason",
+	};
+	for (s32 i = 0; i < (s32)(sizeof(fields) / sizeof(fields[0])); i++) {
+		jw_indent(w);
+		jw_write_str_escaped(w, fields[i]);
+		fputs(i + 1 == (s32)(sizeof(fields) / sizeof(fields[0]))
+			? "\n" : ",\n", w->fp);
+	}
+	w->indent--;
+	jw_indent(w);
+	fputs("]\n", w->fp);
+	jw_close_object(w, last);
+}
+
 static void s_payloadPlanCleanup(pdweapon_payload_plan_t *plan)
 {
 	if (!plan) return;
@@ -1318,7 +1537,7 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		"catalog_id = %s\n"
 		"name = %s\n"
 		"model_ref = %s\n"
-		"model_archive = models/visual.pdmesh\n"
+		"model_archive = " PDWEAPON_DEP_MODELS "/visual.pdmesh\n"
 		"behavior_graph = behavior.graph.json\n"
 		"%s%s%s",
 		p->catalog_id,
@@ -1341,7 +1560,7 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		"      \"kind\": \"projectile.spawn_state\",\n"
 		"      \"params\": {\n"
 		"        \"model_ref\": \"%s\",\n"
-		"        \"model_archive\": \"models/visual.pdmesh\",\n"
+		"        \"model_archive\": \"" PDWEAPON_DEP_MODELS "/visual.pdmesh\",\n"
 		"        \"source_mode\": \"%s\",\n"
 		"        \"source_function_type\": \"%s\",\n"
 		"        \"scale\": %.7g,\n"
@@ -1403,13 +1622,29 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 
 	mod_archive_writer_t *aw = modArchiveBegin(p->temp_fullpath);
 	if (!aw) return -1;
-	if (modArchiveAddFileMem(aw, "projectile.ini", projectile_ini, (u32)ini_len) != 0 ||
-			modArchiveAddFileMem(aw, "behavior.graph.json", graph, (u32)graph_len) != 0) {
+	asset_archive_writer_t asset_writer;
+	if (assetArchiveWriterInit(&asset_writer, aw, "projectile",
+			p->catalog_id) != MODARCHIVE_OK) {
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (s_addProjectileModelDependency(aw, p->catalog_id,
-			p->projectile_modelnum, "models/visual.pdmesh") != 0) {
+	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdweapon",
+		"weapondata_authored", p->mode_index, p->local_slug);
+	if (assetArchiveWriterAddDescriptor(&asset_writer, "projectile.ini",
+			projectile_ini, (u32)ini_len) != 0 ||
+			assetArchiveWriterAddPublicMem(&asset_writer,
+			"behavior.graph.json", graph, (u32)graph_len,
+			"behavior") != 0) {
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (s_addProjectileModelDependency(&asset_writer, p->catalog_id,
+			p->projectile_modelnum,
+			PDWEAPON_DEP_MODELS "/visual.pdmesh") != 0) {
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
 		modArchiveAbort(aw);
 		return -1;
 	}
@@ -1440,7 +1675,7 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 		"name = %s\n"
 		"archetype = %s\n"
 		"model_ref = %s\n"
-		"model_archive = models/visual.pdmesh\n"
+		"model_archive = " PDWEAPON_DEP_MODELS "/visual.pdmesh\n"
 		"behavior_graph = behavior.graph.json\n",
 		p->catalog_id,
 		p->local_slug,
@@ -1468,7 +1703,7 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 		"      \"params\": {\n"
 		"        \"archetype\": \"%s\",\n"
 		"        \"model_ref\": \"%s\",\n"
-		"        \"model_archive\": \"models/visual.pdmesh\",\n"
+		"        \"model_archive\": \"" PDWEAPON_DEP_MODELS "/visual.pdmesh\",\n"
 		"        \"source_mode\": \"%s\",\n"
 		"        \"activation_time60\": %d,\n"
 		"        \"recovery_time60\": %d,\n"
@@ -1494,13 +1729,29 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 
 	mod_archive_writer_t *aw = modArchiveBegin(p->temp_fullpath);
 	if (!aw) return -1;
-	if (modArchiveAddFileMem(aw, "entity.ini", entity_ini, (u32)ini_len) != 0 ||
-			modArchiveAddFileMem(aw, "behavior.graph.json", graph, (u32)graph_len) != 0) {
+	asset_archive_writer_t asset_writer;
+	if (assetArchiveWriterInit(&asset_writer, aw, "entity",
+			p->catalog_id) != MODARCHIVE_OK) {
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (s_addProjectileModelDependency(aw, p->catalog_id,
-			p->projectile_modelnum, "models/visual.pdmesh") != 0) {
+	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdweapon",
+		"weapondata_authored", p->mode_index, p->local_slug);
+	if (assetArchiveWriterAddDescriptor(&asset_writer, "entity.ini",
+			entity_ini, (u32)ini_len) != 0 ||
+			assetArchiveWriterAddPublicMem(&asset_writer,
+			"behavior.graph.json", graph, (u32)graph_len,
+			"behavior") != 0) {
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (s_addProjectileModelDependency(&asset_writer, p->catalog_id,
+			p->projectile_modelnum,
+			PDWEAPON_DEP_MODELS "/visual.pdmesh") != 0) {
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
 		modArchiveAbort(aw);
 		return -1;
 	}
@@ -1787,8 +2038,8 @@ static s32 s_emitWeaponGraphFile(const char *graph_tmp_relpath,
 	jw_field_str(&w, "graph_id", "base_weapon_graph_v2", 0);
 	jw_open_object(&w, "compatibility");
 	jw_field_str(&w, "manifest", "_meta/manifest.json", 0);
-	jw_field_str(&w, "nested_payloads", WEAPON_GRAPH_ARCHIVE_NESTED_PAYLOADS_ENTRY, 0);
-	jw_field_str(&w, "runtime_source", "graph_ir_pending_manifest_bridge", 1);
+	jw_field_str(&w, "nested_payloads", PDWEAPON_NESTED_PAYLOADS_ENTRY, 0);
+	jw_field_str(&w, "runtime_source", "clean_authoring_graph_bridge", 1);
 	jw_close_object(&w, 0);
 
 	jw_open_array(&w, "shared_context");
@@ -1841,6 +2092,108 @@ static s32 s_emitWeaponGraphFile(const char *graph_tmp_relpath,
 	s32 ok = ferror(fp) == 0;
 	if (fclose(fp) != 0) ok = 0;
 	return ok ? 0 : -1;
+}
+
+static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
+                                     const char *catalog_id,
+                                     const struct weaponfunc *func,
+                                     s32 mode,
+                                     const char *projectile_ref,
+                                     const char *entity_ref)
+{
+	FILE *fp = fsFileOpenWrite(graph_tmp_relpath);
+	if (!fp) return -1;
+
+	jw_t w;
+	w.fp = fp;
+	w.indent = 0;
+	w.error = 0;
+
+	const char *mode_name = s_modeName(mode);
+	const char *trigger_node = mode == 0 ? "primary_trigger" : "secondary_trigger";
+	const char *action_node = mode == 0 ? "primary_action" : "secondary_action";
+
+	fputs("{\n", fp);
+	w.indent = 1;
+	jw_field_str(&w, "schema", "pd.weapon_graph.v1", 0);
+	jw_field_str(&w, "asset_id", catalog_id, 0);
+	jw_field_str(&w, "graph_id", mode_name, 0);
+	jw_field_str(&w, "shared_context", PDWEAPON_SHARED_CONTEXT_ENTRY, 0);
+	jw_field_str(&w, "settings", PDWEAPON_SETTINGS_ENTRY, 0);
+	jw_field_str(&w, "variables", PDWEAPON_VARIABLES_ENTRY, 0);
+
+	jw_open_array(&w, "nodes");
+	s_emitWeaponGraphEventNode(&w, trigger_node, catalog_id, mode, func, 0);
+	s_emitWeaponGraphNode(&w, action_node, catalog_id, mode, func,
+		projectile_ref, entity_ref, 1);
+	jw_close_array(&w, 0);
+
+	jw_open_array(&w, "edges");
+	jw_open_object(&w, NULL);
+	jw_field_str(&w, "from", trigger_node, 0);
+	jw_field_str(&w, "to", action_node, 1);
+	jw_close_object(&w, 1);
+	jw_close_array(&w, 0);
+
+	jw_open_array(&w, "exports");
+	s_emitWeaponGraphExport(&w, mode_name, action_node, 1);
+	jw_close_array(&w, 1);
+	w.indent = 0;
+	fputs("}\n", fp);
+
+	s32 ok = ferror(fp) == 0;
+	if (fclose(fp) != 0) ok = 0;
+	return ok ? 0 : -1;
+}
+
+static s32 s_buildWeaponSharedContextJson(const char *catalog_id,
+                                          char *out,
+                                          size_t out_cap)
+{
+	int n = snprintf(out, out_cap,
+		"{\n"
+		"  \"schema\": \"pd.weapon_shared_context.v1\",\n"
+		"  \"asset_id\": \"%s\",\n"
+		"  \"contexts\": [\n"
+		"    { \"name\": \"owner_player\", \"scope\": \"player\", \"source\": \"equipped_player\", \"type\": \"player_ref\", \"lifetime\": \"weapon_instance\" },\n"
+		"    { \"name\": \"owner_team\", \"scope\": \"player\", \"source\": \"equipped_player_team\", \"type\": \"team_ref\", \"lifetime\": \"weapon_instance\" },\n"
+		"    { \"name\": \"weapon_instance\", \"scope\": \"weapon\", \"source\": \"equipped_weapon\", \"type\": \"weapon_instance_ref\", \"lifetime\": \"weapon_instance\" },\n"
+		"    { \"name\": \"damage_credit_player\", \"scope\": \"projectile\", \"source\": \"owner_player\", \"type\": \"player_ref\", \"lifetime\": \"projectile_life\" }\n"
+		"  ]\n"
+		"}\n",
+		catalog_id);
+	return (n > 0 && (size_t)n < out_cap) ? n : -1;
+}
+
+static s32 s_buildWeaponSettingsJson(const char *catalog_id,
+                                     s32 weapon_id,
+                                     char *out,
+                                     size_t out_cap)
+{
+	int n = snprintf(out, out_cap,
+		"{\n"
+		"  \"schema\": \"pd.weapon_settings.v1\",\n"
+		"  \"asset_id\": \"%s\",\n"
+		"  \"weapon_id\": %d,\n"
+		"  \"dependency_closure\": \"" PDWEAPON_DEPENDENCY_CLOSURE_MARKER "\",\n"
+		"  \"runtime_graph\": \"" PDWEAPON_RUNTIME_GRAPH_ENTRY "\"\n"
+		"}\n",
+		catalog_id, weapon_id);
+	return (n > 0 && (size_t)n < out_cap) ? n : -1;
+}
+
+static s32 s_buildWeaponVariablesJson(const char *catalog_id,
+                                      char *out,
+                                      size_t out_cap)
+{
+	int n = snprintf(out, out_cap,
+		"{\n"
+		"  \"schema\": \"pd.weapon_variables.v1\",\n"
+		"  \"asset_id\": \"%s\",\n"
+		"  \"variables\": []\n"
+		"}\n",
+		catalog_id);
+	return (n > 0 && (size_t)n < out_cap) ? n : -1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1902,15 +2255,21 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 	jw_field_str(&w, "dependency_closure",
 		PDWEAPON_DEPENDENCY_CLOSURE_MARKER, 0);
 	jw_open_object(&w, "embedded_archives");
-	jw_field_str(&w, "hi_model", wpn->hi_model ? "models/held_hi.pdmesh" : NULL, 0);
-	jw_field_str(&w, "lo_model", wpn->lo_model ? "models/held_lo.pdmesh" : NULL, 0);
-	jw_field_str(&w, "animations_manifest", "animations_manifest.tsv", 0);
-	jw_field_str(&w, "audio_manifest", "audio_manifest.tsv", 1);
+	jw_field_str(&w, "hi_model",
+		wpn->hi_model ? PDWEAPON_DEP_MODELS "/held_hi.pdmesh" : NULL, 0);
+	jw_field_str(&w, "lo_model",
+		wpn->lo_model ? PDWEAPON_DEP_MODELS "/held_lo.pdmesh" : NULL, 0);
+	jw_field_str(&w, "animations_manifest",
+		PDWEAPON_ANIMATIONS_MANIFEST_ENTRY, 0);
+	jw_field_str(&w, "audio_manifest", PDWEAPON_AUDIO_MANIFEST_ENTRY, 1);
 	jw_close_object(&w, 0);
 	jw_open_object(&w, "dependency_counts");
 	jw_field_int(&w, "animations", anim_deps.count, 0);
 	jw_field_int(&w, "audio", audio_deps.count, 1);
 	jw_close_object(&w, 0);
+	s_emitWeaponManifestDependencies(&w, catalog_id, wpn,
+		&anim_deps, &audio_deps);
+	s_emitWeaponManifestDependencySchema(&w, 0);
 
 	jw_field_anim_ref(&w, "equip_animation",   wpn->equip_animation, 0);
 	jw_field_anim_ref(&w, "unequip_animation", wpn->unequip_animation, 0);
@@ -1968,8 +2327,14 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 		"catalog_id = %s\n"
 		"weapon_id = %d\n"
 		"manifest = _meta/manifest.json\n"
-		"behavior_graph = behavior.graph.json\n"
-		"nested_payloads = nested_payloads.json\n",
+		"behavior_graph = " PDWEAPON_RUNTIME_GRAPH_ENTRY "\n"
+		"primary_graph = " PDWEAPON_PRIMARY_GRAPH_ENTRY "\n"
+		"secondary_graph = " PDWEAPON_SECONDARY_GRAPH_ENTRY "\n"
+		"shared_context = " PDWEAPON_SHARED_CONTEXT_ENTRY "\n"
+		"settings = " PDWEAPON_SETTINGS_ENTRY "\n"
+		"variables = " PDWEAPON_VARIABLES_ENTRY "\n"
+		"nested_payloads = " PDWEAPON_NESTED_PAYLOADS_ENTRY "\n"
+		"model_file = " PDWEAPON_DEP_MODELS "/held_hi.pdmesh\n",
 		catalog_id, weapon_id);
 	if (weapon_ini_len <= 0 || (size_t)weapon_ini_len >= sizeof(weapon_ini)) {
 		sysMemFree(manifest_bytes);
@@ -2021,6 +2386,13 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 	char graph_tmp_relpath[FS_MAXPATH];
 	snprintf(graph_tmp_relpath, sizeof(graph_tmp_relpath),
 		"%s/%s.pdweapon.graph.tmp", out_dir, filename);
+	char primary_tmp_relpath[FS_MAXPATH];
+	snprintf(primary_tmp_relpath, sizeof(primary_tmp_relpath),
+		"%s/%s.pdweapon.primary.tmp", out_dir, filename);
+	char secondary_tmp_relpath[FS_MAXPATH];
+	snprintf(secondary_tmp_relpath, sizeof(secondary_tmp_relpath),
+		"%s/%s.pdweapon.secondary.tmp", out_dir, filename);
+
 	if (s_emitWeaponGraphFile(graph_tmp_relpath, catalog_id, wpn,
 			projectile_refs, entity_refs) != 0) {
 		s_removeRelpathIfExists(graph_tmp_relpath);
@@ -2030,23 +2402,78 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 			"behavior graph emit failed for \"%s\"", catalog_id);
 		return -1;
 	}
-
-	u32 graph_size = 0;
-	void *graph_bytes = fsFileLoad(graph_tmp_relpath, &graph_size);
-	s_removeRelpathIfExists(graph_tmp_relpath);
-	if (!graph_bytes || graph_size == 0) {
-		if (graph_bytes) sysMemFree(graph_bytes);
+	if (s_emitWeaponModeGraphFile(primary_tmp_relpath, catalog_id,
+			(const struct weaponfunc *)wpn->functions[0], 0,
+			projectile_refs[0], entity_refs[0]) != 0) {
+		s_removeRelpathIfExists(graph_tmp_relpath);
+		s_removeRelpathIfExists(primary_tmp_relpath);
 		sysMemFree(manifest_bytes);
 		s_payloadPlanCleanup(&payload_plan);
 		sysLoudFailf("EXTRACT.PDWEAPON",
-			"temporary graph load failed for \"%s\"", graph_tmp_relpath);
+			"primary behavior graph emit failed for \"%s\"", catalog_id);
+		return -1;
+	}
+	if (s_emitWeaponModeGraphFile(secondary_tmp_relpath, catalog_id,
+			(const struct weaponfunc *)wpn->functions[1], 1,
+			projectile_refs[1], entity_refs[1]) != 0) {
+		s_removeRelpathIfExists(graph_tmp_relpath);
+		s_removeRelpathIfExists(primary_tmp_relpath);
+		s_removeRelpathIfExists(secondary_tmp_relpath);
+		sysMemFree(manifest_bytes);
+		s_payloadPlanCleanup(&payload_plan);
+		sysLoudFailf("EXTRACT.PDWEAPON",
+			"secondary behavior graph emit failed for \"%s\"", catalog_id);
+		return -1;
+	}
+
+	char shared_context_json[2048];
+	s32 shared_context_len = s_buildWeaponSharedContextJson(catalog_id,
+		shared_context_json, sizeof(shared_context_json));
+	char settings_json[1024];
+	s32 settings_len = s_buildWeaponSettingsJson(catalog_id, weapon_id,
+		settings_json, sizeof(settings_json));
+	char variables_json[512];
+	s32 variables_len = s_buildWeaponVariablesJson(catalog_id,
+		variables_json, sizeof(variables_json));
+	if (shared_context_len <= 0 || settings_len <= 0 || variables_len <= 0) {
+		s_removeRelpathIfExists(graph_tmp_relpath);
+		s_removeRelpathIfExists(primary_tmp_relpath);
+		s_removeRelpathIfExists(secondary_tmp_relpath);
+		sysMemFree(manifest_bytes);
+		s_payloadPlanCleanup(&payload_plan);
+		sysLoudFailf("EXTRACT.PDWEAPON",
+			"behavior metadata emit failed for \"%s\"", catalog_id);
+		return -1;
+	}
+
+	char graph_full_buf[FS_MAXPATH + 1];
+	char primary_full_buf[FS_MAXPATH + 1];
+	char secondary_full_buf[FS_MAXPATH + 1];
+	const char *graph_full = fsFullPath(graph_tmp_relpath,
+		graph_full_buf, sizeof(graph_full_buf));
+	const char *primary_full = fsFullPath(primary_tmp_relpath,
+		primary_full_buf, sizeof(primary_full_buf));
+	const char *secondary_full = fsFullPath(secondary_tmp_relpath,
+		secondary_full_buf, sizeof(secondary_full_buf));
+	if (!graph_full || !graph_full[0] ||
+			!primary_full || !primary_full[0] ||
+			!secondary_full || !secondary_full[0]) {
+		s_removeRelpathIfExists(graph_tmp_relpath);
+		s_removeRelpathIfExists(primary_tmp_relpath);
+		s_removeRelpathIfExists(secondary_tmp_relpath);
+		sysMemFree(manifest_bytes);
+		s_payloadPlanCleanup(&payload_plan);
+		sysLoudFailf("EXTRACT.PDWEAPON",
+			"temporary behavior graph path failed for \"%s\"", catalog_id);
 		return -1;
 	}
 
 	char full_buf[FS_MAXPATH + 1];
 	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
 	if (!full || !full[0]) {
-		sysMemFree(graph_bytes);
+		s_removeRelpathIfExists(graph_tmp_relpath);
+		s_removeRelpathIfExists(primary_tmp_relpath);
+		s_removeRelpathIfExists(secondary_tmp_relpath);
 		sysMemFree(manifest_bytes);
 		s_payloadPlanCleanup(&payload_plan);
 		sysLoudFailf("EXTRACT.PDWEAPON",
@@ -2056,59 +2483,105 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 
 	mod_archive_writer_t *aw = modArchiveBegin(full);
 	if (!aw) {
-		sysMemFree(graph_bytes);
+		s_removeRelpathIfExists(graph_tmp_relpath);
+		s_removeRelpathIfExists(primary_tmp_relpath);
+		s_removeRelpathIfExists(secondary_tmp_relpath);
 		sysMemFree(manifest_bytes);
 		s_payloadPlanCleanup(&payload_plan);
 		sysLoudFailf("EXTRACT.PDWEAPON",
 			"modArchiveBegin failed for \"%s\"", full);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "weapon.ini",
-	                         weapon_ini, (u32)weapon_ini_len) != 0) {
-		sysMemFree(graph_bytes);
+
+	asset_archive_writer_t asset_writer;
+	if (assetArchiveWriterInit(&asset_writer, aw, "weapon",
+			catalog_id) != MODARCHIVE_OK) {
+		s_removeRelpathIfExists(graph_tmp_relpath);
+		s_removeRelpathIfExists(primary_tmp_relpath);
+		s_removeRelpathIfExists(secondary_tmp_relpath);
 		sysMemFree(manifest_bytes);
 		s_payloadPlanCleanup(&payload_plan);
 		sysLoudFailf("EXTRACT.PDWEAPON",
-			"AddFileMem weapon.ini failed for \"%s\"", full);
+			"assetArchiveWriterInit failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
-	                         manifest_bytes, manifest_size) != 0) {
-		sysMemFree(graph_bytes);
+	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdweapon",
+		"weapondata_authored", weapon_id, catalog_id);
+
+	if (assetArchiveWriterAddDescriptor(&asset_writer, "weapon.ini",
+			weapon_ini, (u32)weapon_ini_len) != MODARCHIVE_OK) {
+		s_removeRelpathIfExists(graph_tmp_relpath);
+		s_removeRelpathIfExists(primary_tmp_relpath);
+		s_removeRelpathIfExists(secondary_tmp_relpath);
 		sysMemFree(manifest_bytes);
 		s_payloadPlanCleanup(&payload_plan);
 		sysLoudFailf("EXTRACT.PDWEAPON",
-			"AddFileMem _meta/manifest.json failed for \"%s\"", full);
+			"AddDescriptor weapon.ini failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "behavior.graph.json",
-	                         graph_bytes, graph_size) != 0) {
-		sysMemFree(graph_bytes);
+	if (assetArchiveWriterAddManifestJson(&asset_writer, manifest_bytes,
+			manifest_size) != MODARCHIVE_OK) {
+		s_removeRelpathIfExists(graph_tmp_relpath);
+		s_removeRelpathIfExists(primary_tmp_relpath);
+		s_removeRelpathIfExists(secondary_tmp_relpath);
 		sysMemFree(manifest_bytes);
 		s_payloadPlanCleanup(&payload_plan);
 		sysLoudFailf("EXTRACT.PDWEAPON",
-			"AddFileMem behavior.graph.json failed for \"%s\"", full);
+			"AddManifestJson failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, WEAPON_GRAPH_ARCHIVE_NESTED_PAYLOADS_ENTRY,
-	                         nested_payloads_json,
-	                         (u32)strlen(nested_payloads_json)) != 0) {
-		sysMemFree(graph_bytes);
+	if (assetArchiveWriterAddPublicDisk(&asset_writer,
+			PDWEAPON_RUNTIME_GRAPH_ENTRY, graph_full,
+			"behavior") != MODARCHIVE_OK ||
+			assetArchiveWriterAddPublicDisk(&asset_writer,
+			PDWEAPON_PRIMARY_GRAPH_ENTRY, primary_full,
+			"behavior") != MODARCHIVE_OK ||
+			assetArchiveWriterAddPublicDisk(&asset_writer,
+			PDWEAPON_SECONDARY_GRAPH_ENTRY, secondary_full,
+			"behavior") != MODARCHIVE_OK ||
+			assetArchiveWriterAddPublicMem(&asset_writer,
+			PDWEAPON_SHARED_CONTEXT_ENTRY, shared_context_json,
+			(u32)shared_context_len, "behavior") != MODARCHIVE_OK ||
+			assetArchiveWriterAddPublicMem(&asset_writer,
+			PDWEAPON_SETTINGS_ENTRY, settings_json, (u32)settings_len,
+			"settings") != MODARCHIVE_OK ||
+			assetArchiveWriterAddPublicMem(&asset_writer,
+			PDWEAPON_VARIABLES_ENTRY, variables_json,
+			(u32)variables_len, "variables") != MODARCHIVE_OK) {
+		s_removeRelpathIfExists(graph_tmp_relpath);
+		s_removeRelpathIfExists(primary_tmp_relpath);
+		s_removeRelpathIfExists(secondary_tmp_relpath);
 		sysMemFree(manifest_bytes);
 		s_payloadPlanCleanup(&payload_plan);
 		sysLoudFailf("EXTRACT.PDWEAPON",
-			"AddFileMem nested_payloads.json failed for \"%s\"", full);
+			"behavior entry embed failed for \"%s\"", full);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (assetArchiveWriterAddMetaJson(&asset_writer, "nested-payloads.json",
+			nested_payloads_json,
+			(u32)strlen(nested_payloads_json)) != MODARCHIVE_OK) {
+		s_removeRelpathIfExists(graph_tmp_relpath);
+		s_removeRelpathIfExists(primary_tmp_relpath);
+		s_removeRelpathIfExists(secondary_tmp_relpath);
+		sysMemFree(manifest_bytes);
+		s_payloadPlanCleanup(&payload_plan);
+		sysLoudFailf("EXTRACT.PDWEAPON",
+			"AddMetaJson nested-payloads failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		return -1;
 	}
 	for (s32 i = 0; i < payload_plan.count; i++) {
 		pdweapon_nested_payload_t *p = &payload_plan.payloads[i];
-		if (modArchiveAddFileDisk(aw, p->archive_entry,
-				p->temp_fullpath) != 0) {
-			sysMemFree(graph_bytes);
+		if (assetArchiveWriterAddPublicDisk(&asset_writer,
+				p->archive_entry, p->temp_fullpath,
+				weaponGraphArchiveTypeName(p->type)) != MODARCHIVE_OK) {
+			s_removeRelpathIfExists(graph_tmp_relpath);
+			s_removeRelpathIfExists(primary_tmp_relpath);
+			s_removeRelpathIfExists(secondary_tmp_relpath);
 			sysMemFree(manifest_bytes);
 			s_payloadPlanCleanup(&payload_plan);
 			sysLoudFailf("EXTRACT.PDWEAPON",
@@ -2117,11 +2590,13 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 			return -1;
 		}
 	}
-	if (s_addWeaponMeshDependency(aw, catalog_id, wpn->hi_model, "hi",
-			"models/held_hi.pdmesh") != 0 ||
-			s_addWeaponMeshDependency(aw, catalog_id, wpn->lo_model, "lo",
-			"models/held_lo.pdmesh") != 0) {
-		sysMemFree(graph_bytes);
+	if (s_addWeaponMeshDependency(&asset_writer, catalog_id, wpn->hi_model, "hi",
+			PDWEAPON_DEP_MODELS "/held_hi.pdmesh") != 0 ||
+			s_addWeaponMeshDependency(&asset_writer, catalog_id, wpn->lo_model, "lo",
+			PDWEAPON_DEP_MODELS "/held_lo.pdmesh") != 0) {
+		s_removeRelpathIfExists(graph_tmp_relpath);
+		s_removeRelpathIfExists(primary_tmp_relpath);
+		s_removeRelpathIfExists(secondary_tmp_relpath);
 		sysMemFree(manifest_bytes);
 		s_payloadPlanCleanup(&payload_plan);
 		sysLoudFailf("EXTRACT.PDWEAPON",
@@ -2130,9 +2605,11 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 		return -1;
 	}
 	for (s32 i = 0; i < anim_deps.count; i++) {
-		if (s_addWeaponAnimationDependency(aw, catalog_id,
+		if (s_addWeaponAnimationDependency(&asset_writer, catalog_id,
 				anim_deps.names[i]) != 0) {
-			sysMemFree(graph_bytes);
+			s_removeRelpathIfExists(graph_tmp_relpath);
+			s_removeRelpathIfExists(primary_tmp_relpath);
+			s_removeRelpathIfExists(secondary_tmp_relpath);
 			sysMemFree(manifest_bytes);
 			s_payloadPlanCleanup(&payload_plan);
 			sysLoudFailf("EXTRACT.PDWEAPON",
@@ -2143,9 +2620,11 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 		}
 	}
 	for (s32 i = 0; i < audio_deps.count; i++) {
-		if (s_addWeaponAudioDependency(aw, catalog_id,
+		if (s_addWeaponAudioDependency(&asset_writer, catalog_id,
 				audio_deps.sfx[i]) != 0) {
-			sysMemFree(graph_bytes);
+			s_removeRelpathIfExists(graph_tmp_relpath);
+			s_removeRelpathIfExists(primary_tmp_relpath);
+			s_removeRelpathIfExists(secondary_tmp_relpath);
 			sysMemFree(manifest_bytes);
 			s_payloadPlanCleanup(&payload_plan);
 			sysLoudFailf("EXTRACT.PDWEAPON",
@@ -2155,8 +2634,10 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 			return -1;
 		}
 	}
-	if (s_addDependencyManifests(aw, &anim_deps, &audio_deps) != 0) {
-		sysMemFree(graph_bytes);
+	if (s_addDependencyManifests(&asset_writer, &anim_deps, &audio_deps) != 0) {
+		s_removeRelpathIfExists(graph_tmp_relpath);
+		s_removeRelpathIfExists(primary_tmp_relpath);
+		s_removeRelpathIfExists(secondary_tmp_relpath);
 		sysMemFree(manifest_bytes);
 		s_payloadPlanCleanup(&payload_plan);
 		sysLoudFailf("EXTRACT.PDWEAPON",
@@ -2164,7 +2645,20 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 		modArchiveAbort(aw);
 		return -1;
 	}
-	sysMemFree(graph_bytes);
+	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
+		s_removeRelpathIfExists(graph_tmp_relpath);
+		s_removeRelpathIfExists(primary_tmp_relpath);
+		s_removeRelpathIfExists(secondary_tmp_relpath);
+		sysMemFree(manifest_bytes);
+		s_payloadPlanCleanup(&payload_plan);
+		sysLoudFailf("EXTRACT.PDWEAPON",
+			"assetArchiveWriterFinishMetadata failed for \"%s\"", full);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	s_removeRelpathIfExists(graph_tmp_relpath);
+	s_removeRelpathIfExists(primary_tmp_relpath);
+	s_removeRelpathIfExists(secondary_tmp_relpath);
 	sysMemFree(manifest_bytes);
 	if (modArchiveFinish(aw) != 0) {
 		s_payloadPlanCleanup(&payload_plan);

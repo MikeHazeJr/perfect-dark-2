@@ -52,12 +52,12 @@
 #include "pdgui_scaling.h"
 #include "pdgui_fontmgr.h"
 #include "system.h"
+#include "asset_archive_writer.h"
 #include "assetcatalog.h"
 #include "assetprovider.h"
 #include "fs.h"
 #include "config.h"
 #include "modarchive.h"
-#include "sha256.h"
 #include "../external/stb_image.h"
 extern "C" {
 #include "modmgr.h"
@@ -1264,6 +1264,7 @@ static void s_applyCatalogUiAssets(void)
     catalog_ui_apply_ctx ctx = { 0, 0 };
 
     assetCatalogIterateByType(ASSET_UI, s_applyCatalogUiAsset, &ctx);
+    assetCatalogIterateByType(ASSET_FONT, s_applyCatalogUiAsset, &ctx);
 
     if (ctx.textures || ctx.fonts) {
         sysLogPrintf(LOG_NOTE,
@@ -2599,7 +2600,7 @@ static bool s_writeTgaToMem(const uint8_t *rgba, uint32_t w, uint32_t h,
  * data/ui/textures/<name>.{tga,png,9slice.json} writers. Each ZIP carries
  * _meta/manifest.json envelope (pd_kind="ui", texture_count=1, baked-in nineslice
  * insets) + texture.tga (RGBA32 top-down, from s_writeTgaToMem) +
- * _meta/texture.tga.sha256 sidecar.
+ * shared _meta hash/inventory sidecars.
  *
  * The reader migration in pdguiThemeLateInit consumes these via
  * modArchiveOpen + modArchiveExtractAlloc + s_loadTgaFromMem.
@@ -2762,8 +2763,8 @@ static bool s_archiveHasEntry(const char *rel_path, const char *entry)
 }
 
 /* Emit one .pdui ZIP for a single canonical texture entry. Decodes from
- * ROM textureconfig, wraps in manifest + TGA + sidecar, atomically
- * writes via modArchive. Returns 1 written, 0 skipped (idempotent or
+ * ROM textureconfig, wraps in manifest + TGA + shared writer metadata,
+ * atomically writes via modArchive. Returns 1 written, 0 skipped (idempotent or
  * texture missing), -1 failure. */
 static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
 {
@@ -2831,15 +2832,6 @@ static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
         return -1;
     }
 
-    /* SHA-256 sidecar of the TGA bytes. */
-    uint8_t digest[SHA256_DIGEST_SIZE];
-    sha256Hash(tga_buf, (size_t)tga_size, digest);
-    char hex[SHA256_HEX_SIZE + 1];
-    sha256ToHex(digest, hex);
-    hex[SHA256_HEX_SIZE] = '\0';
-    char sidecar[SHA256_HEX_SIZE + 2];
-    snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-
     /* Atomic ZIP write. */
     char fullBuf[FS_MAXPATH + 1];
     const char *full = fsFullPath(rel_path, fullBuf, sizeof(fullBuf));
@@ -2858,34 +2850,48 @@ static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
         return -1;
     }
 
-    if (modArchiveAddFileMem(aw, "ui.ini",
-                              ini_buf, (uint32_t)ini_len) != 0) {
+    asset_archive_writer_t asset_writer;
+    if (assetArchiveWriterInit(&asset_writer, aw, "ui",
+            e->catalog_id) != MODARCHIVE_OK) {
         sysLoudFailf("EXTRACT.PDUI",
-            "AddFileMem ui.ini failed for '%s'", full);
+            "assetArchiveWriterInit failed for '%s'", full);
         modArchiveAbort(aw);
         free(tga_buf);
         return -1;
     }
-    if (modArchiveAddFileMem(aw, "_meta/manifest.json",
-                              manifest_buf, (uint32_t)manifest_len) != 0) {
+    assetArchiveWriterSetProvenance(&asset_writer, "pdguiThemeEmitPduiZips",
+        "pdgui_theme canonical texture table", e->tex_index, e->catalog_id);
+
+    if (assetArchiveWriterAddDescriptor(&asset_writer, "ui.ini",
+            ini_buf, (uint32_t)ini_len) != MODARCHIVE_OK) {
         sysLoudFailf("EXTRACT.PDUI",
-            "AddFileMem _meta/manifest.json failed for '%s'", full);
+            "AddDescriptor ui.ini failed for '%s'", full);
         modArchiveAbort(aw);
         free(tga_buf);
         return -1;
     }
-    if (modArchiveAddFileMem(aw, "texture.tga",
-                              tga_buf, tga_size) != 0) {
+    if (assetArchiveWriterAddManifestJson(&asset_writer,
+            manifest_buf, (uint32_t)manifest_len) != MODARCHIVE_OK) {
         sysLoudFailf("EXTRACT.PDUI",
-            "AddFileMem texture.tga failed for '%s'", full);
+            "AddManifestJson failed for '%s'", full);
         modArchiveAbort(aw);
         free(tga_buf);
         return -1;
     }
-    if (modArchiveAddFileMem(aw, "_meta/texture.tga.sha256",
-                              sidecar, (uint32_t)strlen(sidecar)) != 0) {
-        sysLogPrintf(LOG_WARNING,
-            "PDGUI emit: sidecar write failed for '%s' (continuing)", full);
+    if (assetArchiveWriterAddPublicMem(&asset_writer, "texture.tga",
+            tga_buf, tga_size, "texture") != MODARCHIVE_OK) {
+        sysLoudFailf("EXTRACT.PDUI",
+            "AddPublicMem texture.tga failed for '%s'", full);
+        modArchiveAbort(aw);
+        free(tga_buf);
+        return -1;
+    }
+    if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
+        sysLoudFailf("EXTRACT.PDUI",
+            "assetArchiveWriterFinishMetadata failed for '%s'", full);
+        modArchiveAbort(aw);
+        free(tga_buf);
+        return -1;
     }
 
     if (modArchiveFinish(aw) != 0) {
@@ -2957,7 +2963,7 @@ void pdguiThemeExtractRomTextures(void)
      * loose data/ui/textures/<name>.{tga,png,9slice.json} files; under the
      * universality model those are replaced by per-texture .pdui ZIPs at
      * data/<romid>/ui/<slug>.pdui (one ZIP per texture, manifest envelope
-     * + texture.tga + sha256 sidecar with baked-in nineslice insets).
+     * + texture.tga with baked-in nineslice insets and shared _meta files).
      *
      * Procedural fallback used to also write loose TGAs from this path; in
      * the new architecture pdguiThemeLateInit handles procedural fallback

@@ -2,7 +2,7 @@
  * loader_walker_scenario.c -- Step 4 (2026-05-03).
  *
  * Walks scenario .pdscenario files and registers each as
- * ASSET_MAP. Per Q-1 the .pdscenario is a UNIFIED ZIP (rooms.obj plus
+ * ASSET_SCENARIO. Per Q-1 the .pdscenario is a UNIFIED ZIP (rooms.obj plus
  * tiles/pads/setup text payloads + manifest); the manifest envelope at
  * top level carries `stagenum` and `kind` (mp / solo / firingrange / coop).
  */
@@ -23,10 +23,10 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     s64 stagenum = 0;
     loaderWalkerEnvelopeInt(manifest, manifest_len, "stagenum", &stagenum);
 
-    asset_entry_t *e = assetCatalogRegisterMap(
-        id, (s32)stagenum,
-        /* dirpath: */ "");
-    return e ? 1 : -1;
+    asset_entry_t *e = assetCatalogRegister(id, ASSET_SCENARIO);
+    if (!e) return -1;
+    e->ext.scenario.stagenum = (s32)stagenum;
+    return 1;
 }
 
 void loaderWalkerScanScenarios(const char *tier_dir,

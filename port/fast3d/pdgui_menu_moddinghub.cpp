@@ -370,13 +370,24 @@ static const char *iniNameForType(asset_type_e t)
         case ASSET_WEAPON:      return "weapon.ini";
         case ASSET_PROJECTILE:  return "projectile.ini";
         case ASSET_ENTITY:      return "entity.ini";
+        case ASSET_MATERIAL:    return "material.ini";
         case ASSET_TEXTURES:    return "textures.ini";
+        case ASSET_TEXTURE:     return "texture.ini";
+        case ASSET_EFFECT:      return "effect.ini";
         case ASSET_SFX:         return "sfx.ini";
         case ASSET_MUSIC:       return "music.ini";
+        case ASSET_AUDIO:       return "audio.ini";
         case ASSET_PROP:        return "prop.ini";
         case ASSET_VEHICLE:     return "vehicle.ini";
         case ASSET_MISSION:     return "mission.ini";
+        case ASSET_GAMEMODE:    return "gamemode.ini";
+        case ASSET_BOT_PROFILE: return "botprofile.ini";
+        case ASSET_SCENARIO:    return "scenario.ini";
         case ASSET_UI:          return "ui.ini";
+        case ASSET_FONT:        return "font.ini";
+        case ASSET_LANG:        return "lang.ini";
+        case ASSET_HUD:         return "hud.ini";
+        case ASSET_THEME:       return "theme.ini";
         case ASSET_TOOL:        return "tool.ini";
         default:                return "";
     }
@@ -420,8 +431,11 @@ static void iniCollectCallback(const asset_entry_t *e, void *ud)
 static const asset_type_e s_AllTypes[] = {
     ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
     ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
-    ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
-    ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_UI, ASSET_TOOL
+    ASSET_TEXTURES, ASSET_TEXTURE, ASSET_MATERIAL, ASSET_EFFECT,
+    ASSET_SFX, ASSET_MUSIC, ASSET_AUDIO,
+    ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_GAMEMODE,
+    ASSET_BOT_PROFILE, ASSET_SCENARIO, ASSET_HUD, ASSET_UI,
+    ASSET_FONT, ASSET_LANG, ASSET_THEME, ASSET_TOOL
 };
 static const int s_NumAllTypes = (int)(sizeof(s_AllTypes)/sizeof(s_AllTypes[0]));
 
@@ -2163,7 +2177,10 @@ static bool weaponArchiveReadNestedCatalogId(const char *archivePath,
     static const char *kDescriptorEntries[] = {
         "mesh.ini", "model.ini", "animation.ini", "sound.ini", "voice.ini",
         "music.ini", "projectile.ini", "entity.ini", "material.ini",
-        "texture.ini", "textures.ini"
+        "texture.ini", "textures.ini", "skin.ini", "effect.ini", "prop.ini",
+        "vehicle.ini", "mission.ini", "gamemode.ini", "botprofile.ini",
+        "scenario.ini", "hud.ini", "ui.ini", "font.ini", "lang.ini",
+        "theme.ini"
     };
     bool found = false;
     for (size_t i = 0; i < sizeof(kDescriptorEntries) / sizeof(kDescriptorEntries[0]); i++) {
@@ -4370,12 +4387,23 @@ static const char *packTypeShortName(asset_type_e t)
         case ASSET_PROJECTILE:   return "Projectile";
         case ASSET_ENTITY:       return "Entity";
         case ASSET_TEXTURES:     return "Textures";
+        case ASSET_TEXTURE:      return "Texture";
+        case ASSET_MATERIAL:     return "Material";
+        case ASSET_EFFECT:       return "Effect";
         case ASSET_SFX:          return "SFX";
         case ASSET_MUSIC:        return "Music";
+        case ASSET_AUDIO:        return "Audio";
         case ASSET_PROP:         return "Prop";
         case ASSET_VEHICLE:      return "Vehicle";
         case ASSET_MISSION:      return "Mission";
+        case ASSET_GAMEMODE:     return "Game Mode";
+        case ASSET_BOT_PROFILE:  return "Bot Profile";
+        case ASSET_SCENARIO:     return "Scenario";
         case ASSET_UI:           return "UI";
+        case ASSET_FONT:         return "Font";
+        case ASSET_LANG:         return "Language";
+        case ASSET_HUD:          return "HUD";
+        case ASSET_THEME:        return "Theme";
         case ASSET_TOOL:         return "Tool";
         default:                 return "Other";
     }

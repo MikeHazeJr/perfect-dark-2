@@ -8,9 +8,10 @@
  *
  * Per-asset ZIP layout per universality-pivot-schemas.md Section 2.9:
  *   _meta/manifest.json envelope + sequence metadata + provenance
+ *   _meta/*.json       shared inventory/provenance/validation/source handles
  *   sequence.mid      standard MIDI conversion of the compressed N64 sequence
  *   sequence.tsv      editable event listing for round-trip authoring
- *   _meta/*.sha256   content sidecars
+ *   _meta/*.sha256   public-file SHA-256 sidecars
  *
  * Catalog ID convention: base:song_sequence_<readable ordinal>. The 43 catalog-registered
  * music tracks (s_BaseMusicTracks[] in assetcatalog_base_extended.c)
@@ -58,12 +59,12 @@
 #include "types.h"
 #include "constants.h"
 #include "fs.h"
+#include "asset_archive_writer.h"
 #include "modarchive.h"
 #include "preprocess.h"
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
-#include "sha256.h"
 #include "system.h"
 #include "lib/rzip.h"
 
@@ -616,22 +617,6 @@ static s32 s_exportSequence(const u8 *seq_src, u32 seq_len,
 	return 0;
 }
 
-static s32 s_addShaSidecar(mod_archive_writer_t *aw, const char *name,
-                           const u8 *data, u32 len)
-{
-	u8 digest[SHA256_DIGEST_SIZE];
-	sha256Hash(data, (size_t)len, digest);
-	char hex[SHA256_HEX_SIZE + 1];
-	sha256ToHex(digest, hex);
-	hex[SHA256_HEX_SIZE] = '\0';
-	char sidecar[SHA256_HEX_SIZE + 2];
-	snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-	char meta_name[FS_MAXPATH + 1];
-	snprintf(meta_name, sizeof(meta_name), "_meta/%s", name ? name : "hash.sha256");
-	meta_name[sizeof(meta_name) - 1] = '\0';
-	return modArchiveAddFileMem(aw, meta_name, sidecar, (u32)strlen(sidecar));
-}
-
 /* Emit one .pdsong ZIP. Returns 1 written, 0 skipped, -1 failed. */
 static s32 s_emitOneSong(s32 slot_idx,
                          const struct seqtableentry *entry,
@@ -828,7 +813,21 @@ static s32 s_emitOneSong(s32 slot_idx,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "music.ini", ini_buf, (u32)ini_len) != 0) {
+	asset_archive_writer_t asset_writer;
+	if (assetArchiveWriterInit(&asset_writer, aw, "song", catalog_id) !=
+			MODARCHIVE_OK) {
+		s_bytebufFree(&mid_buf);
+		s_bytebufFree(&tsv_buf);
+		sysLoudFailf("EXTRACT.PDSONG",
+			"assetArchiveWriterInit failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdsong",
+		"sequences", slot_idx, "");
+
+	if (assetArchiveWriterAddDescriptor(&asset_writer, "music.ini",
+			ini_buf, (u32)ini_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSONG",
 			"AddFileMem music.ini failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
@@ -836,8 +835,8 @@ static s32 s_emitOneSong(s32 slot_idx,
 		s_bytebufFree(&tsv_buf);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
-	                          manifest_buf, (u32)manifest_len) != 0) {
+	if (assetArchiveWriterAddManifestJson(&asset_writer,
+			manifest_buf, (u32)manifest_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSONG",
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
@@ -846,9 +845,9 @@ static s32 s_emitOneSong(s32 slot_idx,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "sequence.mid",
-	                          (const char *)mid_buf.data,
-	                          mid_buf.len) != 0) {
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "sequence.mid",
+			(const char *)mid_buf.data, mid_buf.len, "midi") !=
+			MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSONG",
 			"AddFileMem sequence.mid failed for \"%s\" "
 			"(slot=%d len=%u)",
@@ -859,9 +858,9 @@ static s32 s_emitOneSong(s32 slot_idx,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "sequence.tsv",
-	                          (const char *)tsv_buf.data,
-	                          tsv_buf.len) != 0) {
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "sequence.tsv",
+			(const char *)tsv_buf.data, tsv_buf.len, "events") !=
+			MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSONG",
 			"AddFileMem sequence.tsv failed for \"%s\" "
 			"(slot=%d len=%u)",
@@ -872,11 +871,14 @@ static s32 s_emitOneSong(s32 slot_idx,
 		return -1;
 	}
 
-	if (s_addShaSidecar(aw, "sequence.mid.sha256", mid_buf.data, mid_buf.len) != 0 ||
-	    s_addShaSidecar(aw, "sequence.tsv.sha256", tsv_buf.data, tsv_buf.len) != 0) {
-		sysLogPrintf(LOG_WARNING,
-			"romextract pdsong: sidecar write failed for \"%s\" (slot=%d)",
+	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDSONG",
+			"assetArchiveWriterFinishMetadata failed for \"%s\" (slot=%d)",
 			dst_full, slot_idx);
+		modArchiveAbort(aw);
+		s_bytebufFree(&mid_buf);
+		s_bytebufFree(&tsv_buf);
+		return -1;
 	}
 
 	if (modArchiveFinish(aw) != 0) {

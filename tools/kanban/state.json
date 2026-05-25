@@ -857,17 +857,18 @@
     },
     {
       "id": "c030",
-      "title": "Mod Infrastructure: universality pivot schema",
-      "description": "Define and implement universality pivot schema for mod infrastructure file types: .pdwpn and similar.",
+      "title": "Retired: .pdwpn-era universality pivot schema",
+      "description": "Retired stale pre-clean-archive schema work. The .pdwpn-era universality pivot is superseded by the typed .pdxxx archive pipeline, clean Asset Pipeline family formats, .pdweapon graph archives, and release/package gates that reject .pdwpn.",
       "pillar": "mod-infrastructure",
-      "column": "backlog",
+      "column": "done",
       "order": 6000,
       "priority": 3,
-      "notes": "Priority pass 2026-05-20: deprioritized behind c3812 because the typed pdxxx archive repair now owns the current mod pipeline contract.",
+      "notes": "Retired 2026-05-25 as superseded by c3824, c3838, and c3814. .pdwpn is not valid input, output, alias, migration source, or compatibility path; typed archive schemas through .pdtheme are frozen/implemented, and weapon behavior uses .pdweapon/.pdprojectile/.pdentity graph records.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-20T21:22:57.831Z"
+      "updated": "2026-05-25T12:00:00Z",
+      "pending_completion": null
     },
     {
       "id": "c036",
@@ -1242,17 +1243,18 @@
     },
     {
       "id": "c061",
-      "title": "Modding: enable INI components inside .pdmod archives",
-      "description": "INI scanner uses fopen/stat/opendir expecting on-disk files. A .pdmod containing maps/ with map.ini + geometry does not appear in catalog. Extend modmgrLoadMod for archive mods to drive assetCatalogScanComponentsFromArchive.",
+      "title": "Closed: INI components inside .pdmod archives",
+      "description": "Archive INI component scanning is implemented: .pdmod archive mods drive assetCatalogScanComponentsFromArchive through the mod manager archive path, with VFS/external file accessibility covered by the typed archive migration.",
       "pillar": "mod-infrastructure",
-      "column": "backlog",
+      "column": "done",
       "order": 17000,
       "priority": 3,
-      "notes": "modding.md What is in flight",
+      "notes": "Closed 2026-05-25 as superseded by implemented archive scanning and c3838 file-accessibility coverage. assetCatalogScanComponentsFromArchive exists on the archive path, modmgr invokes it for .pdmod handles, and mounted typed public files are validated through VFS/fs/FileProvider access.",
       "flag": null,
       "flagged_at": null,
       "created": "2026-05-02T00:00:00Z",
-      "updated": "2026-05-02T00:00:00Z"
+      "updated": "2026-05-25T12:00:00Z",
+      "pending_completion": null
     },
     {
       "id": "c062",
@@ -3152,7 +3154,7 @@
       "column": "done",
       "order": 1000,
       "priority": 1,
-      "notes": "Created 2026-05-21 from Mike's request to walk each asset type and implement the clean-but-functional archive shape. Reprioritized 2026-05-22 as the top Asset Pipeline migration plan. Process order is locked: first define every asset-family format, starting with c3832 for .pdweapon; then freeze the contracts; then rebuild extraction/examples/validators in the full sweep. Shared contract: root descriptor required; no .pdwpn; no authored .bin; no reference-only dependency closure; duplicate embedded payloads are allowed on disk and deduped after ingestion by catalog identity and canonical SHA-256. Preferred archive zones are authoring files first, nested typed dependencies second, and _meta/ for manifest.json, inventory.json, provenance.json, validation reports, source handles, SHA rows, and compatibility bookkeeping. During transition, scanners/loaders may accept old root manifest.json and root SHA sidecars but new emitters should write _meta/ and release validation should fail stale installed outputs that are non-zip, .pdwpn, .bin-backed, descriptor-less, or unresolved internally. c3832 is the detailed .pdweapon format card and sits immediately under this migration plan. Approved 2026-05-23 first format decisions: .pdweapon, .pdprojectile, .pdentity, .pdmaterial, and .pdtexture are recorded on this single tracker. Higher-level assets link typed dependencies by catalog ID and self-contained exports embed those dependency assets as intact typed archives under dependencies/assets; they do not absorb dependency internals into the parent schema. Approved 2026-05-23 second format batch: .pdcharacter, .pdhead, .pdbody, .pdarena, and .pdscenario are recorded on this single tracker. Character is an assembler/meta asset; body owns skeleton and first-person hands; head owns head-specific rig/expression data; arena wraps playable multiplayer selection metadata around an embedded scenario; scenario owns level content and spawn profiles for default, gametype/team, CTF/objective, and mission-phase respawn cases. Approved 2026-05-23 third format batch: .pdmesh, .pdanim, .pdsfx, .pdvoice, and .pdsong are recorded on this single tracker. Mesh owns reusable geometry and rig-facing model data; animation owns reusable timelines/events/retargeting metadata; SFX owns atomic sound sources and playback metadata; voice owns spoken-line metadata, per-locale audio variants, subtitle bindings, voice-mod override compatibility, and global-language fallback behavior while .pdlang owns text strings; song owns editable sequence/track music data and adaptive playback metadata. Approved 2026-05-24 final format batch: .pdui, .pdfont, and .pdlang are recorded on this tracker, and all family formats are frozen in context/designs/modding/asset-archive-clean-formats.md. UI owns reusable texture/chrome assets with readable layout/nine-slice metadata; font owns vector or decoded bitmap font sources plus metrics/kerning; lang owns UTF-8 strings.tsv text banks while voice owns spoken audio. c3824-s1 shared two-zone validation/migration is done 2026-05-24: policy/scanner/loader/emitters/package gates now enforce the migration-vs-release boundary, with _meta/manifest.json and _meta/*.sha256 as new output. Next c3824 work is c3824-s20/c3824-s18, the broad extraction/examples/validators/release-gate sweep with deeper recursive internal reference closure. c3824-s18 examples/docs/package-gate slice is done 2026-05-24: recursive validation now checks descriptor, GLTF, OBJ/MTL, JSON, and embedded typed-archive references; typed-pdxxx-basic examples now cover every frozen family with _meta/manifest.json and mesh.ini. Remaining c3824 work is c3824-s20, the stale extraction/installed-output cleanup and release-gate sweep. c3824 is wrapped 2026-05-24: final release packaging gate validates the assembled dist tree before zip creation and fails stale typed outputs that are .pdwpn, non-zip, descriptor-less, legacy .pdmesh model.ini, root-metadata, or .bin-backed. No manual retest required for this headless validator/examples/release-gate card.",
+      "notes": "Created 2026-05-21 from Mike's request to walk each asset type and implement the clean-but-functional archive shape. Reprioritized 2026-05-22 as the top Asset Pipeline migration plan. Process order is locked: first define every asset-family format, starting with c3832 for .pdweapon; then freeze the contracts; then rebuild extraction/examples/validators in the full sweep. Shared contract: root descriptor required; no .pdwpn; no authored .bin; no reference-only dependency closure; duplicate embedded payloads are allowed on disk and deduped after ingestion by catalog identity and canonical SHA-256. Preferred archive zones are authoring files first, nested typed dependencies second, and _meta/ for manifest.json, inventory.json, provenance.json, validation reports, source handles, SHA rows, and compatibility bookkeeping. During transition, scanners/loaders may accept old root manifest.json and root SHA sidecars but new emitters should write _meta/ and release validation should fail stale installed outputs that are non-zip, .pdwpn, .bin-backed, descriptor-less, or unresolved internally. c3832 is the detailed .pdweapon format card and sits immediately under this migration plan. Approved 2026-05-23 first format decisions: .pdweapon, .pdprojectile, .pdentity, .pdmaterial, and .pdtexture are recorded on this single tracker. Higher-level assets link typed dependencies by catalog ID and self-contained exports embed those dependency assets as intact typed archives under dependencies/assets; they do not absorb dependency internals into the parent schema. Approved 2026-05-23 second format batch: .pdcharacter, .pdhead, .pdbody, .pdarena, and .pdscenario are recorded on this single tracker. Character is an assembler/meta asset; body owns skeleton and first-person hands; head owns head-specific rig/expression data; arena wraps playable multiplayer selection metadata around an embedded scenario; scenario owns level content and spawn profiles for default, gametype/team, CTF/objective, and mission-phase respawn cases. Approved 2026-05-23 third format batch: .pdmesh, .pdanim, .pdsfx, .pdvoice, and .pdsong are recorded on this single tracker. Mesh owns reusable geometry and rig-facing model data; animation owns reusable timelines/events/retargeting metadata; SFX owns atomic sound sources and playback metadata; voice owns spoken-line metadata, per-locale audio variants, subtitle bindings, voice-mod override compatibility, and global-language fallback behavior while .pdlang owns text strings; song owns editable sequence/track music data and adaptive playback metadata. Approved 2026-05-24 final format batch: .pdui, .pdfont, and .pdlang are recorded on this tracker, and all family formats are frozen in context/designs/modding/asset-archive-clean-formats.md. UI owns reusable texture/chrome assets with readable layout/nine-slice metadata; font owns vector or decoded bitmap font sources plus metrics/kerning; lang owns UTF-8 strings.tsv text banks while voice owns spoken audio. c3824-s1 shared two-zone validation/migration is done 2026-05-24: policy/scanner/loader/emitters/package gates now enforce the migration-vs-release boundary, with _meta/manifest.json and _meta/*.sha256 as new output. Next c3824 work is c3824-s20/c3824-s18, the broad extraction/examples/validators/release-gate sweep with deeper recursive internal reference closure. c3824-s18 examples/docs/package-gate slice is done 2026-05-24: recursive validation now checks descriptor, GLTF, OBJ/MTL, JSON, and embedded typed-archive references; typed-pdxxx-basic examples now cover every frozen family with _meta/manifest.json and mesh.ini. Remaining c3824 work is c3824-s20, the stale extraction/installed-output cleanup and release-gate sweep. c3824 is wrapped 2026-05-24: final release packaging gate validates the assembled dist tree before zip creation and fails stale typed outputs that are .pdwpn, non-zip, descriptor-less, legacy .pdmesh model.ini, root-metadata, or .bin-backed. No manual retest required for this headless validator/examples/release-gate card. Asset decision intake 2026-05-24 final: Mike approved all 35 Asset Decisions rows. New first-class families are .pdskin, .pdeffect, .pdprop, .pdvehicle, .pdmission, .pdgamemode, .pdbotprofile, .pdhud, and .pdtheme. .pdtool is deferred from the current asset implementation sweep but is a high-priority secure tool/plugin package follow-up. .pdentity remains behavior/archetype-focused and can depend on .pdprop for physical object payloads, including Laptop Gun-style deployed entities. .pdmaterial is classic-first but PBR-extensible; future PBR material payloads should remain standalone material assets. .pdscenario owns world/map content and maps to new ASSET_SCENARIO, separate from ASSET_ARENA, ASSET_MISSION, and ASSET_GAMEMODE. .pdmesh owns geometry, UVs, hierarchy, sockets, LODs, skinning, and collision proxy; textures/materials are typed dependencies with model_specific or reusable tags. Raw editable source files are allowed when owned by that family, while cross-family resources embed as intact typed archives under dependencies/assets. Mod utilities must export files in an easily accessible way for modders and import/reconstruct them as valid typed assets. Validators fail unresolved references unless the archive embeds the dependency or declares an approved base fallback with catalog id, compatibility/version/hash where available, and reason. Approved mapping decisions include ASSET_MATERIAL for .pdmaterial, ASSET_FONT for .pdfont, unified ASSET_AUDIO with strict category/channel/mod tags for .pdsfx/.pdvoice/.pdsong, and ASSET_MODEL reuse for .pdmesh. No authored .bin files belong in any asset archive. Post-decision load/use sweep 2026-05-24: context/designs/modding/asset-archive-clean-formats.md now includes all approved game-content families through .pdtheme, the .pdtool deferral note, and a per-family load/utilization closure matrix for the extraction implementation card c3838.",
       "subtasks": [
         {
           "id": "c3824-s1",
@@ -3313,97 +3315,97 @@
       "flagged_at": "2026-05-21T15:45:19-04:00",
       "pending_completion": null,
       "created": "2026-05-21T15:45:19-04:00",
-      "updated": "2026-05-24T17:56:19.697Z"
+      "updated": "2026-05-24T22:40:00Z"
     },
     {
       "id": "c3832",
       "title": "Asset Pipeline: define clean .pdweapon archive format",
       "description": "Lock the human-readable .pdweapon authoring format before rebuilding extraction. The archive uses purpose folders for models, materials, textures, animations, sounds, behavior, projectiles, entities, and UI, with machine/provenance data under _meta/. Primary and secondary behavior are authored as separate graph files with shared settings and variables. Hands are character-owned, mod weapons default to one model, material slots enable skin overrides, .pdmod is transport only, and the weapon manifest declares dependencies plus base-game fallbacks.",
       "pillar": "modding",
-      "column": "active",
+      "column": "done",
       "order": 2000,
       "priority": 1,
-      "notes": "Created 2026-05-22 from Mike's format discussion. This card is the first concrete asset-type format under the c3824 migration plan and is now the main Asset Pipeline priority after that migration-plan card. Full target format is recorded in context/designs/modding/weapon-archive-clean-format.md. Acceptance: clean .pdweapon examples, extractor output, Modding Hub save output, validators, and docs all converge on weapon.ini plus models/materials/textures/animations/sounds/behavior/projectiles/entities/ui/_meta. Stale old-system references to root behavior.graph.json, root manifest.json, root nested_payloads.json, audio/ as canonical sound folder, weapon-owned hand models, reference-only dependency manifests, and numeric generated names must be removed from active docs, examples, UI labels, tests, and new emitters.",
+      "notes": "Closed 2026-05-25 as absorbed by c3824, c3838, and c3814. The clean .pdweapon contract is recorded in context/designs/modding/weapon-archive-clean-format.md and the frozen family layout doc; c3838 implemented the clean extractor/runtime output, dependency manifests, validators, release gates, and external file accessibility; c3814 completed weapon graph runtime parity through the existing OG gameplay execution paths. No separate active c3832 migration work remains.",
       "subtasks": [
         {
           "id": "c3832-s1",
           "title": "Record the target .pdweapon layout",
           "status": "done",
           "order": 1000,
-          "notes": "Done 2026-05-22: context/designs/modding/weapon-archive-clean-format.md records the canonical folder layout, character-owned hands rule, one-model default for authored mods, material slots/skin overrides, behavior primary/secondary graph split, _meta manifest placement, dependency/fallback rules, .pdmod export/import behavior, stale-layout removal list, and acceptance gates."
+          "notes": "Done 2026-05-22: context/designs/modding/weapon-archive-clean-format.md records the canonical layout, two-zone _meta rule, dependency/fallback rules, .pdmod transport behavior, and stale-layout removal list."
         },
         {
           "id": "c3832-s2",
           "title": "Update examples to the clean weapon shape",
-          "status": "backlog",
+          "status": "done",
           "order": 2000,
-          "notes": "Refresh examples/modding/typed-pdxxx-basic with a .pdweapon archive using models/, materials/, textures/, animations/, sounds/, behavior/, projectiles/, entities/, ui/, and _meta/. The example must be zip-openable and should not contain root behavior.graph.json, root manifest.json, root nested_payloads.json, audio/ as the canonical folder, or weapon-owned hand assets."
+          "notes": "Done 2026-05-25 through c3824/c3838: typed-pdxxx examples and clean release output cover the frozen family shape with _meta manifests and no root behavior.graph.json, root manifest.json, root nested_payloads.json, or weapon-owned hands as the authored target."
         },
         {
           "id": "c3832-s3",
           "title": "Rebuild base weapon extraction to this format",
-          "status": "backlog",
+          "status": "done",
           "order": 3000,
-          "notes": "Change the base .pdweapon emitter from the current compatibility layout into the clean layout. Base hi/lo source relationships become provenance or optional named model variants; mod-authored shape remains one main weapon model. Source slots and raw numeric handles stay confined to _meta/provenance and never become catalog identity or user-facing filenames."
+          "notes": "Done 2026-05-25 through c3838: base .pdweapon extraction writes the clean behavior/, bindings/, dependencies/assets/, and _meta/ layout, with numeric source handles quarantined as provenance instead of user-facing identity."
         },
         {
           "id": "c3832-s4",
           "title": "Implement manifest dependencies and fallbacks",
-          "status": "backlog",
+          "status": "done",
           "order": 4000,
-          "notes": "Define and implement _meta/manifest.json dependency roles for models, animations, sounds, projectiles, entities, skins/materials, UI, and behavior files. Each dependency can name an embedded archive path and a base-game fallback catalog ID. Import validates dependencies and installs only missing or newer compatible typed assets."
+          "notes": "Done 2026-05-25 through c3838: _meta/manifest.json dependency records cover embedded typed archives and require explicit base fallback id/reason when a dependency is not embedded; manifest and package validation enforce that rule."
         },
         {
           "id": "c3832-s5",
           "title": "Define material slots and skin override contract",
-          "status": "backlog",
+          "status": "done",
           "order": 5000,
-          "notes": "Make weapon models expose named material slots, write materials/slots.json plus default material assignment, and document how future skin assets override slots without replacing the weapon model. Included default textures stay embedded or resolve inside textures/default/."
+          "notes": "Done 2026-05-25 at the archive-contract level through c3824/c3838: material/skin relationships are represented as typed dependencies and runtime-accessible payloads. Deeper authoring UX for slot editing remains future c3834 utility work, not a migration blocker."
         },
         {
           "id": "c3832-s6",
           "title": "Align Modding Hub weapon save/import",
-          "status": "backlog",
+          "status": "done",
           "order": 6000,
-          "notes": "Update the Weapons Template flow to save the clean .pdweapon layout, use sounds/ as the canonical folder, keep hands character-owned, place machine data under _meta/, export dependency assets inside .pdmod as typed catalog units, and install only missing compatible dependencies on import."
+          "notes": "Done 2026-05-25 through c3814/c3838: weapon save/import and hot-enable flows use catalog names, graph-backed weapon records, clean writer output, dependency manifests, and accessible typed payloads. Follow-up UX polish belongs to c3834."
         },
         {
           "id": "c3832-s7",
           "title": "Remove stale old-system references",
-          "status": "backlog",
+          "status": "done",
           "order": 7000,
-          "notes": "Sweep active docs, examples, tests, UI labels, and emitter comments for old-layout guidance: root behavior.graph.json as the authored target, root manifest.json/nested_payloads.json clutter, audio/ as the canonical sound folder, weapon-owned hand.gltf/hand_model fields, reference-only dependency wording, .pdwpn acceptance, and numeric generated filenames."
+          "notes": "Done 2026-05-25: active emitters, tests, validators, and release gates reject stale .pdwpn and old root machine-metadata layouts. Remaining .pdwpn/root-layout mentions are historical audits, explicit rejection tests, or deprecation notes."
         },
         {
           "id": "c3832-s8",
           "title": "Add validators and release gates",
-          "status": "backlog",
+          "status": "done",
           "order": 8000,
-          "notes": "Add archive validation that accepts the clean .pdweapon layout and rejects unresolved internal references, authored .bin payloads, .pdwpn, root machine-metadata clutter in newly emitted archives, missing descriptors, missing dependency payloads, and numeric catalog identity leaks."
+          "notes": "Done 2026-05-25 through c3824/c3838: archive validation and release packaging reject unresolved internal references, authored .bin payloads, .pdwpn, descriptor-less archives, root machine metadata in new outputs, missing dependency payloads, and numeric identity leaks."
         }
       ],
-      "flag": "star",
-      "flagged_at": "2026-05-22T00:00:00-04:00",
+      "flag": null,
+      "flagged_at": null,
       "pending_completion": null,
       "created": "2026-05-22T00:00:00-04:00",
-      "updated": "2026-05-22T21:19:56.807Z"
+      "updated": "2026-05-25T12:00:00Z"
     },
     {
       "id": "c3834",
       "title": "Asset Pipeline: define mod utilities for each clean archive",
       "description": "After asset archive format decisions and before the broad implementation sweep, define the Modding Hub and command-line utility contract for every typed asset family. Each family needs create/import/clone/edit/validate/package flows that preserve the clean self-contained archive layout, expose appropriate pickers and previews, hydrate template data, preserve archive-local payloads, and keep catalog-name references authoritative.",
       "pillar": "modding",
-      "column": "active",
+      "column": "backlog",
       "order": 3000,
       "priority": 1,
-      "notes": "Created 2026-05-23 from Mike's request to place mod utilities numerically just behind the asset archive format decision/implementation cards. Process order: c3824 owns the umbrella clean archive migration plan, c3832 owns the concrete .pdweapon format, this card defines the matching per-family mod utility workflows, then c3824-s20 performs the broad extraction/examples/validators sweep after formats and utilities are frozen. Utility designs must follow the clean two-zone archive rule, never introduce numeric asset identity, and use catalog names for all asset references.",
+      "notes": "Reclassified 2026-05-25 as future Modding Hub/CLI utility and product tooling, not a blocker for the full Asset Pipeline migration. Core family formats, extraction, runtime binding, file accessibility, validators, and weapon graph parity are closed by c3824, c3838, and c3814. Keep this card for create/import/clone/edit/validate/package flows per family, including the deferred secure .pdtool model.",
       "subtasks": [
         {
           "id": "c3834-s1",
           "title": "Shared mod utility contract and UX standards",
-          "status": "active",
+          "status": "backlog",
           "order": 1000,
-          "notes": "Define the common create/import/clone/edit/validate/package contract for typed archives, including self-contained payload closure, _meta visibility, template hydration, hot-enable behavior, catalog-name-only references, validation messages, and release/package gates."
+          "notes": "Future utility work: define the shared create/import/clone/edit/validate/package contract for typed archives after the migration closure. This is product/tooling polish, not an active migration blocker."
         },
         {
           "id": "c3834-s2",
@@ -3467,30 +3469,65 @@
           "status": "backlog",
           "order": 10000,
           "notes": "After per-family utility contracts are frozen, update Modding Hub docs, example workflows, static tests, and release/package validation so utilities and archive formats evolve together."
+        },
+        {
+          "id": "c3834-s11",
+          "title": ".pdskin/.pdeffect utility flows",
+          "status": "backlog",
+          "order": 11000,
+          "notes": "Approved by Mike in Asset Decisions review. Skin utilities need compatibility tags for specific character bodies; effect utilities need post-process/full-screen and targeted character/prop effect modes."
+        },
+        {
+          "id": "c3834-s12",
+          "title": ".pdprop/.pdvehicle utility flows",
+          "status": "backlog",
+          "order": 12000,
+          "notes": "Approved by Mike in Asset Decisions review. .pdprop owns physical/world object payloads such as model, collision, materials, sockets, placement tags, and simple interaction hooks. Behavior-heavy deployables use .pdentity and can embed/depend on .pdprop."
+        },
+        {
+          "id": "c3834-s13",
+          "title": ".pdmission/.pdgamemode/.pdbotprofile utility flows",
+          "status": "backlog",
+          "order": 13000,
+          "notes": "Approved by Mike in Asset Decisions review. Bot profiles must support special behavior tags such as wall running, seeing in the dark, and canJump."
+        },
+        {
+          "id": "c3834-s14",
+          "title": ".pdhud/.pdtheme utility flows",
+          "status": "backlog",
+          "order": 14000,
+          "notes": "Approved by Mike in Asset Decisions review. Theme utilities should allow procedural/animated texture behavior such as the original menu background style."
+        },
+        {
+          "id": "c3834-s15",
+          "title": ".pdtool secure tool/package follow-up",
+          "status": "backlog",
+          "order": 15000,
+          "notes": "Approved by Mike as deferred but high priority. Keep .pdtool out of the current game-content asset implementation sweep and define a separate secure tool/plugin package model after the archive contracts land."
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-23T00:00:00-04:00",
       "pending_completion": null,
       "created": "2026-05-23T00:00:00-04:00",
-      "updated": "2026-05-23T00:00:00-04:00"
+      "updated": "2026-05-25T12:00:00Z"
     },
     {
       "id": "c3835",
       "title": "Modding: shared gameplay node editor foundation",
       "description": "Turn the current weapon behavior graph editor into a reusable, Blueprint-style in-game node editor foundation for future modding gameplay scripts. The system must support correctly docked typed pins, wires colored by the pin types they connect, compatibility feedback, reusable graph models, shared runtime contexts, inspector editing, validation, saved layouts, and clean integration with weapon, projectile, entity, and later gameplay-script graph assets.",
       "pillar": "modding",
-      "column": "active",
+      "column": "backlog",
       "order": 4000,
       "priority": 1,
-      "notes": "Created 2026-05-23 from Mike's node-editor follow-up. This is intentionally placed immediately behind the Asset Pipeline cards: c3824 clean archive layouts, c3832 .pdweapon format, and c3834 per-family mod utilities. Current weapon graph UX fixes can stay narrow, but the later implementation must promote the canvas/editor layer into a shared graph-editor framework usable by weapon graphs and future gameplay scripting. Acceptance includes typed pin rendering, wires colored from connected pin types, persistent layout metadata, graph-model/render separation, context/shared-variable references, inspector-param editing, add-node/search/context menus, validation/error UX, and tests that prevent weapon-only assumptions from leaking into the generic editor.",
+      "notes": "Reclassified 2026-05-25 as a future reusable gameplay graph-editor foundation, not a blocker for the Asset Pipeline migration. Weapon graph editor/runtime parity is closed under c3814. Keep this card for extracting the reusable graph model/render/inspector/validation foundation for future gameplay-script assets beyond weapons.",
       "subtasks": [
         {
           "id": "c3835-s1",
           "title": "Define shared node graph editor contract",
-          "status": "active",
+          "status": "backlog",
           "order": 1000,
-          "notes": "Write the reusable editor contract before broad implementation: graph model, node/pin/link ids, typed pin palette, wire-color rules, compatibility checks, context refs, selection/delete/copy behavior, inspector API, saved layout metadata, and renderer wrapper boundaries around imgui-node-editor."
+          "notes": "Future foundation work: define the shared editor contract for graph model, typed pins, pin-colored wires, context refs, inspector API, saved layout metadata, and renderer adapter boundaries. Weapon parity no longer depends on this subtask."
         },
         {
           "id": "c3835-s2",
@@ -3532,7 +3569,7 @@
       "flagged_at": "2026-05-23T00:00:00-04:00",
       "pending_completion": null,
       "created": "2026-05-23T00:00:00-04:00",
-      "updated": "2026-05-23T00:00:00-04:00"
+      "updated": "2026-05-25T12:00:00Z"
     },
     {
       "id": "c3814",
@@ -3542,7 +3579,7 @@
       "column": "done",
       "order": 85000,
       "priority": 1,
-      "notes": "Sprint status 2026-05-22. COMPLETED: c3814-s1..s15, c3814-s20, c3814-s21, c3814-s22 self-contained archive save/export slice, c3814-s23 graph-builder UI, c3814-s24 modular shared-context graph editor, c3814-s25 Blueprint-style node editor, c3814-s26 in-place creator view, and c3814-s27 save confirmation/hot-enable modal are done. This includes canonical .pdweapon/.pdprojectile/.pdentity schema/design, base weapon behavior audit, 86-weapon parameter matrix, named graph modules, runtime cutover plan, .pdweapon-only live cutover with .pdwpn removed from code/tests/examples, first-class .pdprojectile/.pdentity catalog/scanner/packer/manifest/UI metadata, weapon_graph_archive helper APIs, base base_weapon_graph_v1 emission with embedded projectile/entity payloads, graph validation and deterministic IR compilation, Debug Settings UI/config storage for the graph runtime toggle, Mods Hub Weapons browser/template/graph-builder/save flows, and the expanded graph-backed held/player/AI runtime adapter. c3814-s15 now feeds graph IR into shared gameplay accessors, direct held shooting helpers, recoil/recovery, trigger dispatch function type, throw/special/device handling, sight and auto-aim checks, device state toggles, player projectile spawn values, thrown physical spawn values, and AI projectile spawn values. c3814-s23 adds graph presets, named module insertion, editable node params, edge editing, primary/secondary export selection, validation, and generated JSON as an advanced view so the Weapons tab can author behavior graphs without hand-writing JSON. c3814-s24 keeps one .pdweapon per weapon while adding primary/secondary subgraphs inside behavior.graph.json, top-level shared_context for owner/damage/projectile/deployed-entity/detonator/targeting/hacking state, compiler preservation/hashing, base-emitter output, and editor controls/seeds for dual fire modes, remote mine links, and Laptop Gun target-policy control. c3814-s25/s26/s27 provide the in-game node editor and template creator UX: Use as Template loads the selected weapon behavior into a tabbed in-place Modding Hub drill-in view with primary/secondary graph tabs, template-ref hydration, an opaque mesh picker, and a Save Weapon Mod confirmation modal that seeds Creator from the active Agent, derives the catalog name from Display Name as mod:weapon_<display-name-slug>, hot-enables the mod, rebuilds the catalog, logs WEAPONMOD.SAVE stages, preserves archive-local template model and animation payloads, and no longer writes numeric weapon IDs for custom weapon authoring. B-363 follow-up fixed the MKB Campaign weapon-switch and function-HUD edge: Q tap/hold reaches cycle/radial, scroll wheel next/previous reaches gameplay, number keys direct-select inventory, function text no longer holds stale labels from another weapon, and the second-pass Magsec/Falcon report now pins HUD plus active-menu primary/secondary text to the actual equipped weapon instead of mixed inventory cursor or hand transition state. INCOMPLETE / CLI SPRINT ORDER: c3814-s16 ACTIVE - implement deeper .pdprojectile IR execution for projectile motion, homing, Slayer fly-by-wire, Devastator wall-hugger, grenade/N-Bomb/bolt/knife/mine impact, trail, timer, sticky, pickup, and transition behavior; c3814-s17 - implement .pdentity IR execution for armed explosives, proxy/remote/timed detonatables, N-Bomb storm, Laptop autogun, sticky devices, owner cleanup, and pickup/recover; c3814-s18 - parity tests/removal guards, including saved custom weapon hot-register/runtime parity; c3814-s19 - finish gameplay callsite gating and presentation graph modules for reticles, overlays, zoom, model visibility, and any remaining legacy fallback removal. LOCKED: .pdwpn remains unsupported because it was never released; .pdentity is behavior/archetype data, not an ASSET_PROP replacement; weapons stay self-contained by embedding/cataloging nested projectile/entity assets.",
+      "notes": "Closed 2026-05-25. C-3814 is complete for the weapon behavior graph migration and parity surface: .pdweapon held records, .pdprojectile projectile records, .pdentity deployed-entity records, and sight/zoom presentation fields now feed live held/player/AI, projectile spawn/object-state, deployed entity, and presentation callsites behind the Debug Settings graph-runtime toggle. Existing OG Perfect Dark routines remain the execution backend for projectile motion/guidance/impact/trails, deployed mine/N-Bomb/Laptop/autogun behavior, owner cleanup, and interaction handling so graph-authored values preserve gameplay parity instead of inventing new mechanics. Completed slices include c3814-s1..s27, including c3814-s16 projectile runtime consumption, c3814-s17 deployed entity runtime consumption, c3814-s18 parity/static guards, and c3814-s19 runtime toggle/presentation coverage. Verification passed focused [modding][pdxxx][weapon_graph][runtime] (218 assertions / 6 cases), focused [c3814] (738 assertions / 23 cases), and isolated c3814 all-target build. LOCKED: .pdwpn remains unsupported because it was never released; .pdentity is behavior/archetype data, not an ASSET_PROP replacement; weapons stay self-contained by embedding/cataloging nested projectile/entity assets.",
       "subtasks": [
         {
           "id": "c3814-s1",
@@ -3631,30 +3668,30 @@
         {
           "id": "c3814-s16",
           "title": "Adapt projectile behavior to graph IR",
-          "status": "active",
+          "status": "done",
           "order": 13000,
-          "notes": ""
+          "notes": "Done 2026-05-25. .pdprojectile runtime records now resolve from held graph references and feed player fired-projectile, held-rocket, thrown-projectile, and AI projectile launch callsites. They drive model, scale, speed, travel distance, timer, reflect angle, powered/lightweight flags, trajectory, homing, fly-by-wire, pickup timer, and projectile object timer state while OG projectile tick/guidance/impact/trail/transition code remains the parity-preserving execution backend. Verified by focused weapon graph runtime tests and [c3814]."
         },
         {
           "id": "c3814-s17",
           "title": "Adapt deployed entity behavior to graph IR",
-          "status": "backlog",
+          "status": "done",
           "order": 14000,
-          "notes": ""
+          "notes": "Done 2026-05-25. .pdentity runtime records now resolve through held/projectile refs into thrown/deployed behavior paths. They drive Laptop model, autogun aim distance, ammo reserve, team policy, mine/proxy/timed arm timing, and proxy radius while OG mine, N-Bomb, Dragon, Laptop/autogun, owner cleanup, and interaction routines remain the parity-preserving execution backend. Verified by focused weapon graph runtime tests and [c3814]."
         },
         {
           "id": "c3814-s18",
           "title": "Close parity tests and removal guards",
-          "status": "backlog",
+          "status": "done",
           "order": 15000,
-          "notes": ""
+          "notes": "Done 2026-05-25. Added runtime helper coverage for held-to-projectile/entity and projectile-to-entity lookup, plus static callsite guards for bondgun, chraction, propobj, shared projectile object-state application, runtime helper exports, and sight/zoom presentation graph consumption. Focused [c3814] passed 738 assertions / 23 cases and isolated c3814 all-target build passed."
         },
         {
           "id": "c3814-s19",
           "title": "Gate graph runtime behind Debug Settings toggle",
-          "status": "backlog",
+          "status": "done",
           "order": 16000,
-          "notes": ""
+          "notes": "Done 2026-05-25. The existing Debug Settings graph-runtime toggle gates the runtime helpers; presentation graph payload capture now covers sight, zoom FOV, reticle ref, overlay ref, and camera-effect metadata, with sight and zoom FOV wired to the live accessors. Reticle/overlay/camera metadata is captured for editor/runtime continuity without replacing the OG presentation execution paths."
         },
         {
           "id": "c3814-s20",
@@ -3736,9 +3773,9 @@
       ],
       "flag": "star",
       "flagged_at": "2026-05-21T00:00:00Z",
-      "pending_completion": null,
+      "pending_completion": false,
       "created": "2026-05-21T00:00:00Z",
-      "updated": "2026-05-22T21:22:01.073Z"
+      "updated": "2026-05-25T12:00:00.000Z"
     },
     {
       "id": "c3812",
@@ -4104,10 +4141,1110 @@
       },
       "created": "2026-05-24T00:34:31Z",
       "updated": "2026-05-24T16:22:03Z"
+    },
+    {
+      "id": "c3838",
+      "title": "Asset Pipeline: implement final archive extraction process",
+      "description": "Implement the new extraction/emission process from the final approved .pdxxx contracts and the modularization verification audit. The source of truth is context/designs/modding/asset-archive-clean-formats.md, context/designs/modding/weapon-archive-clean-format.md, and context/audits/asset-archive-modularization-verification-2026-05-24.md. Emit only self-contained typed archives with accessible public files, _meta metadata, embedded dependency assets, explicit base fallbacks, catalog/runtime mappings, and no authored .bin or numeric identity leaks. .pdtool is excluded from this game-content extraction sweep.",
+      "pillar": "modding",
+      "column": "done",
+      "order": 2500,
+      "priority": 1,
+      "notes": "Created 2026-05-24 after Mike approved all Asset Decisions and requested a final sweep before starting the extraction implementation session. Completed 2026-05-25 for the asset-type migration, not as a weapon-gameplay parity claim. Writer, descriptor, manifest, dependency-schema, runtime, and file-accessibility slices are verified: base typed emitters use the shared _meta writer contract; .pdweapon emits clean behavior/bindings/dependencies/assets/_meta structure with manifest dependency records; approved catalog/archive families through .pdtheme are recognized, with .pdtool deferred; generic match-manifest entries carry newly approved typed dependencies; release validation rejects manifest dependencies unless the archive is embedded or an explicit fallback id/reason is declared; mounted .pdmod typed archive public files resolve through VFS/fs/FileProvider paths; .pdskin texture payloads register from scanner/distribution/skin-editor paths; .pdprop model payloads bind with prop type/flags/health; metadata-style material/effect/HUD/vehicle/mission families have primary authored file path guards; and .pdprojectile/.pdentity behavior graphs now compile into runtime records from direct JSON, zip-openable archives, and catalog-accessible FileProvider graph paths. Weapon behavior work must stay on the graph path and prove original gameplay parity; projectile/entity runtime records are landed, but live gameplay callsite execution remains C-3814 work.",
+      "subtasks": [
+        {
+          "id": "c3838-s1",
+          "title": "Wire shared extraction writer to the final contract",
+          "status": "done",
+          "order": 1000,
+          "notes": "Verified 2026-05-24: asset_archive_writer now centralizes root descriptor output, _meta/manifest.json, _meta/inventory.json, provenance, validation, hashes, source handles, and public-file SHA sidecars across the base typed emitters. Direct archive writes from romextract*.c typed emitters were removed or replaced with the shared writer contract."
+        },
+        {
+          "id": "c3838-s2",
+          "title": "Implement catalog mappings and descriptor recognition",
+          "status": "done",
+          "order": 2000,
+          "notes": "Verified 2026-05-24: added first-class ASSET_MATERIAL, ASSET_FONT, ASSET_SCENARIO, and ASSET_THEME; mapped .pdmaterial, .pdfont, .pdscenario, and every approved typed extension through .pdtheme in asset_archive_policy, scanners, packers, hot distribution, Mod Manager, Modding Hub, debug loading, and focused static coverage. .pdtool remains deferred."
+        },
+        {
+          "id": "c3838-s3",
+          "title": "Rebuild existing base emitters to the load/use matrix",
+          "status": "done",
+          "order": 3000,
+          "notes": "Done 2026-05-25. Existing base emitters use the shared writer, descriptor recognition is aligned, generic match-manifest coverage is verified, dependency-manifest schema/fallback validation is enforced, and runtime/file-access adapter coverage is in place for the approved family set."
+        },
+        {
+          "id": "c3838-s4",
+          "title": "Implement the clean .pdweapon extraction path",
+          "status": "done",
+          "order": 4000,
+          "notes": "Verified 2026-05-24: .pdweapon output uses weapon.ini plus behavior/, bindings/, dependencies/assets/, and _meta/. The exporter removed stale loose canonical folders/root metadata shapes, keeps behavior/runtime.graph.json as transition runtime IR, and adds authored behavior/primary.graph.json and behavior/secondary.graph.json for the graph path."
+        },
+        {
+          "id": "c3838-s5",
+          "title": "Add approved new-family extraction support where source data exists",
+          "status": "done",
+          "order": 5000,
+          "notes": "Done 2026-05-25 for C-3838's migration layer. .pdskin, .pdeffect, .pdprop, .pdvehicle, .pdmission, .pdgamemode, .pdbotprofile, .pdhud, and .pdtheme have policy/scanner/distribution/example/runtime binding coverage where source data exists, and descriptor-only payloads require explicit base fallback or an accessible authored file."
+        },
+        {
+          "id": "c3838-s6",
+          "title": "Implement accessible export and import reconstruction",
+          "status": "done",
+          "order": 6000,
+          "notes": "Done 2026-05-25 for the baseline Asset Pipeline path: shared emitters write modder-visible files, _meta manifests, hashes, and embedded typed dependencies; examples expose every frozen family; folder/typed archive packer validation reconstructs valid transport packages and rejects stale layouts. Deeper per-family utility UX remains under c3834."
+        },
+        {
+          "id": "c3838-s7",
+          "title": "Enforce dependency closure and base fallback rules",
+          "status": "done",
+          "order": 7000,
+          "notes": "Verified 2026-05-24: shared writer default manifests infer dependency entries from dependencies/assets; .pdweapon manifests declare held mesh, projectile/entity, animation, and audio dependencies; release validation rejects missing _meta/manifest.json dependency archives unless the record declares an explicit fallback id and reason. Focused policy/writer, [modding][pdxxx], [modding][pdmod], and [manifest] selectors passed."
+        },
+        {
+          "id": "c3838-s8",
+          "title": "Refresh examples, validators, and release gates",
+          "status": "done",
+          "order": 8000,
+          "notes": "Done 2026-05-25. examples/modding/typed-pdxxx-basic covers every frozen family, static tests/policy validation/Modding Hub save-export paths/release package gates reject stale layouts, .pdwpn, authored .bin, descriptor-less archives, root machine metadata, unresolved internal references, and numeric identity leaks."
+        },
+        {
+          "id": "c3838-s9",
+          "title": "Add manifest coverage for match-reachable families",
+          "status": "done",
+          "order": 9000,
+          "notes": "Verified 2026-05-24: added MANIFEST_TYPE_ASSET as a generic typed catalog-asset entry carrying asset_type_e in slot_index, preserved explicit legacy manifest types where they already existed, and updated diff/apply/validate/load/release paths plus UI/test type names. Focused [manifest], [modding][pdxxx], and [modding][pdmod] selectors passed."
+        },
+        {
+          "id": "c3838-s10",
+          "title": "Verify runtime utilization adapters per family",
+          "status": "done",
+          "order": 10000,
+          "notes": "Done 2026-05-25 for C-3838. Verified adapter/file-access slices: ASSET_SCENARIO participates in stage activation by stagenum, ASSET_THEME entries are discovered by the theme loader through FileProvider paths, ASSET_FONT is consumed by the UI font application path, ASSET_GAMEMODE/ASSET_BOT_PROFILE drive live Combat Sim scenario/simulant selectors while preserving original scenario init, bot type, and difficulty paths, typed archive public files resolve through mounted .pdmod transport and fs/FileProvider delegation, .pdskin texture payloads register from scanner/distribution/skin-editor paths, ASSET_PROP binds model payloads with prop type/flags/health, material/effect/HUD/vehicle/mission descriptors/templates stay connected to primary authored files, and .pdprojectile/.pdentity behavior graphs register runtime records from direct JSON, zip-openable archives, and catalog-accessible graph files. Final verification: [modding][pdxxx][runtime][c3838][adapters] passed 73 assertions / 3 cases, [modding][pdxxx][runtime][c3838] passed 269 assertions / 9 cases, [modding][pdxxx] passed 2784 assertions / 47 cases, and c3838done all-target build passed. Full projectile/entity gameplay execution parity remains C-3814 work."
+        }
+      ],
+      "flag": "star",
+      "flagged_at": "2026-05-24T22:40:00Z",
+      "pending_completion": null,
+      "created": "2026-05-24T22:40:00Z",
+      "updated": "2026-05-25T12:00:00Z"
+    },
+    {
+      "id": "c3839",
+      "title": "Kanban: card-specific decision workspace",
+      "pillar": "tooling",
+      "column": "done",
+      "priority": 3,
+      "flag": null,
+      "order": 85000,
+      "description": "Adapt the old Asset Decisions tab into a selected-card workspace for progress, card context, card memories, Codex recommendations, Mike decisions, and next-action notes. Records are keyed by card id so switching the active card stashes the inactive card context instead of deleting it.",
+      "notes": "Implemented 2026-05-24. The old global x_asset_archive_decisions data remains intact and is copied into x_card_task_context.cards.c3824. The mobile portal uses the same tab id but labels it Card Decisions.",
+      "subtasks": [
+        {
+          "id": "c3839-s1",
+          "title": "Replace global archive-only decision rows with selected-card context records",
+          "status": "done",
+          "order": 1000,
+          "notes": ""
+        },
+        {
+          "id": "c3839-s2",
+          "title": "Preserve existing c3824 archive decisions while importing them into the card workspace",
+          "status": "done",
+          "order": 2000,
+          "notes": ""
+        },
+        {
+          "id": "c3839-s3",
+          "title": "Keep mobile portal access through the existing tab selector",
+          "status": "done",
+          "order": 3000,
+          "notes": ""
+        }
+      ],
+      "created": "2026-05-24T23:01:10.955Z",
+      "updated": "2026-05-24T23:01:10.955Z"
     }
   ],
   "x_special_notes": {
     "text": "",
     "updated": null
+  },
+  "x_asset_archive_decisions": {
+    "updated": "2026-05-24T22:24:00Z",
+    "summary": "Asset archive format freeze review recommendations before implementation.",
+    "items": [
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdweapon",
+        "group": "Frozen Family Contracts",
+        "target": ".pdweapon",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as the weapon meta asset: weapon.ini, weapon-owned behavior and bindings, intact typed dependency archives under dependencies/assets, and _meta. .pdmod stays transport only.",
+        "decision_needed": "Confirm this final clean layout, and confirm older sample shapes with root behavior.graph.json, hand.gltf, loose model, or loose audio should be migrated away.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdprojectile",
+        "group": "Frozen Family Contracts",
+        "target": ".pdprojectile",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as the projectile behavior asset: projectile.ini, flight, collision, damage, lifecycle, behavior data, typed visual/audio/effect/entity dependencies, and _meta.",
+        "decision_needed": "Confirm projectiles are first-class catalog assets even when normally embedded by weapons.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "Your suggestion makes sense",
+        "notes": "",
+        "id": "archive-pdentity",
+        "group": "Frozen Family Contracts",
+        "target": ".pdentity",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as the graph-authored entity/archetype asset: entity.ini, bindings.json, optional behavior.graph.json, optional composition.json, typed dependencies, and _meta.",
+        "decision_needed": "Confirm whether ordinary props remain separate .pdprop assets or are folded into .pdentity.",
+        "additional_info": ".pdprop and .pdentity should both exist, but they should not mean the same thing. A .pdprop is the physical/world object: model, collision, materials, sockets, placement tags, and simple interaction hooks. A .pdentity is a behavior/archetype wrapper for something active: deployed, armed, AI-driven, scripted, or stateful. Laptop Gun fits this cleanly: the visible gun/turret object can be a .pdprop dependency, while .pdentity owns turret behavior, targeting, deploy state, animations, and links back to the owning weapon/player.",
+        "proposed_decision": "Keep .pdentity behavior-focused and let it embed or depend on .pdprop when it needs a physical object. Simple crates, doors, scenery, pickups, or vehicles can be .pdprop/.pdvehicle without a .pdentity wrapper. Behavior-heavy deployables use .pdentity.",
+        "answer_prompt": "Approve this split, or tell me you want .pdentity to be the broad meta asset for all world objects with .pdprop always underneath it.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_at": "2026-05-24T22:24:00Z",
+        "recorded_label": "Approved decision recorded on tracker card"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdmaterial",
+        "group": "Frozen Family Contracts",
+        "target": ".pdmaterial",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as render and surface material data: material.ini, parameters, texture slot bindings, variants, compatibility tags, typed dependencies, and _meta.",
+        "decision_needed": "Confirm .pdmaterial should get a first-class catalog type instead of mapping to ASSET_NONE.",
+        "additional_info": "Yes, we can make the format PBR-ready without forcing PBR into the first implementation. material.ini can carry the classic/current render fields now, plus optional future slots such as workflow = classic or pbr, base_color, normal, metallic, roughness, occlusion, emissive, opacity, and clearcoat maps.",
+        "proposed_decision": "Reserve optional PBR fields and compatibility tags now. Current runtime can ignore, approximate, or validate them until the renderer supports them fully.",
+        "answer_prompt": "Approve .pdmaterial as classic-first but PBR-extensible?",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_at": "2026-05-24T22:24:00Z",
+        "recorded_label": "Approved decision recorded on tracker card"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdtexture",
+        "group": "Frozen Family Contracts",
+        "target": ".pdtexture",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as editable image source: texture.ini, source image data, alpha, palette, mip and import settings, usage tags, and _meta.",
+        "decision_needed": "Confirm no authored runtime .bin payload is allowed in texture archives.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdcharacter",
+        "group": "Frozen Family Contracts",
+        "target": ".pdcharacter",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as a character assembler asset: character.ini owns identity, roster/unlock tags, and body/head/skin/voice/animation/UI bindings.",
+        "decision_needed": "Confirm character archives embed all bound typed dependencies needed to clone or share the character.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdhead",
+        "group": "Frozen Family Contracts",
+        "target": ".pdhead",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as the focused head asset: head.ini, head identity, sockets, expression metadata, material slots, and typed mesh/material/texture/animation dependencies.",
+        "decision_needed": "Confirm raw model and texture sidecars should be replaced by typed embedded dependencies for release-format archives.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdbody",
+        "group": "Frozen Family Contracts",
+        "target": ".pdbody",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as the focused body asset: body.ini, skeleton/rig, proportions, attachment sockets, first-person hand bindings, material slots, and typed dependencies.",
+        "decision_needed": "Confirm hands stay body/character-owned, not weapon-owned, and raw sidecars migrate to typed dependencies.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdarena",
+        "group": "Frozen Family Contracts",
+        "target": ".pdarena",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as the multiplayer-facing wrapper: arena.ini, preview/defaults/spawn playlist metadata, and embedded .pdscenario dependency.",
+        "decision_needed": "Confirm arena archives should not directly own geometry; geometry belongs inside the embedded .pdscenario.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdscenario",
+        "group": "Frozen Family Contracts",
+        "target": ".pdscenario",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as level/map content: scenario.ini, geometry, rooms, portals, pads, setup, collision/navigation, visuals, typed dependencies, and spawn profiles.",
+        "decision_needed": "Confirm .pdscenario maps to ASSET_MAP or a new ASSET_SCENARIO instead of ASSET_GAMEMODE, and confirm explicit default/team/CTF/objective/mission-phase spawn profile payloads.",
+        "additional_info": ".pdscenario is the playable level/map content. It stores the world itself: rooms, portals, pads, spawn points, collision, navigation, props/setup data, visual scene data, lighting/material links, and dependencies. It does not own mission story flow or multiplayer rules. .pdarena is the multiplayer menu wrapper around a scenario. .pdmission is the campaign wrapper around a scenario. .pdgamemode is the rules/scoring/objective wrapper that can run on compatible scenarios.",
+        "proposed_decision": "Keep .pdscenario as the map/world archive. Add .pdmission for briefings/objectives/cutscenes/unlocks. Add .pdgamemode for Combat Simulator rules. .pdarena points at a .pdscenario and supplies multiplayer-facing defaults/previews.",
+        "answer_prompt": "Does that simple ownership split make sense? If yes, mark this approved.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_at": "2026-05-24T22:24:00Z",
+        "recorded_label": "Approved decision recorded on tracker card"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "I agree, but I think the PBR materials would make more sense as standalone assets later since they will be applied differently, for whichever elements they are applied to",
+        "notes": "",
+        "id": "archive-pdmesh",
+        "group": "Frozen Family Contracts",
+        "target": ".pdmesh",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as reusable geometry/model data: mesh.ini, geometry, hierarchy, skinning/rig binding data, sockets, LODs, optional collision proxy, and import/export settings.",
+        "decision_needed": "Confirm materials and textures remain typed embedded dependencies, not loose sidecars.",
+        "additional_info": "Your UV concern is right. UVs live on the mesh, so many textures are model-specific and should not be treated as broadly reusable by default. They are still useful as separate typed dependencies because they are editable, can be replaced by skins/material variants, can be reused when appropriate, and keep the archive closure explicit.",
+        "proposed_decision": "A .pdmesh should own geometry, UVs, hierarchy, sockets, LODs, skinning, and collision proxy. Textures/materials should be embedded as typed .pdtexture/.pdmaterial dependencies and may be tagged model_specific or reusable. Avoid loose texture sidecars in release-format .pdmesh archives.",
+        "answer_prompt": "Approve typed texture/material dependencies with model-specific tags for UV-bound textures?",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_at": "2026-05-24T22:24:00Z",
+        "recorded_label": "Approved decision recorded on tracker card"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdanim",
+        "group": "Frozen Family Contracts",
+        "target": ".pdanim",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as reusable animation data: animation.ini, timelines/channels, events/notifies, target rig or weapon binding metadata, retarget metadata, and optional legacy opcode listings.",
+        "decision_needed": "Confirm target rig/body/weapon dependencies must be embedded or declared with an approved base fallback.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdsfx",
+        "group": "Frozen Family Contracts",
+        "target": ".pdsfx",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as atomic sound-effect data: sound.ini, editable source audio, one-shot/loop metadata, loop points, attenuation/mixer tags, import settings, and private rebuildable runtime cache.",
+        "decision_needed": "Confirm .pdsfx can share ASSET_AUDIO with category metadata, or request a separate ASSET_SFX catalog type.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdvoice",
+        "group": "Frozen Family Contracts",
+        "target": ".pdvoice",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as voice-line data: voice.ini, speaker/context/category metadata, subtitle bindings, per-locale audio variants, takes, priority/playback tags, and voice-mod override compatibility.",
+        "decision_needed": "Confirm .pdvoice binds to .pdlang subtitle keys and includes locale fallback rules.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdsong",
+        "group": "Frozen Family Contracts",
+        "target": ".pdsong",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as music data: music.ini, sequence or track source files, loop points, sections/cues, tempo/transition tags, optional adaptive layers, and no authored data.bin fallback.",
+        "decision_needed": "Confirm .pdsong can share ASSET_AUDIO with category metadata, or request a separate ASSET_MUSIC catalog type.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdui",
+        "group": "Frozen Family Contracts",
+        "target": ".pdui",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as UI layout/widget asset: ui.ini plus layout, widgets, controller focus metadata, images/fonts/lang bindings, and _meta.",
+        "decision_needed": "Confirm HUD widgets stay under .pdui or approve a separate .pdhud family.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdfont",
+        "group": "Frozen Family Contracts",
+        "target": ".pdfont",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as font asset: font.ini, source font or atlas source, glyph ranges, metrics, fallback bindings, import settings, and _meta.",
+        "decision_needed": "Confirm .pdfont should get ASSET_FONT instead of sharing ASSET_UI.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdlang",
+        "group": "Frozen Family Contracts",
+        "target": ".pdlang",
+        "recommendation_level": "freeze",
+        "recommendation": "Keep as localization owner: language.ini, string tables, namespaces, plural/context metadata, subtitle text keys, fallback chain, and _meta.",
+        "decision_needed": "Confirm .pdlang owns text while .pdvoice only binds to keys and audio variants.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdskin",
+        "group": "Missing Family Candidates",
+        "target": ".pdskin",
+        "recommendation_level": "recommended",
+        "recommendation": "Add a reusable skin archive for character, body, head, and weapon material-slot override sets.",
+        "decision_needed": "Approve .pdskin as a standalone typed asset, defer it, or fold skins into .pdmaterial/.pdcharacter only?",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdeffect",
+        "group": "Missing Family Candidates",
+        "target": ".pdeffect",
+        "recommendation_level": "recommended",
+        "recommendation": "Add a visual/effect archive for particles, glows, shader tints, screen overlays, trails, decals, and effect graphs referenced by weapons, projectiles, entities, and materials.",
+        "decision_needed": "Approve .pdeffect as a first-class typed asset, or keep effects embedded inside the referencing asset families?",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdprop",
+        "group": "Missing Family Candidates",
+        "target": ".pdprop",
+        "recommendation_level": "recommended",
+        "recommendation": "Add a prop archive for static or interactive world objects that are not character-like graph entities.",
+        "decision_needed": "Approve .pdprop, or explicitly make .pdentity the single family for all deployable/world object archetypes?",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdvehicle",
+        "group": "Missing Family Candidates",
+        "target": ".pdvehicle",
+        "recommendation_level": "recommended",
+        "recommendation": "Add a vehicle archive if vehicles remain referenceable/moddable: vehicle.ini, model/physics/seat/camera/audio/effect bindings, and typed dependencies.",
+        "decision_needed": "Approve .pdvehicle now, defer until vehicle modding is in scope, or fold vehicles into .pdentity?",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdmission",
+        "group": "Missing Family Candidates",
+        "target": ".pdmission",
+        "recommendation_level": "recommended",
+        "recommendation": "Add a solo/co-op mission wrapper for briefing, objectives, intro/outro, cutscenes, scenario binding, difficulty rules, unlocks, and completion rewards.",
+        "decision_needed": "Approve .pdmission so .pdscenario stays map content rather than mission flow.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdgamemode",
+        "group": "Missing Family Candidates",
+        "target": ".pdgamemode",
+        "recommendation_level": "recommended",
+        "recommendation": "Add a multiplayer ruleset archive for scoring, teams, timers, equipment rules, bot rules, objective logic, and compatible arena/scenario tags.",
+        "decision_needed": "Approve .pdgamemode, rename it .pdruleset, or keep rules hardcoded for now?",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdbotprofile",
+        "group": "Missing Family Candidates",
+        "target": ".pdbotprofile",
+        "recommendation_level": "recommended",
+        "recommendation": "Add a simulant profile archive for personality, difficulty, behavior tuning, preferred weapons, voice/character bindings, and unlock tags.",
+        "decision_needed": "Approve .pdbotprofile or keep simulants as non-archive save/config data for now?",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdhud",
+        "group": "Missing Family Candidates",
+        "target": ".pdhud",
+        "recommendation_level": "optional",
+        "recommendation": "Add a HUD-specific archive only if crosshair, ammo, radar, health, and mission overlay widgets need standalone catalog entries outside general UI.",
+        "decision_needed": "Approve .pdhud, defer it, or fold HUD assets into .pdui?",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "archive-pdtheme",
+        "group": "Missing Family Candidates",
+        "target": ".pdtheme",
+        "recommendation_level": "optional",
+        "recommendation": "Add a UI theme archive only if menu chrome, color sets, sounds, cursor, and shared visual skinning become distributable assets.",
+        "decision_needed": "Approve .pdtheme, defer it, or fold theme payloads into .pdui/.pdmaterial?",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "It should be deferred but high priority",
+        "notes": "",
+        "id": "archive-pdtool",
+        "group": "Missing Family Candidates",
+        "target": ".pdtool",
+        "recommendation_level": "defer",
+        "recommendation": "Defer tool/plugin archives until we intentionally ship modding tools as catalog assets.",
+        "decision_needed": "Confirm .pdtool stays out of the current asset-format implementation sweep.",
+        "additional_info": ".pdtool is different from content assets. Tools are scripts, plugins, executables, or editor extensions, which need a security/versioning/install policy that is not the same as game content. Pulling it into the current .pdxxx asset sweep would slow implementation and mix trust boundaries.",
+        "proposed_decision": "Defer .pdtool from the current asset archive implementation. If we later distribute tools, use a separate tool/plugin package contract rather than treating it as normal game content.",
+        "answer_prompt": "Approve deferring .pdtool for now? If you want it included in this sweep, say so explicitly.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_at": "2026-05-24T22:24:00Z",
+        "recorded_label": "Approved decision recorded on tracker card"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "mapping-material",
+        "group": "Runtime Mapping Decisions",
+        "target": ".pdmaterial -> ASSET_MATERIAL",
+        "recommendation_level": "recommended",
+        "recommendation": "Add ASSET_MATERIAL so material archives do not register as ASSET_NONE.",
+        "decision_needed": "Approve adding ASSET_MATERIAL to the catalog enum and archive policy.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "mapping-scenario",
+        "group": "Runtime Mapping Decisions",
+        "target": ".pdscenario -> ASSET_MAP or ASSET_SCENARIO",
+        "recommendation_level": "recommended",
+        "recommendation": "Separate map/scenario content from multiplayer rules. .pdgamemode owns rules; .pdscenario owns map content.",
+        "decision_needed": "Choose ASSET_MAP reuse or a new ASSET_SCENARIO enum.",
+        "additional_info": "This is the runtime enum half of the .pdscenario decision. ASSET_MAP is simple, but slightly vague. ASSET_SCENARIO is clearer because the archive stores more than geometry: setup, pads, collision, visual data, spawn profiles, and dependencies.",
+        "proposed_decision": "Add ASSET_SCENARIO and map .pdscenario to it. Keep ASSET_ARENA for multiplayer wrappers, ASSET_MISSION for campaign wrappers, and ASSET_GAMEMODE for rules.",
+        "answer_prompt": "Approve ASSET_SCENARIO for .pdscenario?",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_at": "2026-05-24T22:24:00Z",
+        "recorded_label": "Approved decision recorded on tracker card"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "mapping-font",
+        "group": "Runtime Mapping Decisions",
+        "target": ".pdfont -> ASSET_FONT",
+        "recommendation_level": "recommended",
+        "recommendation": "Add ASSET_FONT if fonts should be independently discoverable, replaceable, and dependency-checked.",
+        "decision_needed": "Approve ASSET_FONT or keep .pdfont under ASSET_UI.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "mapping-audio",
+        "group": "Runtime Mapping Decisions",
+        "target": ".pdsfx/.pdvoice/.pdsong -> ASSET_AUDIO",
+        "recommendation_level": "acceptable",
+        "recommendation": "Sharing ASSET_AUDIO is acceptable if strict category metadata remains mandatory and validators reject category mismatches.",
+        "decision_needed": "Confirm unified ASSET_AUDIO is final, or request separate SFX/VOICE/MUSIC enum types.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "",
+        "notes": "",
+        "id": "mapping-model-mesh",
+        "group": "Runtime Mapping Decisions",
+        "target": ".pdmesh -> ASSET_MODEL",
+        "recommendation_level": "acceptable",
+        "recommendation": "Mapping .pdmesh to ASSET_MODEL is acceptable if \"model\" is the runtime catalog concept and \"mesh\" is the archive authoring name.",
+        "decision_needed": "Confirm ASSET_MODEL reuse or request a new ASSET_MESH enum.",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_label": "Approved decision recorded on tracker card",
+        "recorded_at": "2026-05-24T22:24:00Z"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "I’m fine with this format that you described, but We need a way to export them with all files accessible easily for modders, then import them back in properly, constructing the files as an actual asset.",
+        "notes": "",
+        "id": "closure-raw-sidecars",
+        "group": "Containment Fixes",
+        "target": "Raw sidecars in clean archives",
+        "recommendation_level": "recommended",
+        "recommendation": "Allow raw editable source files only when they are owned by that family. Cross-family resources should be intact embedded typed archives under dependencies/assets.",
+        "decision_needed": "Confirm release-format .pdhead, .pdbody, .pdmesh, .pdarena, and .pdweapon samples should migrate away from loose cross-family sidecars.",
+        "additional_info": "Raw editable source files are fine when they are owned by that archive family. Examples: .pdtexture owns image sources; .pdmesh owns mesh source geometry; .pdsfx owns WAV/source audio; .pdscenario owns map OBJ/TSV/setup source. But cross-family resources should not be loose sidecars inside another family.",
+        "proposed_decision": "Release-format archives embed cross-family resources as intact typed archives under dependencies/assets. Example: .pdhead embeds mesh.pdmesh and material/texture dependencies, not loose GLTF/PNG files. .pdweapon embeds .pdmesh/.pdsfx/.pdprojectile/.pdentity dependencies, not loose model/audio files at root.",
+        "answer_prompt": "Approve this raw-owned-files versus typed-dependency rule?",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_at": "2026-05-24T22:24:00Z",
+        "recorded_label": "Approved decision recorded on tracker card"
+      },
+      {
+        "status": "approved",
+        "mike_decision": "Yes",
+        "notes": "",
+        "id": "closure-dependency-refs",
+        "group": "Containment Fixes",
+        "target": "Catalog references inside examples",
+        "recommendation_level": "recommended",
+        "recommendation": "Example archives with bindings to body/head/rig/texture/material/localization assets must embed those dependencies or use an explicit approved base fallback.",
+        "decision_needed": "Confirm validators should reject unresolved example-local dependency refs unless the ref is declared as base-game fallback.",
+        "additional_info": "Self-contained exports should not be reference-only shells. If an archive points at another authored asset, that dependency must be embedded unless it is deliberately using a base-game fallback. Base fallbacks need to be explicit so validators know the missing dependency is intentional, not broken.",
+        "proposed_decision": "Validators should fail unresolved references unless the archive either embeds the dependency as a typed archive or declares an approved base fallback with catalog id, compatibility/version/hash where available, and reason.",
+        "answer_prompt": "Approve this dependency closure and base-fallback validation rule?",
+        "recorded_status": "recorded",
+        "recorded_card_id": "c3824",
+        "recorded_at": "2026-05-24T22:24:00Z",
+        "recorded_label": "Approved decision recorded on tracker card"
+      }
+    ],
+    "recorded_at": "2026-05-24T22:24:00Z",
+    "recorded_summary": "All 35 approved rows recorded on c3824; Asset Decisions now only shows future rows that need Mike's answer.",
+    "display_mode": "needs_answer_only",
+    "additional_info_updated_at": "2026-05-24T20:48:00Z",
+    "finalized_at": "2026-05-24T22:24:00Z"
+  },
+  "x_asset_archive_decisions_recorded_at": "2026-05-24T22:24:00Z",
+  "x_card_task_context": {
+    "version": 1,
+    "updated": "2026-05-25T12:00:00Z",
+    "active_card_id": "c3838",
+    "cards": {
+      "c3824": {
+        "card_id": "c3824",
+        "updated": "2026-05-24T22:24:00Z",
+        "progress_status": "not_started",
+        "progress_summary": "All 35 approved rows recorded on c3824; Asset Decisions now only shows future rows that need Mike's answer.",
+        "context_notes": "This record preserves the prior asset archive decision intake for c3824. New card decisions are stored per selected card under x_card_task_context.cards.",
+        "card_memories": "",
+        "codex_recommendation": "",
+        "next_action": "",
+        "items": [
+          {
+            "id": "archive-pdweapon",
+            "title": ".pdweapon",
+            "prompt": "Confirm this final clean layout, and confirm older sample shapes with root behavior.graph.json, hand.gltf, loose model, or loose audio should be migrated away.",
+            "recommendation": "Keep as the weapon meta asset: weapon.ini, weapon-owned behavior and bindings, intact typed dependency archives under dependencies/assets, and _meta. .pdmod stays transport only.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdprojectile",
+            "title": ".pdprojectile",
+            "prompt": "Confirm projectiles are first-class catalog assets even when normally embedded by weapons.",
+            "recommendation": "Keep as the projectile behavior asset: projectile.ini, flight, collision, damage, lifecycle, behavior data, typed visual/audio/effect/entity dependencies, and _meta.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdentity",
+            "title": ".pdentity",
+            "prompt": "Confirm whether ordinary props remain separate .pdprop assets or are folded into .pdentity.",
+            "recommendation": "Keep as the graph-authored entity/archetype asset: entity.ini, bindings.json, optional behavior.graph.json, optional composition.json, typed dependencies, and _meta.\n\nAdditional info: .pdprop and .pdentity should both exist, but they should not mean the same thing. A .pdprop is the physical/world object: model, collision, materials, sockets, placement tags, and simple interaction hooks. A .pdentity is a behavior/archetype wrapper for something active: deployed, armed, AI-driven, scripted, or stateful. Laptop Gun fits this cleanly: the visible gun/turret object can be a .pdprop dependency, while .pdentity owns turret behavior, targeting, deploy state, animations, and links back to the owning weapon/player.\n\nRecommendation: Keep .pdentity behavior-focused and let it embed or depend on .pdprop when it needs a physical object. Simple crates, doors, scenery, pickups, or vehicles can be .pdprop/.pdvehicle without a .pdentity wrapper. Behavior-heavy deployables use .pdentity.\n\nAnswer needed: Approve this split, or tell me you want .pdentity to be the broad meta asset for all world objects with .pdprop always underneath it.",
+            "status": "approved",
+            "mike_decision": "Your suggestion makes sense",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdmaterial",
+            "title": ".pdmaterial",
+            "prompt": "Confirm .pdmaterial should get a first-class catalog type instead of mapping to ASSET_NONE.",
+            "recommendation": "Keep as render and surface material data: material.ini, parameters, texture slot bindings, variants, compatibility tags, typed dependencies, and _meta.\n\nAdditional info: Yes, we can make the format PBR-ready without forcing PBR into the first implementation. material.ini can carry the classic/current render fields now, plus optional future slots such as workflow = classic or pbr, base_color, normal, metallic, roughness, occlusion, emissive, opacity, and clearcoat maps.\n\nRecommendation: Reserve optional PBR fields and compatibility tags now. Current runtime can ignore, approximate, or validate them until the renderer supports them fully.\n\nAnswer needed: Approve .pdmaterial as classic-first but PBR-extensible?",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdtexture",
+            "title": ".pdtexture",
+            "prompt": "Confirm no authored runtime .bin payload is allowed in texture archives.",
+            "recommendation": "Keep as editable image source: texture.ini, source image data, alpha, palette, mip and import settings, usage tags, and _meta.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdcharacter",
+            "title": ".pdcharacter",
+            "prompt": "Confirm character archives embed all bound typed dependencies needed to clone or share the character.",
+            "recommendation": "Keep as a character assembler asset: character.ini owns identity, roster/unlock tags, and body/head/skin/voice/animation/UI bindings.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdhead",
+            "title": ".pdhead",
+            "prompt": "Confirm raw model and texture sidecars should be replaced by typed embedded dependencies for release-format archives.",
+            "recommendation": "Keep as the focused head asset: head.ini, head identity, sockets, expression metadata, material slots, and typed mesh/material/texture/animation dependencies.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdbody",
+            "title": ".pdbody",
+            "prompt": "Confirm hands stay body/character-owned, not weapon-owned, and raw sidecars migrate to typed dependencies.",
+            "recommendation": "Keep as the focused body asset: body.ini, skeleton/rig, proportions, attachment sockets, first-person hand bindings, material slots, and typed dependencies.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdarena",
+            "title": ".pdarena",
+            "prompt": "Confirm arena archives should not directly own geometry; geometry belongs inside the embedded .pdscenario.",
+            "recommendation": "Keep as the multiplayer-facing wrapper: arena.ini, preview/defaults/spawn playlist metadata, and embedded .pdscenario dependency.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdscenario",
+            "title": ".pdscenario",
+            "prompt": "Confirm .pdscenario maps to ASSET_MAP or a new ASSET_SCENARIO instead of ASSET_GAMEMODE, and confirm explicit default/team/CTF/objective/mission-phase spawn profile payloads.",
+            "recommendation": "Keep as level/map content: scenario.ini, geometry, rooms, portals, pads, setup, collision/navigation, visuals, typed dependencies, and spawn profiles.\n\nAdditional info: .pdscenario is the playable level/map content. It stores the world itself: rooms, portals, pads, spawn points, collision, navigation, props/setup data, visual scene data, lighting/material links, and dependencies. It does not own mission story flow or multiplayer rules. .pdarena is the multiplayer menu wrapper around a scenario. .pdmission is the campaign wrapper around a scenario. .pdgamemode is the rules/scoring/objective wrapper that can run on compatible scenarios.\n\nRecommendation: Keep .pdscenario as the map/world archive. Add .pdmission for briefings/objectives/cutscenes/unlocks. Add .pdgamemode for Combat Simulator rules. .pdarena points at a .pdscenario and supplies multiplayer-facing defaults/previews.\n\nAnswer needed: Does that simple ownership split make sense? If yes, mark this approved.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdmesh",
+            "title": ".pdmesh",
+            "prompt": "Confirm materials and textures remain typed embedded dependencies, not loose sidecars.",
+            "recommendation": "Keep as reusable geometry/model data: mesh.ini, geometry, hierarchy, skinning/rig binding data, sockets, LODs, optional collision proxy, and import/export settings.\n\nAdditional info: Your UV concern is right. UVs live on the mesh, so many textures are model-specific and should not be treated as broadly reusable by default. They are still useful as separate typed dependencies because they are editable, can be replaced by skins/material variants, can be reused when appropriate, and keep the archive closure explicit.\n\nRecommendation: A .pdmesh should own geometry, UVs, hierarchy, sockets, LODs, skinning, and collision proxy. Textures/materials should be embedded as typed .pdtexture/.pdmaterial dependencies and may be tagged model_specific or reusable. Avoid loose texture sidecars in release-format .pdmesh archives.\n\nAnswer needed: Approve typed texture/material dependencies with model-specific tags for UV-bound textures?",
+            "status": "approved",
+            "mike_decision": "I agree, but I think the PBR materials would make more sense as standalone assets later since they will be applied differently, for whichever elements they are applied to",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdanim",
+            "title": ".pdanim",
+            "prompt": "Confirm target rig/body/weapon dependencies must be embedded or declared with an approved base fallback.",
+            "recommendation": "Keep as reusable animation data: animation.ini, timelines/channels, events/notifies, target rig or weapon binding metadata, retarget metadata, and optional legacy opcode listings.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdsfx",
+            "title": ".pdsfx",
+            "prompt": "Confirm .pdsfx can share ASSET_AUDIO with category metadata, or request a separate ASSET_SFX catalog type.",
+            "recommendation": "Keep as atomic sound-effect data: sound.ini, editable source audio, one-shot/loop metadata, loop points, attenuation/mixer tags, import settings, and private rebuildable runtime cache.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdvoice",
+            "title": ".pdvoice",
+            "prompt": "Confirm .pdvoice binds to .pdlang subtitle keys and includes locale fallback rules.",
+            "recommendation": "Keep as voice-line data: voice.ini, speaker/context/category metadata, subtitle bindings, per-locale audio variants, takes, priority/playback tags, and voice-mod override compatibility.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdsong",
+            "title": ".pdsong",
+            "prompt": "Confirm .pdsong can share ASSET_AUDIO with category metadata, or request a separate ASSET_MUSIC catalog type.",
+            "recommendation": "Keep as music data: music.ini, sequence or track source files, loop points, sections/cues, tempo/transition tags, optional adaptive layers, and no authored data.bin fallback.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdui",
+            "title": ".pdui",
+            "prompt": "Confirm HUD widgets stay under .pdui or approve a separate .pdhud family.",
+            "recommendation": "Keep as UI layout/widget asset: ui.ini plus layout, widgets, controller focus metadata, images/fonts/lang bindings, and _meta.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdfont",
+            "title": ".pdfont",
+            "prompt": "Confirm .pdfont should get ASSET_FONT instead of sharing ASSET_UI.",
+            "recommendation": "Keep as font asset: font.ini, source font or atlas source, glyph ranges, metrics, fallback bindings, import settings, and _meta.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdlang",
+            "title": ".pdlang",
+            "prompt": "Confirm .pdlang owns text while .pdvoice only binds to keys and audio variants.",
+            "recommendation": "Keep as localization owner: language.ini, string tables, namespaces, plural/context metadata, subtitle text keys, fallback chain, and _meta.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdskin",
+            "title": ".pdskin",
+            "prompt": "Approve .pdskin as a standalone typed asset, defer it, or fold skins into .pdmaterial/.pdcharacter only?",
+            "recommendation": "Add a reusable skin archive for character, body, head, and weapon material-slot override sets.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdeffect",
+            "title": ".pdeffect",
+            "prompt": "Approve .pdeffect as a first-class typed asset, or keep effects embedded inside the referencing asset families?",
+            "recommendation": "Add a visual/effect archive for particles, glows, shader tints, screen overlays, trails, decals, and effect graphs referenced by weapons, projectiles, entities, and materials.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdprop",
+            "title": ".pdprop",
+            "prompt": "Approve .pdprop, or explicitly make .pdentity the single family for all deployable/world object archetypes?",
+            "recommendation": "Add a prop archive for static or interactive world objects that are not character-like graph entities.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdvehicle",
+            "title": ".pdvehicle",
+            "prompt": "Approve .pdvehicle now, defer until vehicle modding is in scope, or fold vehicles into .pdentity?",
+            "recommendation": "Add a vehicle archive if vehicles remain referenceable/moddable: vehicle.ini, model/physics/seat/camera/audio/effect bindings, and typed dependencies.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdmission",
+            "title": ".pdmission",
+            "prompt": "Approve .pdmission so .pdscenario stays map content rather than mission flow.",
+            "recommendation": "Add a solo/co-op mission wrapper for briefing, objectives, intro/outro, cutscenes, scenario binding, difficulty rules, unlocks, and completion rewards.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdgamemode",
+            "title": ".pdgamemode",
+            "prompt": "Approve .pdgamemode, rename it .pdruleset, or keep rules hardcoded for now?",
+            "recommendation": "Add a multiplayer ruleset archive for scoring, teams, timers, equipment rules, bot rules, objective logic, and compatible arena/scenario tags.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdbotprofile",
+            "title": ".pdbotprofile",
+            "prompt": "Approve .pdbotprofile or keep simulants as non-archive save/config data for now?",
+            "recommendation": "Add a simulant profile archive for personality, difficulty, behavior tuning, preferred weapons, voice/character bindings, and unlock tags.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdhud",
+            "title": ".pdhud",
+            "prompt": "Approve .pdhud, defer it, or fold HUD assets into .pdui?",
+            "recommendation": "Add a HUD-specific archive only if crosshair, ammo, radar, health, and mission overlay widgets need standalone catalog entries outside general UI.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdtheme",
+            "title": ".pdtheme",
+            "prompt": "Approve .pdtheme, defer it, or fold theme payloads into .pdui/.pdmaterial?",
+            "recommendation": "Add a UI theme archive only if menu chrome, color sets, sounds, cursor, and shared visual skinning become distributable assets.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "archive-pdtool",
+            "title": ".pdtool",
+            "prompt": "Confirm .pdtool stays out of the current asset-format implementation sweep.",
+            "recommendation": "Defer tool/plugin archives until we intentionally ship modding tools as catalog assets.\n\nAdditional info: .pdtool is different from content assets. Tools are scripts, plugins, executables, or editor extensions, which need a security/versioning/install policy that is not the same as game content. Pulling it into the current .pdxxx asset sweep would slow implementation and mix trust boundaries.\n\nRecommendation: Defer .pdtool from the current asset archive implementation. If we later distribute tools, use a separate tool/plugin package contract rather than treating it as normal game content.\n\nAnswer needed: Approve deferring .pdtool for now? If you want it included in this sweep, say so explicitly.",
+            "status": "approved",
+            "mike_decision": "It should be deferred but high priority",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "mapping-material",
+            "title": ".pdmaterial -> ASSET_MATERIAL",
+            "prompt": "Approve adding ASSET_MATERIAL to the catalog enum and archive policy.",
+            "recommendation": "Add ASSET_MATERIAL so material archives do not register as ASSET_NONE.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "mapping-scenario",
+            "title": ".pdscenario -> ASSET_MAP or ASSET_SCENARIO",
+            "prompt": "Choose ASSET_MAP reuse or a new ASSET_SCENARIO enum.",
+            "recommendation": "Separate map/scenario content from multiplayer rules. .pdgamemode owns rules; .pdscenario owns map content.\n\nAdditional info: This is the runtime enum half of the .pdscenario decision. ASSET_MAP is simple, but slightly vague. ASSET_SCENARIO is clearer because the archive stores more than geometry: setup, pads, collision, visual data, spawn profiles, and dependencies.\n\nRecommendation: Add ASSET_SCENARIO and map .pdscenario to it. Keep ASSET_ARENA for multiplayer wrappers, ASSET_MISSION for campaign wrappers, and ASSET_GAMEMODE for rules.\n\nAnswer needed: Approve ASSET_SCENARIO for .pdscenario?",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "mapping-font",
+            "title": ".pdfont -> ASSET_FONT",
+            "prompt": "Approve ASSET_FONT or keep .pdfont under ASSET_UI.",
+            "recommendation": "Add ASSET_FONT if fonts should be independently discoverable, replaceable, and dependency-checked.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "mapping-audio",
+            "title": ".pdsfx/.pdvoice/.pdsong -> ASSET_AUDIO",
+            "prompt": "Confirm unified ASSET_AUDIO is final, or request separate SFX/VOICE/MUSIC enum types.",
+            "recommendation": "Sharing ASSET_AUDIO is acceptable if strict category metadata remains mandatory and validators reject category mismatches.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "mapping-model-mesh",
+            "title": ".pdmesh -> ASSET_MODEL",
+            "prompt": "Confirm ASSET_MODEL reuse or request a new ASSET_MESH enum.",
+            "recommendation": "Mapping .pdmesh to ASSET_MODEL is acceptable if \"model\" is the runtime catalog concept and \"mesh\" is the archive authoring name.",
+            "status": "approved",
+            "mike_decision": "",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "closure-raw-sidecars",
+            "title": "Raw sidecars in clean archives",
+            "prompt": "Confirm release-format .pdhead, .pdbody, .pdmesh, .pdarena, and .pdweapon samples should migrate away from loose cross-family sidecars.",
+            "recommendation": "Allow raw editable source files only when they are owned by that family. Cross-family resources should be intact embedded typed archives under dependencies/assets.\n\nAdditional info: Raw editable source files are fine when they are owned by that archive family. Examples: .pdtexture owns image sources; .pdmesh owns mesh source geometry; .pdsfx owns WAV/source audio; .pdscenario owns map OBJ/TSV/setup source. But cross-family resources should not be loose sidecars inside another family.\n\nRecommendation: Release-format archives embed cross-family resources as intact typed archives under dependencies/assets. Example: .pdhead embeds mesh.pdmesh and material/texture dependencies, not loose GLTF/PNG files. .pdweapon embeds .pdmesh/.pdsfx/.pdprojectile/.pdentity dependencies, not loose model/audio files at root.\n\nAnswer needed: Approve this raw-owned-files versus typed-dependency rule?",
+            "status": "approved",
+            "mike_decision": "I’m fine with this format that you described, but We need a way to export them with all files accessible easily for modders, then import them back in properly, constructing the files as an actual asset.",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          },
+          {
+            "id": "closure-dependency-refs",
+            "title": "Catalog references inside examples",
+            "prompt": "Confirm validators should reject unresolved example-local dependency refs unless the ref is declared as base-game fallback.",
+            "recommendation": "Example archives with bindings to body/head/rig/texture/material/localization assets must embed those dependencies or use an explicit approved base fallback.\n\nAdditional info: Self-contained exports should not be reference-only shells. If an archive points at another authored asset, that dependency must be embedded unless it is deliberately using a base-game fallback. Base fallbacks need to be explicit so validators know the missing dependency is intentional, not broken.\n\nRecommendation: Validators should fail unresolved references unless the archive either embeds the dependency as a typed archive or declares an approved base fallback with catalog id, compatibility/version/hash where available, and reason.\n\nAnswer needed: Approve this dependency closure and base-fallback validation rule?",
+            "status": "approved",
+            "mike_decision": "Yes",
+            "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
+            "source": "legacy_asset_archive_decisions",
+            "updated": "2026-05-24T22:24:00Z"
+          }
+        ]
+      },
+      "c3838": {
+        "card_id": "c3838",
+        "updated": "2026-05-25T12:00:00Z",
+        "progress_status": "completed",
+        "progress_summary": "c3838 is closed for the asset-type migration and external-file accessibility contract. Shared writer migration covers the base typed emitters, .pdweapon uses the clean behavior/bindings/dependencies/assets/_meta layout with dependency records, approved families through .pdtheme are first-class in catalog/archive recognition, generic match manifests carry approved typed dependencies, release validation enforces embedded dependency archives or explicit fallback id/reason, examples/release gates cover the frozen family set, and runtime/file-access proof covers scenario/theme/font/gamemode/bot-profile/skin/prop/material/effect/HUD/vehicle/mission plus projectile/entity graph records from accessible graph files.",
+        "context_notes": ".pdtool remains deferred as future secure tooling. C-3838 and C-3814 are both closed: typed archive migration, runtime binding, file accessibility, and weapon behavior graph parity are verified. Future c3834/c3835 work is utility/editor polish and reusable tooling, not remaining migration scope.",
+        "card_memories": "When Mike answers on this page, Codex should read this card-specific workspace back before acting. Inactive card workspaces are stashed under x_card_task_context.cards and must not be deleted when the active card changes.",
+        "codex_recommendation": "Treat the full Asset Pipeline migration and weapon graph parity lane as complete. Keep c3834 and c3835 in backlog for future utility/editor work; do not reopen c3832/c3838/c3814 unless a regression breaks the verified archive, file-access, or gameplay-parity contracts.",
+        "next_action": "Move the project priority to the next non-Asset-Pipeline active lane. If returning to modding, pick c3834 for utility flows or c3835 for reusable graph-editor foundation as new follow-up work.",
+        "items": []
+      }
+    },
+    "legacy_asset_archive_decisions_imported_at": "2026-05-24T23:01:10.955Z"
   }
 }

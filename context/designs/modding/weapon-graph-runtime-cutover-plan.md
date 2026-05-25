@@ -1,6 +1,6 @@
 # Weapon Graph Runtime Cutover Plan
 
-Status: implementation split for Kanban `c3814-s9`; Slice 1 (`c3814-s10`) through Slice 6 (`c3814-s15`) landed by 2026-05-22. The clean authored archive layout is now owned by `c3832` and [weapon-archive-clean-format.md](weapon-archive-clean-format.md); runtime slices must preserve compatibility only as a migration bridge while new emitters/examples move to that layout.
+Status: closed for Kanban `c3814`; Slice 1 (`c3814-s10`) through Slice 9 (`c3814-s18`/`c3814-s19`) landed by 2026-05-25. The clean authored archive layout is owned by `c3832` and [weapon-archive-clean-format.md](weapon-archive-clean-format.md); the runtime cutover now uses graph-authored records as the behavior source while existing Perfect Dark routines remain the parity-preserving execution backend.
 
 This document turns the schema, base behavior audit, parameter matrix, and module parameter spec into sequenced runtime work. It is intentionally split so the pre-release `.pdwpn` removal can land cleanly before graph compiler and gameplay runtime work begins.
 
@@ -134,7 +134,7 @@ Landed:
 ### Slice 6: held-weapon runtime adapter
 
 Kanban: `c3814-s15`.
-Status: expanded held/player/AI adapter landed 2026-05-21; remaining closure moves through projectile/entity/presentation parity slices.
+Status: done 2026-05-21; later projectile/entity/presentation parity slices closed 2026-05-25.
 
 Scope:
 
@@ -156,11 +156,12 @@ Landed so far:
 - Runtime adapter coverage now also captures symbolic SFX names, function type ids, recoil/recovery fields, throw activation/recovery, projectile/entity refs, projectile model refs, projectile scale/speed/distance/timer/reflect/sound fields, melee range, special function/recovery/sound, and device ids.
 - Player held paths read graph-backed recoil/recovery, trigger dispatch type, throw/special/device state, fired/thrown projectile spawn parameters, sight/auto-aim type, and device toggles when the Debug Settings graph runtime toggle is enabled.
 - The AI projectile launcher reads graph-backed projectile model, speed, distance, timer, flags, reflect angle, and launch sound for rocket/grenade/bolt launcher behavior.
-- Legacy behavior remains the default fallback. Deeper `.pdprojectile` motion/guidance/impact IR, `.pdentity` armed/deployed behavior IR, presentation graph modules, saved custom weapon hot-register parity, and parity smokes remain in the later slices.
+- The old authored data is no longer the gameplay source for converted modules. Existing OG routines remain the execution backend for parity while graph-authored runtime records feed their values.
 
 ### Slice 7: projectile runtime adapter
 
 Kanban: `c3814-s16`.
+Status: done 2026-05-25.
 
 Scope:
 
@@ -173,9 +174,18 @@ Exit gates:
 - Projectile spawn, motion, guidance, sticky, bounce/slide, timer, impact, trail, and transition modules execute from IR.
 - Slayer, grenade, mine, Dragon proxy, and thrown Laptop smoke/parity tests exist.
 
+Landed:
+
+- First runtime-record adapter layer landed 2026-05-24: `.pdprojectile` graph JSON registers from direct JSON, zip-openable `.pdprojectile` archives, or catalog-accessible graph files loaded through `fsFileLoad(source_path)`.
+- Runtime records now capture spawn-state model/archive/source/function/scale/damage/flags, motion kind/speed/travel/timer/activation/recovery/reflect/powered/trajectory fields, homing, fly-by-wire, wall-hugger, sticky attach, bounce/slide, timer, impact, trail, transition-to-entity, and pickup/recover module data behind the Debug Settings graph runtime gate.
+- Held graph projectile references now resolve at player fired-projectile, held-rocket, thrown-projectile, and AI projectile launch callsites.
+- Projectile records drive model, scale, speed, travel distance, timer, reflect angle, powered/lightweight flags, trajectory, homing, fly-by-wire, pickup timer, and projectile object timer state.
+- Existing OG projectile tick, guidance, impact, trail, and transition routines remain the execution backend so graph-authored values preserve original gameplay behavior.
+
 ### Slice 8: entity runtime adapter
 
 Kanban: `c3814-s17`.
+Status: done 2026-05-25.
 
 Scope:
 
@@ -188,9 +198,18 @@ Exit gates:
 - Proxy mine, timed mine, remote mine, Dragon proxy, N-Bomb, deployed Laptop autogun, and sticky device behavior resolve through entity IR.
 - Net authority and owner/team policy are authored data, not hidden hard-coded branches.
 
+Landed:
+
+- First runtime-record adapter layer landed 2026-05-24: `.pdentity` graph JSON registers from direct JSON, zip-openable `.pdentity` archives, or catalog-accessible graph files loaded through `fsFileLoad(source_path)`.
+- Runtime records now capture shared archetype/model/source/timing/flags plus armed explosive, proxy trigger, remote detonatable, timed detonatable, N-Bomb storm, autogun, sticky device, owner cleanup, and interaction module data behind the Debug Settings graph runtime gate.
+- Held/projectile entity references now resolve into thrown/deployed behavior paths.
+- Entity records drive Laptop model, aim distance, ammo reserve, team policy, mine/proxy/timed arm timing, and proxy trigger radius.
+- Existing OG mine, N-Bomb, Dragon, Laptop autogun, owner cleanup, and interaction routines remain the execution backend so graph-authored values preserve original gameplay behavior.
+
 ### Slice 9: parity and removal closure
 
 Kanban: `c3814-s18`.
+Status: done 2026-05-25.
 
 Scope:
 
@@ -205,10 +224,17 @@ Exit gates:
 - Fresh `.pdwpn` search is clean outside historical context.
 - Base weapon behavior coverage is marked runtime-complete, not just schema-complete.
 
-## First Active Code Task
+Landed:
 
-Continue with `c3814-s16` and `c3814-s17`: move projectile motion/guidance/impact behavior and armed/deployed entity behavior from graph metadata into runtime IR execution, then close presentation/hot-register parity under `c3814-s18`/`c3814-s19` while legacy behavior remains the default fallback.
+- Added runtime helper coverage for held-to-projectile/entity and projectile-to-entity reference resolution.
+- Added static callsite guards for player, AI, projectile object-state, deployed entity, and sight/zoom presentation graph consumption.
+- Added presentation capture for sight, zoom FOV, reticle, overlay, and camera-effect metadata; current sight/zoom accessors consume the graph fields.
+- Verified focused `[modding][pdxxx][weapon_graph][runtime]`, focused `[c3814]`, and isolated all-target build under session `c3814`.
+
+## Closure State
+
+C-3814 is closed. Future weapon behavior work should continue to author behavior in graph records and feed the existing OG execution routines unless a later card explicitly requests a new behavior execution system. `.pdwpn` remains unsupported outside historical notes.
 
 ## Sentinel
 
-This document ends with the active cutover order: implement archives, emit graphs, compile IR, adapt weapons, adapt projectiles, adapt entities, close parity.
+This document ends with the completed cutover order: implement archives, emit graphs, compile IR, adapt weapons, adapt projectiles, adapt entities, close parity.

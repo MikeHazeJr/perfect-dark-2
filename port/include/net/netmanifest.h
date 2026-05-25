@@ -81,6 +81,7 @@ _Static_assert(MANIFEST_MAX_ENTRIES <= 65535, "MANIFEST_MAX_ENTRIES exceeds u16 
 #define MANIFEST_TYPE_AUDIO      9  /**< Audio mod track (playlist entry) */
 #define MANIFEST_TYPE_PROJECTILE 10 /**< Physical projectile behavior asset */
 #define MANIFEST_TYPE_ENTITY     11 /**< Deployed/stuck behavior archetype asset */
+#define MANIFEST_TYPE_ASSET      12 /**< Generic typed catalog asset; slot_index stores asset_type_e */
 
 /** Client response status codes for CLC_MANIFEST_STATUS */
 #define MANIFEST_STATUS_READY       0  /**< All listed assets present; ready to load */
@@ -102,8 +103,9 @@ _Static_assert(MANIFEST_MAX_ENTRIES <= 65535, "MANIFEST_MAX_ENTRIES exceeds u16 
  *
  * net_hash is the primary identity key used for catalog lookups.
  * id is carried for logging and as a human-readable fallback.
- * slot_index ties body/head entries back to a specific participant slot;
- * match-level assets (stage, weapons, components) use MANIFEST_SLOT_MATCH.
+ * slot_index ties body/head entries back to a specific participant slot.
+ * Generic MANIFEST_TYPE_ASSET entries store asset_type_e in slot_index;
+ * other match-level assets use MANIFEST_SLOT_MATCH.
  * sha256 is only meaningful for MANIFEST_TYPE_COMPONENT (mod) entries;
  * it carries the SHA-256 of the mod's mod.json for authoritative verification.
  * All other entry types leave sha256 zeroed.
@@ -272,12 +274,14 @@ void manifestCheck(const match_manifest_t *manifest);
 /**
  * One entry in a manifest diff result.
  * Carries the same id/net_hash/type fields as match_manifest_entry_t but
- * without the MP-specific slot_index (irrelevant for SP diffs).
+ * without the MP-specific slot_index.  Generic MANIFEST_TYPE_ASSET entries
+ * preserve the decoded asset_type_e in asset_type.
  */
 typedef struct {
     char id[64];      /**< Catalog string ID */
     u32  net_hash;    /**< FNV-1a hash — primary catalog key */
     u8   type;        /**< MANIFEST_TYPE_* */
+    u8   asset_type;  /**< asset_type_e for loading; ASSET_NONE for components */
 } manifest_diff_entry_t;
 
 /**
@@ -445,7 +449,9 @@ void manifestMPTransition(void);
  *
  * asset_type: MANIFEST_TYPE_BODY, MANIFEST_TYPE_HEAD, MANIFEST_TYPE_MODEL,
  *             MANIFEST_TYPE_ANIM, MANIFEST_TYPE_TEXTURE,
- *             MANIFEST_TYPE_PROJECTILE, or MANIFEST_TYPE_ENTITY.
+ *             MANIFEST_TYPE_PROJECTILE, or MANIFEST_TYPE_ENTITY.  Generic
+ *             typed asset entries are produced by manifest builders from
+ *             catalog dependency expansion, not by this late-load helper.
  *
  * Returns 1 if the asset is now tracked; 0 if catalog_id is NULL/empty,
  * no SP manifest is active (MP mode or before stage load), or the asset

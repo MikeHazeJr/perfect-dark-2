@@ -1,5 +1,147 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-25-asset-migration-cleanup`) - 2026-05-25 - Asset Pipeline stale-card cleanup
+
+Mike asked to finish the migration wrap-up and clean stale cards.
+
+### Implemented
+
+- Reconciled the Asset Pipeline board after C-3838 and C-3814 closure.
+- Closed `c3832` as absorbed by `c3824` clean layouts, `c3838` extraction/runtime/file-access implementation, and `c3814` weapon graph parity.
+- Moved `c3834` and `c3835` to Backlog as future Modding Hub/CLI utility and reusable graph-editor foundation work, not migration blockers.
+- Retired stale pre-clean-archive cards `c030` (`.pdwpn`-era universality pivot) and `c061` (archive INI scanning).
+- Updated `context/tasks.md`, `context/pillars/modding.md`, `UNRELEASED.md`, and the C-3838 Card Decisions workspace notes.
+
+### Verification
+
+- Parsed `tools/kanban/state.json` after board updates.
+- Verified the key card statuses: `c3832`, `c030`, and `c061` are Done; `c3834` and `c3835` are Backlog.
+- No build was required because this slice changed tracker/context/release-note state only.
+
+### Next
+
+- Asset Pipeline migration is complete. Future modding work should start from `c3834` utility flows or `c3835` reusable graph-editor foundation as new follow-up work, not as unfinished migration cleanup.
+
+---
+
+## Session (`main-checkout-2026-05-25-c3814-runtime-parity`) - 2026-05-25 - C-3814 weapon behavior graph runtime parity closure
+
+Mike asked to complete C-3814 and confirm full weapon behavior parity on the graph path.
+
+### Implemented
+
+- Added held-to-projectile/entity and projectile-to-entity runtime reference helpers.
+- Wired player held rocket, fired projectile, thrown projectile, and AI projectile creation to consume `.pdprojectile` runtime records for model, scale, speed, travel, timer, reflect, trajectory, homing, fly-by-wire, powered/lightweight, pickup, and timer state.
+- Added shared projectile runtime object-state application so OG projectile tick, impact, trail, and transition code executes with graph-authored inputs.
+- Wired `.pdentity` records into thrown/deployed behavior: mine/proxy/timed arm timing, proxy radius, Laptop autogun model/aim distance/ammo/team policy, and deployed entity reference resolution.
+- Added presentation graph runtime fields for sight, zoom, reticle, overlay, and camera metadata; sight and zoom now read the graph-backed fields.
+- Added static/runtime tests for helper lookup, projectile/entity callsites, and presentation capture.
+
+### Verification
+
+- Focused `[modding][pdxxx][weapon_graph][runtime]` passed: 218 assertions / 6 cases.
+- Focused `[c3814]` passed: 738 assertions / 23 cases.
+- Isolated `c3814` all-target build passed; only the existing PowerShell JSON-depth warning printed.
+- Removed isolated session build directory `c3814`.
+
+### Next
+
+- C-3814 is closed. Keep future weapon work on graph-authored records with existing OG routines as the parity-preserving execution backend unless a later card explicitly asks for a new behavior system.
+
+---
+
+## Session (`main-checkout-2026-05-24-c3838-writer-and-catalog`) - 2026-05-24 - Shared archive writer and catalog mapping continuation
+
+Mike asked to continue `c3838` until the asset-type migration is complete, with active progress tracking and a strong parity requirement for later weapon behavior graph conversion.
+
+### Implemented
+
+- Finished the shared writer migration across the base typed extractors and `.pdui` emitter, removing direct archive writes from `romextract*.c` typed emitters and standardizing `_meta/` writer output.
+- Updated `.pdweapon` archives to the clean `behavior/`, `bindings/`, `dependencies/assets/`, and `_meta/` layout; retained `behavior/runtime.graph.json` as transition runtime IR while adding authored `behavior/primary.graph.json` and `behavior/secondary.graph.json`.
+- Added first-class catalog types `ASSET_MATERIAL`, `ASSET_FONT`, `ASSET_SCENARIO`, and `ASSET_THEME`.
+- Aligned `asset_archive_policy`, folder/archive scanners, `.pdmod` packer validation, network hot-registration, Mod Manager/Modding Hub lists, debug loading, base font/scenario walkers, and UI font application for approved families through `.pdtheme`; `.pdtool` remains deferred.
+- Added generic match-manifest coverage for approved typed dependency families beyond the old explicit manifest types.
+- Wired `.pdscenario` stage activation and `.pdtheme` theme-loader discovery as first runtime-utilization adapters for the new first-class families.
+- Pinned catalog-backed Combat Sim `ASSET_GAMEMODE` and `ASSET_BOT_PROFILE` selectors as verified runtime-utilization adapters; the selectors still feed original scenario init, simulant creation, bot type, and difficulty paths.
+- Standardized dependency records in the shared writer's default `_meta/manifest.json`, extended `.pdweapon` manifests with held mesh, projectile/entity, animation, and audio dependency records, and made release validation reject missing manifest dependency archives unless an explicit fallback id and reason are declared.
+- Added C-3838 file-accessibility validation for public files inside mounted typed archives: the production VFS resolves `.pdmod`-contained `.pdxxx::entry` paths, and static guards pin `fsFileLoad` / `fsFileSize` plus FileProvider dispatch to that same path.
+- Closed the first skin adapter gap: `.pdskin` descriptors, hot network distribution, and the in-game skin editor now carry `texture_file` into `asset_entry.ext.skin.texture_file` and bind it as the catalog FileProvider source.
+- Added a file-accessibility guard for metadata-style families so `.pdmaterial`, `.pdeffect`, `.pdhud`, `.pdvehicle`, and `.pdmission` descriptors/templates stay connected to scanner/distribution primary-file paths before their deeper runtime adapters are built.
+- Added the final missing approved-family runtime binding for `.pdprop`: model-file payloads now bind into `asset_runtime`, preserve legacy `PROPTYPE_*` values, flags, and health, and participate in type/kind lookup plus primary-file accessibility checks.
+- Added public `asset_runtime` lookup and file-access helpers for catalog-bound systems: find by type/id, type/kind, or target id; validate that a binding's primary authored file is reachable; and load that file through production `fsFileLoad` or the test-safe file path.
+- Added first-pass `.pdprojectile` and `.pdentity` graph runtime records: projectile/entity graph JSON can register from direct JSON or zip-openable archives, catalog activation compiles accessible graph files loaded through `fsFileLoad(source_path)`, gameplay-gated getters stay behind the weapon graph runtime toggle, and catalog release clears the runtime records.
+- Added focused coverage for projectile spawn/motion/homing/fly-by-wire/wall-hugger/impact/transition fields and entity armed explosive/proxy/remote/timed/N-Bomb/autogun/owner-cleanup/interaction fields. This makes projectile/entity behavior assets runtime-consumable, but full gameplay callsite execution and OG Perfect Dark parity still remain under `c3814-s16`/`c3814-s17`/`c3814-s18`.
+
+### Verification
+
+- `git diff --check` passed with only pre-existing line-ending warnings.
+- Focused `[modding][pdxxx]` passed: 2015 assertions / 37 cases.
+- Focused `[modding][pdmod]` passed: 615 assertions / 13 cases.
+- Follow-up focused `[modding][pdxxx]` passed: 2088 assertions / 39 cases.
+- Follow-up focused `[manifest]` passed: 1576 assertions / 34 cases.
+- Follow-up focused `[modding][pdmod]` passed: 622 assertions / 13 cases.
+- Focused `[modding][pdxxx][runtime][c3838]` passed: 23 assertions / 1 case.
+- Focused `[modding][pdxxx][runtime][c3838][files]` passed: 66 assertions / 2 cases.
+- Focused `[modding][pdxxx][runtime][c3838][skin]` passed: 14 assertions / 1 case.
+- Follow-up focused `[modding][pdxxx][runtime][c3838]` passed: 103 assertions / 4 cases.
+- Follow-up focused `[modding][pdxxx]` passed: 2168 assertions / 42 cases.
+- Follow-up focused `[modding][pdmod]` passed: 622 assertions / 13 cases.
+- Isolated `c3838acc` all-target build passed for client, updater, and tests.
+- Isolated `c3838acc2` all-target build passed for client, updater, and tests after the skin template follow-up.
+- Follow-up focused `[modding][pdxxx][runtime][c3838][files]` passed: 95 assertions / 3 cases.
+- Follow-up focused `[modding][pdxxx][runtime][c3838]` passed: 132 assertions / 5 cases.
+- Follow-up focused `[modding][pdxxx]` passed: 2197 assertions / 43 cases.
+- Focused `[modding][pdxxx][weapon_graph][runtime][projectile][entity][c3814][c3838]` passed: 64 assertions / 1 case.
+- Focused `[modding][pdxxx][weapon_graph][runtime]` passed: 185 assertions / 5 cases.
+- Follow-up focused `[modding][pdxxx][runtime][c3838]` passed: 247 assertions / 8 cases.
+- Follow-up focused `[modding][pdxxx]` passed: 2762 assertions / 46 cases.
+- Isolated `c3838all` all-target build passed for client, updater, and tests.
+- Final focused `[modding][pdxxx][runtime][c3838][adapters]` passed after `.pdprop` coverage: 73 assertions / 3 cases.
+- Final focused `[modding][pdxxx][runtime][c3838]` passed: 269 assertions / 9 cases.
+- Final focused `[modding][pdxxx]` passed: 2784 assertions / 47 cases.
+- Final isolated `c3838done` all-target build passed for client, updater, and tests; only the existing PowerShell JSON-depth warning was printed.
+- Isolated `c3838w` all-target build passed for client and updater; summary reported `Result: SUCCESS`.
+- Removed isolated session build directory `c3838w`.
+- Final isolated `c3838final` all-target build passed for client and updater; summary reported `Result: SUCCESS`.
+- Removed isolated session build directories `c3838r`, `c3838m`, and `c3838final`.
+- Removed isolated session build directory `c3838rt`.
+- Removed isolated session build directories `c3838rt2` and `c3838all`.
+
+### Next
+
+- `c3838` is complete for the asset-type migration, shared writer, descriptor/policy/scanner/distribution coverage, generic manifest coverage, runtime binding surface, and external-file accessibility contract.
+- Continue weapon parity under `c3814`: projectile/entity graph records now exist, but fired/thrown projectile tick behavior, deployed entity behavior, saved custom weapon hot-register parity, presentation graph modules, and parity smokes still need callsite execution work before legacy behavior can be retired.
+- Keep weapon behavior conversion on the behavior graph path; later weapon slices must prove parity with original Perfect Dark gameplay rather than only preserving archive shape.
+
+---
+
+## Session (`main-checkout-2026-05-24-c3838-writer`) - 2026-05-24 - Shared archive writer first slice
+
+Mike asked to begin the active card, which is `c3838` under the Asset Pipeline final extraction implementation work.
+
+### Implemented
+
+- Added `asset_archive_writer` as the shared typed archive emission helper over the existing `modarchive` ZIP writer.
+- The writer now centralizes root descriptor output, `_meta/manifest.json`, `_meta/inventory.json`, `_meta/hashes.tsv`, `_meta/provenance.json`, `_meta/validation.json`, `_meta/source-handles.json`, and `_meta/*.sha256` sidecars for public files.
+- Wired `.pdlang` extraction through the shared writer while preserving editable `lang.ini`, `_meta/manifest.json`, and `strings.tsv`.
+- Added focused runtime/static coverage for the shared writer contract and updated the `.pdlang` source pins.
+- Updated `UNRELEASED.md`, `context/tasks.md`, `context/pillars/modding.md`, and the Kanban `c3838-s1` notes for the verified first slice.
+
+### Verification
+
+- Focused `[modding][pdxxx][writer][c3838]` passed: 44 assertions / 1 case.
+- Adjacent `[modding][pdxxx][base][static][c3812]` passed: 355 assertions / 12 cases.
+- Isolated `c3838s1` all-target build passed for client and updater.
+- `git diff --check` passed. It reported only pre-existing line-ending warnings across older smoke/build/context files.
+- Removed the isolated `c3838s1` session build directory.
+
+### Next
+
+- Keep `c3838-s1` active and migrate the remaining typed emitters onto `asset_archive_writer`.
+- Then continue `c3838-s2` for approved catalog mappings and descriptor recognition.
+
+---
+
 ## Session (`main-checkout-2026-05-24-asset-decisions-tab`) - 2026-05-24 - Kanban asset decision intake tab
 
 Mike asked for a Kanban tab with Codex recommendations for each asset archive type and the exact decisions needed from him before updating implementation cards.
@@ -9,6 +151,18 @@ Mike asked for a Kanban tab with Codex recommendations for each asset archive ty
 - Added a top-level `Asset Decisions` tab to the Kanban browser.
 - Seeded the tab with recommendations for all frozen `.pdxxx` families, missing family candidates, and cross-family catalog/containment decisions.
 - Added editable status, Mike decision, and notes fields for each recommendation; `Save Decisions` persists the data under root `x_asset_archive_decisions` in `tools/kanban/state.json`.
+- Added mobile portal access through a compact section selector so `Asset Decisions` is reachable while desktop tabs stay hidden on phones.
+- After Mike responded to all rows, recorded all 35 approved decisions on `c3824` and expanded `c3834` utility subtasks for newly approved families.
+- Recorded the final clarifications: `.pdentity` stays behavior/archetype-focused over `.pdprop`, `.pdmaterial` is PBR-extensible with future PBR materials as standalone assets, `.pdscenario` maps to new `ASSET_SCENARIO`, `.pdmesh` keeps UV-bound textures/materials as typed dependencies, `.pdtool` is deferred but high priority, raw owned source files remain accessible/exportable/importable, and unresolved references require embedded dependencies or explicit base fallbacks.
+- The Asset Decisions tab now hides recorded rows by default and has no pending rows until new questions are added.
+- Ran the pre-extraction self-containment sweep and expanded `context/designs/modding/asset-archive-clean-formats.md` with every approved game-content family through `.pdtheme`, the `.pdtool` deferral note, export/import reconstruction requirements, and a per-family load/use closure matrix.
+- Ran the deeper modularization verification audit in `context/audits/asset-archive-modularization-verification-2026-05-24.md`: the planned archive boundaries are conceptually sound, but implementation must still close catalog type/mapping, archive-policy, scanner/packer/distribution, online manifest, runtime adapter, and dependency-manifest schema gaps before any family is called end-to-end modularized.
+- Corrected `context/designs/modding/weapon-archive-clean-format.md` so release-format `.pdweapon` embeds cross-family mesh/material/texture/animation/audio/projectile/entity/UI payloads as intact typed archives under `dependencies/assets/`; loose purpose folders are transition-reader input only.
+- Added Kanban card `c3838` for implementing the final archive extraction process from the completed contracts.
+- Expanded `c3838` with the modularization verification gates, including match-reachable manifest coverage and runtime utilization adapter subtasks.
+- Adapted the former `Asset Decisions` tab into a selected-card `Card Decisions` workspace that stores per-card progress, context, card memories, Codex recommendations, Mike decisions, and next-action notes under `x_card_task_context.cards[card_id]`.
+- Preserved the old global `x_asset_archive_decisions` data and copied it into the `c3824` card workspace; seeded `c3838` as the default active card workspace for the extraction implementation handoff.
+- Added same-session Kanban card `c3839` for the card-specific decision workspace tooling change and marked its subtasks done.
 - Updated tasks and release notes so future sessions treat this as the archive-format decision intake surface before card updates.
 
 ### Verification
@@ -16,11 +170,14 @@ Mike asked for a Kanban tab with Codex recommendations for each asset archive ty
 - Kanban inline JavaScript parse check passed.
 - `tools/kanban/state.json` parsed as JSON.
 - Static Asset Decisions tab content smoke passed.
+- Temporary Kanban HTTP smoke on port 7540 served the mobile selector with the `asset-decisions` option.
 - Scoped `git diff --check` passed for the touched Kanban/context/release-note files.
+- Modularization audit confirmed `c3838` carries the remaining end-to-end verification blockers; no game build was required for this tracker/docs audit.
+- Kanban inline JavaScript parse passed after the Card Decisions change, `tools/kanban/state.json` parsed with `x_card_task_context`, and an in-process Kanban HTTP smoke served the page plus `/api/state` with `c3838` as the active card workspace.
 
 ### Next
 
-- Mike reviews the `Asset Decisions` tab, saves statuses/notes, then Codex updates the relevant Kanban cards from those saved decisions.
+- No Asset Decisions rows are pending. Next archive work can start from `c3838-s1` to implement the final extraction process, with `c3832` as the `.pdweapon` detail reference and `c3834` for utility flows.
 
 ---
 

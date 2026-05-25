@@ -16,7 +16,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-05-23T17-11-59-Njc1-tiny_mode_enemy_voice_and_player_normalization.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\23\rollout-2026-05-23T13-12-04-019e55d2-7fe3-72e1-9031-89e7b1ba963d.jsonl, updated_at=2026-05-23T23:55:36+00:00, thread_id=019e55d2-7fe3-72e1-9031-89e7b1ba963d, Tiny Mode contract correction for player-normal behavior and enemy-only voice boost)
+- rollout_summaries/2026-05-23T17-11-59-Njc1-tiny_mode_enemy_voice_and_player_normalization.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=\\?\C:\Users\mikeh\.codex\sessions\2026\05\23\rollout-2026-05-23T13-12-04-019e55d2-7fe3-72e1-9031-89e7b1ba963d.jsonl, updated_at=2026-05-23T23:55:36+00:00, thread_id=019e55d2-7fe3-72e1-9031-89e7b1ba963d, Tiny Mode contract correction for player-normal behavior and enemy-only voice boost)
 
 ### keywords
 

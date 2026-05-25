@@ -20,6 +20,7 @@
 #include "data.h"
 #include "fs.h"
 #include "headdata_authored.h"
+#include "asset_archive_writer.h"
 #include "modarchive.h"
 #include "romextract_pd.h"
 #include "system.h"
@@ -101,7 +102,7 @@ static s32 s_existingArchiveEntryContains(const char *relpath, const char *entry
 	return found;
 }
 
-static s32 s_addArchiveFile(mod_archive_writer_t *aw, const char *inner,
+static s32 s_addArchiveFile(asset_archive_writer_t *writer, const char *inner,
 	const char *relpath, const char *dst_full)
 {
 	if (!relpath || !relpath[0] || fsFileSize(relpath) <= 0) {
@@ -118,7 +119,8 @@ static s32 s_addArchiveFile(mod_archive_writer_t *aw, const char *inner,
 		return -1;
 	}
 
-	if (modArchiveAddFileDisk(aw, inner, full) != 0) {
+	if (assetArchiveWriterAddPublicDisk(writer, inner, full,
+			"dependency") != 0) {
 		sysLoudFailf("EXTRACT.PDCHARACTER",
 			"AddFileDisk %s failed for \"%s\"", inner,
 			dst_full);
@@ -248,24 +250,44 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "character.ini", ini_buf, (u32)ini_len) != 0) {
+	asset_archive_writer_t asset_writer;
+	if (assetArchiveWriterInit(&asset_writer, aw, "character",
+			character_id) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDCHARACTER",
+			"assetArchiveWriterInit failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdcharacter",
+		"g_MpBodies", mpbody_idx, body->catalog_id);
+
+	if (assetArchiveWriterAddDescriptor(&asset_writer, "character.ini",
+			ini_buf, (u32)ini_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDCHARACTER",
 			"AddFileMem character.ini failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
-	                          manifest_buf, (u32)manifest_len) != 0) {
+	if (assetArchiveWriterAddManifestJson(&asset_writer,
+			manifest_buf, (u32)manifest_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDCHARACTER",
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (s_addArchiveFile(aw, "body.pdbody", body_rel, dst_full) < 0) {
+	if (s_addArchiveFile(&asset_writer, "body.pdbody",
+			body_rel, dst_full) < 0) {
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (head && s_addArchiveFile(aw, "head.pdhead", head_rel, dst_full) < 0) {
+	if (head && s_addArchiveFile(&asset_writer, "head.pdhead",
+			head_rel, dst_full) < 0) {
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDCHARACTER",
+			"assetArchiveWriterFinishMetadata failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		return -1;
 	}

@@ -1432,6 +1432,67 @@ static void scan_mods_for_themes(void)
         walked, s_ThemeCount);
 }
 
+static void register_catalog_theme_entry(const asset_entry_t *entry, void *userdata)
+{
+    (void)userdata;
+
+    if (!entry || !entry->id[0] || find_entry(entry->id)) {
+        return;
+    }
+
+    const char *theme_path = nullptr;
+    if (entry->source.primary.provider == fileProvider()) {
+        theme_path = fileProviderPath(entry->source.primary);
+    }
+    if (!theme_path || !theme_path[0]) {
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI theme loader: catalog theme '%s' has no loadable theme file",
+            entry->id);
+        return;
+    }
+
+    u32 file_size = 0;
+    char *raw = (char *)fsFileLoad(theme_path, &file_size);
+    char display_name[THEME_NAME_LEN] = {0};
+
+    if (raw && file_size > 0) {
+        char *json = (char *)malloc(file_size + 1);
+        if (json) {
+            memcpy(json, raw, file_size);
+            json[file_size] = '\0';
+            extract_theme_name(json, display_name, sizeof(display_name), entry->id);
+            free(json);
+        }
+        free(raw);
+    } else {
+        extract_theme_name(nullptr, display_name, sizeof(display_name), entry->id);
+    }
+
+    struct theme_entry *theme = add_entry(entry->id, display_name, theme_path, -1);
+    if (!theme) {
+        return;
+    }
+
+    snprintf(theme->cfg_enabled_key, sizeof(theme->cfg_enabled_key),
+             "Theme.EnableCatalog.%08x", entry->net_hash);
+    theme->enabled = 1;
+    configRegisterInt(theme->cfg_enabled_key, &theme->enabled, 0, 1);
+
+    theme->first_sight = !theme_slug_is_seen(entry->id);
+    if (theme->first_sight) {
+        theme_mark_slug_seen(entry->id);
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "PDGUI theme loader: registered catalog theme '%s' (\"%s\") from %s [enabled=%d, first_sight=%d]",
+        entry->id, display_name, theme_path, theme->enabled, theme->first_sight);
+}
+
+static void scan_catalog_for_themes(void)
+{
+    assetCatalogIterateByType(ASSET_THEME, register_catalog_theme_entry, nullptr);
+}
+
 /* =========================================================================
  * Public API
  * ========================================================================= */
@@ -1452,9 +1513,9 @@ void pdguiThemeLoaderInit(void)
         snprintf(s_ActiveThemeId, sizeof(s_ActiveThemeId), "%s", s_CfgThemeId);
     }
 
-    /* Register all 7 built-in palettes as catalog assets */
+    /* Register all 7 built-in palettes as catalog theme assets */
     for (int i = 0; i < 7; i++) {
-        asset_entry_t *ae = assetCatalogRegister(k_BuiltinIds[i], ASSET_UI);
+        asset_entry_t *ae = assetCatalogRegister(k_BuiltinIds[i], ASSET_THEME);
         if (ae) {
             snprintf(ae->category, CATALOG_CATEGORY_LEN, "base");
             ae->bundled    = 1;
@@ -1468,6 +1529,7 @@ void pdguiThemeLoaderInit(void)
     /* 2026-04-11: scan mods/ for custom theme.json files (Save-as-Mod
      * output from the theme editor, plus any user-authored mod themes). */
     scan_mods_for_themes();
+    scan_catalog_for_themes();
 
     sysLogPrintf(LOG_NOTE,
         "PDGUI theme loader: init — %d themes registered (built-in + mods), active='%s'",
@@ -1524,6 +1586,7 @@ void pdguiThemeLoaderShutdown(void)
 void pdguiThemeRescanMods(void)
 {
     scan_mods_for_themes();
+    scan_catalog_for_themes();
 }
 
 s32 pdguiThemeLoadFromCatalog(const char *catalog_id)

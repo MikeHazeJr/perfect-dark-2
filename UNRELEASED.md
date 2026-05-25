@@ -20,7 +20,8 @@
 - Added Dev Window v2 `Start Kanban Server` and `Stop Kanban Server` buttons for remote Kanban phone access.
 - Added a phone-first Kanban layout with filter modal, full-screen card editing, mobile card ordering controls, and card-scoped Codex session launch/status output.
 - Added full-screen Kanban Codex session viewing with response-only transcripts, phone follow-up messaging, queued prompt steering, tap-to-answer plan-mode questions, and ad-hoc session launch without requiring a card.
-- Added an Asset Decisions Kanban tab for reviewing each `.pdxxx` archive recommendation, requested decision, status, and Mike's notes before implementation cards are updated.
+- Added an Asset Decisions Kanban tab, including mobile portal access, for reviewing each `.pdxxx` archive recommendation, requested decision, status, and Mike's notes before implementation cards are updated.
+- Added a card-specific Kanban Decisions workspace that stores selected-card progress, context, card memories, recommendations, Mike decisions, and next actions without deleting inactive-card notes.
 - Added c3813 online lifecycle guards for listen-host/client smoke coverage and reconnect/drop-in/drop-out state restoration.
 - Added named input profile slots and per-controller profile assignment, including custom/raw controller devices.
 - Added Blender-ready map visual exports inside scenario/arena archives, including OBJ/MTL scenes, decoded TGA wall/floor textures, and material TSV ledgers.
@@ -28,6 +29,8 @@
 - Added a Blueprint-style Modding Hub weapon graph node editor for modular primary/secondary subgraphs, shared owner/damage/detonator/targeting context, presets, draggable nodes, links, inspector editing, and JSON validation.
 - Added an Asset Pipeline planning card for per-family mod utility flows behind the clean archive format decisions.
 - Added frozen clean Asset Pipeline archive layout contracts for all current typed families, including `.pdui`, `.pdfont`, and `.pdlang`.
+- Added a final Asset Pipeline extraction handoff card, modularization verification audit, and load/use closure matrix for all approved `.pdxxx` game-content archive families.
+- Added a shared typed archive writer for the Asset Pipeline extraction sweep, covering root descriptors, `_meta` manifests, inventories, provenance, validation, source handles, hashes, and SHA sidecars.
 
 ## Changed
 
@@ -38,13 +41,22 @@
 - Kanban remote mode now uses token-gated access over a localhost-only Cloudflare tunnel, without changing system routing or proxy settings.
 - Local `Open Kanban` now stays tokenless even when a remote token-gated Kanban tunnel exists, and remote startup no longer occupies the normal local board port.
 - Kanban card sessions now launch with the selected card plus context about other active cards and running card sessions, and can be resumed from the phone UI for follow-up turns, queued steering prompts, or choice-question answers.
-- Weapon behavior graphs now feed more runtime weapon actions, including recoil/recovery, throw/special handling, projectile spawn values, auto-aim, and sight behavior behind the debug graph-runtime toggle.
+- The old Asset Decisions tab is now the Card Decisions workspace, while the prior asset archive decision data remains preserved on `c3824`.
+- Asset Pipeline tracking now closes the completed migration/runtime cards and moves future mod utility and reusable node-editor work out of the active migration lane.
+- Weapon behavior graphs now drive held, projectile, deployed-entity, and sight/zoom presentation runtime values behind the debug graph-runtime toggle.
+- Projectile and deployed-entity behavior graphs now compile into runtime records from accessible graph files and feed the existing Perfect Dark execution paths for gameplay parity.
+- C-3838 runtime bindings now cover all approved file-backed `.pdxxx` families, including `.pdprop`, with type/id/target/kind lookups plus primary-file accessibility and load validation.
 - Catalog-generated base asset IDs and typed archive references now use readable names instead of legacy numeric handles.
 - Replaced the old Settings Controls surface with a single actionmap-backed Input binding table.
 - Main Menu now presents Play instead of Solo Play and removes the old Online Play direct-connect entry; online friend play now routes through Social invites/joins.
 - Social friend invites are available even when a friend row is showing a stale Offline state.
 - The Modding Hub weapon template flow now drills into an in-place tabbed weapon-creation view with auto-populated template refs, primary/secondary graph tabs, and an opaque mesh picker with live preview.
 - Typed asset archive emitters now write machine metadata and hash sidecars under `_meta/`, while migration readers still accept legacy root metadata during the cleanup window.
+- `.pdlang` base extraction now uses the shared typed archive writer and emits standardized `_meta` inventory, hashes, provenance, validation, and source-handle metadata around editable `strings.tsv`.
+- Typed archive policy, scanners, packers, Mod Manager lists, hot-distribution registration, and debug tooling now recognize approved first-class asset families through `.pdtheme`; `.pdfont` is `ASSET_FONT`, `.pdscenario` is `ASSET_SCENARIO`, and `.pdtool` remains deferred.
+- Match manifests now carry approved typed dependency families through a generic asset entry, and `_meta/manifest.json` dependency records are validated for embedded archives or explicit base fallback reasons.
+- Typed archive public files are now validated through mounted `.pdmod` transport paths, including `archive.pdxxx::file` access through VFS, `fs`, and FileProvider-style loaders.
+- Saved skin mods now declare their `texture.tga` payload in `skin.ini` and register that texture through the catalog/FileProvider path.
 - Typed asset archive validation now recursively checks descriptor, GLTF, OBJ/MTL, JSON, and embedded typed-archive references so clean `.pdxxx` packages fail when their authored closure is incomplete.
 - Typed `.pdxxx` examples now cover every frozen family, including projectile, entity, material, texture, and character samples, with `_meta/manifest.json` and the frozen `.pdmesh` `mesh.ini` descriptor.
 - Release packaging now fails stale typed asset outputs before zipping if they are `.pdwpn`, non-zip, descriptor-less, legacy `.pdmesh` `model.ini`, root-metadata, or `.bin`-backed archives.

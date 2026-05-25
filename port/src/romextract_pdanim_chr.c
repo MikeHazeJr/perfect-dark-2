@@ -25,6 +25,8 @@
  * Total per-anim span = headerlen + numframes * bytesperframe. The extractor
  * emits those bytes as TSV rows so the base character animation archive stays
  * editable/openable rather than exposing an authored frames.bin blob.
+ * The shared writer owns _meta inventory, hashes, provenance, validation,
+ * source handles, and public-file sidecars.
  *
  * Companion docs:
  *   context/designs/catalog/universality-pivot-schemas.md   schemas
@@ -46,11 +48,11 @@
 #include "constants.h"
 #include "fs.h"
 #include "loader_enum_reverse.h"
+#include "asset_archive_writer.h"
 #include "modarchive.h"
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
-#include "sha256.h"
 #include "system.h"
 
 /* The chr animation table sits at the tail of the "animations" segment.
@@ -202,22 +204,6 @@ static s32 s_buildFramesTsv(const u8 *frames, u32 frame_count,
 		if (s_textbufAppend(out, "\n") != 0) return -1;
 	}
 	return 0;
-}
-
-static s32 s_addShaSidecar(mod_archive_writer_t *aw, const char *name,
-                           const void *data, u32 len)
-{
-	u8 digest[SHA256_DIGEST_SIZE];
-	sha256Hash(data, (size_t)len, digest);
-	char hex[SHA256_HEX_SIZE + 1];
-	sha256ToHex(digest, hex);
-	hex[SHA256_HEX_SIZE] = '\0';
-	char sidecar[SHA256_HEX_SIZE + 2];
-	snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-	char meta_name[FS_MAXPATH + 1];
-	snprintf(meta_name, sizeof(meta_name), "_meta/%s", name ? name : "hash.sha256");
-	meta_name[sizeof(meta_name) - 1] = '\0';
-	return modArchiveAddFileMem(aw, meta_name, sidecar, (u32)strlen(sidecar));
 }
 
 /* Emit one .pdanim ZIP compound. Returns 1 written, 0 skipped, -1 failed. */
@@ -399,7 +385,21 @@ static s32 s_emitOneChrAnim(s32 anim_idx,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "animation.ini", ini_buf, (u32)ini_len) != 0) {
+	asset_archive_writer_t asset_writer;
+	if (assetArchiveWriterInit(&asset_writer, aw, "animation",
+			catalog_id) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDANIM_CHR",
+			"assetArchiveWriterInit failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		s_textbufFree(&header_tsv);
+		s_textbufFree(&frames_tsv);
+		return -1;
+	}
+	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdanim_chr",
+		"animations", anim_idx, sym ? sym : "");
+
+	if (assetArchiveWriterAddDescriptor(&asset_writer, "animation.ini",
+			ini_buf, (u32)ini_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDANIM_CHR",
 			"AddFileMem animation.ini failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
@@ -407,8 +407,8 @@ static s32 s_emitOneChrAnim(s32 anim_idx,
 		s_textbufFree(&frames_tsv);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
-	                          manifest_buf, (u32)manifest_len) != 0) {
+	if (assetArchiveWriterAddManifestJson(&asset_writer,
+			manifest_buf, (u32)manifest_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDANIM_CHR",
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
@@ -417,8 +417,8 @@ static s32 s_emitOneChrAnim(s32 anim_idx,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "header.tsv",
-	                          header_tsv.data, header_tsv.len) != 0) {
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "header.tsv",
+			header_tsv.data, header_tsv.len, "header") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDANIM_CHR",
 			"AddFileMem header.tsv failed for \"%s\" "
 			"(anim_idx=%d len=%u)",
@@ -429,8 +429,8 @@ static s32 s_emitOneChrAnim(s32 anim_idx,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "frames.tsv",
-	                          frames_tsv.data, frames_tsv.len) != 0) {
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "frames.tsv",
+			frames_tsv.data, frames_tsv.len, "frames") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDANIM_CHR",
 			"AddFileMem frames.tsv failed for \"%s\" "
 			"(anim_idx=%d len=%u)",
@@ -441,13 +441,14 @@ static s32 s_emitOneChrAnim(s32 anim_idx,
 		return -1;
 	}
 
-	if (s_addShaSidecar(aw, "header.tsv.sha256",
-	                    header_tsv.data, header_tsv.len) != 0 ||
-	    s_addShaSidecar(aw, "frames.tsv.sha256",
-	                    frames_tsv.data, frames_tsv.len) != 0) {
-		sysLogPrintf(LOG_WARNING,
-			"romextract pdanim_chr: sidecar write failed for \"%s\" "
+	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDANIM_CHR",
+			"assetArchiveWriterFinishMetadata failed for \"%s\" "
 			"(anim_idx=%d)", dst_full, anim_idx);
+		modArchiveAbort(aw);
+		s_textbufFree(&header_tsv);
+		s_textbufFree(&frames_tsv);
+		return -1;
 	}
 
 	if (modArchiveFinish(aw) != 0) {

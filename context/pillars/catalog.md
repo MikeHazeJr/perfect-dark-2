@@ -50,7 +50,7 @@ Integer indices are NEVER asset references. They must not appear in catalog IDs,
 
 ---
 
-## Asset types (28 enumerated)
+## Asset types (32 enumerated)
 
 `asset_type_e` at [port/include/assetcatalog.h:77](../../port/include/assetcatalog.h:77) defines all asset categories:
 
@@ -60,7 +60,8 @@ ASSET_WEAPON, ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC, ASSET_PROP,
 ASSET_VEHICLE, ASSET_MISSION, ASSET_UI, ASSET_TOOL, ASSET_ARENA,
 ASSET_BODY, ASSET_HEAD, ASSET_ANIMATION, ASSET_TEXTURE, ASSET_GAMEMODE,
 ASSET_AUDIO, ASSET_HUD, ASSET_EFFECT, ASSET_MODEL, ASSET_LANG,
-ASSET_BOT_PROFILE
+ASSET_BOT_PROFILE, ASSET_PROJECTILE, ASSET_ENTITY, ASSET_MATERIAL,
+ASSET_FONT, ASSET_SCENARIO, ASSET_THEME
 ```
 
 Each type has its own typed `catalog_<type>_result_t` and resolver (`catalogResolveBody`, `catalogResolveHead`, `catalogResolveWeapon`, etc.) declared at [port/include/assetcatalog.h:975](../../port/include/assetcatalog.h:975). Use the typed resolver, not generic lookup.
@@ -147,7 +148,7 @@ These are pulled from [constraints.md](../constraints.md). Any change to a catal
 ## What is done (per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructure-pillars-status-2026-04-27.md) Section 1)
 
 - Hash-table catalog with FNV-1a + reflected-CRC32 secondary, open addressing, 70% rehash trigger, generation counter.
-- 28 asset types enumerated; 8 typed resolvers covering all heavily-used types.
+- 32 asset types enumerated; 8 typed resolvers covering all heavily-used types.
 - 41 MPWEAPON entries registered with `runtime_index` linkage.
 - Asset Provider Phases 1+2+3 shipped (RomProvider + FileProvider + asset_source_t with primary/override/flags).
 - Typed identity helpers (S487) covering stage, model, body, head, weapon, gamemode.

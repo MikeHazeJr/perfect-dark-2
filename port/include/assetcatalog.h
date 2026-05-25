@@ -94,7 +94,7 @@ typedef enum {
     ASSET_HEAD,                /* MP head entry (base game g_MpHeads[] or mod) */
     ASSET_ANIMATION,           /* animation set (body animation) */
     ASSET_TEXTURE,             /* individual texture entry (not a pack) */
-    ASSET_GAMEMODE,            /* multiplayer game mode (scenario) */
+    ASSET_GAMEMODE,            /* multiplayer or custom game rule set */
     ASSET_AUDIO,               /* audio entry: SFX, music, or voice */
     ASSET_HUD,                 /* HUD element (crosshair, ammo display, radar, etc.) */
     ASSET_EFFECT,              /* visual effect: shader tint, glow, particle, screen-space */
@@ -103,6 +103,10 @@ typedef enum {
     ASSET_BOT_PROFILE,         /* MP simulant profile entry (g_BotProfiles[] / mod) */
     ASSET_PROJECTILE,          /* graph-authored physical projectile behavior asset */
     ASSET_ENTITY,              /* graph-authored deployed/stuck behavior archetype asset */
+    ASSET_MATERIAL,            /* reusable render/surface material asset */
+    ASSET_FONT,                /* reusable UI/gameplay font face asset */
+    ASSET_SCENARIO,            /* level/map content selected by arenas, missions, or modes */
+    ASSET_THEME,               /* menu/UI theme bundle asset */
     ASSET_TYPE_COUNT
 } asset_type_e;
 
@@ -225,6 +229,7 @@ typedef struct asset_entry {
         } character;
         struct {
             char target_id[CATALOG_ID_LEN];  /* soft reference to target char */
+            char texture_file[128];          /* appearance payload for this skin */
         } skin;
         struct {
             char base_type[32];        /* "NormalSim", "DarkSim", etc. */
@@ -340,6 +345,11 @@ typedef struct asset_entry {
             u8  requirefeature;        /* unlock check (0 = always available) */
         } gamemode;
         struct {
+            s32 stagenum;              /* logical stage ID this scenario content backs */
+            s32 mode;                  /* mp, solo, coop (flags or bitmask) */
+            char rooms_file[FS_MAXPATH]; /* canonical rooms/geometry source */
+        } scenario;
+        struct {
             s32 sound_id;              /* SFX enum value or music track index */
             char name[64];             /* human-readable display name */
             s32 category;              /* AUDIO_CAT_SFX / AUDIO_CAT_MUSIC / AUDIO_CAT_VOICE */
@@ -360,10 +370,31 @@ typedef struct asset_entry {
             char name[64];             /* human-readable display name */
             s32 effect_type;           /* EFFECT_TYPE_* constant */
             s32 target;                /* EFFECT_TARGET_* constant */
+            char effect_file[128];     /* graph/timeline payload for runtime adapter */
             char shader_id[64];        /* shader identifier for the renderer */
             f32 intensity;             /* effect strength 0.0-1.0 */
             f32 params[4];             /* generic effect parameters */
         } effect;
+        struct {
+            char material_file[128];    /* material definition JSON/source */
+            char texture_archive[FS_MAXPATH]; /* embedded texture dependency archive */
+            char effect_archive[FS_MAXPATH];  /* optional embedded effect archive */
+        } material;
+        struct {
+            char model_file[128];       /* visual model source */
+            char physics_file[128];     /* handling/collision tuning source */
+            char behavior_graph[128];   /* optional vehicle behavior graph */
+        } vehicle;
+        struct {
+            char scenario_archive[FS_MAXPATH]; /* required scenario dependency */
+            char objectives_file[128];  /* mission objective authoring source */
+            char briefing_file[128];    /* briefing/localized text source */
+        } mission;
+        struct {
+            char theme_file[128];       /* theme token/style source */
+            char ui_archive[FS_MAXPATH];   /* optional UI chrome dependency */
+            char font_archive[FS_MAXPATH]; /* optional font dependency */
+        } theme;
         struct {
             s32 bank_id;               /* LANGBANK_* constant (0x01-0x44) */
             char strings_file[128];    /* UTF-8 TSV source for mod language banks */
@@ -374,6 +405,7 @@ typedef struct asset_entry {
             s16  body;                 /* default MP body index (g_MpBodies[] position) */
             s16  name_langid;          /* langbank string ID for display name */
             u8   requirefeature;       /* unlock check (0 = always available) */
+            char profile_file[128];    /* optional authored profile/tuning payload */
         } bot_profile;
     } ext;
 

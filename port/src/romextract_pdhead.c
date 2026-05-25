@@ -32,6 +32,7 @@
 #include "constants.h"
 #include "fs.h"
 #include "loader_enum_reverse.h"
+#include "asset_archive_writer.h"
 #include "modarchive.h"
 #include "romextract_pd.h"
 #include "system.h"
@@ -94,7 +95,7 @@ static void s_meshArchiveRelPath(u16 filenum, const char *hint_suffix,
 		fsDataDir(data_dir, sizeof(data_dir)), mesh_file);
 }
 
-static s32 s_addRequiredArchiveFile(mod_archive_writer_t *aw, const char *inner,
+static s32 s_addRequiredArchiveFile(asset_archive_writer_t *writer, const char *inner,
                                     const char *relpath, const char *dst_full)
 {
 	if (!relpath || !relpath[0] || fsFileSize(relpath) <= 0) {
@@ -107,7 +108,8 @@ static s32 s_addRequiredArchiveFile(mod_archive_writer_t *aw, const char *inner,
 	char full_buf[FS_MAXPATH + 1];
 	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
 	if (!full || !full[0]) return -1;
-	if (modArchiveAddFileDisk(aw, inner, full) != MODARCHIVE_OK) {
+	if (assetArchiveWriterAddPublicDisk(writer, inner, full,
+			"dependency") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDHEAD",
 			"AddFileDisk %s failed for \"%s\"", inner, dst_full);
 		return -1;
@@ -229,21 +231,40 @@ static s32 s_emitOneHead(const head_authored_record_t *h,
 			"modArchiveBegin failed for \"%s\"", full);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "head.ini", ini_buf, (u32)ini_len) != 0) {
+	asset_archive_writer_t asset_writer;
+	if (assetArchiveWriterInit(&asset_writer, aw, "head", catalog_id) !=
+			MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDHEAD",
+			"assetArchiveWriterInit failed for \"%s\"", full);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdhead",
+		"headdata_authored", (s32)h->headnum, file_str ? file_str : "");
+
+	if (assetArchiveWriterAddDescriptor(&asset_writer, "head.ini",
+			ini_buf, (u32)ini_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDHEAD",
 			"AddFileMem head.ini failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
-	                          manifest_buf, (u32)manifest_len) != 0) {
+	if (assetArchiveWriterAddManifestJson(&asset_writer,
+			manifest_buf, (u32)manifest_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDHEAD",
 			"AddFileMem _meta/manifest.json failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		return -1;
 	}
 	if (h->filenum != 0 &&
-	    s_addRequiredArchiveFile(aw, "mesh.pdmesh", mesh_rel, full) != 0) {
+	    s_addRequiredArchiveFile(&asset_writer, "mesh.pdmesh",
+			mesh_rel, full) != 0) {
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDHEAD",
+			"assetArchiveWriterFinishMetadata failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		return -1;
 	}

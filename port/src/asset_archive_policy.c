@@ -47,21 +47,30 @@ static const asset_archive_family_rule_t s_FamilyRules[] = {
 	{ ".pdweapon",     "weapon.ini",     NULL,        ASSET_WEAPON },
 	{ ".pdprojectile", "projectile.ini", NULL,        ASSET_PROJECTILE },
 	{ ".pdentity",     "entity.ini",     NULL,        ASSET_ENTITY },
-	{ ".pdmaterial",   "material.ini",   NULL,        ASSET_NONE },
+	{ ".pdmaterial",   "material.ini",   NULL,        ASSET_MATERIAL },
 	{ ".pdtexture",    "texture.ini",    NULL,        ASSET_TEXTURE },
 	{ ".pdcharacter",  "character.ini",  NULL,        ASSET_CHARACTER },
 	{ ".pdhead",       "head.ini",       NULL,        ASSET_HEAD },
 	{ ".pdbody",       "body.ini",       NULL,        ASSET_BODY },
 	{ ".pdarena",      "arena.ini",      NULL,        ASSET_ARENA },
-	{ ".pdscenario",   "scenario.ini",   NULL,        ASSET_GAMEMODE },
+	{ ".pdscenario",   "scenario.ini",   NULL,        ASSET_SCENARIO },
 	{ ".pdmesh",       "mesh.ini",       "model.ini", ASSET_MODEL },
 	{ ".pdanim",       "animation.ini",  NULL,        ASSET_ANIMATION },
 	{ ".pdsfx",        "sound.ini",      NULL,        ASSET_AUDIO },
 	{ ".pdvoice",      "voice.ini",      NULL,        ASSET_AUDIO },
 	{ ".pdsong",       "music.ini",      NULL,        ASSET_AUDIO },
 	{ ".pdui",         "ui.ini",         NULL,        ASSET_UI },
-	{ ".pdfont",       "font.ini",       NULL,        ASSET_UI },
+	{ ".pdfont",       "font.ini",       NULL,        ASSET_FONT },
 	{ ".pdlang",       "lang.ini",       NULL,        ASSET_LANG },
+	{ ".pdskin",       "skin.ini",       NULL,        ASSET_SKIN },
+	{ ".pdeffect",     "effect.ini",     NULL,        ASSET_EFFECT },
+	{ ".pdprop",       "prop.ini",       NULL,        ASSET_PROP },
+	{ ".pdvehicle",    "vehicle.ini",    NULL,        ASSET_VEHICLE },
+	{ ".pdmission",    "mission.ini",    NULL,        ASSET_MISSION },
+	{ ".pdgamemode",   "gamemode.ini",   NULL,        ASSET_GAMEMODE },
+	{ ".pdbotprofile", "botprofile.ini", NULL,        ASSET_BOT_PROFILE },
+	{ ".pdhud",        "hud.ini",        NULL,        ASSET_HUD },
+	{ ".pdtheme",      "theme.ini",      NULL,        ASSET_THEME },
 };
 
 static void setErr(char *err, size_t err_cap, const char *fmt, ...)
@@ -685,6 +694,183 @@ static const char *jsonReadString(const char *p, char *out, size_t out_cap)
 	return p + 1;
 }
 
+static const char *strstrRange(const char *begin, const char *end,
+                               const char *needle)
+{
+	if (!begin || !needle || !needle[0]) return NULL;
+	size_t nlen = strlen(needle);
+	for (const char *p = begin; *p; p++) {
+		if (end && p + nlen > end) return NULL;
+		if (strncmp(p, needle, nlen) == 0) return p;
+	}
+	return NULL;
+}
+
+static const char *jsonStringValueInRange(const char *begin, const char *end,
+                                          const char *key,
+                                          char *out, size_t out_cap)
+{
+	if (!begin || !key || !out || out_cap == 0) return NULL;
+	char needle[160];
+	snprintf(needle, sizeof(needle), "\"%s\"", key);
+	const char *p = strstrRange(begin, end, needle);
+	if (!p) return NULL;
+	p += strlen(needle);
+	while (*p && (!end || p < end) && isspace((unsigned char)*p)) p++;
+	if (!*p || (end && p >= end) || *p != ':') return NULL;
+	p++;
+	while (*p && (!end || p < end) && isspace((unsigned char)*p)) p++;
+	if (!*p || (end && p >= end) || *p != '"') return NULL;
+	return jsonReadString(p, out, out_cap);
+}
+
+static s32 dependencyRangeHasFallback(const char *begin, const char *end)
+{
+	const char *fallback = strstrRange(begin, end, "\"fallback\"");
+	if (!fallback) return 0;
+	char id[CATALOG_ID_LEN];
+	char reason[256];
+	if (!jsonStringValueInRange(fallback, end, "id", id, sizeof(id))) {
+		return 0;
+	}
+	if (!jsonStringValueInRange(fallback, end, "reason", reason, sizeof(reason))) {
+		return 0;
+	}
+	return id[0] && reason[0];
+}
+
+static s32 dependencySchemaHasRequiredFields(const char *schema)
+{
+	static const char *const fields[] = {
+		"role", "type", "id", "archive", "required", "version",
+		"sha256", "fallback.id", "fallback.reason",
+	};
+	if (!schema) return 0;
+	for (u32 i = 0; i < (u32)(sizeof(fields) / sizeof(fields[0])); i++) {
+		char needle[64];
+		snprintf(needle, sizeof(needle), "\"%s\"", fields[i]);
+		if (!strstr(schema, needle)) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+typedef s32 (*dependency_archive_exists_fn)(void *userdata, const char *entry);
+
+static s32 validateManifestDependencyText(const char *archive_name,
+                                          const char *text,
+                                          dependency_archive_exists_fn exists,
+                                          void *userdata,
+                                          char *err, size_t err_cap)
+{
+	const char *deps = strstr(text ? text : "", "\"dependencies\"");
+	if (!deps) return 0;
+
+	const char *schema = strstr(deps, "\"dependency_schema\"");
+	const char *first_archive = strstrRange(deps, schema, "\"archive\"");
+	if (!first_archive) return 0;
+
+	if (!dependencySchemaHasRequiredFields(schema)) {
+		setErr(err, err_cap,
+			"%s dependency manifest is missing required dependency_schema fields",
+			archive_name ? archive_name : "(archive)");
+		return -1;
+	}
+
+	const char *p = deps;
+	while ((p = strstrRange(p, schema, "\"archive\"")) != NULL) {
+		char ref[FS_MAXPATH + 1];
+		const char *after = jsonStringValueInRange(p, schema, "archive",
+			ref, sizeof(ref));
+		if (!after) return 0;
+		const char *next = strstrRange(after, schema, "\"archive\"");
+		const char *range_end = next ? next : schema;
+
+		char normalized[FS_MAXPATH + 1];
+		normalizedRefPath(ref, normalized, sizeof(normalized));
+		if (normalized[0] && refPathIsUnsafe(normalized)) {
+			setErr(err, err_cap,
+				"%s has unsafe dependency archive reference: %s",
+				archive_name ? archive_name : "(archive)",
+				normalized);
+			return -1;
+		}
+		if (normalized[0] && exists && exists(userdata, normalized)) {
+			p = after;
+			continue;
+		}
+		if (dependencyRangeHasFallback(after, range_end)) {
+			p = after;
+			continue;
+		}
+		setErr(err, err_cap,
+			"%s dependency archive missing and no explicit fallback: %s",
+			archive_name ? archive_name : "(archive)",
+			normalized[0] ? normalized : "(empty)");
+		return -1;
+	}
+
+	return 0;
+}
+
+static s32 openedDependencyArchiveExists(void *userdata, const char *entry)
+{
+	return openedArchiveHasEntry((mod_archive_t *)userdata, entry);
+}
+
+typedef struct mem_dependency_exists_ctx {
+	const void *archive_bytes;
+	u32 archive_size;
+} mem_dependency_exists_ctx_t;
+
+static s32 memDependencyArchiveExists(void *userdata, const char *entry)
+{
+	mem_dependency_exists_ctx_t *ctx = (mem_dependency_exists_ctx_t *)userdata;
+	if (!ctx) return 0;
+	return memArchiveHasEntry(ctx->archive_bytes, ctx->archive_size, entry);
+}
+
+static s32 validateOpenedManifestDependencies(mod_archive_t *archive,
+                                              const char *archive_path,
+                                              char *err, size_t err_cap)
+{
+	s32 idx = assetArchiveFindMetadataEntry(archive,
+		ASSET_ARCHIVE_META_MANIFEST);
+	if (idx < 0) return 0;
+	u32 size = 0;
+	char *text = extractOpenedEntryTextAlloc(archive, idx, &size);
+	if (!text && size > ASSET_ARCHIVE_TEXT_SCAN_LIMIT) return 0;
+	if (!text) return 0;
+	s32 r = validateManifestDependencyText(archive_path, text,
+		openedDependencyArchiveExists, archive, err, err_cap);
+	free(text);
+	return r;
+}
+
+static s32 validateMemManifestDependencies(const void *archive_bytes,
+                                           u32 archive_size,
+                                           const char *archive_name,
+                                           char *err, size_t err_cap)
+{
+	u32 size = 0;
+	char *text = extractMemEntryTextAlloc(archive_bytes, archive_size,
+		ASSET_ARCHIVE_META_MANIFEST_PATH, &size);
+	if (!text) {
+		text = extractMemEntryTextAlloc(archive_bytes, archive_size,
+			ASSET_ARCHIVE_META_MANIFEST, &size);
+	}
+	if (!text && size > ASSET_ARCHIVE_TEXT_SCAN_LIMIT) return 0;
+	if (!text) return 0;
+	mem_dependency_exists_ctx_t ctx;
+	ctx.archive_bytes = archive_bytes;
+	ctx.archive_size = archive_size;
+	s32 r = validateManifestDependencyText(archive_name, text,
+		memDependencyArchiveExists, &ctx, err, err_cap);
+	free(text);
+	return r;
+}
+
 static s32 validateJsonTextRefsOpened(mod_archive_t *archive,
                                       const char *archive_path,
                                       const char *entry_name,
@@ -1116,6 +1302,12 @@ s32 assetArchiveValidateOpened(mod_archive_t *archive,
 		}
 	}
 
+	if (mode == ASSET_ARCHIVE_VALIDATE_RELEASE &&
+			validateOpenedManifestDependencies(archive, archive_path,
+				err, err_cap) != 0) {
+		return -1;
+	}
+
 	return validateOpenedReferences(archive, archive_path, mode, 0,
 		err, err_cap);
 }
@@ -1232,6 +1424,11 @@ static s32 assetArchiveValidateBytesDepth(const void *archive_bytes, u32 archive
 			!(mode == ASSET_ARCHIVE_VALIDATE_MIGRATION && ctx.legacy_descriptor_seen)) {
 		setErr(err, err_cap, "%s is missing root descriptor %s",
 			archive_name, rule->descriptor);
+		return -1;
+	}
+	if (mode == ASSET_ARCHIVE_VALIDATE_RELEASE &&
+			validateMemManifestDependencies(archive_bytes, archive_size,
+				archive_name, err, err_cap) != 0) {
 		return -1;
 	}
 

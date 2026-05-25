@@ -229,7 +229,223 @@ typedef struct weapon_graph_held_function {
 	s32 specialfunc;
 	s32 has_device;
 	u32 device;
+	s32 has_sight;
+	u32 sight;
+	s32 has_zoom_fov;
+	f32 zoom_fov;
+	char reticle_ref[CATALOG_ID_LEN];
+	char overlay_ref[CATALOG_ID_LEN];
+	char camera_effect[WEAPON_GRAPH_IR_VALUE_LEN];
 } weapon_graph_held_function_t;
+
+typedef struct weapon_graph_projectile_runtime {
+	s32 valid;
+	char asset_id[CATALOG_ID_LEN];
+	char graph_id[WEAPON_GRAPH_IR_ID_LEN];
+	char source_sha256[SHA256_HEX_SIZE];
+	char ir_sha256[SHA256_HEX_SIZE];
+
+	char model_ref[WEAPON_GRAPH_IR_VALUE_LEN];
+	char model_archive[FS_MAXPATH];
+	s32 has_projectile_modelnum;
+	s32 projectile_modelnum;
+	char source_mode[16];
+	char source_function_type[32];
+	s32 has_source_function_type_id;
+	s32 source_function_type_id;
+	u32 flags;
+
+	s32 has_scale;
+	f32 scale;
+	s32 has_damage;
+	f32 damage;
+	char motion_kind[64];
+	s32 has_speed;
+	f32 speed;
+	s32 has_travel_distance;
+	s32 travel_distance;
+	s32 has_timer60;
+	s32 timer60;
+	s32 has_activation_time60;
+	s32 activation_time60;
+	s32 has_recovery_time60;
+	s32 recovery_time60;
+	s32 has_reflect_angle;
+	f32 reflect_angle;
+	s32 powered;
+	s32 calculate_trajectory;
+
+	s32 has_trajectory_correction;
+	char trajectory_aim_source[64];
+	s32 trajectory_solve_velocity;
+	f32 trajectory_max_angle;
+
+	s32 has_homing;
+	char homing_target_source[64];
+	char homing_target_filter[64];
+	char homing_lost_target_behavior[64];
+	char homing_retarget_policy[64];
+	char homing_runtime_constants[64];
+	f32 homing_steering_gain;
+	f32 homing_steering_damping;
+
+	s32 has_fly_by_wire;
+	char fly_control_source[64];
+	char fly_bot_route_policy[64];
+	char fly_owner_death_behavior[64];
+	f32 fly_turn_rate;
+	f32 fly_acceleration;
+	f32 fly_enemy_proximity_radius;
+	f32 fly_max_altitude;
+	s32 fly_lost_target_timeout_ticks60;
+	s32 fly_smoke_interval_ticks60;
+
+	s32 has_wall_hugger;
+	char wall_stick_surface_filter[64];
+	char wall_fall_vector[64];
+	char wall_explosion_ref[CATALOG_ID_LEN];
+	s32 wall_stick_timer_ticks60;
+	f32 wall_fall_threshold;
+	s32 wall_post_fall_timer60;
+
+	s32 has_sticky_attach;
+	char sticky_surface_filter[64];
+	char sticky_prop_filter[64];
+	char sticky_embed_policy[64];
+	char sticky_on_attach[64];
+	s32 sticky_allow_background;
+	s32 sticky_allow_char;
+	s32 sticky_allow_obj;
+
+	s32 has_bounce_slide;
+	s32 bounce_limit;
+	f32 bounce_first_boost;
+	f32 bounce_rest_speed;
+	f32 bounce_slide_friction;
+	s32 bounce_randomize_rotation;
+
+	s32 has_timer;
+	s32 timer_ticks60;
+	char timer_starts[64];
+	char timer_on_expire[64];
+
+	s32 has_impact;
+	char impact_filter[64];
+	char impact_explosion_ref[CATALOG_ID_LEN];
+	char impact_spark_ref[CATALOG_ID_LEN];
+	s32 impact_hit_sound;
+	s32 impact_consume_on_hit;
+	s32 impact_stick_on_hit;
+
+	s32 has_trail;
+	char trail_type[64];
+	s32 trail_interval_ticks60;
+
+	s32 has_transition_to_entity;
+	char entity_ref[CATALOG_ID_LEN];
+	char transition_when[64];
+	s32 transfer_owner;
+	s32 transfer_ammo;
+	s32 transfer_position;
+	s32 delete_carrier;
+
+	s32 has_pickup_recover;
+	s32 pickup_timer_ticks60;
+	char pickup_allowed_owner[64];
+	char recover_weapon_ref[CATALOG_ID_LEN];
+	char recover_ammo_policy[64];
+	s32 pickup_sound;
+} weapon_graph_projectile_runtime_t;
+
+typedef struct weapon_graph_entity_runtime {
+	s32 valid;
+	char asset_id[CATALOG_ID_LEN];
+	char graph_id[WEAPON_GRAPH_IR_ID_LEN];
+	char source_sha256[SHA256_HEX_SIZE];
+	char ir_sha256[SHA256_HEX_SIZE];
+
+	char archetype[64];
+	char model_ref[WEAPON_GRAPH_IR_VALUE_LEN];
+	char model_archive[FS_MAXPATH];
+	s32 has_projectile_modelnum;
+	s32 projectile_modelnum;
+	char source_mode[16];
+	u32 flags;
+	s32 has_activation_time60;
+	s32 activation_time60;
+	s32 has_recovery_time60;
+	s32 recovery_time60;
+	char runtime_detail[WEAPON_GRAPH_IR_VALUE_LEN];
+
+	s32 has_armed_explosive;
+	s32 arm_delay_ticks60;
+	char detonation_policy[64];
+	char explosion_ref[CATALOG_ID_LEN];
+	char armed_owner_filter[64];
+	char damage_response[64];
+	s32 delete_on_detonate;
+
+	s32 has_proxy_trigger;
+	f32 proxy_radius;
+	char proxy_target_filter[64];
+	char proxy_team_filter[64];
+	char proxy_owner_filter[64];
+	s32 proxy_line_of_sight;
+	char proxy_on_trigger[64];
+
+	s32 has_remote_detonatable;
+	char detonator_ref[CATALOG_ID_LEN];
+	char owner_slot_source[64];
+	char coop_policy[64];
+	char anti_policy[64];
+	char self_attached_policy[64];
+	char on_remote_signal[64];
+
+	s32 has_timed_detonatable;
+	s32 timed_timer_ticks60;
+	char timed_starts_when[64];
+	char timed_on_expire[64];
+	char timed_pause_policy[64];
+
+	s32 has_nbomb_storm;
+	char storm_ref[CATALOG_ID_LEN];
+	char storm_owner_transfer[64];
+	char storm_activation_policy[64];
+	s32 storm_delete_carrier;
+
+	s32 has_autogun;
+	char autogun_target_filter[64];
+	char autogun_team_policy[64];
+	char autogun_net_authority[64];
+	s32 autogun_friendly_fire_suppression;
+	s32 autogun_pickup_recover;
+	f32 autogun_aim_distance;
+	f32 autogun_turn_speed;
+	f32 autogun_fire_cadence;
+	s32 autogun_alternate_muzzles;
+	s32 autogun_beam_interval_ticks60;
+	s32 autogun_ammo_reserve;
+
+	s32 has_sticky_device;
+	char sticky_attachment_filter[64];
+	char mission_behavior_ref[CATALOG_ID_LEN];
+	char sticky_pickup_policy[64];
+	char sticky_disable_policy[64];
+	char sticky_visible_state[64];
+
+	s32 has_owner_cleanup;
+	char owner_lost_behavior[64];
+	char owner_death_behavior[64];
+	char replace_existing_policy[64];
+	s32 max_active_per_owner;
+
+	s32 has_interaction;
+	char interact_filter[64];
+	char interaction_action[64];
+	char prompt_ref[CATALOG_ID_LEN];
+	s32 interaction_sound;
+	char transfer_payload[CATALOG_ID_LEN];
+} weapon_graph_entity_runtime_t;
 
 const char *weaponGraphSchemaForType(asset_type_e type);
 const char *weaponGraphOpcodeName(weapon_graph_opcode_e opcode);
@@ -239,16 +455,44 @@ weapon_graph_opcode_e weaponGraphOpcodeForKind(asset_type_e graph_type,
 s32 weaponGraphRuntimeEnabled(void);
 void weaponGraphRuntimeSetEnabled(s32 enabled);
 void weaponGraphRuntimeClearWeapon(s32 weaponnum);
+void weaponGraphRuntimeClearAsset(const char *asset_id);
 void weaponGraphRuntimeClearAll(void);
 s32 weaponGraphRuntimeRegisterHeldIr(s32 weaponnum, const weapon_graph_ir_t *ir,
                                      char *err, size_t err_cap);
 s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
                                             const char *archive_path,
                                             char *err, size_t err_cap);
+s32 weaponGraphRuntimeRegisterProjectileIr(const weapon_graph_ir_t *ir,
+                                           char *err, size_t err_cap);
+s32 weaponGraphRuntimeRegisterEntityIr(const weapon_graph_ir_t *ir,
+                                       char *err, size_t err_cap);
+s32 weaponGraphRuntimeRegisterBehaviorGraphJson(asset_type_e graph_type,
+                                                const char *asset_id,
+                                                const char *json,
+                                                u32 json_size,
+                                                char *err,
+                                                size_t err_cap);
+s32 weaponGraphRuntimeRegisterBehaviorArchive(asset_type_e graph_type,
+                                              const char *archive_path,
+                                              char *err, size_t err_cap);
 const weapon_graph_held_function_t *weaponGraphRuntimeGetHeldFunction(
 	s32 weaponnum, s32 funcindex);
 const weapon_graph_held_function_t *weaponGraphRuntimeGetHeldFunctionForGameplay(
 	s32 weaponnum, s32 funcindex);
+const weapon_graph_projectile_runtime_t *weaponGraphRuntimeGetProjectile(
+	const char *asset_id);
+const weapon_graph_projectile_runtime_t *weaponGraphRuntimeGetProjectileForGameplay(
+	const char *asset_id);
+const weapon_graph_projectile_runtime_t *weaponGraphRuntimeGetProjectileForHeldFunction(
+	const weapon_graph_held_function_t *held);
+const weapon_graph_entity_runtime_t *weaponGraphRuntimeGetEntity(
+	const char *asset_id);
+const weapon_graph_entity_runtime_t *weaponGraphRuntimeGetEntityForGameplay(
+	const char *asset_id);
+const weapon_graph_entity_runtime_t *weaponGraphRuntimeGetEntityForHeldFunction(
+	const weapon_graph_held_function_t *held);
+const weapon_graph_entity_runtime_t *weaponGraphRuntimeGetEntityForProjectile(
+	const weapon_graph_projectile_runtime_t *projectile);
 
 s32 weaponGraphValidateJson(asset_type_e graph_type, const char *json,
                             u32 json_size, char *err, size_t err_cap);

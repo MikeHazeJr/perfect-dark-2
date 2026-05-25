@@ -4555,6 +4555,7 @@ static const char *s_ManifestTypeNames[] = {
     "Audio", /* MANIFEST_TYPE_AUDIO = 9 */
     "Projectile",
     "Entity",
+    "Asset",
 };
 
 static void renderSettingsCatalog(float scale)

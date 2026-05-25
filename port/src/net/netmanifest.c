@@ -440,11 +440,21 @@ typedef struct {
 static u8 s_assetTypeToManifestType(asset_type_e atype)
 {
     switch (atype) {
+    case ASSET_BODY:      return MANIFEST_TYPE_BODY;
+    case ASSET_HEAD:      return MANIFEST_TYPE_HEAD;
+    case ASSET_MAP:       return MANIFEST_TYPE_STAGE;
+    case ASSET_WEAPON:    return MANIFEST_TYPE_WEAPON;
+    case ASSET_MODEL:     return MANIFEST_TYPE_MODEL;
     case ASSET_ANIMATION: return MANIFEST_TYPE_ANIM;
     case ASSET_TEXTURE:   return MANIFEST_TYPE_TEXTURE;
+    case ASSET_LANG:      return MANIFEST_TYPE_LANG;
+    case ASSET_AUDIO:
+    case ASSET_SFX:
+    case ASSET_MUSIC:     return MANIFEST_TYPE_AUDIO;
     case ASSET_PROJECTILE: return MANIFEST_TYPE_PROJECTILE;
     case ASSET_ENTITY:    return MANIFEST_TYPE_ENTITY;
-    default:              return MANIFEST_TYPE_COMPONENT;
+    case ASSET_NONE:      return MANIFEST_TYPE_COMPONENT;
+    default:              return MANIFEST_TYPE_ASSET;
     }
 }
 
@@ -462,9 +472,39 @@ static asset_type_e s_manifestCatalogAssetType(u8 manifest_type)
     case MANIFEST_TYPE_AUDIO:     return ASSET_AUDIO;
     case MANIFEST_TYPE_PROJECTILE: return ASSET_PROJECTILE;
     case MANIFEST_TYPE_ENTITY:    return ASSET_ENTITY;
+    case MANIFEST_TYPE_ASSET:     return ASSET_NONE;
     case MANIFEST_TYPE_COMPONENT: return ASSET_NONE;
     default:                      return ASSET_NONE;
     }
+}
+
+static asset_type_e s_manifestEntryCatalogAssetType(const match_manifest_entry_t *e)
+{
+    if (!e) {
+        return ASSET_NONE;
+    }
+    if (e->type == MANIFEST_TYPE_ASSET) {
+        return (e->slot_index > ASSET_NONE && e->slot_index < ASSET_TYPE_COUNT)
+            ? (asset_type_e)e->slot_index
+            : ASSET_NONE;
+    }
+    return s_manifestCatalogAssetType(e->type);
+}
+
+static void s_manifestAddCatalogEntry(match_manifest_t *m,
+                                      const asset_entry_t *e,
+                                      u8 slot_index)
+{
+    u8 mtype;
+    u8 mslot;
+
+    if (!m || !e) {
+        return;
+    }
+
+    mtype = s_assetTypeToManifestType(e->type);
+    mslot = (mtype == MANIFEST_TYPE_ASSET) ? (u8)e->type : slot_index;
+    manifestAddEntry(m, e->id, mtype, mslot);
 }
 
 static void s_manifestDepAddEntry(const char *dep_id, void *userdata)
@@ -472,9 +512,7 @@ static void s_manifestDepAddEntry(const char *dep_id, void *userdata)
     s_DepExpandCtx *ctx = (s_DepExpandCtx *)userdata;
     const asset_entry_t *de = assetCatalogResolve(dep_id);
     if (de) {
-        u8 mtype = s_assetTypeToManifestType(de->type);
-        manifestAddEntry(ctx->manifest, de->id,
-                         mtype, ctx->slot_index);
+        s_manifestAddCatalogEntry(ctx->manifest, de, ctx->slot_index);
     }
     /* Unresolved dep_id is silently skipped — mod may be partially loaded */
 }
@@ -1013,6 +1051,7 @@ void manifestBuildForHost(match_manifest_t *out)
  * Format: u16 num_entries, then per entry:
  *   u8 type, u8 slot_index, str id,
  *   [u8[32] sha256] only when type == MANIFEST_TYPE_COMPONENT.
+ * For MANIFEST_TYPE_ASSET, slot_index stores asset_type_e.
  *
  * v27: net_hash removed from wire format. Both sides derive it locally from
  * the asset catalog (or s_fnv1a) after deserialization.
@@ -1601,6 +1640,7 @@ void manifestDiff(const match_manifest_t *current,
             if (de) {
                 de->net_hash = ne->net_hash;
                 de->type     = ne->type;
+                de->asset_type = (u8)s_manifestEntryCatalogAssetType(ne);
                 strncpy(de->id, ne->id, sizeof(de->id) - 1);
                 de->id[sizeof(de->id) - 1] = '\0';
             }
@@ -1609,6 +1649,7 @@ void manifestDiff(const match_manifest_t *current,
             if (de) {
                 de->net_hash = ne->net_hash;
                 de->type     = ne->type;
+                de->asset_type = (u8)s_manifestEntryCatalogAssetType(ne);
                 strncpy(de->id, ne->id, sizeof(de->id) - 1);
                 de->id[sizeof(de->id) - 1] = '\0';
             }
@@ -1630,6 +1671,7 @@ void manifestDiff(const match_manifest_t *current,
             if (de) {
                 de->net_hash = ce->net_hash;
                 de->type     = ce->type;
+                de->asset_type = (u8)s_manifestEntryCatalogAssetType(ce);
                 strncpy(de->id, ce->id, sizeof(de->id) - 1);
                 de->id[sizeof(de->id) - 1] = '\0';
             }
@@ -1662,7 +1704,7 @@ void manifestApplyDiff(const match_manifest_t *needed,
     for (i = 0; i < diff->num_to_load; i++) {
         if (diff->to_load[i].id[0]) {
             load_ok = catalogLoadTypedAsset(
-                    s_manifestCatalogAssetType(diff->to_load[i].type),
+                    (asset_type_e)diff->to_load[i].asset_type,
                     diff->to_load[i].id);
             if (!load_ok) {
                 sysLogPrintf(LOG_WARNING,
@@ -1686,7 +1728,7 @@ void manifestApplyDiff(const match_manifest_t *needed,
     for (i = 0; i < diff->num_to_unload; i++) {
         if (diff->to_unload[i].id[0]) {
             catalogReleaseTypedAsset(
-                    s_manifestCatalogAssetType(diff->to_unload[i].type),
+                    (asset_type_e)diff->to_unload[i].asset_type,
                     diff->to_unload[i].id);
             sysLogPrintf(LOG_NOTE, "MANIFEST-SP: unload '%s'",
                          diff->to_unload[i].id);
@@ -1814,6 +1856,28 @@ s32 manifestValidate(manifest_diff_t *diff)
                              "MANIFEST-VALIDATE: WARN: entry '%s' has"
                              " invalid bank_id %d, skipping",
                              entry->id, e->ext.lang.bank_id);
+                entry->id[0] = '\0';
+                invalid_count++;
+                continue;
+            }
+        }
+
+        if (entry->type == MANIFEST_TYPE_ASSET) {
+            asset_type_e expected = (asset_type_e)entry->asset_type;
+            if (expected <= ASSET_NONE || expected >= ASSET_TYPE_COUNT) {
+                sysLogPrintf(LOG_WARNING,
+                             "MANIFEST-VALIDATE: WARN: entry '%s' has"
+                             " invalid generic asset type %d, skipping",
+                             entry->id, (int)expected);
+                entry->id[0] = '\0';
+                invalid_count++;
+                continue;
+            }
+            if (e->type != expected) {
+                sysLogPrintf(LOG_WARNING,
+                             "MANIFEST-VALIDATE: WARN: entry '%s' expected"
+                             " asset type %d but got type %d, skipping",
+                             entry->id, (int)expected, (int)e->type);
                 entry->id[0] = '\0';
                 invalid_count++;
                 continue;
@@ -2123,7 +2187,8 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
 void manifestCheck(const match_manifest_t *manifest)
 {
     static const char *s_type_names[] = {
-        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL", "ANIM", "TEXTURE", "LANG", "AUDIO"
+        "BODY", "HEAD", "STAGE", "WEAPON", "COMPONENT", "MODEL", "ANIM", "TEXTURE",
+        "LANG", "AUDIO", "PROJECTILE", "ENTITY", "ASSET"
     };
 
     /* v27: catalog ID strings only — no u32 net_hash on wire.

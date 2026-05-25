@@ -1129,6 +1129,7 @@ static bool saveSkinAsMod(const char *displayName, const char *targetBodyId)
     fprintf(f, "type = skin\n");
     fprintf(f, "name = %s\n", displayName);
     fprintf(f, "target = %s\n", targetBodyId);
+    fprintf(f, "texture_file = texture.tga\n");
     bool ok = !ferror(f);
     fclose(f);
     if (!ok) return false;
@@ -1141,6 +1142,9 @@ static bool saveSkinAsMod(const char *displayName, const char *targetBodyId)
     if (entry) {
         strncpy(entry->dirpath, modDir, FS_MAXPATH - 1);
         entry->dirpath[FS_MAXPATH - 1] = '\0';
+        strncpy(entry->ext.skin.texture_file, tgaPath, sizeof(entry->ext.skin.texture_file) - 1);
+        entry->ext.skin.texture_file[sizeof(entry->ext.skin.texture_file) - 1] = '\0';
+        catalogSetPrimaryFile(entry, entry->ext.skin.texture_file);
         entry->enabled = 1;
         entry->bundled = 0;
         sysLogPrintf(LOG_NOTE, "skin_editor: registered '%s' targeting '%s'",

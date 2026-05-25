@@ -10,10 +10,12 @@
  *
  * Per c3812 typed-archive repair:
  *   _meta/manifest.json  envelope + face metadata + provenance
+ *   _meta/*.json         shared inventory/provenance/validation/source handles
  *   font.ini             modder-facing descriptor
  *   glyphs.pgm           decoded 8-bit grayscale glyph atlas
  *   metrics.tsv          glyph metrics and atlas coordinates
  *   kerning.tsv          13x13 kerning table
+ *   _meta/*.sha256       public-file SHA-256 sidecars
  *
  * Catalog ID convention (feedback_human_readable_ids):
  *   base:font_<facename>   e.g. base:font_handelgothicsm
@@ -38,11 +40,11 @@
 #include "types.h"
 #include "constants.h"
 #include "fs.h"
+#include "asset_archive_writer.h"
 #include "modarchive.h"
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
-#include "sha256.h"
 #include "system.h"
 
 #define PDFONT_OUT_DIR "fonts"
@@ -116,23 +118,6 @@ static void s_fontCharDisplay(u8 index, char *out, size_t out_n)
 	} else {
 		snprintf(out, out_n, "\\x%02x", (unsigned)index);
 	}
-}
-
-static void s_addMemSidecar(mod_archive_writer_t *aw, const char *inner_name,
-                             const void *bytes, u32 size)
-{
-	if (!aw || !inner_name || !bytes || size == 0) return;
-	u8 digest[SHA256_DIGEST_SIZE];
-	sha256Hash(bytes, (size_t)size, digest);
-	char hex[SHA256_HEX_SIZE + 1];
-	sha256ToHex(digest, hex);
-	hex[SHA256_HEX_SIZE] = '\0';
-	char sidecar[SHA256_HEX_SIZE + 2];
-	snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-	char sidecar_name[128];
-	snprintf(sidecar_name, sizeof(sidecar_name), "_meta/%s.sha256", inner_name);
-	(void)modArchiveAddFileMem(aw, sidecar_name,
-		sidecar, (u32)strlen(sidecar));
 }
 
 static s32 s_buildFontExports(const char *face, const u8 *src, u32 src_size,
@@ -419,37 +404,49 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "font.ini", ini_buf, (u32)ini_len) != 0) {
+	asset_archive_writer_t asset_writer;
+	if (assetArchiveWriterInit(&asset_writer, aw, "font", catalog_id) !=
+			MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDFONT",
+			"assetArchiveWriterInit failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		goto fail;
+	}
+	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdfont",
+		src_rel, -1, face);
+
+	if (assetArchiveWriterAddDescriptor(&asset_writer, "font.ini",
+			ini_buf, (u32)ini_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDFONT",
 			"AddFileMem font.ini failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		goto fail;
 	}
-	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
-	                          manifest_buf, (u32)manifest_len) != 0) {
+	if (assetArchiveWriterAddManifestJson(&asset_writer,
+			manifest_buf, (u32)manifest_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDFONT",
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		goto fail;
 	}
-	if (modArchiveAddFileMem(aw, "glyphs.pgm",
-	                         glyphs_pgm, glyphs_pgm_size) != 0) {
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "glyphs.pgm",
+			glyphs_pgm, glyphs_pgm_size, "glyphs") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDFONT",
 			"AddFileMem glyphs.pgm failed for face=\"%s\" -> \"%s\"",
 			face, dst_full);
 		modArchiveAbort(aw);
 		goto fail;
 	}
-	if (modArchiveAddFileMem(aw, "metrics.tsv",
-	                         metrics_tsv, metrics_tsv_size) != 0) {
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "metrics.tsv",
+			metrics_tsv, metrics_tsv_size, "metrics") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDFONT",
 			"AddFileMem metrics.tsv failed for face=\"%s\" -> \"%s\"",
 			face, dst_full);
 		modArchiveAbort(aw);
 		goto fail;
 	}
-	if (modArchiveAddFileMem(aw, "kerning.tsv",
-	                         kerning_tsv, kerning_tsv_size) != 0) {
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "kerning.tsv",
+			kerning_tsv, kerning_tsv_size, "kerning") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDFONT",
 			"AddFileMem kerning.tsv failed for face=\"%s\" -> \"%s\"",
 			face, dst_full);
@@ -457,9 +454,13 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 		goto fail;
 	}
 
-	s_addMemSidecar(aw, "glyphs.pgm", glyphs_pgm, glyphs_pgm_size);
-	s_addMemSidecar(aw, "metrics.tsv", metrics_tsv, metrics_tsv_size);
-	s_addMemSidecar(aw, "kerning.tsv", kerning_tsv, kerning_tsv_size);
+	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDFONT",
+			"assetArchiveWriterFinishMetadata failed for \"%s\"",
+			dst_full);
+		modArchiveAbort(aw);
+		goto fail;
+	}
 
 	if (modArchiveFinish(aw) != 0) {
 		free(kerning_tsv);

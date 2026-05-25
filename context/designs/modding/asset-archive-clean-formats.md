@@ -1,8 +1,8 @@
 # Clean Asset Archive Family Formats
 
-Status: frozen target contracts created 2026-05-24. Kanban owner: `c3824`.
+Status: frozen target contracts created 2026-05-24; post-decision load/use sweep updated 2026-05-24. Kanban owner: `c3824`.
 
-This document records the clean self-contained archive layouts for every current typed or otherwise referenceable Asset Pipeline family before the extraction, examples, validators, and release gates are rebuilt around them. The broad implementation sweep starts from this file rather than inventing new family contracts piecemeal.
+This document records the clean self-contained archive layouts for every current typed or otherwise referenceable Asset Pipeline family before the extraction, examples, validators, and release gates are rebuilt around them. It includes the later approved first-class families from the Asset Decisions tab. The broad implementation sweep starts from this file rather than inventing new family contracts piecemeal.
 
 ## Shared Contract
 
@@ -15,7 +15,11 @@ The archive has two zones:
 
 New emitters write machine data under `_meta/`. Transition readers may accept legacy root `manifest.json` and root SHA sidecars, but release/package validation must fail newly emitted or installed stale outputs that are non-zip typed files, `.pdwpn`, descriptor-less, authored `.bin` backed, or unresolved internally.
 
-All asset references use catalog ID strings. A reference field is metadata, not dependency closure, unless the referenced authored payload also resolves inside the archive or inside an embedded typed dependency archive. Higher-level assets embed dependency assets as intact typed archives under `dependencies/assets/<type>/<id>.<typed-asset>` unless the family-specific notes below define a narrower legacy transition path.
+All asset references use catalog ID strings. A reference field is metadata, not dependency closure, unless the referenced authored payload also resolves inside the archive or inside an embedded typed dependency archive. Higher-level assets embed dependency assets as intact typed archives under `dependencies/assets/<type>/<id>.<typed-asset>` unless the family-specific notes below define a narrower legacy transition path. Validators fail unresolved references unless the archive embeds the dependency or declares an approved base fallback with catalog ID, compatibility/version/hash where available, and reason.
+
+Each root descriptor must be sufficient to instantiate the asset without consulting legacy numeric tables: schema version, catalog ID or namespace hint, display name, role/kind, authored source paths, dependency roles, compatibility tags, fallback declarations, and loader/importer/exporter revision markers where relevant. Raw editable source files are allowed when owned by that family; cross-family resources stay as typed dependency archives.
+
+Tools must be able to export an archive into an accessible folder of modder-editable files and import that folder back into the same valid typed archive. Import reconstructs descriptors, `_meta/`, hashes, and embedded typed dependencies rather than preserving loose cross-family sidecars.
 
 Authored `.bin` payloads are rejected. Generated runtime cache remains private, readable when useful, rebuildable, and unshipped. `.pdmod` remains transport only.
 
@@ -41,6 +45,53 @@ Authored `.bin` payloads are rejected. Generated runtime cache remains private, 
 | `.pdui` | `ui.ini` | `texture.png` or `texture.tga` at root or under `textures/`, optional readable nine-slice/layout metadata | Atomic UI visual or chrome asset. Screens and themes compose `.pdui` refs rather than hiding unrelated UI payloads in one archive. |
 | `.pdfont` | `font.ini` | authored `font.ttf`/`font.otf`, or decoded ROM bitmap font files `glyphs.pgm`, `metrics.tsv`, and `kerning.tsv` | Reusable font face/range asset. Charset/range/import notes live in descriptor and `_meta/`, not raw runtime blobs. |
 | `.pdlang` | `lang.ini` | `strings.tsv` as UTF-8 text | Text/localization owner. Voice assets bind to string keys and audio locale fallbacks; `.pdlang` does not own spoken audio. |
+| `.pdskin` | `skin.ini` | material slot overrides, texture/material bindings, palette/color data, preview swatches | Appearance variant for compatible bodies, heads, weapons, props, or vehicles. Geometry stays in mesh/body/head/prop/vehicle assets. |
+| `.pdeffect` | `effect.ini` | effect graph or timeline, emitter/decal/beam/post-process data, attachment rules | Reusable visual or feedback effect. Materials, textures, audio, lights, camera shake, and target assets stay typed dependencies. |
+| `.pdprop` | `prop.ini` | placement metadata, sockets, collision profile, simple interaction/damage/physics flags | Physical world object payload. Behavior-heavy active/deployed objects use `.pdentity` and can depend on `.pdprop`. |
+| `.pdvehicle` | `vehicle.ini` | handling, hull/collision, seats, cameras, hardpoints, damage states, animation/audio bindings | Drivable or interactable vehicle asset. Mesh, material, texture, audio, effect, weapon, and occupant refs stay typed dependencies. |
+| `.pdmission` | `mission.ini` | briefing, objectives, phase flow, cutscene list, scenario refs, unlock/checkpoint rules | Campaign wrapper around one or more `.pdscenario` assets. It does not own map geometry or general multiplayer rules. |
+| `.pdgamemode` | `gamemode.ini` | scoring, teams, timers, loadouts, objective rules, spawn modifiers, compatible scenario tags | Combat Simulator or custom rules wrapper. Scenario/arena/map content remains separate. |
+| `.pdbotprofile` | `botprofile.ini` | skill/personality, perception, movement abilities, loadout prefs, behavior tags | Reusable AI profile. Character, voice, weapon, team, and special ability refs remain catalog dependencies. |
+| `.pdhud` | `hud.ini` | layout/widgets, anchors, data bindings, reticle/radar/status rules | Reusable gameplay HUD composition. UI visuals, fonts, language, SFX, and theme refs stay typed dependencies. |
+| `.pdtheme` | `theme.ini` | style tokens, chrome bindings, procedural or animated texture rules, accessibility tags | Menu/UI visual theme. It composes `.pdui`, `.pdfont`, `.pdsfx`, `.pdsong`, and optional `.pdeffect` assets. |
+
+`.pdtool` is approved as a deferred high-priority follow-up, not part of the current game-content extraction sweep. If tools are packaged later, they need a separate secure tool/plugin package model rather than this normal runtime asset contract.
+
+## Load And Utilization Closure
+
+The extraction implementation should treat this as the minimum "can load and can be used" checklist. A family passes only when its descriptor, public payload, `_meta/` data, and embedded typed dependencies can feed the catalog loader, the relevant runtime subsystem, and mod tools without external lookup except approved base fallbacks.
+
+| Family | Must be present to load | Must be present to utilize |
+|--------|-------------------------|----------------------------|
+| `.pdweapon` | `weapon.ini`, behavior entry files, dependency manifest/fallbacks, model/audio/projectile/entity refs | Held and AI fire-mode bindings, ammo/display defaults, model/material slots, sounds, animations, UI refs, projectiles/entities. |
+| `.pdprojectile` | `projectile.ini`, motion, collision, damage, lifecycle, optional behavior graph | Owner/damage credit, impact rules, visual/audio/effect dependencies, entity transition or spawned payload refs. |
+| `.pdentity` | `entity.ini`, bindings/composition, optional behavior graph | Lifecycle state, interaction rules, ownership/team context, prop/mesh/effect/audio dependencies. |
+| `.pdmaterial` | `material.ini`, render/surface params, slot and texture/effect refs | Variants, compatibility tags, classic fields, optional PBR-ready fields; PBR material payloads remain standalone material assets. |
+| `.pdtexture` | `texture.ini`, editable image source, alpha/palette/mip/import settings | Rebuildable GPU texture/cache data, usage tags, color space and compression intent. |
+| `.pdcharacter` | `character.ini`, identity/roster tags, body/head/skin/voice/anim/UI refs | Unlock/roster presentation, default loadout/appearance assembly, dependency closure for all bound parts. |
+| `.pdhead` | `head.ini`, socket/expression/material-slot metadata | Mesh/material/texture/animation deps, expression bindings, body compatibility tags. |
+| `.pdbody` | `body.ini`, skeleton/rig, proportions, sockets, first-person hand bindings | Body and hand mesh/material deps, animation target metadata, attachment compatibility. |
+| `.pdarena` | `arena.ini`, embedded `.pdscenario`, preview/default refs | Multiplayer selection metadata, match defaults, spawn playlists, gametype/team overrides. |
+| `.pdscenario` | `scenario.ini`, geometry, rooms, portals, pads, setup, collision, navigation, visual scene data | Spawn profiles, mission/gamemode hooks, lighting/material deps, objective/phase override anchors. |
+| `.pdmesh` | `mesh.ini`, geometry, UVs, hierarchy, sockets, LODs, skinning, collision proxy | Material/texture typed deps, rig binding, model and collision loader metadata. |
+| `.pdanim` | `animation.ini`, timeline/channels/events/notifies, target metadata | Retargeting, weapon/body binding, optional legacy opcode listings, event refs. |
+| `.pdsfx` | `sound.ini`, editable source audio | Loop points, attenuation, mixer/category tags, import/codec intent. |
+| `.pdvoice` | `voice.ini`, speaker/context/category, locale audio variants | Subtitle/localization key bindings, fallback rules, priority/playback tags. |
+| `.pdsong` | `music.ini`, sequence or track sources | Loop points, sections/cues, tempo/transition tags, optional adaptive layers. |
+| `.pdui` | `ui.ini`, texture or texture slots, layout/nine-slice metadata | Scale/theme/chrome/atlas role, GL upload guard metadata, UI composition refs. |
+| `.pdfont` | `font.ini`, vector font or decoded glyph/metrics/kerning files | Charset/range, fallback chain, baseline metrics, UI/lang bindings. |
+| `.pdlang` | `lang.ini`, UTF-8 `strings.tsv` | Locale/fallback data, stable string keys, context notes for voice/subtitle binding. |
+| `.pdskin` | `skin.ini`, slot overrides, material/texture deps, compatibility tags | Appearance application to compatible bodies, heads, weapons, props, or vehicles; preview/swatch data. |
+| `.pdeffect` | `effect.ini`, effect graph/timeline, emitter/decal/beam/post-process data | Attachment/target rules, lifetime/priority, material/texture/audio/light/camera deps. |
+| `.pdprop` | `prop.ini`, physical object metadata, mesh/collision/material refs | Placement, sockets, simple interaction, damage/break/physics/pickup hooks. |
+| `.pdvehicle` | `vehicle.ini`, hull/collision/seats/cameras/hardpoints/handling | Driving/interact behavior, damage states, animation/audio/effect/weapon/occupant deps. |
+| `.pdmission` | `mission.ini`, scenario refs, briefing/objective/phase data | Cutscenes, scripts, unlocks, checkpoints, mission-phase spawn overrides. |
+| `.pdgamemode` | `gamemode.ini`, scoring/team/timer/objective/loadout rules | Spawn modifiers, HUD/audio refs, compatible scenario tags, round/respawn behavior. |
+| `.pdbotprofile` | `botprofile.ini`, skill/personality/behavior tags | Perception, movement abilities such as wall running or jumping, loadout, character/voice refs. |
+| `.pdhud` | `hud.ini`, widget layout and data bindings | Reticle/radar/ammo/status composition, `.pdui`/font/lang/SFX deps. |
+| `.pdtheme` | `theme.ini`, style tokens and theme asset refs | Chrome composition, procedural/animated texture behavior, accessibility and scope tags. |
+
+The extraction session should not emit descriptor-only stubs just to cover a family. Emit a typed archive only when the public zone contains enough authored data to load and use that asset, or when the descriptor explicitly declares an approved base fallback that provides the missing runtime payload.
 
 ## Final Batch Details
 
@@ -120,12 +171,14 @@ The rebuild after this freeze must update emitters, examples, validators, scanne
 
 Acceptance for the sweep:
 
-- Each current family has a root descriptor matching the table above.
+- Each approved game-content family through `.pdtheme` has a root descriptor matching the table above. `.pdtool` stays deferred to a later secure tool/plugin package contract.
 - New machine-owned metadata writes under `_meta/`.
 - All descriptor, source-format, material, graph, nested-descriptor, and payload references resolve inside the archive or inside an embedded typed archive.
+- Export exposes files in an accessible modder-editable folder, and import reconstructs a valid typed archive with descriptors, `_meta/`, hashes, and embedded typed dependencies.
+- Base fallbacks are explicit declarations with catalog ID, compatibility/version/hash where available, and reason; no unresolved reference passes silently.
 - New emitters stop writing authored `.bin` payloads, `.pdwpn`, descriptor-less archives, and root machine-metadata clutter.
 - Transition readers can load legacy root metadata while validators reject stale installed outputs for release/package builds.
-- Examples show the clean two-zone shape for every current family, including `.pdcharacter`, `.pdprojectile`, `.pdentity`, `.pdui`, `.pdfont`, and `.pdlang`.
+- Examples show the clean two-zone shape for every current family, including `.pdcharacter`, `.pdprojectile`, `.pdentity`, `.pdskin`, `.pdeffect`, `.pdprop`, `.pdvehicle`, `.pdmission`, `.pdgamemode`, `.pdbotprofile`, `.pdhud`, `.pdtheme`, `.pdui`, `.pdfont`, and `.pdlang`.
 
 ## Where To Look
 

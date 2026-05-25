@@ -1278,9 +1278,11 @@ static int modmgrArchiveEntryIsTypedPdAssetArchive(const char *name)
 	if (!name) return 0;
 	static const char *suffixes[] = {
 		".pdweapon", ".pdprojectile", ".pdentity", ".pdcharacter",
-		".pdhead", ".pdbody", ".pdarena", ".pdmesh", ".pdanim",
+		".pdmaterial", ".pdtexture", ".pdhead", ".pdbody", ".pdarena", ".pdmesh", ".pdanim",
 		".pdsfx", ".pdvoice", ".pdsong", ".pdui", ".pdfont", ".pdlang",
-		".pdscenario", NULL
+		".pdscenario", ".pdskin", ".pdeffect", ".pdprop", ".pdvehicle",
+		".pdmission", ".pdgamemode", ".pdbotprofile", ".pdhud", ".pdtheme",
+		NULL
 	};
 	size_t n = strlen(name);
 	for (s32 i = 0; suffixes[i]; i++) {
@@ -2410,8 +2412,11 @@ void modmgrSaveComponentState(void)
 	static const asset_type_e types[] = {
 		ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
 		ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
-		ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC,
-		ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_UI, ASSET_TOOL
+		ASSET_TEXTURES, ASSET_TEXTURE, ASSET_MATERIAL, ASSET_EFFECT,
+		ASSET_SFX, ASSET_MUSIC, ASSET_AUDIO,
+		ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_GAMEMODE,
+		ASSET_BOT_PROFILE, ASSET_SCENARIO, ASSET_HUD, ASSET_UI,
+		ASSET_FONT, ASSET_LANG, ASSET_THEME, ASSET_TOOL
 	};
 	for (s32 i = 0; i < (s32)(sizeof(types) / sizeof(types[0])); i++) {
 		assetCatalogIterateByType(types[i], saveStateCallback, &ctx);

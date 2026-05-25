@@ -10,7 +10,7 @@
  * exposes the other Step 1 / 2 / 3 / 3a / 3b emitters.
  *
  * Output paths under data/<romid>/ui/:
- *   <slug>.pdui    ZIP compound (manifest + texture.tga + sha256)
+ *   <slug>.pdui    ZIP compound (manifest + texture.tga + shared _meta)
  *
  * Per universality-pivot-schemas.md Section 2.11.
  *

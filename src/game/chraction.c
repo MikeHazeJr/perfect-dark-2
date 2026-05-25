@@ -10286,16 +10286,42 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 						struct weaponfunc_shootprojectile *func = weapondef->functions[gset.weaponfunc];
 						const weapon_graph_held_function_t *graph =
 							weaponGraphRuntimeGetHeldFunctionForGameplay(gset.weaponnum, gset.weaponfunc);
+						const weapon_graph_projectile_runtime_t *projectilegraph =
+							weaponGraphRuntimeGetProjectileForHeldFunction(graph);
 						u32 funcflags = graph ? graph->flags : func->base.base.flags;
 						s32 projectilemodelnum = graph && graph->has_projectile_modelnum ?
-							graph->projectile_modelnum : func->projectilemodelnum;
-						f32 projectilespeed = graph && graph->has_speed ? graph->speed : func->speed;
+							graph->projectile_modelnum :
+							(projectilegraph && projectilegraph->has_projectile_modelnum ?
+								projectilegraph->projectile_modelnum : func->projectilemodelnum);
+						f32 projectilespeed = graph && graph->has_speed ? graph->speed :
+							(projectilegraph && projectilegraph->has_speed ?
+								projectilegraph->speed : func->speed);
 						s32 traveldist = graph && graph->has_travel_distance ?
-							graph->travel_distance : func->traveldist;
-						s32 timer60 = graph && graph->has_timer_ticks60 ? graph->timer_ticks60 : func->timer60;
+							graph->travel_distance :
+							(projectilegraph && projectilegraph->has_travel_distance ?
+								projectilegraph->travel_distance : func->traveldist);
+						s32 timer60 = graph && graph->has_timer_ticks60 ? graph->timer_ticks60 :
+							(projectilegraph && projectilegraph->has_timer ?
+								projectilegraph->timer_ticks60 :
+								(projectilegraph && projectilegraph->has_timer60 ?
+									projectilegraph->timer60 : func->timer60));
 						f32 reflectangle = graph && graph->has_reflect_angle ?
-							graph->reflect_angle : func->reflectangle;
+							graph->reflect_angle :
+							(projectilegraph && projectilegraph->has_reflect_angle ?
+								projectilegraph->reflect_angle : func->reflectangle);
 						s32 soundnum = graph && graph->has_soundnum ? graph->soundnum : func->soundnum;
+
+						if (projectilegraph) {
+							if (projectilegraph->powered) {
+								funcflags |= FUNCFLAG_PROJECTILE_POWERED;
+							}
+							if (projectilegraph->has_homing) {
+								funcflags |= FUNCFLAG_HOMINGROCKET;
+							}
+							if (projectilegraph->has_fly_by_wire) {
+								funcflags |= FUNCFLAG_FLYBYWIRE;
+							}
+						}
 
 						// Handle creating the projectile
 						if (gset.weaponnum == WEAPON_ROCKETLAUNCHER
@@ -10441,6 +10467,7 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 								projectileobj->base.projectile->pickuptimer240 = TICKS(240);
 								projectileobj->base.projectile->unk08c = reflectangle;
 								projectileobj->base.projectile->unk098 = func->unk50 * (1.0f / 0.6f);
+								projectileApplyGraphRuntime(&projectileobj->base, projectilegraph);
 
 								projectileobj->base.projectile->targetprop = chrGetTargetProp(chr);
 

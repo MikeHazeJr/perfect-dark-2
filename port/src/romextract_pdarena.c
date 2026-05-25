@@ -57,12 +57,12 @@
 #include "constants.h"
 #include "fs.h"
 #include "loader_enum_reverse.h"
+#include "asset_archive_writer.h"
 #include "modarchive.h"
 #include "preprocess.h"
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
-#include "sha256.h"
 #include "system.h"
 #include "memsizes.h"
 #include "game/stagetable.h"
@@ -391,22 +391,6 @@ static void s_pdscenarioScratchFree(pdscenario_textbuf_t *rooms_obj,
 	s_textbufFree(scene_gltf);
 	s_visualMeshFree(visual_mesh);
 	s_bgSceneFree(bg_scene);
-}
-
-static s32 s_addShaSidecar(mod_archive_writer_t *aw, const char *name,
-                           const void *data, u32 len)
-{
-	u8 digest[SHA256_DIGEST_SIZE];
-	sha256Hash(data, (size_t)len, digest);
-	char hex[SHA256_HEX_SIZE + 1];
-	sha256ToHex(digest, hex);
-	hex[SHA256_HEX_SIZE] = '\0';
-	char sidecar[SHA256_HEX_SIZE + 2];
-	snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-	char meta_name[FS_MAXPATH + 1];
-	snprintf(meta_name, sizeof(meta_name), "_meta/%s", name ? name : "hash.sha256");
-	meta_name[sizeof(meta_name) - 1] = '\0';
-	return modArchiveAddFileMem(aw, meta_name, sidecar, (u32)strlen(sidecar));
 }
 
 static s32 s_loadStageFileRaw(u16 filenum, u8 **out_data, u32 *out_size)
@@ -1867,11 +1851,11 @@ static void s_scenarioArchiveRelPath(const char *out_dir, const char *scenario_i
 	snprintf(out, out_size, "%s/%s.pdscenario", out_dir, filename);
 }
 
-static s32 s_copyArchiveEntriesWithPrefix(mod_archive_writer_t *aw,
+static s32 s_copyArchiveEntriesWithPrefix(asset_archive_writer_t *writer,
                                           const char *src_rel,
                                           const char *prefix)
 {
-	if (!aw || !src_rel || !prefix || !prefix[0]) return -1;
+	if (!writer || !src_rel || !prefix || !prefix[0]) return -1;
 	char full_buf[FS_MAXPATH + 1];
 	const char *full = fsFullPath(src_rel, full_buf, sizeof(full_buf));
 	if (!full || !full[0]) return -1;
@@ -1894,7 +1878,8 @@ static s32 s_copyArchiveEntriesWithPrefix(mod_archive_writer_t *aw,
 			modArchiveClose(arc);
 			return -1;
 		}
-		s32 add = modArchiveAddFileMem(aw, dst_name, bytes, size);
+		s32 add = assetArchiveWriterAddPublicMem(writer, dst_name,
+			bytes, size, "scenario");
 		free(bytes);
 		if (add != MODARCHIVE_OK) {
 			modArchiveClose(arc);
@@ -2025,14 +2010,26 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 			"modArchiveBegin failed for \"%s\"", full);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "arena.ini", ini_buf, (u32)ini_len) != 0) {
+	asset_archive_writer_t asset_writer;
+	if (assetArchiveWriterInit(&asset_writer, aw, "arena", catalog_id) !=
+			MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDARENA",
+			"assetArchiveWriterInit failed for \"%s\"", full);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdarena",
+		"arenadata_authored", arena_index, a->slug);
+
+	if (assetArchiveWriterAddDescriptor(&asset_writer, "arena.ini",
+			ini_buf, (u32)ini_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDARENA",
 			"AddFileMem arena.ini failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
-	                          manifest_buf, (u32)manifest_len) != 0) {
+	if (assetArchiveWriterAddManifestJson(&asset_writer,
+			manifest_buf, (u32)manifest_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDARENA",
 			"AddFileMem _meta/manifest.json failed for \"%s\"", full);
 		modArchiveAbort(aw);
@@ -2040,13 +2037,20 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 	}
 	if (scenario_id[0]) {
 		if (!scenario_rel[0] ||
-		    s_copyArchiveEntriesWithPrefix(aw, scenario_rel, "scenario") != 0) {
+		    s_copyArchiveEntriesWithPrefix(&asset_writer,
+				scenario_rel, "scenario") != 0) {
 			sysLoudFailf("EXTRACT.PDARENA",
 				"scenario dependency copy failed for \"%s\" from \"%s\"",
 				full, scenario_rel[0] ? scenario_rel : "(missing)");
 			modArchiveAbort(aw);
 			return -1;
 		}
+	}
+	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDARENA",
+			"assetArchiveWriterFinishMetadata failed for \"%s\"", full);
+		modArchiveAbort(aw);
+		return -1;
 	}
 	if (modArchiveFinish(aw) != 0) {
 		sysLoudFailf("EXTRACT.PDARENA",
@@ -2100,6 +2104,16 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 			"modArchiveBegin failed for \"%s\"", dst_full);
 		return -1;
 	}
+	asset_archive_writer_t asset_writer;
+	if (assetArchiveWriterInit(&asset_writer, aw, "scenario",
+			scenario_id) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDSCENARIO",
+			"assetArchiveWriterInit failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdarena",
+		"stagetable", stage_idx, a->slug);
 
 	pdscenario_textbuf_t rooms_obj = { 0 };
 	pdscenario_textbuf_t tiles_tsv = { 0 };
@@ -2195,10 +2209,10 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	}
 
 	if (has_tiles > 0) {
-		if (modArchiveAddFileMem(aw, "rooms.obj", rooms_obj.data, rooms_obj.len) != 0 ||
-		    modArchiveAddFileMem(aw, "tiles.tsv", tiles_tsv.data, tiles_tsv.len) != 0 ||
-		    s_addShaSidecar(aw, "rooms.obj.sha256", rooms_obj.data, rooms_obj.len) != 0 ||
-		    s_addShaSidecar(aw, "tiles.tsv.sha256", tiles_tsv.data, tiles_tsv.len) != 0) {
+		if (assetArchiveWriterAddPublicMem(&asset_writer, "rooms.obj",
+				rooms_obj.data, rooms_obj.len, "geometry") != MODARCHIVE_OK ||
+		    assetArchiveWriterAddPublicMem(&asset_writer, "tiles.tsv",
+				tiles_tsv.data, tiles_tsv.len, "tiles") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 				&setup_tsv, &mpsetup_tsv, &bg_tsv, &scene_gltf,
 				&visual_mesh, &bg_scene);
@@ -2211,8 +2225,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 			"Kd 0.650000 0.650000 0.650000\n"
 			"Ka 0.150000 0.150000 0.150000\n"
 			"Ks 0.000000 0.000000 0.000000\n";
-		if (modArchiveAddFileMem(aw, "scenario.mtl", mtl_buf, (u32)strlen(mtl_buf)) != 0 ||
-		    s_addShaSidecar(aw, "scenario.mtl.sha256", mtl_buf, (u32)strlen(mtl_buf)) != 0) {
+		if (assetArchiveWriterAddPublicMem(&asset_writer, "scenario.mtl",
+				mtl_buf, (u32)strlen(mtl_buf), "material") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 				&setup_tsv, &mpsetup_tsv, &bg_tsv, &scene_gltf,
 				&visual_mesh, &bg_scene);
@@ -2222,24 +2236,17 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	}
 
 	if (has_visual > 0) {
-		if (modArchiveAddFileMem(aw, "visual/export_version.txt",
+		if (assetArchiveWriterAddPublicMem(&asset_writer, "visual/export_version.txt",
 				PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE,
-				(u32)strlen(PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE)) != 0 ||
-		    modArchiveAddFileMem(aw, "visual/scene.obj",
-				bg_scene.obj.data, bg_scene.obj.len) != 0 ||
-		    modArchiveAddFileMem(aw, "visual/scene.mtl",
-				bg_scene.mtl.data, bg_scene.mtl.len) != 0 ||
-		    modArchiveAddFileMem(aw, "visual/materials.tsv",
-				bg_scene.materials_tsv.data, bg_scene.materials_tsv.len) != 0 ||
-		    s_addShaSidecar(aw, "visual/export_version.txt.sha256",
-				PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE,
-				(u32)strlen(PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE)) != 0 ||
-		    s_addShaSidecar(aw, "visual/scene.obj.sha256",
-				bg_scene.obj.data, bg_scene.obj.len) != 0 ||
-		    s_addShaSidecar(aw, "visual/scene.mtl.sha256",
-				bg_scene.mtl.data, bg_scene.mtl.len) != 0 ||
-		    s_addShaSidecar(aw, "visual/materials.tsv.sha256",
-				bg_scene.materials_tsv.data, bg_scene.materials_tsv.len) != 0) {
+				(u32)strlen(PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE),
+				"version") != MODARCHIVE_OK ||
+		    assetArchiveWriterAddPublicMem(&asset_writer, "visual/scene.obj",
+				bg_scene.obj.data, bg_scene.obj.len, "visual_geometry") != MODARCHIVE_OK ||
+		    assetArchiveWriterAddPublicMem(&asset_writer, "visual/scene.mtl",
+				bg_scene.mtl.data, bg_scene.mtl.len, "visual_material") != MODARCHIVE_OK ||
+		    assetArchiveWriterAddPublicMem(&asset_writer, "visual/materials.tsv",
+				bg_scene.materials_tsv.data, bg_scene.materials_tsv.len,
+				"visual_materials") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 				&setup_tsv, &mpsetup_tsv, &bg_tsv, &scene_gltf,
 				&visual_mesh, &bg_scene);
@@ -2249,16 +2256,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		for (u32 i = 0; i < bg_scene.texture_count; i++) {
 			const pdscenario_bgtexture_t *tex = &bg_scene.textures[i];
 			if (!tex->decoded || !tex->tga || tex->tga_size == 0) continue;
-			if (modArchiveAddFileMem(aw, tex->path, tex->tga, tex->tga_size) != 0) {
-				s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
-					&setup_tsv, &mpsetup_tsv, &bg_tsv, &scene_gltf,
-					&visual_mesh, &bg_scene);
-				modArchiveAbort(aw);
-				return -1;
-			}
-			char sha_name[128];
-			snprintf(sha_name, sizeof(sha_name), "%s.sha256", tex->path);
-			if (s_addShaSidecar(aw, sha_name, tex->tga, tex->tga_size) != 0) {
+			if (assetArchiveWriterAddPublicMem(&asset_writer, tex->path,
+					tex->tga, tex->tga_size, "texture") != MODARCHIVE_OK) {
 				s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 					&setup_tsv, &mpsetup_tsv, &bg_tsv, &scene_gltf,
 					&visual_mesh, &bg_scene);
@@ -2269,8 +2268,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	}
 
 	if (has_pads > 0) {
-		if (modArchiveAddFileMem(aw, "pads.tsv", pads_tsv.data, pads_tsv.len) != 0 ||
-		    s_addShaSidecar(aw, "pads.tsv.sha256", pads_tsv.data, pads_tsv.len) != 0) {
+		if (assetArchiveWriterAddPublicMem(&asset_writer, "pads.tsv",
+				pads_tsv.data, pads_tsv.len, "pads") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 				&setup_tsv, &mpsetup_tsv, &bg_tsv, &scene_gltf,
 				&visual_mesh, &bg_scene);
@@ -2279,8 +2278,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		}
 	}
 	if (has_setup > 0) {
-		if (modArchiveAddFileMem(aw, "setup.tsv", setup_tsv.data, setup_tsv.len) != 0 ||
-		    s_addShaSidecar(aw, "setup.tsv.sha256", setup_tsv.data, setup_tsv.len) != 0) {
+		if (assetArchiveWriterAddPublicMem(&asset_writer, "setup.tsv",
+				setup_tsv.data, setup_tsv.len, "setup") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 				&setup_tsv, &mpsetup_tsv, &bg_tsv, &scene_gltf,
 				&visual_mesh, &bg_scene);
@@ -2289,8 +2288,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		}
 	}
 	if (has_mpsetup > 0) {
-		if (modArchiveAddFileMem(aw, "mpsetup.tsv", mpsetup_tsv.data, mpsetup_tsv.len) != 0 ||
-		    s_addShaSidecar(aw, "mpsetup.tsv.sha256", mpsetup_tsv.data, mpsetup_tsv.len) != 0) {
+		if (assetArchiveWriterAddPublicMem(&asset_writer, "mpsetup.tsv",
+				mpsetup_tsv.data, mpsetup_tsv.len, "mpsetup") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 				&setup_tsv, &mpsetup_tsv, &bg_tsv, &scene_gltf,
 				&visual_mesh, &bg_scene);
@@ -2299,8 +2298,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		}
 	}
 	if (has_bg > 0) {
-		if (modArchiveAddFileMem(aw, "visual_segments.tsv", bg_tsv.data, bg_tsv.len) != 0 ||
-		    s_addShaSidecar(aw, "visual_segments.tsv.sha256", bg_tsv.data, bg_tsv.len) != 0) {
+		if (assetArchiveWriterAddPublicMem(&asset_writer, "visual_segments.tsv",
+				bg_tsv.data, bg_tsv.len, "visual_source") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 				&setup_tsv, &mpsetup_tsv, &bg_tsv, &scene_gltf,
 				&visual_mesh, &bg_scene);
@@ -2415,7 +2414,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "scenario.ini", ini_buf, (u32)ini_len) != 0) {
+	if (assetArchiveWriterAddDescriptor(&asset_writer, "scenario.ini",
+			ini_buf, (u32)ini_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"AddFileMem scenario.ini failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
@@ -2424,10 +2424,19 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		modArchiveAbort(aw);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
-	                          manifest_buf, (u32)n) != 0) {
+	if (assetArchiveWriterAddManifestJson(&asset_writer,
+			manifest_buf, (u32)n) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
+		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
+			&setup_tsv, &mpsetup_tsv, &bg_tsv, &scene_gltf,
+			&visual_mesh, &bg_scene);
+		modArchiveAbort(aw);
+		return -1;
+	}
+	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDSCENARIO",
+			"assetArchiveWriterFinishMetadata failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 			&setup_tsv, &mpsetup_tsv, &bg_tsv, &scene_gltf,
 			&visual_mesh, &bg_scene);

@@ -20,9 +20,11 @@
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_deps.h"
+#include "asset_runtime.h"
 #include "assetprovider.h"
 #include "assetload.h"
 #include "modasset_compiler.h"
+#include "weapon_graph_runtime.h"
 #include "data.h"
 #include "game/modeldef.h"
 #include "lib/meshcollision.h"
@@ -408,6 +410,10 @@ static const char *s_catalogPayloadKind(asset_type_e type)
     case ASSET_BOT_PROFILE: return "bot-profile";
     case ASSET_PROJECTILE: return "projectile";
     case ASSET_ENTITY:    return "entity";
+    case ASSET_MATERIAL:  return "material";
+    case ASSET_FONT:      return "font";
+    case ASSET_SCENARIO:  return "scenario";
+    case ASSET_THEME:     return "theme";
     default:              return "generic";
     }
 }
@@ -572,14 +578,62 @@ static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type)
         || type == ASSET_BOT_VARIANT
         || type == ASSET_PROJECTILE
         || type == ASSET_ENTITY
-        || type == ASSET_EFFECT;
+        || type == ASSET_EFFECT
+        || type == ASSET_MATERIAL
+        || type == ASSET_FONT
+        || type == ASSET_SCENARIO
+        || type == ASSET_THEME;
 }
 
 static s32 s_catalogTypeCanUseObjColmeshPayload(asset_type_e type)
 {
     return type == ASSET_ARENA
         || type == ASSET_GAMEMODE
+        || type == ASSET_SCENARIO
         || type == ASSET_MAP;
+}
+
+static s32 s_catalogTypeUsesWeaponGraphRuntime(asset_type_e type)
+{
+    return type == ASSET_PROJECTILE || type == ASSET_ENTITY;
+}
+
+static s32 s_catalogActivateWeaponGraphRuntime(asset_entry_t *entry,
+                                               const char *source_path)
+{
+    u32 graph_size = 0;
+    char err[256];
+    char *graph = NULL;
+    s32 result;
+
+    if (!entry || !source_path || !source_path[0]) {
+        return 0;
+    }
+
+    graph = (char *)fsFileLoad(source_path, &graph_size);
+    if (!graph || graph_size == 0) {
+        if (graph) {
+            free(graph);
+        }
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' graph runtime missing %s",
+                     entry->id, source_path);
+        return 0;
+    }
+
+    err[0] = '\0';
+    result = weaponGraphRuntimeRegisterBehaviorGraphJson(entry->type,
+        entry->id, graph, graph_size, err, sizeof(err));
+    free(graph);
+
+    if (result != 0) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' graph runtime compile failed: %s",
+                     entry->id, err[0] ? err : "unknown error");
+        return 0;
+    }
+
+    return 1;
 }
 
 static void s_catalogInstallAnimationClip(asset_entry_t *entry,
@@ -731,6 +785,27 @@ static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry)
     entry->payload_kind     = ASSET_PAYLOAD_RUNTIME_ACTIVE;
     entry->load_state       = ASSET_STATE_ACTIVE;
     entry->ref_count        = 1;
+
+    if (s_catalogTypeUsesWeaponGraphRuntime(entry->type)
+            && !s_catalogActivateWeaponGraphRuntime(entry, source_path)) {
+        entry->loaded_data     = NULL;
+        entry->payload_kind    = ASSET_PAYLOAD_NONE;
+        entry->load_state      = ASSET_STATE_ENABLED;
+        entry->ref_count       = 0;
+        return 0;
+    }
+
+    if (assetRuntimeSupportsType(entry->type)
+            && !assetRuntimeActivateCatalogEntry(entry, source_path)) {
+        entry->loaded_data     = NULL;
+        entry->payload_kind    = ASSET_PAYLOAD_NONE;
+        entry->load_state      = ASSET_STATE_ENABLED;
+        entry->ref_count       = 0;
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' %s runtime adapter rejected missing authored payload",
+                     entry->id, s_catalogPayloadKind(entry->type));
+        return 0;
+    }
 
     sysLogPrintf(LOG_NOTE,
                  "CATALOG.LIFECYCLE.ACTIVATE: activated %s metadata payload '%s'",
@@ -1120,6 +1195,10 @@ static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
                 free(payload);
             }
         } else if (entry->payload_kind == ASSET_PAYLOAD_RUNTIME_ACTIVE) {
+            if (s_catalogTypeUsesWeaponGraphRuntime(entry->type)) {
+                weaponGraphRuntimeClearAsset(assetId);
+            }
+            assetRuntimeReleaseCatalogEntry(assetId);
             /* Runtime-owned activation (for example language banks) is
              * detached from this catalog reference. The owning subsystem
              * releases its memory on its normal reset/reload path. */

@@ -79,6 +79,7 @@
 #include "data.h"
 #include "textures.h"
 #include "types.h"
+#include "weapon_graph_runtime.h"
 
 /* PC: persistent stats tracking */
 extern void statIncrement(const char *key, u64 amount);
@@ -1174,6 +1175,61 @@ void projectileSetSticky(struct prop *prop)
 
 	if (projectile) {
 		projectile->flags |= PROJECTILEFLAG_STICKY;
+	}
+}
+
+static s32 weaponGraphTicks60To240(s32 ticks60)
+{
+	if (ticks60 < 0) {
+		return -1;
+	}
+	return TICKS(ticks60 * 4);
+}
+
+void projectileApplyGraphRuntime(struct defaultobj *obj,
+		const struct weapon_graph_projectile_runtime *runtime)
+{
+	struct projectile *projectile;
+	s32 timer60 = 0;
+	bool hastimer = false;
+
+	if (!obj || !runtime || !runtime->valid ||
+			(obj->hidden & OBJHFLAG_PROJECTILE) == 0 || !obj->projectile) {
+		return;
+	}
+
+	projectile = obj->projectile;
+	projectile->flags |= runtime->flags & ~PROJECTILEFLAG_FREE;
+
+	if (runtime->powered || strcmp(runtime->motion_kind, "powered") == 0) {
+		projectile->flags |= PROJECTILEFLAG_POWERED;
+	}
+
+	if (strcmp(runtime->motion_kind, "lightweight") == 0) {
+		projectile->flags |= PROJECTILEFLAG_LIGHTWEIGHT;
+	}
+
+	if (runtime->has_reflect_angle) {
+		projectile->unk08c = runtime->reflect_angle;
+	} else if (runtime->has_bounce_slide && runtime->bounce_first_boost > 0.0f) {
+		projectile->unk08c = runtime->bounce_first_boost;
+	}
+
+	if (runtime->has_pickup_recover && runtime->pickup_timer_ticks60 >= 0) {
+		projectile->pickuptimer240 =
+			weaponGraphTicks60To240(runtime->pickup_timer_ticks60);
+	}
+
+	if (runtime->has_timer) {
+		timer60 = runtime->timer_ticks60;
+		hastimer = true;
+	} else if (runtime->has_timer60) {
+		timer60 = runtime->timer60;
+		hastimer = true;
+	}
+
+	if (hastimer && obj->type == OBJTYPE_WEAPON) {
+		((struct weaponobj *)obj)->timer240 = weaponGraphTicks60To240(timer60);
 	}
 }
 
@@ -4564,6 +4620,11 @@ void weaponTick(struct prop *prop)
 {
 	struct defaultobj *obj = prop->obj;
 	struct weaponobj *weapon = prop->weapon;
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(
+			weapon->gset.weaponnum, weapon->gset.weaponfunc);
+	const weapon_graph_entity_runtime_t *entitygraph =
+		weaponGraphRuntimeGetEntityForHeldFunction(graph);
 
 	// Handle grenade timers
 	if (((weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_PRIMARY)
@@ -4825,8 +4886,12 @@ void weaponTick(struct prop *prop)
 			f32 xdist = playerpos->f[0] - prop->pos.f[0];
 			f32 ydist = playerpos->f[1] - prop->pos.f[1];
 			f32 zdist = playerpos->f[2] - prop->pos.f[2];
+			f32 proxyradius = entitygraph && entitygraph->has_proxy_trigger &&
+				entitygraph->proxy_radius > 0.0f ?
+				entitygraph->proxy_radius : 250.0f;
 
-			if (xdist * xdist + ydist * ydist + zdist * zdist < 250 * 250) {
+			if (xdist * xdist + ydist * ydist + zdist * zdist <
+					proxyradius * proxyradius) {
 				weapon->timer240 = 0;
 			}
 		}
@@ -18922,6 +18987,28 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 	struct model *model;
 	struct autogunobj *laptop = NULL;
 	s32 index;
+	const weapon_graph_held_function_t *graph = NULL;
+	const weapon_graph_entity_runtime_t *entitygraph = NULL;
+	s32 ammoreserve = 200;
+
+	if (gset) {
+		graph = weaponGraphRuntimeGetHeldFunctionForGameplay(
+			gset->weaponnum, gset->weaponfunc);
+		entitygraph = weaponGraphRuntimeGetEntityForHeldFunction(graph);
+
+		if (entitygraph && entitygraph->has_projectile_modelnum) {
+			modelnum = entitygraph->projectile_modelnum;
+		}
+
+		if (entitygraph && entitygraph->has_autogun &&
+				entitygraph->autogun_ammo_reserve > 0) {
+			ammoreserve = entitygraph->autogun_ammo_reserve;
+
+			if (ammoreserve > 254) {
+				ammoreserve = 254;
+			}
+		}
+	}
 
 	if (g_Vars.normmplayerisrunning) {
 		index = mpPlayerGetIndex(chr);
@@ -18986,7 +19073,9 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 			prop = objInit(&laptop->base, modeldef, prop, model);
 
 			laptop->targetpad = -1;
-			laptop->aimdist = 5000;
+			laptop->aimdist = entitygraph && entitygraph->has_autogun &&
+				entitygraph->autogun_aim_distance > 0.0f ?
+				entitygraph->autogun_aim_distance : 5000;
 			laptop->target = NULL;
 			laptop->targetteam = ~chr->team & 0xff;
 			laptop->nextchrtest = 0;
@@ -19002,7 +19091,7 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 			laptop->shotbondsum = 0;
 
 			if (chr->aibot) {
-				laptop->ammoquantity = botactTryRemoveAmmoFromReserve(chr->aibot, WEAPON_LAPTOPGUN, FUNC_PRIMARY, 200);
+				laptop->ammoquantity = botactTryRemoveAmmoFromReserve(chr->aibot, WEAPON_LAPTOPGUN, FUNC_PRIMARY, ammoreserve);
 			} else if (chr->prop->type == PROPTYPE_PLAYER) {
 				s32 qty;
 				s32 prevplayernum = g_Vars.currentplayernum;
@@ -19010,8 +19099,8 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 				setCurrentPlayerNum(playermgrGetPlayerNumByProp(chr->prop));
 				qty = bgunGetAmmoQtyForWeapon(WEAPON_LAPTOPGUN, FUNC_PRIMARY);
 
-				if (qty >= 200) {
-					laptop->ammoquantity = 200;
+				if (qty >= ammoreserve) {
+					laptop->ammoquantity = ammoreserve;
 				} else {
 					laptop->ammoquantity = qty;
 				}
@@ -19037,6 +19126,12 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 			laptop->ymaxleft = 12.56f;
 			laptop->ymaxright = -12.56f;
 			laptop->maxspeed = PALUPF(0.0697f);
+
+			if (entitygraph && entitygraph->has_autogun &&
+					entitygraph->autogun_team_policy[0] &&
+					strcmp(entitygraph->autogun_team_policy, "any") == 0) {
+				laptop->targetteam = 0;
+			}
 
 			prop->forcetick = true;
 

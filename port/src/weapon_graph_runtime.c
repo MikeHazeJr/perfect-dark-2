@@ -31,10 +31,16 @@ typedef struct module_info {
 
 #define WEAPON_GRAPH_RUNTIME_MAX_WEAPONS 96
 #define WEAPON_GRAPH_RUNTIME_MAX_FUNCS   2
+#define WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES 128
+#define WEAPON_GRAPH_RUNTIME_MAX_ENTITIES    128
 
 static s32 s_runtime_enabled = 0;
 static weapon_graph_held_function_t
 	s_held_functions[WEAPON_GRAPH_RUNTIME_MAX_WEAPONS][WEAPON_GRAPH_RUNTIME_MAX_FUNCS];
+static weapon_graph_projectile_runtime_t
+	s_projectile_runtimes[WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES];
+static weapon_graph_entity_runtime_t
+	s_entity_runtimes[WEAPON_GRAPH_RUNTIME_MAX_ENTITIES];
 
 static const module_info_t s_modules[] = {
 	{ "function.empty", ASSET_WEAPON, WEAPON_GRAPH_OP_FUNCTION_EMPTY },
@@ -399,9 +405,81 @@ void weaponGraphRuntimeClearWeapon(s32 weaponnum)
 	memset(s_held_functions[weaponnum], 0, sizeof(s_held_functions[weaponnum]));
 }
 
+static weapon_graph_projectile_runtime_t *projectileRuntimeFindMutable(
+	const char *asset_id)
+{
+	if (!asset_id || !asset_id[0]) return NULL;
+	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES; i++) {
+		if (s_projectile_runtimes[i].valid &&
+				strcmp(s_projectile_runtimes[i].asset_id, asset_id) == 0) {
+			return &s_projectile_runtimes[i];
+		}
+	}
+	return NULL;
+}
+
+static weapon_graph_entity_runtime_t *entityRuntimeFindMutable(
+	const char *asset_id)
+{
+	if (!asset_id || !asset_id[0]) return NULL;
+	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_MAX_ENTITIES; i++) {
+		if (s_entity_runtimes[i].valid &&
+				strcmp(s_entity_runtimes[i].asset_id, asset_id) == 0) {
+			return &s_entity_runtimes[i];
+		}
+	}
+	return NULL;
+}
+
+static weapon_graph_projectile_runtime_t *projectileRuntimeAlloc(
+	const char *asset_id)
+{
+	weapon_graph_projectile_runtime_t *existing =
+		projectileRuntimeFindMutable(asset_id);
+	if (existing) {
+		memset(existing, 0, sizeof(*existing));
+		return existing;
+	}
+	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES; i++) {
+		if (!s_projectile_runtimes[i].valid) {
+			memset(&s_projectile_runtimes[i], 0,
+				sizeof(s_projectile_runtimes[i]));
+			return &s_projectile_runtimes[i];
+		}
+	}
+	return NULL;
+}
+
+static weapon_graph_entity_runtime_t *entityRuntimeAlloc(const char *asset_id)
+{
+	weapon_graph_entity_runtime_t *existing = entityRuntimeFindMutable(asset_id);
+	if (existing) {
+		memset(existing, 0, sizeof(*existing));
+		return existing;
+	}
+	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_MAX_ENTITIES; i++) {
+		if (!s_entity_runtimes[i].valid) {
+			memset(&s_entity_runtimes[i], 0, sizeof(s_entity_runtimes[i]));
+			return &s_entity_runtimes[i];
+		}
+	}
+	return NULL;
+}
+
+void weaponGraphRuntimeClearAsset(const char *asset_id)
+{
+	weapon_graph_projectile_runtime_t *projectile =
+		projectileRuntimeFindMutable(asset_id);
+	if (projectile) memset(projectile, 0, sizeof(*projectile));
+	weapon_graph_entity_runtime_t *entity = entityRuntimeFindMutable(asset_id);
+	if (entity) memset(entity, 0, sizeof(*entity));
+}
+
 void weaponGraphRuntimeClearAll(void)
 {
 	memset(s_held_functions, 0, sizeof(s_held_functions));
+	memset(s_projectile_runtimes, 0, sizeof(s_projectile_runtimes));
+	memset(s_entity_runtimes, 0, sizeof(s_entity_runtimes));
 }
 
 const weapon_graph_held_function_t *weaponGraphRuntimeGetHeldFunction(
@@ -417,6 +495,67 @@ const weapon_graph_held_function_t *weaponGraphRuntimeGetHeldFunctionForGameplay
 {
 	if (!weaponGraphRuntimeEnabled()) return NULL;
 	return weaponGraphRuntimeGetHeldFunction(weaponnum, funcindex);
+}
+
+const weapon_graph_projectile_runtime_t *weaponGraphRuntimeGetProjectile(
+	const char *asset_id)
+{
+	return projectileRuntimeFindMutable(asset_id);
+}
+
+const weapon_graph_projectile_runtime_t *weaponGraphRuntimeGetProjectileForGameplay(
+	const char *asset_id)
+{
+	if (!weaponGraphRuntimeEnabled()) return NULL;
+	return weaponGraphRuntimeGetProjectile(asset_id);
+}
+
+const weapon_graph_projectile_runtime_t *weaponGraphRuntimeGetProjectileForHeldFunction(
+	const weapon_graph_held_function_t *held)
+{
+	if (!weaponGraphRuntimeEnabled() || !held || !held->valid ||
+			!held->projectile_ref[0]) {
+		return NULL;
+	}
+	return weaponGraphRuntimeGetProjectile(held->projectile_ref);
+}
+
+const weapon_graph_entity_runtime_t *weaponGraphRuntimeGetEntity(
+	const char *asset_id)
+{
+	return entityRuntimeFindMutable(asset_id);
+}
+
+const weapon_graph_entity_runtime_t *weaponGraphRuntimeGetEntityForGameplay(
+	const char *asset_id)
+{
+	if (!weaponGraphRuntimeEnabled()) return NULL;
+	return weaponGraphRuntimeGetEntity(asset_id);
+}
+
+const weapon_graph_entity_runtime_t *weaponGraphRuntimeGetEntityForHeldFunction(
+	const weapon_graph_held_function_t *held)
+{
+	if (!weaponGraphRuntimeEnabled() || !held || !held->valid) {
+		return NULL;
+	}
+	if (held->entity_ref[0]) {
+		return weaponGraphRuntimeGetEntity(held->entity_ref);
+	}
+	if (held->payload_ref[0]) {
+		return weaponGraphRuntimeGetEntity(held->payload_ref);
+	}
+	return NULL;
+}
+
+const weapon_graph_entity_runtime_t *weaponGraphRuntimeGetEntityForProjectile(
+	const weapon_graph_projectile_runtime_t *projectile)
+{
+	if (!weaponGraphRuntimeEnabled() || !projectile || !projectile->valid ||
+			!projectile->entity_ref[0]) {
+		return NULL;
+	}
+	return weaponGraphRuntimeGetEntity(projectile->entity_ref);
 }
 
 static s32 graphNodeIndex(const weapon_graph_ir_t *ir, const char *id)
@@ -1111,6 +1250,51 @@ static s32 heldParamString(const weapon_graph_ir_t *ir,
 	return 1;
 }
 
+static s32 heldParamBool(const weapon_graph_ir_t *ir,
+                         const weapon_graph_ir_node_t *node,
+                         const char *key, s32 *out)
+{
+	const weapon_graph_ir_param_t *p = heldParam(ir, node, key);
+	if (!p || !out) return 0;
+	if (p->type == WEAPON_GRAPH_PARAM_BOOL) {
+		*out = p->b_value ? 1 : 0;
+		return 1;
+	}
+	if (p->type == WEAPON_GRAPH_PARAM_INT) {
+		*out = p->i_value ? 1 : 0;
+		return 1;
+	}
+	if (p->type == WEAPON_GRAPH_PARAM_STRING) {
+		if (strcmp(p->value, "true") == 0 || strcmp(p->value, "yes") == 0 ||
+				strcmp(p->value, "1") == 0) {
+			*out = 1;
+			return 1;
+		}
+		if (strcmp(p->value, "false") == 0 || strcmp(p->value, "no") == 0 ||
+				strcmp(p->value, "0") == 0) {
+			*out = 0;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static s32 heldParamIntAlias(const weapon_graph_ir_t *ir,
+                             const weapon_graph_ir_node_t *node,
+                             const char *key0, const char *key1, s32 *out)
+{
+	if (heldParamInt(ir, node, key0, out)) return 1;
+	return key1 ? heldParamInt(ir, node, key1, out) : 0;
+}
+
+static s32 heldParamFloatAlias(const weapon_graph_ir_t *ir,
+                               const weapon_graph_ir_node_t *node,
+                               const char *key0, const char *key1, f32 *out)
+{
+	if (heldParamFloat(ir, node, key0, out)) return 1;
+	return key1 ? heldParamFloat(ir, node, key1, out) : 0;
+}
+
 static s32 heldFunctionTypeId(const char *function_type)
 {
 	if (!function_type || !function_type[0]) return INVENTORYFUNCTYPE_NONE;
@@ -1123,6 +1307,18 @@ static s32 heldFunctionTypeId(const char *function_type)
 	if (strcmp(function_type, "special") == 0) return INVENTORYFUNCTYPE_SPECIAL;
 	if (strcmp(function_type, "device") == 0) return INVENTORYFUNCTYPE_DEVICE;
 	return INVENTORYFUNCTYPE_NONE;
+}
+
+static s32 heldSightId(const char *sight)
+{
+	if (!sight || !sight[0]) return -1;
+	if (strcmp(sight, "default") == 0) return SIGHT_DEFAULT;
+	if (strcmp(sight, "classic") == 0) return SIGHT_CLASSIC;
+	if (strcmp(sight, "skedar") == 0) return SIGHT_SKEDAR;
+	if (strcmp(sight, "zoom") == 0) return SIGHT_ZOOM;
+	if (strcmp(sight, "maian") == 0) return SIGHT_MAIAN;
+	if (strcmp(sight, "none") == 0) return SIGHT_NONE;
+	return -1;
 }
 
 static s32 heldParseHexSuffix(const char *value, s32 *out)
@@ -1214,6 +1410,402 @@ static s32 heldResolveProjectileModelRef(const char *ref, s32 *out)
 		return 1;
 	}
 	return 0;
+}
+
+static void runtimeCopyIrIdentity(const weapon_graph_ir_t *ir,
+                                  char *asset_id, size_t asset_id_cap,
+                                  char *graph_id, size_t graph_id_cap,
+                                  char *source_sha256, size_t source_cap,
+                                  char *ir_sha256, size_t ir_cap)
+{
+	copyStr(asset_id, asset_id_cap, ir ? ir->asset_id : "");
+	copyStr(graph_id, graph_id_cap, ir ? ir->graph_id : "");
+	copyStr(source_sha256, source_cap, ir ? ir->source_sha256 : "");
+	copyStr(ir_sha256, ir_cap, ir ? ir->ir_sha256 : "");
+}
+
+static void projectileRuntimeFromNode(const weapon_graph_ir_t *ir,
+                                      const weapon_graph_ir_node_t *node,
+                                      weapon_graph_projectile_runtime_t *out)
+{
+	s32 v;
+	u32 uv;
+	f32 f;
+	switch (node->opcode) {
+	case WEAPON_GRAPH_OP_PROJECTILE_SPAWN_STATE:
+		heldParamString(ir, node, "model_ref", out->model_ref,
+			sizeof(out->model_ref));
+		if (out->model_ref[0] &&
+				heldResolveProjectileModelRef(out->model_ref, &v)) {
+			out->has_projectile_modelnum = 1;
+			out->projectile_modelnum = v;
+		}
+		heldParamString(ir, node, "model_archive", out->model_archive,
+			sizeof(out->model_archive));
+		heldParamString(ir, node, "source_mode", out->source_mode,
+			sizeof(out->source_mode));
+		heldParamString(ir, node, "source_function_type",
+			out->source_function_type, sizeof(out->source_function_type));
+		out->source_function_type_id =
+			heldFunctionTypeId(out->source_function_type);
+		out->has_source_function_type_id =
+			out->source_function_type[0] ? 1 : 0;
+		if (heldParamU32(ir, node, "flags", &uv)) out->flags = uv;
+		if (heldParamFloat(ir, node, "scale", &f)) {
+			out->has_scale = 1;
+			out->scale = f;
+		}
+		if (heldParamFloat(ir, node, "damage", &f)) {
+			out->has_damage = 1;
+			out->damage = f;
+		}
+		break;
+	case WEAPON_GRAPH_OP_PROJECTILE_MOTION:
+		heldParamString(ir, node, "motion_kind", out->motion_kind,
+			sizeof(out->motion_kind));
+		if (heldParamFloatAlias(ir, node, "speed", "initial_speed", &f)) {
+			out->has_speed = 1;
+			out->speed = f;
+		}
+		if (heldParamInt(ir, node, "travel_distance", &v)) {
+			out->has_travel_distance = 1;
+			out->travel_distance = v;
+		}
+		if (heldParamIntAlias(ir, node, "timer60", "timer_ticks60", &v)) {
+			out->has_timer60 = 1;
+			out->timer60 = v;
+		}
+		if (heldParamIntAlias(ir, node, "activation_time60",
+				"activation_time_ticks60", &v)) {
+			out->has_activation_time60 = 1;
+			out->activation_time60 = v;
+		}
+		if (heldParamIntAlias(ir, node, "recovery_time60",
+				"recovery_time_ticks60", &v)) {
+			out->has_recovery_time60 = 1;
+			out->recovery_time60 = v;
+		}
+		if (heldParamFloat(ir, node, "reflect_angle", &f)) {
+			out->has_reflect_angle = 1;
+			out->reflect_angle = f;
+		}
+		if (heldParamBool(ir, node, "powered", &v)) out->powered = v;
+		if (heldParamBool(ir, node, "calculate_trajectory", &v)) {
+			out->calculate_trajectory = v;
+		}
+		break;
+	case WEAPON_GRAPH_OP_PROJECTILE_TRAJECTORY_CORRECTION:
+		out->has_trajectory_correction = 1;
+		heldParamString(ir, node, "aim_source",
+			out->trajectory_aim_source,
+			sizeof(out->trajectory_aim_source));
+		if (heldParamBool(ir, node, "solve_velocity", &v)) {
+			out->trajectory_solve_velocity = v;
+		}
+		heldParamFloat(ir, node, "max_angle", &out->trajectory_max_angle);
+		break;
+	case WEAPON_GRAPH_OP_PROJECTILE_HOMING:
+		out->has_homing = 1;
+		heldParamString(ir, node, "target_source",
+			out->homing_target_source, sizeof(out->homing_target_source));
+		heldParamString(ir, node, "target_filter",
+			out->homing_target_filter, sizeof(out->homing_target_filter));
+		heldParamString(ir, node, "lost_target_behavior",
+			out->homing_lost_target_behavior,
+			sizeof(out->homing_lost_target_behavior));
+		heldParamString(ir, node, "retarget_policy",
+			out->homing_retarget_policy,
+			sizeof(out->homing_retarget_policy));
+		heldParamString(ir, node, "runtime_constants",
+			out->homing_runtime_constants,
+			sizeof(out->homing_runtime_constants));
+		heldParamFloat(ir, node, "steering_gain",
+			&out->homing_steering_gain);
+		heldParamFloat(ir, node, "steering_damping",
+			&out->homing_steering_damping);
+		break;
+	case WEAPON_GRAPH_OP_PROJECTILE_FLY_BY_WIRE:
+		out->has_fly_by_wire = 1;
+		heldParamString(ir, node, "control_source", out->fly_control_source,
+			sizeof(out->fly_control_source));
+		heldParamString(ir, node, "bot_route_policy",
+			out->fly_bot_route_policy, sizeof(out->fly_bot_route_policy));
+		heldParamString(ir, node, "owner_death_behavior",
+			out->fly_owner_death_behavior,
+			sizeof(out->fly_owner_death_behavior));
+		heldParamFloat(ir, node, "turn_rate", &out->fly_turn_rate);
+		heldParamFloat(ir, node, "acceleration", &out->fly_acceleration);
+		heldParamFloat(ir, node, "enemy_proximity_radius",
+			&out->fly_enemy_proximity_radius);
+		heldParamFloat(ir, node, "max_altitude", &out->fly_max_altitude);
+		heldParamInt(ir, node, "lost_target_timeout_ticks60",
+			&out->fly_lost_target_timeout_ticks60);
+		heldParamInt(ir, node, "smoke_interval_ticks60",
+			&out->fly_smoke_interval_ticks60);
+		break;
+	case WEAPON_GRAPH_OP_PROJECTILE_WALL_HUGGER:
+		out->has_wall_hugger = 1;
+		heldParamString(ir, node, "stick_surface_filter",
+			out->wall_stick_surface_filter,
+			sizeof(out->wall_stick_surface_filter));
+		heldParamString(ir, node, "fall_vector", out->wall_fall_vector,
+			sizeof(out->wall_fall_vector));
+		heldParamString(ir, node, "explosion_ref", out->wall_explosion_ref,
+			sizeof(out->wall_explosion_ref));
+		heldParamInt(ir, node, "stick_timer_ticks60",
+			&out->wall_stick_timer_ticks60);
+		heldParamFloat(ir, node, "fall_threshold",
+			&out->wall_fall_threshold);
+		heldParamIntAlias(ir, node, "post_fall_timer60",
+			"post_fall_timer_ticks60", &out->wall_post_fall_timer60);
+		break;
+	case WEAPON_GRAPH_OP_PROJECTILE_STICKY_ATTACH:
+		out->has_sticky_attach = 1;
+		heldParamString(ir, node, "surface_filter",
+			out->sticky_surface_filter, sizeof(out->sticky_surface_filter));
+		heldParamString(ir, node, "prop_filter", out->sticky_prop_filter,
+			sizeof(out->sticky_prop_filter));
+		heldParamString(ir, node, "embed_policy", out->sticky_embed_policy,
+			sizeof(out->sticky_embed_policy));
+		heldParamString(ir, node, "on_attach", out->sticky_on_attach,
+			sizeof(out->sticky_on_attach));
+		heldParamBool(ir, node, "allow_background",
+			&out->sticky_allow_background);
+		heldParamBool(ir, node, "allow_char", &out->sticky_allow_char);
+		heldParamBool(ir, node, "allow_obj", &out->sticky_allow_obj);
+		break;
+	case WEAPON_GRAPH_OP_PROJECTILE_BOUNCE_SLIDE:
+		out->has_bounce_slide = 1;
+		heldParamInt(ir, node, "bounce_limit", &out->bounce_limit);
+		heldParamFloat(ir, node, "first_bounce_boost",
+			&out->bounce_first_boost);
+		heldParamFloat(ir, node, "rest_speed", &out->bounce_rest_speed);
+		heldParamFloat(ir, node, "slide_friction",
+			&out->bounce_slide_friction);
+		heldParamBool(ir, node, "randomize_rotation",
+			&out->bounce_randomize_rotation);
+		break;
+	case WEAPON_GRAPH_OP_PROJECTILE_TIMER:
+		out->has_timer = 1;
+		heldParamIntAlias(ir, node, "timer", "timer_ticks60",
+			&out->timer_ticks60);
+		heldParamString(ir, node, "timer_starts", out->timer_starts,
+			sizeof(out->timer_starts));
+		heldParamString(ir, node, "on_expire", out->timer_on_expire,
+			sizeof(out->timer_on_expire));
+		break;
+	case WEAPON_GRAPH_OP_PROJECTILE_IMPACT:
+		out->has_impact = 1;
+		heldParamString(ir, node, "impact_filter", out->impact_filter,
+			sizeof(out->impact_filter));
+		heldParamString(ir, node, "explosion_ref",
+			out->impact_explosion_ref, sizeof(out->impact_explosion_ref));
+		heldParamString(ir, node, "spark_ref", out->impact_spark_ref,
+			sizeof(out->impact_spark_ref));
+		heldResolveSfxParam(ir, node, "hit_sound", &out->impact_hit_sound);
+		heldParamBool(ir, node, "consume_on_hit",
+			&out->impact_consume_on_hit);
+		heldParamBool(ir, node, "stick_on_hit", &out->impact_stick_on_hit);
+		break;
+	case WEAPON_GRAPH_OP_PROJECTILE_TRAIL:
+		out->has_trail = 1;
+		heldParamString(ir, node, "trail_type", out->trail_type,
+			sizeof(out->trail_type));
+		heldParamIntAlias(ir, node, "interval", "interval_ticks60",
+			&out->trail_interval_ticks60);
+		break;
+	case WEAPON_GRAPH_OP_PROJECTILE_TRANSITION_TO_ENTITY:
+		out->has_transition_to_entity = 1;
+		heldParamString(ir, node, "entity_ref", out->entity_ref,
+			sizeof(out->entity_ref));
+		heldParamString(ir, node, "when", out->transition_when,
+			sizeof(out->transition_when));
+		heldParamBool(ir, node, "transfer_owner", &out->transfer_owner);
+		heldParamBool(ir, node, "transfer_ammo", &out->transfer_ammo);
+		heldParamBool(ir, node, "transfer_position",
+			&out->transfer_position);
+		heldParamBool(ir, node, "delete_carrier", &out->delete_carrier);
+		break;
+	case WEAPON_GRAPH_OP_PROJECTILE_PICKUP_RECOVER:
+		out->has_pickup_recover = 1;
+		heldParamIntAlias(ir, node, "pickup_timer", "pickup_timer_ticks60",
+			&out->pickup_timer_ticks60);
+		heldParamString(ir, node, "allowed_owner",
+			out->pickup_allowed_owner, sizeof(out->pickup_allowed_owner));
+		heldParamString(ir, node, "recover_weapon_ref",
+			out->recover_weapon_ref, sizeof(out->recover_weapon_ref));
+		heldParamString(ir, node, "recover_ammo_policy",
+			out->recover_ammo_policy, sizeof(out->recover_ammo_policy));
+		heldResolveSfxParam(ir, node, "sound", &out->pickup_sound);
+		break;
+	default:
+		break;
+	}
+}
+
+static void entityRuntimeFromNode(const weapon_graph_ir_t *ir,
+                                  const weapon_graph_ir_node_t *node,
+                                  weapon_graph_entity_runtime_t *out)
+{
+	s32 v;
+	u32 uv;
+	f32 f;
+	heldParamString(ir, node, "archetype", out->archetype,
+		sizeof(out->archetype));
+	if (heldParamString(ir, node, "model_ref", out->model_ref,
+			sizeof(out->model_ref)) &&
+			heldResolveProjectileModelRef(out->model_ref, &v)) {
+		out->has_projectile_modelnum = 1;
+		out->projectile_modelnum = v;
+	}
+	heldParamString(ir, node, "model_archive", out->model_archive,
+		sizeof(out->model_archive));
+	heldParamString(ir, node, "source_mode", out->source_mode,
+		sizeof(out->source_mode));
+	if (heldParamU32(ir, node, "flags", &uv)) out->flags = uv;
+	if (heldParamIntAlias(ir, node, "activation_time60",
+			"activation_time_ticks60", &v)) {
+		out->has_activation_time60 = 1;
+		out->activation_time60 = v;
+	}
+	if (heldParamIntAlias(ir, node, "recovery_time60",
+			"recovery_time_ticks60", &v)) {
+		out->has_recovery_time60 = 1;
+		out->recovery_time60 = v;
+	}
+	heldParamString(ir, node, "runtime_detail", out->runtime_detail,
+		sizeof(out->runtime_detail));
+
+	switch (node->opcode) {
+	case WEAPON_GRAPH_OP_ENTITY_ARMED_EXPLOSIVE:
+		out->has_armed_explosive = 1;
+		heldParamIntAlias(ir, node, "arm_delay", "arm_delay_ticks60",
+			&out->arm_delay_ticks60);
+		heldParamString(ir, node, "detonation_policy",
+			out->detonation_policy, sizeof(out->detonation_policy));
+		heldParamString(ir, node, "explosion_ref", out->explosion_ref,
+			sizeof(out->explosion_ref));
+		heldParamString(ir, node, "owner_filter", out->armed_owner_filter,
+			sizeof(out->armed_owner_filter));
+		heldParamString(ir, node, "damage_response", out->damage_response,
+			sizeof(out->damage_response));
+		heldParamBool(ir, node, "delete_on_detonate",
+			&out->delete_on_detonate);
+		break;
+	case WEAPON_GRAPH_OP_ENTITY_PROXY_TRIGGER:
+		out->has_proxy_trigger = 1;
+		heldParamFloat(ir, node, "radius", &out->proxy_radius);
+		heldParamString(ir, node, "target_filter",
+			out->proxy_target_filter, sizeof(out->proxy_target_filter));
+		heldParamString(ir, node, "team_filter", out->proxy_team_filter,
+			sizeof(out->proxy_team_filter));
+		heldParamString(ir, node, "owner_filter",
+			out->proxy_owner_filter, sizeof(out->proxy_owner_filter));
+		heldParamBool(ir, node, "line_of_sight", &out->proxy_line_of_sight);
+		heldParamString(ir, node, "on_trigger", out->proxy_on_trigger,
+			sizeof(out->proxy_on_trigger));
+		break;
+	case WEAPON_GRAPH_OP_ENTITY_REMOTE_DETONATABLE:
+		out->has_remote_detonatable = 1;
+		heldParamString(ir, node, "detonator_ref", out->detonator_ref,
+			sizeof(out->detonator_ref));
+		heldParamString(ir, node, "owner_slot_source",
+			out->owner_slot_source, sizeof(out->owner_slot_source));
+		heldParamString(ir, node, "coop_policy", out->coop_policy,
+			sizeof(out->coop_policy));
+		heldParamString(ir, node, "anti_policy", out->anti_policy,
+			sizeof(out->anti_policy));
+		heldParamString(ir, node, "self_attached_policy",
+			out->self_attached_policy, sizeof(out->self_attached_policy));
+		heldParamString(ir, node, "on_remote_signal",
+			out->on_remote_signal, sizeof(out->on_remote_signal));
+		break;
+	case WEAPON_GRAPH_OP_ENTITY_TIMED_DETONATABLE:
+		out->has_timed_detonatable = 1;
+		heldParamIntAlias(ir, node, "timer", "timer_ticks60",
+			&out->timed_timer_ticks60);
+		heldParamString(ir, node, "starts_when", out->timed_starts_when,
+			sizeof(out->timed_starts_when));
+		heldParamString(ir, node, "on_expire", out->timed_on_expire,
+			sizeof(out->timed_on_expire));
+		heldParamString(ir, node, "pause_policy", out->timed_pause_policy,
+			sizeof(out->timed_pause_policy));
+		break;
+	case WEAPON_GRAPH_OP_ENTITY_NBOMB_STORM:
+		out->has_nbomb_storm = 1;
+		heldParamString(ir, node, "storm_ref", out->storm_ref,
+			sizeof(out->storm_ref));
+		heldParamString(ir, node, "owner_transfer",
+			out->storm_owner_transfer, sizeof(out->storm_owner_transfer));
+		heldParamString(ir, node, "activation_policy",
+			out->storm_activation_policy,
+			sizeof(out->storm_activation_policy));
+		heldParamBool(ir, node, "delete_carrier",
+			&out->storm_delete_carrier);
+		break;
+	case WEAPON_GRAPH_OP_ENTITY_AUTOGUN:
+		out->has_autogun = 1;
+		heldParamString(ir, node, "target_filter",
+			out->autogun_target_filter, sizeof(out->autogun_target_filter));
+		heldParamString(ir, node, "team_policy", out->autogun_team_policy,
+			sizeof(out->autogun_team_policy));
+		heldParamString(ir, node, "net_authority",
+			out->autogun_net_authority, sizeof(out->autogun_net_authority));
+		heldParamBool(ir, node, "friendly_fire_suppression",
+			&out->autogun_friendly_fire_suppression);
+		heldParamBool(ir, node, "pickup_recover",
+			&out->autogun_pickup_recover);
+		heldParamFloat(ir, node, "aim_distance", &out->autogun_aim_distance);
+		heldParamFloat(ir, node, "turn_speed", &out->autogun_turn_speed);
+		if (heldParamFloat(ir, node, "fire_cadence", &f)) {
+			out->autogun_fire_cadence = f;
+		}
+		heldParamInt(ir, node, "alternate_muzzles",
+			&out->autogun_alternate_muzzles);
+		heldParamIntAlias(ir, node, "beam_interval",
+			"beam_interval_ticks60", &out->autogun_beam_interval_ticks60);
+		heldParamInt(ir, node, "ammo_reserve", &out->autogun_ammo_reserve);
+		break;
+	case WEAPON_GRAPH_OP_ENTITY_STICKY_DEVICE:
+		out->has_sticky_device = 1;
+		heldParamString(ir, node, "attachment_filter",
+			out->sticky_attachment_filter,
+			sizeof(out->sticky_attachment_filter));
+		heldParamString(ir, node, "mission_behavior_ref",
+			out->mission_behavior_ref, sizeof(out->mission_behavior_ref));
+		heldParamString(ir, node, "pickup_policy",
+			out->sticky_pickup_policy, sizeof(out->sticky_pickup_policy));
+		heldParamString(ir, node, "disable_policy",
+			out->sticky_disable_policy, sizeof(out->sticky_disable_policy));
+		heldParamString(ir, node, "visible_state",
+			out->sticky_visible_state, sizeof(out->sticky_visible_state));
+		break;
+	case WEAPON_GRAPH_OP_ENTITY_OWNER_CLEANUP:
+		out->has_owner_cleanup = 1;
+		heldParamString(ir, node, "owner_lost_behavior",
+			out->owner_lost_behavior, sizeof(out->owner_lost_behavior));
+		heldParamString(ir, node, "owner_death_behavior",
+			out->owner_death_behavior, sizeof(out->owner_death_behavior));
+		heldParamString(ir, node, "replace_existing_policy",
+			out->replace_existing_policy, sizeof(out->replace_existing_policy));
+		heldParamInt(ir, node, "max_active_per_owner",
+			&out->max_active_per_owner);
+		break;
+	case WEAPON_GRAPH_OP_ENTITY_INTERACTION:
+		out->has_interaction = 1;
+		heldParamString(ir, node, "interact_filter", out->interact_filter,
+			sizeof(out->interact_filter));
+		heldParamString(ir, node, "action", out->interaction_action,
+			sizeof(out->interaction_action));
+		heldParamString(ir, node, "prompt_ref", out->prompt_ref,
+			sizeof(out->prompt_ref));
+		heldResolveSfxParam(ir, node, "sound", &out->interaction_sound);
+		heldParamString(ir, node, "transfer_payload", out->transfer_payload,
+			sizeof(out->transfer_payload));
+		break;
+	default:
+		break;
+	}
 }
 
 static s32 heldModeToFuncIndex(const char *mode)
@@ -1412,6 +2004,28 @@ static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
 		out->has_device = 1;
 		out->device = uv;
 	}
+	{
+		char sight[32];
+		if (heldParamInt(ir, node, "sight", &v)) {
+			out->has_sight = 1;
+			out->sight = (u32)v;
+		} else if ((heldParamString(ir, node, "sight", sight, sizeof(sight)) ||
+				heldParamString(ir, node, "sight_type", sight, sizeof(sight))) &&
+				(v = heldSightId(sight)) >= 0) {
+			out->has_sight = 1;
+			out->sight = (u32)v;
+		}
+	}
+	if (heldParamFloatAlias(ir, node, "zoom_fov", "zoom_fovy", &f)) {
+		out->has_zoom_fov = 1;
+		out->zoom_fov = f;
+	}
+	heldParamString(ir, node, "reticle_ref", out->reticle_ref,
+		sizeof(out->reticle_ref));
+	heldParamString(ir, node, "overlay_ref", out->overlay_ref,
+		sizeof(out->overlay_ref));
+	heldParamString(ir, node, "camera_effect", out->camera_effect,
+		sizeof(out->camera_effect));
 }
 
 s32 weaponGraphRuntimeRegisterHeldIr(s32 weaponnum, const weapon_graph_ir_t *ir,
@@ -1477,4 +2091,144 @@ s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
 		return -1;
 	}
 	return weaponGraphRuntimeRegisterHeldIr(weaponnum, &ir, err, err_cap);
+}
+
+s32 weaponGraphRuntimeRegisterProjectileIr(const weapon_graph_ir_t *ir,
+                                           char *err, size_t err_cap)
+{
+	if (!ir || ir->asset_type != ASSET_PROJECTILE || !ir->asset_id[0]) {
+		setErr(err, err_cap,
+			"projectile IR registration requires a projectile graph with asset_id");
+		return -1;
+	}
+
+	weapon_graph_projectile_runtime_t *runtime =
+		projectileRuntimeAlloc(ir->asset_id);
+	if (!runtime) {
+		setErr(err, err_cap, "projectile runtime table is full");
+		return -1;
+	}
+
+	runtime->valid = 1;
+	runtimeCopyIrIdentity(ir,
+		runtime->asset_id, sizeof(runtime->asset_id),
+		runtime->graph_id, sizeof(runtime->graph_id),
+		runtime->source_sha256, sizeof(runtime->source_sha256),
+		runtime->ir_sha256, sizeof(runtime->ir_sha256));
+
+	for (s32 i = 0; i < ir->node_count; i++) {
+		projectileRuntimeFromNode(ir, &ir->nodes[i], runtime);
+	}
+
+	if (!runtime->model_ref[0] && !runtime->motion_kind[0] &&
+			!runtime->has_homing && !runtime->has_fly_by_wire &&
+			!runtime->has_wall_hugger && !runtime->has_transition_to_entity) {
+		memset(runtime, 0, sizeof(*runtime));
+		setErr(err, err_cap,
+			"projectile graph contains no runtime projectile modules");
+		return -1;
+	}
+
+	return 0;
+}
+
+s32 weaponGraphRuntimeRegisterEntityIr(const weapon_graph_ir_t *ir,
+                                       char *err, size_t err_cap)
+{
+	if (!ir || ir->asset_type != ASSET_ENTITY || !ir->asset_id[0]) {
+		setErr(err, err_cap,
+			"entity IR registration requires an entity graph with asset_id");
+		return -1;
+	}
+
+	weapon_graph_entity_runtime_t *runtime = entityRuntimeAlloc(ir->asset_id);
+	if (!runtime) {
+		setErr(err, err_cap, "entity runtime table is full");
+		return -1;
+	}
+
+	runtime->valid = 1;
+	runtimeCopyIrIdentity(ir,
+		runtime->asset_id, sizeof(runtime->asset_id),
+		runtime->graph_id, sizeof(runtime->graph_id),
+		runtime->source_sha256, sizeof(runtime->source_sha256),
+		runtime->ir_sha256, sizeof(runtime->ir_sha256));
+
+	for (s32 i = 0; i < ir->node_count; i++) {
+		entityRuntimeFromNode(ir, &ir->nodes[i], runtime);
+	}
+
+	if (!runtime->has_armed_explosive && !runtime->has_proxy_trigger &&
+			!runtime->has_remote_detonatable &&
+			!runtime->has_timed_detonatable &&
+			!runtime->has_nbomb_storm && !runtime->has_autogun &&
+			!runtime->has_sticky_device && !runtime->has_owner_cleanup &&
+			!runtime->has_interaction) {
+		memset(runtime, 0, sizeof(*runtime));
+		setErr(err, err_cap, "entity graph contains no runtime entity modules");
+		return -1;
+	}
+
+	return 0;
+}
+
+static s32 weaponGraphRuntimeRegisterBehaviorIr(const weapon_graph_ir_t *ir,
+                                                char *err, size_t err_cap)
+{
+	if (!ir) {
+		setErr(err, err_cap, "behavior IR registration called with null input");
+		return -1;
+	}
+	switch (ir->asset_type) {
+	case ASSET_PROJECTILE:
+		return weaponGraphRuntimeRegisterProjectileIr(ir, err, err_cap);
+	case ASSET_ENTITY:
+		return weaponGraphRuntimeRegisterEntityIr(ir, err, err_cap);
+	default:
+		setErr(err, err_cap, "unsupported behavior graph runtime type %d",
+			(s32)ir->asset_type);
+		return -1;
+	}
+}
+
+s32 weaponGraphRuntimeRegisterBehaviorGraphJson(asset_type_e graph_type,
+                                                const char *asset_id,
+                                                const char *json,
+                                                u32 json_size,
+                                                char *err,
+                                                size_t err_cap)
+{
+	weapon_graph_ir_t ir;
+	if (weaponGraphCompileJson(graph_type, json, json_size, &ir,
+			err, err_cap) != 0) {
+		return -1;
+	}
+	if (asset_id && asset_id[0]) {
+		if (ir.asset_id[0] && strcmp(ir.asset_id, asset_id) != 0) {
+			setErr(err, err_cap, "graph asset_id %s does not match catalog %s",
+				ir.asset_id, asset_id);
+			return -1;
+		}
+		if (!ir.asset_id[0]) {
+			copyStr(ir.asset_id, sizeof(ir.asset_id), asset_id);
+			finalizeIrDigest(&ir);
+		}
+	}
+	return weaponGraphRuntimeRegisterBehaviorIr(&ir, err, err_cap);
+}
+
+s32 weaponGraphRuntimeRegisterBehaviorArchive(asset_type_e graph_type,
+                                              const char *archive_path,
+                                              char *err, size_t err_cap)
+{
+	weapon_graph_ir_t ir;
+	if (graph_type != ASSET_PROJECTILE && graph_type != ASSET_ENTITY) {
+		setErr(err, err_cap, "behavior archive type must be projectile or entity");
+		return -1;
+	}
+	if (weaponGraphCompileArchiveFile(archive_path, graph_type, &ir,
+			err, err_cap) != 0) {
+		return -1;
+	}
+	return weaponGraphRuntimeRegisterBehaviorIr(&ir, err, err_cap);
 }

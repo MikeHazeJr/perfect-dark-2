@@ -22,6 +22,7 @@
 
 extern "C" {
 #include "asset_archive_policy.h"
+#include "asset_archive_writer.h"
 #include "constants.h"
 #include "modarchive.h"
 #include "modvfs.h"
@@ -228,6 +229,115 @@ TEST_CASE("typed asset archive policy enforces the two-zone migration boundary",
 		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
 	REQUIRE(std::string(err).find("tri_body.pdbody") != std::string::npos);
 
+	const char manifestMissingDependency[] =
+		"{\n"
+		"  \"pd_kind\": \"lang\",\n"
+		"  \"dependencies\": [\n"
+		"    {\n"
+		"      \"role\": \"font\",\n"
+		"      \"type\": \"font\",\n"
+		"      \"id\": \"base:font_body\",\n"
+		"      \"archive\": \"dependencies/assets/font/base_font_body.pdfont\",\n"
+		"      \"required\": true,\n"
+		"      \"version\": \"\",\n"
+		"      \"sha256\": \"\",\n"
+		"      \"fallback\": { \"id\": \"\", \"reason\": \"\" }\n"
+		"    }\n"
+		"  ],\n"
+		"  \"dependency_schema\": {\n"
+		"    \"root\": \"dependencies/assets\",\n"
+		"    \"required_fields\": [\"role\", \"type\", \"id\", \"archive\", \"required\", \"version\", \"sha256\", \"fallback.id\", \"fallback.reason\"]\n"
+		"  }\n"
+		"}\n";
+	auto missingManifestDependency = writeTypedArchiveEntries(
+		"policy-missing-manifest-dependency", ".pdlang", {
+		{ "lang.ini",
+		  "[lang]\n"
+		  "catalog_id = mod:lang_policy_missing_manifest_dependency\n"
+		  "manifest = _meta/manifest.json\n"
+		  "strings_file = strings.tsv\n" },
+		{ "strings.tsv", "0\tMissing dependency\n" },
+		{ "_meta/manifest.json", manifestMissingDependency },
+	});
+	REQUIRE(assetArchiveValidateFile(missingManifestDependency.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("no explicit fallback") != std::string::npos);
+	const std::string missingManifestBytes =
+		readFile(missingManifestDependency.path.string().c_str());
+	REQUIRE(assetArchiveValidateBytes(missingManifestBytes.data(),
+		static_cast<u32>(missingManifestBytes.size()),
+		missingManifestDependency.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("no explicit fallback") != std::string::npos);
+
+	const char manifestBaseFallback[] =
+		"{\n"
+		"  \"pd_kind\": \"lang\",\n"
+		"  \"dependencies\": [\n"
+		"    {\n"
+		"      \"role\": \"font\",\n"
+		"      \"type\": \"font\",\n"
+		"      \"id\": \"base:font_body\",\n"
+		"      \"archive\": \"dependencies/assets/font/base_font_body.pdfont\",\n"
+		"      \"required\": false,\n"
+		"      \"version\": \"\",\n"
+		"      \"sha256\": \"\",\n"
+		"      \"fallback\": { \"id\": \"base:font_body\", \"reason\": \"base asset supplied by runtime\" }\n"
+		"    }\n"
+		"  ],\n"
+		"  \"dependency_schema\": {\n"
+		"    \"root\": \"dependencies/assets\",\n"
+		"    \"required_fields\": [\"role\", \"type\", \"id\", \"archive\", \"required\", \"version\", \"sha256\", \"fallback.id\", \"fallback.reason\"]\n"
+		"  }\n"
+		"}\n";
+	auto fallbackManifestDependency = writeTypedArchiveEntries(
+		"policy-fallback-manifest-dependency", ".pdlang", {
+		{ "lang.ini",
+		  "[lang]\n"
+		  "catalog_id = mod:lang_policy_fallback_manifest_dependency\n"
+		  "manifest = _meta/manifest.json\n"
+		  "strings_file = strings.tsv\n" },
+		{ "strings.tsv", "0\tFallback dependency\n" },
+		{ "_meta/manifest.json", manifestBaseFallback },
+	});
+	REQUIRE(assetArchiveValidateFile(fallbackManifestDependency.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) == 0);
+
+	const char manifestUnsafeDependency[] =
+		"{\n"
+		"  \"pd_kind\": \"lang\",\n"
+		"  \"dependencies\": [\n"
+		"    {\n"
+		"      \"role\": \"font\",\n"
+		"      \"type\": \"font\",\n"
+		"      \"id\": \"base:font_body\",\n"
+		"      \"archive\": \"../base_font_body.pdfont\",\n"
+		"      \"required\": false,\n"
+		"      \"version\": \"\",\n"
+		"      \"sha256\": \"\",\n"
+		"      \"fallback\": { \"id\": \"base:font_body\", \"reason\": \"base asset supplied by runtime\" }\n"
+		"    }\n"
+		"  ],\n"
+		"  \"dependency_schema\": {\n"
+		"    \"root\": \"dependencies/assets\",\n"
+		"    \"required_fields\": [\"role\", \"type\", \"id\", \"archive\", \"required\", \"version\", \"sha256\", \"fallback.id\", \"fallback.reason\"]\n"
+		"  }\n"
+		"}\n";
+	auto unsafeManifestDependency = writeTypedArchiveEntries(
+		"policy-unsafe-manifest-dependency", ".pdlang", {
+		{ "lang.ini",
+		  "[lang]\n"
+		  "catalog_id = mod:lang_policy_unsafe_manifest_dependency\n"
+		  "manifest = _meta/manifest.json\n"
+		  "strings_file = strings.tsv\n" },
+		{ "strings.tsv", "0\tUnsafe dependency\n" },
+		{ "_meta/manifest.json", manifestUnsafeDependency },
+	});
+	REQUIRE(assetArchiveValidateFile(unsafeManifestDependency.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("unsafe dependency archive") !=
+		std::string::npos);
+
 	auto badNestedBody = writeTypedArchiveEntries("policy-bad-nested-body", ".pdbody", {
 		{ "body.ini",
 		  "[body]\n"
@@ -353,6 +463,177 @@ std::string readArchiveEntryText(mod_archive_t *archive, const char *entryPath) 
 	std::string text(static_cast<const char *>(bytes), size);
 	free(bytes);
 	return text;
+}
+
+TEST_CASE("shared typed archive writer emits c3838 metadata contract",
+          "[modding][pdxxx][writer][c3838]") {
+	const auto stamp =
+		std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	TempArchive out{
+		std::filesystem::temp_directory_path()
+			/ ("pd2-writer-contract-" + std::to_string(stamp) + ".pdlang")
+	};
+
+	mod_archive_writer_t *raw = modArchiveBegin(out.path.string().c_str());
+	REQUIRE(raw != nullptr);
+
+	asset_archive_writer_t writer;
+	REQUIRE(assetArchiveWriterInit(&writer, raw, "lang",
+		"base:lang_writer_contract_en") == MODARCHIVE_OK);
+	assetArchiveWriterSetProvenance(&writer, "pd-tests",
+		"data/test/lang.raw", 7, "FILE_LTESTE");
+
+	const char descriptor[] =
+		"[lang]\n"
+		"catalog_id = base:lang_writer_contract_en\n"
+		"manifest = _meta/manifest.json\n"
+		"strings_file = strings.tsv\n";
+	const char manifest[] =
+		"{\n"
+		"  \"pd_kind\": \"lang\",\n"
+		"  \"pd_schema_version\": 1,\n"
+		"  \"id\": \"base:lang_writer_contract_en\",\n"
+		"  \"data\": \"strings.tsv\",\n"
+		"  \"dependencies\": [\n"
+		"    {\n"
+		"      \"role\": \"font\",\n"
+		"      \"type\": \"font\",\n"
+		"      \"id\": \"base:font_body\",\n"
+		"      \"archive\": \"dependencies/assets/font/base_font_body.pdfont\",\n"
+		"      \"required\": false,\n"
+		"      \"version\": \"1\",\n"
+		"      \"sha256\": \"\",\n"
+		"      \"fallback\": {\n"
+		"        \"id\": \"base:font_body\",\n"
+		"        \"reason\": \"base asset supplied by runtime\"\n"
+		"      }\n"
+		"    }\n"
+		"  ],\n"
+		"  \"dependency_schema\": {\n"
+		"    \"root\": \"dependencies/assets\",\n"
+		"    \"required_fields\": [\"role\", \"type\", \"id\", \"archive\", \"required\", \"version\", \"sha256\", \"fallback.id\", \"fallback.reason\"]\n"
+		"  }\n"
+		"}\n";
+	const char strings[] = "0\tHello\n1\tArchive\n";
+
+	REQUIRE(assetArchiveWriterAddDescriptor(&writer, "lang.ini",
+		descriptor, (u32)strlen(descriptor)) == MODARCHIVE_OK);
+	REQUIRE(assetArchiveWriterAddManifestJson(&writer, manifest,
+		(u32)strlen(manifest)) == MODARCHIVE_OK);
+	REQUIRE(assetArchiveWriterAddPublicMem(&writer, "strings.tsv",
+		strings, (u32)strlen(strings), "strings") == MODARCHIVE_OK);
+	REQUIRE(assetArchiveWriterFinishMetadata(&writer) == MODARCHIVE_OK);
+	REQUIRE(modArchiveFinish(raw) == MODARCHIVE_OK);
+
+	char err[256];
+	REQUIRE(assetArchiveValidateFile(out.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) == 0);
+
+	OpenArchive opened;
+	opened.archive = modArchiveOpen(out.path.string().c_str());
+	REQUIRE(opened.archive != nullptr);
+
+	REQUIRE(modArchiveFindEntry(opened.archive, "lang.ini") >= 0);
+	REQUIRE(modArchiveFindEntry(opened.archive, "strings.tsv") >= 0);
+	REQUIRE(modArchiveFindEntry(opened.archive, "_meta/manifest.json") >= 0);
+	REQUIRE(modArchiveFindEntry(opened.archive, "_meta/inventory.json") >= 0);
+	REQUIRE(modArchiveFindEntry(opened.archive, "_meta/hashes.tsv") >= 0);
+	REQUIRE(modArchiveFindEntry(opened.archive, "_meta/provenance.json") >= 0);
+	REQUIRE(modArchiveFindEntry(opened.archive, "_meta/validation.json") >= 0);
+	REQUIRE(modArchiveFindEntry(opened.archive,
+		"_meta/source-handles.json") >= 0);
+	REQUIRE(modArchiveFindEntry(opened.archive, "_meta/lang.ini.sha256") >= 0);
+	REQUIRE(modArchiveFindEntry(opened.archive,
+		"_meta/strings.tsv.sha256") >= 0);
+
+	const std::string inventory =
+		readArchiveEntryText(opened.archive, "_meta/inventory.json");
+	REQUIRE(inventory.find("\"path\": \"lang.ini\"") != std::string::npos);
+	REQUIRE(inventory.find("\"role\": \"descriptor\"") != std::string::npos);
+	REQUIRE(inventory.find("\"path\": \"strings.tsv\"") != std::string::npos);
+	REQUIRE(inventory.find("\"role\": \"strings\"") != std::string::npos);
+	REQUIRE(inventory.find("\"dependency_archive_root\": \"dependencies/assets\"") !=
+		std::string::npos);
+
+	const std::string hashes =
+		readArchiveEntryText(opened.archive, "_meta/hashes.tsv");
+	REQUIRE(hashes.find("path\tsha256\tsize\trole") != std::string::npos);
+	REQUIRE(hashes.find("lang.ini\t") != std::string::npos);
+	REQUIRE(hashes.find("strings.tsv\t") != std::string::npos);
+
+	const std::string validation =
+		readArchiveEntryText(opened.archive, "_meta/validation.json");
+	REQUIRE(validation.find("\"status\": \"writer_checked\"") !=
+		std::string::npos);
+	REQUIRE(validation.find("\"fallback.id\"") != std::string::npos);
+	REQUIRE(validation.find("\"fallback.reason\"") != std::string::npos);
+
+	const std::string sourceHandles =
+		readArchiveEntryText(opened.archive, "_meta/source-handles.json");
+	REQUIRE(sourceHandles.find("\"path\": \"data/test/lang.raw\"") !=
+		std::string::npos);
+	REQUIRE(sourceHandles.find("\"symbol\": \"FILE_LTESTE\"") !=
+		std::string::npos);
+}
+
+TEST_CASE("shared typed archive writer infers c3838 dependency records",
+          "[modding][pdxxx][writer][c3838]") {
+	const auto stamp =
+		std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	TempArchive out{
+		std::filesystem::temp_directory_path()
+			/ ("pd2-writer-deps-" + std::to_string(stamp) + ".pdlang")
+	};
+
+	mod_archive_writer_t *raw = modArchiveBegin(out.path.string().c_str());
+	REQUIRE(raw != nullptr);
+
+	asset_archive_writer_t writer;
+	REQUIRE(assetArchiveWriterInit(&writer, raw, "lang",
+		"base:lang_writer_dependency_en") == MODARCHIVE_OK);
+
+	const char descriptor[] =
+		"[lang]\n"
+		"catalog_id = base:lang_writer_dependency_en\n"
+		"manifest = _meta/manifest.json\n"
+		"strings_file = strings.tsv\n"
+		"font_archive = dependencies/assets/font/base_font_body.pdfont\n";
+	const char strings[] = "0\tDependency\n";
+	const char nested[] = "placeholder nested archive bytes";
+
+	REQUIRE(assetArchiveWriterAddDescriptor(&writer, "lang.ini",
+		descriptor, (u32)strlen(descriptor)) == MODARCHIVE_OK);
+	REQUIRE(assetArchiveWriterAddPublicMem(&writer, "strings.tsv",
+		strings, (u32)strlen(strings), "strings") == MODARCHIVE_OK);
+	REQUIRE(assetArchiveWriterAddPublicMem(&writer,
+		"dependencies/assets/font/base_font_body.pdfont",
+		nested, (u32)strlen(nested), "font") == MODARCHIVE_OK);
+	REQUIRE(assetArchiveWriterFinishMetadata(&writer) == MODARCHIVE_OK);
+	REQUIRE(modArchiveFinish(raw) == MODARCHIVE_OK);
+
+	OpenArchive opened;
+	opened.archive = modArchiveOpen(out.path.string().c_str());
+	REQUIRE(opened.archive != nullptr);
+
+	const std::string manifest =
+		readArchiveEntryText(opened.archive, "_meta/manifest.json");
+	REQUIRE(manifest.find("\"dependencies\": [") != std::string::npos);
+	REQUIRE(manifest.find("\"role\": \"font\"") != std::string::npos);
+	REQUIRE(manifest.find("\"type\": \"font\"") != std::string::npos);
+	REQUIRE(manifest.find("\"id\": \"base:font_body\"") != std::string::npos);
+	REQUIRE(manifest.find("\"archive\": \"dependencies/assets/font/base_font_body.pdfont\"") !=
+		std::string::npos);
+	REQUIRE(manifest.find("\"required\": true") != std::string::npos);
+	REQUIRE(manifest.find("\"sha256\": \"") != std::string::npos);
+	REQUIRE(manifest.find("\"fallback\": {") != std::string::npos);
+	REQUIRE(manifest.find("\"id\": \"\",\n        \"reason\": \"\"") !=
+		std::string::npos);
+
+	const std::string validation =
+		readArchiveEntryText(opened.archive, "_meta/validation.json");
+	REQUIRE(validation.find("\"dependency_archive_count\": 1") !=
+		std::string::npos);
+	REQUIRE(validation.find("\"fallback.reason\"") != std::string::npos);
 }
 
 struct ExpectedPdxxxArchive {
@@ -588,6 +869,7 @@ TEST_CASE("archive mods scan INI descriptors through the shared catalog scanner"
 	REQUIRE(scanner.find("typedPdArchiveDescriptorLeaf(entry_name)") != std::string::npos);
 	REQUIRE(scanner.find("assetArchiveExtractDescriptorMemAlloc") != std::string::npos);
 	REQUIRE(scanner.find("qualifyTypedArchiveSourcePaths(&ini, entry_name)") != std::string::npos);
+	REQUIRE(scanner.find("\"theme_file\"") != std::string::npos);
 	REQUIRE(scanner.find("qualifyArchiveIniPaths") != std::string::npos);
 	REQUIRE(scanner.find("iniGet(ini, \"catalog_id\", iniGet(ini, \"id\"") != std::string::npos);
 	REQUIRE(scanner.find("\"blender_scene_file\"") != std::string::npos);
@@ -797,6 +1079,48 @@ TEST_CASE("external archive scanner recognizes canonical descriptor families",
 	REQUIRE(policy.find("\".pdarena\"") != std::string::npos);
 	REQUIRE(policy.find("\".pdanim\"") != std::string::npos);
 	REQUIRE(policy.find("\".pdmesh\"") != std::string::npos);
+
+	struct TypedFamily {
+		const char *path;
+		const char *descriptor;
+		asset_type_e type;
+	};
+	const TypedFamily families[] = {
+		{ "weapons/x.pdweapon", "weapon.ini", ASSET_WEAPON },
+		{ "projectiles/x.pdprojectile", "projectile.ini", ASSET_PROJECTILE },
+		{ "entities/x.pdentity", "entity.ini", ASSET_ENTITY },
+		{ "materials/x.pdmaterial", "material.ini", ASSET_MATERIAL },
+		{ "textures/x.pdtexture", "texture.ini", ASSET_TEXTURE },
+		{ "characters/x.pdcharacter", "character.ini", ASSET_CHARACTER },
+		{ "heads/x.pdhead", "head.ini", ASSET_HEAD },
+		{ "bodies/x.pdbody", "body.ini", ASSET_BODY },
+		{ "arenas/x.pdarena", "arena.ini", ASSET_ARENA },
+		{ "scenarios/x.pdscenario", "scenario.ini", ASSET_SCENARIO },
+		{ "meshes/x.pdmesh", "mesh.ini", ASSET_MODEL },
+		{ "animations/x.pdanim", "animation.ini", ASSET_ANIMATION },
+		{ "audio/x.pdsfx", "sound.ini", ASSET_AUDIO },
+		{ "audio/x.pdvoice", "voice.ini", ASSET_AUDIO },
+		{ "audio/x.pdsong", "music.ini", ASSET_AUDIO },
+		{ "ui/x.pdui", "ui.ini", ASSET_UI },
+		{ "fonts/x.pdfont", "font.ini", ASSET_FONT },
+		{ "lang/x.pdlang", "lang.ini", ASSET_LANG },
+		{ "skins/x.pdskin", "skin.ini", ASSET_SKIN },
+		{ "effects/x.pdeffect", "effect.ini", ASSET_EFFECT },
+		{ "props/x.pdprop", "prop.ini", ASSET_PROP },
+		{ "vehicles/x.pdvehicle", "vehicle.ini", ASSET_VEHICLE },
+		{ "missions/x.pdmission", "mission.ini", ASSET_MISSION },
+		{ "gamemodes/x.pdgamemode", "gamemode.ini", ASSET_GAMEMODE },
+		{ "botprofiles/x.pdbotprofile", "botprofile.ini", ASSET_BOT_PROFILE },
+		{ "hud/x.pdhud", "hud.ini", ASSET_HUD },
+		{ "themes/x.pdtheme", "theme.ini", ASSET_THEME },
+	};
+	for (const TypedFamily &family : families) {
+		INFO(family.path);
+		REQUIRE(assetArchivePathIsTyped(family.path) == 1);
+		REQUIRE(std::string(assetArchiveDescriptorForPath(family.path)) == family.descriptor);
+		REQUIRE(assetArchiveTypeForPath(family.path) == family.type);
+	}
+	REQUIRE(assetArchivePathIsTyped("tools/x.pdtool") == 0);
 }
 
 TEST_CASE("legacy pd asset walkers remain registered during external pdmod migration",
@@ -867,7 +1191,12 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	for (const char *path : liveFiles) {
 		INFO(path);
 		std::string src = readFile(path);
-		REQUIRE(src.find(".pdweapon") != std::string::npos);
+		if (std::string(path) == "port/src/assetcatalog_scanner.c") {
+			REQUIRE(src.find("assetArchiveTypeForPath(path)") != std::string::npos);
+			REQUIRE(src.find("ASSET_WEAPON") != std::string::npos);
+		} else {
+			REQUIRE(src.find(".pdweapon") != std::string::npos);
+		}
 		REQUIRE(src.find(removedWeaponExt) == std::string::npos);
 	}
 
@@ -877,8 +1206,11 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	REQUIRE(packer.find("Deprecated .pdwpn files are not allowed") != std::string::npos);
 
 	const std::string extractor = readFile("port/src/romextract_pdweapon.c");
-	REQUIRE(extractor.find("nested_payloads = nested_payloads.json") != std::string::npos);
-	REQUIRE(extractor.find("WEAPON_GRAPH_ARCHIVE_NESTED_PAYLOADS_ENTRY") != std::string::npos);
+	REQUIRE(extractor.find("nested_payloads = \" PDWEAPON_NESTED_PAYLOADS_ENTRY") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_NESTED_PAYLOADS_ENTRY \"_meta/nested-payloads.json\"") != std::string::npos);
+	REQUIRE(extractor.find("behavior_graph = \" PDWEAPON_RUNTIME_GRAPH_ENTRY") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_PRIMARY_GRAPH_ENTRY \"behavior/primary.graph.json\"") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_SECONDARY_GRAPH_ENTRY \"behavior/secondary.graph.json\"") != std::string::npos);
 	REQUIRE(extractor.find("base_weapon_graph_v2") != std::string::npos);
 	REQUIRE(extractor.find("\"shared_context\"") != std::string::npos);
 	REQUIRE(extractor.find("\"subgraphs\"") != std::string::npos);
@@ -906,18 +1238,25 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v9\"") != std::string::npos);
 	REQUIRE(extractor.find("dependency_closure = \" PDWEAPON_DEPENDENCY_CLOSURE_MARKER") != std::string::npos);
 	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v9\"") != std::string::npos);
-	REQUIRE(extractor.find("models/held_hi.pdmesh") != std::string::npos);
-	REQUIRE(extractor.find("models/held_lo.pdmesh") != std::string::npos);
-	REQUIRE(extractor.find("animations_manifest.tsv") != std::string::npos);
-	REQUIRE(extractor.find("audio_manifest.tsv") != std::string::npos);
-	REQUIRE(extractor.find("model_archive = models/visual.pdmesh") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_DEP_MODELS \"dependencies/assets/models\"") != std::string::npos);
+	REQUIRE(extractor.find("/held_hi.pdmesh") != std::string::npos);
+	REQUIRE(extractor.find("/held_lo.pdmesh") != std::string::npos);
+	REQUIRE(extractor.find("bindings/animations.tsv") != std::string::npos);
+	REQUIRE(extractor.find("bindings/audio.tsv") != std::string::npos);
+	REQUIRE(extractor.find("model_archive = \" PDWEAPON_DEP_MODELS \"/visual.pdmesh") != std::string::npos);
 	REQUIRE(extractor.find("s_addWeaponMeshDependency") != std::string::npos);
 	REQUIRE(extractor.find("s_addWeaponAnimationDependency") != std::string::npos);
 	REQUIRE(extractor.find("s_addWeaponAudioDependency") != std::string::npos);
 	REQUIRE(extractor.find("s_addProjectileModelDependency") != std::string::npos);
+	REQUIRE(extractor.find("s_emitWeaponManifestDependencies") != std::string::npos);
+	REQUIRE(extractor.find("s_emitWeaponManifestDependencySchema") != std::string::npos);
+	REQUIRE(extractor.find("\"dependency_schema\"") != std::string::npos);
+	REQUIRE(extractor.find("required_fields") != std::string::npos);
+	REQUIRE(extractor.find("\"fallback.reason\"") != std::string::npos);
 	REQUIRE(extractor.find("s_existingArchiveEntryContains") != std::string::npos);
 	REQUIRE(extractor.find("weaponGraphArchiveCanonicalSha256File") != std::string::npos);
-	REQUIRE(extractor.find("modArchiveAddFileDisk(aw, p->archive_entry") != std::string::npos);
+	REQUIRE(extractor.find("assetArchiveWriterAddPublicDisk(&asset_writer") != std::string::npos);
+	REQUIRE(extractor.find("modArchiveAddFileDisk(aw, p->archive_entry") == std::string::npos);
 
 	const std::string main = readFile("port/src/main.c");
 	const auto meshEmit = main.find("romExtractAllPdmesh(0)");
@@ -947,8 +1286,9 @@ TEST_CASE("projectile and entity asset kinds are catalog and manifest visible",
 	REQUIRE(catalog.find("} entity;") != std::string::npos);
 
 	std::string scanner = readFile("port/src/assetcatalog_scanner.c");
-	REQUIRE(scanner.find(".pdprojectile") != std::string::npos);
-	REQUIRE(scanner.find(".pdentity") != std::string::npos);
+	REQUIRE(scanner.find("assetArchiveTypeForPath(path)") != std::string::npos);
+	REQUIRE(scanner.find("ASSET_PROJECTILE") != std::string::npos);
+	REQUIRE(scanner.find("ASSET_ENTITY") != std::string::npos);
 	REQUIRE(scanner.find("\"projectile.ini\"") != std::string::npos);
 	REQUIRE(scanner.find("\"entity.ini\"") != std::string::npos);
 	REQUIRE(scanner.find("projectile.ini - physical projectile behavior metadata") != std::string::npos);
@@ -956,20 +1296,27 @@ TEST_CASE("projectile and entity asset kinds are catalog and manifest visible",
 	REQUIRE(scanner.find("catalogDepRegister(e->id, e->ext.projectile.entity_ref") != std::string::npos);
 
 	std::string packer = readFile("port/src/modpack_pdmod.c");
-	REQUIRE(packer.find(".pdprojectile") != std::string::npos);
-	REQUIRE(packer.find(".pdentity") != std::string::npos);
+	REQUIRE(packer.find("assetArchiveTypeForPath(path)") != std::string::npos);
+	REQUIRE(packer.find("ASSET_PROJECTILE") != std::string::npos);
+	REQUIRE(packer.find("ASSET_ENTITY") != std::string::npos);
 	REQUIRE(packer.find("RUN_FAMILY(\"projectiles\", \"projectile.ini\", \"projectile\"") != std::string::npos);
 	REQUIRE(packer.find("RUN_FAMILY(\"entities\", \"entity.ini\", \"entity\"") != std::string::npos);
 
 	std::string manifest_h = readFile("port/include/net/netmanifest.h");
 	REQUIRE(manifest_h.find("MANIFEST_TYPE_PROJECTILE") != std::string::npos);
 	REQUIRE(manifest_h.find("MANIFEST_TYPE_ENTITY") != std::string::npos);
+	REQUIRE(manifest_h.find("MANIFEST_TYPE_ASSET") != std::string::npos);
+	REQUIRE(manifest_h.find("slot_index stores asset_type_e") != std::string::npos);
 
 	std::string manifest_c = readFile("port/src/net/netmanifest.c");
 	REQUIRE(manifest_c.find("case ASSET_PROJECTILE: return MANIFEST_TYPE_PROJECTILE") != std::string::npos);
 	REQUIRE(manifest_c.find("case ASSET_ENTITY:") != std::string::npos);
 	REQUIRE(manifest_c.find("case MANIFEST_TYPE_PROJECTILE: return ASSET_PROJECTILE") != std::string::npos);
 	REQUIRE(manifest_c.find("case MANIFEST_TYPE_ENTITY:") != std::string::npos);
+	REQUIRE(manifest_c.find("default:              return MANIFEST_TYPE_ASSET") != std::string::npos);
+	REQUIRE(manifest_c.find("s_manifestEntryCatalogAssetType") != std::string::npos);
+	REQUIRE(manifest_c.find("mtype == MANIFEST_TYPE_ASSET") != std::string::npos);
+	REQUIRE(manifest_c.find("entry->type == MANIFEST_TYPE_ASSET") != std::string::npos);
 
 	std::string netmsg = readFile("port/src/net/netmsg.c");
 	REQUIRE(netmsg.find("ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY") != std::string::npos);
@@ -1745,6 +2092,268 @@ TEST_CASE("weapon graph runtime captures projectile and entity adapter payloads"
 	weaponGraphRuntimeClearAll();
 }
 
+TEST_CASE("weapon graph runtime registers projectile and entity behavior assets",
+          "[modding][pdxxx][weapon_graph][runtime][projectile][entity][c3814][c3838]") {
+	const std::string projectileGraph =
+		"{\n"
+		"  \"schema\": \"pd.projectile_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_projectile_payload\",\n"
+		"  \"graph_id\": \"projectile_asset_runtime_test_v1\",\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"spawn\", \"kind\": \"projectile.spawn_state\", \"params\": {\n"
+		"      \"model_ref\": \"MODEL_skrocket\",\n"
+		"      \"model_archive\": \"dependencies/assets/model/visual.pdmesh\",\n"
+		"      \"source_mode\": \"secondary\",\n"
+		"      \"source_function_type\": \"shoot_projectile\",\n"
+		"      \"scale\": 2.1,\n"
+		"      \"damage\": 7,\n"
+		"      \"flags\": 72\n"
+		"    } },\n"
+		"    { \"id\": \"motion\", \"kind\": \"projectile.motion\", \"params\": {\n"
+		"      \"motion_kind\": \"powered\",\n"
+		"      \"speed\": 60,\n"
+		"      \"travel_distance\": 5,\n"
+		"      \"timer60\": -1,\n"
+		"      \"activation_time60\": 0,\n"
+		"      \"recovery_time60\": 0,\n"
+		"      \"reflect_angle\": 0.05,\n"
+		"      \"powered\": true,\n"
+		"      \"calculate_trajectory\": false\n"
+		"    } },\n"
+		"    { \"id\": \"homing\", \"kind\": \"projectile.homing\", \"params\": {\n"
+		"      \"target_source\": \"current_lock\",\n"
+		"      \"runtime_constants\": \"extract_in_runtime_adapter\"\n"
+		"    } },\n"
+		"    { \"id\": \"fly\", \"kind\": \"projectile.fly_by_wire\", \"params\": {\n"
+		"      \"control_source\": \"owner\",\n"
+		"      \"bot_route_policy\": \"runtime_existing\",\n"
+		"      \"turn_rate\": 1.5\n"
+		"    } },\n"
+		"    { \"id\": \"wall\", \"kind\": \"projectile.wall_hugger\", \"params\": {\n"
+		"      \"stick_surface_filter\": \"background\",\n"
+		"      \"post_fall_timer60\": 360\n"
+		"    } },\n"
+		"    { \"id\": \"impact\", \"kind\": \"projectile.impact\", \"params\": {\n"
+		"      \"impact_filter\": \"solid_or_chr\",\n"
+		"      \"hit_sound\": \"SFX_LAUNCH_ROCKET_8053\",\n"
+		"      \"consume_on_hit\": true,\n"
+		"      \"stick_on_hit\": false\n"
+		"    } },\n"
+		"    { \"id\": \"transition\", \"kind\": \"projectile.transition_to_entity\", \"params\": {\n"
+		"      \"entity_ref\": \"base:test_entity_payload\",\n"
+		"      \"when\": \"at_rest\",\n"
+		"      \"transfer_owner\": true,\n"
+		"      \"transfer_ammo\": true,\n"
+		"      \"transfer_position\": true,\n"
+		"      \"delete_carrier\": true\n"
+		"    } }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [ { \"name\": \"main\", \"node\": \"transition\" } ]\n"
+		"}\n";
+	const std::string entityGraph =
+		"{\n"
+		"  \"schema\": \"pd.entity_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_entity_payload\",\n"
+		"  \"graph_id\": \"entity_asset_runtime_test_v1\",\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"armed\", \"kind\": \"entity.armed_explosive\", \"params\": {\n"
+		"      \"archetype\": \"armed_proxy_explosive\",\n"
+		"      \"model_ref\": \"MODEL_proximity_mine\",\n"
+		"      \"model_archive\": \"dependencies/assets/model/visual.pdmesh\",\n"
+		"      \"source_mode\": \"secondary\",\n"
+		"      \"activation_time60\": 240,\n"
+		"      \"recovery_time60\": 60,\n"
+		"      \"flags\": 262144,\n"
+		"      \"arm_delay_ticks60\": 240,\n"
+		"      \"detonation_policy\": \"explode_once\",\n"
+		"      \"delete_on_detonate\": true\n"
+		"    } },\n"
+		"    { \"id\": \"proxy\", \"kind\": \"entity.proxy_trigger\", \"params\": {\n"
+		"      \"radius\": 300,\n"
+		"      \"target_filter\": \"hostile_chr\",\n"
+		"      \"team_filter\": \"enemy_only\",\n"
+		"      \"line_of_sight\": true,\n"
+		"      \"on_trigger\": \"detonate\"\n"
+		"    } },\n"
+		"    { \"id\": \"remote\", \"kind\": \"entity.remote_detonatable\", \"params\": {\n"
+		"      \"detonator_ref\": \"base:remote_mine_detonator\",\n"
+		"      \"owner_slot_source\": \"owner_inventory\",\n"
+		"      \"on_remote_signal\": \"detonate\"\n"
+		"    } },\n"
+		"    { \"id\": \"timed\", \"kind\": \"entity.timed_detonatable\", \"params\": {\n"
+		"      \"timer_ticks60\": 180,\n"
+		"      \"starts_when\": \"armed\",\n"
+		"      \"on_expire\": \"detonate\"\n"
+		"    } },\n"
+		"    { \"id\": \"storm\", \"kind\": \"entity.nbomb_storm\", \"params\": {\n"
+		"      \"storm_ref\": \"base:nbomb_storm\",\n"
+		"      \"activation_policy\": \"on_timer_or_proxy\",\n"
+		"      \"delete_carrier\": true\n"
+		"    } },\n"
+		"    { \"id\": \"autogun\", \"kind\": \"entity.autogun\", \"params\": {\n"
+		"      \"target_filter\": \"hostile_chr\",\n"
+		"      \"team_policy\": \"owner_team\",\n"
+		"      \"aim_distance\": 4000,\n"
+		"      \"turn_speed\": 6,\n"
+		"      \"fire_cadence\": 1000,\n"
+		"      \"ammo_reserve\": 400,\n"
+		"      \"net_authority\": \"server\",\n"
+		"      \"friendly_fire_suppression\": true,\n"
+		"      \"pickup_recover\": true\n"
+		"    } },\n"
+		"    { \"id\": \"cleanup\", \"kind\": \"entity.owner_cleanup\", \"params\": {\n"
+		"      \"replace_existing_policy\": \"explode_previous\",\n"
+		"      \"max_active_per_owner\": 1\n"
+		"    } },\n"
+		"    { \"id\": \"interaction\", \"kind\": \"entity.interaction\", \"params\": {\n"
+		"      \"interact_filter\": \"owner\",\n"
+		"      \"action\": \"recover_weapon\",\n"
+		"      \"transfer_payload\": \"base:laptopgun\"\n"
+		"    } }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [ { \"name\": \"main\", \"node\": \"armed\" } ]\n"
+		"}\n";
+
+	char err[256] = {};
+	weaponGraphRuntimeClearAll();
+	weaponGraphRuntimeSetEnabled(0);
+	REQUIRE(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE,
+		"base:test_projectile_payload", projectileGraph.data(),
+		static_cast<u32>(projectileGraph.size()), err, sizeof(err)) == 0);
+	REQUIRE(weaponGraphRuntimeGetProjectileForGameplay(
+		"base:test_projectile_payload") == nullptr);
+	weaponGraphRuntimeSetEnabled(1);
+	const weapon_graph_projectile_runtime_t *projectile =
+		weaponGraphRuntimeGetProjectileForGameplay("base:test_projectile_payload");
+	REQUIRE(projectile != nullptr);
+	REQUIRE(projectile->has_projectile_modelnum == 1);
+	REQUIRE(projectile->projectile_modelnum == MODEL_CHRSKROCKETMIS);
+	REQUIRE(std::string(projectile->source_mode) == "secondary");
+	REQUIRE(projectile->source_function_type_id == INVENTORYFUNCTYPE_SHOOT_PROJECTILE);
+	REQUIRE(projectile->has_scale == 1);
+	REQUIRE(projectile->scale == Approx(2.1f));
+	REQUIRE(projectile->has_damage == 1);
+	REQUIRE(projectile->damage == Approx(7.0f));
+	REQUIRE(projectile->flags == 72);
+	REQUIRE(std::string(projectile->motion_kind) == "powered");
+	REQUIRE(projectile->has_speed == 1);
+	REQUIRE(projectile->speed == Approx(60.0f));
+	REQUIRE(projectile->has_timer60 == 1);
+	REQUIRE(projectile->timer60 == -1);
+	REQUIRE(projectile->powered == 1);
+	REQUIRE(projectile->calculate_trajectory == 0);
+	REQUIRE(projectile->has_homing == 1);
+	REQUIRE(std::string(projectile->homing_target_source) == "current_lock");
+	REQUIRE(projectile->has_fly_by_wire == 1);
+	REQUIRE(std::string(projectile->fly_bot_route_policy) == "runtime_existing");
+	REQUIRE(projectile->has_wall_hugger == 1);
+	REQUIRE(projectile->wall_post_fall_timer60 == 360);
+	REQUIRE(projectile->has_impact == 1);
+	REQUIRE(projectile->impact_hit_sound == SFX_LAUNCH_ROCKET_8053);
+	REQUIRE(projectile->has_transition_to_entity == 1);
+	REQUIRE(std::string(projectile->entity_ref) == "base:test_entity_payload");
+	REQUIRE(projectile->transfer_owner == 1);
+	REQUIRE(projectile->delete_carrier == 1);
+
+	REQUIRE(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_ENTITY,
+		"base:test_entity_payload", entityGraph.data(),
+		static_cast<u32>(entityGraph.size()), err, sizeof(err)) == 0);
+	const weapon_graph_entity_runtime_t *entity =
+		weaponGraphRuntimeGetEntityForGameplay("base:test_entity_payload");
+	REQUIRE(entity != nullptr);
+	REQUIRE(entity->has_armed_explosive == 1);
+	REQUIRE(std::string(entity->archetype) == "armed_proxy_explosive");
+	REQUIRE(entity->projectile_modelnum == MODEL_CHRPROXIMITYMINE);
+	REQUIRE(entity->activation_time60 == 240);
+	REQUIRE(entity->recovery_time60 == 60);
+	REQUIRE(entity->arm_delay_ticks60 == 240);
+	REQUIRE(entity->delete_on_detonate == 1);
+	REQUIRE(entity->has_proxy_trigger == 1);
+	REQUIRE(entity->proxy_radius == Approx(300.0f));
+	REQUIRE(entity->proxy_line_of_sight == 1);
+	REQUIRE(entity->has_remote_detonatable == 1);
+	REQUIRE(std::string(entity->detonator_ref) == "base:remote_mine_detonator");
+	REQUIRE(entity->has_timed_detonatable == 1);
+	REQUIRE(entity->timed_timer_ticks60 == 180);
+	REQUIRE(entity->has_nbomb_storm == 1);
+	REQUIRE(entity->storm_delete_carrier == 1);
+	REQUIRE(entity->has_autogun == 1);
+	REQUIRE(entity->autogun_ammo_reserve == 400);
+	REQUIRE(entity->autogun_friendly_fire_suppression == 1);
+	REQUIRE(entity->has_owner_cleanup == 1);
+	REQUIRE(entity->max_active_per_owner == 1);
+	REQUIRE(entity->has_interaction == 1);
+	REQUIRE(std::string(entity->transfer_payload) == "base:laptopgun");
+
+	const std::string heldGraph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_runtime_bridge_weapon\",\n"
+		"  \"graph_id\": \"runtime_bridge_refs_v1\",\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"primary\", \"kind\": \"spawn.fired_projectile\", \"params\": {\n"
+		"      \"mode\": \"primary\",\n"
+		"      \"function_type\": \"shoot_projectile\",\n"
+		"      \"projectile_ref\": \"base:test_projectile_payload\"\n"
+		"    } },\n"
+		"    { \"id\": \"secondary\", \"kind\": \"spawn.thrown_physical\", \"params\": {\n"
+		"      \"mode\": \"secondary\",\n"
+		"      \"function_type\": \"throw\",\n"
+		"      \"payload_ref\": \"base:test_entity_payload\",\n"
+		"      \"entity_ref\": \"base:test_entity_payload\"\n"
+		"    } }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [\n"
+		"    { \"name\": \"primary\", \"node\": \"primary\" },\n"
+		"    { \"name\": \"secondary\", \"node\": \"secondary\" }\n"
+		"  ]\n"
+		"}\n";
+	weapon_graph_ir_t heldIr;
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, heldGraph.data(),
+		static_cast<u32>(heldGraph.size()), &heldIr, err, sizeof(err)) == 0);
+	REQUIRE(weaponGraphRuntimeRegisterHeldIr(10, &heldIr, err, sizeof(err)) == 0);
+	const weapon_graph_held_function_t *heldPrimary =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(10, 0);
+	const weapon_graph_held_function_t *heldSecondary =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(10, 1);
+	REQUIRE(weaponGraphRuntimeGetProjectileForHeldFunction(heldPrimary) == projectile);
+	REQUIRE(weaponGraphRuntimeGetEntityForHeldFunction(heldSecondary) == entity);
+	REQUIRE(weaponGraphRuntimeGetEntityForProjectile(projectile) == entity);
+
+	const std::string projectileIni =
+		"[projectile]\n"
+		"catalog_id = base:test_projectile_payload\n"
+		"behavior_graph = behavior.graph.json\n";
+	TempArchive projectileArchive = writeArchiveEntries("projectile-runtime", {
+		{ "projectile.ini", projectileIni },
+		{ "behavior.graph.json", projectileGraph },
+	});
+	weaponGraphRuntimeClearAsset("base:test_projectile_payload");
+	REQUIRE(weaponGraphRuntimeRegisterBehaviorArchive(ASSET_PROJECTILE,
+		projectileArchive.path.string().c_str(), err, sizeof(err)) == 0);
+	REQUIRE(weaponGraphRuntimeGetProjectile(
+		"base:test_projectile_payload") != nullptr);
+
+	const std::string entityIni =
+		"[entity]\n"
+		"catalog_id = base:test_entity_payload\n"
+		"behavior_graph = behavior.graph.json\n";
+	TempArchive entityArchive = writeArchiveEntries("entity-runtime", {
+		{ "entity.ini", entityIni },
+		{ "behavior.graph.json", entityGraph },
+	});
+	weaponGraphRuntimeClearAsset("base:test_entity_payload");
+	REQUIRE(weaponGraphRuntimeRegisterBehaviorArchive(ASSET_ENTITY,
+		entityArchive.path.string().c_str(), err, sizeof(err)) == 0);
+	REQUIRE(weaponGraphRuntimeGetEntity("base:test_entity_payload") != nullptr);
+
+	weaponGraphRuntimeSetEnabled(0);
+	weaponGraphRuntimeClearAll();
+}
+
 TEST_CASE("weapon graph runtime captures special and device adapter payloads",
           "[modding][pdxxx][weapon_graph][runtime][special][device][c3814]") {
 	const std::string graph =
@@ -1814,6 +2423,60 @@ TEST_CASE("weapon graph runtime captures special and device adapter payloads",
 	weaponGraphRuntimeClearAll();
 }
 
+TEST_CASE("weapon graph runtime captures presentation adapter payloads",
+          "[modding][pdxxx][weapon_graph][runtime][presentation][c3814]") {
+	const std::string graph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_presentation_weapon\",\n"
+		"  \"graph_id\": \"presentation_runtime_test_v1\",\n"
+		"  \"nodes\": [\n"
+		"    {\n"
+		"      \"id\": \"primary_presentation\",\n"
+		"      \"kind\": \"presentation.reticle_overlay_camera\",\n"
+		"      \"params\": {\n"
+		"        \"mode\": \"primary\",\n"
+		"        \"function_type\": \"none\",\n"
+		"        \"sight\": \"zoom\",\n"
+		"        \"zoom_fov\": 12.5,\n"
+		"        \"reticle_ref\": \"base:hud_zoom_reticle\",\n"
+		"        \"overlay_ref\": \"base:hud_zoom_overlay\",\n"
+		"        \"camera_effect\": \"runtime_existing_zoom\"\n"
+		"      }\n"
+		"    }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [\n"
+		"    { \"name\": \"primary\", \"node\": \"primary_presentation\" }\n"
+		"  ]\n"
+		"}\n";
+
+	weapon_graph_ir_t ir;
+	char err[256] = {};
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+		static_cast<u32>(graph.size()), &ir, err, sizeof(err)) == 0);
+
+	weaponGraphRuntimeClearAll();
+	weaponGraphRuntimeSetEnabled(1);
+	REQUIRE(weaponGraphRuntimeRegisterHeldIr(11, &ir, err, sizeof(err)) == 0);
+
+	const weapon_graph_held_function_t *primary =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(11, 0);
+	REQUIRE(primary != nullptr);
+	REQUIRE(primary->opcode ==
+		WEAPON_GRAPH_OP_PRESENTATION_RETICLE_OVERLAY_CAMERA);
+	REQUIRE(primary->has_sight == 1);
+	REQUIRE(primary->sight == SIGHT_ZOOM);
+	REQUIRE(primary->has_zoom_fov == 1);
+	REQUIRE(primary->zoom_fov == Approx(12.5f));
+	REQUIRE(std::string(primary->reticle_ref) == "base:hud_zoom_reticle");
+	REQUIRE(std::string(primary->overlay_ref) == "base:hud_zoom_overlay");
+	REQUIRE(std::string(primary->camera_effect) == "runtime_existing_zoom");
+
+	weaponGraphRuntimeSetEnabled(0);
+	weaponGraphRuntimeClearAll();
+}
+
 TEST_CASE("held weapon graph adapter is wired into runtime callsites",
           "[modding][pdxxx][weapon_graph][runtime][static][c3814]") {
 	const std::string walker = readFile("port/src/loader_walker_weapon.c");
@@ -1827,10 +2490,15 @@ TEST_CASE("held weapon graph adapter is wired into runtime callsites",
 	REQUIRE(accessors.find("weaponGetNumTicksPerShot") != std::string::npos);
 	REQUIRE(accessors.find("graph->function_type_id") != std::string::npos);
 	REQUIRE(accessors.find("graph->has_device") != std::string::npos);
+	REQUIRE(accessors.find("graph->has_zoom_fov") != std::string::npos);
+	REQUIRE(accessors.find("graph->has_sight") != std::string::npos);
 
 	const std::string bondgun = readFile("src/game/bondgun.c");
 	REQUIRE(bondgun.find("weapon_graph_runtime.h") != std::string::npos);
 	REQUIRE(bondgun.find("bgunGetHeldGraph") != std::string::npos);
+	REQUIRE(bondgun.find("bgunGetProjectileGraph") != std::string::npos);
+	REQUIRE(bondgun.find("bgunGetEntityGraph") != std::string::npos);
+	REQUIRE(bondgun.find("projectileApplyGraphRuntime") != std::string::npos);
 	REQUIRE(bondgun.find("graph->has_max_rpm") != std::string::npos);
 	REQUIRE(bondgun.find("bgunGetAmmoIndexFromGraph") != std::string::npos);
 	REQUIRE(bondgun.find("graph->has_recovery_time_ticks60") != std::string::npos);
@@ -1846,7 +2514,27 @@ TEST_CASE("held weapon graph adapter is wired into runtime callsites",
 
 	const std::string chraction = readFile("src/game/chraction.c");
 	REQUIRE(chraction.find("weapon_graph_runtime.h") != std::string::npos);
+	REQUIRE(chraction.find("weaponGraphRuntimeGetProjectileForHeldFunction") != std::string::npos);
 	REQUIRE(chraction.find("graph->has_projectile_modelnum") != std::string::npos);
+	REQUIRE(chraction.find("projectileApplyGraphRuntime") != std::string::npos);
+
+	const std::string propobj = readFile("src/game/propobj.c");
+	REQUIRE(propobj.find("weapon_graph_runtime.h") != std::string::npos);
+	REQUIRE(propobj.find("projectileApplyGraphRuntime") != std::string::npos);
+	REQUIRE(propobj.find("weaponGraphRuntimeGetEntityForHeldFunction") != std::string::npos);
+	REQUIRE(propobj.find("entitygraph->proxy_radius") != std::string::npos);
+	REQUIRE(propobj.find("entitygraph->autogun_aim_distance") != std::string::npos);
+
+	const std::string runtime = readFile("port/src/weapon_graph_runtime.c");
+	REQUIRE(runtime.find("weaponGraphRuntimeGetProjectileForHeldFunction") != std::string::npos);
+	REQUIRE(runtime.find("weaponGraphRuntimeGetEntityForHeldFunction") != std::string::npos);
+	REQUIRE(runtime.find("weaponGraphRuntimeGetEntityForProjectile") != std::string::npos);
+
+	const std::string lifecycle = readFile("port/src/assetcatalog_load.c");
+	REQUIRE(lifecycle.find("s_catalogTypeUsesWeaponGraphRuntime") != std::string::npos);
+	REQUIRE(lifecycle.find("fsFileLoad(source_path") != std::string::npos);
+	REQUIRE(lifecycle.find("weaponGraphRuntimeRegisterBehaviorGraphJson") != std::string::npos);
+	REQUIRE(lifecycle.find("weaponGraphRuntimeClearAsset") != std::string::npos);
 }
 
 TEST_CASE("PC weapon switching and function HUD consume action-map state",
@@ -1905,6 +2593,11 @@ TEST_CASE("metadata family INI support covers grouped templates and deps",
 	REQUIRE(scanner.find("head.ini - external multiplayer head metadata") != std::string::npos);
 	REQUIRE(scanner.find("body.ini - external multiplayer body metadata") != std::string::npos);
 	REQUIRE(scanner.find("arena.ini - external map/arena metadata") != std::string::npos);
+	REQUIRE(scanner.find("material.ini - reusable render/surface material metadata") != std::string::npos);
+	REQUIRE(scanner.find("effect.ini - reusable visual/feedback effect metadata") != std::string::npos);
+	REQUIRE(scanner.find("prop.ini - reusable spawnable prop metadata") != std::string::npos);
+	REQUIRE(scanner.find("gamemode.ini - Combat Simulator/custom rules metadata") != std::string::npos);
+	REQUIRE(scanner.find("theme.ini - menu/UI theme bundle metadata") != std::string::npos);
 	REQUIRE(scanner.find("animation.ini - external animation metadata") != std::string::npos);
 	REQUIRE(scanner.find("catalogDepRegister(owner_id, dep, is_bundled)") != std::string::npos);
 	REQUIRE(scanner.find("catalogDepRegister(e->ext.anim.target_body, e->id, e->bundled)") != std::string::npos);
@@ -1949,6 +2642,7 @@ TEST_CASE("external UI font and language descriptors use standard files",
 	REQUIRE(scanner.find("\"strings_tsv\"") != std::string::npos);
 
 	std::string catalog = readFile("port/include/assetcatalog.h");
+	REQUIRE(catalog.find("ASSET_FONT") != std::string::npos);
 	REQUIRE(catalog.find("char strings_file[128]") != std::string::npos);
 
 	std::string theme = readFile("port/fast3d/pdgui_theme.cpp");
@@ -1956,6 +2650,12 @@ TEST_CASE("external UI font and language descriptors use standard files",
 	REQUIRE(theme.find("GL_MAX_TEXTURE_SIZE") != std::string::npos);
 	REQUIRE(theme.find("pdguiFontMgrLoadFont(entry->id, path, 24.0f)") != std::string::npos);
 	REQUIRE(theme.find("assetCatalogIterateByType(ASSET_UI, s_applyCatalogUiAsset") != std::string::npos);
+	REQUIRE(theme.find("assetCatalogIterateByType(ASSET_FONT, s_applyCatalogUiAsset") != std::string::npos);
+
+	std::string theme_loader = readFile("port/fast3d/pdgui_theme_loader.cpp");
+	REQUIRE(theme_loader.find("assetCatalogRegister(k_BuiltinIds[i], ASSET_THEME)") != std::string::npos);
+	REQUIRE(theme_loader.find("assetCatalogIterateByType(ASSET_THEME, register_catalog_theme_entry") != std::string::npos);
+	REQUIRE(theme_loader.find("fileProviderPath(entry->source.primary)") != std::string::npos);
 
 	std::string lang = readFile("port/src/langmanifest.c");
 	REQUIRE(lang.find("langManifestLoadExternalTsv") != std::string::npos);
@@ -1967,6 +2667,93 @@ TEST_CASE("external UI font and language descriptors use standard files",
 	REQUIRE(distrib.find("\"font.ini\"") != std::string::npos);
 	REQUIRE(distrib.find("\"lang.ini\"") != std::string::npos);
 	REQUIRE(distrib.find("e->ext.lang.strings_file") != std::string::npos);
+}
+
+TEST_CASE("catalog game mode and bot profile assets drive live runtime selectors",
+          "[modding][pdxxx][runtime][c3838]") {
+	std::string scenarios = readFile("src/game/mplayer/scenarios.c");
+	REQUIRE(scenarios.find("assetCatalogIterateUnlockedByType(ASSET_GAMEMODE, scenarioCountCb, &ctx)") != std::string::npos);
+	REQUIRE(scenarios.find("assetCatalogIterateUnlockedByType(ASSET_GAMEMODE, scenarioPickByIndexCb, &ctx)") != std::string::npos);
+	REQUIRE(scenarios.find("g_MpSetup.scenario = ctx.scenario_match") != std::string::npos);
+	REQUIRE(scenarios.find("scenarioInit()") != std::string::npos);
+	REQUIRE(scenarios.find("g_MpScenarioOverviews[e->ext.gamemode.mode_id].name") != std::string::npos);
+
+	std::string setup = readFile("src/game/mplayer/setup.c");
+	REQUIRE(setup.find("assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botprofileCountCb, &ctx)") != std::string::npos);
+	REQUIRE(setup.find("assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botprofilePickByIndexCb, &ctx)") != std::string::npos);
+	REQUIRE(setup.find("mpCreateBotFromProfile(botnum, profnum)") != std::string::npos);
+	REQUIRE(setup.find("g_BotConfigsArray[botnum].type = g_BotProfiles[profnum].type") != std::string::npos);
+	REQUIRE(setup.find("assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botdiffCountCb, &ctx)") != std::string::npos);
+	REQUIRE(setup.find("return (uintptr_t)langGet(L_MISC_082 + ctx.result_diffidx)") != std::string::npos);
+
+	std::string base = readFile("port/src/assetcatalog_base_extended.c");
+	REQUIRE(base.find("assetCatalogRegisterGameMode(") != std::string::npos);
+	REQUIRE(base.find("assetCatalogRegisterBotProfile(") != std::string::npos);
+	REQUIRE(base.find("e->mp_index = (s16)s_BaseGameModes[i].mode_id") != std::string::npos);
+	REQUIRE(base.find("e->mp_index = (s16)i") != std::string::npos);
+
+	std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	REQUIRE(scanner.find("case ASSET_GAMEMODE:") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.gamemode.mode_id = iniGetInt(ini, \"mode_id\"") != std::string::npos);
+	REQUIRE(scanner.find("case ASSET_BOT_PROFILE:") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.bot_profile.difficulty = iniGetInt(ini, \"difficulty\"") != std::string::npos);
+}
+
+TEST_CASE("skin assets expose saved texture payloads through catalog provider paths",
+          "[modding][pdxxx][runtime][c3838][skin]") {
+	const std::string catalog = readFile("port/include/assetcatalog.h");
+	REQUIRE(catalog.find("char texture_file[128];          /* appearance payload for this skin */") != std::string::npos);
+
+	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	REQUIRE(scanner.find("case ASSET_SKIN:") != std::string::npos);
+	REQUIRE(scanner.find("texture_file = texture.tga") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.skin.texture_file") != std::string::npos);
+	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.skin.texture_file)") != std::string::npos);
+
+	const std::string distrib = readFile("port/src/net/netdistrib.c");
+	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.skin.texture_file)") != std::string::npos);
+
+	const std::string editor = readFile("port/fast3d/pdgui_skin_editor.cpp");
+	REQUIRE(editor.find("texture_file = texture.tga") != std::string::npos);
+	REQUIRE(editor.find("catalogSetPrimaryFile(entry, entry->ext.skin.texture_file)") != std::string::npos);
+
+	const std::string load = readFile("port/src/assetcatalog_load.c");
+	REQUIRE(load.find("type == ASSET_SKIN") != std::string::npos);
+}
+
+TEST_CASE("metadata asset families expose primary authored files through catalog provider paths",
+          "[modding][pdxxx][runtime][c3838][files]") {
+	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	REQUIRE(scanner.find("material_file = material.json") != std::string::npos);
+	REQUIRE(scanner.find("texture_file = texture.png") != std::string::npos);
+	REQUIRE(scanner.find("effect_file = effect.graph.json") != std::string::npos);
+	REQUIRE(scanner.find("model_file = model.gltf") != std::string::npos);
+	REQUIRE(scanner.find("scenario_archive = dependencies/assets/scenario/mission.pdscenario") != std::string::npos);
+	REQUIRE(scanner.find("case ASSET_MATERIAL:") != std::string::npos);
+	REQUIRE(scanner.find("case ASSET_EFFECT:") != std::string::npos);
+	REQUIRE(scanner.find("case ASSET_HUD:") != std::string::npos);
+	REQUIRE(scanner.find("case ASSET_VEHICLE:") != std::string::npos);
+	REQUIRE(scanner.find("case ASSET_MISSION:") != std::string::npos);
+	REQUIRE(scanner.find("iniGet(ini, \"material_file\"") != std::string::npos);
+	REQUIRE(scanner.find("iniGet(ini, \"effect_file\"") != std::string::npos);
+	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.hud.texture_file)") != std::string::npos);
+	REQUIRE(scanner.find("iniGet(ini, \"scenario_archive\"") != std::string::npos);
+
+	const std::string distrib = readFile("port/src/net/netdistrib.c");
+	REQUIRE(distrib.find("case ASSET_MATERIAL:") != std::string::npos);
+	REQUIRE(distrib.find("case ASSET_EFFECT:") != std::string::npos);
+	REQUIRE(distrib.find("case ASSET_HUD:") != std::string::npos);
+	REQUIRE(distrib.find("case ASSET_VEHICLE:") != std::string::npos);
+	REQUIRE(distrib.find("case ASSET_MISSION:") != std::string::npos);
+	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, pf)") != std::string::npos);
+	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.hud.texture_file)") != std::string::npos);
+
+	const std::string load = readFile("port/src/assetcatalog_load.c");
+	REQUIRE(load.find("type == ASSET_VEHICLE") != std::string::npos);
+	REQUIRE(load.find("type == ASSET_MISSION") != std::string::npos);
+	REQUIRE(load.find("type == ASSET_HUD") != std::string::npos);
+	REQUIRE(load.find("type == ASSET_EFFECT") != std::string::npos);
+	REQUIRE(load.find("type == ASSET_MATERIAL") != std::string::npos);
 }
 
 TEST_CASE("external models maps and animations compile from standard sources",
@@ -2056,6 +2843,8 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(lv.find("meshWorldAddMesh(mesh, NULL)") != std::string::npos);
 
 	std::string resolve = readFile("port/src/assetcatalog_resolve.c");
+	REQUIRE(resolve.find("entry->type == ASSET_SCENARIO && entry->ext.scenario.stagenum") != std::string::npos);
+	REQUIRE(resolve.find("assetCatalogIterateByType(ASSET_SCENARIO, findMapCb, &ctx)") != std::string::npos);
 	REQUIRE(resolve.find("assetCatalogIterateByType(ASSET_ARENA, findMapCb, &ctx)") != std::string::npos);
 
 	std::string scanner = readFile("port/src/assetcatalog_scanner.c");
@@ -2072,11 +2861,12 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(distrib.find("\"scenario.ini\"") != std::string::npos);
 	REQUIRE(distrib.find("\"animation.ini\"") != std::string::npos);
 	REQUIRE(distrib.find("case ASSET_ANIMATION:") != std::string::npos);
+	REQUIRE(distrib.find("case ASSET_SCENARIO:") != std::string::npos);
 	REQUIRE(distrib.find("case ASSET_GAMEMODE:") != std::string::npos);
 }
 
 TEST_CASE("packed pdmod transport fixture resolves typed pdxxx content through production VFS",
-          "[modding][pdmod][static][c3809]") {
+          "[modding][pdmod][pdxxx][runtime][static][c3809][c3838][files]") {
 	TempArchive temp = packArchiveFixture();
 	OpenArchive opened;
 	opened.archive = modArchiveOpen(temp.path.string().c_str());
@@ -2159,6 +2949,22 @@ TEST_CASE("packed pdmod transport fixture resolves typed pdxxx content through p
 	REQUIRE(stats.entries_resident >= 4);
 }
 
+TEST_CASE("typed pdxxx archive entries stay reachable through fs and FileProvider loaders",
+          "[modding][pdxxx][runtime][static][c3838][files]") {
+	const std::string fs = readFile("port/src/fs.c");
+	REQUIRE(fs.find("fsLoadNestedArchiveEntry(name, outSize)") != std::string::npos);
+	REQUIRE(fs.find("modVfsResolveAnyAlloc(archiveName, &archiveSize, NULL, 0)") != std::string::npos);
+	REQUIRE(fs.find("modVfsResolveAnyAlloc(name, &vfsSize, NULL, 0)") != std::string::npos);
+	REQUIRE(fs.find("modVfsGetSize(name)") != std::string::npos);
+
+	const std::string provider = readFile("port/src/assetprovider_file.c");
+	REQUIRE(provider.find("fsFileSize(path)") != std::string::npos);
+	REQUIRE(provider.find("fsFileLoad(path, &size)") != std::string::npos);
+
+	const std::string dispatcher = readFile("port/src/assetload.c");
+	REQUIRE(dispatcher.find("return handle.provider->load(handle.provider, handle, buf, buf_size)") != std::string::npos);
+}
+
 TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
           "[modding][pdxxx][examples][static][c3811][c3812]") {
 	const std::filesystem::path root =
@@ -2186,6 +2992,15 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 		"meshes/tri_mesh.pdmesh",
 		"materials/tri_material.pdmaterial",
 		"textures/tri_texture.pdtexture",
+		"skins/tri_skin.pdskin",
+		"effects/tri_effect.pdeffect",
+		"props/tri_prop.pdprop",
+		"vehicles/tri_vehicle.pdvehicle",
+		"missions/tri_mission.pdmission",
+		"gamemodes/tri_gamemode.pdgamemode",
+		"botprofiles/tri_botprofile.pdbotprofile",
+		"hud/tri_hud.pdhud",
+		"themes/tri_theme.pdtheme",
 		"entities/tri_entity.pdentity",
 		"projectiles/tri_projectile.pdprojectile",
 		"weapons/tri_weapon.pdweapon",
@@ -2238,6 +3053,24 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 		"examples/modding/typed-pdxxx-basic/materials/tri_material.pdmaterial";
 	const std::string textureArchivePath =
 		"examples/modding/typed-pdxxx-basic/textures/tri_texture.pdtexture";
+	const std::string skinArchivePath =
+		"examples/modding/typed-pdxxx-basic/skins/tri_skin.pdskin";
+	const std::string effectArchivePath =
+		"examples/modding/typed-pdxxx-basic/effects/tri_effect.pdeffect";
+	const std::string propArchivePath =
+		"examples/modding/typed-pdxxx-basic/props/tri_prop.pdprop";
+	const std::string vehicleArchivePath =
+		"examples/modding/typed-pdxxx-basic/vehicles/tri_vehicle.pdvehicle";
+	const std::string missionArchivePath =
+		"examples/modding/typed-pdxxx-basic/missions/tri_mission.pdmission";
+	const std::string gamemodeArchivePath =
+		"examples/modding/typed-pdxxx-basic/gamemodes/tri_gamemode.pdgamemode";
+	const std::string botprofileArchivePath =
+		"examples/modding/typed-pdxxx-basic/botprofiles/tri_botprofile.pdbotprofile";
+	const std::string hudArchivePath =
+		"examples/modding/typed-pdxxx-basic/hud/tri_hud.pdhud";
+	const std::string themeArchivePath =
+		"examples/modding/typed-pdxxx-basic/themes/tri_theme.pdtheme";
 	const std::string entityArchivePath =
 		"examples/modding/typed-pdxxx-basic/entities/tri_entity.pdentity";
 	const std::string projectileArchivePath =
@@ -2302,6 +3135,50 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	const std::string texture = readArchiveEntryText(textureArchivePath.c_str(), "texture.ini");
 	REQUIRE(texture.find("catalog_id = example:tri_texture") != std::string::npos);
 	REQUIRE(texture.find("texture_file = texture.png") != std::string::npos);
+
+	const std::string skin = readArchiveEntryText(skinArchivePath.c_str(), "skin.ini");
+	REQUIRE(skin.find("catalog_id = example:tri_skin") != std::string::npos);
+	REQUIRE(skin.find("texture_file = texture.tga") != std::string::npos);
+	REQUIRE(skin.find("material_archive = dependencies/assets/material/tri_material.pdmaterial") != std::string::npos);
+
+	const std::string effect = readArchiveEntryText(effectArchivePath.c_str(), "effect.ini");
+	const std::string effectGraph = readArchiveEntryText(effectArchivePath.c_str(), "effect.graph.json");
+	REQUIRE(effect.find("catalog_id = example:tri_effect") != std::string::npos);
+	REQUIRE(effect.find("effect_file = effect.graph.json") != std::string::npos);
+	REQUIRE(effectGraph.find("\"schema\": \"pd.effect_graph.v1\"") != std::string::npos);
+
+	const std::string prop = readArchiveEntryText(propArchivePath.c_str(), "prop.ini");
+	REQUIRE(prop.find("catalog_id = example:tri_prop") != std::string::npos);
+	REQUIRE(prop.find("model_file = model.gltf") != std::string::npos);
+	REQUIRE(prop.find("behavior_graph = behavior.graph.json") != std::string::npos);
+
+	const std::string vehicle = readArchiveEntryText(vehicleArchivePath.c_str(), "vehicle.ini");
+	REQUIRE(vehicle.find("catalog_id = example:tri_vehicle") != std::string::npos);
+	REQUIRE(vehicle.find("model_file = model.gltf") != std::string::npos);
+	REQUIRE(vehicle.find("physics_file = physics.json") != std::string::npos);
+
+	const std::string mission = readArchiveEntryText(missionArchivePath.c_str(), "mission.ini");
+	REQUIRE(mission.find("catalog_id = example:tri_mission") != std::string::npos);
+	REQUIRE(mission.find("scenario_archive = dependencies/assets/scenario/tri_scenario.pdscenario") != std::string::npos);
+	REQUIRE(mission.find("objectives_file = objectives.ini") != std::string::npos);
+
+	const std::string gamemode = readArchiveEntryText(gamemodeArchivePath.c_str(), "gamemode.ini");
+	REQUIRE(gamemode.find("catalog_id = example:tri_gamemode") != std::string::npos);
+	REQUIRE(gamemode.find("rules_file = rules.json") != std::string::npos);
+
+	const std::string botprofile = readArchiveEntryText(botprofileArchivePath.c_str(), "botprofile.ini");
+	REQUIRE(botprofile.find("catalog_id = example:tri_botprofile") != std::string::npos);
+	REQUIRE(botprofile.find("profile_file = profile.json") != std::string::npos);
+
+	const std::string hud = readArchiveEntryText(hudArchivePath.c_str(), "hud.ini");
+	REQUIRE(hud.find("catalog_id = example:tri_hud") != std::string::npos);
+	REQUIRE(hud.find("texture_file = texture.png") != std::string::npos);
+	REQUIRE(hud.find("layout_file = layout.json") != std::string::npos);
+
+	const std::string theme = readArchiveEntryText(themeArchivePath.c_str(), "theme.ini");
+	REQUIRE(theme.find("catalog_id = example:tri_theme") != std::string::npos);
+	REQUIRE(theme.find("theme_file = theme.json") != std::string::npos);
+	REQUIRE(theme.find("ui_archive = dependencies/assets/ui/tri_reticle.pdui") != std::string::npos);
 
 	const std::string entity = readArchiveEntryText(entityArchivePath.c_str(), "entity.ini");
 	const std::string bindings = readArchiveEntryText(entityArchivePath.c_str(), "bindings.json");
@@ -2402,6 +3279,70 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			".pdtexture",
 			"textures/tri_texture.pdtexture",
 			{ "texture.ini", "texture.png", "_meta/manifest.json" },
+		},
+		{
+			"skin",
+			".pdskin",
+			"skins/tri_skin.pdskin",
+			{ "skin.ini", "texture.tga",
+			  "dependencies/assets/material/tri_material.pdmaterial",
+			  "_meta/manifest.json" },
+		},
+		{
+			"effect",
+			".pdeffect",
+			"effects/tri_effect.pdeffect",
+			{ "effect.ini", "effect.graph.json", "_meta/manifest.json" },
+		},
+		{
+			"prop",
+			".pdprop",
+			"props/tri_prop.pdprop",
+			{ "prop.ini", "model.gltf", "behavior.graph.json",
+			  "_meta/manifest.json" },
+		},
+		{
+			"vehicle",
+			".pdvehicle",
+			"vehicles/tri_vehicle.pdvehicle",
+			{ "vehicle.ini", "model.gltf", "physics.json",
+			  "behavior.graph.json", "_meta/manifest.json" },
+		},
+		{
+			"mission",
+			".pdmission",
+			"missions/tri_mission.pdmission",
+			{ "mission.ini", "objectives.ini", "briefing.tsv",
+			  "dependencies/assets/scenario/tri_scenario.pdscenario",
+			  "_meta/manifest.json" },
+		},
+		{
+			"gamemode",
+			".pdgamemode",
+			"gamemodes/tri_gamemode.pdgamemode",
+			{ "gamemode.ini", "rules.json", "_meta/manifest.json" },
+		},
+		{
+			"bot profile",
+			".pdbotprofile",
+			"botprofiles/tri_botprofile.pdbotprofile",
+			{ "botprofile.ini", "profile.json", "_meta/manifest.json" },
+		},
+		{
+			"HUD",
+			".pdhud",
+			"hud/tri_hud.pdhud",
+			{ "hud.ini", "texture.png", "layout.json",
+			  "_meta/manifest.json" },
+		},
+		{
+			"theme",
+			".pdtheme",
+			"themes/tri_theme.pdtheme",
+			{ "theme.ini", "theme.json",
+			  "dependencies/assets/ui/tri_reticle.pdui",
+			  "dependencies/assets/font/tri_font.pdfont",
+			  "_meta/manifest.json" },
 		},
 		{
 			"entity",
@@ -2573,6 +3514,69 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 			"texture.ini",
 			{ "texture_file" },
 			{},
+			{},
+		},
+		{
+			"skins/tri_skin.pdskin",
+			"skin.ini",
+			{ "texture_file", "material_archive" },
+			{},
+			{},
+		},
+		{
+			"effects/tri_effect.pdeffect",
+			"effect.ini",
+			{ "effect_file" },
+			{ "effect.graph.json" },
+			{},
+		},
+		{
+			"props/tri_prop.pdprop",
+			"prop.ini",
+			{ "model_file", "behavior_graph" },
+			{ "model.gltf", "behavior.graph.json" },
+			{},
+		},
+		{
+			"vehicles/tri_vehicle.pdvehicle",
+			"vehicle.ini",
+			{ "model_file", "physics_file", "behavior_graph" },
+			{ "model.gltf", "physics.json", "behavior.graph.json" },
+			{},
+		},
+		{
+			"missions/tri_mission.pdmission",
+			"mission.ini",
+			{ "scenario_archive", "objectives_file", "briefing_file" },
+			{},
+			{},
+		},
+		{
+			"gamemodes/tri_gamemode.pdgamemode",
+			"gamemode.ini",
+			{ "rules_file" },
+			{ "rules.json" },
+			{},
+		},
+		{
+			"botprofiles/tri_botprofile.pdbotprofile",
+			"botprofile.ini",
+			{ "profile_file" },
+			{ "profile.json" },
+			{},
+		},
+		{
+			"hud/tri_hud.pdhud",
+			"hud.ini",
+			{ "texture_file", "layout_file" },
+			{ "layout.json" },
+			{},
+		},
+		{
+			"themes/tri_theme.pdtheme",
+			"theme.ini",
+			{ "theme_file", "ui_archive", "font_archive" },
+			{ "theme.json" },
 			{},
 		},
 		{
@@ -2958,8 +3962,9 @@ TEST_CASE("base arena extractor emits zip-openable pdarena archives",
 
 	REQUIRE(arena.find("s_existingZipArchive") != std::string::npos);
 	REQUIRE(arena.find("modArchiveBegin(full)") != std::string::npos);
-	REQUIRE(arena.find("modArchiveAddFileMem(aw, \"arena.ini\"") != std::string::npos);
-	REQUIRE(arena.find("modArchiveAddFileMem(aw, \"_meta/manifest.json\"") != std::string::npos);
+	REQUIRE(arena.find("assetArchiveWriterAddDescriptor(&asset_writer, \"arena.ini\"") != std::string::npos);
+	REQUIRE(arena.find("assetArchiveWriterAddManifestJson(&asset_writer") != std::string::npos);
+	REQUIRE(arena.find("assetArchiveWriterFinishMetadata(&asset_writer)") != std::string::npos);
 	REQUIRE(arena.find("s_copyArchiveEntriesWithPrefix") != std::string::npos);
 	REQUIRE(arena.find("\"scenario/scenario.ini\"") != std::string::npos);
 	REQUIRE(arena.find("\"scenario/rooms.obj\"") != std::string::npos);
@@ -3044,19 +4049,14 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	        std::string::npos);
 	REQUIRE(arena.find("s_existingArchiveHasEntry(dst_rel, \"visual/export_version.txt\")") !=
 	        std::string::npos);
-	REQUIRE(arena.find("modArchiveAddFileMem(aw, \"rooms.obj\"") !=
+	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"rooms.obj\"") !=
 	        std::string::npos);
-	REQUIRE(arena.find("modArchiveAddFileMem(aw, \"visual/export_version.txt\"") !=
+	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"visual/export_version.txt\"") !=
 	        std::string::npos);
-	REQUIRE(arena.find("modArchiveAddFileMem(aw, \"visual/scene.obj\"") !=
+	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"visual/scene.obj\"") !=
 	        std::string::npos);
-	REQUIRE(arena.find("rooms.obj.sha256") != std::string::npos);
-	REQUIRE(arena.find("visual/export_version.txt.sha256") != std::string::npos);
-	REQUIRE(arena.find("visual/scene.obj.sha256") != std::string::npos);
-	REQUIRE(arena.find("visual/scene.mtl.sha256") != std::string::npos);
-	REQUIRE(arena.find("visual/materials.tsv.sha256") != std::string::npos);
-	REQUIRE(arena.find("tiles.tsv.sha256") != std::string::npos);
-	REQUIRE(arena.find("pads.tsv.sha256") != std::string::npos);
+	REQUIRE(arena.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
+	        std::string::npos);
 	REQUIRE(arena.find("map_material.png") == std::string::npos);
 	REQUIRE(arena.find("data:application/octet-stream;base64,") ==
 	        std::string::npos);
@@ -3081,10 +4081,11 @@ TEST_CASE("base character extractors emit zip-openable pdhead and pdbody archive
 
 	REQUIRE(head.find("s_existingZipArchive") != std::string::npos);
 	REQUIRE(head.find("modArchiveBegin(full)") != std::string::npos);
-	REQUIRE(head.find("modArchiveAddFileMem(aw, \"head.ini\"") != std::string::npos);
-	REQUIRE(head.find("modArchiveAddFileMem(aw, \"_meta/manifest.json\"") != std::string::npos);
-	REQUIRE(head.find("s_addRequiredArchiveFile(aw, \"mesh.pdmesh\"") !=
+	REQUIRE(head.find("assetArchiveWriterAddDescriptor(&asset_writer, \"head.ini\"") != std::string::npos);
+	REQUIRE(head.find("assetArchiveWriterAddManifestJson(&asset_writer") != std::string::npos);
+	REQUIRE(head.find("s_addRequiredArchiveFile(&asset_writer, \"mesh.pdmesh\"") !=
 	        std::string::npos);
+	REQUIRE(head.find("assetArchiveWriterFinishMetadata(&asset_writer)") != std::string::npos);
 	REQUIRE(head.find("s_existingArchiveHasEntry(relpath, \"mesh.pdmesh\")") !=
 	        std::string::npos);
 	REQUIRE(head.find("mesh_archive = %s") != std::string::npos);
@@ -3095,12 +4096,13 @@ TEST_CASE("base character extractors emit zip-openable pdhead and pdbody archive
 
 	REQUIRE(body.find("s_existingZipArchive") != std::string::npos);
 	REQUIRE(body.find("modArchiveBegin(full)") != std::string::npos);
-	REQUIRE(body.find("modArchiveAddFileMem(aw, \"body.ini\"") != std::string::npos);
-	REQUIRE(body.find("modArchiveAddFileMem(aw, \"_meta/manifest.json\"") != std::string::npos);
-	REQUIRE(body.find("s_addRequiredArchiveFile(aw, \"mesh.pdmesh\"") !=
+	REQUIRE(body.find("assetArchiveWriterAddDescriptor(&asset_writer, \"body.ini\"") != std::string::npos);
+	REQUIRE(body.find("assetArchiveWriterAddManifestJson(&asset_writer") != std::string::npos);
+	REQUIRE(body.find("s_addRequiredArchiveFile(&asset_writer, \"mesh.pdmesh\"") !=
 	        std::string::npos);
-	REQUIRE(body.find("s_addRequiredArchiveFile(aw, \"hand.pdmesh\"") !=
+	REQUIRE(body.find("s_addRequiredArchiveFile(&asset_writer, \"hand.pdmesh\"") !=
 	        std::string::npos);
+	REQUIRE(body.find("assetArchiveWriterFinishMetadata(&asset_writer)") != std::string::npos);
 	REQUIRE(body.find("s_existingArchiveHasEntry(relpath, \"mesh.pdmesh\")") !=
 	        std::string::npos);
 	REQUIRE(body.find("s_existingArchiveHasEntry(relpath, \"hand.pdmesh\")") !=
@@ -3126,9 +4128,11 @@ TEST_CASE("base character extractor emits canonical pdcharacter archives",
 	REQUIRE(!character.empty());
 
 	REQUIRE(character.find(".pdcharacter") != std::string::npos);
-	REQUIRE(character.find("modArchiveAddFileMem(aw, \"character.ini\"") !=
+	REQUIRE(character.find("assetArchiveWriterAddDescriptor(&asset_writer, \"character.ini\"") !=
 	        std::string::npos);
-	REQUIRE(character.find("modArchiveAddFileDisk(aw, inner, full)") !=
+	REQUIRE(character.find("assetArchiveWriterAddPublicDisk(writer, inner, full") !=
+	        std::string::npos);
+	REQUIRE(character.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
 	        std::string::npos);
 	REQUIRE(character.find("\"body.pdbody\"") != std::string::npos);
 	REQUIRE(character.find("\"head.pdhead\"") != std::string::npos);
@@ -3185,7 +4189,10 @@ TEST_CASE("base non-weapon zip emitters include root editable descriptors",
 		const bool descriptorVariableAdd =
 			src.find("modArchiveAddFileMem(aw, descriptor_name") !=
 			std::string::npos;
-		REQUIRE((literalAdd || descriptorVariableAdd));
+		const bool sharedDescriptorAdd =
+			src.find("assetArchiveWriterAddDescriptor") !=
+			std::string::npos;
+		REQUIRE((literalAdd || descriptorVariableAdd || sharedDescriptorAdd));
 	}
 }
 
@@ -3198,9 +4205,11 @@ TEST_CASE("base audio extractors emit accessible wav payloads",
 	REQUIRE(audio.find("s_decodeAdpcmFrame") != std::string::npos);
 	REQUIRE(audio.find("AL_ADPCM_WAVE") != std::string::npos);
 	REQUIRE(audio.find("AL_RAW16_WAVE") != std::string::npos);
-	REQUIRE(audio.find("modArchiveAddFileMem(aw, \"sample.wav\"") !=
+	REQUIRE(audio.find("assetArchiveWriterAddPublicMem(&asset_writer, \"sample.wav\"") !=
 	        std::string::npos);
-	REQUIRE(audio.find("modArchiveAddFileMem(aw, \"_meta/sample.wav.sha256\"") !=
+	REQUIRE(audio.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
+	        std::string::npos);
+	REQUIRE(audio.find("assetArchiveWriterAddDescriptor(&asset_writer, descriptor_name") !=
 	        std::string::npos);
 	REQUIRE(audio.find("s_existingArchiveHasEntry(dst_rel, \"sample.wav\")") !=
 	        std::string::npos);
@@ -3226,13 +4235,16 @@ TEST_CASE("base language extractor emits editable tsv payloads",
 	REQUIRE(lang.find("s_existingArchiveHasEntry(dst_rel, \"strings.tsv\")") !=
 	        std::string::npos);
 	REQUIRE(lang.find("strings_file = strings.tsv") != std::string::npos);
-	REQUIRE(lang.find("modArchiveAddFileMem(aw, \"strings.tsv\"") !=
+	REQUIRE(lang.find("assetArchiveWriterAddPublicMem(&asset_writer, \"strings.tsv\"") !=
 	        std::string::npos);
-	REQUIRE(lang.find("modArchiveAddFileMem(aw, \"_meta/strings.tsv.sha256\"") !=
+	REQUIRE(lang.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
+	        std::string::npos);
+	REQUIRE(lang.find("assetArchiveWriterAddDescriptor(&asset_writer, \"lang.ini\"") !=
 	        std::string::npos);
 	REQUIRE(lang.find("\\\"data\\\": \\\"strings.tsv\\\"") !=
 	        std::string::npos);
 
+	REQUIRE(lang.find("sha256Hash((const u8 *)tsv_text") == std::string::npos);
 	REQUIRE(lang.find("modArchiveAddFileDisk(aw, \"data.bin\"") ==
 	        std::string::npos);
 	REQUIRE(lang.find("strings_file = data.bin") == std::string::npos);
@@ -3256,11 +4268,13 @@ TEST_CASE("base font extractor emits editable bitmap font payloads",
 	        std::string::npos);
 	REQUIRE(font.find("s_existingArchiveHasEntry(dst_rel, \"metrics.tsv\")") !=
 	        std::string::npos);
-	REQUIRE(font.find("modArchiveAddFileMem(aw, \"glyphs.pgm\"") !=
+	REQUIRE(font.find("assetArchiveWriterAddPublicMem(&asset_writer, \"glyphs.pgm\"") !=
 	        std::string::npos);
-	REQUIRE(font.find("modArchiveAddFileMem(aw, \"metrics.tsv\"") !=
+	REQUIRE(font.find("assetArchiveWriterAddPublicMem(&asset_writer, \"metrics.tsv\"") !=
 	        std::string::npos);
-	REQUIRE(font.find("modArchiveAddFileMem(aw, \"kerning.tsv\"") !=
+	REQUIRE(font.find("assetArchiveWriterAddPublicMem(&asset_writer, \"kerning.tsv\"") !=
+	        std::string::npos);
+	REQUIRE(font.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
 	        std::string::npos);
 	REQUIRE(font.find("\"data\": \"data.bin\"") == std::string::npos);
 	REQUIRE(font.find("font_file = data.bin") == std::string::npos);
@@ -3284,12 +4298,12 @@ TEST_CASE("base song extractor emits midi and editable event payloads",
 	REQUIRE(song.find("music_file = sequence.mid") != std::string::npos);
 	REQUIRE(song.find("midi_file = sequence.mid") != std::string::npos);
 	REQUIRE(song.find("events_file = sequence.tsv") != std::string::npos);
-	REQUIRE(song.find("modArchiveAddFileMem(aw, \"sequence.mid\"") !=
+	REQUIRE(song.find("assetArchiveWriterAddPublicMem(&asset_writer, \"sequence.mid\"") !=
 	        std::string::npos);
-	REQUIRE(song.find("modArchiveAddFileMem(aw, \"sequence.tsv\"") !=
+	REQUIRE(song.find("assetArchiveWriterAddPublicMem(&asset_writer, \"sequence.tsv\"") !=
 	        std::string::npos);
-	REQUIRE(song.find("sequence.mid.sha256") != std::string::npos);
-	REQUIRE(song.find("sequence.tsv.sha256") != std::string::npos);
+	REQUIRE(song.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
+	        std::string::npos);
 
 	REQUIRE(song.find("music_file = data.bin") == std::string::npos);
 	REQUIRE(song.find("\\\"data\\\": \\\"data.bin\\\"") == std::string::npos);
@@ -3310,12 +4324,12 @@ TEST_CASE("base character animation extractor emits editable tsv payloads",
 	REQUIRE(anim.find("frames.tsv") != std::string::npos);
 	REQUIRE(anim.find("header_file = header.tsv") != std::string::npos);
 	REQUIRE(anim.find("frames_file = frames.tsv") != std::string::npos);
-	REQUIRE(anim.find("modArchiveAddFileMem(aw, \"header.tsv\"") !=
+	REQUIRE(anim.find("assetArchiveWriterAddPublicMem(&asset_writer, \"header.tsv\"") !=
 	        std::string::npos);
-	REQUIRE(anim.find("modArchiveAddFileMem(aw, \"frames.tsv\"") !=
+	REQUIRE(anim.find("assetArchiveWriterAddPublicMem(&asset_writer, \"frames.tsv\"") !=
 	        std::string::npos);
-	REQUIRE(anim.find("header.tsv.sha256") != std::string::npos);
-	REQUIRE(anim.find("frames.tsv.sha256") != std::string::npos);
+	REQUIRE(anim.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
+	        std::string::npos);
 
 	REQUIRE(anim.find("frames_file = frames.bin") == std::string::npos);
 	REQUIRE(anim.find("\\\"frames\\\": \\\"frames.bin\\\"") ==
@@ -3332,11 +4346,13 @@ TEST_CASE("base weapon animation extractor emits zip-openable opcode payloads",
 	REQUIRE(anim.find("s_existingArchiveHasAnimPayloads") !=
 	        std::string::npos);
 	REQUIRE(anim.find("modArchiveBegin(full)") != std::string::npos);
-	REQUIRE(anim.find("modArchiveAddFileMem(aw, \"animation.ini\"") !=
+	REQUIRE(anim.find("assetArchiveWriterAddDescriptor(&asset_writer, \"animation.ini\"") !=
 	        std::string::npos);
-	REQUIRE(anim.find("modArchiveAddFileMem(aw, \"_meta/manifest.json\"") !=
+	REQUIRE(anim.find("assetArchiveWriterAddManifestJson(&asset_writer") !=
 	        std::string::npos);
-	REQUIRE(anim.find("modArchiveAddFileMem(aw, \"opcodes.json\"") !=
+	REQUIRE(anim.find("assetArchiveWriterAddPublicMem(&asset_writer, \"opcodes.json\"") !=
+	        std::string::npos);
+	REQUIRE(anim.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
 	        std::string::npos);
 	REQUIRE(anim.find("category = weapon_animation") != std::string::npos);
 	REQUIRE(anim.find("\\\"category\\\": \\\"weapon_animation\\\"") !=
@@ -3420,15 +4436,14 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	        std::string::npos);
 	REQUIRE(mesh.find("s_existingArchiveEntryContains(dst_rel, \"export_version.txt\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("modArchiveAddFileMem(aw, \"export_version.txt\"") !=
+	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"export_version.txt\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("modArchiveAddFileMem(aw, \"model.obj\"") !=
+	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.obj\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("modArchiveAddFileMem(aw, \"model.mtl\"") !=
+	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.mtl\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("model.obj.sha256") != std::string::npos);
-	REQUIRE(mesh.find("model.mtl.sha256") != std::string::npos);
-	REQUIRE(mesh.find("export_version.txt.sha256") != std::string::npos);
+	REQUIRE(mesh.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
+	        std::string::npos);
 	REQUIRE(mesh.find("const char *wanted_hint = hint ? hint : \"\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("strcmp(jobs[i].hint, wanted_hint) == 0") !=

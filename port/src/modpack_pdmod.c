@@ -267,25 +267,6 @@ static s32 relativeSourcePathIsSafe(const char *path)
 	return 1;
 }
 
-static s32 pathEndsWithNoCase(const char *s, const char *suffix)
-{
-	if (!s || !suffix) {
-		return 0;
-	}
-	size_t n = strlen(s);
-	size_t m = strlen(suffix);
-	if (m > n) {
-		return 0;
-	}
-	const char *tail = s + n - m;
-	for (size_t i = 0; i < m; i++) {
-		if (tolower((u8)tail[i]) != tolower((u8)suffix[i])) {
-			return 0;
-		}
-	}
-	return 1;
-}
-
 static asset_type_e typedPdContentTypeForPath(const char *path)
 {
 	return assetArchiveTypeForPath(path);
@@ -691,9 +672,22 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 	static const char *animationKeys[] = { "animation_file", "file_path" };
 	static const char *audioKeys[] = { "file_path" };
 	static const char *uiKeys[] = { "texture_file", "file_path", "texture" };
-	static const char *fontKeys[] = { "font_file", "file_path", "font" };
+	static const char *fontKeys[] = { "font_file", "glyphs_file", "file_path", "font" };
 	static const char *langKeys[] = {
 		"strings_file", "strings", "strings_tsv", "file_path"
+	};
+	static const char *materialOptionalKeys[] = {
+		"material_file", "texture_archive", "texture_file", "effect_archive",
+		"file_path"
+	};
+	static const char *effectOptionalKeys[] = {
+		"effect_file", "behavior_graph", "graph", "texture_archive",
+		"audio_archive", "file_path"
+	};
+	static const char *metadataOptionalKeys[] = {
+		"file_path", "model_file", "texture_file", "theme_file",
+		"rules_file", "scenario_archive", "ui_archive", "font_archive",
+		"audio_archive", "objectives_file", "briefing_file"
 	};
 	static const char *mapOptionalKeys[] = {
 		"pads_file", "setup_file", "collision_file", "material_file",
@@ -753,6 +747,8 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 	case ASSET_WEAPON:
 	case ASSET_PROJECTILE:
 	case ASSET_ENTITY:
+	case ASSET_PROP:
+	case ASSET_VEHICLE:
 	case ASSET_HEAD:
 	case ASSET_BODY:
 	case ASSET_MODEL:
@@ -786,7 +782,7 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 		return validateDescriptorSources(srcFolder, descriptorRel,
 			arenaKeys, (s32)(sizeof(arenaKeys) / sizeof(arenaKeys[0])),
 			mapOptionalKeys, (s32)(sizeof(mapOptionalKeys) / sizeof(mapOptionalKeys[0])));
-	case ASSET_GAMEMODE:
+	case ASSET_SCENARIO:
 		if (typedArchive) {
 			s32 r = validateArchiveDescriptorSources(typedArchive,
 				archiveIniPtr, descriptorRel, scenarioKeys,
@@ -800,6 +796,30 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 			scenarioKeys, (s32)(sizeof(scenarioKeys) / sizeof(scenarioKeys[0])),
 			scenarioOptionalKeys,
 			(s32)(sizeof(scenarioOptionalKeys) / sizeof(scenarioOptionalKeys[0])));
+	case ASSET_MATERIAL:
+		if (typedArchive) {
+			s32 r = validateArchiveDescriptorSources(typedArchive,
+				archiveIniPtr, descriptorRel, NULL, 0,
+				materialOptionalKeys,
+				(s32)(sizeof(materialOptionalKeys) / sizeof(materialOptionalKeys[0])));
+			modArchiveClose(typedArchive);
+			return r;
+		}
+		return validateDescriptorSources(srcFolder, descriptorRel,
+			NULL, 0, materialOptionalKeys,
+			(s32)(sizeof(materialOptionalKeys) / sizeof(materialOptionalKeys[0])));
+	case ASSET_EFFECT:
+		if (typedArchive) {
+			s32 r = validateArchiveDescriptorSources(typedArchive,
+				archiveIniPtr, descriptorRel, NULL, 0,
+				effectOptionalKeys,
+				(s32)(sizeof(effectOptionalKeys) / sizeof(effectOptionalKeys[0])));
+			modArchiveClose(typedArchive);
+			return r;
+		}
+		return validateDescriptorSources(srcFolder, descriptorRel,
+			NULL, 0, effectOptionalKeys,
+			(s32)(sizeof(effectOptionalKeys) / sizeof(effectOptionalKeys[0])));
 	case ASSET_ANIMATION:
 		if (typedArchive) {
 			s32 r = validateArchiveDescriptorSources(typedArchive,
@@ -837,19 +857,6 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 			uiKeys, (s32)(sizeof(uiKeys) / sizeof(uiKeys[0])),
 			NULL, 0);
 	case ASSET_UI:
-		if (pathEndsWithNoCase(descriptorRel, ".pdfont")) {
-			if (typedArchive) {
-				s32 r = validateArchiveDescriptorSources(typedArchive,
-					archiveIniPtr, descriptorRel, fontKeys,
-					(s32)(sizeof(fontKeys) / sizeof(fontKeys[0])),
-					NULL, 0);
-				modArchiveClose(typedArchive);
-				return r;
-			}
-			return validateDescriptorSources(srcFolder, descriptorRel,
-				fontKeys, (s32)(sizeof(fontKeys) / sizeof(fontKeys[0])),
-				NULL, 0);
-		}
 		if (typedArchive) {
 			s32 r = validateArchiveDescriptorSources(typedArchive,
 				archiveIniPtr, descriptorRel, uiKeys,
@@ -860,6 +867,18 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 		}
 		return validateDescriptorSources(srcFolder, descriptorRel,
 			uiKeys, (s32)(sizeof(uiKeys) / sizeof(uiKeys[0])),
+			NULL, 0);
+	case ASSET_FONT:
+		if (typedArchive) {
+			s32 r = validateArchiveDescriptorSources(typedArchive,
+				archiveIniPtr, descriptorRel, fontKeys,
+				(s32)(sizeof(fontKeys) / sizeof(fontKeys[0])),
+				NULL, 0);
+			modArchiveClose(typedArchive);
+			return r;
+		}
+		return validateDescriptorSources(srcFolder, descriptorRel,
+			fontKeys, (s32)(sizeof(fontKeys) / sizeof(fontKeys[0])),
 			NULL, 0);
 	case ASSET_LANG:
 		if (typedArchive) {
@@ -873,6 +892,22 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 		return validateDescriptorSources(srcFolder, descriptorRel,
 			langKeys, (s32)(sizeof(langKeys) / sizeof(langKeys[0])),
 			NULL, 0);
+	case ASSET_GAMEMODE:
+	case ASSET_BOT_PROFILE:
+	case ASSET_HUD:
+	case ASSET_MISSION:
+	case ASSET_THEME:
+		if (typedArchive) {
+			s32 r = validateArchiveDescriptorSources(typedArchive,
+				archiveIniPtr, descriptorRel, NULL, 0,
+				metadataOptionalKeys,
+				(s32)(sizeof(metadataOptionalKeys) / sizeof(metadataOptionalKeys[0])));
+			modArchiveClose(typedArchive);
+			return r;
+		}
+		return validateDescriptorSources(srcFolder, descriptorRel,
+			NULL, 0, metadataOptionalKeys,
+			(s32)(sizeof(metadataOptionalKeys) / sizeof(metadataOptionalKeys[0])));
 	default:
 		if (typedArchive) {
 			modArchiveClose(typedArchive);
@@ -1047,8 +1082,21 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 	static const char *animationKeys[] = { "animation_file", "file_path" };
 	static const char *audioKeys[] = { "file_path" };
 	static const char *uiKeys[] = { "texture_file", "file_path", "texture" };
-	static const char *fontKeys[] = { "font_file", "file_path", "font" };
+	static const char *fontKeys[] = { "font_file", "glyphs_file", "file_path", "font" };
 	static const char *langKeys[] = { "strings_file", "strings", "strings_tsv", "file_path" };
+	static const char *materialOptionalKeys[] = {
+		"material_file", "texture_archive", "texture_file", "effect_archive",
+		"file_path"
+	};
+	static const char *effectOptionalKeys[] = {
+		"effect_file", "behavior_graph", "graph", "texture_archive",
+		"audio_archive", "file_path"
+	};
+	static const char *metadataOptionalKeys[] = {
+		"file_path", "model_file", "texture_file", "theme_file",
+		"rules_file", "scenario_archive", "ui_archive", "font_archive",
+		"audio_archive", "objectives_file", "briefing_file"
+	};
 	static const char *mapOptionalKeys[] = {
 		"pads_file", "setup_file", "collision_file", "material_file",
 		"texture_file", "texture_manifest_file", "blender_scene_file",
@@ -1077,10 +1125,20 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 				opt, (s32)(opt_count), side, (s32)(side_count), &generated);        \
 			if (r != MODPACK_PDMOD_OK) return r;                                  \
 		} while (0)
+	#define RUN_FAMILY_OPT(path, leaf, kind, opt, side, side_count)              \
+		do {                                                                      \
+			r = processCanonicalFamily(srcFolder, path, leaf, kind,                \
+				NULL, 0, opt, (s32)(sizeof(opt) / sizeof((opt)[0])),               \
+				side, (s32)(side_count), &generated);                              \
+			if (r != MODPACK_PDMOD_OK) return r;                                  \
+		} while (0)
 
 	RUN_FAMILY("weapons", "weapon.ini", "weapon", modelKeys, NULL, 0, NULL, 0);
 	RUN_FAMILY("projectiles", "projectile.ini", "projectile", behaviorAssetKeys, NULL, 0, NULL, 0);
 	RUN_FAMILY("entities", "entity.ini", "entity", behaviorAssetKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY_OPT("materials", "material.ini", "material", materialOptionalKeys, NULL, 0);
+	RUN_FAMILY("textures", "texture.ini", "texture", uiKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY_OPT("skins", "skin.ini", "skin", metadataOptionalKeys, NULL, 0);
 	RUN_FAMILY("characters", "character.ini", "character", characterKeys, NULL, 0, NULL, 0);
 	RUN_FAMILY("characters/heads", "head.ini", "head", modelKeys, NULL, 0, NULL, 0);
 	RUN_FAMILY("characters/bodies", "body.ini", "body", modelKeys, NULL, 0, NULL, 0);
@@ -1090,6 +1148,15 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 	RUN_FAMILY("scenarios", "scenario.ini", "scenario", scenarioKeys,
 		scenarioOptionalKeys, sizeof(scenarioOptionalKeys) / sizeof(scenarioOptionalKeys[0]),
 		scenarioSidecars, sizeof(scenarioSidecars) / sizeof(scenarioSidecars[0]));
+	RUN_FAMILY("props", "prop.ini", "prop", behaviorAssetKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY("vehicles", "vehicle.ini", "vehicle", behaviorAssetKeys, NULL, 0, NULL, 0);
+	RUN_FAMILY_OPT("missions", "mission.ini", "mission", metadataOptionalKeys, NULL, 0);
+	RUN_FAMILY_OPT("gamemodes", "gamemode.ini", "gamemode", metadataOptionalKeys, NULL, 0);
+	RUN_FAMILY_OPT("botprofiles", "botprofile.ini", "botprofile", metadataOptionalKeys, NULL, 0);
+	RUN_FAMILY_OPT("bot_profiles", "botprofile.ini", "botprofile", metadataOptionalKeys, NULL, 0);
+	RUN_FAMILY_OPT("effects", "effect.ini", "effect", effectOptionalKeys, NULL, 0);
+	RUN_FAMILY_OPT("hud", "hud.ini", "hud", metadataOptionalKeys, NULL, 0);
+	RUN_FAMILY_OPT("themes", "theme.ini", "theme", metadataOptionalKeys, NULL, 0);
 	RUN_FAMILY("audio/sfx", "sound.ini", "sfx", audioKeys, NULL, 0, NULL, 0);
 	RUN_FAMILY("audio/voice", "voice.ini", "voice", audioKeys, NULL, 0, NULL, 0);
 	RUN_FAMILY("audio/music", "music.ini", "music", audioKeys, NULL, 0, NULL, 0);
@@ -1100,6 +1167,7 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 	RUN_FAMILY("animations/character", "animation.ini", "animation", animationKeys, NULL, 0, NULL, 0);
 
 	#undef RUN_FAMILY
+	#undef RUN_FAMILY_OPT
 
 	if (generated > 0) {
 		sysLogPrintf(LOG_NOTE,

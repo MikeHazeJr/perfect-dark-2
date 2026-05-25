@@ -967,6 +967,7 @@ static asset_type_e iniFilenameToAssetType(const char *ini_name)
     if (strcmp(ini_name, "prop.ini") == 0)      return ASSET_PROP;
     if (strcmp(ini_name, "textures.ini") == 0)  return ASSET_TEXTURES;
     if (strcmp(ini_name, "texture.ini") == 0)   return ASSET_TEXTURE;
+    if (strcmp(ini_name, "material.ini") == 0)  return ASSET_MATERIAL;
     if (strcmp(ini_name, "skin.ini") == 0)      return ASSET_SKIN;
     if (strcmp(ini_name, "weapon.ini") == 0)    return ASSET_WEAPON;
     if (strcmp(ini_name, "projectile.ini") == 0) return ASSET_PROJECTILE;
@@ -974,8 +975,13 @@ static asset_type_e iniFilenameToAssetType(const char *ini_name)
     if (strcmp(ini_name, "head.ini") == 0)      return ASSET_HEAD;
     if (strcmp(ini_name, "body.ini") == 0)      return ASSET_BODY;
     if (strcmp(ini_name, "arena.ini") == 0)     return ASSET_ARENA;
-    if (strcmp(ini_name, "scenario.ini") == 0)  return ASSET_GAMEMODE;
+    if (strcmp(ini_name, "scenario.ini") == 0)  return ASSET_SCENARIO;
     if (strcmp(ini_name, "animation.ini") == 0) return ASSET_ANIMATION;
+    if (strcmp(ini_name, "effect.ini") == 0)    return ASSET_EFFECT;
+    if (strcmp(ini_name, "vehicle.ini") == 0)   return ASSET_VEHICLE;
+    if (strcmp(ini_name, "mission.ini") == 0)   return ASSET_MISSION;
+    if (strcmp(ini_name, "gamemode.ini") == 0)  return ASSET_GAMEMODE;
+    if (strcmp(ini_name, "botprofile.ini") == 0) return ASSET_BOT_PROFILE;
     if (strcmp(ini_name, "audio.ini") == 0)     return ASSET_AUDIO;
     if (strcmp(ini_name, "sound.ini") == 0)     return ASSET_AUDIO;
     if (strcmp(ini_name, "sfx.ini") == 0)       return ASSET_AUDIO;
@@ -983,8 +989,9 @@ static asset_type_e iniFilenameToAssetType(const char *ini_name)
     if (strcmp(ini_name, "music.ini") == 0)     return ASSET_AUDIO;
     if (strcmp(ini_name, "hud.ini") == 0)       return ASSET_HUD;
     if (strcmp(ini_name, "ui.ini") == 0)        return ASSET_UI;
-    if (strcmp(ini_name, "font.ini") == 0)      return ASSET_UI;
+    if (strcmp(ini_name, "font.ini") == 0)      return ASSET_FONT;
     if (strcmp(ini_name, "lang.ini") == 0)      return ASSET_LANG;
+    if (strcmp(ini_name, "theme.ini") == 0)     return ASSET_THEME;
     return ASSET_NONE;
 }
 
@@ -1071,6 +1078,13 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         break;
     case ASSET_SKIN:
         strncpy(e->ext.skin.target_id, iniGet(ini, "target", ""), CATALOG_ID_LEN - 1);
+        strncpy(e->ext.skin.texture_file, iniGet(ini, "texture_file",
+                iniGet(ini, "file_path",
+                iniGet(ini, "texture", ""))), sizeof(e->ext.skin.texture_file) - 1);
+        e->ext.skin.texture_file[sizeof(e->ext.skin.texture_file) - 1] = '\0';
+        if (e->ext.skin.texture_file[0]) {
+            distribSetPrimaryFromFile(e, dirpath, e->ext.skin.texture_file);
+        }
         break;
     case ASSET_BOT_VARIANT:
         strncpy(e->ext.bot_variant.base_type, iniGet(ini, "base_type", "NormalSim"), 31);
@@ -1200,10 +1214,30 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         e->ext.texture.width = iniGetInt(ini, "width", 0);
         e->ext.texture.height = iniGetInt(ini, "height", 0);
         e->ext.texture.format = iniGetInt(ini, "format", 0);
-        strncpy(e->ext.texture.file_path, iniGet(ini, "file_path", ""),
-                sizeof(e->ext.texture.file_path) - 1);
+        strncpy(e->ext.texture.file_path, iniGet(ini, "file_path",
+                iniGet(ini, "texture_file", "")), sizeof(e->ext.texture.file_path) - 1);
         if (e->ext.texture.file_path[0]) {
             distribSetPrimaryFromFile(e, dirpath, e->ext.texture.file_path);
+        }
+        break;
+    case ASSET_MATERIAL:
+        {
+            const char *pf = iniGet(ini, "material_file",
+                iniGet(ini, "file_path",
+                iniGet(ini, "texture_archive",
+                iniGet(ini, "texture_file", ""))));
+            strncpy(e->ext.material.material_file,
+                    iniGet(ini, "material_file", iniGet(ini, "file_path", "")),
+                    sizeof(e->ext.material.material_file) - 1);
+            strncpy(e->ext.material.texture_archive,
+                    iniGet(ini, "texture_archive", ""),
+                    sizeof(e->ext.material.texture_archive) - 1);
+            strncpy(e->ext.material.effect_archive,
+                    iniGet(ini, "effect_archive", ""),
+                    sizeof(e->ext.material.effect_archive) - 1);
+            if (pf[0]) {
+                distribSetPrimaryFromFile(e, dirpath, pf);
+            }
         }
         break;
     case ASSET_AUDIO:
@@ -1231,10 +1265,23 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         e->ext.gamemode.team_based = iniGetInt(ini, "team_based", 0);
         e->ext.gamemode.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
         {
+            const char *rf = iniGet(ini, "rules_file",
+                iniGet(ini, "file_path", ""));
+            if (rf[0]) {
+                distribSetPrimaryFromFile(e, dirpath, rf);
+            }
+        }
+        break;
+    case ASSET_SCENARIO:
+        e->ext.scenario.stagenum = iniGetInt(ini, "stagenum", -1);
+        e->ext.scenario.mode = (u8)iniGetInt(ini, "mode", 0);
+        {
             const char *rf = iniGet(ini, "rooms_file",
                 iniGet(ini, "rooms",
                 iniGet(ini, "geometry_file",
                 iniGet(ini, "geometry", ""))));
+            strncpy(e->ext.scenario.rooms_file, rf,
+                    sizeof(e->ext.scenario.rooms_file) - 1);
             if (rf[0]) {
                 distribSetPrimaryFromFile(e, dirpath, rf);
             }
@@ -1254,9 +1301,19 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         {
             const char *pf = iniGet(ini, "file_path",
                 iniGet(ini, "texture_file",
-                iniGet(ini, "font_file",
                 iniGet(ini, "texture",
-                iniGet(ini, "font", "")))));
+                iniGet(ini, "ui_file", ""))));
+            if (pf[0]) {
+                distribSetPrimaryFromFile(e, dirpath, pf);
+            }
+        }
+        break;
+    case ASSET_FONT:
+        {
+            const char *pf = iniGet(ini, "font_file",
+                iniGet(ini, "glyphs_file",
+                iniGet(ini, "file_path",
+                iniGet(ini, "font", ""))));
             if (pf[0]) {
                 distribSetPrimaryFromFile(e, dirpath, pf);
             }
@@ -1273,6 +1330,97 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
                     sizeof(e->ext.lang.strings_file) - 1);
             if (e->ext.lang.strings_file[0]) {
                 distribSetPrimaryFromFile(e, dirpath, e->ext.lang.strings_file);
+            }
+        }
+        break;
+    case ASSET_EFFECT:
+        strncpy(e->ext.effect.name, iniGet(ini, "name", ""),
+                sizeof(e->ext.effect.name) - 1);
+        e->ext.effect.effect_type = iniGetInt(ini, "effect_type", EFFECT_TYPE_PARTICLE);
+        e->ext.effect.target = iniGetInt(ini, "target", EFFECT_TARGET_SCENE);
+        strncpy(e->ext.effect.effect_file, iniGet(ini, "effect_file",
+                iniGet(ini, "behavior_graph",
+                iniGet(ini, "file_path", ""))),
+                sizeof(e->ext.effect.effect_file) - 1);
+        strncpy(e->ext.effect.shader_id, iniGet(ini, "shader_id", ""),
+                sizeof(e->ext.effect.shader_id) - 1);
+        e->ext.effect.intensity = iniGetFloat(ini, "intensity", 1.0f);
+        {
+            const char *pf = e->ext.effect.effect_file;
+            if (pf[0]) {
+                distribSetPrimaryFromFile(e, dirpath, pf);
+            }
+        }
+        break;
+    case ASSET_BOT_PROFILE:
+        e->ext.bot_profile.type = iniGetInt(ini, "type", 0);
+        e->ext.bot_profile.difficulty = iniGetInt(ini, "difficulty", 0);
+        e->ext.bot_profile.body = (s16)iniGetInt(ini, "body", -1);
+        e->ext.bot_profile.name_langid = (s16)iniGetInt(ini, "name_langid", 0);
+        e->ext.bot_profile.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
+        strncpy(e->ext.bot_profile.profile_file, iniGet(ini, "profile_file",
+                iniGet(ini, "file_path", "")), sizeof(e->ext.bot_profile.profile_file) - 1);
+        if (e->ext.bot_profile.profile_file[0]) {
+            distribSetPrimaryFromFile(e, dirpath, e->ext.bot_profile.profile_file);
+        }
+        break;
+    case ASSET_VEHICLE:
+        {
+            strncpy(e->ext.vehicle.model_file,
+                    iniGet(ini, "model_file", iniGet(ini, "file_path", "")),
+                    sizeof(e->ext.vehicle.model_file) - 1);
+            strncpy(e->ext.vehicle.physics_file,
+                    iniGet(ini, "physics_file", ""),
+                    sizeof(e->ext.vehicle.physics_file) - 1);
+            strncpy(e->ext.vehicle.behavior_graph,
+                    iniGet(ini, "behavior_graph", ""),
+                    sizeof(e->ext.vehicle.behavior_graph) - 1);
+            const char *pf = e->ext.vehicle.model_file[0] ?
+                e->ext.vehicle.model_file :
+                (e->ext.vehicle.behavior_graph[0] ?
+                    e->ext.vehicle.behavior_graph : e->ext.vehicle.physics_file);
+            if (pf[0]) {
+                distribSetPrimaryFromFile(e, dirpath, pf);
+            }
+        }
+        break;
+    case ASSET_MISSION:
+        {
+            strncpy(e->ext.mission.scenario_archive,
+                    iniGet(ini, "scenario_archive", iniGet(ini, "file_path", "")),
+                    sizeof(e->ext.mission.scenario_archive) - 1);
+            strncpy(e->ext.mission.objectives_file,
+                    iniGet(ini, "objectives_file", ""),
+                    sizeof(e->ext.mission.objectives_file) - 1);
+            strncpy(e->ext.mission.briefing_file,
+                    iniGet(ini, "briefing_file", ""),
+                    sizeof(e->ext.mission.briefing_file) - 1);
+            const char *pf = e->ext.mission.scenario_archive[0] ?
+                e->ext.mission.scenario_archive :
+                (e->ext.mission.objectives_file[0] ?
+                    e->ext.mission.objectives_file : e->ext.mission.briefing_file);
+            if (pf[0]) {
+                distribSetPrimaryFromFile(e, dirpath, pf);
+            }
+        }
+        break;
+    case ASSET_THEME:
+        {
+            strncpy(e->ext.theme.theme_file,
+                    iniGet(ini, "theme_file", iniGet(ini, "file_path", "")),
+                    sizeof(e->ext.theme.theme_file) - 1);
+            strncpy(e->ext.theme.ui_archive,
+                    iniGet(ini, "ui_archive", ""),
+                    sizeof(e->ext.theme.ui_archive) - 1);
+            strncpy(e->ext.theme.font_archive,
+                    iniGet(ini, "font_archive", ""),
+                    sizeof(e->ext.theme.font_archive) - 1);
+            const char *pf = e->ext.theme.theme_file[0] ?
+                e->ext.theme.theme_file :
+                (e->ext.theme.ui_archive[0] ?
+                    e->ext.theme.ui_archive : e->ext.theme.font_archive);
+            if (pf[0]) {
+                distribSetPrimaryFromFile(e, dirpath, pf);
             }
         }
         break;
@@ -1386,12 +1534,14 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         char inipath[FS_MAXPATH];
         const char *ini_names[] = { "map.ini", "character.ini", "bot.ini", "prop.ini",
                                     "textures.ini", "texture.ini", "skin.ini",
+                                    "material.ini", "effect.ini",
                                     "weapon.ini", "projectile.ini", "entity.ini",
                                     "head.ini", "body.ini",
                                     "arena.ini", "scenario.ini", "animation.ini",
-                                    "audio.ini", "hud.ini",
+                                    "vehicle.ini", "mission.ini", "gamemode.ini",
+                                    "botprofile.ini", "audio.ini", "hud.ini",
                                     "sound.ini", "sfx.ini", "voice.ini", "music.ini",
-                                    "ui.ini", "font.ini", "lang.ini", NULL };
+                                    "ui.ini", "font.ini", "lang.ini", "theme.ini", NULL };
         ini_section_t ini;
         s32 registered = 0;
 

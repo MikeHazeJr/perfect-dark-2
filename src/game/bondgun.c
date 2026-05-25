@@ -1807,6 +1807,217 @@ static s32 bgunGetAmmoIndexFromGraph(struct weaponfunc *func,
 	return func ? func->ammoindex : -1;
 }
 
+static const weapon_graph_projectile_runtime_t *bgunGetProjectileGraph(
+		const weapon_graph_held_function_t *graph)
+{
+	return weaponGraphRuntimeGetProjectileForHeldFunction(graph);
+}
+
+static const weapon_graph_entity_runtime_t *bgunGetEntityGraph(
+		const weapon_graph_held_function_t *graph)
+{
+	return weaponGraphRuntimeGetEntityForHeldFunction(graph);
+}
+
+static s32 bgunGraphTicks60To240(s32 ticks60)
+{
+	if (ticks60 < 0) {
+		return -1;
+	}
+	return TICKS(ticks60 * 4);
+}
+
+static u32 bgunGetProjectileFlagsFromGraph(u32 fallback,
+		const weapon_graph_held_function_t *graph,
+		const weapon_graph_projectile_runtime_t *projectile)
+{
+	u32 flags = graph ? graph->flags : fallback;
+
+	if (projectile) {
+		if (projectile->powered) {
+			flags |= FUNCFLAG_PROJECTILE_POWERED;
+		}
+		if (projectile->calculate_trajectory) {
+			flags |= FUNCFLAG_CALCULATETRAJECTORY;
+		}
+		if (projectile->has_homing) {
+			flags |= FUNCFLAG_HOMINGROCKET;
+		}
+		if (projectile->has_fly_by_wire) {
+			flags |= FUNCFLAG_FLYBYWIRE;
+		}
+	}
+
+	return flags;
+}
+
+static s32 bgunGetProjectileModelnumFromGraph(
+		const weapon_graph_held_function_t *graph,
+		const weapon_graph_projectile_runtime_t *projectile,
+		s32 fallback)
+{
+	if (graph && graph->has_projectile_modelnum) {
+		return graph->projectile_modelnum;
+	}
+	if (projectile && projectile->has_projectile_modelnum) {
+		return projectile->projectile_modelnum;
+	}
+	return fallback;
+}
+
+static s32 bgunGetThrownModelnumFromGraph(
+		const weapon_graph_held_function_t *graph,
+		const weapon_graph_projectile_runtime_t *projectile,
+		const weapon_graph_entity_runtime_t *entity,
+		s32 fallback)
+{
+	if (graph && graph->has_projectile_modelnum) {
+		return graph->projectile_modelnum;
+	}
+	if (projectile && projectile->has_projectile_modelnum) {
+		return projectile->projectile_modelnum;
+	}
+	if (entity && entity->has_projectile_modelnum) {
+		return entity->projectile_modelnum;
+	}
+	return fallback;
+}
+
+static f32 bgunGetProjectileScaleFromGraph(
+		const weapon_graph_held_function_t *graph,
+		const weapon_graph_projectile_runtime_t *projectile,
+		f32 fallback)
+{
+	if (graph && graph->has_scale) {
+		return graph->scale;
+	}
+	if (projectile && projectile->has_scale) {
+		return projectile->scale;
+	}
+	return fallback;
+}
+
+static f32 bgunGetProjectileSpeedFromGraph(
+		const weapon_graph_held_function_t *graph,
+		const weapon_graph_projectile_runtime_t *projectile,
+		f32 fallback)
+{
+	if (graph && graph->has_speed) {
+		return graph->speed;
+	}
+	if (projectile && projectile->has_speed) {
+		return projectile->speed;
+	}
+	return fallback;
+}
+
+static s32 bgunGetProjectileTravelFromGraph(
+		const weapon_graph_held_function_t *graph,
+		const weapon_graph_projectile_runtime_t *projectile,
+		s32 fallback)
+{
+	if (graph && graph->has_travel_distance) {
+		return graph->travel_distance;
+	}
+	if (projectile && projectile->has_travel_distance) {
+		return projectile->travel_distance;
+	}
+	return fallback;
+}
+
+static s32 bgunGetProjectileTimerFromGraph(
+		const weapon_graph_held_function_t *graph,
+		const weapon_graph_projectile_runtime_t *projectile,
+		s32 fallback)
+{
+	if (graph && graph->has_timer_ticks60) {
+		return graph->timer_ticks60;
+	}
+	if (projectile && projectile->has_timer) {
+		return projectile->timer_ticks60;
+	}
+	if (projectile && projectile->has_timer60) {
+		return projectile->timer60;
+	}
+	return fallback;
+}
+
+static s32 bgunGetActivationTimeFromGraph(
+		const weapon_graph_held_function_t *graph,
+		const weapon_graph_projectile_runtime_t *projectile,
+		const weapon_graph_entity_runtime_t *entity,
+		s32 fallback)
+{
+	if (graph && graph->has_activation_time_ticks60) {
+		return graph->activation_time_ticks60;
+	}
+	if (entity && entity->has_timed_detonatable) {
+		return entity->timed_timer_ticks60;
+	}
+	if (entity && entity->has_armed_explosive &&
+			entity->arm_delay_ticks60 > 0) {
+		return entity->arm_delay_ticks60;
+	}
+	if (entity && entity->has_activation_time60) {
+		return entity->activation_time60;
+	}
+	if (projectile && projectile->has_activation_time60) {
+		return projectile->activation_time60;
+	}
+	return fallback;
+}
+
+static f32 bgunGetProjectileReflectFromGraph(
+		const weapon_graph_held_function_t *graph,
+		const weapon_graph_projectile_runtime_t *projectile,
+		f32 fallback)
+{
+	if (graph && graph->has_reflect_angle) {
+		return graph->reflect_angle;
+	}
+	if (projectile && projectile->has_reflect_angle) {
+		return projectile->reflect_angle;
+	}
+	return fallback;
+}
+
+static s32 bgunGetProjectileSoundFromGraph(
+		const weapon_graph_held_function_t *graph,
+		s32 fallback)
+{
+	if (graph && graph->has_soundnum) {
+		return graph->soundnum;
+	}
+	return fallback;
+}
+
+static void bgunApplyEntityGraphToWeapon(struct weaponobj *weapon,
+		const weapon_graph_entity_runtime_t *entity)
+{
+	s32 timer60 = 0;
+	bool hastimer = false;
+
+	if (!weapon || !entity || !entity->valid) {
+		return;
+	}
+
+	if (entity->has_timed_detonatable) {
+		timer60 = entity->timed_timer_ticks60;
+		hastimer = true;
+	} else if (entity->has_armed_explosive &&
+			entity->arm_delay_ticks60 > 0) {
+		timer60 = entity->arm_delay_ticks60;
+		hastimer = true;
+	} else if (entity->has_activation_time60) {
+		timer60 = entity->activation_time60;
+		hastimer = true;
+	}
+
+	if (hastimer) {
+		weapon->timer240 = bgunGraphTicks60To240(timer60);
+	}
+}
+
 s32 bgun0f09a3f8(struct hand *hand, struct weaponfunc *func)
 {
 	bool burst = false;
@@ -4925,6 +5136,10 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 	Mtxf mtx;
 	s32 playernum;
 	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(gset);
+	const weapon_graph_projectile_runtime_t *projectilegraph =
+		bgunGetProjectileGraph(graph);
+	const weapon_graph_entity_runtime_t *entitygraph =
+		bgunGetEntityGraph(graph);
 	s32 projectilemodelnum;
 	s32 activatetime60;
 
@@ -4939,10 +5154,10 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 		return false;
 	}
 
-	projectilemodelnum = graph && graph->has_projectile_modelnum ?
-		graph->projectile_modelnum : func->projectilemodelnum;
-	activatetime60 = graph && graph->has_activation_time_ticks60 ?
-		graph->activation_time_ticks60 : func->activatetime60;
+	projectilemodelnum = bgunGetThrownModelnumFromGraph(graph,
+		projectilegraph, entitygraph, func->projectilemodelnum);
+	activatetime60 = bgunGetActivationTimeFromGraph(graph,
+		projectilegraph, entitygraph, func->activatetime60);
 
 	if (gset->weaponnum == WEAPON_COMBATKNIFE) {
 		guRotateF(mtx.m, 90.0f / (RANDOMFRAC() + 12.1f),
@@ -4980,6 +5195,8 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 					|| projectilemodelnum == MODEL_CHRECMMINE) {
 				weaponobj->base.flags3 |= OBJFLAG3_00000008;
 			}
+
+			bgunApplyEntityGraphToWeapon(weaponobj, entitygraph);
 		}
 	}
 
@@ -5000,6 +5217,7 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 			obj->projectile->flags |= PROJECTILEFLAG_00000002;
 			obj->projectile->unk08c = 0.1f;
 			obj->projectile->pickuptimer240 = TICKS(240);
+			projectileApplyGraphRuntime(obj, projectilegraph);
 
 			psCreate(NULL, obj->prop, SFX_THROW, -1,
 					-1, 0, 0, PSTYPE_NONE, NULL, -1, NULL, -1, -1, -1, -1);
@@ -5046,6 +5264,8 @@ struct defaultobj *bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 	f32 sp48[4];
 	struct trainingdata *data;
 	u32 stack;
+	const weapon_graph_projectile_runtime_t *projectilegraph =
+		bgunGetProjectileGraph(bgunGetHeldGraph(gset));
 
 	// don't do anything if we're not the authority
 	if (g_NetMode == NETMODE_CLIENT) {
@@ -5107,7 +5327,8 @@ struct defaultobj *bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 		velocity.x = gundir.x * 1.6666666f;
 		velocity.y = gundir.y * 1.6666666f;
 		velocity.z = gundir.z * 1.6666666f;
-	} else if (gsetHasFunctionFlags(&hand->gset, FUNCFLAG_CALCULATETRAJECTORY)) {
+	} else if (gsetHasFunctionFlags(&hand->gset, FUNCFLAG_CALCULATETRAJECTORY)
+			|| (projectilegraph && projectilegraph->calculate_trajectory)) {
 		// Calculate the velocity based on the trajectory to the aimpos
 		propFindAimingAt(HAND_RIGHT, false, FINDPROPCONTEXT_QUERY);
 
@@ -5268,8 +5489,10 @@ void bgunCreateHeldRocket(s32 handnum, struct weaponfunc_shootprojectile *func)
 	struct hand *hand = &g_Vars.currentplayer->hands[handnum];
 	struct weaponobj *obj;
 	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
-	s32 projectilemodelnum = graph && graph->has_projectile_modelnum ?
-		graph->projectile_modelnum : func->projectilemodelnum;
+	const weapon_graph_projectile_runtime_t *projectilegraph =
+		bgunGetProjectileGraph(graph);
+	s32 projectilemodelnum = bgunGetProjectileModelnumFromGraph(graph,
+		projectilegraph, func->projectilemodelnum);
 
 	if (hand->rocket == NULL) {
 #if VERSION >= VERSION_NTSC_1_0
@@ -5283,6 +5506,7 @@ void bgunCreateHeldRocket(s32 handnum, struct weaponfunc_shootprojectile *func)
 			hand->firedrocket = false;
 
 			obj->timer240 = 1;
+			projectileApplyGraphRuntime(&obj->base, projectilegraph);
 #if VERSION >= VERSION_NTSC_1_0
 			obj->base.flags |= OBJFLAG_HELDROCKET;
 #endif
@@ -5339,6 +5563,7 @@ void bgunCreateFiredProjectile(s32 handnum)
 	s32 timer60;
 	f32 reflectangle;
 	s32 soundnum;
+	const weapon_graph_projectile_runtime_t *projectilegraph;
 
 	if (g_NetMode == NETMODE_CLIENT) {
 		return;
@@ -5353,22 +5578,27 @@ void bgunCreateFiredProjectile(s32 handnum)
 	weapondef = weaponFindById(hand->gset.weaponnum);
 
 	if (weapondef) {
-		tmp = weapondef->functions[hand->gset.weaponfunc];
+			tmp = weapondef->functions[hand->gset.weaponfunc];
 
 		if (tmp && tmp->type == INVENTORYFUNCTYPE_SHOOT_PROJECTILE) {
 			funcdef = (struct weaponfunc_shootprojectile *)tmp;
 			graph = bgunGetHeldGraph(&hand->gset);
-			funcflags = graph ? graph->flags : funcdef->base.base.flags;
-			projectilemodelnum = graph && graph->has_projectile_modelnum ?
-				graph->projectile_modelnum : funcdef->projectilemodelnum;
-			projectilescale = graph && graph->has_scale ? graph->scale : funcdef->scale;
-			projectilespeed = graph && graph->has_speed ? graph->speed : funcdef->speed;
-			traveldist = graph && graph->has_travel_distance ?
-				graph->travel_distance : funcdef->traveldist;
-			timer60 = graph && graph->has_timer_ticks60 ? graph->timer_ticks60 : funcdef->timer60;
-			reflectangle = graph && graph->has_reflect_angle ?
-				graph->reflect_angle : funcdef->reflectangle;
-			soundnum = graph && graph->has_soundnum ? graph->soundnum : funcdef->soundnum;
+			projectilegraph = bgunGetProjectileGraph(graph);
+			funcflags = bgunGetProjectileFlagsFromGraph(
+				funcdef->base.base.flags, graph, projectilegraph);
+			projectilemodelnum = bgunGetProjectileModelnumFromGraph(
+				graph, projectilegraph, funcdef->projectilemodelnum);
+			projectilescale = bgunGetProjectileScaleFromGraph(
+				graph, projectilegraph, funcdef->scale);
+			projectilespeed = bgunGetProjectileSpeedFromGraph(
+				graph, projectilegraph, funcdef->speed);
+			traveldist = bgunGetProjectileTravelFromGraph(
+				graph, projectilegraph, funcdef->traveldist);
+			timer60 = bgunGetProjectileTimerFromGraph(
+				graph, projectilegraph, funcdef->timer60);
+			reflectangle = bgunGetProjectileReflectFromGraph(
+				graph, projectilegraph, funcdef->reflectangle);
+			soundnum = bgunGetProjectileSoundFromGraph(graph, funcdef->soundnum);
 
 			mtx4LoadIdentity(&sp270);
 			bgunCalculatePlayerShotSpread(&gunpos, &gundir, handnum, true);
@@ -5387,7 +5617,8 @@ void bgunCreateFiredProjectile(s32 handnum)
 			sp260 = projectilespeed * 1.6666666f / 60.0f;
 			sp25c = traveldist * 1.6666666f;
 
-			if (gsetHasFunctionFlags(&hand->gset, FUNCFLAG_CALCULATETRAJECTORY)) {
+			if (gsetHasFunctionFlags(&hand->gset, FUNCFLAG_CALCULATETRAJECTORY)
+					|| (funcflags & FUNCFLAG_CALCULATETRAJECTORY)) {
 				propFindAimingAt(HAND_RIGHT, false, FINDPROPCONTEXT_QUERY);
 
 				if (hand->hasdotinfo) {
@@ -5535,6 +5766,7 @@ void bgunCreateFiredProjectile(s32 handnum)
 						weapon->base.projectile->pickuptimer240 = TICKS(240);
 						weapon->base.projectile->unk08c = reflectangle;
 						weapon->base.projectile->unk098 = funcdef->unk50 * 1.6666666f;
+						projectileApplyGraphRuntime(&weapon->base, projectilegraph);
 
 						if (soundnum > 0) {
 							psCreate(NULL, weapon->base.prop, soundnum, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
@@ -5615,6 +5847,7 @@ void bgunCreateFiredProjectile(s32 handnum)
 					weapon->base.projectile->pickuptimer240 = TICKS(240);
 					weapon->base.projectile->unk08c = reflectangle;
 					weapon->base.projectile->unk098 = funcdef->unk50 * 1.6666666f;
+					projectileApplyGraphRuntime(&weapon->base, projectilegraph);
 
 					if (soundnum > 0) {
 						psCreate(NULL, weapon->base.prop, soundnum, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);

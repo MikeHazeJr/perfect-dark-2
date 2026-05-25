@@ -40,6 +40,10 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .mobile-board-copy{min-width:0;flex:1}
 #mobile-board-title{display:block;font-size:0.78rem;font-weight:900;color:#f8fafc;letter-spacing:0.05em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #mobile-board-count{display:block;font-size:0.68rem;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+#mobile-tab-bar{display:none;background:#0c1426;border-bottom:1px solid #1e293b;padding:8px 10px;align-items:center;gap:8px;flex-shrink:0}
+#mobile-tab-select{flex:1;min-width:0;background:#111827;border:1px solid #334155;color:#f8fafc;border-radius:7px;padding:8px 10px;font-family:inherit;font-size:0.82rem;font-weight:800}
+#mobile-tab-select:focus{outline:none;border-color:#38bdf8;box-shadow:0 0 0 2px rgba(56,189,248,0.16)}
+#mobile-tab-count{max-width:42%;font-size:0.68rem;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* Board */
 #board{display:flex;flex:1;min-height:0;overflow:hidden;background:#0f172a}
@@ -114,11 +118,22 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 @media (max-width:760px){
   body{height:100dvh}
   #header,#tabs,#parked-sidebar,#ai-notes-dock,#ready-banner,#oq-banner,#pc-banner,#oq-banner-min,#pc-banner-min{display:none !important}
+  #mobile-tab-bar{display:flex}
   #mobile-board-bar{display:flex}
   #filters{display:none}
   #main-area{display:block}
   .panel{padding:0}
+  .panel.active{height:100%;min-height:0;overflow:auto}
   .panel#panel-kanban.active{height:100%;min-height:0}
+  .panel:not(#panel-kanban) .panel-header{position:sticky;top:0;z-index:3;background:#0f172a;padding:10px 10px;margin-bottom:0;border-bottom:1px solid #1e293b}
+  .panel:not(#panel-kanban) .panel-filters{width:100%;margin-left:0}
+  #panel-asset-decisions .asset-decision-summary,
+  #panel-asset-decisions .asset-decision-list,
+  #panel-decisions .decision-summary,
+  #panel-decisions .decision-layout,
+  #panel-memory-review .memory-summary,
+  #panel-memory-review .memory-list,
+  #bugs-list{padding:10px}
   #board{height:100%;min-height:0}
   #board.board-empty{padding:18px 12px}
   .kb-layout{display:block;height:100%;min-height:0}
@@ -565,6 +580,17 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .asset-decision-summary{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .asset-decision-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid #334155;border-radius:6px;background:#1e293b;color:#cbd5e1;font-size:0.73rem;font-weight:700}
 .asset-decision-pill strong{color:#fef3c7}
+.asset-card-toolbar{display:grid;grid-template-columns:minmax(240px,0.7fr) minmax(280px,1.3fr);gap:10px;align-items:end;margin-bottom:12px}
+.asset-card-selector label,.asset-card-progress label{display:block;color:#94a3b8;font-size:0.62rem;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px}
+.asset-card-selector select,.asset-card-progress select{width:100%;padding:7px 9px;border:1px solid #334155;border-radius:5px;background:#0f172a;color:#e2e8f0;font-family:inherit;font-size:0.78rem}
+.asset-card-current{background:#1e293b;border:1px solid #334155;border-left:4px solid #38bdf8;border-radius:6px;padding:9px 10px;color:#e2e8f0;font-size:0.78rem;line-height:1.4}
+.asset-card-current strong{display:block;color:#f8fafc;font-size:0.86rem;margin-bottom:2px}
+.asset-card-context{display:grid;grid-template-columns:repeat(2,minmax(260px,1fr));gap:10px;margin-bottom:14px}
+.asset-card-context-block{background:#1e293b;border:1px solid #334155;border-radius:6px;padding:9px 10px}
+.asset-card-context-block label{display:block;color:#7dd3fc;font-size:0.62rem;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px}
+.asset-card-context-block textarea{width:100%;min-height:82px;resize:vertical;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-family:inherit;font-size:0.78rem;line-height:1.45;padding:7px 9px}
+.asset-card-context-block textarea.tall{min-height:118px}
+.asset-decision-tools{display:flex;gap:6px;align-items:center;justify-content:flex-end;margin-top:8px;flex-wrap:wrap}
 .asset-decision-list{display:flex;flex-direction:column;gap:14px}
 .asset-decision-group{display:flex;flex-direction:column;gap:8px}
 .asset-decision-group-head{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:0.74rem;font-weight:800;text-transform:uppercase;letter-spacing:0.06em}
@@ -574,17 +600,27 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .asset-decision-row.status-change_requested,.asset-decision-row.status-more_info{border-left-color:#f97316}
 .asset-decision-row.status-defer{border-left-color:#8b5cf6}
 .asset-decision-row.status-rejected{border-left-color:#ef4444}
+.asset-decision-row.status-done{border-left-color:#22c55e}
 .asset-decision-head{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:start;margin-bottom:8px}
 .asset-decision-target{font-size:0.9rem;color:#f8fafc;font-weight:850;font-family:ui-monospace,Consolas,monospace}
+.asset-decision-target-input{width:100%;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#f8fafc;font-family:ui-monospace,Consolas,monospace;font-size:0.86rem;font-weight:850;padding:6px 8px}
 .asset-decision-level{display:inline-block;margin-left:8px;padding:1px 6px;border-radius:999px;background:#334155;color:#cbd5e1;font-family:inherit;font-size:0.62rem;font-weight:800;text-transform:uppercase;letter-spacing:0.05em}
 .asset-decision-status{padding:5px 8px;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-family:inherit;font-size:0.74rem;font-weight:800}
 .asset-decision-copy{display:grid;grid-template-columns:minmax(260px,1fr) minmax(260px,1fr);gap:10px;margin-bottom:9px}
 .asset-decision-copy-block{background:#0f172a;border:1px solid #334155;border-radius:5px;padding:9px 10px;color:#cbd5e1;font-size:0.78rem;line-height:1.45}
 .asset-decision-copy-block strong{display:block;color:#7dd3fc;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px}
+.asset-decision-copy-block textarea{width:100%;min-height:74px;resize:vertical;background:#020617;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-family:inherit;font-size:0.78rem;line-height:1.45;padding:7px 9px}
+.asset-decision-recording{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:9px;padding:8px 10px;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#cbd5e1;font-size:0.76rem}
+.asset-decision-recording strong{color:#86efac;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.06em}
+.asset-decision-recording.follow_up strong{color:#fed7aa}
+.asset-decision-recording .asset-decision-card-id{font-family:ui-monospace,Consolas,monospace;color:#bae6fd;font-weight:800}
+.asset-decision-extra{display:grid;grid-template-columns:repeat(3,minmax(220px,1fr));gap:10px;margin-bottom:9px}
+.asset-decision-extra-block{background:#082f49;border:1px solid #0e7490;border-radius:5px;padding:9px 10px;color:#dff6ff;font-size:0.78rem;line-height:1.45;white-space:pre-wrap}
+.asset-decision-extra-block strong{display:block;color:#bae6fd;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px}
 .asset-decision-notes{display:grid;grid-template-columns:minmax(260px,1fr) minmax(260px,1fr);gap:10px}
-.asset-decision-notes textarea{width:100%;min-height:58px;resize:vertical;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-family:inherit;font-size:0.78rem;padding:7px 9px}
-.asset-decision-notes textarea:focus,.asset-decision-status:focus{outline:none;border-color:#38bdf8}
-@media (max-width:900px){.asset-decision-copy,.asset-decision-notes{grid-template-columns:1fr}.asset-decision-head{grid-template-columns:1fr}.asset-decision-status{justify-self:start}}
+.asset-decision-notes textarea{width:100%;min-height:58px;resize:vertical;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-family:inherit;font-size:0.78rem;line-height:1.45;padding:7px 9px}
+.asset-decision-notes textarea:focus,.asset-decision-copy-block textarea:focus,.asset-card-context-block textarea:focus,.asset-card-selector select:focus,.asset-card-progress select:focus,.asset-decision-status:focus,.asset-decision-target-input:focus{outline:none;border-color:#38bdf8}
+@media (max-width:900px){.asset-card-toolbar,.asset-card-context,.asset-decision-copy,.asset-decision-extra,.asset-decision-notes{grid-template-columns:1fr}.asset-decision-head{grid-template-columns:1fr}.asset-decision-status{justify-self:start}}
 
 /* Memory Review tab */
 #panel-memory-review{background:#0f172a}
@@ -756,9 +792,21 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
   <button class="tab-btn active" data-tab="kanban" onclick="switchTab('kanban')">Active Kanban</button>
   <button class="tab-btn" data-tab="bugs" onclick="switchTab('bugs')">Bug Tracker <span id="bugs-tab-count" style="opacity:0.7"></span></button>
   <button class="tab-btn" data-tab="decisions" onclick="switchTab('decisions')">Decision Requests <span id="decision-tab-count" style="opacity:0.7"></span></button>
-  <button class="tab-btn" data-tab="asset-decisions" onclick="switchTab('asset-decisions')">Asset Decisions <span id="asset-decisions-tab-count" style="opacity:0.7"></span></button>
+  <button class="tab-btn" data-tab="asset-decisions" onclick="switchTab('asset-decisions')">Card Decisions <span id="asset-decisions-tab-count" style="opacity:0.7"></span></button>
   <button class="tab-btn" data-tab="memory-review" onclick="switchTab('memory-review')">Memory Review <span id="memory-review-tab-count" style="opacity:0.7"></span></button>
   <button class="tab-btn" data-tab="daily-flow" onclick="switchTab('daily-flow')">Daily Flow <span id="daily-flow-tab-count" style="opacity:0.7"></span></button>
+</div>
+
+<div id="mobile-tab-bar" aria-label="Kanban mobile sections">
+  <select id="mobile-tab-select" onchange="switchTab(this.value)" aria-label="Kanban section">
+    <option value="kanban">Active Kanban</option>
+    <option value="asset-decisions">Card Decisions</option>
+    <option value="decisions">Decision Requests</option>
+    <option value="bugs">Bug Tracker</option>
+    <option value="memory-review">Memory Review</option>
+    <option value="daily-flow">Daily Flow</option>
+  </select>
+  <span id="mobile-tab-count"></span>
 </div>
 
 <div id="ready-banner" class="tab-banner">
@@ -878,11 +926,12 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 
   <div id="panel-asset-decisions" class="panel">
     <div class="panel-header">
-      <span class="panel-title">Asset Decisions</span>
+      <span class="panel-title">Card Decisions</span>
       <span class="panel-count" id="asset-decisions-count"></span>
       <div class="panel-filters">
+        <button class="btn btn-ghost btn-sm" onclick="addCardDecisionItemFromTab()">Add Decision</button>
         <button class="btn btn-ghost btn-sm" onclick="renderAssetDecisionsTab()">Refresh</button>
-        <button class="btn btn-primary btn-sm" onclick="saveAssetDecisionsFromTab()">Save Decisions</button>
+        <button class="btn btn-primary btn-sm" onclick="saveAssetDecisionsFromTab()">Save Card Context</button>
       </div>
     </div>
     <div class="asset-decision-summary" id="asset-decisions-summary"></div>
@@ -1286,7 +1335,19 @@ const ASSET_DECISION_STATUSES = [
   ['change_requested', 'Change requested'],
   ['more_info', 'Need more info'],
   ['defer', 'Defer'],
-  ['rejected', 'Reject']
+  ['rejected', 'Reject'],
+  ['done', 'Done']
+];
+
+const CARD_PROGRESS_STATUSES = [
+  ['not_started', 'Not started'],
+  ['investigating', 'Investigating'],
+  ['needs_decision', 'Needs decision'],
+  ['ready_to_act', 'Ready to act'],
+  ['in_progress', 'In progress'],
+  ['blocked', 'Blocked'],
+  ['pending_verification', 'Pending verification'],
+  ['done', 'Done']
 ];
 
 const DEFAULT_ASSET_DECISION_ITEMS = [
@@ -1589,6 +1650,7 @@ let editingCardId = null;
 let selectedCardId = localStorage.getItem('pd2kb-selected-card') || null;
 let listDragId = null;
 let boardDetailDirty = false;
+let assetDecisionEditingCardId = null;
 let mobileCardOpen = false;
 let cardSessionCache = {};
 let cardSessionPollTimer = null;
@@ -1864,6 +1926,45 @@ function updateMobileBoardBar(visibleCards) {
     filterText = pillar ? pillar.name : 'Filtered';
   }
   count.textContent = `${visibleCards.length} cards - ${filterText}`;
+  refreshMobileTabBar();
+}
+
+function refreshMobileTabBar() {
+  const sel = document.getElementById('mobile-tab-select');
+  const count = document.getElementById('mobile-tab-count');
+  if (!sel || !count) return;
+  if (sel.value !== activeTab) sel.value = activeTab;
+
+  if (!state) {
+    count.textContent = '';
+    return;
+  }
+
+  if (activeTab === 'kanban') {
+    const total = cardsInColumn(activeKanbanColumn).filter(c => cardMatchesBoardFilter(c)).length;
+    count.textContent = `${total} cards`;
+  } else if (activeTab === 'asset-decisions') {
+    const box = ensureAssetArchiveDecisionsState();
+    const card = currentAssetDecisionCard();
+    const record = card ? ensureCardDecisionRecord(card.id, card) : null;
+    const counts = assetDecisionCounts(record ? record.items || [] : []);
+    count.textContent = card ? `${card.id}: ${counts.open}/${counts.total} open` : 'No card';
+  } else if (activeTab === 'decisions' && decisionRequestsData) {
+    const open = decisionRequestsData.unresolved_question_count || 0;
+    const answered = decisionRequestsData.answered_question_count || 0;
+    count.textContent = `${open}/${answered} decisions`;
+  } else if (activeTab === 'bugs' && bugsData) {
+    const total = (bugsData.bugs || []).length;
+    const open = (bugsData.bugs || []).filter(b => b.status !== 'fixed').length;
+    count.textContent = `${open}/${total} bugs`;
+  } else if (activeTab === 'memory-review' && memoryReviewData) {
+    const summary = memoryReviewCounts();
+    count.textContent = `${summary.counts.unreviewed || 0}/${summary.total} memory`;
+  } else if (activeTab === 'daily-flow') {
+    count.textContent = '';
+  } else {
+    count.textContent = '';
+  }
 }
 
 function openMobileFilters() {
@@ -2035,6 +2136,7 @@ function selectBoardCard(cardId) {
   if (!sameCard) {
     selectedCardId = cardId;
     localStorage.setItem('pd2kb-selected-card', selectedCardId);
+    if (state) ensureAssetArchiveDecisionsState().active_card_id = selectedCardId;
     boardDetailDirty = false;
   }
   if (isMobileKanban()) mobileCardOpen = true;
@@ -3760,6 +3862,10 @@ function openParkedSidebar() {
 }
 
 function switchTab(name) {
+  if (activeTab === 'asset-decisions' && name !== 'asset-decisions') {
+    const box = stashAssetDecisionsForm(true);
+    if (box) scheduleSave();
+  }
   activeTab = name;
   if (name !== 'kanban') {
     mobileCardOpen = false;
@@ -3772,6 +3878,7 @@ function switchTab(name) {
   if (name === 'asset-decisions') renderAssetDecisionsTab();
   if (name === 'memory-review') renderMemoryReviewTab();
   if (name === 'daily-flow') renderDailyFlowTab();
+  refreshMobileTabBar();
 }
 
 async function loadParked() {
@@ -3825,6 +3932,7 @@ function refreshTabCounts() {
     const open = (bugsData.bugs || []).filter(b => b.status !== 'fixed').length;
     document.getElementById('bugs-tab-count').textContent = `(${open}/${total})`;
   }
+  refreshMobileTabBar();
 }
 
 function refreshDecisionTabCount() {
@@ -3834,6 +3942,7 @@ function refreshDecisionTabCount() {
   const answered = decisionRequestsData.answered_question_count || 0;
   badge.textContent = (open || answered) ? `(${open}/${answered})` : '';
   badge.title = `${open} unresolved, ${answered} answered`;
+  refreshMobileTabBar();
 }
 
 function memoryReviewCounts() {
@@ -3853,6 +3962,7 @@ function refreshMemoryReviewTabCount() {
   const unreviewed = summary.counts.unreviewed || 0;
   badge.textContent = summary.total ? `(${unreviewed}/${summary.total})` : '';
   badge.title = `${unreviewed} unreviewed of ${summary.total}`;
+  refreshMobileTabBar();
 }
 
 function cloneDefaultAssetDecisionItems() {
@@ -3860,47 +3970,120 @@ function cloneDefaultAssetDecisionItems() {
 }
 
 function ensureAssetArchiveDecisionsState() {
-  if (!state) return {items: []};
-  if (!state.x_asset_archive_decisions) {
-    state.x_asset_archive_decisions = {
+  if (!state) return {cards: {}};
+  if (!state.x_card_task_context) {
+    state.x_card_task_context = {
+      version: 1,
       updated: null,
-      summary: 'Asset archive format freeze review recommendations before implementation.',
-      items: cloneDefaultAssetDecisionItems()
+      active_card_id: selectedCardId || null,
+      cards: {}
     };
-    return state.x_asset_archive_decisions;
   }
-
-  const box = state.x_asset_archive_decisions;
-  if (!box.summary) box.summary = 'Asset archive format freeze review recommendations before implementation.';
-  if (!Array.isArray(box.items)) box.items = [];
-
-  const existingById = new Map(box.items.map(item => [item.id, item]));
-  const defaultIds = new Set(DEFAULT_ASSET_DECISION_ITEMS.map(item => item.id));
-  const merged = [];
-  for (const base of cloneDefaultAssetDecisionItems()) {
-    const existing = existingById.get(base.id) || {};
-    merged.push(Object.assign({}, base, {
-      status: existing.status || base.status || 'needs_decision',
-      mike_decision: existing.mike_decision || '',
-      notes: existing.notes || ''
-    }));
-  }
-  for (const item of box.items) {
-    if (item && item.id && !defaultIds.has(item.id)) {
-      merged.push(Object.assign({
-        group: 'Custom',
-        target: item.id,
-        recommendation_level: 'custom',
-        recommendation: '',
-        decision_needed: '',
-        status: 'needs_decision',
-        mike_decision: '',
-        notes: ''
-      }, item));
-    }
-  }
-  box.items = merged;
+  const box = state.x_card_task_context;
+  if (!box.version) box.version = 1;
+  if (!box.cards || typeof box.cards !== 'object' || Array.isArray(box.cards)) box.cards = {};
+  if (!box.active_card_id && selectedCardId) box.active_card_id = selectedCardId;
+  importLegacyAssetArchiveDecisions(box);
   return box;
+}
+
+function importLegacyAssetArchiveDecisions(box) {
+  if (!state || !state.x_asset_archive_decisions || box.legacy_asset_archive_decisions_imported_at) return;
+  const legacy = state.x_asset_archive_decisions;
+  const cardId = 'c3824';
+  const card = getCard(cardId);
+  if (!box.cards[cardId]) {
+    box.cards[cardId] = {
+      card_id: cardId,
+      updated: null,
+      progress_status: 'not_started',
+      progress_summary: '',
+      context_notes: '',
+      card_memories: '',
+      codex_recommendation: '',
+      next_action: '',
+      items: []
+    };
+  }
+  const record = box.cards[cardId];
+  record.card_id = cardId;
+  if (!Array.isArray(record.items)) record.items = [];
+  if (!record.items || record.items.length === 0) {
+    record.items = (legacy.items || []).map(item => {
+      const recommendationParts = [
+        item.recommendation || '',
+        item.additional_info ? 'Additional info: ' + item.additional_info : '',
+        item.proposed_decision ? 'Recommendation: ' + item.proposed_decision : '',
+        item.answer_prompt ? 'Answer needed: ' + item.answer_prompt : ''
+      ].filter(Boolean);
+      const noteParts = [
+        item.notes || '',
+        item.recorded_label ? `${item.recorded_label}${item.recorded_card_id ? ' ' + item.recorded_card_id : ''}` : '',
+        item.recorded_at ? 'Recorded at ' + item.recorded_at : ''
+      ].filter(Boolean);
+      return {
+        id: item.id || newId(),
+        title: item.target || item.id || 'Archived asset decision',
+        prompt: item.decision_needed || '',
+        recommendation: recommendationParts.join('\n\n'),
+        status: item.status || 'approved',
+        mike_decision: item.mike_decision || '',
+        notes: noteParts.join('\n\n'),
+        source: 'legacy_asset_archive_decisions',
+        updated: item.updated || legacy.updated || null
+      };
+    });
+  }
+  record.progress_status = record.progress_status || 'done';
+  record.progress_summary = record.progress_summary || (legacy.recorded_summary || 'Archived asset-format decisions imported from the old global Asset Decisions surface.');
+  record.context_notes = record.context_notes || 'This record preserves the prior asset archive decision intake for c3824. New card decisions are stored per selected card under x_card_task_context.cards.';
+  record.updated = record.updated || legacy.updated || now();
+  box.legacy_asset_archive_decisions_imported_at = now();
+}
+
+function ensureCardDecisionRecord(cardId, card) {
+  const box = ensureAssetArchiveDecisionsState();
+  const id = cardId || (card && card.id) || selectedCardId;
+  if (!id) return null;
+  if (!box.cards[id]) {
+    box.cards[id] = {
+      card_id: id,
+      updated: null,
+      progress_status: 'not_started',
+      progress_summary: '',
+      context_notes: '',
+      card_memories: '',
+      codex_recommendation: '',
+      next_action: '',
+      items: []
+    };
+  }
+  const record = box.cards[id];
+  record.card_id = id;
+  if (!Array.isArray(record.items)) record.items = [];
+  if (!record.progress_status) record.progress_status = 'not_started';
+  if (record.progress_summary == null) record.progress_summary = '';
+  if (record.context_notes == null) record.context_notes = '';
+  if (record.card_memories == null) record.card_memories = '';
+  if (record.codex_recommendation == null) record.codex_recommendation = '';
+  if (record.next_action == null) record.next_action = '';
+  return record;
+}
+
+function currentAssetDecisionCard() {
+  if (!state || !Array.isArray(state.cards)) return null;
+  const box = ensureAssetArchiveDecisionsState();
+  let card = getCard(selectedCardId) || getCard(box.active_card_id);
+  if (!card) {
+    const activeCards = sortedCards(state.cards.filter(c => c.column === 'active'));
+    card = activeCards[0] || sortedCards(state.cards)[0] || null;
+  }
+  if (card) {
+    selectedCardId = card.id;
+    box.active_card_id = card.id;
+    localStorage.setItem('pd2kb-selected-card', selectedCardId);
+  }
+  return card;
 }
 
 function assetDecisionStatusLabel(status) {
@@ -3925,82 +4108,174 @@ function assetDecisionCounts(items) {
   return counts;
 }
 
+function assetDecisionNeedsAnswer(item) {
+  const status = item.status || 'needs_decision';
+  return status === 'needs_decision' || status === 'change_requested' || status === 'more_info';
+}
+
 function refreshAssetDecisionTabCount() {
   const badge = document.getElementById('asset-decisions-tab-count');
   if (!badge || !state) return;
   const box = ensureAssetArchiveDecisionsState();
-  const counts = assetDecisionCounts(box.items || []);
-  badge.textContent = counts.total ? `(${counts.open}/${counts.total})` : '';
-  badge.title = `${counts.open} decisions still open of ${counts.total}`;
+  const card = currentAssetDecisionCard();
+  const record = card ? ensureCardDecisionRecord(card.id, card) : null;
+  const counts = assetDecisionCounts(record ? record.items || [] : []);
+  badge.textContent = counts.open ? `(${counts.open})` : '';
+  badge.title = card
+    ? `${counts.open} open card decision item(s) for ${card.id}`
+    : 'No selected card';
+  refreshMobileTabBar();
 }
 
 function renderAssetDecisionsTab() {
+  if (assetDecisionEditingCardId) stashAssetDecisionsForm(false);
   const panelCount = document.getElementById('asset-decisions-count');
   const summary = document.getElementById('asset-decisions-summary');
   const list = document.getElementById('asset-decisions-list');
   if (!summary || !list || !state) return;
 
   const box = ensureAssetArchiveDecisionsState();
-  const items = box.items || [];
-  const counts = assetDecisionCounts(items);
-  if (panelCount) panelCount.textContent = `${counts.total} recommendations, ${counts.open} open`;
-  summary.innerHTML = [
-    `<span class="asset-decision-pill"><strong>${counts.open}</strong> open</span>`,
-    `<span class="asset-decision-pill"><strong>${counts.approved || 0}</strong> approved</span>`,
-    `<span class="asset-decision-pill"><strong>${counts.change_requested || 0}</strong> changes</span>`,
-    `<span class="asset-decision-pill"><strong>${counts.more_info || 0}</strong> info needed</span>`,
-    `<span class="asset-decision-pill"><strong>${counts.defer || 0}</strong> deferred</span>`,
-    `<span class="asset-decision-pill">saved: ${escapeHtml(shortDate(box.updated) || 'not yet')}</span>`
-  ].join('');
-
-  const groups = [];
-  const groupMap = new Map();
-  for (const item of items) {
-    const group = item.group || 'Other';
-    if (!groupMap.has(group)) {
-      const entry = {name: group, items: []};
-      groups.push(entry);
-      groupMap.set(group, entry);
-    }
-    groupMap.get(group).items.push(item);
-  }
-
-  list.innerHTML = '';
-  if (items.length === 0) {
-    list.innerHTML = '<div class="empty-state">No asset decision recommendations are available.</div>';
+  const card = currentAssetDecisionCard();
+  if (!card) {
+    if (panelCount) panelCount.textContent = 'No card selected';
+    summary.innerHTML = '';
+    list.innerHTML = '<div class="empty-state">Select a card first.</div>';
     return;
   }
-  for (const group of groups) {
-    const section = document.createElement('section');
-    section.className = 'asset-decision-group';
-    const head = document.createElement('div');
-    head.className = 'asset-decision-group-head';
-    const open = assetDecisionCounts(group.items).open;
-    head.innerHTML = `<span>${escapeHtml(group.name)}</span><span>${open} open / ${group.items.length}</span>`;
-    section.appendChild(head);
-    for (const item of group.items) section.appendChild(buildAssetDecisionRow(item));
-    list.appendChild(section);
+
+  const record = ensureCardDecisionRecord(card.id, card);
+  assetDecisionEditingCardId = card.id;
+  const items = record.items || [];
+  const counts = assetDecisionCounts(items);
+  const savedCards = Object.keys(box.cards || {}).length;
+  if (panelCount) panelCount.textContent = `${counts.open}/${counts.total} open for ${card.id}`;
+  summary.innerHTML = [
+    `<span class="asset-decision-pill"><strong>${escapeHtml(card.id)}</strong> selected card</span>`,
+    `<span class="asset-decision-pill"><strong>${counts.open}</strong> open</span>`,
+    `<span class="asset-decision-pill"><strong>${counts.total}</strong> tracked items</span>`,
+    `<span class="asset-decision-pill"><strong>${savedCards}</strong> cards stashed</span>`,
+    `<span class="asset-decision-pill">saved: ${escapeHtml(shortDate(record.updated || box.updated) || 'not yet')}</span>`
+  ].join('');
+
+  list.innerHTML = '';
+  list.appendChild(buildAssetDecisionCardToolbar(card, record));
+  list.appendChild(buildAssetDecisionContextGrid(record));
+
+  const section = document.createElement('section');
+  section.className = 'asset-decision-group';
+  const head = document.createElement('div');
+  head.className = 'asset-decision-group-head';
+  head.innerHTML = `<span>Decisions, progress, and Codex prompts</span><span>${counts.open} open / ${counts.total}</span>`;
+  section.appendChild(head);
+  if (items.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'No card-specific decision items yet. Use Add Decision when Codex needs to surface a decision or progress checkpoint for this card.';
+    section.appendChild(empty);
+  } else {
+    for (const item of items) section.appendChild(buildAssetDecisionRow(item));
   }
+  list.appendChild(section);
+}
+
+function buildAssetDecisionCardToolbar(card, record) {
+  const wrap = document.createElement('div');
+  wrap.className = 'asset-card-toolbar';
+
+  const selectorWrap = document.createElement('div');
+  selectorWrap.className = 'asset-card-selector';
+  const selectorLabel = document.createElement('label');
+  selectorLabel.htmlFor = 'asset-decisions-card-select';
+  selectorLabel.textContent = 'Selected card';
+  selectorWrap.appendChild(selectorLabel);
+  const selector = document.createElement('select');
+  selector.id = 'asset-decisions-card-select';
+  for (const c of sortedCards(state.cards || [])) {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = `${c.id} - ${c.title || '(untitled)'}`;
+    selector.appendChild(opt);
+  }
+  selector.value = card.id;
+  selector.onchange = () => selectAssetDecisionCard(selector.value);
+  selectorWrap.appendChild(selector);
+  wrap.appendChild(selectorWrap);
+
+  const current = document.createElement('div');
+  current.className = 'asset-card-current';
+  const pillar = getPillar(card.pillar);
+  current.innerHTML =
+    `<strong>${escapeHtml(card.title || '(untitled)')}</strong>` +
+    `${escapeHtml(card.id)} - ${escapeHtml(columnLabel(card.column || ''))}` +
+    (pillar ? ` - ${escapeHtml(pillar.name)}` : '');
+  wrap.appendChild(current);
+
+  const progress = document.createElement('div');
+  progress.className = 'asset-card-progress';
+  const progressLabel = document.createElement('label');
+  progressLabel.htmlFor = 'asset-card-progress-status';
+  progressLabel.textContent = 'Progress state';
+  progress.appendChild(progressLabel);
+  const sel = document.createElement('select');
+  sel.id = 'asset-card-progress-status';
+  for (const entry of CARD_PROGRESS_STATUSES) {
+    const opt = document.createElement('option');
+    opt.value = entry[0];
+    opt.textContent = entry[1];
+    sel.appendChild(opt);
+  }
+  sel.value = record.progress_status || 'not_started';
+  progress.appendChild(sel);
+  wrap.appendChild(progress);
+  return wrap;
+}
+
+function buildAssetDecisionContextGrid(record) {
+  const grid = document.createElement('div');
+  grid.className = 'asset-card-context';
+  const fields = [
+    ['asset-card-progress-summary', 'Progress summary', record.progress_summary || '', 'What has happened on this card and where it stands.'],
+    ['asset-card-context-notes', 'Card context', record.context_notes || '', 'Relevant context, constraints, links, or handoff notes for this card.'],
+    ['asset-card-memories', 'Card memories', record.card_memories || '', 'Durable observations Codex should remember for this task.'],
+    ['asset-card-codex-recommendation', 'Codex recommendation', record.codex_recommendation || '', 'Recommendation or next decision Codex is surfacing.'],
+    ['asset-card-next-action', 'Next action after Mike answers', record.next_action || '', 'What Codex should do after reading this page back.', 'tall']
+  ];
+  for (const [id, label, value, placeholder, cls] of fields) {
+    const block = document.createElement('div');
+    block.className = 'asset-card-context-block';
+    const lbl = document.createElement('label');
+    lbl.htmlFor = id;
+    lbl.textContent = label;
+    const ta = document.createElement('textarea');
+    ta.id = id;
+    ta.value = value;
+    ta.placeholder = placeholder;
+    if (cls) ta.className = cls;
+    block.appendChild(lbl);
+    block.appendChild(ta);
+    grid.appendChild(block);
+  }
+  return grid;
 }
 
 function buildAssetDecisionRow(item) {
   const row = document.createElement('div');
   row.className = `asset-decision-row ${assetDecisionStatusClass(item.status)}`;
+  row.dataset.itemId = item.id || newId();
 
   const head = document.createElement('div');
   head.className = 'asset-decision-head';
-  const title = document.createElement('div');
-  title.className = 'asset-decision-target';
-  title.textContent = item.target || item.id || 'Asset decision';
-  const level = document.createElement('span');
-  level.className = 'asset-decision-level';
-  level.textContent = item.recommendation_level || 'review';
-  title.appendChild(level);
+  const title = document.createElement('input');
+  title.className = 'asset-decision-target-input';
+  title.id = 'asset-decision-title-' + row.dataset.itemId;
+  title.type = 'text';
+  title.value = item.title || item.target || item.id || '';
+  title.placeholder = 'Decision or progress item title';
   head.appendChild(title);
 
   const status = document.createElement('select');
   status.className = 'asset-decision-status';
-  status.id = 'asset-decision-status-' + item.id;
+  status.id = 'asset-decision-status-' + row.dataset.itemId;
   for (const entry of ASSET_DECISION_STATUSES) {
     const opt = document.createElement('option');
     opt.value = entry[0];
@@ -4013,29 +4288,61 @@ function buildAssetDecisionRow(item) {
 
   const copy = document.createElement('div');
   copy.className = 'asset-decision-copy';
-  const recommendation = document.createElement('div');
-  recommendation.className = 'asset-decision-copy-block';
-  recommendation.innerHTML = `<strong>Recommendation</strong>${escapeHtml(item.recommendation || '')}`;
-  copy.appendChild(recommendation);
   const needed = document.createElement('div');
   needed.className = 'asset-decision-copy-block';
-  needed.innerHTML = `<strong>Decision needed from Mike</strong>${escapeHtml(item.decision_needed || '')}`;
+  needed.innerHTML = '<strong>Decision or progress prompt</strong>';
+  const prompt = document.createElement('textarea');
+  prompt.id = 'asset-decision-prompt-' + row.dataset.itemId;
+  prompt.placeholder = 'What Codex needs Mike to decide, verify, or clarify for this card.';
+  prompt.value = item.prompt || item.decision_needed || '';
+  needed.appendChild(prompt);
   copy.appendChild(needed);
+  const recommendation = document.createElement('div');
+  recommendation.className = 'asset-decision-copy-block';
+  recommendation.innerHTML = '<strong>Codex recommendation</strong>';
+  const recommendationText = document.createElement('textarea');
+  recommendationText.id = 'asset-decision-recommendation-' + row.dataset.itemId;
+  recommendationText.placeholder = 'Codex recommendation, options, or reasoning to read back before acting.';
+  recommendationText.value = item.recommendation || item.proposed_decision || '';
+  recommendation.appendChild(recommendationText);
+  copy.appendChild(recommendation);
   row.appendChild(copy);
+
+  if (item.recorded_card_id) {
+    const recorded = document.createElement('div');
+    recorded.className = 'asset-decision-recording ' + escapeHtml(item.recorded_status || 'recorded');
+    const verb = item.recorded_status === 'follow_up' ? 'Follow-up' : 'Recorded';
+    const label = item.recorded_label || (verb + ' on ' + item.recorded_card_id);
+    recorded.innerHTML =
+      `<strong>${escapeHtml(verb)}</strong>` +
+      `<span>${escapeHtml(label)} <span class="asset-decision-card-id">${escapeHtml(item.recorded_card_id)}</span></span>` +
+      (item.recorded_at ? `<span>${escapeHtml(shortDate(item.recorded_at))}</span>` : '');
+    row.appendChild(recorded);
+  }
 
   const notes = document.createElement('div');
   notes.className = 'asset-decision-notes';
   const mikeDecision = document.createElement('textarea');
-  mikeDecision.id = 'asset-decision-mike-' + item.id;
-  mikeDecision.placeholder = 'Your decision, requested change, or approval note';
+  mikeDecision.id = 'asset-decision-mike-' + row.dataset.itemId;
+  mikeDecision.placeholder = 'Mike decision, requested change, approval note, or verification result';
   mikeDecision.value = item.mike_decision || '';
   notes.appendChild(mikeDecision);
   const implementationNotes = document.createElement('textarea');
-  implementationNotes.id = 'asset-decision-notes-' + item.id;
-  implementationNotes.placeholder = 'Extra implementation notes or follow-up questions';
+  implementationNotes.id = 'asset-decision-notes-' + row.dataset.itemId;
+  implementationNotes.placeholder = 'Implementation notes, follow-up questions, or Codex read-back notes';
   implementationNotes.value = item.notes || '';
   notes.appendChild(implementationNotes);
   row.appendChild(notes);
+
+  const tools = document.createElement('div');
+  tools.className = 'asset-decision-tools';
+  const remove = document.createElement('button');
+  remove.className = 'btn btn-ghost btn-sm';
+  remove.type = 'button';
+  remove.textContent = 'Remove';
+  remove.onclick = () => removeAssetDecisionRow(row.dataset.itemId);
+  tools.appendChild(remove);
+  row.appendChild(tools);
   return row;
 }
 
@@ -4046,18 +4353,97 @@ function readAssetDecisionField(prefix, itemId) {
 
 async function saveAssetDecisionsFromTab() {
   if (!state) return;
-  const box = ensureAssetArchiveDecisionsState();
-  for (const item of box.items || []) {
-    item.status = readAssetDecisionField('asset-decision-status-', item.id) || item.status || 'needs_decision';
-    item.mike_decision = readAssetDecisionField('asset-decision-mike-', item.id);
-    item.notes = readAssetDecisionField('asset-decision-notes-', item.id);
-  }
+  const box = stashAssetDecisionsForm(true);
+  if (!box) return;
   box.updated = now();
   const saved = await saveStateNow();
   if (saved) {
     refreshAssetDecisionTabCount();
     renderAssetDecisionsTab();
   }
+}
+
+function stashAssetDecisionsForm(markUpdated) {
+  if (!state || !assetDecisionEditingCardId) return null;
+  const box = ensureAssetArchiveDecisionsState();
+  const record = ensureCardDecisionRecord(assetDecisionEditingCardId);
+  if (!record) return box;
+
+  const progress = document.getElementById('asset-card-progress-status');
+  if (progress) record.progress_status = progress.value || record.progress_status || 'not_started';
+  const progressSummary = document.getElementById('asset-card-progress-summary');
+  if (progressSummary) record.progress_summary = progressSummary.value.trim();
+  const contextNotes = document.getElementById('asset-card-context-notes');
+  if (contextNotes) record.context_notes = contextNotes.value.trim();
+  const cardMemories = document.getElementById('asset-card-memories');
+  if (cardMemories) record.card_memories = cardMemories.value.trim();
+  const recommendation = document.getElementById('asset-card-codex-recommendation');
+  if (recommendation) record.codex_recommendation = recommendation.value.trim();
+  const nextAction = document.getElementById('asset-card-next-action');
+  if (nextAction) record.next_action = nextAction.value.trim();
+
+  const rows = [...document.querySelectorAll('#asset-decisions-list .asset-decision-row')];
+  record.items = rows.map((row, index) => {
+    const id = row.dataset.itemId || newId();
+    return {
+      id,
+      title: readAssetDecisionField('asset-decision-title-', id).trim() || 'Untitled decision',
+      prompt: readAssetDecisionField('asset-decision-prompt-', id).trim(),
+      recommendation: readAssetDecisionField('asset-decision-recommendation-', id).trim(),
+      status: readAssetDecisionField('asset-decision-status-', id) || 'needs_decision',
+      mike_decision: readAssetDecisionField('asset-decision-mike-', id).trim(),
+      notes: readAssetDecisionField('asset-decision-notes-', id).trim(),
+      order: (index + 1) * 1000
+    };
+  });
+  if (markUpdated) {
+    record.updated = now();
+    box.updated = record.updated;
+  }
+  box.active_card_id = assetDecisionEditingCardId;
+  return box;
+}
+
+function addCardDecisionItemFromTab() {
+  if (!state) return;
+  stashAssetDecisionsForm(false);
+  const card = currentAssetDecisionCard();
+  if (!card) return;
+  const record = ensureCardDecisionRecord(card.id, card);
+  const id = newId();
+  record.items.push({
+    id,
+    title: '',
+    prompt: '',
+    recommendation: '',
+    status: 'needs_decision',
+    mike_decision: '',
+    notes: '',
+    order: (record.items.length + 1) * 1000
+  });
+  assetDecisionEditingCardId = null;
+  renderAssetDecisionsTab();
+  const title = document.getElementById('asset-decision-title-' + id);
+  if (title) title.focus();
+}
+
+function removeAssetDecisionRow(itemId) {
+  for (const row of document.querySelectorAll('#asset-decisions-list .asset-decision-row')) {
+    if (row.dataset.itemId === itemId) row.remove();
+  }
+}
+
+function selectAssetDecisionCard(cardId) {
+  if (!cardId || !getCard(cardId)) return;
+  stashAssetDecisionsForm(true);
+  selectedCardId = cardId;
+  const box = ensureAssetArchiveDecisionsState();
+  box.active_card_id = cardId;
+  localStorage.setItem('pd2kb-selected-card', selectedCardId);
+  assetDecisionEditingCardId = null;
+  renderAssetDecisionsTab();
+  refreshAssetDecisionTabCount();
+  scheduleSave();
 }
 
 function setMemoryReviewFilter(value) {

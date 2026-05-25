@@ -1,10 +1,9 @@
 /**
  * loader_walker_font.c -- Step 4 (2026-05-03).
  *
- * Walks data/<romid>/fonts/*.pdfont and registers each as ASSET_UI.
- * No dedicated font asset_type_e exists; the closest semantic bucket is
- * UI (font is a UI element). The font face name is captured in the
- * catalog row's `category` so consumers can filter without re-parsing.
+ * Walks data/<romid>/fonts/*.pdfont and registers each as ASSET_FONT.
+ * The font face name is captured in the catalog row's `category` so
+ * consumers can filter without re-parsing.
  */
 
 #include <stddef.h>
@@ -22,7 +21,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 {
     (void)pd_kind; (void)file_path;
 
-    asset_entry_t *e = assetCatalogRegister(id, ASSET_UI);
+    asset_entry_t *e = assetCatalogRegister(id, ASSET_FONT);
     if (!e) return -1;
 
     /* Engine Phase 4: walker may run from boot-pool workers; build the

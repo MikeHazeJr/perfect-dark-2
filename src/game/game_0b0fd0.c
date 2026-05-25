@@ -195,6 +195,14 @@ f32 currentPlayerGetGunZoomFov(void)
 {
 	s32 index = -1;
 	struct weapon *weapon;
+	const weapon_graph_held_function_t *graph =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(
+			g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponnum,
+			g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc);
+
+	if (graph && graph->has_zoom_fov) {
+		return ADJUST_ZOOM_FOV(graph->zoom_fov);
+	}
 
 	switch (bgunGetWeaponNum2(0)) {
 	case WEAPON_SNIPERRIFLE:
@@ -703,6 +711,10 @@ u32 currentPlayerGetSight(void)
 
 	if (cheatIsActive(CHEAT_CLASSICSIGHT)) {
 		return SIGHT_CLASSIC;
+	}
+
+	if (graph && graph->has_sight) {
+		return graph->sight;
 	}
 
 	switch (g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponnum) {

@@ -1047,17 +1047,23 @@ static const char *bootDebugAssetTypeName(asset_type_e type)
 	case ASSET_WEAPON:    return "weapon";
 	case ASSET_PROJECTILE: return "projectile";
 	case ASSET_ENTITY:    return "entity";
+	case ASSET_MATERIAL:  return "material";
 	case ASSET_MAP:       return "map";
 	case ASSET_ARENA:     return "arena";
 	case ASSET_CHARACTER: return "character";
 	case ASSET_PROP:      return "prop";
 	case ASSET_ANIMATION: return "animation";
 	case ASSET_TEXTURE:   return "texture";
+	case ASSET_EFFECT:    return "effect";
 	case ASSET_AUDIO:     return "audio";
 	case ASSET_LANG:      return "lang";
 	case ASSET_UI:        return "ui";
+	case ASSET_FONT:      return "font";
 	case ASSET_HUD:       return "hud";
 	case ASSET_GAMEMODE:  return "gamemode";
+	case ASSET_BOT_PROFILE: return "botprofile";
+	case ASSET_SCENARIO:  return "scenario";
+	case ASSET_THEME:     return "theme";
 	default:              return "unknown";
 	}
 }
@@ -1073,17 +1079,23 @@ static asset_type_e bootDebugParseAssetType(const char *s)
 	if (strcmp(s, "weapon") == 0) return ASSET_WEAPON;
 	if (strcmp(s, "projectile") == 0) return ASSET_PROJECTILE;
 	if (strcmp(s, "entity") == 0) return ASSET_ENTITY;
+	if (strcmp(s, "material") == 0) return ASSET_MATERIAL;
 	if (strcmp(s, "map") == 0) return ASSET_MAP;
 	if (strcmp(s, "arena") == 0) return ASSET_ARENA;
 	if (strcmp(s, "character") == 0) return ASSET_CHARACTER;
 	if (strcmp(s, "prop") == 0) return ASSET_PROP;
 	if (strcmp(s, "animation") == 0 || strcmp(s, "anim") == 0) return ASSET_ANIMATION;
 	if (strcmp(s, "texture") == 0) return ASSET_TEXTURE;
+	if (strcmp(s, "effect") == 0) return ASSET_EFFECT;
 	if (strcmp(s, "audio") == 0) return ASSET_AUDIO;
 	if (strcmp(s, "lang") == 0 || strcmp(s, "language") == 0) return ASSET_LANG;
-	if (strcmp(s, "ui") == 0 || strcmp(s, "font") == 0) return ASSET_UI;
+	if (strcmp(s, "ui") == 0) return ASSET_UI;
+	if (strcmp(s, "font") == 0) return ASSET_FONT;
 	if (strcmp(s, "hud") == 0) return ASSET_HUD;
-	if (strcmp(s, "gamemode") == 0 || strcmp(s, "scenario") == 0) return ASSET_GAMEMODE;
+	if (strcmp(s, "gamemode") == 0) return ASSET_GAMEMODE;
+	if (strcmp(s, "botprofile") == 0 || strcmp(s, "bot_profile") == 0) return ASSET_BOT_PROFILE;
+	if (strcmp(s, "scenario") == 0) return ASSET_SCENARIO;
+	if (strcmp(s, "theme") == 0) return ASSET_THEME;
 	return ASSET_NONE;
 }
 
@@ -1117,7 +1129,8 @@ static void bootDebugLogTypedPayload(asset_type_e type, const char *asset_id, s3
 			type_name, asset_id, (void *)modeldef);
 	}
 
-	if (type == ASSET_ARENA || type == ASSET_MAP || type == ASSET_GAMEMODE) {
+	if (type == ASSET_ARENA || type == ASSET_MAP || type == ASSET_GAMEMODE
+			|| type == ASSET_SCENARIO) {
 		struct colmesh *mesh = catalogGetLoadedColmesh(asset_id);
 		sysLogPrintf(LOG_NOTE,
 			"BOOT: --debug-load-catalog-assets colmesh type=%s id='%s' ptr=%p",

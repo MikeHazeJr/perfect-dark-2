@@ -318,6 +318,84 @@ const char *modiniTemplateForKind(const char *kind)
 			"; cleanup = owner_or_lifetime\n";
 	}
 
+	if (strcmp(kind, "material") == 0) {
+		return
+			"; material.ini - reusable render/surface material metadata\n"
+			"[material]\n"
+			"; catalog_id = mod:material_id\n"
+			"name = New Material\n"
+			"material_file = material.json\n"
+			"; texture_archive = dependencies/assets/texture/texture.pdtexture\n"
+			"; effect_archive = dependencies/assets/effect/effect.pdeffect\n";
+	}
+
+	if (strcmp(kind, "texture") == 0) {
+		return
+			"; texture.ini - reusable texture metadata\n"
+			"[texture]\n"
+			"; catalog_id = mod:texture_id\n"
+			"name = New Texture\n"
+			"file_path = texture.png\n"
+			"; texture_file = texture.tga\n";
+	}
+
+	if (strcmp(kind, "skin") == 0) {
+		return
+			"; skin.ini - character or surface skin metadata\n"
+			"[skin]\n"
+			"; catalog_id = mod:skin_id\n"
+			"name = New Skin\n"
+			"; target = base:character\n"
+			"texture_file = texture.tga\n"
+			"; material_archive = dependencies/assets/material/material.pdmaterial\n";
+	}
+
+	if (strcmp(kind, "effect") == 0) {
+		return
+			"; effect.ini - reusable visual/feedback effect metadata\n"
+			"[effect]\n"
+			"; catalog_id = mod:effect_id\n"
+			"name = New Effect\n"
+			"effect_file = effect.graph.json\n"
+			"; texture_archive = dependencies/assets/texture/texture.pdtexture\n"
+			"; audio_archive = dependencies/assets/audio/effect.pdsfx\n";
+	}
+
+	if (strcmp(kind, "prop") == 0) {
+		return
+			"; prop.ini - reusable spawnable prop metadata\n"
+			"[prop]\n"
+			"; catalog_id = mod:prop_id\n"
+			"name = New Prop\n"
+			"prop_type = 0\n"
+			"model_file = model.gltf\n"
+			"health = 100\n"
+			"; flags = 0\n"
+			"; behavior_graph = behavior.graph.json\n";
+	}
+
+	if (strcmp(kind, "vehicle") == 0) {
+		return
+			"; vehicle.ini - reusable vehicle metadata\n"
+			"[vehicle]\n"
+			"; catalog_id = mod:vehicle_id\n"
+			"name = New Vehicle\n"
+			"model_file = model.gltf\n"
+			"; physics_file = physics.json\n"
+			"; behavior_graph = behavior.graph.json\n";
+	}
+
+	if (strcmp(kind, "mission") == 0) {
+		return
+			"; mission.ini - mission wrapper metadata\n"
+			"[mission]\n"
+			"; catalog_id = mod:mission_id\n"
+			"name = New Mission\n"
+			"; scenario_archive = dependencies/assets/scenario/mission.pdscenario\n"
+			"; objectives_file = objectives.ini\n"
+			"; briefing_file = briefing.tsv\n";
+	}
+
 	if (strcmp(kind, "head") == 0) {
 		return
 			"; head.ini - external multiplayer head metadata\n"
@@ -384,11 +462,8 @@ const char *modiniTemplateForKind(const char *kind)
 			"[scenario]\n"
 			"; catalog_id = mod:scenario_id\n"
 			"name = New Scenario\n"
-			"mode_id = -1\n"
-			"min_players = 2\n"
-			"max_players = 8\n"
-			"team_based = 0\n"
-			"; requirefeature = 0\n"
+			"stagenum = -1\n"
+			"mode = mp|solo\n"
 			"\n"
 			"[rooms]\n"
 			"rooms_file = rooms.obj\n"
@@ -398,6 +473,56 @@ const char *modiniTemplateForKind(const char *kind)
 			"[setup]\n"
 			"; pads_file = pads.ini\n"
 			"; setup_file = setup.ini\n";
+	}
+
+	if (strcmp(kind, "gamemode") == 0) {
+		return
+			"; gamemode.ini - Combat Simulator/custom rules metadata\n"
+			"[gamemode]\n"
+			"; catalog_id = mod:gamemode_id\n"
+			"name = New Game Mode\n"
+			"mode_id = -1\n"
+			"min_players = 2\n"
+			"max_players = 8\n"
+			"team_based = 0\n"
+			"; scenario_tags = combat,classic\n"
+			"; requirefeature = 0\n";
+	}
+
+	if (strcmp(kind, "botprofile") == 0 || strcmp(kind, "bot_profile") == 0) {
+		return
+			"; botprofile.ini - reusable bot skill/personality metadata\n"
+			"[bot_profile]\n"
+			"; catalog_id = mod:bot_profile_id\n"
+			"type = 0\n"
+			"difficulty = 0\n"
+			"body = -1\n"
+			"; name_langid = 0\n"
+			"; requirefeature = 0\n"
+			"; character_archive = dependencies/assets/character/bot.pdcharacter\n";
+	}
+
+	if (strcmp(kind, "hud") == 0) {
+		return
+			"; hud.ini - reusable gameplay HUD composition metadata\n"
+			"[hud]\n"
+			"; catalog_id = mod:hud_id\n"
+			"name = New HUD\n"
+			"hud_id = -1\n"
+			"element_type = 0\n"
+			"texture_file = texture.png\n"
+			"; font_archive = dependencies/assets/font/body.pdfont\n";
+	}
+
+	if (strcmp(kind, "theme") == 0) {
+		return
+			"; theme.ini - menu/UI theme bundle metadata\n"
+			"[theme]\n"
+			"; catalog_id = mod:theme_id\n"
+			"name = New Theme\n"
+			"theme_file = theme.json\n"
+			"; ui_archive = dependencies/assets/ui/chrome.pdui\n"
+			"; font_archive = dependencies/assets/font/body.pdfont\n";
 	}
 
 	if (strcmp(kind, "animation") == 0) {
@@ -624,25 +749,31 @@ static asset_type_e categoryToType(const char *dirname)
 	if (strcmp(dirname, "weapons") == 0)     return ASSET_WEAPON;
 	if (strcmp(dirname, "projectiles") == 0) return ASSET_PROJECTILE;
 	if (strcmp(dirname, "entities") == 0)    return ASSET_ENTITY;
+	if (strcmp(dirname, "materials") == 0)   return ASSET_MATERIAL;
 	if (strcmp(dirname, "textures") == 0)    return ASSET_TEXTURES;
+	if (strcmp(dirname, "texture") == 0)     return ASSET_TEXTURE;
 	if (strcmp(dirname, "sfx") == 0)         return ASSET_SFX;
 	if (strcmp(dirname, "music") == 0)       return ASSET_MUSIC;
 	if (strcmp(dirname, "props") == 0)       return ASSET_PROP;
 	if (strcmp(dirname, "vehicles") == 0)    return ASSET_VEHICLE;
 	if (strcmp(dirname, "missions") == 0)    return ASSET_MISSION;
 	if (strcmp(dirname, "ui") == 0)          return ASSET_UI;
-	if (strcmp(dirname, "fonts") == 0)       return ASSET_UI;
+	if (strcmp(dirname, "fonts") == 0)       return ASSET_FONT;
 	if (strcmp(dirname, "tools") == 0)       return ASSET_TOOL;
 	if (strcmp(dirname, "animations") == 0)  return ASSET_ANIMATION;
 	if (strcmp(dirname, "hud") == 0)         return ASSET_HUD;
 	if (strcmp(dirname, "gamemodes") == 0)   return ASSET_GAMEMODE;
-	if (strcmp(dirname, "scenarios") == 0)   return ASSET_GAMEMODE;
+	if (strcmp(dirname, "scenarios") == 0)   return ASSET_SCENARIO;
 	if (strcmp(dirname, "audio") == 0)       return ASSET_AUDIO;
 	if (strcmp(dirname, "lang_banks") == 0)  return ASSET_LANG;
 	if (strcmp(dirname, "lang") == 0)        return ASSET_LANG;
 	if (strcmp(dirname, "arenas") == 0)      return ASSET_ARENA;
 	if (strcmp(dirname, "bodies") == 0)      return ASSET_BODY;
 	if (strcmp(dirname, "heads") == 0)       return ASSET_HEAD;
+	if (strcmp(dirname, "effects") == 0)     return ASSET_EFFECT;
+	if (strcmp(dirname, "botprofiles") == 0) return ASSET_BOT_PROFILE;
+	if (strcmp(dirname, "bot_profiles") == 0) return ASSET_BOT_PROFILE;
+	if (strcmp(dirname, "themes") == 0)      return ASSET_THEME;
 	return ASSET_NONE;
 }
 
@@ -658,6 +789,7 @@ static asset_type_e sectionToType(const char *section)
 	if (strcmp(section, "weapon") == 0)       return ASSET_WEAPON;
 	if (strcmp(section, "projectile") == 0)   return ASSET_PROJECTILE;
 	if (strcmp(section, "entity") == 0)       return ASSET_ENTITY;
+	if (strcmp(section, "material") == 0)     return ASSET_MATERIAL;
 	if (strcmp(section, "textures") == 0)     return ASSET_TEXTURES;
 	if (strcmp(section, "sfx") == 0)          return ASSET_SFX;
 	if (strcmp(section, "music") == 0)        return ASSET_MUSIC;
@@ -665,12 +797,12 @@ static asset_type_e sectionToType(const char *section)
 	if (strcmp(section, "vehicle") == 0)      return ASSET_VEHICLE;
 	if (strcmp(section, "mission") == 0)      return ASSET_MISSION;
 	if (strcmp(section, "ui") == 0)           return ASSET_UI;
-	if (strcmp(section, "font") == 0)         return ASSET_UI;
+	if (strcmp(section, "font") == 0)         return ASSET_FONT;
 	if (strcmp(section, "tool") == 0)         return ASSET_TOOL;
 	if (strcmp(section, "animation") == 0)    return ASSET_ANIMATION;
 	if (strcmp(section, "hud") == 0)          return ASSET_HUD;
 	if (strcmp(section, "gamemode") == 0)     return ASSET_GAMEMODE;
-	if (strcmp(section, "scenario") == 0)     return ASSET_GAMEMODE;
+	if (strcmp(section, "scenario") == 0)     return ASSET_SCENARIO;
 	if (strcmp(section, "audio") == 0)        return ASSET_AUDIO;
 	if (strcmp(section, "texture") == 0)      return ASSET_TEXTURE;
 	if (strcmp(section, "lang_bank") == 0)    return ASSET_LANG;
@@ -680,6 +812,10 @@ static asset_type_e sectionToType(const char *section)
 	if (strcmp(section, "head") == 0)         return ASSET_HEAD;
 	if (strcmp(section, "mesh") == 0)         return ASSET_MODEL;
 	if (strcmp(section, "model") == 0)        return ASSET_MODEL;
+	if (strcmp(section, "effect") == 0)       return ASSET_EFFECT;
+	if (strcmp(section, "botprofile") == 0)   return ASSET_BOT_PROFILE;
+	if (strcmp(section, "bot_profile") == 0)  return ASSET_BOT_PROFILE;
+	if (strcmp(section, "theme") == 0)        return ASSET_THEME;
 	return ASSET_NONE;
 }
 
@@ -862,6 +998,7 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		"music_file",
 		"midi_file",
 		"file_path",
+		"theme_file",
 		"animation_file",
 		"texture_file",
 		"texture",
@@ -1143,7 +1280,15 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	case ASSET_SKIN:
 		{
 			const char *target = iniGet(ini, "target", "");
+			const char *tf = iniGet(ini, "texture_file",
+				iniGet(ini, "file_path",
+				iniGet(ini, "texture", "")));
 			strncpy(e->ext.skin.target_id, target, CATALOG_ID_LEN - 1);
+			strncpy(e->ext.skin.texture_file, tf, sizeof(e->ext.skin.texture_file) - 1);
+			e->ext.skin.texture_file[sizeof(e->ext.skin.texture_file) - 1] = '\0';
+			if (e->ext.skin.texture_file[0]) {
+				catalogSetPrimaryFile(e, e->ext.skin.texture_file);
+			}
 		}
 		break;
 
@@ -1296,9 +1441,31 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.texture.width = iniGetInt(ini, "width", 0);
 		e->ext.texture.height = iniGetInt(ini, "height", 0);
 		e->ext.texture.format = iniGetInt(ini, "format", 0);
-		strncpy(e->ext.texture.file_path, iniGet(ini, "file_path", ""), sizeof(e->ext.texture.file_path) - 1);
+		strncpy(e->ext.texture.file_path, iniGet(ini, "file_path",
+			iniGet(ini, "texture_file", "")), sizeof(e->ext.texture.file_path) - 1);
 		if (e->ext.texture.file_path[0]) {
 			catalogSetPrimaryFile(e, e->ext.texture.file_path);
+		}
+		break;
+
+	case ASSET_MATERIAL:
+		{
+			const char *pf = iniGet(ini, "material_file",
+				iniGet(ini, "file_path",
+				iniGet(ini, "texture_archive",
+				iniGet(ini, "texture_file", ""))));
+			strncpy(e->ext.material.material_file,
+				iniGet(ini, "material_file", iniGet(ini, "file_path", "")),
+				sizeof(e->ext.material.material_file) - 1);
+			strncpy(e->ext.material.texture_archive,
+				iniGet(ini, "texture_archive", ""),
+				sizeof(e->ext.material.texture_archive) - 1);
+			strncpy(e->ext.material.effect_archive,
+				iniGet(ini, "effect_archive", ""),
+				sizeof(e->ext.material.effect_archive) - 1);
+			if (pf[0]) {
+				catalogSetPrimaryFile(e, pf);
+			}
 		}
 		break;
 
@@ -1311,10 +1478,24 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.gamemode.team_based = iniGetInt(ini, "team_based", 0);
 		e->ext.gamemode.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
 		{
+			const char *rf = iniGet(ini, "rules_file",
+				iniGet(ini, "file_path", ""));
+			if (rf[0]) {
+				catalogSetPrimaryFile(e, rf);
+			}
+		}
+		break;
+
+	case ASSET_SCENARIO:
+		e->ext.scenario.stagenum = iniGetInt(ini, "stagenum", -1);
+		e->ext.scenario.mode = parseModeString(iniGet(ini, "mode", ""));
+		{
 			const char *rf = iniGet(ini, "rooms_file",
 				iniGet(ini, "rooms",
 				iniGet(ini, "geometry_file",
 				iniGet(ini, "geometry", ""))));
+			strncpy(e->ext.scenario.rooms_file, rf,
+				sizeof(e->ext.scenario.rooms_file) - 1);
 			if (rf[0]) {
 				catalogSetPrimaryFile(e, rf);
 			}
@@ -1345,13 +1526,44 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		}
 		break;
 
+	case ASSET_EFFECT:
+		strncpy(e->ext.effect.name, iniGet(ini, "name", ""),
+			sizeof(e->ext.effect.name) - 1);
+		e->ext.effect.effect_type = iniGetInt(ini, "effect_type", EFFECT_TYPE_PARTICLE);
+		e->ext.effect.target = iniGetInt(ini, "target", EFFECT_TARGET_SCENE);
+		strncpy(e->ext.effect.effect_file, iniGet(ini, "effect_file",
+			iniGet(ini, "behavior_graph",
+			iniGet(ini, "file_path", ""))),
+			sizeof(e->ext.effect.effect_file) - 1);
+		strncpy(e->ext.effect.shader_id, iniGet(ini, "shader_id", ""),
+			sizeof(e->ext.effect.shader_id) - 1);
+		e->ext.effect.intensity = iniGetFloat(ini, "intensity", 1.0f);
+		{
+			const char *pf = e->ext.effect.effect_file;
+			if (pf[0]) {
+				catalogSetPrimaryFile(e, pf);
+			}
+		}
+		break;
+
 	case ASSET_UI:
 		{
 			const char *pf = iniGet(ini, "file_path",
 				iniGet(ini, "texture_file",
-				iniGet(ini, "font_file",
 				iniGet(ini, "texture",
-				iniGet(ini, "font", "")))));
+				iniGet(ini, "ui_file", ""))));
+			if (pf[0]) {
+				catalogSetPrimaryFile(e, pf);
+			}
+		}
+		break;
+
+	case ASSET_FONT:
+		{
+			const char *pf = iniGet(ini, "font_file",
+				iniGet(ini, "glyphs_file",
+				iniGet(ini, "file_path",
+				iniGet(ini, "font", ""))));
 			if (pf[0]) {
 				catalogSetPrimaryFile(e, pf);
 			}
@@ -1374,18 +1586,88 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		}
 		break;
 
+	case ASSET_BOT_PROFILE:
+		e->ext.bot_profile.type = iniGetInt(ini, "type", 0);
+		e->ext.bot_profile.difficulty = iniGetInt(ini, "difficulty", 0);
+		e->ext.bot_profile.body = (s16)iniGetInt(ini, "body", -1);
+		e->ext.bot_profile.name_langid = (s16)iniGetInt(ini, "name_langid", 0);
+		e->ext.bot_profile.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
+		strncpy(e->ext.bot_profile.profile_file, iniGet(ini, "profile_file",
+			iniGet(ini, "file_path", "")), sizeof(e->ext.bot_profile.profile_file) - 1);
+		if (e->ext.bot_profile.profile_file[0]) {
+			catalogSetPrimaryFile(e, e->ext.bot_profile.profile_file);
+		}
+		break;
+
+	case ASSET_VEHICLE:
+		{
+			strncpy(e->ext.vehicle.model_file,
+				iniGet(ini, "model_file", iniGet(ini, "file_path", "")),
+				sizeof(e->ext.vehicle.model_file) - 1);
+			strncpy(e->ext.vehicle.physics_file,
+				iniGet(ini, "physics_file", ""),
+				sizeof(e->ext.vehicle.physics_file) - 1);
+			strncpy(e->ext.vehicle.behavior_graph,
+				iniGet(ini, "behavior_graph", ""),
+				sizeof(e->ext.vehicle.behavior_graph) - 1);
+			const char *pf = e->ext.vehicle.model_file[0] ?
+				e->ext.vehicle.model_file :
+				(e->ext.vehicle.behavior_graph[0] ?
+					e->ext.vehicle.behavior_graph : e->ext.vehicle.physics_file);
+			if (pf[0]) {
+				catalogSetPrimaryFile(e, pf);
+			}
+		}
+		break;
+
+	case ASSET_MISSION:
+		{
+			strncpy(e->ext.mission.scenario_archive,
+				iniGet(ini, "scenario_archive", iniGet(ini, "file_path", "")),
+				sizeof(e->ext.mission.scenario_archive) - 1);
+			strncpy(e->ext.mission.objectives_file,
+				iniGet(ini, "objectives_file", ""),
+				sizeof(e->ext.mission.objectives_file) - 1);
+			strncpy(e->ext.mission.briefing_file,
+				iniGet(ini, "briefing_file", ""),
+				sizeof(e->ext.mission.briefing_file) - 1);
+			const char *pf = e->ext.mission.scenario_archive[0] ?
+				e->ext.mission.scenario_archive :
+				(e->ext.mission.objectives_file[0] ?
+					e->ext.mission.objectives_file : e->ext.mission.briefing_file);
+			if (pf[0]) {
+				catalogSetPrimaryFile(e, pf);
+			}
+		}
+		break;
+
+	case ASSET_THEME:
+		{
+			strncpy(e->ext.theme.theme_file,
+				iniGet(ini, "theme_file", iniGet(ini, "file_path", "")),
+				sizeof(e->ext.theme.theme_file) - 1);
+			strncpy(e->ext.theme.ui_archive,
+				iniGet(ini, "ui_archive", ""),
+				sizeof(e->ext.theme.ui_archive) - 1);
+			strncpy(e->ext.theme.font_archive,
+				iniGet(ini, "font_archive", ""),
+				sizeof(e->ext.theme.font_archive) - 1);
+			const char *pf = e->ext.theme.theme_file[0] ?
+				e->ext.theme.theme_file :
+				(e->ext.theme.ui_archive[0] ?
+					e->ext.theme.ui_archive : e->ext.theme.font_archive);
+			if (pf[0]) {
+				catalogSetPrimaryFile(e, pf);
+			}
+		}
+		break;
+
 	default:
-		/* ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC, ASSET_UI, ASSET_HUD,
-		 * ASSET_VEHICLE, ASSET_MISSION, ASSET_TOOL -- no extra fields needed */
+		/* ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC, ASSET_TOOL -- no extra fields needed */
 		break;
 	}
 
-	if (type == ASSET_BODY || type == ASSET_HEAD) {
-		registerDependencyList(e->id, iniGet(ini, "deps", ""), e->bundled);
-	}
-	if (type == ASSET_PROJECTILE || type == ASSET_ENTITY) {
-		registerDependencyList(e->id, iniGet(ini, "deps", ""), e->bundled);
-	}
+	registerDependencyList(e->id, iniGet(ini, "deps", ""), e->bundled);
 	if (type == ASSET_PROJECTILE && e->ext.projectile.entity_ref[0]) {
 		catalogDepRegister(e->id, e->ext.projectile.entity_ref, e->bundled);
 	}
@@ -1780,6 +2062,12 @@ s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir
 		"projectile.ini", ASSET_PROJECTILE, mod_id);
 	total += scanExternalDescriptorPath(mod_dir, "entities",
 		"entity.ini", ASSET_ENTITY, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "materials",
+		"material.ini", ASSET_MATERIAL, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "textures",
+		"texture.ini", ASSET_TEXTURE, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "skins",
+		"skin.ini", ASSET_SKIN, mod_id);
 	total += scanExternalDescriptorPath(mod_dir, "characters",
 		"character.ini", ASSET_CHARACTER, mod_id);
 	total += scanExternalDescriptorPath(mod_dir, "characters/heads",
@@ -1791,7 +2079,25 @@ s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir
 	total += scanExternalDescriptorPath(mod_dir, "maps",
 		"map.ini", ASSET_MAP, mod_id);
 	total += scanExternalDescriptorPath(mod_dir, "scenarios",
-		"scenario.ini", ASSET_GAMEMODE, mod_id);
+		"scenario.ini", ASSET_SCENARIO, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "props",
+		"prop.ini", ASSET_PROP, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "vehicles",
+		"vehicle.ini", ASSET_VEHICLE, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "missions",
+		"mission.ini", ASSET_MISSION, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "gamemodes",
+		"gamemode.ini", ASSET_GAMEMODE, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "botprofiles",
+		"botprofile.ini", ASSET_BOT_PROFILE, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "bot_profiles",
+		"botprofile.ini", ASSET_BOT_PROFILE, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "effects",
+		"effect.ini", ASSET_EFFECT, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "hud",
+		"hud.ini", ASSET_HUD, mod_id);
+	total += scanExternalDescriptorPath(mod_dir, "themes",
+		"theme.ini", ASSET_THEME, mod_id);
 	total += scanExternalDescriptorPath(mod_dir, "audio/sfx",
 		"sound.ini", ASSET_AUDIO, mod_id);
 	total += scanExternalDescriptorPath(mod_dir, "audio/sfx",
@@ -1805,7 +2111,7 @@ s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir
 	total += scanExternalDescriptorPath(mod_dir, "ui",
 		"texture.ini", ASSET_UI, mod_id);
 	total += scanExternalDescriptorPath(mod_dir, "fonts",
-		"font.ini", ASSET_UI, mod_id);
+		"font.ini", ASSET_FONT, mod_id);
 	total += scanExternalDescriptorPath(mod_dir, "lang",
 		"lang.ini", ASSET_LANG, mod_id);
 	total += scanExternalDescriptorPath(mod_dir, "animations",
@@ -1917,12 +2223,20 @@ static s32 archiveIniIsDescriptor(const char *entry_name)
 	return strcmp(leaf, "weapon.ini") == 0
 		|| strcmp(leaf, "projectile.ini") == 0
 		|| strcmp(leaf, "entity.ini") == 0
+		|| strcmp(leaf, "material.ini") == 0
 		|| strcmp(leaf, "character.ini") == 0
 		|| strcmp(leaf, "head.ini") == 0
 		|| strcmp(leaf, "body.ini") == 0
 		|| strcmp(leaf, "arena.ini") == 0
 		|| strcmp(leaf, "map.ini") == 0
 		|| strcmp(leaf, "scenario.ini") == 0
+		|| strcmp(leaf, "skin.ini") == 0
+		|| strcmp(leaf, "effect.ini") == 0
+		|| strcmp(leaf, "prop.ini") == 0
+		|| strcmp(leaf, "vehicle.ini") == 0
+		|| strcmp(leaf, "mission.ini") == 0
+		|| strcmp(leaf, "gamemode.ini") == 0
+		|| strcmp(leaf, "botprofile.ini") == 0
 		|| strcmp(leaf, "sound.ini") == 0
 		|| strcmp(leaf, "sfx.ini") == 0
 		|| strcmp(leaf, "voice.ini") == 0
@@ -1932,7 +2246,9 @@ static s32 archiveIniIsDescriptor(const char *entry_name)
 		|| strcmp(leaf, "texture.ini") == 0
 		|| strcmp(leaf, "font.ini") == 0
 		|| strcmp(leaf, "lang.ini") == 0
-		|| strcmp(leaf, "animation.ini") == 0;
+		|| strcmp(leaf, "animation.ini") == 0
+		|| strcmp(leaf, "hud.ini") == 0
+		|| strcmp(leaf, "theme.ini") == 0;
 }
 
 static s32 archiveEntryIsDescriptor(const char *entry_name)
@@ -1964,12 +2280,24 @@ static asset_type_e archiveExpectedTypeForPath(const char *entry_name)
 	if (strcmp(seg0, "weapons") == 0) return ASSET_WEAPON;
 	if (strcmp(seg0, "projectiles") == 0) return ASSET_PROJECTILE;
 	if (strcmp(seg0, "entities") == 0) return ASSET_ENTITY;
+	if (strcmp(seg0, "materials") == 0) return ASSET_MATERIAL;
+	if (strcmp(seg0, "textures") == 0) return ASSET_TEXTURE;
+	if (strcmp(seg0, "skins") == 0) return ASSET_SKIN;
 	if (strcmp(seg0, "animations") == 0) return ASSET_ANIMATION;
 	if (strcmp(seg0, "audio") == 0) return ASSET_AUDIO;
 	if (strcmp(seg0, "ui") == 0) return ASSET_UI;
-	if (strcmp(seg0, "fonts") == 0) return ASSET_UI;
+	if (strcmp(seg0, "fonts") == 0) return ASSET_FONT;
 	if (strcmp(seg0, "lang") == 0) return ASSET_LANG;
-	if (strcmp(seg0, "scenarios") == 0) return ASSET_GAMEMODE;
+	if (strcmp(seg0, "scenarios") == 0) return ASSET_SCENARIO;
+	if (strcmp(seg0, "props") == 0) return ASSET_PROP;
+	if (strcmp(seg0, "vehicles") == 0) return ASSET_VEHICLE;
+	if (strcmp(seg0, "missions") == 0) return ASSET_MISSION;
+	if (strcmp(seg0, "gamemodes") == 0) return ASSET_GAMEMODE;
+	if (strcmp(seg0, "botprofiles") == 0) return ASSET_BOT_PROFILE;
+	if (strcmp(seg0, "bot_profiles") == 0) return ASSET_BOT_PROFILE;
+	if (strcmp(seg0, "effects") == 0) return ASSET_EFFECT;
+	if (strcmp(seg0, "hud") == 0) return ASSET_HUD;
+	if (strcmp(seg0, "themes") == 0) return ASSET_THEME;
 
 	if (strcmp(seg0, "characters") == 0) {
 		if (strcmp(seg1, "heads") == 0) return ASSET_HEAD;
@@ -2044,6 +2372,9 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"visual_scene",
 		"visual_material_file",
 		"visual_materials_file",
+		"material_file",
+		"material",
+		"material_archive",
 		"collision_file",
 		"pads_file",
 		"setup_file",
@@ -2057,11 +2388,22 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"music_file",
 		"midi_file",
 		"file_path",
+		"effect_file",
+		"behavior_graph",
+		"graph",
+		"theme_file",
+		"rules_file",
+		"scenario_archive",
+		"ui_archive",
+		"audio_archive",
 		"animation_file",
 		"texture_file",
+		"texture_archive",
 		"texture",
 		"texture_manifest_file",
 		"font_file",
+		"glyphs_file",
+		"font_archive",
 		"font",
 		"strings_file",
 		"strings",

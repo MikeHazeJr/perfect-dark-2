@@ -6,10 +6,12 @@
  * per unique mesh at data/<romid>/meshes/<id>.pdmesh.
  *
  * Compound layout per universality-pivot-schemas.md Section 2.5:
+ *   mesh.ini             editable mesh descriptor
  *   _meta/manifest.json envelope + provenance
+ *   _meta/*.json        shared inventory/provenance/validation/source handles
  *   model.obj           Wavefront OBJ converted from model display lists
  *   model.mtl           material stub for OBJ tooling
- *   _meta/*.sha256     content sidecars
+ *   _meta/*.sha256     public-file SHA-256 sidecars
  *
  * Reuses port/src/modarchive.c writer subset for ZIP atomic writes.
  *
@@ -37,11 +39,11 @@
 #include "files.h"
 #include "fs.h"
 #include "loader_enum_reverse.h"
+#include "asset_archive_writer.h"
 #include "modarchive.h"
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
-#include "sha256.h"
 #include "system.h"
 #include "preprocess.h"
 #include "weapondata_authored.h"
@@ -1050,22 +1052,6 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 	return 0;
 }
 
-static s32 s_addShaSidecar(mod_archive_writer_t *aw, const char *name,
-                           const void *data, u32 len)
-{
-	u8 digest[SHA256_DIGEST_SIZE];
-	sha256Hash(data, (size_t)len, digest);
-	char hex[SHA256_HEX_SIZE + 1];
-	sha256ToHex(digest, hex);
-	hex[SHA256_HEX_SIZE] = '\0';
-	char sidecar[SHA256_HEX_SIZE + 2];
-	snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
-	char meta_name[FS_MAXPATH + 1];
-	snprintf(meta_name, sizeof(meta_name), "_meta/%s", name ? name : "hash.sha256");
-	meta_name[sizeof(meta_name) - 1] = '\0';
-	return modArchiveAddFileMem(aw, meta_name, sidecar, (u32)strlen(sidecar));
-}
-
 /* Convert "FILE_GFALCON2" -> "base:model_falcon2_hi" given a hint
  * suffix. Unknown file symbols still get readable fallback ordinals; raw
  * filenums stay private metadata. */
@@ -1342,15 +1328,28 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "mesh.ini", ini_buf, (u32)ini_len) != 0) {
+	asset_archive_writer_t asset_writer;
+	if (assetArchiveWriterInit(&asset_writer, aw, "mesh", catalog_id) !=
+			MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDMESH",
+			"assetArchiveWriterInit failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		s_textbufFree(&obj_buf);
+		return -1;
+	}
+	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdmesh",
+		src_rel, (s32)filenum, sym_for_provenance ? sym_for_provenance : "");
+
+	if (assetArchiveWriterAddDescriptor(&asset_writer, "mesh.ini",
+			ini_buf, (u32)ini_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDMESH",
 			"AddFileMem mesh.ini failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "_meta/manifest.json",
-	                          manifest_buf, (u32)manifest_len) != 0) {
+	if (assetArchiveWriterAddManifestJson(&asset_writer,
+			manifest_buf, (u32)manifest_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDMESH",
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
@@ -1358,9 +1357,10 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "export_version.txt",
-	                          ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION,
-	                          (u32)strlen(ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION)) != 0) {
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "export_version.txt",
+			ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION,
+			(u32)strlen(ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION),
+			"version") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDMESH",
 			"AddFileMem export_version.txt failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
@@ -1368,7 +1368,8 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "model.obj", obj_buf.data, obj_buf.len) != 0) {
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "model.obj",
+			obj_buf.data, obj_buf.len, "geometry") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDMESH",
 			"AddFileMem model.obj failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
@@ -1376,7 +1377,8 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "model.mtl", mtl_buf, mtl_len) != 0) {
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "model.mtl",
+			mtl_buf, mtl_len, "material") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDMESH",
 			"AddFileMem model.mtl failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
@@ -1384,13 +1386,12 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 
-	if (s_addShaSidecar(aw, "export_version.txt.sha256",
-			ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION,
-			(u32)strlen(ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION)) != 0 ||
-	    s_addShaSidecar(aw, "model.obj.sha256", obj_buf.data, obj_buf.len) != 0 ||
-	    s_addShaSidecar(aw, "model.mtl.sha256", mtl_buf, mtl_len) != 0) {
-		sysLogPrintf(LOG_WARNING,
-			"romextract pdmesh: sidecar write failed for \"%s\"", dst_full);
+	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDMESH",
+			"assetArchiveWriterFinishMetadata failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		s_textbufFree(&obj_buf);
+		return -1;
 	}
 
 	if (modArchiveFinish(aw) != 0) {

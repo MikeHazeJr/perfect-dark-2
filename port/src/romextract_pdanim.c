@@ -7,8 +7,9 @@
  *
  * Each .pdanim carries category="weapon_animation" per universality-
  * pivot-schemas.md Section 2.6. The archive carries animation.ini,
- * _meta/manifest.json, and opcodes.json so weapon/inventory animations use
- * the same editable compound-asset contract as the other typed assets.
+ * _meta/manifest.json, shared _meta metadata, and opcodes.json so
+ * weapon/inventory animations use the same editable compound-asset
+ * contract as the other typed assets.
  *
  * Per Mike's Q-3 ruling (2026-05-02): character anims are required
  * within catalog scope but ship as a follow-up slice. The .pdanim
@@ -30,6 +31,7 @@
 #include "constants.h"
 #include "fs.h"
 #include "loader_enum_reverse.h"
+#include "asset_archive_writer.h"
 #include "modarchive.h"
 #include "romextract_pd.h"
 #include "system.h"
@@ -367,7 +369,21 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 		return -1;
 	}
 
-	if (modArchiveAddFileMem(aw, "animation.ini", ini_buf, (u32)ini_len) != 0) {
+	asset_archive_writer_t asset_writer;
+	if (assetArchiveWriterInit(&asset_writer, aw, "animation",
+			catalog_id) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDANIM",
+			"assetArchiveWriterInit failed for \"%s\"", full);
+		modArchiveAbort(aw);
+		s_textbufFree(&manifest);
+		s_textbufFree(&opcodes);
+		return -1;
+	}
+	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdanim",
+		"animdata_authored", anim_idx, anim_name);
+
+	if (assetArchiveWriterAddDescriptor(&asset_writer, "animation.ini",
+			ini_buf, (u32)ini_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDANIM",
 			"AddFileMem animation.ini failed for \"%s\"", full);
 		modArchiveAbort(aw);
@@ -375,7 +391,8 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 		s_textbufFree(&opcodes);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "_meta/manifest.json", manifest.data, manifest.len) != 0) {
+	if (assetArchiveWriterAddManifestJson(&asset_writer,
+			manifest.data, manifest.len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDANIM",
 			"AddFileMem _meta/manifest.json failed for \"%s\"", full);
 		modArchiveAbort(aw);
@@ -383,9 +400,19 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 		s_textbufFree(&opcodes);
 		return -1;
 	}
-	if (modArchiveAddFileMem(aw, "opcodes.json", opcodes.data, opcodes.len) != 0) {
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "opcodes.json",
+			opcodes.data, opcodes.len, "opcodes") != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDANIM",
 			"AddFileMem opcodes.json failed for \"%s\"", full);
+		modArchiveAbort(aw);
+		s_textbufFree(&manifest);
+		s_textbufFree(&opcodes);
+		return -1;
+	}
+
+	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDANIM",
+			"assetArchiveWriterFinishMetadata failed for \"%s\"", full);
 		modArchiveAbort(aw);
 		s_textbufFree(&manifest);
 		s_textbufFree(&opcodes);

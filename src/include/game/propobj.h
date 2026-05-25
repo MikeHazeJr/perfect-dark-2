@@ -70,6 +70,8 @@ void projectileReset(struct projectile *projectile);
 struct projectile *projectileAllocate(void);
 void func0f0685e4(struct prop *prop);
 void projectileSetSticky(struct prop *prop);
+void projectileApplyGraphRuntime(struct defaultobj *obj,
+	const struct weapon_graph_projectile_runtime *runtime);
 void embedmentFree(struct embedment *embedment);
 struct embedment *embedmentAllocate(void);
 s32 objGetShotsTaken(struct defaultobj *obj);

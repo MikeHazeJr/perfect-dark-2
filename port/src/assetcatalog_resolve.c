@@ -186,11 +186,13 @@ static void findMapCb(const asset_entry_t *entry, void *userdata)
 		return;
 	}
 
-	if (entry->type == ASSET_MAP && entry->ext.map.stagenum == ctx->stagenum) {
-		ctx->result = entry;
-	} else if (entry->type == ASSET_ARENA && entry->ext.arena.stagenum == ctx->stagenum) {
-		ctx->result = entry;
-	}
+    if (entry->type == ASSET_MAP && entry->ext.map.stagenum == ctx->stagenum) {
+        ctx->result = entry;
+    } else if (entry->type == ASSET_SCENARIO && entry->ext.scenario.stagenum == ctx->stagenum) {
+        ctx->result = entry;
+    } else if (entry->type == ASSET_ARENA && entry->ext.arena.stagenum == ctx->stagenum) {
+        ctx->result = entry;
+    }
 }
 
 const asset_entry_t *assetCatalogFindModMapByStagenum(s32 stagenum)
@@ -199,10 +201,13 @@ const asset_entry_t *assetCatalogFindModMapByStagenum(s32 stagenum)
 	ctx.stagenum = stagenum;
 	ctx.result = NULL;
 
-	assetCatalogIterateByType(ASSET_MAP, findMapCb, &ctx);
-	if (!ctx.result) {
-		assetCatalogIterateByType(ASSET_ARENA, findMapCb, &ctx);
-	}
+    assetCatalogIterateByType(ASSET_MAP, findMapCb, &ctx);
+    if (!ctx.result) {
+        assetCatalogIterateByType(ASSET_SCENARIO, findMapCb, &ctx);
+    }
+    if (!ctx.result) {
+        assetCatalogIterateByType(ASSET_ARENA, findMapCb, &ctx);
+    }
 
 	return ctx.result;
 }
