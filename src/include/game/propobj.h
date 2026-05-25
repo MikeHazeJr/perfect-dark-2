@@ -4,6 +4,8 @@
 #include "data.h"
 #include "types.h"
 
+struct weapon_graph_projectile_runtime;
+
 extern u32 var800698f0;
 extern u32 var800698f4;
 extern struct prop *g_EmbedProp;

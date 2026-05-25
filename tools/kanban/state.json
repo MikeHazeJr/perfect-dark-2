@@ -4264,6 +4264,51 @@
       ],
       "created": "2026-05-24T23:01:10.955Z",
       "updated": "2026-05-24T23:01:10.955Z"
+    },
+    {
+      "id": "c3840",
+      "title": "Weapon Graph: modularize OG behavior routines after parity",
+      "description": "Track the post-parity path for retiring original Perfect Dark weapon routines safely. Behavior graphs remain the authored source of truth, while existing OG routines stay as the parity backend until each weapon/projectile/entity behavior family is extracted into named runtime modules, covered by tests, and proven by playtest to match original gameplay.",
+      "pillar": "modding",
+      "column": "backlog",
+      "order": 4500,
+      "priority": 1,
+      "notes": "Created 2026-05-25 from Mike's direction after C-3814 closure. Do not bypass OG routines wholesale. Split them family-by-family into graph/runtime modules only after parity is pinned. Acceptance: graph-authored behavior remains authoritative, OG code is wrapped into named modules first, each replacement has static/runtime/playtest parity evidence, network-sensitive side effects remain intact, and old routine paths are retired only after a verified module owns the same behavior.",
+      "subtasks": [
+        {
+          "id": "c3840-s1",
+          "title": "Audit OG weapon routine boundaries by behavior family",
+          "status": "backlog",
+          "order": 1000,
+          "notes": "Map projectile motion/guidance/impact/trails, mines, N-Bomb, Laptop/autogun, thrown/deployed ownership, damage credit, audio/FX, and network side effects to explicit module boundaries before replacing any routine."
+        },
+        {
+          "id": "c3840-s2",
+          "title": "Wrap existing routines as named graph runtime modules",
+          "status": "backlog",
+          "order": 2000,
+          "notes": "Make the current OG execution paths callable as explicit graph/runtime modules so behavior graphs drive selection while parity remains preserved."
+        },
+        {
+          "id": "c3840-s3",
+          "title": "Replace behavior families one at a time",
+          "status": "backlog",
+          "order": 3000,
+          "notes": "Move only one behavior family at a time from OG routine ownership to native graph/runtime module ownership. Keep fallback/backout boundaries until verification closes."
+        },
+        {
+          "id": "c3840-s4",
+          "title": "Prove parity before retiring each OG path",
+          "status": "backlog",
+          "order": 4000,
+          "notes": "Require focused tests plus manual gameplay parity checks for timing, damage, collision, audio/FX, AI, ownership, and network behavior before removing or bypassing an original routine."
+        }
+      ],
+      "flag": "star",
+      "flagged_at": "2026-05-25T12:00:00Z",
+      "pending_completion": null,
+      "created": "2026-05-25T12:00:00Z",
+      "updated": "2026-05-25T12:00:00Z"
     }
   ],
   "x_special_notes": {
@@ -5242,6 +5287,17 @@
         "card_memories": "When Mike answers on this page, Codex should read this card-specific workspace back before acting. Inactive card workspaces are stashed under x_card_task_context.cards and must not be deleted when the active card changes.",
         "codex_recommendation": "Treat the full Asset Pipeline migration and weapon graph parity lane as complete. Keep c3834 and c3835 in backlog for future utility/editor work; do not reopen c3832/c3838/c3814 unless a regression breaks the verified archive, file-access, or gameplay-parity contracts.",
         "next_action": "Move the project priority to the next non-Asset-Pipeline active lane. If returning to modding, pick c3834 for utility flows or c3835 for reusable graph-editor foundation as new follow-up work.",
+        "items": []
+      },
+      "c3840": {
+        "card_id": "c3840",
+        "updated": "2026-05-25T12:00:00Z",
+        "progress_status": "tracked",
+        "progress_summary": "High-priority follow-up card created to modularize original Perfect Dark weapon behavior routines into graph runtime modules after parity is pinned.",
+        "context_notes": "C-3814 keeps OG routines as the current parity backend. C-3840 is the later retirement path: graph-authored behavior selects named modules, each OG behavior family is wrapped and replaced only after focused tests and playtest prove parity.",
+        "card_memories": "Keep this separate from C-3814 closure. Do not reopen C-3814 just because OG routines remain as the backend; C-3840 owns future routine extraction and retirement.",
+        "codex_recommendation": "Treat this as high-priority backlog behind the completed migration: plan and retire routines family-by-family, never as a broad rewrite.",
+        "next_action": "When picked up, start with an audit of projectile/deployed-entity behavior routine boundaries and parity evidence requirements.",
         "items": []
       }
     },

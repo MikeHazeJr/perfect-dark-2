@@ -1,5 +1,28 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-25-c3840-build-fix`) - 2026-05-25 - Weapon routine modularization tracking and build fix
+
+Mike asked to track the eventual path away from original Perfect Dark weapon behavior routines on a high-priority card, then fix client build errors in `bondgun.c`.
+
+### Implemented
+
+- Added high-priority Kanban card `c3840`, "Weapon Graph: modularize OG behavior routines after parity."
+- Scoped `c3840` as the safe routine-retirement path: graphs are the authored source; OG routines remain the parity backend until each behavior family is audited, wrapped as a named graph/runtime module, replaced one family at a time, and parity-verified before removal.
+- Fixed the `projectileApplyGraphRuntime()` incompatible pointer errors by forward-declaring `struct weapon_graph_projectile_runtime` in [propobj.h](../src/include/game/propobj.h), so the declaration and implementation share the same C struct tag.
+- Updated `context/tasks.md`, `context/pillars/modding.md`, and `UNRELEASED.md`.
+
+### Verification
+
+- Initial isolated `wgrfix` client build reached compile with no `bondgun.c` type errors but hit the default 60s watchdog.
+- Reran isolated `wgrfix` client build with `-BuildTimeoutSeconds 300`; build passed.
+- Removed isolated session build directory `wgrfix`.
+
+### Next
+
+- Keep `c3840` as future high-priority backlog. Do not reopen `c3814` just because OG routines remain in use; `c3814` is the verified parity bridge, while `c3840` owns later routine extraction and retirement.
+
+---
+
 ## Session (`main-checkout-2026-05-25-asset-migration-cleanup`) - 2026-05-25 - Asset Pipeline stale-card cleanup
 
 Mike asked to finish the migration wrap-up and clean stale cards.

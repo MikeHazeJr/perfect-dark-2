@@ -74,6 +74,7 @@
 - Cleared stale Kanban Bug Tracker rows B-318 through B-326.
 - Fixed Combat Simulator post-match endscreen X and Quit/Disconnect confirmation clicks so the visible results screen can be exited normally.
 - Fixed a Combat Simulator restart exception after leaving a match by clearing stale MP runtime character slots before the next start.
+- Fixed a client build break in graph-backed projectile setup by making the projectile runtime type visible to `projectileApplyGraphRuntime()` declarations.
 - Fixed online post-match return-to-room resync so clients replay room assignment, match settings, and playlist state instead of returning with partial room state.
 - Fixed friend presence so existing agents using per-agent client codes start the social hub, validate signed presence, appear online, and use invite/join handoffs through the NAT-aware path.
 - Fixed failed online match asset transfers so active match prep declines the manifest and returns to lobby instead of repeatedly requesting the same failed content.
