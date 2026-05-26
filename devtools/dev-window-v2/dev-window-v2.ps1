@@ -1862,9 +1862,7 @@ function Start-GitSyncBeforeBuild {
                     $commitCode = $LASTEXITCODE
                 }
                 if ($commitCode -ne 0) {
-                    [void]$logs.Add(@{ Text = "git commit failed; retrying with --no-verify (forced by outage-safe sync policy)."; Color = "#A07810" })
-                    $co = @(& $gitExe -C $root commit --no-verify -m $commitMessage -m $commitBody -m $commitRefs 2>&1)
-                    $commitCode = $LASTEXITCODE
+                    [void]$logs.Add(@{ Text = "git commit failed; hooks were not bypassed. Fix the hook or repo state, then retry."; Color = "#B81818" })
                 }
                 foreach ($line in $co) {
                     $cl = if ($commitCode -ne 0) { "#B81818" } else { "#4A5868" }

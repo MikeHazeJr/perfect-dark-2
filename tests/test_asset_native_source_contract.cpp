@@ -47,15 +47,23 @@ TEST_CASE("pre-commit hook runs the asset native-source guard",
 	const std::string hook = readTextFile(".githooks/pre-commit");
 	const std::string hook_py = readTextFile(".githooks/pre-commit.py");
 	const std::string installer = readTextFile("tools/install-githooks.ps1");
+	const std::string dev_window =
+		readTextFile("devtools/dev-window-v2/dev-window-v2.ps1");
 
 	REQUIRE(hook.find("pre-commit.py") != std::string::npos);
 	REQUIRE(hook_py.find("asset_native_source_guard.py") !=
 	        std::string::npos);
 	REQUIRE(hook_py.find("--staged") != std::string::npos);
+	REQUIRE(hook_py.find("repo_relative_arg(root, guard)") !=
+	        std::string::npos);
+	REQUIRE(hook_py.find("[sys.executable, str(guard), \"--staged\"]") ==
+	        std::string::npos);
 	REQUIRE(installer.find("preCommitSh") != std::string::npos);
 	REQUIRE(installer.find("pre-commit.py") != std::string::npos);
 	REQUIRE(installer.find("asset_native_source_guard.py") !=
 	        std::string::npos);
+	REQUIRE(dev_window.find("commit --no-verify") == std::string::npos);
+	REQUIRE(dev_window.find("outage-safe sync policy") == std::string::npos);
 }
 
 TEST_CASE("asset native-source guard is tracked by tests and source docs",

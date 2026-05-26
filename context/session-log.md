@@ -1,5 +1,34 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-26-b372-dev-window-release-hook`) - 2026-05-26 - Dev Window v2 release hook fix
+
+Mike reported that Dev Window v2 Release failed and asked to check the log.
+
+### Implemented
+
+- Checked `devtools/dev-window-v2/dev-window-v2-console.log`. The client build reached `Linking CXX executable PerfectDark.exe`; the failure happened afterward at the pre-release commit gate.
+- Root cause: the pre-commit shell wrapper selected MSYS `/usr/bin/python3.exe`, while `.githooks/pre-commit.py` passed a Windows absolute `C:/.../tools/asset_native_source_guard.py` child-script path. MSYS Python resolved it under the `/c/...` cwd and produced the doubled path shown in the release log.
+- Propagation check: the same log showed an earlier Dev Window v2 live-state sync commit retrying with `--no-verify`. That would let a release sync commit bypass the same guard in one phase and fail in another.
+- Changed `.githooks/pre-commit.py` to verify the absolute guard exists but invoke it as repo-relative `tools/asset_native_source_guard.py` under repo cwd.
+- Removed the Dev Window v2 automatic `git commit --no-verify` retry so failed sync commits stop at the hook unless Mike explicitly chooses a separate authorized bypass path.
+- Added c3842 static coverage so the pre-commit hook keeps the repo-relative guard invocation and does not regress to the old absolute `str(guard)` call.
+- Recorded B-372 in the bug tracker, updated the build-dev-tooling pillar, `context/tasks.md`, and `UNRELEASED.md`.
+
+### Verification
+
+- `python tools\asset_native_source_guard.py` passed.
+- `python .githooks\pre-commit.py` passed.
+- `C:\msys64\usr\bin\bash.exe .githooks/pre-commit` passed, exercising the Git Bash/MSYS hook entrypoint that failed in Release.
+- PowerShell AST parse of `devtools\dev-window-v2\dev-window-v2.ps1` passed.
+- Focused `.\devtools\run-pd-tests.ps1 -Session b372hook -Selector "[modding][pdxxx][c3842]" -BuildTimeoutSeconds 300` passed after the Dev Window bypass static pin was added: 66 assertions / 5 cases.
+- Removed isolated session build `b372hook`.
+
+### Next
+
+- Mike should rerun Dev Window v2 Release after this fix is committed/pushed; B-372 stays fixed-pending-release-retry until that run clears.
+
+---
+
 ## Session (`main-checkout-2026-05-25-c3834-c3835-c3840-foundations`) - 2026-05-25 - Utility contracts, shared graph editor, weapon parity modules
 
 Mike asked to finish the remaining Asset Pipeline follow-ups and keep weapon behavior parity honest.

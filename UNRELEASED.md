@@ -79,6 +79,7 @@
 
 ## Fixed
 
+- Fixed Dev Window v2 release commits on Git Bash/MSYS Python by running the Asset Pipeline pre-commit guard through a repository-relative path and removing the automatic hook-bypass retry.
 - Removed the outdated v0.0.7 dedicated-server release notes that were being reused for new releases.
 - Cleared stale Kanban Bug Tracker rows B-318 through B-326.
 - Fixed Combat Simulator post-match endscreen X and Quit/Disconnect confirmation clicks so the visible results screen can be exited normally.

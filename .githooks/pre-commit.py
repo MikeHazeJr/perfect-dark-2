@@ -39,6 +39,13 @@ def repo_root() -> Path:
     raise RuntimeError("could not locate repo root from current directory")
 
 
+def repo_relative_arg(root: Path, target: Path) -> str:
+    try:
+        return target.relative_to(root).as_posix()
+    except ValueError:
+        return str(target)
+
+
 def main() -> int:
     try:
         root = repo_root()
@@ -49,8 +56,9 @@ def main() -> int:
     if not guard.exists():
         return fail(f"missing {guard}")
 
+    guard_arg = repo_relative_arg(root, guard)
     result = subprocess.run(
-        [sys.executable, str(guard), "--staged"],
+        [sys.executable, guard_arg, "--staged"],
         cwd=root,
         text=True,
     )
