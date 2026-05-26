@@ -7,6 +7,7 @@
 // HACK: for some reason the #include_next above doesn't really do anything, so
 float fabsf(float x);
 float roundf(float x);
+double frexp(double x, int *exponent);
 
 // @bug?
 #define M_BADPI 3.141092641f

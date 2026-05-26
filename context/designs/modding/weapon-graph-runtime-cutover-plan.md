@@ -1,6 +1,6 @@
 # Weapon Graph Runtime Cutover Plan
 
-Status: closed for Kanban `c3814`; Slice 1 (`c3814-s10`) through Slice 9 (`c3814-s18`/`c3814-s19`) landed by 2026-05-25. The clean authored archive layout is owned by `c3832` and [weapon-archive-clean-format.md](weapon-archive-clean-format.md); the runtime cutover now uses graph-authored records as the behavior source while existing Perfect Dark routines remain the parity-preserving execution backend.
+Status: closed for Kanban `c3814`; Slice 1 (`c3814-s10`) through Slice 9 (`c3814-s18`/`c3814-s19`) landed by 2026-05-25. The clean authored archive layout is owned by `c3832` and [weapon-archive-clean-format.md](weapon-archive-clean-format.md); the runtime cutover now uses graph-authored records as the behavior source while existing Perfect Dark routines remain the parity-preserving execution backend. Follow-up `c3840` owns any future routine replacement; its first safe slice names the current OG-backed opcode families through `weaponGraphParityModule` and records `parity_module` on held/projectile/entity runtime records.
 
 This document turns the schema, base behavior audit, parameter matrix, and module parameter spec into sequenced runtime work. It is intentionally split so the pre-release `.pdwpn` removal can land cleanly before graph compiler and gameplay runtime work begins.
 
@@ -233,7 +233,7 @@ Landed:
 
 ## Closure State
 
-C-3814 is closed. Future weapon behavior work should continue to author behavior in graph records and feed the existing OG execution routines unless a later card explicitly requests a new behavior execution system. `.pdwpn` remains unsupported outside historical notes.
+C-3814 is closed. Future weapon behavior work should continue to author behavior in graph records and feed the existing OG execution routines unless `c3840` or a later replacement card explicitly cuts over one behavior family with tests and playtest parity. `.pdwpn` remains unsupported outside historical notes.
 
 ## Sentinel
 

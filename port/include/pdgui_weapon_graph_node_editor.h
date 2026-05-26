@@ -9,6 +9,7 @@
 
 #include <stddef.h>
 
+#include "pdgui_gameplay_graph_editor.h"
 #include "weapon_graph_runtime.h"
 
 #define PDGUI_WEAPON_GRAPH_MAX_NODES  48
@@ -95,6 +96,7 @@ struct PdWeaponGraphEditorResult {
 
 struct PdWeaponGraphEditorDesc {
 	PdWeaponGraphEditModel *model;
+	const PdGameplayGraphEditorAdapter *adapter;
 	const PdWeaponGraphModuleDef *modules;
 	int module_count;
 	const PdWeaponGraphContextDef *contexts;

@@ -291,6 +291,16 @@ static s32 readDescriptorFromText(const char *label, const char *text, u32 size,
 			copyStr(out->behavior_graph, sizeof(out->behavior_graph), value);
 		} else if (strcmp(key, "graph") == 0 && out->behavior_graph[0] == '\0') {
 			copyStr(out->behavior_graph, sizeof(out->behavior_graph), value);
+		} else if (strcmp(key, "primary_graph") == 0) {
+			copyStr(out->primary_graph, sizeof(out->primary_graph), value);
+		} else if (strcmp(key, "secondary_graph") == 0) {
+			copyStr(out->secondary_graph, sizeof(out->secondary_graph), value);
+		} else if (strcmp(key, "shared_context") == 0) {
+			copyStr(out->shared_context, sizeof(out->shared_context), value);
+		} else if (strcmp(key, "settings") == 0) {
+			copyStr(out->settings, sizeof(out->settings), value);
+		} else if (strcmp(key, "variables") == 0) {
+			copyStr(out->variables, sizeof(out->variables), value);
 		} else if (strcmp(key, "manifest") == 0) {
 			copyStr(out->manifest, sizeof(out->manifest), value);
 		} else if (strcmp(key, "nested_payloads") == 0) {
@@ -392,14 +402,33 @@ s32 weaponGraphArchiveValidateRootFile(const char *archive_path,
 	}
 
 	if (weaponGraphArchiveGraphRequired(expected_type) && desc.behavior_graph[0] == '\0') {
-		setErr(err, err_cap, "%s requires behavior_graph", archive_path);
-		modArchiveClose(arc);
-		return -1;
+		if (expected_type != ASSET_WEAPON ||
+				desc.primary_graph[0] == '\0' ||
+				desc.secondary_graph[0] == '\0') {
+			setErr(err, err_cap, "%s requires behavior_graph or primary_graph/secondary_graph",
+				archive_path);
+			modArchiveClose(arc);
+			return -1;
+		}
 	}
 	if (desc.behavior_graph[0] &&
 			modArchiveFindEntry(arc, desc.behavior_graph) < 0) {
 		setErr(err, err_cap, "%s missing graph entry %s",
 			archive_path, desc.behavior_graph);
+		modArchiveClose(arc);
+		return -1;
+	}
+	if (expected_type == ASSET_WEAPON && desc.primary_graph[0] &&
+			modArchiveFindEntry(arc, desc.primary_graph) < 0) {
+		setErr(err, err_cap, "%s missing primary graph entry %s",
+			archive_path, desc.primary_graph);
+		modArchiveClose(arc);
+		return -1;
+	}
+	if (expected_type == ASSET_WEAPON && desc.secondary_graph[0] &&
+			modArchiveFindEntry(arc, desc.secondary_graph) < 0) {
+		setErr(err, err_cap, "%s missing secondary graph entry %s",
+			archive_path, desc.secondary_graph);
 		modArchiveClose(arc);
 		return -1;
 	}

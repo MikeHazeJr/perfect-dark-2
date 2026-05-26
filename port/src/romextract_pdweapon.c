@@ -47,7 +47,6 @@
 #define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v9"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
-#define PDWEAPON_RUNTIME_GRAPH_ENTRY "behavior/runtime.graph.json"
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
 #define PDWEAPON_SECONDARY_GRAPH_ENTRY "behavior/secondary.graph.json"
 #define PDWEAPON_SHARED_CONTEXT_ENTRY "behavior/shared-context.json"
@@ -123,15 +122,23 @@ static s32 s_existingWeaponArchiveGraphCurrent(const char *relpath)
 	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
 	if (!full || !full[0]) return 0;
 
-	char *graph = NULL;
+	char *primary = NULL;
+	char *secondary = NULL;
 	if (weaponGraphArchiveReadTextFile(full,
-			PDWEAPON_RUNTIME_GRAPH_ENTRY, &graph, NULL) != 0) {
+			PDWEAPON_PRIMARY_GRAPH_ENTRY, &primary, NULL) != 0 ||
+			weaponGraphArchiveReadTextFile(full,
+			PDWEAPON_SECONDARY_GRAPH_ENTRY, &secondary, NULL) != 0) {
+		free(primary);
+		free(secondary);
 		return 0;
 	}
 	s32 current =
-		strstr(graph, "\"graph_id\": \"base_weapon_graph_v2\"") != NULL &&
-		strstr(graph, "temporary.legacy_weapon_manifest") == NULL;
-	free(graph);
+		strstr(primary, "\"graph_id\": \"primary\"") != NULL &&
+		strstr(secondary, "\"graph_id\": \"secondary\"") != NULL &&
+		strstr(primary, "temporary.legacy_weapon_manifest") == NULL &&
+		strstr(secondary, "temporary.legacy_weapon_manifest") == NULL;
+	free(primary);
+	free(secondary);
 	return current;
 }
 
@@ -139,7 +146,6 @@ static s32 s_existingWeaponArchiveComplete(const char *relpath)
 {
 	return s_existingArchiveHasEntry(relpath, "weapon.ini") &&
 	       s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
-	       s_existingArchiveHasEntry(relpath, PDWEAPON_RUNTIME_GRAPH_ENTRY) &&
 	       s_existingArchiveHasEntry(relpath, PDWEAPON_PRIMARY_GRAPH_ENTRY) &&
 	       s_existingArchiveHasEntry(relpath, PDWEAPON_SECONDARY_GRAPH_ENTRY) &&
 	       s_existingArchiveHasEntry(relpath, PDWEAPON_NESTED_PAYLOADS_ENTRY) &&
@@ -1981,29 +1987,6 @@ static void s_emitWeaponGraphEventNode(jw_t *w, const char *node_id,
 	fputs(last ? "}\n" : "},\n", w->fp);
 }
 
-static void s_emitWeaponGraphContext(jw_t *w, const char *name,
-                                     const char *scope, const char *source,
-                                     const char *type, const char *lifetime,
-                                     s32 last)
-{
-	jw_open_object(w, NULL);
-	jw_field_str(w, "name", name, 0);
-	jw_field_str(w, "scope", scope, 0);
-	jw_field_str(w, "source", source, 0);
-	jw_field_str(w, "type", type, 0);
-	jw_field_str(w, "lifetime", lifetime, 1);
-	jw_close_object(w, last);
-}
-
-static void s_emitWeaponGraphSubgraph(jw_t *w, const char *id,
-                                      const char *entry, s32 last)
-{
-	jw_open_object(w, NULL);
-	jw_field_str(w, "id", id, 0);
-	jw_field_str(w, "entry", entry, 1);
-	jw_close_object(w, last);
-}
-
 static void s_emitWeaponGraphExport(jw_t *w, const char *name,
                                     const char *node, s32 last)
 {
@@ -2015,83 +1998,6 @@ static void s_emitWeaponGraphExport(jw_t *w, const char *name,
 	w->indent--;
 	jw_indent(w);
 	fputs(last ? "}\n" : "},\n", w->fp);
-}
-
-static s32 s_emitWeaponGraphFile(const char *graph_tmp_relpath,
-                                  const char *catalog_id,
-                                  const struct weapon *wpn,
-                                  char projectile_refs[2][CATALOG_ID_LEN],
-                                  char entity_refs[2][CATALOG_ID_LEN])
-{
-	FILE *fp = fsFileOpenWrite(graph_tmp_relpath);
-	if (!fp) return -1;
-
-	jw_t w;
-	w.fp = fp;
-	w.indent = 0;
-	w.error = 0;
-
-	fputs("{\n", fp);
-	w.indent = 1;
-	jw_field_str(&w, "schema", "pd.weapon_graph.v1", 0);
-	jw_field_str(&w, "asset_id", catalog_id, 0);
-	jw_field_str(&w, "graph_id", "base_weapon_graph_v2", 0);
-	jw_open_object(&w, "compatibility");
-	jw_field_str(&w, "manifest", "_meta/manifest.json", 0);
-	jw_field_str(&w, "nested_payloads", PDWEAPON_NESTED_PAYLOADS_ENTRY, 0);
-	jw_field_str(&w, "runtime_source", "clean_authoring_graph_bridge", 1);
-	jw_close_object(&w, 0);
-
-	jw_open_array(&w, "shared_context");
-	s_emitWeaponGraphContext(&w, "owner_player", "player", "equipped_player",
-		"player_ref", "weapon_instance", 0);
-	s_emitWeaponGraphContext(&w, "owner_team", "player", "equipped_player_team",
-		"team_ref", "weapon_instance", 0);
-	s_emitWeaponGraphContext(&w, "weapon_instance", "weapon", "equipped_weapon",
-		"weapon_instance_ref", "weapon_instance", 0);
-	s_emitWeaponGraphContext(&w, "damage_credit_player", "projectile", "owner_player",
-		"player_ref", "projectile_life", 1);
-	jw_close_array(&w, 0);
-
-	jw_open_array(&w, "subgraphs");
-	s_emitWeaponGraphSubgraph(&w, "primary", "primary_trigger", 0);
-	s_emitWeaponGraphSubgraph(&w, "secondary", "secondary_trigger", 1);
-	jw_close_array(&w, 0);
-
-	jw_open_array(&w, "nodes");
-	s_emitWeaponGraphEventNode(&w, "primary_trigger", catalog_id, 0,
-		(const struct weaponfunc *)wpn->functions[0], 0);
-	s_emitWeaponGraphNode(&w, "primary_action", catalog_id, 0,
-		(const struct weaponfunc *)wpn->functions[0],
-		projectile_refs[0], entity_refs[0], 0);
-	s_emitWeaponGraphEventNode(&w, "secondary_trigger", catalog_id, 1,
-		(const struct weaponfunc *)wpn->functions[1], 0);
-	s_emitWeaponGraphNode(&w, "secondary_action", catalog_id, 1,
-		(const struct weaponfunc *)wpn->functions[1],
-		projectile_refs[1], entity_refs[1], 1);
-	jw_close_array(&w, 0);
-
-	jw_open_array(&w, "edges");
-	jw_open_object(&w, NULL);
-	jw_field_str(&w, "from", "primary_trigger", 0);
-	jw_field_str(&w, "to", "primary_action", 1);
-	jw_close_object(&w, 0);
-	jw_open_object(&w, NULL);
-	jw_field_str(&w, "from", "secondary_trigger", 0);
-	jw_field_str(&w, "to", "secondary_action", 1);
-	jw_close_object(&w, 1);
-	jw_close_array(&w, 0);
-
-	jw_open_array(&w, "exports");
-	s_emitWeaponGraphExport(&w, "primary", "primary_action", 0);
-	s_emitWeaponGraphExport(&w, "secondary", "secondary_action", 1);
-	jw_close_array(&w, 1);
-	w.indent = 0;
-	fputs("}\n", fp);
-
-	s32 ok = ferror(fp) == 0;
-	if (fclose(fp) != 0) ok = 0;
-	return ok ? 0 : -1;
 }
 
 static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
@@ -2175,8 +2081,7 @@ static s32 s_buildWeaponSettingsJson(const char *catalog_id,
 		"  \"schema\": \"pd.weapon_settings.v1\",\n"
 		"  \"asset_id\": \"%s\",\n"
 		"  \"weapon_id\": %d,\n"
-		"  \"dependency_closure\": \"" PDWEAPON_DEPENDENCY_CLOSURE_MARKER "\",\n"
-		"  \"runtime_graph\": \"" PDWEAPON_RUNTIME_GRAPH_ENTRY "\"\n"
+		"  \"dependency_closure\": \"" PDWEAPON_DEPENDENCY_CLOSURE_MARKER "\"\n"
 		"}\n",
 		catalog_id, weapon_id);
 	return (n > 0 && (size_t)n < out_cap) ? n : -1;
@@ -2327,7 +2232,6 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 		"catalog_id = %s\n"
 		"weapon_id = %d\n"
 		"manifest = _meta/manifest.json\n"
-		"behavior_graph = " PDWEAPON_RUNTIME_GRAPH_ENTRY "\n"
 		"primary_graph = " PDWEAPON_PRIMARY_GRAPH_ENTRY "\n"
 		"secondary_graph = " PDWEAPON_SECONDARY_GRAPH_ENTRY "\n"
 		"shared_context = " PDWEAPON_SHARED_CONTEXT_ENTRY "\n"
@@ -2393,15 +2297,6 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 	snprintf(secondary_tmp_relpath, sizeof(secondary_tmp_relpath),
 		"%s/%s.pdweapon.secondary.tmp", out_dir, filename);
 
-	if (s_emitWeaponGraphFile(graph_tmp_relpath, catalog_id, wpn,
-			projectile_refs, entity_refs) != 0) {
-		s_removeRelpathIfExists(graph_tmp_relpath);
-		sysMemFree(manifest_bytes);
-		s_payloadPlanCleanup(&payload_plan);
-		sysLoudFailf("EXTRACT.PDWEAPON",
-			"behavior graph emit failed for \"%s\"", catalog_id);
-		return -1;
-	}
 	if (s_emitWeaponModeGraphFile(primary_tmp_relpath, catalog_id,
 			(const struct weaponfunc *)wpn->functions[0], 0,
 			projectile_refs[0], entity_refs[0]) != 0) {
@@ -2446,17 +2341,13 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 		return -1;
 	}
 
-	char graph_full_buf[FS_MAXPATH + 1];
 	char primary_full_buf[FS_MAXPATH + 1];
 	char secondary_full_buf[FS_MAXPATH + 1];
-	const char *graph_full = fsFullPath(graph_tmp_relpath,
-		graph_full_buf, sizeof(graph_full_buf));
 	const char *primary_full = fsFullPath(primary_tmp_relpath,
 		primary_full_buf, sizeof(primary_full_buf));
 	const char *secondary_full = fsFullPath(secondary_tmp_relpath,
 		secondary_full_buf, sizeof(secondary_full_buf));
-	if (!graph_full || !graph_full[0] ||
-			!primary_full || !primary_full[0] ||
+	if (!primary_full || !primary_full[0] ||
 			!secondary_full || !secondary_full[0]) {
 		s_removeRelpathIfExists(graph_tmp_relpath);
 		s_removeRelpathIfExists(primary_tmp_relpath);
@@ -2534,9 +2425,6 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 		return -1;
 	}
 	if (assetArchiveWriterAddPublicDisk(&asset_writer,
-			PDWEAPON_RUNTIME_GRAPH_ENTRY, graph_full,
-			"behavior") != MODARCHIVE_OK ||
-			assetArchiveWriterAddPublicDisk(&asset_writer,
 			PDWEAPON_PRIMARY_GRAPH_ENTRY, primary_full,
 			"behavior") != MODARCHIVE_OK ||
 			assetArchiveWriterAddPublicDisk(&asset_writer,

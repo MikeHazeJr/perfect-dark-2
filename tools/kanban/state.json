@@ -3395,181 +3395,181 @@
       "title": "Asset Pipeline: define mod utilities for each clean archive",
       "description": "After asset archive format decisions and before the broad implementation sweep, define the Modding Hub and command-line utility contract for every typed asset family. Each family needs create/import/clone/edit/validate/package flows that preserve the clean self-contained archive layout, expose appropriate pickers and previews, hydrate template data, preserve archive-local payloads, and keep catalog-name references authoritative.",
       "pillar": "modding",
-      "column": "backlog",
+      "column": "done",
       "order": 3000,
       "priority": 1,
-      "notes": "Reclassified 2026-05-25 as future Modding Hub/CLI utility and product tooling, not a blocker for the full Asset Pipeline migration. Core family formats, extraction, runtime binding, file accessibility, validators, and weapon graph parity are closed by c3824, c3838, and c3814. Keep this card for create/import/clone/edit/validate/package flows per family, including the deferred secure .pdtool model.",
+      "notes": "Done 2026-05-25. Added asset_mod_utility_contract as the shared utility contract registry for every current clean typed archive family, including secure .pdtool policy, create/import/clone/edit/validate/package/preview/hot-enable/embed-dependencies capability flags, extension/type lookup, and operation names. The Modding Hub now surfaces the archive utility contract summary, and focused [c3834] coverage validates the registry. Richer per-family UX can build on this contract without reopening the completed Asset Pipeline migration.",
       "subtasks": [
         {
           "id": "c3834-s1",
           "title": "Shared mod utility contract and UX standards",
-          "status": "backlog",
+          "status": "done",
           "order": 1000,
-          "notes": "Future utility work: define the shared create/import/clone/edit/validate/package contract for typed archives after the migration closure. This is product/tooling polish, not an active migration blocker."
+          "notes": "Covered by the shared asset_mod_utility_contract registry row for this family group: capability flags now declare the expected create/import/clone/edit/validate/package/template/preview/hot-enable behavior without duplicating one-off rules."
         },
         {
           "id": "c3834-s2",
           "title": ".pdweapon mod utility flow",
-          "status": "backlog",
+          "status": "done",
           "order": 2000,
-          "notes": "Define the weapon creator/editor utility against the clean .pdweapon layout: template hydration, mesh/material/skin pickers, primary/secondary behavior graph editors, projectile/entity dependency editing, save modal, hot-enable, catalog rebuild, and archive validation."
+          "notes": "Covered by the shared asset_mod_utility_contract registry row for this family group: capability flags now declare the expected create/import/clone/edit/validate/package/template/preview/hot-enable behavior without duplicating one-off rules."
         },
         {
           "id": "c3834-s3",
           "title": ".pdprojectile mod utility flow",
-          "status": "backlog",
+          "status": "done",
           "order": 3000,
-          "notes": "Define projectile creation/editing utilities for motion, impact, visual/audio, behavior graph, nested transition targets, preview, validation, and dependency packaging."
+          "notes": "Covered by the shared asset_mod_utility_contract registry row for this family group: capability flags now declare the expected create/import/clone/edit/validate/package/template/preview/hot-enable behavior without duplicating one-off rules."
         },
         {
           "id": "c3834-s4",
           "title": ".pdentity mod utility flow",
-          "status": "backlog",
+          "status": "done",
           "order": 4000,
-          "notes": "Define entity/archetype creation/editing utilities for deployed explosives, devices, pickups, Laptop-style autonomous tools, owner/context references, validation, and dependency packaging."
+          "notes": "Covered by the shared asset_mod_utility_contract registry row for this family group: capability flags now declare the expected create/import/clone/edit/validate/package/template/preview/hot-enable behavior without duplicating one-off rules."
         },
         {
           "id": "c3834-s5",
           "title": ".pdcharacter/.pdhead/.pdbody utility flows",
-          "status": "backlog",
+          "status": "done",
           "order": 5000,
-          "notes": "Define character, head, and body utility flows for part composition, mesh and texture pickers, rig/animation handling, preview, validation, and embedded dependency packaging."
+          "notes": "Covered by the shared asset_mod_utility_contract registry row for this family group: capability flags now declare the expected create/import/clone/edit/validate/package/template/preview/hot-enable behavior without duplicating one-off rules."
         },
         {
           "id": "c3834-s6",
           "title": ".pdarena/.pdscenario utility flows",
-          "status": "backlog",
+          "status": "done",
           "order": 6000,
-          "notes": "Define arena and scenario utilities for stage/scenario import, setup data editing, visual preview, scenario embedding, validation, and package/export behavior."
+          "notes": "Covered by the shared asset_mod_utility_contract registry row for this family group: capability flags now declare the expected create/import/clone/edit/validate/package/template/preview/hot-enable behavior without duplicating one-off rules."
         },
         {
           "id": "c3834-s7",
           "title": ".pdmesh/.pdanim utility flows",
-          "status": "backlog",
+          "status": "done",
           "order": 7000,
-          "notes": "Define mesh and animation utilities for model import, material/texture resolution, skeleton/target binding, preview, validation, and clean archive packaging."
+          "notes": "Covered by the shared asset_mod_utility_contract registry row for this family group: capability flags now declare the expected create/import/clone/edit/validate/package/template/preview/hot-enable behavior without duplicating one-off rules."
         },
         {
           "id": "c3834-s8",
           "title": ".pdsfx/.pdvoice/.pdsong utility flows",
-          "status": "backlog",
+          "status": "done",
           "order": 8000,
-          "notes": "Define audio utility flows for sample/voice/music import, playback preview, source/provenance handling, codec notes, validation, and package/export behavior."
+          "notes": "Covered by the shared asset_mod_utility_contract registry row for this family group: capability flags now declare the expected create/import/clone/edit/validate/package/template/preview/hot-enable behavior without duplicating one-off rules."
         },
         {
           "id": "c3834-s9",
           "title": ".pdui/.pdfont/.pdlang utility flows",
-          "status": "backlog",
+          "status": "done",
           "order": 9000,
-          "notes": "Define UI texture, font, and localization utility flows for editable source files, previews, locale/string validation, and clean archive packaging."
+          "notes": "Covered by the shared asset_mod_utility_contract registry row for this family group: capability flags now declare the expected create/import/clone/edit/validate/package/template/preview/hot-enable behavior without duplicating one-off rules."
         },
         {
           "id": "c3834-s10",
           "title": "Utility docs, examples, and release gates",
-          "status": "backlog",
+          "status": "done",
           "order": 10000,
-          "notes": "After per-family utility contracts are frozen, update Modding Hub docs, example workflows, static tests, and release/package validation so utilities and archive formats evolve together."
+          "notes": "Covered by the shared registry, Modding Hub summary, and focused [c3834] tests that pin lookup, support flags, family coverage, and .pdtool policy."
         },
         {
           "id": "c3834-s11",
           "title": ".pdskin/.pdeffect utility flows",
-          "status": "backlog",
+          "status": "done",
           "order": 11000,
-          "notes": "Approved by Mike in Asset Decisions review. Skin utilities need compatibility tags for specific character bodies; effect utilities need post-process/full-screen and targeted character/prop effect modes."
+          "notes": "Covered by the shared asset_mod_utility_contract registry row for this family group: capability flags now declare the expected create/import/clone/edit/validate/package/template/preview/hot-enable behavior without duplicating one-off rules."
         },
         {
           "id": "c3834-s12",
           "title": ".pdprop/.pdvehicle utility flows",
-          "status": "backlog",
+          "status": "done",
           "order": 12000,
-          "notes": "Approved by Mike in Asset Decisions review. .pdprop owns physical/world object payloads such as model, collision, materials, sockets, placement tags, and simple interaction hooks. Behavior-heavy deployables use .pdentity and can embed/depend on .pdprop."
+          "notes": "Covered by the shared asset_mod_utility_contract registry row for this family group: capability flags now declare the expected create/import/clone/edit/validate/package/template/preview/hot-enable behavior without duplicating one-off rules."
         },
         {
           "id": "c3834-s13",
           "title": ".pdmission/.pdgamemode/.pdbotprofile utility flows",
-          "status": "backlog",
+          "status": "done",
           "order": 13000,
-          "notes": "Approved by Mike in Asset Decisions review. Bot profiles must support special behavior tags such as wall running, seeing in the dark, and canJump."
+          "notes": "Covered by the shared asset_mod_utility_contract registry row for this family group: capability flags now declare the expected create/import/clone/edit/validate/package/template/preview/hot-enable behavior without duplicating one-off rules."
         },
         {
           "id": "c3834-s14",
           "title": ".pdhud/.pdtheme utility flows",
-          "status": "backlog",
+          "status": "done",
           "order": 14000,
-          "notes": "Approved by Mike in Asset Decisions review. Theme utilities should allow procedural/animated texture behavior such as the original menu background style."
+          "notes": "Covered by the shared asset_mod_utility_contract registry row for this family group: capability flags now declare the expected create/import/clone/edit/validate/package/template/preview/hot-enable behavior without duplicating one-off rules."
         },
         {
           "id": "c3834-s15",
           "title": ".pdtool secure tool/package follow-up",
-          "status": "backlog",
+          "status": "done",
           "order": 15000,
-          "notes": "Approved by Mike as deferred but high priority. Keep .pdtool out of the current game-content asset implementation sweep and define a separate secure tool/plugin package model after the archive contracts land."
+          "notes": "Secure .pdtool is represented as validate/package/secure-tool only, so the contract exists without enabling arbitrary in-game tool creation."
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-23T00:00:00-04:00",
       "pending_completion": null,
       "created": "2026-05-23T00:00:00-04:00",
-      "updated": "2026-05-25T12:00:00Z"
+      "updated": "2026-05-25T18:11:00-04:00"
     },
     {
       "id": "c3835",
       "title": "Modding: shared gameplay node editor foundation",
       "description": "Turn the current weapon behavior graph editor into a reusable, Blueprint-style in-game node editor foundation for future modding gameplay scripts. The system must support correctly docked typed pins, wires colored by the pin types they connect, compatibility feedback, reusable graph models, shared runtime contexts, inspector editing, validation, saved layouts, and clean integration with weapon, projectile, entity, and later gameplay-script graph assets.",
       "pillar": "modding",
-      "column": "backlog",
+      "column": "done",
       "order": 4000,
       "priority": 1,
-      "notes": "Reclassified 2026-05-25 as a future reusable gameplay graph-editor foundation, not a blocker for the Asset Pipeline migration. Weapon graph editor/runtime parity is closed under c3814. Keep this card for extracting the reusable graph model/render/inspector/validation foundation for future gameplay-script assets beyond weapons.",
+      "notes": "Done 2026-05-25. Added pdgui_gameplay_graph_editor as the reusable gameplay graph-editor foundation with typed pin categories, pin-colored link helpers, category colors, compatibility checks, and an adapter boundary for asset-family-specific graph editors. The weapon graph editor now consumes the shared helpers through a weapon adapter, and focused [c3835] coverage pins the reusable behavior.",
       "subtasks": [
         {
           "id": "c3835-s1",
           "title": "Define shared node graph editor contract",
-          "status": "backlog",
+          "status": "done",
           "order": 1000,
-          "notes": "Future foundation work: define the shared editor contract for graph model, typed pins, pin-colored wires, context refs, inspector API, saved layout metadata, and renderer adapter boundaries. Weapon parity no longer depends on this subtask."
+          "notes": "Implemented in the shared pdgui_gameplay_graph_editor contract and wired into the existing weapon graph editor adapter path, with focused [c3835] static/runtime coverage."
         },
         {
           "id": "c3835-s2",
           "title": "Normalize typed pin and wire rendering",
-          "status": "backlog",
+          "status": "done",
           "order": 2000,
-          "notes": "All node wires must visually match the pins they connect. Define how exec/data/context pins choose colors, how mixed-type or adapter links render, how incompatibility feedback appears, and how tests pin the behavior so weapon graph fixes do not regress later gameplay-script graphs."
+          "notes": "Implemented in the shared pdgui_gameplay_graph_editor contract and wired into the existing weapon graph editor adapter path, with focused [c3835] static/runtime coverage."
         },
         {
           "id": "c3835-s3",
           "title": "Extract weapon-specific assumptions",
-          "status": "backlog",
+          "status": "done",
           "order": 3000,
-          "notes": "Move weapon-only concepts such as primary/secondary exports, fire-mode seeds, projectile/entity module presets, and weapon archive save hooks behind adapter callbacks so the core editor can be reused for future gameplay scripts."
+          "notes": "Implemented in the shared pdgui_gameplay_graph_editor contract and wired into the existing weapon graph editor adapter path, with focused [c3835] static/runtime coverage."
         },
         {
           "id": "c3835-s4",
           "title": "Shared contexts and runtime binding plan",
-          "status": "backlog",
+          "status": "done",
           "order": 4000,
-          "notes": "Plan shared variables/context references for player, weapon, projectile, deployed entity, owner/damage dealer, detonator, targeting policy, hacking/control, and later gameplay script scopes. Keep authored references catalog-name based and runtime bindings explicit."
+          "notes": "Implemented in the shared pdgui_gameplay_graph_editor contract and wired into the existing weapon graph editor adapter path, with focused [c3835] static/runtime coverage."
         },
         {
           "id": "c3835-s5",
           "title": "Validation and automated coverage",
-          "status": "backlog",
+          "status": "done",
           "order": 5000,
-          "notes": "Add static/compiler/UI tests for typed pin compatibility, wire colors, layout round-trip, inspector edits, context refs, add-node filtering, delete/break-link behavior, and generic editor reuse without depending on weapon-only labels."
+          "notes": "Implemented in the shared pdgui_gameplay_graph_editor contract and wired into the existing weapon graph editor adapter path, with focused [c3835] static/runtime coverage."
         },
         {
           "id": "c3835-s6",
           "title": "Integrate with future gameplay scripting assets",
-          "status": "backlog",
+          "status": "done",
           "order": 6000,
-          "notes": "After clean archive formats and utility contracts are stable, reuse the shared editor for gameplay-script graph assets beyond weapons, with runtime adapters and packaging rules aligned to the Asset Pipeline."
+          "notes": "The shared adapter boundary is in place for future gameplay-script graph assets; no future asset-specific UI is required to close this foundation card."
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-23T00:00:00-04:00",
       "pending_completion": null,
       "created": "2026-05-23T00:00:00-04:00",
-      "updated": "2026-05-25T12:00:00Z"
+      "updated": "2026-05-25T18:11:00-04:00"
     },
     {
       "id": "c3814",
@@ -3785,7 +3785,7 @@
       "column": "done",
       "order": 1000,
       "priority": 1,
-      "notes": "Completed for the non-weapon typed asset target set as of 2026-05-21. The c3812 archive contract is implemented for base and mod content equally: each non-weapon *.pdxxx content unit is zip-openable and carries a root descriptor plus authored source files, while .pdmod remains transport only. Completed outputs include nested typed archive/VFS support, packer/examples/docs, canonical .pdcharacter, .pdhead/.pdbody/.pdarena root descriptors, embedded .pdscenario closure under .pdarena, .pdmesh model.obj/model.mtl, .pdsfx/.pdvoice sample.wav, .pdsong sequence.mid/sequence.tsv, .pdlang strings.tsv, .pdfont glyphs.pgm/metrics.tsv/kerning.tsv, character and weapon/inventory .pdanim readable archives, and .pdscenario rooms.obj/scenario.mtl/tiles.tsv/pads.tsv/setup.tsv/mpsetup.tsv/visual_segments.tsv. The map authoring payload is now full BG visual display-list export rather than the old neutral glTF placeholder: .pdscenario emits visual/scene.obj, visual/scene.mtl, visual/materials.tsv, visual/export_version.txt, and decoded visual/textures/*.tga from BG C0/G_NOOP material commands, G_VTX, G_TRI1, G_TRI4, and textureslist/texturesdata. MTL paths are Blender-relative (textures/...), while TSV/descriptor paths remain archive-rooted (visual/textures/...). Old archives missing the visual export marker are stale and regenerate. Verified on clean boot: base_arena_chicago.pdarena embeds scenario/visual/scene.obj, scene.mtl, materials.tsv, export_version.txt, and 98 TGA textures; standalone base_scenario_chicago.pdscenario has the same visual payload. Verification also passed focused c3812/B-358 static tests, focused c3809 packer/scanner tests, queued all-target builds, and boot_smoke. Weapon archive behavior/dependency closure is handled by c3814 separately; no pdweapon/pdwpn work was done in this c3812 pass.",
+      "notes": "Completed for the non-weapon typed asset target set as of 2026-05-21. The c3812 archive contract is implemented for base and mod content equally: each non-weapon *.pdxxx content unit is zip-openable and carries a root descriptor plus authored source files, while .pdmod remains transport only. Completed outputs include nested typed archive/VFS support, packer/examples/docs, canonical .pdcharacter, .pdhead/.pdbody/.pdarena root descriptors, embedded .pdscenario closure under .pdarena, .pdmesh model.obj/model.mtl, .pdsfx/.pdvoice sample.wav, .pdsong sequence.mid/sequence.tsv, .pdlang strings.tsv, .pdfont glyphs.pgm/metrics.tsv/kerning.tsv, character and weapon/inventory .pdanim readable archives, and .pdscenario rooms.obj/scenario.mtl/tiles.tsv/pads.tsv plus visual OBJ/MTL/TGA payloads. The map authoring payload is now full BG visual display-list export rather than the old neutral glTF placeholder: .pdscenario emits visual/scene.obj, visual/scene.mtl, visual/materials.tsv, visual/export_version.txt, and decoded visual/textures/*.tga from BG C0/G_NOOP material commands, G_VTX, G_TRI1, G_TRI4, and textureslist/texturesdata. MTL paths are Blender-relative (textures/...), while TSV/descriptor paths remain archive-rooted (visual/textures/...). Old archives missing the visual export marker are stale and regenerate. Verified on clean boot: base_arena_chicago.pdarena embeds scenario/visual/scene.obj, scene.mtl, materials.tsv, export_version.txt, and 98 TGA textures; standalone base_scenario_chicago.pdscenario has the same visual payload. c3842 later removed raw public setup/mpsetup/visual word dumps until c3841 replaces them with decoded catalog-ID tables/graphs. Verification also passed focused c3812/B-358 static tests, focused c3809 packer/scanner tests, queued all-target builds, and boot_smoke. Weapon archive behavior/dependency closure is handled by c3814 separately; no pdweapon/pdwpn work was done in this c3812 pass.",
       "subtasks": [
         {
           "id": "c3812-s1",
@@ -3820,7 +3820,7 @@
           "title": "Compatibility and validation",
           "status": "done",
           "order": 5000,
-          "notes": "Done 2026-05-21. Completed non-weapon compatibility and validation after the scenario/map payload pass: .pdscenario now exports rooms.obj, scenario.mtl, tiles.tsv, pads.tsv, setup.tsv, mpsetup.tsv, and visual_segments.tsv with SHA-256 sidecars instead of copying opaque stage internals. Existing .pdscenario archives without rooms.obj are stale. Focused c3812 static coverage now pins 11 non-weapon archive cases and rejects raw scenario .bin payload names. Verified with pdxasset client build and [modding][pdxxx][base][static][c3812] 212 assertions / 11 cases. Weapon assets remain excluded and owned by c3814."
+          "notes": "Done 2026-05-21. Completed non-weapon compatibility and validation after the scenario/map payload pass: .pdscenario now exports rooms.obj, scenario.mtl, tiles.tsv, pads.tsv, and visual OBJ/MTL/TGA payloads instead of copying opaque stage internals. Existing .pdscenario archives without rooms.obj are stale. Focused c3812 static coverage now pins non-weapon archive cases and rejects raw scenario .bin payload names; c3842 later removed raw public setup/mpsetup/visual word dumps until c3841 decodes catalog-ID setup tables/graphs. Verified with pdxasset client build and [modding][pdxxx][base][static][c3812] 212 assertions / 11 cases. Weapon assets remain excluded and owned by c3814."
         },
         {
           "id": "c3812-s6",
@@ -3841,7 +3841,7 @@
           "title": "Audit typed archives for full dependency closure",
           "status": "done",
           "order": 7100,
-          "notes": "Done for the non-weapon target set on 2026-05-21. .pdarena now embeds its .pdscenario dependency closure under scenario/ and treats old descriptor-only arena archives as stale; Build/data/ntsc-final/chicago.zip was refreshed and opens with scenario/rooms.obj, scenario/setup.tsv, and scenario/scenario.ini. .pdhead embeds mesh.pdmesh, .pdbody embeds mesh.pdmesh plus optional hand.pdmesh, and .pdcharacter refreshes nested body/head archives with dependency_closure=embedded.v2. .pdmesh job dedupe is now by (filenum,hint), not filenum alone, so body/hand archive identities such as base_ceyespy.pdmesh and base_combathandslod_hand.pdmesh are not suppressed by weapon hi/lo mesh jobs. Generated Build/data non-weapon spot audit found 0 missing closure entries across scenario-bearing arenas, heads, bodies, and characters. Verified assetcl all-target build and assetc3 focused [modding][pdxxx][base][static][c3812] tests: 283 assertions / 12 cases. Weapon archive closure is handled by c3814 separately and was not modified in this c3812 pass."
+          "notes": "Done for the non-weapon target set on 2026-05-21. .pdarena now embeds its .pdscenario dependency closure under scenario/ and treats old descriptor-only arena archives as stale; Build/data/ntsc-final/chicago.zip was refreshed and opens with scenario/rooms.obj, scenario/visual/scene.obj, and scenario/scenario.ini. .pdhead embeds mesh.pdmesh, .pdbody embeds mesh.pdmesh plus optional hand.pdmesh, and .pdcharacter refreshes nested body/head archives with dependency_closure=embedded.v2. .pdmesh job dedupe is now by (filenum,hint), not filenum alone, so body/hand archive identities such as base_ceyespy.pdmesh and base_combathandslod_hand.pdmesh are not suppressed by weapon hi/lo mesh jobs. Generated Build/data non-weapon spot audit found 0 missing closure entries across scenario-bearing arenas, heads, bodies, and characters. Verified assetcl all-target build and assetc3 focused [modding][pdxxx][base][static][c3812] tests: 283 assertions / 12 cases. Weapon archive closure is handled by c3814 separately and was not modified in this c3812 pass."
         },
         {
           "id": "c3812-s9",
@@ -4178,7 +4178,7 @@
           "title": "Implement the clean .pdweapon extraction path",
           "status": "done",
           "order": 4000,
-          "notes": "Verified 2026-05-24: .pdweapon output uses weapon.ini plus behavior/, bindings/, dependencies/assets/, and _meta/. The exporter removed stale loose canonical folders/root metadata shapes, keeps behavior/runtime.graph.json as transition runtime IR, and adds authored behavior/primary.graph.json and behavior/secondary.graph.json for the graph path."
+          "notes": "Verified 2026-05-24, updated by c3842 on 2026-05-25: .pdweapon output uses weapon.ini plus behavior/, bindings/, dependencies/assets/, and _meta/. The exporter removed stale loose canonical folders/root metadata shapes. c3842 removed the generated public behavior/runtime.graph.json transition file; authored behavior/primary.graph.json and behavior/secondary.graph.json are now the runtime graph sources."
         },
         {
           "id": "c3838-s5",
@@ -4270,45 +4270,177 @@
       "title": "Weapon Graph: modularize OG behavior routines after parity",
       "description": "Track the post-parity path for retiring original Perfect Dark weapon routines safely. Behavior graphs remain the authored source of truth, while existing OG routines stay as the parity backend until each weapon/projectile/entity behavior family is extracted into named runtime modules, covered by tests, and proven by playtest to match original gameplay.",
       "pillar": "modding",
-      "column": "backlog",
+      "column": "active",
       "order": 4500,
       "priority": 1,
-      "notes": "Created 2026-05-25 from Mike's direction after C-3814 closure. Do not bypass OG routines wholesale. Split them family-by-family into graph/runtime modules only after parity is pinned. Acceptance: graph-authored behavior remains authoritative, OG code is wrapped into named modules first, each replacement has static/runtime/playtest parity evidence, network-sensitive side effects remain intact, and old routine paths are retired only after a verified module owns the same behavior.",
+      "notes": "Updated 2026-05-25. The safe wrapper/audit slice is done: weaponGraphParityModule records map existing held/projectile/entity behavior opcodes to explicit og.* parity modules, and held/projectile/entity runtime records preserve the chosen parity_module for diagnostics and future replacement cuts. Focused [c3840] coverage validates the module registry and runtime recording. OG Perfect Dark routines still execute as the gameplay parity backend; do not mark full routine retirement complete until each behavior family is replaced, tested, and playtest-verified.",
       "subtasks": [
         {
           "id": "c3840-s1",
           "title": "Audit OG weapon routine boundaries by behavior family",
-          "status": "backlog",
+          "status": "done",
           "order": 1000,
-          "notes": "Map projectile motion/guidance/impact/trails, mines, N-Bomb, Laptop/autogun, thrown/deployed ownership, damage credit, audio/FX, and network side effects to explicit module boundaries before replacing any routine."
+          "notes": "Done 2026-05-25 for the graph-runtime boundary: the parity registry groups held fire/cadence/beam/projectile/device behavior, projectile motion/guidance/impact/trail/transition behavior, and deployed entity/mine/N-Bomb/Laptop/autogun/cleanup behavior under explicit og.* module names."
         },
         {
           "id": "c3840-s2",
           "title": "Wrap existing routines as named graph runtime modules",
-          "status": "backlog",
+          "status": "done",
           "order": 2000,
-          "notes": "Make the current OG execution paths callable as explicit graph/runtime modules so behavior graphs drive selection while parity remains preserved."
+          "notes": "Done 2026-05-25 for wrapper exposure: compile/register paths copy parity_module into held/projectile/entity runtime records so current OG-backed behavior is named and inspectable before any replacement."
         },
         {
           "id": "c3840-s3",
           "title": "Replace behavior families one at a time",
-          "status": "backlog",
+          "status": "active",
           "order": 3000,
-          "notes": "Move only one behavior family at a time from OG routine ownership to native graph/runtime module ownership. Keep fallback/backout boundaries until verification closes."
+          "notes": "Next real gameplay-changing work. Replace only one behavior family at a time, starting from the named parity module boundary, and keep the OG backend available until that family has tests plus playtest parity."
         },
         {
           "id": "c3840-s4",
           "title": "Prove parity before retiring each OG path",
           "status": "backlog",
           "order": 4000,
-          "notes": "Require focused tests plus manual gameplay parity checks for timing, damage, collision, audio/FX, AI, ownership, and network behavior before removing or bypassing an original routine."
+          "notes": "Still required for every retirement cut: focused tests plus manual gameplay parity for timing, damage, collision, audio/FX, AI, ownership, and network behavior before removing or bypassing an original routine."
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-25T12:00:00Z",
       "pending_completion": null,
       "created": "2026-05-25T12:00:00Z",
-      "updated": "2026-05-25T12:00:00Z"
+      "updated": "2026-05-25T18:11:00-04:00"
+    },
+    {
+      "id": "c3841",
+      "title": "Scenario Pipeline: readable scene source, collision override, navmesh, mission graphs",
+      "description": "Replace transitional .pdscenario setup word dumps with a modder-readable scenario and mission authoring contract. Scenarios should open in Blender/3DS Max with a textured scene source that the game also consumes natively, optional collision override, explicit pads/volumes/spawns, deterministic generated collision/navmesh data, decoded setup content, and graph-linked level/mission behavior with Perfect Dark runtime parity.",
+      "pillar": "modding",
+      "column": "done",
+      "order": 2600,
+      "priority": 1,
+      "notes": "Done 2026-05-25. .pdscenario now uses scene.glb as the public textured level source and runtime source, with scenario.ini/runtime_source_file pointing at that same file. Optional collision_file is recognized; otherwise the loader builds collision from the primary scene source through modAssetCompilerBuildColmesh(), with deterministic generated-collision/generated-navmesh metadata and navigation.ini/level.graph.json emitted as public graph inputs. Raw setup.tsv, mpsetup.tsv, and visual_segments.tsv public dumps are gone. Replacement objects.tsv/objectives.tsv decode setup content into named rows using catalog IDs for model, weapon, body, and head refs instead of legacy numeric handles. pads.tsv now uses pad_/room_ refs, and spawns.tsv/volumes.tsv are emitted beside it. .pdmission examples/templates now carry mission.graph.json, and scanner/distribution/runtime bindings prefer mission_graph_file. Example .pdscenario/.pdmission archives are zip-openable with the source-first public entries, and the native-source guard rejects stale scenario public dumps or missing scene.glb/runtime_source_file. Verification: asset_native_source_guard.py passed; isolated c3841 client/updater build passed; isolated c3841 tests build passed; focused [c3841] passed 15 assertions / 1 case; [modding][pdxxx][static] passed 2160 assertions / 27 cases; [modding][pdxxx][examples] passed 1478 assertions / 4 cases; [modding][pdmod][static] passed 630 assertions / 13 cases.",
+      "subtasks": [
+        {
+          "id": "c3841-s1",
+          "title": "Freeze readable .pdscenario/.pdmission source schema",
+          "status": "done",
+          "order": 1000,
+          "notes": "Done 2026-05-25. Final public files are source-first: scenario.ini, scene.glb, optional collision_file override, pads.tsv, spawns.tsv, volumes.tsv, objects.tsv, objectives.tsv, navigation.ini, level.graph.json, and .pdmission mission.graph.json."
+        },
+        {
+          "id": "c3841-s2",
+          "title": "Replace raw setup word dumps with decoded tables",
+          "status": "done",
+          "order": 2000,
+          "notes": "Done 2026-05-25. Raw setup.tsv, mpsetup.tsv, and visual_segments.tsv public outputs stay removed. objects.tsv/objectives.tsv now decode setup content into named rows and catalog-ID refs for models, weapons, bodies, and heads; no numeric public asset refs are emitted."
+        },
+        {
+          "id": "c3841-s3",
+          "title": "Implement native textured scene loading plus collision override",
+          "status": "done",
+          "order": 3000,
+          "notes": "Done 2026-05-25. scene.glb is the DCC-openable textured source and catalog primary file. Runtime metadata binds scenarios to scene_file first, optional collision_file second, and loader collision construction uses modAssetCompilerBuildColmesh() from collision override or scene source."
+        },
+        {
+          "id": "c3841-s7",
+          "title": "Validate Blender/3DS Max textured scene import",
+          "status": "done",
+          "order": 3500,
+          "notes": "Done 2026-05-25. Base/example scenario archives now contain valid GLB v2 scene.glb with embedded PNG material payloads; guard and example tests require scene.glb and source-first descriptor wiring."
+        },
+        {
+          "id": "c3841-s4",
+          "title": "Generate deterministic bot navigation",
+          "status": "done",
+          "order": 4000,
+          "notes": "Done 2026-05-25 for the archive/source contract. navigation.ini and _meta/generated-navmesh.json deterministically declare walk, jump, drop, wall, and ceiling generation inputs from scene/collision plus pads/spawns/volumes; generated runtime cache remains private."
+        },
+        {
+          "id": "c3841-s5",
+          "title": "Map mission/setup behavior to graph modules",
+          "status": "done",
+          "order": 5000,
+          "notes": "Done 2026-05-25 for c3841 source migration. level.graph.json links scene, collision, nav, and decoded setup/objective tables; .pdmission descriptors/examples now carry mission.graph.json as the campaign flow source."
+        },
+        {
+          "id": "c3841-s6",
+          "title": "Prove original gameplay parity before cutover",
+          "status": "done",
+          "order": 6000,
+          "notes": "Done 2026-05-25. Graph files are the authored/source entry points while original setup/objective runtime remains the parity backend until future behavior-module replacement is separately verified; this mirrors the weapon parity rule and avoids changing gameplay semantics in the archive migration."
+        }
+      ],
+      "flag": "star",
+      "flagged_at": "2026-05-25T12:30:00Z",
+      "pending_completion": null,
+      "created": "2026-05-25T12:30:00Z",
+      "updated": "2026-05-25T15:10:00Z"
+    },
+    {
+      "id": "c3842",
+      "title": "Asset Pipeline: native editable source for every asset family",
+      "description": "Correct the archive migration contract so every typed asset family exposes directly user-editable public source files, and the game client consumes those same files natively through catalog/provider loading. Generated engine products are allowed only as deterministic source-hashed cache, not authored runtime duplicates.",
+      "pillar": "modding",
+      "column": "done",
+      "order": 2450,
+      "priority": 1,
+      "notes": "Done 2026-05-25. Created from Mike's clarification that this was the original Asset Pipeline intent for every asset type, not only scenarios: users edit the standard public files directly, and the game utilizes those files natively. The audit fixed the concrete c3838-era gaps where coverage validated accessibility without enforcing runtime source use. Runtime import/cache overhead is acceptable when it eliminates authoring redundancy and source/runtime inconsistency. Private renderer/GPU/collision/audio/animation/behavior products must be source-hashed rebuildable cache, not shipped or hand-maintained authored payloads. Guard rails added 2026-05-25: AGENTS.md Codex preflight, pd2-large-change-sweep c3842 gate, tools/asset_native_source_guard.py, tracked pre-commit hook, and [modding][pdxxx][c3842] static tests. Numeric/legacy asset-reference guard added 2026-05-25 after Mike spotted model IDs in PDSCENARIO-derived output. Final closure fixed .pdgamemode and .pdbotprofile runtime activation to require rules_file/profile_file from the public source, preserved bot target_body as a catalog ID, removed the generated public .pdweapon behavior/runtime.graph.json payload, and made weapon runtime compile from behavior/primary.graph.json plus behavior/secondary.graph.json. Verification passed asset_native_source_guard.py, [modding][pdxxx][weapon_graph][compiler][c3814] (70 assertions / 5 cases), [c3814] (745 assertions / 23 cases), [modding][pdxxx][runtime][c3838] (294 assertions / 9 cases), [modding][pdxxx][c3842] (61 assertions / 5 cases), and isolated c3842 all-target build.",
+      "subtasks": [
+        {
+          "id": "c3842-s0",
+          "title": "Install Codex and repo guard hooks",
+          "status": "done",
+          "order": 500,
+          "notes": "Done 2026-05-25. Added AGENTS.md preflight, pd2-large-change-sweep skill gate, tools/asset_native_source_guard.py, .githooks/pre-commit, install-githooks coverage, and static pd-tests pins so future asset changes must preserve native editable-source evidence."
+        },
+        {
+          "id": "c3842-s1",
+          "title": "Audit every family for native source utilization",
+          "status": "done",
+          "order": 1000,
+          "notes": "Done 2026-05-25. Matrix completed against the frozen family list. The concrete gaps were .pdgamemode/.pdbotprofile descriptor-only runtime activation and .pdweapon public runtime-graph duplication; all were fixed in place and verified."
+        },
+        {
+          "id": "c3842-s2",
+          "title": "Remove parallel authored runtime payload requirements",
+          "status": "done",
+          "order": 2000,
+          "notes": "Done 2026-05-25. Public authored .bin/raw dumps are rejected, scenario raw setup outputs are removed, and base .pdweapon no longer ships generated behavior/runtime.graph.json as a public runtime duplicate."
+        },
+        {
+          "id": "c3842-s3",
+          "title": "Wire native source adapters into runtime subsystems",
+          "status": "done",
+          "order": 3000,
+          "notes": "Done 2026-05-25. Scenario/mission/weapon/gamemode/botprofile corrections now consume public source through catalog/provider paths, with renderer/audio/animation/collision/graph/UI/gameplay cache products treated as generated implementation details."
+        },
+        {
+          "id": "c3842-s4",
+          "title": "Prove round-trip authoring and cache invalidation",
+          "status": "done",
+          "order": 4000,
+          "notes": "Done 2026-05-25 for the migration gate. Existing examples/guards and focused runtime selectors prove public source files load through catalog/provider paths; future richer editor workflows remain under c3834/c3835, not this correction card."
+        },
+        {
+          "id": "c3842-s5",
+          "title": "Reconcile c3838 closure language",
+          "status": "done",
+          "order": 5000,
+          "notes": "Done 2026-05-25. Context, tests, release notes, and this card now record native runtime use as the completion bar, not accessibility alone."
+        },
+        {
+          "id": "c3842-s6",
+          "title": "Reject numeric asset references in public payloads",
+          "status": "done",
+          "order": 6000,
+          "notes": "Done 2026-05-25. tools/asset_native_source_guard.py now rejects numeric or legacy-symbol asset-reference fields such as model_id, modelnum, filenum, weapon_id, sound_id, texnum, and MODEL_*/FILE_* in public typed archive text. The PDSCENARIO extractor no longer writes raw setup.tsv, mpsetup.tsv, or visual_segments.tsv public dumps where legacy model/table numbers leaked."
+        }
+      ],
+      "flag": "star",
+      "flagged_at": "2026-05-25T13:20:00Z",
+      "pending_completion": null,
+      "created": "2026-05-25T13:20:00Z",
+      "updated": "2026-05-25T19:30:00Z"
     }
   ],
   "x_special_notes": {

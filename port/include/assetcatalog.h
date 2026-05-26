@@ -343,11 +343,21 @@ typedef struct asset_entry {
             s32 max_players;           /* maximum players supported */
             s32 team_based;            /* bool: requires teams */
             u8  requirefeature;        /* unlock check (0 = always available) */
+            char rules_file[128];      /* authored rule/source payload */
         } gamemode;
         struct {
             s32 stagenum;              /* logical stage ID this scenario content backs */
             s32 mode;                  /* mp, solo, coop (flags or bitmask) */
-            char rooms_file[FS_MAXPATH]; /* canonical rooms/geometry source */
+            char scene_file[FS_MAXPATH]; /* DCC-openable runtime scene source */
+            char collision_file[FS_MAXPATH]; /* optional collision override */
+            char rooms_file[FS_MAXPATH]; /* compatibility rooms/geometry export */
+            char pads_file[FS_MAXPATH];
+            char spawns_file[FS_MAXPATH];
+            char volumes_file[FS_MAXPATH];
+            char objects_file[FS_MAXPATH];
+            char objectives_file[FS_MAXPATH];
+            char navigation_file[FS_MAXPATH];
+            char level_graph_file[FS_MAXPATH];
         } scenario;
         struct {
             s32 sound_id;              /* SFX enum value or music track index */
@@ -389,6 +399,7 @@ typedef struct asset_entry {
             char scenario_archive[FS_MAXPATH]; /* required scenario dependency */
             char objectives_file[128];  /* mission objective authoring source */
             char briefing_file[128];    /* briefing/localized text source */
+            char mission_graph_file[128]; /* campaign flow graph source */
         } mission;
         struct {
             char theme_file[128];       /* theme token/style source */
@@ -405,7 +416,8 @@ typedef struct asset_entry {
             s16  body;                 /* default MP body index (g_MpBodies[] position) */
             s16  name_langid;          /* langbank string ID for display name */
             u8   requirefeature;       /* unlock check (0 = always available) */
-            char profile_file[128];    /* optional authored profile/tuning payload */
+            char target_body[CATALOG_ID_LEN]; /* catalog body ID for authored profiles */
+            char profile_file[128];    /* authored profile/tuning payload */
         } bot_profile;
     } ext;
 

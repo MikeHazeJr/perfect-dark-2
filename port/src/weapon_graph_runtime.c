@@ -92,6 +92,40 @@ static const module_info_t s_modules[] = {
 	{ "entity.interaction", ASSET_ENTITY, WEAPON_GRAPH_OP_ENTITY_INTERACTION },
 };
 
+static const weapon_graph_parity_module_t s_parity_modules[] = {
+	{ WEAPON_GRAPH_OP_FIRE_HITSCAN, "og.fire.hitscan", "held_hitscan", "bondgun.c held fire path", "damage, recoil, cadence, muzzle, audio" },
+	{ WEAPON_GRAPH_OP_FIRE_AUTO_CADENCE, "og.fire.auto_cadence", "held_cadence", "bondgun.c automatic cadence path", "spin, rpm, ammo, recovery" },
+	{ WEAPON_GRAPH_OP_FIRE_BURST, "og.fire.burst", "held_burst", "bondgun.c burst fire path", "burst count, timing, ammo" },
+	{ WEAPON_GRAPH_OP_FIRE_CHARGE_RELEASE, "og.fire.charge_release", "held_charge", "bondgun.c charge/release path", "charge timing, release damage" },
+	{ WEAPON_GRAPH_OP_FIRE_BEAM_TICK, "og.fire.beam_tick", "held_beam", "bondgun.c beam/laser tick path", "beam timing, sight, projection" },
+	{ WEAPON_GRAPH_OP_SPAWN_FIRED_PROJECTILE, "og.spawn.fired_projectile", "projectile_spawn", "bondgun.c projectile creation path", "spawn state, owner, speed, model" },
+	{ WEAPON_GRAPH_OP_SPAWN_THROWN_PHYSICAL, "og.spawn.thrown_physical", "thrown_physical", "bondgun.c thrown object path", "throw timing, owner, carrier" },
+	{ WEAPON_GRAPH_OP_MELEE_STRIKE, "og.melee.strike", "melee", "bondgun.c melee path", "range, damage, recovery" },
+	{ WEAPON_GRAPH_OP_SPECIAL_REMOTE_DETONATOR, "og.special.remote_detonator", "remote_detonator", "propobj.c mine detonation path", "owner links, remote signal" },
+	{ WEAPON_GRAPH_OP_SPECIAL_COMBAT_BOOST, "og.special.combat_boost", "combat_boost", "bondgun.c combat boost path", "activation, recovery, device state" },
+	{ WEAPON_GRAPH_OP_DEVICE_ACTIVATE, "og.device.activate", "device", "bondgun.c device activation path", "device ids, toggles, cleanup" },
+	{ WEAPON_GRAPH_OP_PROJECTILE_MOTION, "og.projectile.motion", "projectile_motion", "propobj.c projectileTick/projectileLaunch", "motion, gravity, sliding, bounce" },
+	{ WEAPON_GRAPH_OP_PROJECTILE_TRAJECTORY_CORRECTION, "og.projectile.trajectory", "projectile_trajectory", "bondgun.c projectile trajectory solve", "aim correction, launch velocity" },
+	{ WEAPON_GRAPH_OP_PROJECTILE_HOMING, "og.projectile.homing", "projectile_guidance", "propobj.c homing rocket path", "targeting, steering, loss" },
+	{ WEAPON_GRAPH_OP_PROJECTILE_FLY_BY_WIRE, "og.projectile.fly_by_wire", "projectile_guidance", "propobj.c Slayer control path", "manual steering, smoke, owner death" },
+	{ WEAPON_GRAPH_OP_PROJECTILE_WALL_HUGGER, "og.projectile.wall_hugger", "projectile_wallhugger", "propobj.c Devastator path", "wall stick, fall, post-fall timer" },
+	{ WEAPON_GRAPH_OP_PROJECTILE_STICKY_ATTACH, "og.projectile.sticky_attach", "projectile_sticky", "propobj.c embed/stick path", "surface filters, embed policy" },
+	{ WEAPON_GRAPH_OP_PROJECTILE_BOUNCE_SLIDE, "og.projectile.bounce_slide", "projectile_bounce", "propobj.c bounce/slide path", "bounce count, slide friction" },
+	{ WEAPON_GRAPH_OP_PROJECTILE_TIMER, "og.projectile.timer", "projectile_timer", "propobj.c projectile timer path", "timer start, expiry, detonation" },
+	{ WEAPON_GRAPH_OP_PROJECTILE_IMPACT, "og.projectile.impact", "projectile_impact", "propobj.c impact/explosion path", "impact filter, effects, consumption" },
+	{ WEAPON_GRAPH_OP_PROJECTILE_TRAIL, "og.projectile.trail", "projectile_trail", "propobj.c smoke/trail path", "trail cadence and visual parity" },
+	{ WEAPON_GRAPH_OP_PROJECTILE_TRANSITION_TO_ENTITY, "og.projectile.transition_to_entity", "projectile_entity_transition", "bondgun.c/propobj.c deploy transition", "carrier to deployed entity" },
+	{ WEAPON_GRAPH_OP_ENTITY_ARMED_EXPLOSIVE, "og.entity.armed_explosive", "entity_explosive", "propobj.c weaponTick mines", "arm timing, owner, detonation" },
+	{ WEAPON_GRAPH_OP_ENTITY_PROXY_TRIGGER, "og.entity.proxy_trigger", "entity_proxy", "propobj.c proximity mine trigger", "radius, filters, self-attach policy" },
+	{ WEAPON_GRAPH_OP_ENTITY_REMOTE_DETONATABLE, "og.entity.remote_detonatable", "entity_remote", "propobj.c remote mine path", "detonator ownership, coop policy" },
+	{ WEAPON_GRAPH_OP_ENTITY_TIMED_DETONATABLE, "og.entity.timed_detonatable", "entity_timed", "propobj.c timed mine path", "timer and expiry" },
+	{ WEAPON_GRAPH_OP_ENTITY_NBOMB_STORM, "og.entity.nbomb_storm", "entity_nbomb", "propobj.c nbombCreateStorm path", "storm creation, ownership" },
+	{ WEAPON_GRAPH_OP_ENTITY_AUTOGUN, "og.entity.autogun", "entity_autogun", "propobj.c Laptop autogun path", "targeting, ammo, beam, pickup" },
+	{ WEAPON_GRAPH_OP_ENTITY_STICKY_DEVICE, "og.entity.sticky_device", "entity_sticky_device", "propobj.c sticky device path", "attachment, visible state" },
+	{ WEAPON_GRAPH_OP_ENTITY_OWNER_CLEANUP, "og.entity.owner_cleanup", "entity_owner_cleanup", "propobj.c owner cleanup path", "death/lost owner behavior" },
+	{ WEAPON_GRAPH_OP_ENTITY_INTERACTION, "og.entity.interaction", "entity_interaction", "propobj.c pickup/recover path", "prompts, transfer, sound" },
+};
+
 #ifndef PD_TESTS
 PD_CONSTRUCTOR static void weaponGraphRuntimeConfigInit(void)
 {
@@ -379,6 +413,33 @@ weapon_graph_opcode_e weaponGraphOpcodeForKind(asset_type_e graph_type,
 		}
 	}
 	return WEAPON_GRAPH_OP_INVALID;
+}
+
+size_t weaponGraphParityModuleCount(void)
+{
+	return sizeof(s_parity_modules) / sizeof(s_parity_modules[0]);
+}
+
+const weapon_graph_parity_module_t *weaponGraphParityModuleAt(size_t index)
+{
+	if (index >= weaponGraphParityModuleCount()) return NULL;
+	return &s_parity_modules[index];
+}
+
+const weapon_graph_parity_module_t *weaponGraphParityModuleForOpcode(
+	weapon_graph_opcode_e opcode)
+{
+	for (size_t i = 0; i < weaponGraphParityModuleCount(); i++) {
+		if (s_parity_modules[i].opcode == opcode) return &s_parity_modules[i];
+	}
+	return NULL;
+}
+
+const char *weaponGraphParityModuleNameForOpcode(weapon_graph_opcode_e opcode)
+{
+	const weapon_graph_parity_module_t *module =
+		weaponGraphParityModuleForOpcode(opcode);
+	return module ? module->module_name : "";
 }
 
 s32 weaponGraphRuntimeEnabled(void)
@@ -1119,6 +1180,216 @@ s32 weaponGraphValidateJson(asset_type_e graph_type, const char *json,
 		err, err_cap);
 }
 
+typedef struct graph_source_builder {
+	char *buf;
+	size_t len;
+	size_t cap;
+} graph_source_builder_t;
+
+static s32 builderAppend(graph_source_builder_t *b, const char *text)
+{
+	size_t n;
+	if (!b || !text) return -1;
+	n = strlen(text);
+	if (b->len + n + 1 > b->cap) return -1;
+	memcpy(b->buf + b->len, text, n);
+	b->len += n;
+	b->buf[b->len] = '\0';
+	return 0;
+}
+
+static s32 builderAppendFmt(graph_source_builder_t *b, const char *fmt, ...)
+{
+	va_list ap;
+	int n;
+	if (!b || !fmt || b->len >= b->cap) return -1;
+	va_start(ap, fmt);
+	n = vsnprintf(b->buf + b->len, b->cap - b->len, fmt, ap);
+	va_end(ap);
+	if (n < 0 || (size_t)n >= b->cap - b->len) return -1;
+	b->len += (size_t)n;
+	return 0;
+}
+
+static s32 spanHasJsonContent(json_span_t span)
+{
+	const char *p = jsonSkipWs(span.start, span.end);
+	return p < span.end;
+}
+
+static s32 builderAppendSpan(graph_source_builder_t *b, json_span_t span)
+{
+	size_t n;
+	if (!b || !span.start || !span.end || span.end < span.start) return -1;
+	n = (size_t)(span.end - span.start);
+	if (b->len + n + 1 > b->cap) return -1;
+	memcpy(b->buf + b->len, span.start, n);
+	b->len += n;
+	b->buf[b->len] = '\0';
+	return 0;
+}
+
+static s32 builderAppendArrayMembers(graph_source_builder_t *b,
+                                     const char *json, u32 json_size,
+                                     const char *key, s32 required,
+                                     s32 *wrote_any,
+                                     char *err, size_t err_cap)
+{
+	json_span_t root;
+	json_span_t array;
+	if (!json || json_size == 0 ||
+			!jsonReadObject(json, json + json_size, &root)) {
+		setErr(err, err_cap, "source graph is not a JSON object");
+		return -1;
+	}
+	if (!jsonObjectArray(root, key, &array) || !spanHasJsonContent(array)) {
+		if (required) {
+			setErr(err, err_cap, "source graph missing non-empty %s array", key);
+			return -1;
+		}
+		return 0;
+	}
+	if (wrote_any && *wrote_any) {
+		if (builderAppend(b, ",\n") != 0) return -1;
+	}
+	if (builderAppendSpan(b, array) != 0) return -1;
+	if (wrote_any) *wrote_any = 1;
+	return 0;
+}
+
+static s32 builderAppendSharedContexts(graph_source_builder_t *b,
+                                       const char *json, u32 json_size,
+                                       s32 *wrote_any,
+                                       char *err, size_t err_cap)
+{
+	json_span_t root;
+	json_span_t contexts;
+	if (!json || json_size == 0) return 0;
+	if (!jsonReadObject(json, json + json_size, &root)) {
+		setErr(err, err_cap, "shared context source is not a JSON object");
+		return -1;
+	}
+	if (!jsonObjectArray(root, "contexts", &contexts) ||
+			!spanHasJsonContent(contexts)) {
+		return 0;
+	}
+	if (wrote_any && *wrote_any) {
+		if (builderAppend(b, ",\n") != 0) return -1;
+	}
+	if (builderAppendSpan(b, contexts) != 0) return -1;
+	if (wrote_any) *wrote_any = 1;
+	return 0;
+}
+
+static s32 composeWeaponGraphFromAuthoringFiles(
+	const char *archive_path,
+	const weapon_graph_archive_descriptor_t *desc,
+	char **out_graph,
+	u32 *out_graph_size,
+	char *err,
+	size_t err_cap)
+{
+	char *primary = NULL;
+	char *secondary = NULL;
+	char *shared = NULL;
+	u32 primary_size = 0;
+	u32 secondary_size = 0;
+	u32 shared_size = 0;
+	size_t cap;
+	graph_source_builder_t b;
+	s32 wrote;
+
+	if (!archive_path || !desc || !out_graph || !desc->primary_graph[0] ||
+			!desc->secondary_graph[0]) {
+		setErr(err, err_cap, "weapon archive missing primary/secondary graph sources");
+		return -1;
+	}
+	*out_graph = NULL;
+	if (out_graph_size) *out_graph_size = 0;
+
+	if (weaponGraphArchiveReadTextFile(archive_path, desc->primary_graph,
+			&primary, &primary_size) != 0 ||
+			weaponGraphArchiveReadTextFile(archive_path, desc->secondary_graph,
+			&secondary, &secondary_size) != 0) {
+		setErr(err, err_cap, "%s missing primary/secondary graph source",
+			archive_path);
+		free(primary);
+		free(secondary);
+		return -1;
+	}
+	if (desc->shared_context[0]) {
+		(void)weaponGraphArchiveReadTextFile(archive_path, desc->shared_context,
+			&shared, &shared_size);
+	}
+
+	cap = (size_t)primary_size + (size_t)secondary_size +
+		(size_t)shared_size + 2048u;
+	b.buf = (char *)malloc(cap);
+	b.len = 0;
+	b.cap = cap;
+	if (!b.buf) {
+		free(primary);
+		free(secondary);
+		free(shared);
+		setErr(err, err_cap, "out of memory composing weapon graph source");
+		return -1;
+	}
+	b.buf[0] = '\0';
+
+	if (builderAppendFmt(&b,
+			"{\n"
+			"  \"schema\": \"pd.weapon_graph.v1\",\n"
+			"  \"asset_id\": \"%s\",\n"
+			"  \"graph_id\": \"source_composed\",\n",
+			desc->catalog_id) != 0) goto overflow;
+
+	if (builderAppend(&b, "  \"shared_context\": [\n") != 0) goto overflow;
+	wrote = 0;
+	if (shared && builderAppendSharedContexts(&b, shared, shared_size,
+			&wrote, err, err_cap) != 0) goto fail;
+	if (builderAppend(&b, "\n  ],\n") != 0) goto overflow;
+
+	if (builderAppend(&b, "  \"nodes\": [\n") != 0) goto overflow;
+	wrote = 0;
+	if (builderAppendArrayMembers(&b, primary, primary_size, "nodes", 1,
+			&wrote, err, err_cap) != 0 ||
+			builderAppendArrayMembers(&b, secondary, secondary_size, "nodes", 1,
+			&wrote, err, err_cap) != 0) goto fail;
+	if (builderAppend(&b, "\n  ],\n") != 0) goto overflow;
+
+	if (builderAppend(&b, "  \"edges\": [\n") != 0) goto overflow;
+	wrote = 0;
+	if (builderAppendArrayMembers(&b, primary, primary_size, "edges", 0,
+			&wrote, err, err_cap) != 0 ||
+			builderAppendArrayMembers(&b, secondary, secondary_size, "edges", 0,
+			&wrote, err, err_cap) != 0) goto fail;
+	if (builderAppend(&b, "\n  ],\n") != 0) goto overflow;
+
+	if (builderAppend(&b, "  \"exports\": [\n") != 0) goto overflow;
+	wrote = 0;
+	if (builderAppendArrayMembers(&b, primary, primary_size, "exports", 1,
+			&wrote, err, err_cap) != 0 ||
+			builderAppendArrayMembers(&b, secondary, secondary_size, "exports", 1,
+			&wrote, err, err_cap) != 0) goto fail;
+	if (builderAppend(&b, "\n  ]\n}\n") != 0) goto overflow;
+
+	free(primary);
+	free(secondary);
+	free(shared);
+	*out_graph = b.buf;
+	if (out_graph_size) *out_graph_size = (u32)b.len;
+	return 0;
+
+overflow:
+	setErr(err, err_cap, "weapon graph source composition overflow");
+fail:
+	free(primary);
+	free(secondary);
+	free(shared);
+	free(b.buf);
+	return -1;
+}
+
 s32 weaponGraphCompileArchiveFile(const char *archive_path,
                                   asset_type_e graph_type,
                                   weapon_graph_ir_t *out,
@@ -1136,14 +1407,20 @@ s32 weaponGraphCompileArchiveFile(const char *archive_path,
 			&desc, err, err_cap) != 0) {
 		return -1;
 	}
-	if (!desc.behavior_graph[0]) {
+	if (desc.behavior_graph[0]) {
+		if (weaponGraphArchiveReadTextFile(archive_path, desc.behavior_graph,
+				&graph, &graph_size) != 0) {
+			setErr(err, err_cap, "%s missing graph entry %s",
+				archive_path, desc.behavior_graph);
+			return -1;
+		}
+	} else if (graph_type == ASSET_WEAPON) {
+		if (composeWeaponGraphFromAuthoringFiles(archive_path, &desc,
+				&graph, &graph_size, err, err_cap) != 0) {
+			return -1;
+		}
+	} else {
 		setErr(err, err_cap, "%s has no behavior_graph", archive_path);
-		return -1;
-	}
-	if (weaponGraphArchiveReadTextFile(archive_path, desc.behavior_graph,
-			&graph, &graph_size) != 0) {
-		setErr(err, err_cap, "%s missing graph entry %s",
-			archive_path, desc.behavior_graph);
 		return -1;
 	}
 	result = weaponGraphCompileJson(graph_type, graph, graph_size, out,
@@ -1431,6 +1708,10 @@ static void projectileRuntimeFromNode(const weapon_graph_ir_t *ir,
 	s32 v;
 	u32 uv;
 	f32 f;
+	const char *module = weaponGraphParityModuleNameForOpcode(node->opcode);
+	if (module[0] && !out->parity_module[0]) {
+		copyStr(out->parity_module, sizeof(out->parity_module), module);
+	}
 	switch (node->opcode) {
 	case WEAPON_GRAPH_OP_PROJECTILE_SPAWN_STATE:
 		heldParamString(ir, node, "model_ref", out->model_ref,
@@ -1675,6 +1956,10 @@ static void entityRuntimeFromNode(const weapon_graph_ir_t *ir,
 	}
 	heldParamString(ir, node, "runtime_detail", out->runtime_detail,
 		sizeof(out->runtime_detail));
+	const char *module = weaponGraphParityModuleNameForOpcode(node->opcode);
+	if (module[0] && !out->parity_module[0]) {
+		copyStr(out->parity_module, sizeof(out->parity_module), module);
+	}
 
 	switch (node->opcode) {
 	case WEAPON_GRAPH_OP_ENTITY_ARMED_EXPLOSIVE:
@@ -1852,6 +2137,8 @@ static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
 	out->valid = 1;
 	out->opcode = node->opcode;
 	out->ammo_slot = -1;
+	copyStr(out->parity_module, sizeof(out->parity_module),
+		weaponGraphParityModuleNameForOpcode(node->opcode));
 	copyStr(out->node_id, sizeof(out->node_id), node->id);
 	if (!heldParamString(ir, node, "mode", out->mode, sizeof(out->mode)) &&
 			mode_hint) {

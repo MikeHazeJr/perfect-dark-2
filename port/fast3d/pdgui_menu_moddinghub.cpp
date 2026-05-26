@@ -40,6 +40,7 @@
 #include "pdgui_model_preview.h"
 #include "pdgui_weapon_graph_node_editor.h"
 #include "system.h"
+#include "asset_mod_utility_contract.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
 #include "identity.h"
@@ -848,6 +849,16 @@ static const char *s_WeaponGraphScopes[] = {
     "primary",
     "secondary",
     "shared",
+};
+
+static const PdGameplayGraphEditorAdapter s_WeaponGraphEditorAdapter = {
+    "weapon",
+    ".pdweapon",
+    "weapon.ini",
+    "behavior/primary.graph.json",
+    "behavior/secondary.graph.json",
+    true,
+    true
 };
 
 static const WeaponGraphContextDef s_WeaponGraphContextDefs[] = {
@@ -3553,6 +3564,7 @@ static void weaponRenderGraphBuilder(const char *scopeFilter,
     PdWeaponGraphEditorDesc desc;
     memset(&desc, 0, sizeof(desc));
     desc.model = &s_WeaponGraphModel;
+    desc.adapter = &s_WeaponGraphEditorAdapter;
     desc.modules = s_WeaponGraphModules;
     desc.module_count = weaponGraphModuleCount();
     desc.contexts = s_WeaponGraphContextDefs;
@@ -4409,6 +4421,62 @@ static const char *packTypeShortName(asset_type_e t)
     }
 }
 
+static void renderAssetUtilityContractSummary(float contentW, float scale)
+{
+    if (!ImGui::CollapsingHeader("Archive Utility Contracts")) {
+        return;
+    }
+
+    ImGuiTableFlags flags = ImGuiTableFlags_RowBg |
+        ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY;
+    if (ImGui::BeginTable("##asset_utility_contracts", 5, flags,
+            ImVec2(contentW, 108.0f * scale))) {
+        ImGui::TableSetupColumn("Family", ImGuiTableColumnFlags_WidthFixed,
+                                118.0f * scale);
+        ImGui::TableSetupColumn("Ext", ImGuiTableColumnFlags_WidthFixed,
+                                104.0f * scale);
+        ImGui::TableSetupColumn("Descriptor", ImGuiTableColumnFlags_WidthFixed,
+                                128.0f * scale);
+        ImGui::TableSetupColumn("Hub", ImGuiTableColumnFlags_WidthFixed,
+                                116.0f * scale);
+        ImGui::TableSetupColumn("Ops");
+        ImGui::TableHeadersRow();
+
+        for (size_t i = 0; i < assetModUtilityContractCount(); i++) {
+            const asset_mod_utility_contract_t *c =
+                assetModUtilityContractAt(i);
+            if (!c) continue;
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted(c->family);
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextUnformatted(c->extension);
+            ImGui::TableSetColumnIndex(2);
+            ImGui::TextUnformatted(c->descriptor);
+            ImGui::TableSetColumnIndex(3);
+            ImGui::TextUnformatted(c->hub_tool);
+            ImGui::TableSetColumnIndex(4);
+            const u32 ops[] = {
+                ASSET_MOD_UTIL_CREATE, ASSET_MOD_UTIL_IMPORT,
+                ASSET_MOD_UTIL_CLONE, ASSET_MOD_UTIL_EDIT,
+                ASSET_MOD_UTIL_VALIDATE, ASSET_MOD_UTIL_PACKAGE,
+                ASSET_MOD_UTIL_PREVIEW, ASSET_MOD_UTIL_HOT_ENABLE,
+                ASSET_MOD_UTIL_EMBED_DEPS, ASSET_MOD_UTIL_TEMPLATE,
+                ASSET_MOD_UTIL_SECURE_TOOL
+            };
+            bool first = true;
+            for (size_t j = 0; j < sizeof(ops) / sizeof(ops[0]); j++) {
+                if (!assetModUtilitySupports(c, ops[j])) continue;
+                if (!first) ImGui::SameLine();
+                ImGui::TextDisabled("%s", assetModUtilityOperationName(ops[j]));
+                first = false;
+            }
+        }
+        ImGui::EndTable();
+    }
+}
+
 /* ========================================================================
  * Mod Pack Tool — renderer
  * ======================================================================== */
@@ -4428,6 +4496,7 @@ static void renderPackTool(float contentW, float contentH, float scale)
     ImGui::TextUnformatted("EXPORT");
     ImGui::PopStyleColor();
     ImGui::Separator();
+    renderAssetUtilityContractSummary(contentW, scale);
 
     /* Pack metadata row: Name / Author / Version */
     {

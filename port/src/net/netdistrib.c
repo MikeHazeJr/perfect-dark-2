@@ -1267,6 +1267,8 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         {
             const char *rf = iniGet(ini, "rules_file",
                 iniGet(ini, "file_path", ""));
+            strncpy(e->ext.gamemode.rules_file, rf,
+                    sizeof(e->ext.gamemode.rules_file) - 1);
             if (rf[0]) {
                 distribSetPrimaryFromFile(e, dirpath, rf);
             }
@@ -1276,13 +1278,45 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         e->ext.scenario.stagenum = iniGetInt(ini, "stagenum", -1);
         e->ext.scenario.mode = (u8)iniGetInt(ini, "mode", 0);
         {
+            const char *sf = iniGet(ini, "scene_file",
+                iniGet(ini, "scene",
+                iniGet(ini, "runtime_source_file",
+                iniGet(ini, "blender_scene_file",
+                iniGet(ini, "visual_scene_file", "")))));
+            const char *cf = iniGet(ini, "collision_file",
+                iniGet(ini, "collision_source_file",
+                iniGet(ini, "collision_source", "")));
             const char *rf = iniGet(ini, "rooms_file",
                 iniGet(ini, "rooms",
                 iniGet(ini, "geometry_file",
                 iniGet(ini, "geometry", ""))));
+            strncpy(e->ext.scenario.scene_file, sf,
+                    sizeof(e->ext.scenario.scene_file) - 1);
+            strncpy(e->ext.scenario.collision_file, cf,
+                    sizeof(e->ext.scenario.collision_file) - 1);
             strncpy(e->ext.scenario.rooms_file, rf,
                     sizeof(e->ext.scenario.rooms_file) - 1);
-            if (rf[0]) {
+            strncpy(e->ext.scenario.pads_file, iniGet(ini, "pads_file", ""),
+                    sizeof(e->ext.scenario.pads_file) - 1);
+            strncpy(e->ext.scenario.spawns_file, iniGet(ini, "spawns_file", ""),
+                    sizeof(e->ext.scenario.spawns_file) - 1);
+            strncpy(e->ext.scenario.volumes_file, iniGet(ini, "volumes_file", ""),
+                    sizeof(e->ext.scenario.volumes_file) - 1);
+            strncpy(e->ext.scenario.objects_file,
+                    iniGet(ini, "objects_file", iniGet(ini, "props_file", "")),
+                    sizeof(e->ext.scenario.objects_file) - 1);
+            strncpy(e->ext.scenario.objectives_file,
+                    iniGet(ini, "objectives_file", ""),
+                    sizeof(e->ext.scenario.objectives_file) - 1);
+            strncpy(e->ext.scenario.navigation_file,
+                    iniGet(ini, "navigation_file", ""),
+                    sizeof(e->ext.scenario.navigation_file) - 1);
+            strncpy(e->ext.scenario.level_graph_file,
+                    iniGet(ini, "level_graph_file", iniGet(ini, "level_graph", "")),
+                    sizeof(e->ext.scenario.level_graph_file) - 1);
+            if (sf[0]) {
+                distribSetPrimaryFromFile(e, dirpath, sf);
+            } else if (rf[0]) {
                 distribSetPrimaryFromFile(e, dirpath, rf);
             }
         }
@@ -1358,6 +1392,11 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         e->ext.bot_profile.body = (s16)iniGetInt(ini, "body", -1);
         e->ext.bot_profile.name_langid = (s16)iniGetInt(ini, "name_langid", 0);
         e->ext.bot_profile.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
+        strncpy(e->ext.bot_profile.target_body,
+                iniGet(ini, "target_body",
+                iniGet(ini, "body_id",
+                iniGet(ini, "body_ref", ""))),
+                sizeof(e->ext.bot_profile.target_body) - 1);
         strncpy(e->ext.bot_profile.profile_file, iniGet(ini, "profile_file",
                 iniGet(ini, "file_path", "")), sizeof(e->ext.bot_profile.profile_file) - 1);
         if (e->ext.bot_profile.profile_file[0]) {
@@ -1395,10 +1434,15 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
             strncpy(e->ext.mission.briefing_file,
                     iniGet(ini, "briefing_file", ""),
                     sizeof(e->ext.mission.briefing_file) - 1);
-            const char *pf = e->ext.mission.scenario_archive[0] ?
-                e->ext.mission.scenario_archive :
+            strncpy(e->ext.mission.mission_graph_file,
+                    iniGet(ini, "mission_graph_file", iniGet(ini, "graph", "")),
+                    sizeof(e->ext.mission.mission_graph_file) - 1);
+            const char *pf = e->ext.mission.mission_graph_file[0] ?
+                e->ext.mission.mission_graph_file :
+                (e->ext.mission.scenario_archive[0] ?
+                    e->ext.mission.scenario_archive :
                 (e->ext.mission.objectives_file[0] ?
-                    e->ext.mission.objectives_file : e->ext.mission.briefing_file);
+                    e->ext.mission.objectives_file : e->ext.mission.briefing_file));
             if (pf[0]) {
                 distribSetPrimaryFromFile(e, dirpath, pf);
             }

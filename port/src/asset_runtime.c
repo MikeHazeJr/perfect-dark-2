@@ -275,28 +275,40 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
 
     case ASSET_MISSION:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
-               entry->ext.mission.scenario_archive);
+               entry->ext.mission.mission_graph_file[0]
+                    ? entry->ext.mission.mission_graph_file
+                    : entry->ext.mission.scenario_archive);
         s_copy(binding->dependency_a, sizeof(binding->dependency_a),
-               entry->ext.mission.objectives_file);
+               entry->ext.mission.scenario_archive);
         s_copy(binding->dependency_b, sizeof(binding->dependency_b),
-               entry->ext.mission.briefing_file);
+               entry->ext.mission.objectives_file[0]
+                    ? entry->ext.mission.objectives_file
+                    : entry->ext.mission.briefing_file);
         return s_finishFileBinding(binding,
             s_hasAnyFile(binding->primary_path, binding->authored_file,
                          binding->dependency_a, binding->dependency_b));
 
     case ASSET_GAMEMODE:
+        s_copy(binding->authored_file, sizeof(binding->authored_file),
+               entry->ext.gamemode.rules_file);
         binding->runtime_id = entry->ext.gamemode.mode_id;
         binding->kind = entry->ext.gamemode.team_based;
         binding->target_kind = entry->ext.gamemode.min_players;
-        return 1;
+        return s_finishFileBinding(binding,
+            s_hasAnyFile(binding->primary_path, binding->authored_file,
+                         NULL, NULL));
 
     case ASSET_BOT_PROFILE:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
                entry->ext.bot_profile.profile_file);
+        s_copy(binding->target_id, sizeof(binding->target_id),
+               entry->ext.bot_profile.target_body);
         binding->runtime_id = entry->ext.bot_profile.type;
         binding->kind = entry->ext.bot_profile.difficulty;
         binding->target_kind = entry->ext.bot_profile.body;
-        return 1;
+        return s_finishFileBinding(binding,
+            s_hasAnyFile(binding->primary_path, binding->authored_file,
+                         NULL, NULL));
 
     case ASSET_HUD:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
@@ -323,12 +335,18 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
 
     case ASSET_SCENARIO:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
-               entry->ext.scenario.rooms_file);
+               entry->ext.scenario.scene_file[0]
+                    ? entry->ext.scenario.scene_file
+                    : entry->ext.scenario.rooms_file);
+        s_copy(binding->dependency_a, sizeof(binding->dependency_a),
+               entry->ext.scenario.collision_file);
+        s_copy(binding->dependency_b, sizeof(binding->dependency_b),
+               entry->ext.scenario.level_graph_file);
         binding->runtime_id = entry->ext.scenario.stagenum;
         binding->kind = entry->ext.scenario.mode;
         return s_finishFileBinding(binding,
             s_hasAnyFile(binding->primary_path, binding->authored_file,
-                         NULL, NULL));
+                         binding->dependency_a, binding->dependency_b));
 
     case ASSET_THEME:
         s_copy(binding->authored_file, sizeof(binding->authored_file),

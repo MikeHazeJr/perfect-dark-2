@@ -171,6 +171,17 @@ The goal: if context is cleared right now, the next session picks up in under a 
 - **Dead code removed**: N64 assembly, ultra/os, ultra/libc all removed.
 - **AI builds via `build-headless.ps1`**: Game director tests in-game via playtest dashboard.
 
+## Asset Pipeline c3842 Codex Hook
+
+Every Codex session that touches asset archives, extraction, catalog/provider loading, runtime asset adapters, Modding Hub asset save/import flows, distribution manifests, or typed `.pdxxx` examples must enforce this preflight:
+
+1. Read the active constraint **Public asset source is the game-facing source** in `context/constraints.md`.
+2. Treat every public typed-archive payload as directly user-editable source that the game client consumes natively through catalog/provider loading.
+3. Treat renderer, GPU, collision, audio-codec, animation, graph-runtime, room/portal, and other engine-ready products as source-hashed rebuildable cache only.
+4. Reject designs that add parallel authored runtime files, opaque `.bin` payloads, raw preprocessed dumps, numeric/legacy asset references in public payloads, or hand-maintained duplicate source/runtime representations.
+5. When changing any asset family, add or update focused tests proving the public source file feeds runtime use, not only that it exists or can be previewed.
+6. Run `python tools/asset_native_source_guard.py` before reporting completion. For commits, the tracked pre-commit hook runs the same guard with staged-file checks.
+
 ## Architecture
 - `src/` — Original decompiled game code (C). `src/game/`, `src/lib/`, `src/include/`
 - `port/` — PC port additions (C/C++). `port/fast3d/`, `port/src/`, `port/include/`

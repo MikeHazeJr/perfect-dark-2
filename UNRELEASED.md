@@ -31,6 +31,10 @@
 - Added frozen clean Asset Pipeline archive layout contracts for all current typed families, including `.pdui`, `.pdfont`, and `.pdlang`.
 - Added a final Asset Pipeline extraction handoff card, modularization verification audit, and load/use closure matrix for all approved `.pdxxx` game-content archive families.
 - Added a shared typed archive writer for the Asset Pipeline extraction sweep, covering root descriptors, `_meta` manifests, inventories, provenance, validation, source handles, hashes, and SHA sidecars.
+- Added Codex and repo guard hooks for the Asset Pipeline native-source contract, including a pre-commit guard and focused `[modding][pdxxx][c3842]` static tests.
+- Added shared per-family Asset Pipeline utility contracts for clean typed archives, including Modding Hub visibility and secure `.pdtool` policy.
+- Added a reusable gameplay graph editor foundation with typed pins, pin-colored links, compatibility checks, and asset-family adapters.
+- Added named weapon graph parity modules so current OG-backed held, projectile, and deployed-entity behavior families are explicit before future retirement cuts.
 
 ## Changed
 
@@ -47,6 +51,11 @@
 - Projectile and deployed-entity behavior graphs now compile into runtime records from accessible graph files and feed the existing Perfect Dark execution paths for gameplay parity.
 - C-3838 runtime bindings now cover all approved file-backed `.pdxxx` families, including `.pdprop`, with type/id/target/kind lookups plus primary-file accessibility and load validation.
 - Catalog-generated base asset IDs and typed archive references now use readable names instead of legacy numeric handles.
+- Scenario archive extraction no longer writes raw setup/mpsetup/visual word dumps as public payloads, and typed archive guards now reject numeric or legacy-symbol asset references in authoring files.
+- Scenario and mission archives now use source-first public payloads: `.pdscenario` emits `scene.glb`, decoded catalog-ID setup tables, navigation inputs, level graph JSON, and generated collision/navmesh metadata, while `.pdmission` carries `mission.graph.json`.
+- Base weapon archives now use authored primary/secondary graph files directly at runtime instead of shipping a generated public `behavior/runtime.graph.json` duplicate.
+- Weapon graph runtime records now retain the named `og.*` parity module selected by each held, projectile, or entity graph record.
+- Gamemode and bot profile archives now require their public rule/profile source files for runtime activation.
 - Replaced the old Settings Controls surface with a single actionmap-backed Input binding table.
 - Main Menu now presents Play instead of Solo Play and removes the old Online Play direct-connect entry; online friend play now routes through Social invites/joins.
 - Social friend invites are available even when a friend row is showing a stale Offline state.

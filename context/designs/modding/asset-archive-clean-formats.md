@@ -8,6 +8,8 @@ This document records the clean self-contained archive layouts for every current
 
 Every typed `*.pdxxx` archive is a zip-openable authoring unit. Changing the extension to `.zip` should reveal the descriptor and readable source files needed to edit, clone, share, validate, and load that single asset.
 
+The public authoring files are also the game-facing source of truth. The client should ingest those files through the catalog/provider asset pipeline and derive any renderer, GPU, collision, animation, audio-codec, behavior-runtime, or other engine-ready products from them as source-hashed cache. The pipeline may pay a small import/cache cost to avoid duplicate authored representations; what it must not do is require users or extractors to maintain one editable file and a separate opaque runtime file for the same asset.
+
 The archive has two zones:
 
 - Public authoring zone: the root descriptor and readable files or purpose-named folders that modders naturally edit.
@@ -15,13 +17,13 @@ The archive has two zones:
 
 New emitters write machine data under `_meta/`. Transition readers may accept legacy root `manifest.json` and root SHA sidecars, but release/package validation must fail newly emitted or installed stale outputs that are non-zip typed files, `.pdwpn`, descriptor-less, authored `.bin` backed, or unresolved internally.
 
-All asset references use catalog ID strings. A reference field is metadata, not dependency closure, unless the referenced authored payload also resolves inside the archive or inside an embedded typed dependency archive. Higher-level assets embed dependency assets as intact typed archives under `dependencies/assets/<type>/<id>.<typed-asset>` unless the family-specific notes below define a narrower legacy transition path. Validators fail unresolved references unless the archive embeds the dependency or declares an approved base fallback with catalog ID, compatibility/version/hash where available, and reason.
+All asset references use catalog ID strings. Numeric or legacy-symbol asset references such as `model_id = 42`, `modelnum`, `filenum`, `weapon_id`, `sound_id`, `texnum`, `MODEL_*`, or `FILE_*` are invalid public authoring fields. A reference field is metadata, not dependency closure, unless the referenced authored payload also resolves inside the archive or inside an embedded typed dependency archive. Higher-level assets embed dependency assets as intact typed archives under `dependencies/assets/<type>/<id>.<typed-asset>` unless the family-specific notes below define a narrower legacy transition path. Validators fail unresolved references unless the archive embeds the dependency or declares an approved base fallback with catalog ID, compatibility/version/hash where available, and reason.
 
 Each root descriptor must be sufficient to instantiate the asset without consulting legacy numeric tables: schema version, catalog ID or namespace hint, display name, role/kind, authored source paths, dependency roles, compatibility tags, fallback declarations, and loader/importer/exporter revision markers where relevant. Raw editable source files are allowed when owned by that family; cross-family resources stay as typed dependency archives.
 
 Tools must be able to export an archive into an accessible folder of modder-editable files and import that folder back into the same valid typed archive. Import reconstructs descriptors, `_meta/`, hashes, and embedded typed dependencies rather than preserving loose cross-family sidecars.
 
-Authored `.bin` payloads are rejected. Generated runtime cache remains private, readable when useful, rebuildable, and unshipped. `.pdmod` remains transport only.
+Authored `.bin` payloads, raw preprocessed dumps, and parallel hand-maintained runtime payloads are rejected. Generated runtime cache remains private, readable when useful, source-hashed, rebuildable, and unshipped. `.pdmod` remains transport only.
 
 ## Frozen Family Contracts
 
@@ -36,7 +38,7 @@ Authored `.bin` payloads are rejected. Generated runtime cache remains private, 
 | `.pdhead` | `head.ini` | head socket/expression/material-slot metadata and presentation bindings | Focused reusable head. Mesh, material, texture, and animation payloads remain typed dependencies. |
 | `.pdbody` | `body.ini` | skeleton/rig contract, body proportions, sockets, first-person hand bindings, material slots | Focused reusable body. Body and hand roles stay explicit so dedupe does not collapse responsibilities. |
 | `.pdarena` | `arena.ini` | preview/thumbnail, match defaults, spawn playlist metadata, scenario reference | Multiplayer-facing arena selection wrapper around an embedded `.pdscenario`. |
-| `.pdscenario` | `scenario.ini` | rooms, portals, pads, setup/object placements, collision/navigation, lighting/visual scene data, spawn profiles | Actual level/map content. Arena, mission, and gamemode wrappers select or configure it. |
+| `.pdscenario` | `scenario.ini` | DCC-openable textured `scene.glb` or `scene.gltf`, optional `collision.glb`/`collision.obj`, pads/volumes, spawn profiles, generated navigation inputs, graph-linked level settings/triggers | Actual level/map content. Arena, mission, and gamemode wrappers select or configure it; the game consumes the same scene source through the asset pipeline. |
 | `.pdmesh` | `mesh.ini` | geometry, hierarchy, skinning/rig binding, sockets, LODs, optional collision proxy | Reusable geometry/model data. Materials and textures remain typed dependencies. |
 | `.pdanim` | `animation.ini` | timeline/channel data, events/notifies, retargeting/target rig metadata, optional legacy opcodes | Reusable animation clip or sequence. Body, weapon, mesh, and audio refs remain catalog IDs with embedded dependencies when needed. |
 | `.pdsfx` | `sound.ini` | editable source audio, loop points, attenuation and mixer tags, import settings | Atomic sound effect. Codec/runtime cache is private and rebuildable. |
@@ -59,7 +61,7 @@ Authored `.bin` payloads are rejected. Generated runtime cache remains private, 
 
 ## Load And Utilization Closure
 
-The extraction implementation should treat this as the minimum "can load and can be used" checklist. A family passes only when its descriptor, public payload, `_meta/` data, and embedded typed dependencies can feed the catalog loader, the relevant runtime subsystem, and mod tools without external lookup except approved base fallbacks.
+The extraction implementation should treat this as the minimum "can load and can be used" checklist. A family passes only when its descriptor, public payload, `_meta/` data, and embedded typed dependencies can feed the catalog loader, the relevant runtime subsystem, and mod tools without external lookup except approved base fallbacks. Public payloads should be the native client input; generated products are cache derived by the asset pipeline, not extra source files authors must edit or keep synchronized.
 
 | Family | Must be present to load | Must be present to utilize |
 |--------|-------------------------|----------------------------|
@@ -72,7 +74,43 @@ The extraction implementation should treat this as the minimum "can load and can
 | `.pdhead` | `head.ini`, socket/expression/material-slot metadata | Mesh/material/texture/animation deps, expression bindings, body compatibility tags. |
 | `.pdbody` | `body.ini`, skeleton/rig, proportions, sockets, first-person hand bindings | Body and hand mesh/material deps, animation target metadata, attachment compatibility. |
 | `.pdarena` | `arena.ini`, embedded `.pdscenario`, preview/default refs | Multiplayer selection metadata, match defaults, spawn playlists, gametype/team overrides. |
-| `.pdscenario` | `scenario.ini`, geometry, rooms, portals, pads, setup, collision, navigation, visual scene data | Spawn profiles, mission/gamemode hooks, lighting/material deps, objective/phase override anchors. |
+| `.pdscenario` | `scenario.ini`, textured DCC-openable scene source, optional collision override, pads/volumes, decoded setup tables/graphs, navigation generation inputs | Native scenario load from the same scene source, spawn profiles, mission/gamemode hooks, lighting/material deps, objective/phase override anchors, graph-linked triggers/global settings. |
+
+## Scenario Authoring Correction
+
+2026-05-25 direction: the prior `rooms.obj` plus `visual/scene.obj` split is transitional. The final `.pdscenario` contract should make immediate sense when opened by a modder.
+
+Canonical target:
+
+```text
+scenario.ini
+scene.glb
+collision.glb          # optional override; collision.obj is allowed during transition
+pads.tsv
+volumes.tsv
+spawns.tsv
+navigation.ini
+mission.graph.json     # optional, or owned by .pdmission when campaign-specific
+level.graph.json       # triggers, global settings, scenario-local behavior hooks
+_meta/
+  manifest.json
+  inventory.json
+  provenance.json
+  validation.json
+  generated-collision.json
+  generated-navmesh.json
+  hashes.tsv
+```
+
+`scene.glb` or `scene.gltf` is the primary level mesh, visual authoring source, and native scenario load source. It must carry mesh hierarchy, materials, UVs, and archive-local or embedded textures so Blender and 3DS Max open the level already textured without project-specific plugins. `scene.glb` is preferred for generated examples because it keeps buffers and textures in one file; `scene.gltf` is allowed when all referenced buffers/textures stay inside the archive through relative paths. `OBJ+MTL+TGA` may remain a transition/export fallback, but it is not the final scenario source contract.
+
+Runtime should read `scene.glb`/`scene.gltf` through the catalog/provider asset pipeline, then derive private renderer, room/portal, collision fallback, and navigation cache from source hashes. Those generated products are speed aids and diagnostics, not the authored files that make the archive loadable.
+
+`collision.glb` or `collision.obj` is optional. If present, the game uses it as the collision authority after validation. If absent, collision is generated deterministically from `scene.glb` using explicit import rules recorded in `scenario.ini` and `_meta/generated-collision.json`. Collision generation must preserve room/portal/floor metadata through named sidecars or scene node tags rather than requiring a second user-edited mesh by default.
+
+Bot navigation is generated, not authored as opaque legacy waypoint dumps. The generation input is the scene/collision mesh plus pads, volumes, gameplay tags, and bot-profile capability rules. The generated nav data must support normal walkable surfaces, jump links, drop links, wall traversal, and ceiling traversal for bot profiles that opt into those movement abilities.
+
+Raw preprocessed setup dumps are not acceptable public payloads. The extractor no longer writes public `setup.tsv`, `mpsetup.tsv`, or `visual_segments.tsv`; c3841 replaced them with decoded named `objects.tsv` and `objectives.tsv` content using catalog IDs for asset refs, plus `level.graph.json` for scene/collision/navigation/setup table linkage. Campaign-specific flow lives in `.pdmission` through `mission.graph.json`; reusable level-local triggers and global settings live in `.pdscenario`.
 | `.pdmesh` | `mesh.ini`, geometry, UVs, hierarchy, sockets, LODs, skinning, collision proxy | Material/texture typed deps, rig binding, model and collision loader metadata. |
 | `.pdanim` | `animation.ini`, timeline/channels/events/notifies, target metadata | Retargeting, weapon/body binding, optional legacy opcode listings, event refs. |
 | `.pdsfx` | `sound.ini`, editable source audio | Loop points, attenuation, mixer/category tags, import/codec intent. |
@@ -175,6 +213,7 @@ Acceptance for the sweep:
 - New machine-owned metadata writes under `_meta/`.
 - All descriptor, source-format, material, graph, nested-descriptor, and payload references resolve inside the archive or inside an embedded typed archive.
 - Export exposes files in an accessible modder-editable folder, and import reconstructs a valid typed archive with descriptors, `_meta/`, hashes, and embedded typed dependencies.
+- The game client utilizes each family from those same public source files through the catalog/provider pipeline, with generated cache allowed only as a source-hashed implementation detail.
 - Base fallbacks are explicit declarations with catalog ID, compatibility/version/hash where available, and reason; no unresolved reference passes silently.
 - New emitters stop writing authored `.bin` payloads, `.pdwpn`, descriptor-less archives, and root machine-metadata clutter.
 - Transition readers can load legacy root metadata while validators reject stale installed outputs for release/package builds.
@@ -182,6 +221,6 @@ Acceptance for the sweep:
 
 ## Where To Look
 
-- Kanban: `c3824` for the umbrella archive migration, `c3832` for the detailed `.pdweapon` layout, `c3834` for per-family utility flows, and `c3835` for the shared node editor foundation.
+- Kanban: `c3824` for the umbrella archive migration, `c3842` for the global native editable-source correction, `c3841` for the scenario/mission cleanup lane, `c3832` for the detailed `.pdweapon` layout, `c3834` for per-family utility flows, and `c3835` for the shared node editor foundation.
 - Weapon detail: [weapon-archive-clean-format.md](weapon-archive-clean-format.md).
 - Shipped external-format baseline: [external-format-pdmod-pipeline.md](external-format-pdmod-pipeline.md).

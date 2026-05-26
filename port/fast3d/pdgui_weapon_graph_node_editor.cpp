@@ -34,49 +34,35 @@ static void editorSetStatus(PdWeaponGraphEditorResult *result,
 	snprintf(result->status, sizeof(result->status), "%s", msg);
 }
 
-static const char *categoryForKind(const char *kind)
-{
-	static char category[32];
-	const char *dot = kind ? strchr(kind, '.') : nullptr;
-	if (!kind || !kind[0]) return "unknown";
-	if (!dot) return kind;
-	size_t len = (size_t)(dot - kind);
-	if (len >= sizeof(category)) len = sizeof(category) - 1;
-	memcpy(category, kind, len);
-	category[len] = '\0';
-	return category;
-}
-
 static ImVec4 categoryColor(const char *kind)
 {
-	const char *cat = categoryForKind(kind);
-	if (strcmp(cat, "event") == 0) return ImVec4(0.52f, 0.72f, 0.98f, 1.0f);
-	if (strcmp(cat, "gate") == 0) return ImVec4(0.94f, 0.72f, 0.30f, 1.0f);
-	if (strcmp(cat, "ammo") == 0) return ImVec4(0.46f, 0.84f, 0.62f, 1.0f);
-	if (strcmp(cat, "fire") == 0) return ImVec4(0.98f, 0.44f, 0.32f, 1.0f);
-	if (strcmp(cat, "spawn") == 0) return ImVec4(0.76f, 0.52f, 0.96f, 1.0f);
-	if (strcmp(cat, "projectile") == 0) return ImVec4(0.42f, 0.80f, 0.88f, 1.0f);
-	if (strcmp(cat, "entity") == 0) return ImVec4(0.62f, 0.78f, 0.42f, 1.0f);
-	if (strcmp(cat, "presentation") == 0) return ImVec4(0.90f, 0.58f, 0.86f, 1.0f);
-	if (strcmp(cat, "device") == 0) return ImVec4(0.50f, 0.68f, 0.95f, 1.0f);
-	if (strcmp(cat, "special") == 0) return ImVec4(0.96f, 0.62f, 0.38f, 1.0f);
-	return ImVec4(0.72f, 0.72f, 0.72f, 1.0f);
+	return pdguiGameplayGraphCategoryColor(kind);
+}
+
+static PdGameplayGraphPinType pinTypeForWeaponPinKind(int pinKind)
+{
+	switch (pinKind) {
+	case 1:
+	case 2:
+		return PDGAMEPLAY_GRAPH_PIN_EXEC;
+	case 3:
+		return PDGAMEPLAY_GRAPH_PIN_NUMBER;
+	case 4:
+		return PDGAMEPLAY_GRAPH_PIN_CONTEXT_REF;
+	default:
+		return PDGAMEPLAY_GRAPH_PIN_CATALOG_ID;
+	}
 }
 
 static ImVec4 pinColor(int pinKind)
 {
-	switch (pinKind) {
-	case 1: return ImVec4(0.96f, 0.96f, 0.96f, 1.0f);
-	case 2: return ImVec4(0.96f, 0.96f, 0.96f, 1.0f);
-	case 3: return ImVec4(0.50f, 0.92f, 0.56f, 1.0f);
-	case 4: return ImVec4(0.92f, 0.74f, 0.28f, 1.0f);
-	default: return ImVec4(0.65f, 0.80f, 0.95f, 1.0f);
-	}
+	return pdguiGameplayGraphPinColor(pinTypeForWeaponPinKind(pinKind));
 }
 
 static ImVec4 linkColorForPinKind(int pinKind)
 {
-	return pinColor(pinKind);
+	PdGameplayGraphPinType pinType = pinTypeForWeaponPinKind(pinKind);
+	return pdguiGameplayGraphLinkColor(pinType, pinType);
 }
 
 static int nextEditorId(PdWeaponGraphEditModel *model)
@@ -855,7 +841,12 @@ static void renderCanvas(const PdWeaponGraphEditorDesc *desc,
 				std::swap(startKind, endKind);
 				std::swap(fromNode, toNode);
 			}
-			if (fromNode < 0 || toNode < 0 || startKind != 2 || endKind != 1) {
+			if (fromNode < 0 || toNode < 0 || startKind != 2 || endKind != 1 ||
+					!pdguiGameplayGraphPinsCompatible(
+						pinTypeForWeaponPinKind(startKind),
+						PDGAMEPLAY_GRAPH_PIN_OUTPUT,
+						pinTypeForWeaponPinKind(endKind),
+						PDGAMEPLAY_GRAPH_PIN_INPUT)) {
 				ed::RejectNewItem(ImVec4(1.0f, 0.28f, 0.22f, 1.0f), 2.0f);
 				editorSetStatus(result, false, "Links must connect exec output to exec input");
 			} else if (!nodeVisibleForScope(desc, model, fromNode) ||

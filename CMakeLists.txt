@@ -857,12 +857,15 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_cutscene_layer.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_vehicle_observer_layer.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_provider_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_asset_native_source_contract.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_asset_runtime_adapters.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_public_mods_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_writer.c
+  ${CMAKE_SOURCE_DIR}/port/src/asset_mod_utility_contract.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_runtime.c
+  ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_gameplay_graph_editor.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modarchive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_runtime.c

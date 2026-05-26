@@ -1,5 +1,151 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-25-c3834-c3835-c3840-foundations`) - 2026-05-25 - Utility contracts, shared graph editor, weapon parity modules
+
+Mike asked to finish the remaining Asset Pipeline follow-ups and keep weapon behavior parity honest.
+
+### Implemented
+
+- Closed `c3834` with `asset_mod_utility_contract`: every current clean typed archive family now has an explicit create/import/clone/edit/validate/package/preview/hot-enable/embed-dependency contract row, extension/type lookup, operation names, and secure `.pdtool` policy.
+- Closed `c3835` with `pdgui_gameplay_graph_editor`: shared typed pins, pin-colored link helpers, compatibility checks, category colors, and an asset-family adapter boundary are now reusable beyond weapons; the weapon graph editor consumes the shared helpers through its adapter.
+- Advanced `c3840` through its safe wrapper/audit slice: `weaponGraphParityModule` maps current graph opcodes to explicit `og.*` parity modules, and held/projectile/entity runtime records preserve `parity_module` for diagnostics and future replacement cuts.
+- Updated Kanban, `context/tasks.md`, the modding pillar, and `UNRELEASED.md`. `c3840` remains active for actual one-family-at-a-time OG routine replacement because those cuts require gameplay parity proof before retirement.
+
+### Verification
+
+- `python tools/asset_native_source_guard.py` passed before the context update pass.
+- Focused `.\devtools\run-pd-tests.ps1 -Session c3834c35c40 -Selector "[c3834],[c3835],[c3840]" -BuildTimeoutSeconds 300` passed: 232 assertions / 3 cases.
+- Focused `.\devtools\run-pd-tests.ps1 -Session c3834c35c40g -Selector "[modding][pdxxx][weapon_graph][ui][editor][c3814]" -BuildTimeoutSeconds 300` passed: 197 assertions / 3 cases.
+- Focused `.\devtools\run-pd-tests.ps1 -Session c3834c35c40w -Selector "[modding][pdxxx][weapon_graph][compiler][c3814]" -BuildTimeoutSeconds 300` passed: 70 assertions / 5 cases.
+- Focused `.\devtools\run-pd-tests.ps1 -Session c3834c35c40s -Selector "[modding][pdxxx][c3842]" -BuildTimeoutSeconds 300` passed: 61 assertions / 5 cases.
+- Final focused `.\devtools\run-pd-tests.ps1 -Session c3834c35c40v -Selector "[c3834],[c3835],[c3840]" -BuildTimeoutSeconds 300` passed: 232 assertions / 3 cases.
+- Final focused `.\devtools\run-pd-tests.ps1 -Session c3834c35c40wg -Selector "[c3814]" -BuildTimeoutSeconds 300` passed: 745 assertions / 23 cases.
+- Final focused `.\devtools\run-pd-tests.ps1 -Session c3834c35c40rt -Selector "[modding][pdxxx][runtime][c3838]" -BuildTimeoutSeconds 300` passed: 294 assertions / 9 cases.
+- Isolated `.\devtools\build-session.ps1 -Session c3834c35c40all -Target all -BuildTimeoutSeconds 300` passed; the session build directory was removed.
+
+### Next
+
+- For `c3840`, replace OG behavior families only as discrete parity-proven gameplay changes; the current implementation names and records the existing parity backend instead of pretending the backend is retired.
+
+---
+
+## Session (`main-checkout-2026-05-25-c3842-native-source-closure`) - 2026-05-25 - Asset native-source closure
+
+Mike asked for clarification on the gameplay parity note, then to continue the c3842 native-source migration to completion. Clarification: original Perfect Dark routines are retained as the parity oracle/backend only where graph-authored values still feed them; the end state is authored graph/source assets as the public contract, with OG routines modularized or retired one behavior family at a time under c3840.
+
+### Implemented
+
+- Closed the remaining runtime adapter gaps for `.pdgamemode` and `.pdbotprofile`: gamemodes now preserve `rules_file` in the catalog/distribution path and fail activation without an authored rules source; bot profiles now preserve `profile_file`, require it for runtime activation, and carry `target_body` as a catalog ID instead of exposing a numeric body slot in templates.
+- Added `rules_file`/`profile_file` to source-path qualification so loose folders, typed archives, and hot-distributed archives resolve those files through the same catalog/provider path.
+- Removed the generated public `.pdweapon` `behavior/runtime.graph.json` payload from base extraction. `weapon.ini` now points at `behavior/primary.graph.json` and `behavior/secondary.graph.json`; the runtime compiler composes those authored sources directly when registering held weapon graph IR. Old `behavior_graph` archives remain readable as migration input only.
+- Extended the native-source guard to reject public `runtime.graph.json` entries along with raw dumps, authored `.bin`, and numeric/legacy asset refs.
+- Updated c3842 tracking in tasks, the modding pillar, Kanban, tests, and release notes. `c3840` remains the high-priority follow-up for behavior-module retirement of original weapon routines after parity proof.
+
+### Verification
+
+- `python tools/asset_native_source_guard.py` passed.
+- Focused `.\devtools\run-pd-tests.ps1 -Session c3842 -Selector "[modding][pdxxx][weapon_graph][compiler][c3814]"` passed: 70 assertions / 5 cases.
+- Focused `.\devtools\run-pd-tests.ps1 -Session c3842 -Selector "[c3814]"` passed: 745 assertions / 23 cases.
+- Focused `.\devtools\run-pd-tests.ps1 -Session c3842b -Selector "[modding][pdxxx][runtime][c3838]"` passed: 294 assertions / 9 cases.
+- Focused `.\devtools\run-pd-tests.ps1 -Session c3842 -Selector "[modding][pdxxx][c3842]"` passed: 61 assertions / 5 cases.
+- Isolated `.\devtools\build-session.ps1 -Session c3842 -Target all` passed for all targets.
+- Removed isolated session builds `c3842` and `c3842b`.
+
+### Next
+
+- Treat c3842 as closed for the current Asset Pipeline migration. Continue future work under `c3834` for utility/editor workflows, `c3835` for the reusable node editor foundation, and `c3840` for original weapon routine modularization/retirement.
+
+---
+
+## Session (`main-checkout-2026-05-25-c3841-source-first`) - 2026-05-25 - Scenario source-first archive closure
+
+Mike asked to finish c3841 properly in-place, without carrying a mid-step archive contract.
+
+### Implemented
+
+- Added root `scene.glb` generation for `.pdscenario` as the textured DCC-openable level source and catalog/runtime source. `scenario.ini` now declares `scene_file = scene.glb` and `runtime_source_file = scene.glb`.
+- Kept `rooms.obj` and visual OBJ/MTL/TGA as compatibility exports, not the primary source. Stale checks now require `scene.glb`, decoded tables, navigation, and graph files.
+- Wired scenario scanner/distribution/runtime metadata to prefer `scene_file`, optional `collision_file`, `level_graph_file`, and decoded table files.
+- Updated collision loading so `.pdscenario` builds colmesh from `collision_file` when present, otherwise from the primary scene source through `modAssetCompilerBuildColmesh()`.
+- Replaced raw public setup/mpsetup/visual word dumps with `objects.tsv`, `objectives.tsv`, `pads.tsv`, `spawns.tsv`, `volumes.tsv`, `navigation.ini`, `level.graph.json`, `_meta/generated-collision.json`, and `_meta/generated-navmesh.json`.
+- Converted setup object references to catalog IDs for models, weapons, bodies, and heads instead of legacy numeric public asset refs.
+- Added `.pdmission` `mission.graph.json` template/example/scanner/distribution/runtime binding and updated the typed example archives.
+- Updated c3841 Kanban, modding/physics pillars, the scenario design doc, clean archive format doc, and `UNRELEASED.md`.
+
+### Verification
+
+- `python tools/asset_native_source_guard.py` passed.
+- Isolated `.\devtools\build-session.ps1 -Session c3841 -Target all -BuildTimeoutSeconds 300` passed for client/updater.
+- Isolated `.\devtools\build-session.ps1 -Session c3841 -Target tests -BuildTimeoutSeconds 300` passed.
+- Focused `.\.claude\session-builds\c3841\pd-tests.exe "[c3841]"` passed: 15 assertions / 1 case.
+- Focused `.\.claude\session-builds\c3841\pd-tests.exe "[modding][pdxxx][static]"` passed: 2160 assertions / 27 cases.
+- Focused `.\.claude\session-builds\c3841\pd-tests.exe "[modding][pdxxx][examples]"` passed: 1478 assertions / 4 cases.
+- Focused `.\.claude\session-builds\c3841\pd-tests.exe "[modding][pdmod][static]"` passed: 630 assertions / 13 cases.
+- ZIP entry checks confirmed `tri_scenario.pdscenario` exposes `scene.glb`, decoded TSVs, navigation, graph, and `_meta/` files, and `tri_mission.pdmission` exposes `mission.graph.json` plus the embedded scenario dependency.
+
+### Next
+
+- Continue c3842's global family-by-family native source utilization audit. Original setup/objective runtime remains the parity backend unless a later behavior-module replacement is separately audited and verified.
+
+---
+
+## Session (`main-checkout-2026-05-25-c3842-codex-hooks`) - 2026-05-25 - Asset native-source guard hooks
+
+Mike asked for hooks so Codex always honors the all-family Asset Pipeline contract: public editable source files are the native game-client source, and generated products are cache only.
+
+### Implemented
+
+- Added the c3842 Codex preflight to [AGENTS.md](../AGENTS.md): asset work must read the active constraint, reject parallel authored runtime payloads, add runtime-source tests, and run `tools/asset_native_source_guard.py`.
+- Added an Asset Pipeline c3842 gate to the PD2 large-change sweep skill.
+- Added executable guard [asset_native_source_guard.py](../tools/asset_native_source_guard.py), which checks source-of-truth docs, Kanban state, hook wiring, and typed example archives for zip-openable public source payloads without authored `.bin` entries.
+- Tightened the guard after Mike found model-number leakage in PDSCENARIO-derived assets: public typed archive text now rejects numeric or legacy-symbol asset references such as `model_id`, `modelnum`, `filenum`, `weapon_id`, `sound_id`, `texnum`, `MODEL_*`, and `FILE_*`.
+- Removed public `setup.tsv`, `mpsetup.tsv`, and `visual_segments.tsv` output from the scenario extractor so raw setup/visual word dumps no longer leak legacy model/table numbers through `.pdscenario` or embedded `.pdarena` scenario payloads.
+- Added tracked pre-commit hook files under `.githooks/` and updated `tools/install-githooks.ps1` so hook installation self-tests the c3842 guard.
+- Added `[modding][pdxxx][c3842]` static tests and CMake wiring to pin the Codex hook, pre-commit hook, guard script, and source-of-truth docs.
+- Updated `context/tasks.md`, `context/pillars/modding.md`, `context/pillars/tests.md`, and Kanban `c3842` with `c3842-s0` done.
+
+### Verification
+
+- `python tools/asset_native_source_guard.py` passed.
+- `python .githooks/pre-commit.py` passed and runs the same c3842 guard.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File tools\install-githooks.ps1` passed. It warned that chmod bits could not be written into the git index in this environment, but hook installation, c3842 guard probing, and commit-message validation all passed.
+- Focused `.\devtools\run-pd-tests.ps1 -Session c3842ids -Selector "[modding][pdxxx][c3842]" -BuildTimeoutSeconds 300` passed: 59 assertions / 5 cases.
+- Focused `.\devtools\run-pd-tests.ps1 -Session c3842base -Selector "[modding][pdxxx][base][static][c3812]" -BuildTimeoutSeconds 300` passed: 351 assertions / 12 cases.
+- Isolated `.\devtools\build-session.ps1 -Session c3842idsall -Target all -BuildTimeoutSeconds 300` passed for all targets.
+- `tools/kanban/state.json` parsed successfully.
+- Scoped `git diff --check` passed for the touched files. The only output was the existing CRLF warning for `tools/install-githooks.ps1`.
+- Removed isolated session builds `c3842ids`, `c3842base`, and `c3842idsall`.
+
+### Next
+
+- Continue `c3842-s1`: build the family-by-family matrix of native source utilization and close any preview-only or descriptor-only runtime gaps.
+
+---
+
+## Session (`main-checkout-2026-05-25-scenario-authoring-correction`) - 2026-05-25 - Scenario archive source correction
+
+Mike rejected raw setup word dumps as public archive content and clarified the desired scenario direction. Follow-up clarification: the level scene must open already textured in Blender/3DS Max, and the game should load from that same scene source natively rather than from a separate final runtime mesh. Mike then clarified this is the intended rule for every asset type, not only scenarios: user-editable public source files should be what the game client consumes natively, with generated products used only as cache.
+
+### Implemented
+
+- Recorded high-priority Kanban card `c3841`, "Scenario Pipeline: readable scene source, collision override, navmesh, mission graphs."
+- Updated the active constraint ledger: public typed archives must not expose raw setup word dumps as final authored content, and textured `scene.glb`/`scene.gltf` is the runtime scenario source.
+- Added global active constraint `c3842`: public asset source is the game-facing source for every asset family.
+- Updated the `.pdscenario` format target to center on a Blender/3DS-Max-openable textured `scene.glb`/`scene.gltf`, optional `collision.glb`/`collision.obj`, deterministic collision fallback, deterministic navmesh generation, decoded setup tables, and graph-linked triggers/global settings.
+- Updated the clean archive family contract so all runtime products are source-hashed cache derived from public editable files, not separate authored requirements.
+- Added a scenario/mission design handoff at [scenario-authoring-and-mission-graphs.md](designs/modding/scenario-authoring-and-mission-graphs.md).
+- Updated the modding and physics/collision pillars with the new c3841 ownership boundary and global c3842 source/runtime rule.
+
+### Verification
+
+- No build required; docs and Kanban tracking only.
+
+### Next
+
+- Implement c3842 as a global corrective audit across every asset family, then implement c3841 as the scenario-specific lane: replace `setup.tsv`/`mpsetup.tsv` word dumps with decoded tables and graphs, make textured scene GLB/glTF both the DCC-openable source and native runtime load source, add optional collision override and deterministic fallback generation, then map mission/setup behavior to graphs with original runtime parity.
+
+---
+
 ## Session (`main-checkout-2026-05-25-c3840-build-fix`) - 2026-05-25 - Weapon routine modularization tracking and build fix
 
 Mike asked to track the eventual path away from original Perfect Dark weapon behavior routines on a high-priority card, then fix client build errors in `bondgun.c`.
@@ -80,7 +226,7 @@ Mike asked to continue `c3838` until the asset-type migration is complete, with 
 ### Implemented
 
 - Finished the shared writer migration across the base typed extractors and `.pdui` emitter, removing direct archive writes from `romextract*.c` typed emitters and standardizing `_meta/` writer output.
-- Updated `.pdweapon` archives to the clean `behavior/`, `bindings/`, `dependencies/assets/`, and `_meta/` layout; retained `behavior/runtime.graph.json` as transition runtime IR while adding authored `behavior/primary.graph.json` and `behavior/secondary.graph.json`.
+- Updated `.pdweapon` archives to the clean `behavior/`, `bindings/`, `dependencies/assets/`, and `_meta/` layout; this originally retained `behavior/runtime.graph.json` as transition runtime IR while adding authored `behavior/primary.graph.json` and `behavior/secondary.graph.json`. Superseded by c3842 on 2026-05-25: new base extraction no longer emits `behavior/runtime.graph.json`.
 - Added first-class catalog types `ASSET_MATERIAL`, `ASSET_FONT`, `ASSET_SCENARIO`, and `ASSET_THEME`.
 - Aligned `asset_archive_policy`, folder/archive scanners, `.pdmod` packer validation, network hot-registration, Mod Manager/Modding Hub lists, debug loading, base font/scenario walkers, and UI font application for approved families through `.pdtheme`; `.pdtool` remains deferred.
 - Added generic match-manifest coverage for approved typed dependency families beyond the old explicit manifest types.
@@ -1794,7 +1940,7 @@ Mike pointed at `Build/data/ntsc-final/chicago.zip` as an arena archive that was
 - Made `.pdhead` and `.pdbody` embed required `.pdmesh` dependencies; bodies also embed optional `hand.pdmesh`.
 - Made `.pdcharacter` stale-detect old nested archives, refresh `body.pdbody` / `head.pdhead`, and stamp `dependency_closure = embedded.v2`.
 - Fixed `.pdmesh` work dedupe to key by `(filenum,hint)`, so body/hand mesh archive names are not suppressed by weapon hi/lo mesh jobs.
-- Refreshed generated `Build/data/ntsc-final` non-weapon archives; `chicago.zip` now opens with `scenario/rooms.obj`, `scenario/setup.tsv`, and `scenario/scenario.ini`.
+- Refreshed generated `Build/data/ntsc-final` non-weapon archives; `chicago.zip` then opened with `scenario/rooms.obj`, `scenario/setup.tsv`, and `scenario/scenario.ini`. Superseded 2026-05-25 by c3842/c3841: public `setup.tsv` dumps are no longer valid archive output.
 - Updated Kanban `c3812-s8`, `context/tasks.md`, and the modding pillar. Weapon archive closure remains owned by `c3814`; no `.pdweapon` extractor implementation was changed here.
 
 ### Verification
@@ -2159,7 +2305,7 @@ Mike asked to complete the remaining non-weapon asset migration according to the
 ### Implemented
 
 - Updated `.pdscenario` extraction so base stage archives no longer copy raw `geometry.bin`, `tiles.bin`, `pads.bin`, `setup.bin`, or `mpsetup.bin`.
-- Reused the runtime tile and pad preprocessing formats to export standard `rooms.obj` plus `scenario.mtl`, decoded `tiles.tsv`, decoded `pads.tsv`, setup/mpsetup word tables, and `visual_segments.tsv` provenance with SHA-256 sidecars.
+- Reused the runtime tile and pad preprocessing formats to export standard `rooms.obj` plus `scenario.mtl`, decoded `tiles.tsv`, decoded `pads.tsv`, setup/mpsetup word tables, and `visual_segments.tsv` provenance with SHA-256 sidecars. Superseded 2026-05-25 by c3842/c3841: raw setup/mpsetup and visual segment dumps are no longer public authoring payloads.
 - Existing `.pdscenario` archives without `rooms.obj` are now stale and regenerate on the next extraction pass.
 - Added focused c3812 static coverage that pins the standard scenario payloads and rejects the old raw stage-internal names.
 - Updated Kanban `c3812` to done for the non-weapon archive migration. Weapon archive closure remains c3814-only.

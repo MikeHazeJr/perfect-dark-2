@@ -153,6 +153,8 @@ TEST_CASE("asset runtime adapters bind C-3838 file-backed families",
 
 	asset_entry_t mission;
 	initEntry(mission, ASSET_MISSION, "mod:mission_rescue");
+	std::strncpy(mission.ext.mission.mission_graph_file, "mission.graph.json",
+		sizeof(mission.ext.mission.mission_graph_file) - 1);
 	std::strncpy(mission.ext.mission.scenario_archive,
 		"dependencies/assets/scenario/rescue.pdscenario",
 		sizeof(mission.ext.mission.scenario_archive) - 1);
@@ -161,14 +163,14 @@ TEST_CASE("asset runtime adapters bind C-3838 file-backed families",
 	std::strncpy(mission.ext.mission.briefing_file, "briefing.tsv",
 		sizeof(mission.ext.mission.briefing_file) - 1);
 	REQUIRE(assetRuntimeActivateCatalogEntry(&mission,
-		"mods/demo/missions/rescue.pdmission::dependencies/assets/scenario/rescue.pdscenario") == 1);
+		"mods/demo/missions/rescue.pdmission::mission.graph.json") == 1);
 	const asset_runtime_binding_t *missionBinding =
 		assetRuntimeFind("mod:mission_rescue");
 	REQUIRE(missionBinding != nullptr);
-	REQUIRE(str(missionBinding->authored_file) ==
+	REQUIRE(str(missionBinding->authored_file) == "mission.graph.json");
+	REQUIRE(str(missionBinding->dependency_a) ==
 		"dependencies/assets/scenario/rescue.pdscenario");
-	REQUIRE(str(missionBinding->dependency_a) == "objectives.ini");
-	REQUIRE(str(missionBinding->dependency_b) == "briefing.tsv");
+	REQUIRE(str(missionBinding->dependency_b) == "objectives.ini");
 
 	asset_entry_t hud;
 	initEntry(hud, ASSET_HUD, "mod:hud_classic");
@@ -266,11 +268,17 @@ TEST_CASE("asset runtime adapters reject file-backed families without accessible
 	mode.ext.gamemode.mode_id = 44;
 	mode.ext.gamemode.min_players = 1;
 	mode.ext.gamemode.team_based = 0;
-	REQUIRE(assetRuntimeActivateCatalogEntry(&mode, "") == 1);
+	REQUIRE(assetRuntimeActivateCatalogEntry(&mode, "") == 0);
+	REQUIRE(assetRuntimeFind("mod:gamemode_training") == nullptr);
+	std::strncpy(mode.ext.gamemode.rules_file, "rules.json",
+		sizeof(mode.ext.gamemode.rules_file) - 1);
+	REQUIRE(assetRuntimeActivateCatalogEntry(&mode,
+		"mods/demo/gamemodes/training.pdgamemode::rules.json") == 1);
 	const asset_runtime_binding_t *modeBinding =
 		assetRuntimeFind("mod:gamemode_training");
 	REQUIRE(modeBinding != nullptr);
 	REQUIRE(modeBinding->runtime_id == 44);
+	REQUIRE(str(modeBinding->authored_file) == "rules.json");
 
 	assetRuntimeReleaseCatalogEntry("mod:gamemode_training");
 	REQUIRE(assetRuntimeFind("mod:gamemode_training") == nullptr);
@@ -279,6 +287,10 @@ TEST_CASE("asset runtime adapters reject file-backed families without accessible
 	initEntry(bot, ASSET_BOT_PROFILE, "mod:bot_jumper");
 	bot.ext.bot_profile.type = 2;
 	bot.ext.bot_profile.difficulty = 3;
+	REQUIRE(assetRuntimeActivateCatalogEntry(&bot, "") == 0);
+	REQUIRE(assetRuntimeFind("mod:bot_jumper") == nullptr);
+	std::strncpy(bot.ext.bot_profile.target_body, "base:body_training",
+		sizeof(bot.ext.bot_profile.target_body) - 1);
 	std::strncpy(bot.ext.bot_profile.profile_file, "profile.json",
 		sizeof(bot.ext.bot_profile.profile_file) - 1);
 	REQUIRE(assetRuntimeActivateCatalogEntry(&bot,
@@ -288,4 +300,5 @@ TEST_CASE("asset runtime adapters reject file-backed families without accessible
 	REQUIRE(botBinding->runtime_id == 2);
 	REQUIRE(botBinding->kind == 3);
 	REQUIRE(str(botBinding->authored_file) == "profile.json");
+	REQUIRE(str(botBinding->target_id) == "base:body_training");
 }

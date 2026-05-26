@@ -392,7 +392,8 @@ const char *modiniTemplateForKind(const char *kind)
 			"; catalog_id = mod:mission_id\n"
 			"name = New Mission\n"
 			"; scenario_archive = dependencies/assets/scenario/mission.pdscenario\n"
-			"; objectives_file = objectives.ini\n"
+			"mission_graph_file = mission.graph.json\n"
+			"; objectives_file = objectives.tsv\n"
 			"; briefing_file = briefing.tsv\n";
 	}
 
@@ -458,21 +459,29 @@ const char *modiniTemplateForKind(const char *kind)
 
 	if (strcmp(kind, "scenario") == 0) {
 		return
-			"; scenario.ini - external scenario metadata\n"
+			"; scenario.ini - external scenario source metadata\n"
 			"[scenario]\n"
 			"; catalog_id = mod:scenario_id\n"
 			"name = New Scenario\n"
 			"stagenum = -1\n"
 			"mode = mp|solo\n"
 			"\n"
-			"[rooms]\n"
-			"rooms_file = rooms.obj\n"
-			"; props_file = props.ini\n"
-			"; objectives_file = objectives.ini\n"
+			"[source]\n"
+			"scene_file = scene.glb\n"
+			"scene_format = GLB\n"
+			"runtime_source_file = scene.glb\n"
+			"; collision_file = collision.glb\n"
+			"collision_fallback = scene\n"
 			"\n"
 			"[setup]\n"
-			"; pads_file = pads.ini\n"
-			"; setup_file = setup.ini\n";
+			"pads_file = pads.tsv\n"
+			"spawns_file = spawns.tsv\n"
+			"volumes_file = volumes.tsv\n"
+			"objects_file = objects.tsv\n"
+			"objectives_file = objectives.tsv\n"
+			"navigation_file = navigation.ini\n"
+			"level_graph_file = level.graph.json\n"
+			"; rooms_file = rooms.obj\n";
 	}
 
 	if (strcmp(kind, "gamemode") == 0) {
@@ -485,6 +494,7 @@ const char *modiniTemplateForKind(const char *kind)
 			"min_players = 2\n"
 			"max_players = 8\n"
 			"team_based = 0\n"
+			"rules_file = rules.json\n"
 			"; scenario_tags = combat,classic\n"
 			"; requirefeature = 0\n";
 	}
@@ -496,7 +506,8 @@ const char *modiniTemplateForKind(const char *kind)
 			"; catalog_id = mod:bot_profile_id\n"
 			"type = 0\n"
 			"difficulty = 0\n"
-			"body = -1\n"
+			"profile_file = profile.json\n"
+			"; target_body = base:body_id\n"
 			"; name_langid = 0\n"
 			"; requirefeature = 0\n"
 			"; character_archive = dependencies/assets/character/bot.pdcharacter\n";
@@ -973,6 +984,9 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		"model",
 		"lo_model_file",
 		"hand_model_file",
+		"scene_file",
+		"scene",
+		"runtime_source_file",
 		"geometry_file",
 		"geometry",
 		"blender_scene_file",
@@ -982,8 +996,13 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		"visual_material_file",
 		"visual_materials_file",
 		"collision_file",
+		"collision_source_file",
+		"collision_source",
 		"tiles_file",
 		"pads_file",
+		"spawns_file",
+		"volumes_file",
+		"objects_file",
 		"setup_file",
 		"mpsetup_file",
 		"rooms_file",
@@ -993,6 +1012,11 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		"props",
 		"objectives_file",
 		"objectives",
+		"navigation_file",
+		"level_graph_file",
+		"mission_graph_file",
+		"rules_file",
+		"profile_file",
 		"visual_source_file",
 		"texture_manifest_file",
 		"music_file",
@@ -1075,6 +1099,9 @@ static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
 		"model",
 		"lo_model_file",
 		"hand_model_file",
+		"scene_file",
+		"scene",
+		"runtime_source_file",
 		"geometry_file",
 		"geometry",
 		"blender_scene_file",
@@ -1084,8 +1111,13 @@ static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
 		"visual_material_file",
 		"visual_materials_file",
 		"collision_file",
+		"collision_source_file",
+		"collision_source",
 		"tiles_file",
 		"pads_file",
+		"spawns_file",
+		"volumes_file",
+		"objects_file",
 		"setup_file",
 		"mpsetup_file",
 		"rooms_file",
@@ -1095,6 +1127,11 @@ static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
 		"props",
 		"objectives_file",
 		"objectives",
+		"navigation_file",
+		"level_graph_file",
+		"mission_graph_file",
+		"rules_file",
+		"profile_file",
 		"visual_source_file",
 		"texture_manifest_file",
 		"music_file",
@@ -1480,6 +1517,8 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		{
 			const char *rf = iniGet(ini, "rules_file",
 				iniGet(ini, "file_path", ""));
+			strncpy(e->ext.gamemode.rules_file, rf,
+				sizeof(e->ext.gamemode.rules_file) - 1);
 			if (rf[0]) {
 				catalogSetPrimaryFile(e, rf);
 			}
@@ -1490,13 +1529,50 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.scenario.stagenum = iniGetInt(ini, "stagenum", -1);
 		e->ext.scenario.mode = parseModeString(iniGet(ini, "mode", ""));
 		{
+			const char *sf = iniGet(ini, "scene_file",
+				iniGet(ini, "scene",
+				iniGet(ini, "runtime_source_file",
+				iniGet(ini, "blender_scene_file",
+				iniGet(ini, "visual_scene_file", "")))));
+			const char *cf = iniGet(ini, "collision_file",
+				iniGet(ini, "collision_source_file",
+				iniGet(ini, "collision_source", "")));
 			const char *rf = iniGet(ini, "rooms_file",
 				iniGet(ini, "rooms",
 				iniGet(ini, "geometry_file",
 				iniGet(ini, "geometry", ""))));
+			strncpy(e->ext.scenario.scene_file, sf,
+				sizeof(e->ext.scenario.scene_file) - 1);
+			strncpy(e->ext.scenario.collision_file, cf,
+				sizeof(e->ext.scenario.collision_file) - 1);
 			strncpy(e->ext.scenario.rooms_file, rf,
 				sizeof(e->ext.scenario.rooms_file) - 1);
-			if (rf[0]) {
+			strncpy(e->ext.scenario.pads_file,
+				iniGet(ini, "pads_file", ""),
+				sizeof(e->ext.scenario.pads_file) - 1);
+			strncpy(e->ext.scenario.spawns_file,
+				iniGet(ini, "spawns_file", ""),
+				sizeof(e->ext.scenario.spawns_file) - 1);
+			strncpy(e->ext.scenario.volumes_file,
+				iniGet(ini, "volumes_file", ""),
+				sizeof(e->ext.scenario.volumes_file) - 1);
+			strncpy(e->ext.scenario.objects_file,
+				iniGet(ini, "objects_file",
+				iniGet(ini, "props_file", "")),
+				sizeof(e->ext.scenario.objects_file) - 1);
+			strncpy(e->ext.scenario.objectives_file,
+				iniGet(ini, "objectives_file", ""),
+				sizeof(e->ext.scenario.objectives_file) - 1);
+			strncpy(e->ext.scenario.navigation_file,
+				iniGet(ini, "navigation_file", ""),
+				sizeof(e->ext.scenario.navigation_file) - 1);
+			strncpy(e->ext.scenario.level_graph_file,
+				iniGet(ini, "level_graph_file",
+				iniGet(ini, "level_graph", "")),
+				sizeof(e->ext.scenario.level_graph_file) - 1);
+			if (sf[0]) {
+				catalogSetPrimaryFile(e, sf);
+			} else if (rf[0]) {
 				catalogSetPrimaryFile(e, rf);
 			}
 		}
@@ -1592,6 +1668,11 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.bot_profile.body = (s16)iniGetInt(ini, "body", -1);
 		e->ext.bot_profile.name_langid = (s16)iniGetInt(ini, "name_langid", 0);
 		e->ext.bot_profile.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
+		strncpy(e->ext.bot_profile.target_body,
+			iniGet(ini, "target_body",
+			iniGet(ini, "body_id",
+			iniGet(ini, "body_ref", ""))),
+			sizeof(e->ext.bot_profile.target_body) - 1);
 		strncpy(e->ext.bot_profile.profile_file, iniGet(ini, "profile_file",
 			iniGet(ini, "file_path", "")), sizeof(e->ext.bot_profile.profile_file) - 1);
 		if (e->ext.bot_profile.profile_file[0]) {
@@ -1631,10 +1712,16 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			strncpy(e->ext.mission.briefing_file,
 				iniGet(ini, "briefing_file", ""),
 				sizeof(e->ext.mission.briefing_file) - 1);
-			const char *pf = e->ext.mission.scenario_archive[0] ?
-				e->ext.mission.scenario_archive :
+			strncpy(e->ext.mission.mission_graph_file,
+				iniGet(ini, "mission_graph_file",
+				iniGet(ini, "graph", "")),
+				sizeof(e->ext.mission.mission_graph_file) - 1);
+			const char *pf = e->ext.mission.mission_graph_file[0] ?
+				e->ext.mission.mission_graph_file :
+				(e->ext.mission.scenario_archive[0] ?
+					e->ext.mission.scenario_archive :
 				(e->ext.mission.objectives_file[0] ?
-					e->ext.mission.objectives_file : e->ext.mission.briefing_file);
+					e->ext.mission.objectives_file : e->ext.mission.briefing_file));
 			if (pf[0]) {
 				catalogSetPrimaryFile(e, pf);
 			}
@@ -2364,6 +2451,9 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"model",
 		"lo_model_file",
 		"hand_model_file",
+		"scene_file",
+		"scene",
+		"runtime_source_file",
 		"geometry_file",
 		"geometry",
 		"blender_scene_file",
@@ -2376,7 +2466,12 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"material",
 		"material_archive",
 		"collision_file",
+		"collision_source_file",
+		"collision_source",
 		"pads_file",
+		"spawns_file",
+		"volumes_file",
+		"objects_file",
 		"setup_file",
 		"rooms_file",
 		"rooms",
@@ -2384,6 +2479,9 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"props",
 		"objectives_file",
 		"objectives",
+		"navigation_file",
+		"level_graph_file",
+		"mission_graph_file",
 		"visual_source_file",
 		"music_file",
 		"midi_file",
@@ -2393,6 +2491,7 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"graph",
 		"theme_file",
 		"rules_file",
+		"profile_file",
 		"scenario_archive",
 		"ui_archive",
 		"audio_archive",

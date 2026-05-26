@@ -2773,6 +2773,10 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 		snprintf(normalized_rel, sizeof(normalized_rel),
 			"$S/mod-cache/%s/%s/%s-v%d-%s.pdanimation.json",
 			mod_part, asset_part, kind_part, MODASSET_COMPILER_VERSION, digest_hex);
+	} else if (strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0) {
+		snprintf(normalized_rel, sizeof(normalized_rel),
+			"$S/mod-cache/%s/%s/%s-v%d-%s.pdmesh.json",
+			mod_part, asset_part, kind_part, MODASSET_COMPILER_VERSION, digest_hex);
 	}
 
 	if (cachePathExists(cache_rel)
@@ -2849,6 +2853,21 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 			source_kind, animation_info.animation_count,
 			animation_frame_count, animation_info.channel_count);
 		has_animation_clip = 1;
+	} else if (strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0) {
+		if (!parseGltfLikeMeshSource(source_path, (const u8 *)source_bytes,
+				source_size, &obj_mesh)) {
+			snprintf(validation, sizeof(validation), "format=%s invalid %s",
+				source_kind, obj_mesh.error[0] ? obj_mesh.error : "parse_failed");
+			sysLogPrintf(LOG_WARNING,
+				"MODASSET.COMPILER: invalid external mesh source for '%s': %s (%s)",
+				entry->id, source_path, validation);
+			objMeshFree(&obj_mesh);
+			free(source_bytes);
+			return -1;
+		}
+		snprintf(validation, sizeof(validation), "format=%s vertices=%d triangles=%d",
+			source_kind, obj_mesh.vertex_count, obj_mesh.triangle_count);
+		has_obj_mesh = 1;
 	} else if (!validateExternalSource(source_path, (const u8 *)source_bytes,
 			source_size, validation, sizeof(validation))) {
 		sysLogPrintf(LOG_WARNING,
@@ -3148,14 +3167,16 @@ void modAssetCompilerFreeModeldef(struct modeldef *modeldef)
 	free(owner);
 }
 
-s32 modAssetCompilerBuildObjColmesh(const char *source_path,
-                                    struct colmesh *out_mesh)
+s32 modAssetCompilerBuildColmesh(const char *source_path,
+                                 struct colmesh *out_mesh)
 {
 	u32 source_size = 0;
 	void *source_bytes;
 	obj_mesh_t obj_mesh;
+	const char *source_kind;
+	s32 parsed = 0;
 
-	if (!endsWithNoCase(source_path, ".obj")) {
+	if (!modAssetCompilerIsExternalSource(source_path)) {
 		return 0;
 	}
 
@@ -3171,9 +3192,18 @@ s32 modAssetCompilerBuildObjColmesh(const char *source_path,
 		return -1;
 	}
 
-	if (!parseObjSource((const u8 *)source_bytes, source_size, &obj_mesh)) {
+	memset(&obj_mesh, 0, sizeof(obj_mesh));
+	source_kind = sourceKindForPath(source_path);
+	if (strcmp(source_kind, "obj") == 0) {
+		parsed = parseObjSource((const u8 *)source_bytes, source_size, &obj_mesh);
+	} else if (strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0) {
+		parsed = parseGltfLikeMeshSource(source_path,
+			(const u8 *)source_bytes, source_size, &obj_mesh);
+	}
+
+	if (!parsed) {
 		sysLogPrintf(LOG_WARNING,
-			"MODASSET.COMPILER: OBJ colmesh parse failed for %s (%s)",
+			"MODASSET.COMPILER: colmesh parse failed for %s (%s)",
 			source_path, obj_mesh.error[0] ? obj_mesh.error : "parse_failed");
 		objMeshFree(&obj_mesh);
 		free(source_bytes);
@@ -3194,7 +3224,7 @@ s32 modAssetCompilerBuildObjColmesh(const char *source_path,
 
 		if (!meshAddTriangle(out_mesh, &v0, &v1, &v2)) {
 			sysLogPrintf(LOG_WARNING,
-				"MODASSET.COMPILER: OBJ colmesh triangle add failed for %s",
+				"MODASSET.COMPILER: colmesh triangle add failed for %s",
 				source_path);
 			meshFree(out_mesh);
 			objMeshFree(&obj_mesh);
@@ -3203,10 +3233,16 @@ s32 modAssetCompilerBuildObjColmesh(const char *source_path,
 	}
 
 	sysLogPrintf(LOG_NOTE,
-		"MODASSET.COMPILER: built OBJ colmesh source=%s vertices=%d tris=%d",
-		source_path, obj_mesh.vertex_count, out_mesh->numtris);
+		"MODASSET.COMPILER: built colmesh source=%s format=%s vertices=%d tris=%d",
+		source_path, source_kind, obj_mesh.vertex_count, out_mesh->numtris);
 	objMeshFree(&obj_mesh);
 	return out_mesh->numtris > 0 ? 1 : -1;
+}
+
+s32 modAssetCompilerBuildObjColmesh(const char *source_path,
+                                    struct colmesh *out_mesh)
+{
+	return modAssetCompilerBuildColmesh(source_path, out_mesh);
 }
 
 static s32 gltfAnimationSampleForFrame(const gltf_anim_channel_t *channel,

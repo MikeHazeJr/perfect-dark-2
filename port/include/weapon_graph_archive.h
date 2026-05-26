@@ -30,6 +30,11 @@ typedef struct weapon_graph_archive_descriptor {
 	char section[32];
 	char catalog_id[CATALOG_ID_LEN];
 	char behavior_graph[128];
+	char primary_graph[128];
+	char secondary_graph[128];
+	char shared_context[128];
+	char settings[128];
+	char variables[128];
 	char manifest[128];
 	char nested_payloads[128];
 	char model_file[128];

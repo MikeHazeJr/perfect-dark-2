@@ -12,38 +12,20 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - CHEAT_SMALLJO, Tiny Mode, voice pitch, sndApplyTinyVoicePitch, sndStart, sndAdjust, PSTYPE_CHRTALK, propsnd, AL_SNDP_PITCH_EVT, [audio][voice][tiny][static], BuildTimeoutSeconds
 
-## Task 2: Correct Tiny Mode so the player stays normal while only tiny generic enemies keep size, speed, and boosted voice treatment, success
-
-### rollout_summary_files
-
-- rollout_summaries/2026-05-23T17-11-59-Njc1-tiny_mode_enemy_voice_and_player_normalization.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=\\?\C:\Users\mikeh\.codex\sessions\2026\05\23\rollout-2026-05-23T13-12-04-019e55d2-7fe3-72e1-9031-89e7b1ba963d.jsonl, updated_at=2026-05-23T23:55:36+00:00, thread_id=019e55d2-7fe3-72e1-9031-89e7b1ba963d, Tiny Mode contract correction for player-normal behavior and enemy-only voice boost)
-
-### keywords
-
-- Tiny Mode, CHEAT_SMALLJO, CHRCFLAG_TINYMODE_MOVESPEED, sndApplyTinyVoicePitchForProp, sndApplyTinyVoiceVolumeForProp, propsnd, player-normal, enemy tripling, voice pitch, volume boost, tests/test_tiny_mode_spawn_static.cpp, commit hook
-
 ## User preferences
 
 - when the user asked: "make all voice lines play at a slightly higher pitch" -> scope similar requests narrowly to the named gameplay/audio behavior instead of broad audio-pipeline redesign [Task 1]
-- when the user corrected the player-side effect with "I didn’t want the player to be tiny" -> keep Tiny Mode scoped to ordinary enemies, not player size, camera, movement, shadow, or pickup behavior [Task 2]
-- when the user asked "Make the tiny guys voices higher pitched, slightly louder" -> apply follow-up audio polish to the actual tiny enemies and include the slight loudness lift the user asked for, not pitch alone [Task 2]
 
 ## Reusable knowledge
 
 - `CHEAT_SMALLJO` is the Tiny Mode cheat gate for this behavior [Task 1]
 - To catch all spoken lines, cover both the config-driven voice/dialogue path in `sndStart()` and `PSTYPE_CHRTALK` prop-sound playback, because some barks use plain SFX ids instead of the high-bit voice-config path [Task 1]
 - A shared helper in `src/lib/snd.c` with a declaration in `src/include/lib/snd.h` is a workable central point when multiple call sites need the same voice-pitch rule [Task 1]
-- `CHRCFLAG_TINYMODE_MOVESPEED` is the existing marker for the tripled tiny generic enemies and is now the prop-scoped signal for enemy-only Tiny Mode voice treatment too [Task 2]
-- The final audio behavior is split into two layers: direct Tiny Mode voice-config starts keep the existing `1.35x` baseline, while actual tiny enemies get stronger prop-scoped treatment (`1.6x` pitch and `1.15x` volume) through `sndApplyTinyVoicePitchForProp()` and `sndApplyTinyVoiceVolumeForProp()` [Task 2]
-- Player-side Tiny Mode effects were removed from `src/game/body.c`, `src/game/bondwalk.c`, `src/game/bondmove.c`, `src/game/bondgrab.c`, `src/game/chr.c`, and `src/game/propobj.c`; static coverage in `tests/test_tiny_mode_spawn_static.cpp` now guards the player-normal contract [Task 2]
-- The focused static selector for this lane is `[audio][voice][tiny][static]`, and coverage now spans both `tests/test_audio_voice_retag.cpp` and `tests/test_tiny_mode_spawn_static.cpp` [Task 1][Task 2]
+- The focused static selector for this lane is `[audio][voice][tiny][static]`, and current coverage lives in `tests/test_audio_voice_retag.cpp` [Task 1]
 
 ## Failures and how to do differently
 
 - If a clean all-target `build-session` run gets killed by the wrapper's default 60-second active-build watchdog while the linker is still making progress, rerun the same session with a longer `-BuildTimeoutSeconds` before treating it as a code failure [Task 1]
-- A global Tiny Mode voice-pitch helper was too broad once the user asked specifically about "the tiny guys"; future tiny-enemy audio changes should key off the enemy instance/prop marker rather than the cheat toggle alone [Task 2]
-- Tiny Mode can leak into player-facing movement/view code; before shipping follow-up Tiny Mode edits, explicitly scan player-side `CHEAT_SMALLJO` uses in body, walk, move, grab, shadow, and pickup paths [Task 2]
-- Commit message hooks enforce the pillar/card prefix convention in this repo; for this lane the accepted prefix was `Input - c036: ...` after an earlier mismatch was rejected [Task 2]
 
 # Task Group: PD2 Shared Gameplay Node Editor Planning
 scope: Reusable graph-editor foundation planning, active-card ordering, and context updates for modding workflows that extend beyond weapon-only graphs.
@@ -140,6 +122,16 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - c3824, c3832, pdweapon, freeze contracts, implementation sweep, _meta, weapon.ini, process order, asset family formats
 
+## Task 7: Start `c3838-s1` with a shared typed archive writer and migrate `.pdlang` through it, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-24T23-10-45-3mJR-asset_pipeline_shared_archive_writer_first_slice.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\24\rollout-2026-05-24T19-10-50-019e5c41-51ea-7f21-941d-86893cd19aab.jsonl, updated_at=2026-05-24T23:27:11+00:00, thread_id=019e5c41-51ea-7f21-941d-86893cd19aab, shared archive writer foundation plus `.pdlang` migration for the first implementation slice)
+
+### keywords
+
+- asset_archive_writer, modarchive, pdlang, romextract_pdlang, _meta/manifest.json, inventory.json, provenance.json, validation.json, hashes.tsv, source-handles.json, SHA256, c3838, c3838-s1, c3824, CMakeLists.txt, test_mod_external_archive_static, build-session
+
 ## User preferences
 
 - when project memory or docs describe the archive system, the user corrected: "it isn’t really the Mod Pipeline ... it is the Asset pipeline, and is intended to treat all asstes, base game or mod, natively and equally" -> use Asset Pipeline language and make base/mod parity explicit [Task 1]
@@ -152,6 +144,9 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - when the user said "Make a kanban card with that sort of layout breakdown for each asset type" -> stage broad archive-contract cleanup as a family-by-family execution card instead of burying it in notes [Task 4]
 - when archive validation found bad outputs even though the summary said `failed=0`, the user’s workflow favors fixing the actual archive/fallback contract instead of trusting the headline status [Task 5]
 - when the user asked, "Does the card reflect the ongoing process, specifically, defining the format for each other asset type before implementing the full sweep?" -> make the freeze-first / rebuild-later sequence explicit in the board and docs, not just implied [Task 6]
+- when the user pointed at the active card and said "Begin implementation" -> start the active implementation slice immediately instead of reopening the frozen archive-decision round [Task 7]
+- when the card notes framed `c3838` as the implementation card and `c3838-s1` as the active slice -> treat the active card/subtask as the working contract and keep the slice active until the remaining emitters are migrated [Task 7]
+- when the archive contract emphasized base-game and mod assets should be treated natively and equally -> favor a shared writer contract and accessible source files over bespoke per-emitter metadata code [Task 7]
 
 ## Reusable knowledge
 
@@ -175,6 +170,10 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - Local Combat Simulator can still hit SP fallback paths such as `MANIFEST-SP: late-add` unless the MP manifest is prepared before stage change, and random bot body selection must exclude SP-only rows such as `base:sp_body_108` [Task 5]
 - The current layout migration now has an explicit phased order: `c3824` is the umbrella migration-plan card, `c3832` is the concrete clean `.pdweapon` format card beneath it, and the broad extraction/examples/validators sweep belongs after asset-family formats are frozen [Task 6]
 - The documented clean `.pdweapon` target is `weapon.ini` plus purpose folders such as `models/`, `materials/`, `textures/`, `animations/`, `sounds/`, `behavior/`, `projectiles/`, `entities/`, `ui/`, with `_meta/` holding manifest, inventory, provenance, validation, and hash material [Task 6]
+- `asset_archive_writer` is now the shared typed-archive seam: it wraps `modarchive`, tracks entries, emits `_meta/manifest.json`, `_meta/inventory.json`, `_meta/hashes.tsv`, `_meta/provenance.json`, `_meta/validation.json`, `_meta/source-handles.json`, and SHA sidecars for public files [Task 7]
+- `.pdlang` is a good first emitter for this migration because it has a root descriptor, editable TSV payload, and metadata sidecar behavior without the risk of the larger mesh/scenario emitters [Task 7]
+- The reusable test pattern for later emitters is to build a synthetic archive through the helper and assert the expected metadata files and contents in `tests/test_mod_external_archive_static.cpp` [Task 7]
+- The tests target needs `port/src/asset_archive_writer.c` added explicitly in `CMakeLists.txt`, and `c3838-s1` stays active until the remaining typed emitters move onto the shared writer contract [Task 7]
 
 ## Failures and how to do differently
 
@@ -188,6 +187,8 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - Do not trust `failed=0` alone as proof that produced archives and fallback paths are sound; inspect the actual output archives and runtime-loaded assets before closing the lane [Task 5]
 - If a raw HUD model filenum or similar catalog miss appears during runtime validation, treat it as a real provider/catalog gap instead of hand-waving it as a transient quirk [Task 5]
 - If the card wording says "clean self-contained archive layouts" but does not make the sequence obvious, rewrite the board order and subtasks until the freeze-first / implement-later process is visible at a glance [Task 6]
+- A full-tree `git diff --check` can time out in this dirty checkout; prefer a scoped diff-check for the touched files and only widen it if needed [Task 7]
+- If the isolated all-target build wrapper output is terse, inspect the captured build log and confirm the `BUILD SUMMARY` instead of assuming the missing top-level detail means the build failed [Task 7]
 
 # Task Group: PD2 Weapon Graph Asset Archives
 scope: Weapon-specific authored behavior contracts, graph authoring surfaces, and Modding Hub workflow for weapon behavior data.
@@ -663,7 +664,7 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - If the first airborne gate for a new clamp is too loose, tighten it so stray vertical velocity does not trigger collision rollback when the player is not genuinely airborne [Task 4]
 
 # Task Group: Kanban Board Planning and Staleness Rules
-scope: `tools/kanban` board behavior, review surfaces, active-card ordering, same-session tracking, and stale-card maintenance.
+scope: `tools/kanban` board behavior, decision workspaces, mobile session surfaces, active-card ordering, same-session tracking, and stale-card maintenance.
 applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for future Kanban UI, planning, and task-tracking work in this checkout.
 
 ## Task 1: Make pending-completion review rows title-first with details hidden behind an expander, success
@@ -728,6 +729,36 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 
 - /api/bugs/delete, /api/memory-review/apply, memory-review.json, tools/bugs/state.json, live-source overlay, pd2-daily-flow, pd2-architecture-review, 5:00 AM, 6:00 AM, c3825
 
+## Task 7: Convert Asset Decisions into a selected-card Card Decisions workspace while preserving archived decisions, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-23T17-11-59-Njc1-kanban_card_decisions_workspace_and_archived_asset_decisions.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\23\rollout-2026-05-23T13-12-04-019e55d2-7fe3-72e1-9031-89e7b1ba963d.jsonl, updated_at=2026-05-24T23:09:30+00:00, thread_id=019e55d2-7fe3-72e1-9031-89e7b1ba963d, rewrote the Kanban surface to a card-scoped Card Decisions workspace and preserved the archived decision rows on `c3824`)
+
+### keywords
+
+- Card Decisions, x_card_task_context, x_asset_archive_decisions, c3824, c3838, c3839, state.json, selected-card workspace, archived decisions, implementation handoff
+
+## Task 8: Add mobile queued-prompt steering so follow-ups can persist during a running Codex turn, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-24T00-16-23-OIhl-kanban_mobile_session_queue_and_response_only_transcript.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\23\rollout-2026-05-23T20-16-28-019e5757-0f82-7be3-81d5-3d9999169023.jsonl, updated_at=2026-05-24T16:25:28+00:00, thread_id=019e5757-0f82-7be3-81d5-3d9999169023, mobile session queue/steer support with durable queued follow-ups)
+
+### keywords
+
+- queued_messages, queue steer, /api/sessions/:id/message, /api/sessions/:id/queue/:message_id/steer, queued_count, renderSessionQueue, session-queue-panel, mobile ui
+
+## Task 9: Make the phone transcript response-only while keeping assistant replies and choice questions visible, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-05-24T00-16-23-OIhl-kanban_mobile_session_queue_and_response_only_transcript.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\05\23\rollout-2026-05-23T20-16-28-019e5757-0f82-7be3-81d5-3d9999169023.jsonl, updated_at=2026-05-24T16:25:28+00:00, thread_id=019e5757-0f82-7be3-81d5-3d9999169023, response-only transcript cleanup for the mobile session timeline)
+
+### keywords
+
+- response-only transcript, buildEventFromCodexJson, renderSessionTimeline, command_execution, Waiting for a response., last_message, choice questions, hidden event types
+
 ## User preferences
 
 - when reviewing completion surfaces, the user said "I don't need to see the verbose details in the review unless I expand it, but rather the higher-level task that it represents." -> default review rows to concise title-first presentation and hide dense detail behind an expander [Task 1]
@@ -738,6 +769,9 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - when the user said Memory Review should be "dynamic and based on actual entries in memories.md" and they want to "modify at any time" with the actual memory file updated from markup -> treat review state as an overlay on live source, not as the source of truth itself [Task 6]
 - when the user said they "can't delete them myself" about stale bug rows -> treat stale tracker rows as actionable cleanup and add a supported delete path instead of one-off file surgery [Task 6]
 - when the user asked for a daily 5:00am flow plus a 6:00am architecture review -> default recurring maintenance to morning automations instead of manual orchestration [Task 6]
+- when the user asked, "Are our decisions still tracked somewhere for it to utilize in our improvements?" -> keep decision history accessible even if the active card changes, and preserve a clear reuse path for future implementation sessions [Task 7]
+- when the user wanted to "send more prompts while a session is running" and "select a queued prompt to steer the next turn" -> mobile session messaging should queue follow-ups instead of blocking on a running turn, and the queue state should stay visible in the phone UI [Task 8]
+- when the user said "I only need to see the responses in there, not the weird extra log details" -> the visible mobile transcript should default to response-only presentation, with queue bookkeeping and command noise hidden unless explicitly needed [Task 9]
 
 ## Reusable knowledge
 
@@ -751,6 +785,13 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - `GET /api/memory-review` now parses live `# Task Group:` blocks from `C:\Users\mikeh\.codex\memories\MEMORY.md`, while `tools/kanban/memory-review.json` stores only review markup keyed to those live rows [Task 6]
 - `POST /api/memory-review/apply` applies `Remove` deletions and `Adjust` replacements back to the source file, but `Adjust` only fires when the note contains a full replacement block beginning with `# Task Group:` [Task 6]
 - The accepted Codex automation IDs for this checkout are `pd2-daily-flow` at 5:00 AM and `pd2-architecture-review` at 6:00 AM [Task 6]
+- The tab is now card-scoped: `x_card_task_context.cards[card_id]` stores per-card progress/context/memories/recommendations/notes and decision rows, while `x_card_task_context.active_card_id` selects the working card [Task 7]
+- The archived Asset Decisions rows remain preserved in both `x_asset_archive_decisions.items` and `x_card_task_context.cards.c3824.items`; `c3838` is the live implementation workspace and `c3839` tracks the migration as done [Task 7]
+- The correct read split for this lane is `c3838` for the implementation handoff and `c3824` for the archived approved decision rows [Task 7]
+- `tools/kanban/server.py` now persists queued follow-ups in `queued_messages`, exposes `queued_count`, drains the queue when the active Codex process exits, and supports `POST /api/sessions/<session-id>/queue/<message-id>/steer` to reorder or launch queued prompts [Task 8]
+- The queue panel is intentionally separate from the transcript; `renderSessionQueue` shows pending prompts while the main timeline stays focused on responses/questions [Task 8][Task 9]
+- `buildEventFromCodexJson()` should only surface assistant responses and choice-question cards in the phone transcript, while thread markers, queued bookkeeping, command execution, stdout/stderr tails, and raw/read-error rows stay hidden on disk or in the queue panel [Task 9]
+- Card session previews should use `last_message`, and the empty transcript state is `Waiting for a response.` [Task 9]
 
 ## Failures and how to do differently
 
@@ -759,6 +800,11 @@ applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reus
 - This board already had overlapping card IDs during adjacent work; always validate uniqueness across the full card list after edits and avoid renumbering the same canonical card repeatedly [Task 3]
 - Review/API smoke can create stray generated artifacts such as `NUL` or `__pycache__`; clean only the artifacts created by the current task and leave unrelated dirty state alone [Task 5]
 - If automation creation rejects the first payload, mirror the accepted worktree/local-environment shape instead of assuming a simpler cron payload will work [Task 6]
+- A Bash-style heredoc can fail before execution in this PowerShell checkout; use PowerShell-compatible piping when seeding board state or smoke data [Task 7]
+- If a first local HTTP smoke hits a log-path permission problem, fall back to the in-process Python HTTP smoke pattern that served `/` and `/api/state` successfully in this repo [Task 7]
+- A running-turn message path that rejects follow-ups is the wrong contract for phone control; queue the prompt and drain it after the active turn instead of failing fast [Task 8]
+- If a smoke that forces `tempfile.mkdtemp(dir=r'C:\tmp')` hangs in this environment, rerun with the default temp root before treating the queue logic as broken [Task 8]
+- A transcript cleanup pass can still leak `command_execution` items through generic event rendering; verify hidden event types explicitly after the UI change [Task 9]
 
 # Task Group: PD2 Read-Only Assessments and Scope Expansion
 scope: Read-only assessments, plan-first reviews, and architectural discovery runs where the user asks for diagnosis before code changes.

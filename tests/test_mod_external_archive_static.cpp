@@ -20,9 +20,12 @@
 #include <utility>
 #include <vector>
 
+#include "pdgui_gameplay_graph_editor.h"
+
 extern "C" {
 #include "asset_archive_policy.h"
 #include "asset_archive_writer.h"
+#include "asset_mod_utility_contract.h"
 #include "constants.h"
 #include "modarchive.h"
 #include "modvfs.h"
@@ -817,8 +820,12 @@ TEST_CASE("folder to pdmod packer validates layout and generates INI templates",
 	REQUIRE(packer.find("modiniTemplateForKind(kind)") != std::string::npos);
 	REQUIRE(packer.find("pads.ini - generated external map pad/spawn template") != std::string::npos);
 	REQUIRE(packer.find("setup.ini - generated external map setup template") != std::string::npos);
-	REQUIRE(packer.find("props.ini - generated external scenario props template") != std::string::npos);
-	REQUIRE(packer.find("objectives.ini - generated external scenario objectives template") != std::string::npos);
+	REQUIRE(packer.find("\"pads.tsv\"") != std::string::npos);
+	REQUIRE(packer.find("\"spawns.tsv\"") != std::string::npos);
+	REQUIRE(packer.find("\"volumes.tsv\"") != std::string::npos);
+	REQUIRE(packer.find("\"objects.tsv\"") != std::string::npos);
+	REQUIRE(packer.find("\"objectives.tsv\"") != std::string::npos);
+	REQUIRE(packer.find("\"level.graph.json\"") != std::string::npos);
 	REQUIRE(packer.find("weapons\", \"weapon.ini\", \"weapon\"") != std::string::npos);
 	REQUIRE(packer.find("characters/heads\", \"head.ini\", \"head\"") != std::string::npos);
 	REQUIRE(packer.find("maps\", \"arena.ini\", \"arena\"") != std::string::npos);
@@ -1208,20 +1215,19 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	const std::string extractor = readFile("port/src/romextract_pdweapon.c");
 	REQUIRE(extractor.find("nested_payloads = \" PDWEAPON_NESTED_PAYLOADS_ENTRY") != std::string::npos);
 	REQUIRE(extractor.find("PDWEAPON_NESTED_PAYLOADS_ENTRY \"_meta/nested-payloads.json\"") != std::string::npos);
-	REQUIRE(extractor.find("behavior_graph = \" PDWEAPON_RUNTIME_GRAPH_ENTRY") != std::string::npos);
+	REQUIRE(extractor.find("runtime.graph.json") == std::string::npos);
+	REQUIRE(extractor.find("behavior_graph = \" PDWEAPON_RUNTIME_GRAPH_ENTRY") == std::string::npos);
+	REQUIRE(extractor.find("primary_graph = \" PDWEAPON_PRIMARY_GRAPH_ENTRY") != std::string::npos);
+	REQUIRE(extractor.find("secondary_graph = \" PDWEAPON_SECONDARY_GRAPH_ENTRY") != std::string::npos);
 	REQUIRE(extractor.find("PDWEAPON_PRIMARY_GRAPH_ENTRY \"behavior/primary.graph.json\"") != std::string::npos);
 	REQUIRE(extractor.find("PDWEAPON_SECONDARY_GRAPH_ENTRY \"behavior/secondary.graph.json\"") != std::string::npos);
-	REQUIRE(extractor.find("base_weapon_graph_v2") != std::string::npos);
 	REQUIRE(extractor.find("\"shared_context\"") != std::string::npos);
-	REQUIRE(extractor.find("\"subgraphs\"") != std::string::npos);
 	REQUIRE(extractor.find("\"subgraph\"") != std::string::npos);
 	REQUIRE(extractor.find("primary_trigger") != std::string::npos);
 	REQUIRE(extractor.find("secondary_trigger") != std::string::npos);
 	REQUIRE(extractor.find("event.trigger_pressed") != std::string::npos);
 	REQUIRE(extractor.find("event.trigger_held") != std::string::npos);
 	REQUIRE(extractor.find("event.trigger_released") != std::string::npos);
-	REQUIRE(extractor.find("primary_trigger\", 0)") != std::string::npos);
-	REQUIRE(extractor.find("secondary_trigger\", 0)") != std::string::npos);
 	REQUIRE(extractor.find("damage_credit_player") != std::string::npos);
 	REQUIRE(extractor.find("base_legacy_adapter") == std::string::npos);
 	REQUIRE(extractor.find("spawn.fired_projectile") != std::string::npos);
@@ -1583,6 +1589,49 @@ TEST_CASE("weapon graph runtime compiler validates modules and deterministic IR"
 	REQUIRE(weaponGraphCompileArchiveFile(weapon.path.string().c_str(),
 		ASSET_WEAPON, &fromArchive, err, sizeof(err)) == 0);
 	REQUIRE(std::string(fromArchive.ir_sha256) == std::string(a.ir_sha256));
+
+	const std::string cleanWeaponIni =
+		"[weapon]\n"
+		"catalog_id = base:test_weapon\n"
+		"primary_graph = behavior/primary.graph.json\n"
+		"secondary_graph = behavior/secondary.graph.json\n"
+		"shared_context = behavior/shared-context.json\n";
+	const std::string primaryGraph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_weapon\",\n"
+		"  \"graph_id\": \"primary\",\n"
+		"  \"nodes\": [ { \"id\": \"primary_action\", \"kind\": \"fire.hitscan\","
+		" \"params\": { \"mode\": \"primary\", \"damage\": 1.25 } } ],\n"
+		"  \"exports\": [ { \"name\": \"primary\", \"node\": \"primary_action\" } ]\n"
+		"}\n";
+	const std::string secondaryGraph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"base:test_weapon\",\n"
+		"  \"graph_id\": \"secondary\",\n"
+		"  \"nodes\": [ { \"id\": \"secondary_action\", \"kind\": \"spawn.fired_projectile\","
+		" \"params\": { \"mode\": \"secondary\", \"projectile_ref\": \"base:test_weapon__projectile_rocket\" } } ],\n"
+		"  \"exports\": [ { \"name\": \"secondary\", \"node\": \"secondary_action\" } ]\n"
+		"}\n";
+	const std::string sharedContext =
+		"{ \"schema\": \"pd.weapon_shared_context.v1\", \"asset_id\": \"base:test_weapon\","
+		" \"contexts\": [ { \"name\": \"owner_player\", \"scope\": \"player\","
+		" \"source\": \"equipped_player\", \"type\": \"player_ref\" } ] }\n";
+	TempArchive cleanWeapon = writeArchiveEntries("weapon-clean-graph-compiler", {
+		{ "weapon.ini", cleanWeaponIni },
+		{ "behavior/primary.graph.json", primaryGraph },
+		{ "behavior/secondary.graph.json", secondaryGraph },
+		{ "behavior/shared-context.json", sharedContext },
+	});
+	weapon_graph_ir_t fromCleanArchive;
+	REQUIRE(weaponGraphCompileArchiveFile(cleanWeapon.path.string().c_str(),
+		ASSET_WEAPON, &fromCleanArchive, err, sizeof(err)) == 0);
+	REQUIRE(fromCleanArchive.context_count == 1);
+	REQUIRE(fromCleanArchive.node_count == 2);
+	REQUIRE(fromCleanArchive.export_count == 2);
+	REQUIRE(fromCleanArchive.nodes[0].opcode == WEAPON_GRAPH_OP_FIRE_HITSCAN);
+	REQUIRE(fromCleanArchive.nodes[1].opcode == WEAPON_GRAPH_OP_SPAWN_FIRED_PROJECTILE);
 }
 
 TEST_CASE("weapon mod save contract supports shotgun template dual wield save",
@@ -2597,11 +2646,17 @@ TEST_CASE("metadata family INI support covers grouped templates and deps",
 	REQUIRE(scanner.find("effect.ini - reusable visual/feedback effect metadata") != std::string::npos);
 	REQUIRE(scanner.find("prop.ini - reusable spawnable prop metadata") != std::string::npos);
 	REQUIRE(scanner.find("gamemode.ini - Combat Simulator/custom rules metadata") != std::string::npos);
+	REQUIRE(scanner.find("rules_file = rules.json") != std::string::npos);
+	REQUIRE(scanner.find("botprofile.ini - reusable bot skill/personality metadata") != std::string::npos);
+	REQUIRE(scanner.find("profile_file = profile.json") != std::string::npos);
+	REQUIRE(scanner.find("; target_body = base:body_id") != std::string::npos);
 	REQUIRE(scanner.find("theme.ini - menu/UI theme bundle metadata") != std::string::npos);
 	REQUIRE(scanner.find("animation.ini - external animation metadata") != std::string::npos);
 	REQUIRE(scanner.find("catalogDepRegister(owner_id, dep, is_bundled)") != std::string::npos);
 	REQUIRE(scanner.find("catalogDepRegister(e->ext.anim.target_body, e->id, e->bundled)") != std::string::npos);
 	REQUIRE(scanner.find("\"animation_file\"") != std::string::npos);
+	REQUIRE(scanner.find("\"rules_file\"") != std::string::npos);
+	REQUIRE(scanner.find("\"profile_file\"") != std::string::npos);
 }
 
 TEST_CASE("external audio descriptors use standard files through VFS-capable loaders",
@@ -2695,8 +2750,25 @@ TEST_CASE("catalog game mode and bot profile assets drive live runtime selectors
 	std::string scanner = readFile("port/src/assetcatalog_scanner.c");
 	REQUIRE(scanner.find("case ASSET_GAMEMODE:") != std::string::npos);
 	REQUIRE(scanner.find("e->ext.gamemode.mode_id = iniGetInt(ini, \"mode_id\"") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.gamemode.rules_file") != std::string::npos);
 	REQUIRE(scanner.find("case ASSET_BOT_PROFILE:") != std::string::npos);
 	REQUIRE(scanner.find("e->ext.bot_profile.difficulty = iniGetInt(ini, \"difficulty\"") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.bot_profile.target_body") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.bot_profile.profile_file") != std::string::npos);
+
+	std::string catalog = readFile("port/include/assetcatalog.h");
+	REQUIRE(catalog.find("char rules_file[128]") != std::string::npos);
+	REQUIRE(catalog.find("char target_body[CATALOG_ID_LEN]") != std::string::npos);
+	REQUIRE(catalog.find("char profile_file[128]") != std::string::npos);
+
+	std::string runtime = readFile("port/src/asset_runtime.c");
+	REQUIRE(runtime.find("entry->ext.gamemode.rules_file") != std::string::npos);
+	REQUIRE(runtime.find("entry->ext.bot_profile.profile_file") != std::string::npos);
+	REQUIRE(runtime.find("entry->ext.bot_profile.target_body") != std::string::npos);
+
+	std::string distrib = readFile("port/src/net/netdistrib.c");
+	REQUIRE(distrib.find("e->ext.gamemode.rules_file") != std::string::npos);
+	REQUIRE(distrib.find("e->ext.bot_profile.target_body") != std::string::npos);
 }
 
 TEST_CASE("skin assets expose saved texture payloads through catalog provider paths",
@@ -2764,6 +2836,7 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler_h.find("modAssetCompilerIsExternalSource") != std::string::npos);
 	REQUIRE(compiler_h.find("modAssetCompilerCompileReadable") != std::string::npos);
 	REQUIRE(compiler_h.find("modAssetCompilerEnsureCache") != std::string::npos);
+	REQUIRE(compiler_h.find("modAssetCompilerBuildColmesh") != std::string::npos);
 	REQUIRE(compiler_h.find("modAssetCompilerBuildObjColmesh") != std::string::npos);
 	REQUIRE(compiler_h.find("modAssetCompilerBuildModeldef") != std::string::npos);
 	REQUIRE(compiler_h.find("modAssetCompilerFreeModeldef") != std::string::npos);
@@ -2818,7 +2891,7 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(load.find("modAssetCompilerIsExternalSource(source_path)") != std::string::npos);
 	REQUIRE(load.find("modAssetCompilerCompileReadable(entry") != std::string::npos);
 	REQUIRE(load.find("modAssetCompilerBuildModeldef(entry") != std::string::npos);
-	REQUIRE(load.find("modAssetCompilerBuildObjColmesh(source_path, mesh)") != std::string::npos);
+	REQUIRE(load.find("modAssetCompilerBuildColmesh(colmesh_source_path, mesh)") != std::string::npos);
 	REQUIRE(load.find("modAssetCompilerBuildAnimationClip(entry") != std::string::npos);
 	REQUIRE(load.find("ASSET_PAYLOAD_COLMESH") != std::string::npos);
 	REQUIRE(load.find("ASSET_PAYLOAD_ANIMATION_CLIP") != std::string::npos);
@@ -2848,10 +2921,13 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(resolve.find("assetCatalogIterateByType(ASSET_ARENA, findMapCb, &ctx)") != std::string::npos);
 
 	std::string scanner = readFile("port/src/assetcatalog_scanner.c");
-	REQUIRE(scanner.find("scenario.ini - external scenario metadata") != std::string::npos);
-	REQUIRE(scanner.find("rooms_file = rooms.obj") != std::string::npos);
+	REQUIRE(scanner.find("scenario.ini - external scenario source metadata") != std::string::npos);
+	REQUIRE(scanner.find("scene_file = scene.glb") != std::string::npos);
 	REQUIRE(scanner.find("\"rooms_file\"") != std::string::npos);
+	REQUIRE(scanner.find("\"scene_file\"") != std::string::npos);
+	REQUIRE(scanner.find("\"runtime_source_file\"") != std::string::npos);
 	REQUIRE(scanner.find("iniGet(ini, \"rooms_file\"") != std::string::npos);
+	REQUIRE(scanner.find("iniGet(ini, \"scene_file\"") != std::string::npos);
 	REQUIRE(scanner.find("e->source_animnum = e->ext.anim.anim_id") != std::string::npos);
 
 	std::string distrib = readFile("port/src/net/netdistrib.c");
@@ -3159,8 +3235,9 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 
 	const std::string mission = readArchiveEntryText(missionArchivePath.c_str(), "mission.ini");
 	REQUIRE(mission.find("catalog_id = example:tri_mission") != std::string::npos);
+	REQUIRE(mission.find("mission_graph_file = mission.graph.json") != std::string::npos);
 	REQUIRE(mission.find("scenario_archive = dependencies/assets/scenario/tri_scenario.pdscenario") != std::string::npos);
-	REQUIRE(mission.find("objectives_file = objectives.ini") != std::string::npos);
+	REQUIRE(mission.find("objectives_file = objectives.tsv") != std::string::npos);
 
 	const std::string gamemode = readArchiveEntryText(gamemodeArchivePath.c_str(), "gamemode.ini");
 	REQUIRE(gamemode.find("catalog_id = example:tri_gamemode") != std::string::npos);
@@ -3312,7 +3389,7 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			"mission",
 			".pdmission",
 			"missions/tri_mission.pdmission",
-			{ "mission.ini", "objectives.ini", "briefing.tsv",
+			{ "mission.ini", "mission.graph.json", "objectives.tsv", "briefing.tsv",
 			  "dependencies/assets/scenario/tri_scenario.pdscenario",
 			  "_meta/manifest.json" },
 		},
@@ -3418,8 +3495,10 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			"scenario",
 			".pdscenario",
 			"scenarios/tri_scenario.pdscenario",
-			{ "scenario.ini", "rooms.obj", "scenario.mtl", "room_texture.png",
-			  "props.ini", "objectives.ini", "pads.ini", "setup.ini",
+			{ "scenario.ini", "scene.glb", "rooms.obj", "scenario.mtl",
+			  "pads.tsv", "spawns.tsv", "volumes.tsv", "objects.tsv",
+			  "objectives.tsv", "navigation.ini", "level.graph.json",
+			  "_meta/generated-collision.json", "_meta/generated-navmesh.json",
 			  "_meta/manifest.json" },
 		},
 	};
@@ -3547,7 +3626,7 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 		{
 			"missions/tri_mission.pdmission",
 			"mission.ini",
-			{ "scenario_archive", "objectives_file", "briefing_file" },
+			{ "mission_graph_file", "scenario_archive", "objectives_file", "briefing_file" },
 			{},
 			{},
 		},
@@ -3661,10 +3740,11 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 		{
 			"scenarios/tri_scenario.pdscenario",
 			"scenario.ini",
-			{ "rooms_file", "props_file", "objectives_file",
-			  "pads_file", "setup_file" },
+			{ "scene_file", "runtime_source_file", "pads_file",
+			  "spawns_file", "volumes_file", "objects_file",
+			  "objectives_file", "navigation_file", "level_graph_file" },
 			{},
-			{ "rooms.obj" },
+			{},
 		},
 	};
 
@@ -3932,6 +4012,197 @@ TEST_CASE("Modding Hub weapon tool builds visual graph modules without raw JSON 
 	        std::string::npos);
 }
 
+TEST_CASE("shared gameplay graph editor foundation owns typed pins and adapter boundaries",
+          "[modding][pdxxx][graph_editor][c3835]") {
+	const std::string sharedHeader =
+		readFile("port/include/pdgui_gameplay_graph_editor.h");
+	const std::string sharedImpl =
+		readFile("port/fast3d/pdgui_gameplay_graph_editor.cpp");
+	const std::string weaponHeader =
+		readFile("port/include/pdgui_weapon_graph_node_editor.h");
+	const std::string weaponEditor =
+		readFile("port/fast3d/pdgui_weapon_graph_node_editor.cpp");
+	const std::string hub = readFile("port/fast3d/pdgui_menu_moddinghub.cpp");
+	REQUIRE(!sharedHeader.empty());
+	REQUIRE(!sharedImpl.empty());
+	REQUIRE(!weaponHeader.empty());
+	REQUIRE(!weaponEditor.empty());
+	REQUIRE(!hub.empty());
+
+	REQUIRE(sharedHeader.find("PdGameplayGraphPinType") != std::string::npos);
+	REQUIRE(sharedHeader.find("PdGameplayGraphEditorAdapter") != std::string::npos);
+	REQUIRE(sharedHeader.find("pdguiGameplayGraphPinsCompatible") != std::string::npos);
+	REQUIRE(sharedImpl.find("pdguiGameplayGraphLinkColor") != std::string::npos);
+	REQUIRE(sharedImpl.find("PDGAMEPLAY_GRAPH_PIN_CONTEXT_REF") != std::string::npos);
+	REQUIRE(weaponHeader.find("const PdGameplayGraphEditorAdapter *adapter") !=
+	        std::string::npos);
+	REQUIRE(weaponEditor.find("pdguiGameplayGraphCategoryColor(kind)") !=
+	        std::string::npos);
+	REQUIRE(weaponEditor.find("pinTypeForWeaponPinKind") != std::string::npos);
+	REQUIRE(weaponEditor.find("pdguiGameplayGraphPinsCompatible") !=
+	        std::string::npos);
+	REQUIRE(hub.find("s_WeaponGraphEditorAdapter") != std::string::npos);
+	REQUIRE(hub.find("\"behavior/primary.graph.json\"") != std::string::npos);
+	REQUIRE(hub.find("\"behavior/secondary.graph.json\"") != std::string::npos);
+
+	REQUIRE(pdguiGameplayGraphPinsCompatible(PDGAMEPLAY_GRAPH_PIN_EXEC,
+		PDGAMEPLAY_GRAPH_PIN_OUTPUT, PDGAMEPLAY_GRAPH_PIN_EXEC,
+		PDGAMEPLAY_GRAPH_PIN_INPUT));
+	REQUIRE_FALSE(pdguiGameplayGraphPinsCompatible(PDGAMEPLAY_GRAPH_PIN_EXEC,
+		PDGAMEPLAY_GRAPH_PIN_INPUT, PDGAMEPLAY_GRAPH_PIN_EXEC,
+		PDGAMEPLAY_GRAPH_PIN_INPUT));
+	REQUIRE(pdguiGameplayGraphPinsCompatible(PDGAMEPLAY_GRAPH_PIN_CATALOG_ID,
+		PDGAMEPLAY_GRAPH_PIN_OUTPUT, PDGAMEPLAY_GRAPH_PIN_STRING,
+		PDGAMEPLAY_GRAPH_PIN_INPUT));
+	REQUIRE_FALSE(pdguiGameplayGraphPinsCompatible(PDGAMEPLAY_GRAPH_PIN_NUMBER,
+		PDGAMEPLAY_GRAPH_PIN_OUTPUT, PDGAMEPLAY_GRAPH_PIN_ENTITY,
+		PDGAMEPLAY_GRAPH_PIN_INPUT));
+
+	ImVec4 execPin = pdguiGameplayGraphPinColor(PDGAMEPLAY_GRAPH_PIN_EXEC);
+	ImVec4 execWire = pdguiGameplayGraphLinkColor(PDGAMEPLAY_GRAPH_PIN_EXEC,
+		PDGAMEPLAY_GRAPH_PIN_EXEC);
+	REQUIRE(execWire.x == execPin.x);
+	REQUIRE(execWire.y == execPin.y);
+	REQUIRE(execWire.z == execPin.z);
+}
+
+TEST_CASE("asset utility contracts cover clean typed archive families",
+          "[modding][pdxxx][utilities][c3834]") {
+	const std::string header = readFile("port/include/asset_mod_utility_contract.h");
+	const std::string impl = readFile("port/src/asset_mod_utility_contract.c");
+	const std::string hub = readFile("port/fast3d/pdgui_menu_moddinghub.cpp");
+	REQUIRE(!header.empty());
+	REQUIRE(!impl.empty());
+	REQUIRE(!hub.empty());
+
+	REQUIRE(header.find("ASSET_MOD_UTIL_CREATE") != std::string::npos);
+	REQUIRE(header.find("ASSET_MOD_UTIL_IMPORT") != std::string::npos);
+	REQUIRE(header.find("ASSET_MOD_UTIL_CLONE") != std::string::npos);
+	REQUIRE(header.find("ASSET_MOD_UTIL_EDIT") != std::string::npos);
+	REQUIRE(header.find("ASSET_MOD_UTIL_VALIDATE") != std::string::npos);
+	REQUIRE(header.find("ASSET_MOD_UTIL_PACKAGE") != std::string::npos);
+	REQUIRE(impl.find(".pdweapon") != std::string::npos);
+	REQUIRE(impl.find(".pdscenario") != std::string::npos);
+	REQUIRE(impl.find(".pdbotprofile") != std::string::npos);
+	REQUIRE(impl.find(".pdtool") != std::string::npos);
+	REQUIRE(hub.find("Archive Utility Contracts") != std::string::npos);
+	REQUIRE(hub.find("assetModUtilityContractCount()") != std::string::npos);
+
+	const asset_mod_utility_contract_t *weapon =
+		assetModUtilityContractForExtension(".pdweapon");
+	REQUIRE(weapon != nullptr);
+	REQUIRE(std::string(weapon->descriptor) == "weapon.ini");
+	REQUIRE(assetModUtilitySupports(weapon, ASSET_MOD_UTIL_CREATE));
+	REQUIRE(assetModUtilitySupports(weapon, ASSET_MOD_UTIL_IMPORT));
+	REQUIRE(assetModUtilitySupports(weapon, ASSET_MOD_UTIL_CLONE));
+	REQUIRE(assetModUtilitySupports(weapon, ASSET_MOD_UTIL_EDIT));
+	REQUIRE(assetModUtilitySupports(weapon, ASSET_MOD_UTIL_VALIDATE));
+	REQUIRE(assetModUtilitySupports(weapon, ASSET_MOD_UTIL_PACKAGE));
+	REQUIRE(assetModUtilitySupports(weapon, ASSET_MOD_UTIL_HOT_ENABLE));
+	REQUIRE(assetModUtilitySupports(weapon, ASSET_MOD_UTIL_EMBED_DEPS));
+
+	const asset_mod_utility_contract_t *bot =
+		assetModUtilityContractForExtension(".pdbotprofile");
+	REQUIRE(bot != nullptr);
+	REQUIRE(assetModUtilitySupports(bot, ASSET_MOD_UTIL_TEMPLATE));
+	REQUIRE(std::string(bot->cli_noun) == "bot-profile");
+
+	const asset_mod_utility_contract_t *tool =
+		assetModUtilityContractForExtension(".pdtool");
+	REQUIRE(tool != nullptr);
+	REQUIRE(assetModUtilitySupports(tool, ASSET_MOD_UTIL_SECURE_TOOL));
+	REQUIRE_FALSE(assetModUtilitySupports(tool, ASSET_MOD_UTIL_CREATE));
+
+	for (size_t i = 0; i < assetModUtilityContractCount(); i++) {
+		const asset_mod_utility_contract_t *c = assetModUtilityContractAt(i);
+		REQUIRE(c != nullptr);
+		REQUIRE(c->extension[0] == '.');
+		REQUIRE(std::string(c->descriptor).find(".ini") != std::string::npos);
+		REQUIRE(assetModUtilitySupports(c, ASSET_MOD_UTIL_VALIDATE));
+		REQUIRE(assetModUtilitySupports(c, ASSET_MOD_UTIL_PACKAGE));
+	}
+}
+
+TEST_CASE("weapon graph parity modules wrap OG behavior families before retirement",
+          "[modding][pdxxx][weapon_graph][parity][c3840]") {
+	const std::string runtimeHeader = readFile("port/include/weapon_graph_runtime.h");
+	const std::string runtimeImpl = readFile("port/src/weapon_graph_runtime.c");
+	REQUIRE(!runtimeHeader.empty());
+	REQUIRE(!runtimeImpl.empty());
+
+	REQUIRE(runtimeHeader.find("weapon_graph_parity_module") != std::string::npos);
+	REQUIRE(runtimeHeader.find("parity_module") != std::string::npos);
+	REQUIRE(runtimeImpl.find("s_parity_modules") != std::string::npos);
+	REQUIRE(runtimeImpl.find("og.projectile.motion") != std::string::npos);
+	REQUIRE(runtimeImpl.find("og.entity.autogun") != std::string::npos);
+	REQUIRE(runtimeImpl.find("og.entity.proxy_trigger") != std::string::npos);
+	REQUIRE(runtimeImpl.find("og.fire.hitscan") != std::string::npos);
+
+	const weapon_graph_parity_module_t *hitscan =
+		weaponGraphParityModuleForOpcode(WEAPON_GRAPH_OP_FIRE_HITSCAN);
+	REQUIRE(hitscan != nullptr);
+	REQUIRE(std::string(hitscan->module_name) == "og.fire.hitscan");
+	REQUIRE(std::string(hitscan->behavior_family) == "held_hitscan");
+	REQUIRE(std::string(hitscan->legacy_backend).find("bondgun.c") !=
+	        std::string::npos);
+
+	const weapon_graph_parity_module_t *motion =
+		weaponGraphParityModuleForOpcode(WEAPON_GRAPH_OP_PROJECTILE_MOTION);
+	REQUIRE(motion != nullptr);
+	REQUIRE(std::string(motion->module_name) == "og.projectile.motion");
+	REQUIRE(std::string(motion->legacy_backend).find("propobj.c") !=
+	        std::string::npos);
+
+	const weapon_graph_parity_module_t *autogun =
+		weaponGraphParityModuleForOpcode(WEAPON_GRAPH_OP_ENTITY_AUTOGUN);
+	REQUIRE(autogun != nullptr);
+	REQUIRE(std::string(autogun->module_name) == "og.entity.autogun");
+
+	REQUIRE(weaponGraphParityModuleForOpcode(
+		WEAPON_GRAPH_OP_EVENT_TRIGGER_PRESSED) == nullptr);
+	REQUIRE(std::string(weaponGraphParityModuleNameForOpcode(
+		WEAPON_GRAPH_OP_EVENT_TRIGGER_PRESSED)).empty());
+
+	weaponGraphRuntimeClearAll();
+	char err[256] = "";
+	const char *weaponJson =
+		"{ \"schema\": \"pd.weapon_graph.v1\","
+		"  \"asset_id\": \"user:weapon_parity\","
+		"  \"graph_id\": \"primary\","
+		"  \"nodes\": ["
+		"    { \"id\": \"fire\", \"kind\": \"fire.hitscan\","
+		"      \"params\": { \"mode\": \"primary\", \"damage\": 8.0 } }"
+		"  ],"
+		"  \"edges\": [],"
+		"  \"exports\": [ { \"name\": \"primary\", \"node\": \"fire\" } ] }";
+	weapon_graph_ir_t ir;
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, weaponJson,
+		(u32)std::strlen(weaponJson), &ir, err, sizeof(err)) == 0);
+	REQUIRE(weaponGraphRuntimeRegisterHeldIr(7, &ir, err, sizeof(err)) == 0);
+	const weapon_graph_held_function_t *held =
+		weaponGraphRuntimeGetHeldFunction(7, 0);
+	REQUIRE(held != nullptr);
+	REQUIRE(std::string(held->parity_module) == "og.fire.hitscan");
+
+	const char *projectileJson =
+		"{ \"schema\": \"pd.projectile_graph.v1\","
+		"  \"asset_id\": \"user:projectile_parity\","
+		"  \"graph_id\": \"projectile\","
+		"  \"nodes\": ["
+		"    { \"id\": \"motion\", \"kind\": \"projectile.motion\","
+		"      \"params\": { \"motion_kind\": \"powered\", \"speed\": 20.0 } }"
+		"  ],"
+		"  \"edges\": [],"
+		"  \"exports\": [] }";
+	REQUIRE(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE,
+		"user:projectile_parity", projectileJson,
+		(u32)std::strlen(projectileJson), err, sizeof(err)) == 0);
+	const weapon_graph_projectile_runtime_t *projectile =
+		weaponGraphRuntimeGetProjectile("user:projectile_parity");
+	REQUIRE(projectile != nullptr);
+	REQUIRE(std::string(projectile->parity_module) == "og.projectile.motion");
+}
+
 TEST_CASE("Modding Hub vendors imgui-node-editor for the in-game graph canvas",
           "[modding][pdxxx][weapon_graph][ui][editor][vendor][c3814]") {
 	const std::string cmake = readFile("CMakeLists.txt");
@@ -3992,13 +4263,12 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 
 	REQUIRE(arena.find("s_buildTilesExports") != std::string::npos);
 	REQUIRE(arena.find("s_buildPadsTsv") != std::string::npos);
-	REQUIRE(arena.find("s_buildWordsTsv") != std::string::npos);
+	REQUIRE(arena.find("s_buildWordsTsv") == std::string::npos);
 	REQUIRE(arena.find("#include \"lib/rzip.h\"") != std::string::npos);
 	REQUIRE(arena.find("rzipIs1173") != std::string::npos);
 	REQUIRE(arena.find("rzipInflate") != std::string::npos);
 	REQUIRE(arena.find("preprocessTilesFile") != std::string::npos);
 	REQUIRE(arena.find("preprocessPadsFile") != std::string::npos);
-	REQUIRE(arena.find("preprocessSetupFile") != std::string::npos);
 	REQUIRE(arena.find("Stage preprocessors share process-global scratch state") !=
 	        std::string::npos);
 	REQUIRE(arena.find("rooms.obj") != std::string::npos);
@@ -4016,12 +4286,20 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("visual/materials.tsv") != std::string::npos);
 	REQUIRE(arena.find("visual/export_version.txt") != std::string::npos);
 	REQUIRE(arena.find("visual/textures/tex_%04x.tga") != std::string::npos);
-	REQUIRE(arena.find("bg_visual_obj_mtl_tga_v2") != std::string::npos);
+	REQUIRE(arena.find("scene.glb") != std::string::npos);
+	REQUIRE(arena.find("stbi_write_png_to_mem") != std::string::npos);
+	REQUIRE(arena.find("bg_visual_scene_glb_v1") != std::string::npos);
 	REQUIRE(arena.find("mat_%03u_tex_%04x") != std::string::npos);
 	REQUIRE(arena.find("texture_inventory_%04x") != std::string::npos);
 	REQUIRE(arena.find("strncmp(mtl_texture_path, \"visual/\", 7)") !=
 	        std::string::npos);
-	REQUIRE(arena.find("blender_scene_file = visual/scene.obj") !=
+	REQUIRE(arena.find("scene_file = scene.glb") !=
+	        std::string::npos);
+	REQUIRE(arena.find("runtime_source_file = scene.glb") !=
+	        std::string::npos);
+	REQUIRE(arena.find("collision_fallback = scene") !=
+	        std::string::npos);
+	REQUIRE(arena.find("blender_scene_file = scene.glb") !=
 	        std::string::npos);
 	REQUIRE(arena.find("visual_scene_file = visual/scene.obj") !=
 	        std::string::npos);
@@ -4038,18 +4316,34 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	        std::string::npos);
 	REQUIRE(arena.find("tiles.tsv") != std::string::npos);
 	REQUIRE(arena.find("pads.tsv") != std::string::npos);
-	REQUIRE(arena.find("setup.tsv") != std::string::npos);
-	REQUIRE(arena.find("mpsetup.tsv") != std::string::npos);
-	REQUIRE(arena.find("visual_segments.tsv") != std::string::npos);
+	REQUIRE(arena.find("spawns.tsv") != std::string::npos);
+	REQUIRE(arena.find("volumes.tsv") != std::string::npos);
+	REQUIRE(arena.find("objects.tsv") != std::string::npos);
+	REQUIRE(arena.find("objectives.tsv") != std::string::npos);
+	REQUIRE(arena.find("navigation.ini") != std::string::npos);
+	REQUIRE(arena.find("level.graph.json") != std::string::npos);
+	REQUIRE(arena.find("_meta/generated-collision.json") != std::string::npos);
+	REQUIRE(arena.find("_meta/generated-navmesh.json") != std::string::npos);
+	REQUIRE(arena.find("setup.tsv") == std::string::npos);
+	REQUIRE(arena.find("mpsetup.tsv") == std::string::npos);
+	REQUIRE(arena.find("visual_segments.tsv") == std::string::npos);
 	REQUIRE(arena.find("geometry_file = rooms.obj") != std::string::npos);
 	REQUIRE(arena.find("geometry_format = OBJ") != std::string::npos);
 	REQUIRE(arena.find("s_existingArchiveHasEntry(dst_rel, \"rooms.obj\")") !=
+	        std::string::npos);
+	REQUIRE(arena.find("s_existingArchiveHasEntry(dst_rel, \"scene.glb\")") !=
+	        std::string::npos);
+	REQUIRE(arena.find("s_existingArchiveHasEntry(dst_rel, \"level.graph.json\")") !=
 	        std::string::npos);
 	REQUIRE(arena.find("s_existingArchiveHasEntry(dst_rel, \"visual/scene.obj\")") !=
 	        std::string::npos);
 	REQUIRE(arena.find("s_existingArchiveHasEntry(dst_rel, \"visual/export_version.txt\")") !=
 	        std::string::npos);
 	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"rooms.obj\"") !=
+	        std::string::npos);
+	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"scene.glb\"") !=
+	        std::string::npos);
+	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"level.graph.json\"") !=
 	        std::string::npos);
 	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"visual/export_version.txt\"") !=
 	        std::string::npos);

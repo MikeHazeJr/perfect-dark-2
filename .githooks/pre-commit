@@ -1,0 +1,19 @@
+#!/bin/sh
+# Perfect Dark 2 pre-commit hook entry point.
+# Install with: pwsh tools/install-githooks.ps1
+set -e
+
+PY=
+for cand in python3 python py; do
+  if command -v "$cand" >/dev/null 2>&1; then
+    PY="$cand"
+    break
+  fi
+done
+
+if [ -z "$PY" ]; then
+  echo "pre-commit hook: no python interpreter found on PATH (tried python3, python, py)." >&2
+  exit 1
+fi
+
+exec "$PY" "$(dirname "$0")/pre-commit.py" "$@"

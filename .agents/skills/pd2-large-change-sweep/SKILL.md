@@ -21,6 +21,17 @@ Always use `context-manager` first when this repo's `context/` directory exists.
 6. **Update project context as part of the work.** Update `context/tasks.md`, relevant `context/pillars/*.md`, `context/session-log.md` when the session closes, and the Kanban card/subtasks. If user-visible behavior changed, update `UNRELEASED.md`.
 7. **Verify the edited state.** Run focused tests or static checks proportional to the change. For docs/JSON-only sweeps, run JSON parsing and whitespace/diff checks; for code behavior, use the isolated build/test session workflow.
 
+## Asset Pipeline c3842 Gate
+
+For any asset-pipeline sweep, extraction change, catalog/provider load change, runtime asset adapter, typed `.pdxxx` archive layout, Modding Hub asset tool, or distribution/manifest change, enforce c3842 before implementation. The short form is public editable source, runtime-cache-only products:
+
+- Public editable source files inside the typed archive are the native game-client source.
+- Generated renderer, GPU, collision, audio-codec, animation, graph-runtime, room/portal, or other engine-ready products are source-hashed cache only.
+- Reject preview-only paths, descriptor-only "load" claims, opaque `.bin` payloads, raw preprocessed dumps, and parallel authored runtime duplicates.
+- Reject public asset-reference fields that carry numeric or legacy-symbol identities such as `model_id = 42`, `model = MODEL_*`, `filenum`, `modelnum`, `weapon_id`, `sound_id`, or `texnum`; authored references use catalog IDs only.
+- Before closeout, run `python tools/asset_native_source_guard.py` and focused `[modding][pdxxx][c3842]` tests when code/test changes are involved.
+- Any exception must be recorded as an explicit c3842 gap on the active card before proceeding.
+
 ## Required Surfaces
 
 For every large-change sweep, inspect at least these surfaces:

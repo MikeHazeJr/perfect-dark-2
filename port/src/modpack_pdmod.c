@@ -350,17 +350,58 @@ static const char *packerSidecarTemplate(const char *leaf)
 	}
 	if (strcmp(leaf, "props.ini") == 0) {
 		return
-			"; props.ini - generated external scenario props template\n"
+			"; props.ini - legacy map authoring template; .pdscenario uses objects.tsv\n"
 			"[props]\n"
-			"props = none\n"
-			"; prop_0 = model:id,0,0,0\n";
+			"props = none\n";
 	}
 	if (strcmp(leaf, "objectives.ini") == 0) {
 		return
-			"; objectives.ini - generated external scenario objectives template\n"
+			"; objectives.ini - legacy map authoring template; .pdscenario uses objectives.tsv\n"
 			"[objectives]\n"
-			"objectives = none\n"
-			"; objective_0 = description,complete_when\n";
+			"objectives = none\n";
+	}
+	if (strcmp(leaf, "pads.tsv") == 0) {
+		return
+			"pad_id\troom_ref\tliftnum\tflags\tpos_x\tpos_y\tpos_z\tup_x\tup_y\tup_z\tlook_x\tlook_y\tlook_z\tbbox_xmin\tbbox_xmax\tbbox_ymin\tbbox_ymax\tbbox_zmin\tbbox_zmax\n"
+			"pad_0000\troom_0000\t0\t0x00000\t0\t0\t0\t0\t1\t0\t0\t0\t1\t-16\t16\t0\t64\t-16\t16\n";
+	}
+	if (strcmp(leaf, "spawns.tsv") == 0) {
+		return
+			"spawn_id\tpad_ref\troom_ref\tteam\tprofile\tpos_x\tpos_y\tpos_z\tlook_x\tlook_y\tlook_z\n"
+			"spawn_0000\tpad_0000\troom_0000\tany\tdefault\t0\t0\t0\t0\t0\t1\n";
+	}
+	if (strcmp(leaf, "volumes.tsv") == 0) {
+		return
+			"volume_id\tpad_ref\tkind\troom_ref\tshape\tmin_x\tmin_y\tmin_z\tmax_x\tmax_y\tmax_z\n"
+			"volume_pad_0000\tpad_0000\tpad_bounds\troom_0000\taabb\t-16\t0\t-16\t16\t64\t16\n";
+	}
+	if (strcmp(leaf, "objects.tsv") == 0) {
+		return
+			"record_id\tkind\tpad_ref\tmodel_catalog_id\tweapon_catalog_id\tsecondary_weapon_catalog_id\tbody_catalog_id\thead_catalog_id\tailist_ref\tflags\tflags2\tflags3\n";
+	}
+	if (strcmp(leaf, "objectives.tsv") == 0) {
+		return
+			"objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\n";
+	}
+	if (strcmp(leaf, "navigation.ini") == 0) {
+		return
+			"[navigation]\n"
+			"source = scene.glb\n"
+			"collision_source = scene.glb\n"
+			"generator = deterministic.surface_graph.v1\n"
+			"supports_walk = true\n"
+			"supports_jump = true\n"
+			"supports_wall = true\n"
+			"supports_ceiling = true\n";
+	}
+	if (strcmp(leaf, "level.graph.json") == 0) {
+		return
+			"{\n"
+			"  \"schema\": \"pd2.level.graph.v1\",\n"
+			"  \"source\": \"scene.glb\",\n"
+			"  \"nodes\": [],\n"
+			"  \"links\": []\n"
+			"}\n";
 	}
 	return NULL;
 }
@@ -667,6 +708,7 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 	};
 	static const char *arenaKeys[] = { "geometry_file", "geometry" };
 	static const char *scenarioKeys[] = {
+		"scene_file", "scene", "runtime_source_file",
 		"rooms_file", "rooms", "geometry_file", "geometry"
 	};
 	static const char *animationKeys[] = { "animation_file", "file_path" };
@@ -687,7 +729,8 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 	static const char *metadataOptionalKeys[] = {
 		"file_path", "model_file", "texture_file", "theme_file",
 		"rules_file", "scenario_archive", "ui_archive", "font_archive",
-		"audio_archive", "objectives_file", "briefing_file"
+		"audio_archive", "objectives_file", "briefing_file",
+		"mission_graph_file", "graph"
 	};
 	static const char *mapOptionalKeys[] = {
 		"pads_file", "setup_file", "collision_file", "material_file",
@@ -695,10 +738,13 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 		"visual_scene_file", "visual_material_file", "visual_materials_file"
 	};
 	static const char *scenarioOptionalKeys[] = {
-		"props_file", "objectives_file", "tiles_file", "pads_file",
-		"setup_file", "mpsetup_file", "material_file", "texture_file",
-		"texture_manifest_file", "blender_scene_file", "visual_scene_file",
-		"visual_material_file", "visual_materials_file", "visual_source_file"
+		"collision_file", "collision_source_file", "collision_source",
+		"objects_file", "objectives_file", "tiles_file",
+		"pads_file", "spawns_file", "volumes_file",
+		"navigation_file", "level_graph_file",
+		"material_file", "texture_file", "texture_manifest_file",
+		"blender_scene_file", "visual_scene_file", "visual_material_file",
+		"visual_materials_file", "visual_source_file"
 	};
 
 	char descriptorAbs[FS_MAXPATH + 1];
@@ -1078,7 +1124,10 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 	static const char *behaviorAssetKeys[] = { "behavior_graph", "graph", "model_file", "model", "file_path" };
 	static const char *characterKeys[] = { "bodyfile", "body_file" };
 	static const char *arenaKeys[] = { "geometry_file", "geometry" };
-	static const char *scenarioKeys[] = { "rooms_file", "rooms", "geometry_file", "geometry" };
+	static const char *scenarioKeys[] = {
+		"scene_file", "scene", "runtime_source_file",
+		"rooms_file", "rooms", "geometry_file", "geometry"
+	};
 	static const char *animationKeys[] = { "animation_file", "file_path" };
 	static const char *audioKeys[] = { "file_path" };
 	static const char *uiKeys[] = { "texture_file", "file_path", "texture" };
@@ -1095,7 +1144,8 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 	static const char *metadataOptionalKeys[] = {
 		"file_path", "model_file", "texture_file", "theme_file",
 		"rules_file", "scenario_archive", "ui_archive", "font_archive",
-		"audio_archive", "objectives_file", "briefing_file"
+		"audio_archive", "objectives_file", "briefing_file",
+		"mission_graph_file", "graph"
 	};
 	static const char *mapOptionalKeys[] = {
 		"pads_file", "setup_file", "collision_file", "material_file",
@@ -1103,10 +1153,13 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 		"visual_scene_file", "visual_material_file", "visual_materials_file"
 	};
 	static const char *scenarioOptionalKeys[] = {
-		"props_file", "objectives_file", "tiles_file", "pads_file",
-		"setup_file", "mpsetup_file", "material_file", "texture_file",
-		"texture_manifest_file", "blender_scene_file", "visual_scene_file",
-		"visual_material_file", "visual_materials_file", "visual_source_file"
+		"collision_file", "collision_source_file", "collision_source",
+		"objects_file", "objectives_file", "tiles_file",
+		"pads_file", "spawns_file", "volumes_file",
+		"navigation_file", "level_graph_file",
+		"material_file", "texture_file", "texture_manifest_file",
+		"blender_scene_file", "visual_scene_file", "visual_material_file",
+		"visual_materials_file", "visual_source_file"
 	};
 
 	static const modpack_sidecar_rule_t mapSidecars[] = {
@@ -1114,8 +1167,13 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 		{ "setup.ini", "setup.ini" },
 	};
 	static const modpack_sidecar_rule_t scenarioSidecars[] = {
-		{ "props.ini",      "props.ini" },
-		{ "objectives.ini", "objectives.ini" },
+		{ "pads.tsv",       "pads.tsv" },
+		{ "spawns.tsv",     "spawns.tsv" },
+		{ "volumes.tsv",    "volumes.tsv" },
+		{ "objects.tsv",    "objects.tsv" },
+		{ "objectives.tsv", "objectives.tsv" },
+		{ "navigation.ini", "navigation.ini" },
+		{ "level.graph.json", "level.graph.json" },
 	};
 
 	#define RUN_FAMILY(path, leaf, kind, req, opt, opt_count, side, side_count)  \

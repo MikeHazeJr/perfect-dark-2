@@ -61,10 +61,10 @@ s32 modAssetCompilerEnsureCache(const asset_entry_t *entry,
 /**
  * Verify/compile an external source into readable generated cache.
  *
- * OBJ sources additionally produce a normalized JSON mesh cache that can be
- * translated into engine-native collision mesh memory. GLTF/GLB currently
- * produce descriptor-only cache records until the model/animation backend
- * lands.
+ * Mesh sources also produce a normalized JSON mesh cache that can be translated
+ * into engine-native collision mesh memory. GLTF/GLB scenario sources are not
+ * descriptor-only: they are the authoritative runtime source for generated
+ * collision when no collision override is present.
  */
 s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
                                     const char *asset_kind,
@@ -72,8 +72,15 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
                                     modasset_compiled_result_t *out);
 
 /**
- * Build an engine collision mesh from an OBJ source. Returns 1 when a mesh was
- * built, 0 when the source is not OBJ, and -1 on parse/allocation failure.
+ * Build an engine collision mesh from a supported authored mesh source. Returns
+ * 1 when a mesh was built, 0 when the source is not supported, and -1 on
+ * parse/allocation failure.
+ */
+s32 modAssetCompilerBuildColmesh(const char *source_path,
+                                 struct colmesh *out_mesh);
+
+/**
+ * Compatibility wrapper for existing OBJ call sites.
  */
 s32 modAssetCompilerBuildObjColmesh(const char *source_path,
                                     struct colmesh *out_mesh);

@@ -738,19 +738,25 @@ static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry)
         if (s_catalogTypeCanUseObjColmeshPayload(entry->type)) {
             struct colmesh *mesh = malloc(sizeof(*mesh));
             s32 mesh_result;
+            const char *colmesh_source_path = source_path;
 
             if (!mesh) {
                 sysLogPrintf(LOG_WARNING,
-                             "CATALOG.LIFECYCLE.ACTIVATE: '%s' OBJ colmesh allocation failed",
+                             "CATALOG.LIFECYCLE.ACTIVATE: '%s' colmesh allocation failed",
                              entry->id);
                 return 0;
             }
 
-            mesh_result = modAssetCompilerBuildObjColmesh(source_path, mesh);
+            if (entry->type == ASSET_SCENARIO
+                    && entry->ext.scenario.collision_file[0]) {
+                colmesh_source_path = entry->ext.scenario.collision_file;
+            }
+
+            mesh_result = modAssetCompilerBuildColmesh(colmesh_source_path, mesh);
             if (mesh_result < 0) {
                 free(mesh);
                 sysLogPrintf(LOG_WARNING,
-                             "CATALOG.LIFECYCLE.ACTIVATE: '%s' OBJ colmesh build failed",
+                             "CATALOG.LIFECYCLE.ACTIVATE: '%s' authored colmesh build failed",
                              entry->id);
                 return 0;
             }
@@ -763,8 +769,9 @@ static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry)
                 entry->ref_count        = 1;
 
                 sysLogPrintf(LOG_NOTE,
-                             "CATALOG.LIFECYCLE.ACTIVATE: activated %s OBJ colmesh '%s' tris=%d cache=%s mesh=%s",
+                             "CATALOG.LIFECYCLE.ACTIVATE: activated %s authored colmesh '%s' source=%s tris=%d cache=%s mesh=%s",
                              s_catalogPayloadKind(entry->type), entry->id,
+                             colmesh_source_path ? colmesh_source_path : "(none)",
                              mesh->numtris,
                              compiled.descriptor_path[0] ? compiled.descriptor_path : "(no descriptor)",
                              compiled.normalized_path[0] ? compiled.normalized_path : "(no normalized mesh)");

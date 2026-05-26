@@ -77,6 +77,14 @@ typedef enum weapon_graph_opcode {
 	WEAPON_GRAPH_OP_ENTITY_INTERACTION,
 } weapon_graph_opcode_e;
 
+typedef struct weapon_graph_parity_module {
+	weapon_graph_opcode_e opcode;
+	const char *module_name;
+	const char *behavior_family;
+	const char *legacy_backend;
+	const char *parity_scope;
+} weapon_graph_parity_module_t;
+
 typedef enum weapon_graph_param_type {
 	WEAPON_GRAPH_PARAM_NULL = 0,
 	WEAPON_GRAPH_PARAM_STRING,
@@ -154,6 +162,7 @@ typedef struct weapon_graph_ir {
 typedef struct weapon_graph_held_function {
 	s32 valid;
 	weapon_graph_opcode_e opcode;
+	char parity_module[WEAPON_GRAPH_IR_ID_LEN];
 	char node_id[WEAPON_GRAPH_IR_ID_LEN];
 	char mode[16];
 	char function_type[32];
@@ -242,6 +251,7 @@ typedef struct weapon_graph_projectile_runtime {
 	s32 valid;
 	char asset_id[CATALOG_ID_LEN];
 	char graph_id[WEAPON_GRAPH_IR_ID_LEN];
+	char parity_module[WEAPON_GRAPH_IR_ID_LEN];
 	char source_sha256[SHA256_HEX_SIZE];
 	char ir_sha256[SHA256_HEX_SIZE];
 
@@ -361,6 +371,7 @@ typedef struct weapon_graph_entity_runtime {
 	s32 valid;
 	char asset_id[CATALOG_ID_LEN];
 	char graph_id[WEAPON_GRAPH_IR_ID_LEN];
+	char parity_module[WEAPON_GRAPH_IR_ID_LEN];
 	char source_sha256[SHA256_HEX_SIZE];
 	char ir_sha256[SHA256_HEX_SIZE];
 
@@ -451,6 +462,11 @@ const char *weaponGraphSchemaForType(asset_type_e type);
 const char *weaponGraphOpcodeName(weapon_graph_opcode_e opcode);
 weapon_graph_opcode_e weaponGraphOpcodeForKind(asset_type_e graph_type,
                                                const char *kind);
+size_t weaponGraphParityModuleCount(void);
+const weapon_graph_parity_module_t *weaponGraphParityModuleAt(size_t index);
+const weapon_graph_parity_module_t *weaponGraphParityModuleForOpcode(
+	weapon_graph_opcode_e opcode);
+const char *weaponGraphParityModuleNameForOpcode(weapon_graph_opcode_e opcode);
 
 s32 weaponGraphRuntimeEnabled(void);
 void weaponGraphRuntimeSetEnabled(s32 enabled);

@@ -82,10 +82,11 @@ Sub-bucketed by pillar. Designs that have shipped move to `_old/designs-shipped/
 
 **Modding**
 - [designs/modding/pdmod-format.md](designs/modding/pdmod-format.md) - unified mod format spec
-- [designs/modding/asset-archive-clean-formats.md](designs/modding/asset-archive-clean-formats.md) - frozen clean archive family layouts before extractor/examples/validator rebuild
+- [designs/modding/asset-archive-clean-formats.md](designs/modding/asset-archive-clean-formats.md) - frozen clean archive family layouts plus c3842 global rule that public editable files are the native client source and generated products are cache
 - [designs/modding/weapon-archive-clean-format.md](designs/modding/weapon-archive-clean-format.md) - target clean `.pdweapon` authoring layout before extractor rebuild
 - [designs/modding/weapon-behavior-graph-assets.md](designs/modding/weapon-behavior-graph-assets.md) - `.pdweapon`, `.pdprojectile`, `.pdentity` graph asset schema
 - [designs/modding/weapon-graph-runtime-cutover-plan.md](designs/modding/weapon-graph-runtime-cutover-plan.md) - runtime cutover slices for weapon graph implementation
+- [designs/modding/scenario-authoring-and-mission-graphs.md](designs/modding/scenario-authoring-and-mission-graphs.md) - c3841 target for textured DCC-openable scenario scenes that also feed runtime loading, collision overrides, generated navmesh, and mission/setup graphs
 - [designs/modding/mod-enablement-policy.md](designs/modding/mod-enablement-policy.md)
 - [designs/modding/theme-bundle-and-per-agent-settings.md](designs/modding/theme-bundle-and-per-agent-settings.md)
 - [designs/modding/forge-level-editor.md](designs/modding/forge-level-editor.md) - Phase 0-1 shipped, future phases scoped

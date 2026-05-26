@@ -76,7 +76,19 @@ def find_repo_root() -> Path:
         )
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
         fail(f"could not locate git repo root via git rev-parse: {exc}")
-    return Path(result.stdout.strip())
+    raw_root = result.stdout.strip()
+    if len(raw_root) >= 3 and raw_root[0] == "/" and raw_root[2] == "/":
+        raw_root = raw_root[1].upper() + ":" + raw_root[2:]
+    root = Path(raw_root)
+    if root.exists():
+        return root
+
+    root = Path.cwd()
+    while root != root.parent:
+        if (root / "AGENTS.md").exists() and (root / "tools/kanban/state.json").exists():
+            return root
+        root = root.parent
+    fail(f"could not resolve git repo root path: {result.stdout.strip()}")
 
 
 def load_kanban(root: Path):

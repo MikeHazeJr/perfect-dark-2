@@ -190,6 +190,7 @@ Per [constraints.md](../constraints.md), [procedures.md](../procedures.md), and 
   - [test_connectcode.cpp:193-266](../../tests/test_connectcode.cpp:193) - UI surfaces use `connectCodeDecodeWithPort`; no "Enter IP:port" labels.
   - [test_input_layer_stack.cpp:295-404](../../tests/test_input_layer_stack.cpp:295) - inputctx publishes the menu-layer bridge; every actionmap query goes through `actionLayerAllows`.
   - [test_save_migration.cpp:208-224](../../tests/test_save_migration.cpp:208) - live `mpsetupfileLoadWad` `if (version < 2)` block pinned via static text.
+  - [test_asset_native_source_contract.cpp](../../tests/test_asset_native_source_contract.cpp) - c3842 guard chain: Codex preflight, large-change skill gate, pre-commit hook, executable guard, Kanban/context source-of-truth, and numeric/legacy asset-reference rejection in public typed archive payloads.
 - **Pure mirrors keep the test binary globals-free.** No SDL, no GL, no ImGui, no ENet in `pd-tests`.
 - **Test cases land in the same commit as the invariant they enforce.** No "tests later" PRs.
 - **Build verification uses `build-session.ps1`** with isolated session id; do not run shared `Build/`.
