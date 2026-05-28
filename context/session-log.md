@@ -1,5 +1,174 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-27-runtime-rom-fallback-failure-contract`) - 2026-05-27 - Runtime ROM fallback failure contract
+
+Mike clarified that any need to load from ROM as a fallback after extraction is a failure of the asset system/ecosystem, not acceptable resilience.
+
+### Implemented
+
+- Added the active constraint `Runtime ROM fallback is an asset-chain failure`: ROM is bootstrap/source input only, and runtime loads must resolve through extracted typed archive source, FileProvider/catalog source, or deterministic source-derived cache.
+- Created high-priority Kanban card `c3844` to inventory, classify, remove, and guard all remaining runtime ROM/RomProvider fallback paths.
+- Updated the Asset Pipeline Codex hook, PD2 large-change sweep gate, modding pillar, catalog pillar, tasks, and release notes so future asset work treats ROM fallback as a defect to fix at the owning asset-family boundary.
+- Extended `tools/asset_native_source_guard.py` and static pd-tests so the c3844 rule/card cannot disappear silently.
+
+### Verification
+
+- `python tools\asset_native_source_guard.py` passed.
+- `python -c "import json; json.load(open('tools/kanban/state.json', encoding='utf-8')); print('kanban json ok')"` passed.
+- `.\devtools\run-pd-tests.ps1 -Session romfallback2 -Selector "[modding][pdxxx][c3844],[modding][pdxxx][c3842]" -BuildTimeoutSeconds 300` passed: 155 assertions / 8 cases.
+- `.\devtools\build-session.ps1 -Remove -Session romfallback2` removed the isolated test build directory.
+
+### Next
+
+- Start `c3844-s1`: inventory all runtime ROM/RomProvider fallback sites and separate allowed bootstrap extraction reads from forbidden runtime fallback reads.
+
+---
+
+## Session (`main-checkout-2026-05-27-debug-asset-source-gate`) - 2026-05-27 - Debug asset source gate
+
+Mike asked for a Settings > Debug control that enables one asset type at a time so runtime testing can prove the game is using extracted/generated assets instead of silently falling back to ROM/static content.
+
+### Implemented
+
+- Added `Debug.AssetSourceOnlyType` with Settings > Debug checkboxes for one selected typed archive family at a time.
+- Added `asset_source_debug` helpers so the selected family is treated as source-only unless the catalog entry has a public FileProvider source.
+- Extended `CatalogResolveResult` with `source_only_blocked`, and wired the catalog typed lifecycle plus file, texture, animation, and sound gateways to refuse selected-family ROM/static fallback loudly.
+- Added static c3842 coverage for the Debug UI, config registration, catalog block flag, and runtime gateway enforcement.
+- Updated Kanban `c3842-s10`, tasks, modding pillar, and release notes.
+
+### Verification
+
+- `python tools\asset_native_source_guard.py` passed.
+- `.\devtools\run-pd-tests.ps1 -Session sourcegate -Selector "[modding][pdxxx][c3842][debug][source_gate]" -BuildTimeoutSeconds 300` passed: 31 assertions / 1 case.
+- `.\devtools\run-pd-tests.ps1 -Session sourcegate -Selector "[modding][pdxxx][c3842]" -BuildTimeoutSeconds 300` passed: 133 assertions / 7 cases.
+- `.\devtools\build-session.ps1 -Session sourcegate -Target all -BuildTimeoutSeconds 600` passed; the session build directory was removed.
+
+### Next
+
+- Manual playtest can now select one family in Settings > Debug, load content that exercises it, and treat any source-only fatal as a real migration gap to fix at that family boundary.
+
+---
+
+## Session (`main-checkout-2026-05-27-c3843-remaining-base-families`) - 2026-05-27 - Remaining base asset families
+
+Mike clarified that the remaining 11 approved families must not stay as follow-up polish: all assets should be emitted on disk, editable, and loaded by the game through the catalog/provider path rather than treated as ROM/static-source-only content.
+
+### Implemented
+
+- Completed Kanban `c3843` for `.pdmaterial`, `.pdtexture`, `.pdskin`, `.pdeffect`, `.pdprop`, `.pdvehicle`, `.pdmission`, `.pdgamemode`, `.pdbotprofile`, `.pdhud`, and `.pdtheme`.
+- Added the remaining-family base emitter path so fresh extraction writes strict typed archives for the 11 families and binds catalog primary source paths for native runtime activation/loading.
+- Fresh boot extraction now reports 3,503 `.pdtexture`, 3 `.pdmaterial`, 68 `.pdskin`, 6 `.pdeffect`, 8 `.pdprop`, 1 `.pdvehicle`, 14 `.pdmission`, 6 `.pdgamemode`, 18 `.pdbotprofile`, 6 `.pdhud`, and 7 `.pdtheme` archives.
+- Fixed a first-run `.pdtexture` extraction crash in `romextract_pdmeta.c`: the `texture.ini` format string accidentally passed `texture_file = texture.png` as a `%s` argument and shifted the following varargs. Static c3843 coverage now pins the corrected adjacent string-literal form.
+- Updated Kanban, tasks, modding pillar, and release notes so `c3842` and `c3843` are no longer stale active migration blockers; `c3840` remains the next high-priority modding lane.
+
+### Verification
+
+- `python tools\asset_native_source_guard.py` passed.
+- `.\devtools\run-pd-tests.ps1 -Session c3843meta -Selector "[modding][pdxxx][c3843]"` passed: 57 assertions / 1 case.
+- `.\devtools\run-pd-tests.ps1 -Session c3843meta -Selector "[modding][pdxxx][c3842]"` passed: 102 assertions / 6 cases.
+- `.\devtools\build-session.ps1 -Session c3843meta -Target all -BuildTimeoutSeconds 600` passed.
+- `.\tools\smoke-verify\run.ps1 -Test boot_smoke -SourceBinary .\.claude\session-builds\c3843meta\PerfectDark.exe -SourceRom .\.claude\session-builds\c3843meta\pd.ntsc-final.z64 -Keep -Timeout 150` passed with clean shutdown and no fatal/exception/access violation.
+- `python tools\asset_archive_conformance.py --root .claude\smoke-verify-install\data\ntsc-final --require-all-families` passed: 7,143 root archives / 8,088 checked archives across all 27 typed families.
+
+### Next
+
+- The Asset Pipeline base-output migration is closed. Continue with `c3840` original weapon routine modularization unless Mike redirects.
+
+---
+
+## Session (`main-checkout-2026-05-27-c3842-definitive-optional-slots`) - 2026-05-27 - Asset archive optional-slot tracking
+
+Mike challenged the phrase "allowed optional files" and clarified that the asset architecture should be definitive. Optional entries must not become loose tolerated content.
+
+### Implemented
+
+- Reopened Kanban `c3842` as Active for definitive archive hardening instead of leaving the strict conformance work marked fully closed.
+- Added active subtasks `c3842-s7` through `c3842-s9`: document every optional slot by family, enforce that table in `tools/asset_archive_conformance.py`, then revalidate examples and fresh extraction against the definitive contract.
+- Updated the Asset Pipeline contract doc to state that an optional slot is valid only when it has a semantic role, owner subsystem/tool, loader/importer behavior, deterministic absence behavior, and final-vs-transition status.
+- Updated the modding pillar and tasks list so this remains visible as a high-priority migration blocker until the validator and generated archives are backed by the slot-justification table.
+- Added the definitive optional-slot matrix to the clean archive format doc and mirrored it in `tools/asset_archive_conformance.py` as `OPTIONAL_PUBLIC_SLOT_CONTRACT`.
+- Added `_meta/` slot enforcement through common metadata slots, family-specific `META_SLOT_CONTRACT`, and source-entry hash sidecars that are valid only when the matching public file exists.
+- Removed the loose public `.pdmesh` `texture.png` sidecar slot from the schema and regenerated `examples/modding/typed-pdxxx-basic/meshes/tri_mesh.pdmesh` so it carries only `mesh.ini`, `model.gltf`, and `_meta/manifest.json`.
+- Updated the native-source guard, static pins, and Kanban state so `c3842-s7`/`c3842-s8` are done and `c3842-s9` is the active verification slice.
+- Completed `c3842-s9` and moved reopened C-3842 back to Done after focused tests, isolated all-target build, boot-smoke fresh extraction, and final strict conformance passed.
+
+### Verification
+
+- `python tools\asset_archive_conformance.py --root examples\modding\typed-pdxxx-basic --require-all-families` passed: 28 root archives / 52 total archives.
+- `python tools\asset_archive_conformance.py --root .claude\smoke-verify-install\data\ntsc-final` passed on the current smoke-extracted archive set: 3,503 root archives / 4,434 total archives.
+- `python tools\asset_native_source_guard.py` passed after the card state and guard contract updates.
+- `.\devtools\run-pd-tests.ps1 -Session c3842slots -Selector "[modding][pdxxx][c3842]" -BuildTimeoutSeconds 300` passed: 102 assertions / 6 cases.
+- `.\devtools\build-session.ps1 -Session c3842final -Target all -BuildTimeoutSeconds 600` passed.
+- `.\tools\smoke-verify\run.ps1 -Test boot_smoke -Timeout 180 -SourceBinary .\.claude\session-builds\c3842final\PerfectDark.exe -SourceRom .\Build\pd.ntsc-final.z64` passed.
+- Final `python tools\asset_archive_conformance.py --root .claude\smoke-verify-install\data\ntsc-final` passed on the fresh smoke-extracted archive set: 3,503 root archives / 4,434 total archives.
+
+### Next
+
+- C-3842 is done. Continue with the next active high-priority lane, likely C-3840 OG weapon routine modularization after parity, unless Mike redirects.
+
+---
+
+## Session (`main-checkout-2026-05-26-asset-archive-strict-conformance`) - 2026-05-26 - Strict typed archive conformance
+
+Mike clarified that Asset Pipeline validation must prove every archive fully conforms to the planned format, not merely that it contains at least one authorable file.
+
+### Implemented
+
+- Added `tools/asset_archive_conformance.py`, a strict schema validator for every current typed family. It opens root and nested typed archives, verifies required public entries, allowed public entries, `_meta/manifest.json`, stale-layout rejection, and public catalog-ID-only references.
+- Wired `tools/asset_native_source_guard.py` to delegate typed example validation to the strict conformance checker.
+- Regenerated the checked-in typed examples into the clean two-zone layouts, including split `.pdweapon` behavior sources and embedded typed dependencies.
+- Updated base `.pdarena` / `.pdscenario` extraction so arenas embed intact `.pdscenario` archives under `dependencies/assets/scenarios/`, scenarios use public `scene.glb` plus decoded source tables/graphs, and stale public `scenario/`, `rooms.obj`, `tiles.tsv`, `scenario.mtl`, and `visual/` layouts are rejected.
+- Updated base `.pdhead`, `.pdbody`, and `.pdweapon` public descriptors/graphs to use catalog IDs and typed dependencies instead of public numeric IDs or legacy asset symbols.
+- Added test stubs for catalog model/audio resolution so graph-runtime tests link while production still resolves through the real catalog.
+- Recorded the strict random-arena exception: explicit Random selector `.pdarena` archives can omit a scenario dependency because they resolve to a real arena at match start; normal arenas still must embed a `.pdscenario`.
+- Updated the Asset Pipeline format docs, scenario migration doc, modding pillar, tasks, and release notes.
+
+### Verification
+
+- `python tools\asset_archive_conformance.py --root examples\modding\typed-pdxxx-basic --require-all-families` passed: 28 root archives / 52 total archives.
+- `python tools\asset_native_source_guard.py` passed.
+- Focused `[modding][pdxxx][c3842],[modding][pdxxx][examples],[modding][pdxxx][base][static][c3812],[modding][pdxxx][weapon_graph][runtime][projectile][entity][c3814],[modding][pdxxx][weapon_graph][runtime][held][c3814]` passed: 2,024 assertions / 25 cases.
+- Isolated `assetstrict` all-target build passed.
+- Boot smoke passed with the verified `assetstrict` binary.
+- Strict conformance passed on the fresh smoke-extracted install: 3,503 root archives / 4,434 total archives.
+- A separate attempt to seed a stale-upgrade fixture under `C:\tmp` was blocked by local `C:\tmp` access permissions before a valid fixture existed; clean extraction and emitted archive conformance are verified.
+
+### Next
+
+- If Mike wants an upgrade-path proof from an already-stale install, rerun the smoke from a user-writable temp/install directory seeded with old data and the new binary. The code-level stale checks and fresh extraction are in place.
+
+---
+
+## Session (`main-checkout-2026-05-26-b373-asset-archive-cleanup`) - 2026-05-26 - Typed archive inspection cleanup
+
+Mike flagged that extracted asset folders showed a lot of TSV files and did not look like the clean GLTF/GLB archive contract.
+
+### Implemented
+
+- Audited `Build/data/ntsc-final` and confirmed standalone `.pdscenario` archives contain root `scene.glb`, decoded source tables (`objects.tsv`, `objectives.tsv`, `pads.tsv`, `spawns.tsv`, `volumes.tsv`), `navigation.ini`, `level.graph.json`, and generated collision/navmesh metadata; forbidden raw public `setup.tsv`, `mpsetup.tsv`, `visual_segments.tsv`, and public `.bin` payloads were absent in the sampled/current scenarios.
+- Identified the confusing surface: typed asset family directories can retain `.zip` inspection copies and loose extracted folders beside the canonical `.pdxxx` archives, and embedded `.pdarena` scenario closure copied nested `_meta` entries through the public sidecar path.
+- Added `assetArchiveWriterAddBundledMem()` for tracked embedded/cache payloads that should appear in `_meta/hashes.tsv` / inventory without creating per-entry sidecar clutter.
+- Updated `.pdarena` extraction to embed only scenario public source entries under `scenario/` and to avoid duplicate nested `_meta/scenario/_meta/...sha256` sidecars.
+- Updated `.pdscenario` generated collision/navmesh cache JSON to use bundled tracked entries instead of public sidecar entries.
+- Added cleanup of stale `.zip` siblings before arena/scenario/mesh fast-cache skips.
+- Extended release validation to reject typed-family `.zip` inspection copies and loose extracted typed archive folders before packaging.
+- Follow-up audit found long-lived `Build/data` arena/scenario caches could still keep old nested `_meta` clutter. The arena/scenario fast-cache kinds now version the clean public shape, and per-archive/family skip checks reject stale `scenario/_meta/`, `_meta/scenario/`, and `_meta/_meta/` entries so the next extraction regenerates those archives automatically.
+- Recorded B-373, updated `context/tasks.md`, the modding pillar, tests, and `UNRELEASED.md`.
+
+### Verification
+
+- PowerShell parser check passed for `devtools/release.ps1`.
+- `python tools/asset_native_source_guard.py` passed.
+- Focused `[modding][pdxxx][c3842],[release][layout][static][c3824]` passed: 95 assertions / 7 cases.
+- Isolated `b373asset` all-target build passed.
+- Follow-up focused `[modding][pdxxx][c3842],[release][layout][static][c3824]` passed after the stale-cache self-heal pins: 104 assertions / 7 cases.
+- Follow-up isolated `assetclean` all-target build passed.
+- A first smoke-runner build attempt hit only the wrapper's default 60-second watchdog; the direct patched-client session build then passed.
+- `boot_smoke` passed from the patched binary.
+- Fresh smoke install audit found 45 `.pdscenario` archives, 0 bad scenario archives, 0 typed-family `.zip` inspection copies, 0 loose typed archive folders, `base_arena_chicago.pdarena` present with `scenario/scene.glb`, and `base_model_ar34_hi.pdmesh` present.
+
+---
+
 ## Session (`main-checkout-2026-05-26-b372-dev-window-release-hook`) - 2026-05-26 - Dev Window v2 release hook fix
 
 Mike reported that Dev Window v2 Release failed and asked to check the log.

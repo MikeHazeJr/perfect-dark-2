@@ -229,7 +229,9 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
     switch (entry->type) {
     case ASSET_SKIN:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
-               entry->ext.skin.texture_file);
+               entry->ext.skin.texture_file[0]
+                    ? entry->ext.skin.texture_file
+                    : entry->ext.skin.skin_file);
         s_copy(binding->target_id, sizeof(binding->target_id),
                entry->ext.skin.target_id);
         return s_finishFileBinding(binding,
@@ -264,7 +266,9 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
 
     case ASSET_PROP:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
-               entry->ext.prop.model_file);
+               entry->ext.prop.model_file[0]
+                    ? entry->ext.prop.model_file
+                    : entry->ext.prop.prop_file);
         binding->runtime_id = entry->ext.prop.prop_type;
         binding->kind = entry->ext.prop.prop_type;
         binding->target_kind = (s32)entry->ext.prop.flags;
@@ -312,7 +316,9 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
 
     case ASSET_HUD:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
-               entry->ext.hud.texture_file);
+               entry->ext.hud.texture_file[0]
+                    ? entry->ext.hud.texture_file
+                    : entry->ext.hud.layout_file);
         binding->runtime_id = entry->ext.hud.hud_id;
         binding->kind = entry->ext.hud.element_type;
         return s_finishFileBinding(binding,

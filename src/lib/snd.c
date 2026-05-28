@@ -2250,6 +2250,13 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 	 * confirmed correct).  The query is O(1) from the reverse-index array. */
 	{
 		CatalogResolveResult r = catalogResolveSound((s32)sp40.id);
+		if (r.source_only_blocked) {
+			const asset_entry_t *entry = assetCatalogGetByIndex(r.catalog_id);
+			sysFatalError("ASSET.SOURCE_ONLY: sound %d maps to '%s' but has no "
+			              "public FileProvider source; refusing ROM/static fallback.",
+			              (s32)sp40.id, entry ? entry->id : "?");
+			return NULL;
+		}
 		if (r.is_mod_override && r.path) {
 			sysLogPrintf(LOG_NOTE, "CATALOG: sound %d → mod override \"%s\" (entry %d)",
 			             (s32)sp40.id, r.path, r.catalog_id);

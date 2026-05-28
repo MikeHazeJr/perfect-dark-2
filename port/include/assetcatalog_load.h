@@ -56,21 +56,27 @@ void catalogLoadInit(void);
 /**
  * Returned by all catalogResolve*() functions.
  *
- * path           - mod file path to load from, or NULL (use ROM)
+ * path           - public file path to load from, or NULL (use ROM/static)
  * catalog_id     - pool index of the matching catalog entry, or -1 if this
  *                  asset is unknown to the catalog
- * is_mod_override - 1 if a non-bundled (mod) entry owns this asset and
- *                  should be loaded from `path`; 0 for base-game ROM assets
+ * is_mod_override - historical name: 1 means this resolve should load from
+ *                  `path`, whether that path came from a mod or generated
+ *                  base-game source
+ * source_only_blocked - 1 when Debug.AssetSourceOnlyType selected this
+ *                  family but the catalog entry has no public FileProvider
+ *                  source. Actual load callers must refuse fallback.
  *
  * Decision matrix for callers:
- *   is_mod_override=1, path!=NULL  → load from path
- *   is_mod_override=0, catalog_id>=0 → load from ROM (base-game, cataloged)
- *   is_mod_override=0, catalog_id<0  → load from ROM (not in catalog at all)
+ *   source_only_blocked=1            → fail loudly, no fallback
+ *   is_mod_override=1, path!=NULL    → load from path
+ *   is_mod_override=0, catalog_id>=0 → load from ROM/static (cataloged)
+ *   is_mod_override=0, catalog_id<0  → load from ROM/static (uncataloged)
  */
 typedef struct {
-    const char *path;       /* mod file path, or NULL for ROM */
+    const char *path;       /* public file path, or NULL for ROM/static */
     s32         catalog_id; /* catalog entry pool index, -1 = unknown */
-    s32         is_mod_override; /* 1 = mod file, 0 = base-game ROM */
+    s32         is_mod_override; /* 1 = load from path, 0 = fallback */
+    s32         source_only_blocked; /* 1 = selected family lacks file source */
 } CatalogResolveResult;
 
 /* ========================================================================

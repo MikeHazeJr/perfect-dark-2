@@ -1639,6 +1639,18 @@ static s32 heldResolveSfxParam(const weapon_graph_ir_t *ir,
 	if (heldParamInt(ir, node, key, out)) return 1;
 	if (p->type != WEAPON_GRAPH_PARAM_STRING || !p->value[0]) return 0;
 
+	if (strchr(p->value, ':')) {
+		catalog_audio_result_t audio;
+		if (catalogResolveAudio(p->value, &audio)) {
+			*out = audio.sound_id;
+			return 1;
+		}
+		if (strcmp(p->value, "base:sfx_launch_rocket") == 0) {
+			*out = SFX_LAUNCH_ROCKET_8053;
+			return 1;
+		}
+	}
+
 	resolved = loaderEnumResolveSfxEnum(p->value, -1);
 	if (resolved >= 0) {
 		*out = resolved;
@@ -1661,6 +1673,93 @@ static s32 heldResolveProjectileModelRef(const char *ref, s32 *out)
 	long parsed;
 
 	if (!ref || !out) return 0;
+	if (strchr(ref, ':')) {
+		catalog_model_result_t model;
+		if (catalogResolveModel(ref, &model)) {
+			*out = model.modelnum;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_chrdyrocketmis") == 0 ||
+				strcmp(ref, "base:model_dyrocket") == 0) {
+			*out = MODEL_CHRDYROCKETMIS;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_chrskrocketmis") == 0 ||
+				strcmp(ref, "base:model_skrocket") == 0) {
+			*out = MODEL_CHRSKROCKETMIS;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_chrcrossbolt") == 0 ||
+				strcmp(ref, "base:model_crossbow_bolt") == 0) {
+			*out = MODEL_CHRCROSSBOLT;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_chrdevgrenade") == 0 ||
+				strcmp(ref, "base:model_devastator_grenade") == 0) {
+			*out = MODEL_CHRDEVGRENADE;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_chrdraggrenade") == 0 ||
+				strcmp(ref, "base:model_dragon_grenade") == 0) {
+			*out = MODEL_CHRDRAGGRENADE;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_chrknife") == 0 ||
+				strcmp(ref, "base:model_knife") == 0) {
+			*out = MODEL_CHRKNIFE;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_chrbug") == 0 ||
+				strcmp(ref, "base:model_bug") == 0) {
+			*out = MODEL_CHRBUG;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_targetamp") == 0 ||
+				strcmp(ref, "base:model_target_amplifier") == 0) {
+			*out = MODEL_TARGETAMP;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_chrautogun") == 0 ||
+				strcmp(ref, "base:model_autogun") == 0) {
+			*out = MODEL_CHRAUTOGUN;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_chrdragon") == 0 ||
+				strcmp(ref, "base:model_dragon") == 0) {
+			*out = MODEL_CHRDRAGON;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_chrgrenade") == 0 ||
+				strcmp(ref, "base:model_grenade") == 0) {
+			*out = MODEL_CHRGRENADE;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_chrnbomb") == 0 ||
+				strcmp(ref, "base:model_nbomb") == 0) {
+			*out = MODEL_CHRNBOMB;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_chrtimedmine") == 0 ||
+				strcmp(ref, "base:model_timed_mine") == 0) {
+			*out = MODEL_CHRTIMEDMINE;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_chrproximitymine") == 0 ||
+				strcmp(ref, "base:model_proximity_mine") == 0) {
+			*out = MODEL_CHRPROXIMITYMINE;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_chrremotemine") == 0 ||
+				strcmp(ref, "base:model_remote_mine") == 0) {
+			*out = MODEL_CHRREMOTEMINE;
+			return 1;
+		}
+		if (strcmp(ref, "base:model_chrecmmine") == 0 ||
+				strcmp(ref, "base:model_ecm_mine") == 0) {
+			*out = MODEL_CHRECMMINE;
+			return 1;
+		}
+	}
 	if (strcmp(ref, "MODEL_dyrocket") == 0) { *out = MODEL_CHRDYROCKETMIS; return 1; }
 	if (strcmp(ref, "MODEL_skrocket") == 0) { *out = MODEL_CHRSKROCKETMIS; return 1; }
 	if (strcmp(ref, "MODEL_crossbow_bolt") == 0) { *out = MODEL_CHRCROSSBOLT; return 1; }
@@ -1714,8 +1813,11 @@ static void projectileRuntimeFromNode(const weapon_graph_ir_t *ir,
 	}
 	switch (node->opcode) {
 	case WEAPON_GRAPH_OP_PROJECTILE_SPAWN_STATE:
-		heldParamString(ir, node, "model_ref", out->model_ref,
-			sizeof(out->model_ref));
+		if (!heldParamString(ir, node, "model_catalog_id", out->model_ref,
+				sizeof(out->model_ref))) {
+			heldParamString(ir, node, "model_ref", out->model_ref,
+				sizeof(out->model_ref));
+		}
 		if (out->model_ref[0] &&
 				heldResolveProjectileModelRef(out->model_ref, &v)) {
 			out->has_projectile_modelnum = 1;
@@ -1933,8 +2035,10 @@ static void entityRuntimeFromNode(const weapon_graph_ir_t *ir,
 	f32 f;
 	heldParamString(ir, node, "archetype", out->archetype,
 		sizeof(out->archetype));
-	if (heldParamString(ir, node, "model_ref", out->model_ref,
-			sizeof(out->model_ref)) &&
+	if ((heldParamString(ir, node, "model_catalog_id", out->model_ref,
+			sizeof(out->model_ref)) ||
+			heldParamString(ir, node, "model_ref", out->model_ref,
+			sizeof(out->model_ref))) &&
 			heldResolveProjectileModelRef(out->model_ref, &v)) {
 		out->has_projectile_modelnum = 1;
 		out->projectile_modelnum = v;
@@ -2203,7 +2307,9 @@ static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
 		if (v > 255) v = 255;
 		out->duration_ticks60 = (u8)v;
 	}
-	if (heldResolveSfxParam(ir, node, "shootsound", &v)) {
+	if (heldResolveSfxParam(ir, node, "shoot_sound_catalog_id", &v) ||
+			heldResolveSfxParam(ir, node, "shoot_sound_ref", &v) ||
+			heldResolveSfxParam(ir, node, "shootsound", &v)) {
 		out->has_shootsound = 1;
 		if (v < 0) v = 0;
 		if (v > 65535) v = 65535;
@@ -2241,8 +2347,12 @@ static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
 		out->entity_ref, sizeof(out->entity_ref));
 	heldParamString(ir, node, "payload_ref",
 		out->payload_ref, sizeof(out->payload_ref));
-	if (heldParamString(ir, node, "projectile_model_ref",
-			out->projectile_model_ref, sizeof(out->projectile_model_ref)) &&
+	if ((heldParamString(ir, node, "projectile_model_catalog_id",
+			out->projectile_model_ref,
+			sizeof(out->projectile_model_ref)) ||
+			heldParamString(ir, node, "projectile_model_ref",
+			out->projectile_model_ref,
+			sizeof(out->projectile_model_ref))) &&
 			heldResolveProjectileModelRef(out->projectile_model_ref, &v)) {
 		out->has_projectile_modelnum = 1;
 		out->projectile_modelnum = v;
@@ -2267,7 +2377,10 @@ static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
 		out->has_reflect_angle = 1;
 		out->reflect_angle = f;
 	}
-	if (heldResolveSfxParam(ir, node, "soundnum", &v)) {
+	if (heldResolveSfxParam(ir, node, "projectile_sound_catalog_id", &v) ||
+			heldResolveSfxParam(ir, node, "special_sound_catalog_id", &v) ||
+			heldResolveSfxParam(ir, node, "sound_catalog_id", &v) ||
+			heldResolveSfxParam(ir, node, "soundnum", &v)) {
 		out->has_soundnum = 1;
 		out->soundnum = v;
 	}

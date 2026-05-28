@@ -181,6 +181,7 @@ Every Codex session that touches asset archives, extraction, catalog/provider lo
 4. Reject designs that add parallel authored runtime files, opaque `.bin` payloads, raw preprocessed dumps, numeric/legacy asset references in public payloads, or hand-maintained duplicate source/runtime representations.
 5. When changing any asset family, add or update focused tests proving the public source file feeds runtime use, not only that it exists or can be previewed.
 6. Run `python tools/asset_native_source_guard.py` before reporting completion. For commits, the tracked pre-commit hook runs the same guard with staged-file checks.
+7. Treat any runtime ROM/RomProvider fallback after extraction as an asset-chain failure owned by `c3844`, not an acceptable fallback path.
 
 ## Architecture
 - `src/` — Original decompiled game code (C). `src/game/`, `src/lib/`, `src/include/`

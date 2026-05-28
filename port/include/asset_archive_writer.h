@@ -77,13 +77,18 @@ s32 assetArchiveWriterAddPublicMem(asset_archive_writer_t *writer,
                                    u32 len,
                                    const char *role);
 s32 assetArchiveWriterAddPublicDisk(asset_archive_writer_t *writer,
+                                     const char *entry_name,
+                                     const char *src_path,
+                                     const char *role);
+s32 assetArchiveWriterAddBundledMem(asset_archive_writer_t *writer,
                                     const char *entry_name,
-                                    const char *src_path,
+                                    const void *data,
+                                    u32 len,
                                     const char *role);
 s32 assetArchiveWriterAddMetaJson(asset_archive_writer_t *writer,
-                                  const char *leaf_name,
-                                  const void *data,
-                                  u32 len);
+                                   const char *leaf_name,
+                                   const void *data,
+                                   u32 len);
 s32 assetArchiveWriterFinishMetadata(asset_archive_writer_t *writer);
 
 #ifdef __cplusplus

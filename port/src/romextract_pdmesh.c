@@ -1061,6 +1061,42 @@ static void s_synthCatalogId(u16 filenum, const char *hint_suffix,
 	catalogReadableModelIdForFile(filenum, hint_suffix, "mesh", out, n);
 }
 
+static void s_catalogIdToFilename(const char *catalog_id, char *out, size_t n)
+{
+	if (!out || n == 0) return;
+	out[0] = '\0';
+	if (!catalog_id) return;
+	size_t j = 0;
+	for (size_t i = 0; catalog_id[i] && j + 1 < n; i++) {
+		out[j++] = (catalog_id[i] == ':') ? '_' : catalog_id[i];
+	}
+	out[j] = '\0';
+}
+
+static void s_removeRelpathIfExists(const char *relpath)
+{
+	if (!relpath || fsFileSize(relpath) <= 0) return;
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (full && full[0] && remove(full) == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"romextract pdmesh: removed stale typed-archive zip \"%s\"",
+			relpath);
+	}
+}
+
+static void s_removeLegacyZipForMesh(const char *out_dir, u16 filenum,
+                                     const char *hint_suffix)
+{
+	char catalog_id[128];
+	char filename_slug[128];
+	char relpath[FS_MAXPATH];
+	s_synthCatalogId(filenum, hint_suffix, catalog_id, sizeof(catalog_id));
+	s_catalogIdToFilename(catalog_id, filename_slug, sizeof(filename_slug));
+	snprintf(relpath, sizeof(relpath), "%s/%s.zip", out_dir, filename_slug);
+	s_removeRelpathIfExists(relpath);
+}
+
 /* Build the on-disk path of the existing extracted .bin for a given
  * filenum. Mirrors romExtractRelPathForFilenum (port/src/romextract.c)
  * but lives in the public API; we rely on it. */
@@ -1179,12 +1215,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	s_synthCatalogId(filenum, hint_suffix, catalog_id, sizeof(catalog_id));
 
 	char filename_slug[128];
-	for (size_t i = 0, j = 0; j + 1 < sizeof(filename_slug); i++) {
-		char c = catalog_id[i];
-		if (c == '\0') { filename_slug[j] = '\0'; break; }
-		filename_slug[j++] = (c == ':') ? '_' : c;
-	}
-	filename_slug[sizeof(filename_slug) - 1] = '\0';
+	s_catalogIdToFilename(catalog_id, filename_slug, sizeof(filename_slug));
 
 	char dst_rel[FS_MAXPATH];
 	snprintf(dst_rel, sizeof(dst_rel), "%s/%s.pdmesh", out_dir, filename_slug);
@@ -1553,6 +1584,11 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 			s_pdmeshAddWork(jobs, &job_count, ROMEXTRACT_PDMESH_SEEN_CAP,
 			                g_BodyData[i].handfilenum, "hand");
 		}
+	}
+
+	for (s32 i = 0; i < job_count; i++) {
+		const char *hint = jobs[i].hint[0] ? jobs[i].hint : NULL;
+		s_removeLegacyZipForMesh(meshes_dir, jobs[i].filenum, hint);
 	}
 
 	if (romExtractPdFastCacheCanSkip(ROMEXTRACT_PDMESH_FAST_CACHE_KIND, meshes_dir,

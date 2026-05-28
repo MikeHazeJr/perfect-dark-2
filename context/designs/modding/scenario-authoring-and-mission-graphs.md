@@ -38,7 +38,7 @@ The same scene file is the game-facing source. Scenario loading should ingest `s
 
 `rooms.obj` should become a generated compatibility/debug artifact, not the primary user-edited source. It may remain in `_meta/` or generated cache while migration code needs it, but the authoring contract should not require editing two similar meshes.
 
-Implementation note, 2026-05-25: generated `.pdscenario` archives now emit root `scene.glb` as the source and catalog primary file, keep `rooms.obj` / `visual/scene.obj` only as compatibility exports, and require `scenario.ini` to declare `scene_file = scene.glb` and `runtime_source_file = scene.glb`. Runtime metadata prefers `scene_file`, accepts optional `collision_file`, and builds collision from the override or scene source through `modAssetCompilerBuildColmesh()`.
+Implementation note, 2026-05-26: generated `.pdscenario` archives now emit root `scene.glb` as the public level source and catalog primary file. Public `rooms.obj`, `tiles.tsv`, `scenario.mtl`, `visual/scene.obj`, `visual/scene.mtl`, `visual/materials.tsv`, and visual texture folders are stale outputs and fail strict archive conformance. `scenario.ini` declares `scene_file = scene.glb` and `runtime_source_file = scene.glb`; runtime metadata prefers `scene_file`, accepts optional `collision_file`, and builds collision from the override or scene source through `modAssetCompilerBuildColmesh()`.
 
 ## Navigation
 

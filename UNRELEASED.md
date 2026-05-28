@@ -35,6 +35,9 @@
 - Added shared per-family Asset Pipeline utility contracts for clean typed archives, including Modding Hub visibility and secure `.pdtool` policy.
 - Added a reusable gameplay graph editor foundation with typed pins, pin-colored links, compatibility checks, and asset-family adapters.
 - Added named weapon graph parity modules so current OG-backed held, projectile, and deployed-entity behavior families are explicit before future retirement cuts.
+- Added strict typed asset archive conformance validation for every `.pdxxx` family, including recursive embedded archive checks and catalog-ID-only public references.
+- Added base extraction and native catalog/provider loading for the remaining `.pdmaterial`, `.pdtexture`, `.pdskin`, `.pdeffect`, `.pdprop`, `.pdvehicle`, `.pdmission`, `.pdgamemode`, `.pdbotprofile`, `.pdhud`, and `.pdtheme` archive families.
+- Added a Settings > Debug asset source gate so one typed archive family at a time can be forced to use extracted/generated FileProvider source during playtest.
 
 ## Changed
 
@@ -63,12 +66,16 @@
 - Typed asset archive emitters now write machine metadata and hash sidecars under `_meta/`, while migration readers still accept legacy root metadata during the cleanup window.
 - `.pdlang` base extraction now uses the shared typed archive writer and emits standardized `_meta` inventory, hashes, provenance, validation, and source-handle metadata around editable `strings.tsv`.
 - Typed archive policy, scanners, packers, Mod Manager lists, hot-distribution registration, and debug tooling now recognize approved first-class asset families through `.pdtheme`; `.pdfont` is `ASSET_FONT`, `.pdscenario` is `ASSET_SCENARIO`, and `.pdtool` remains deferred.
-- Match manifests now carry approved typed dependency families through a generic asset entry, and `_meta/manifest.json` dependency records are validated for embedded archives or explicit base fallback reasons.
+- Match manifests now carry approved typed dependency families through a generic asset entry, and `_meta/manifest.json` dependency records are validated for embedded archives or explicit base dependency records.
 - Typed archive public files are now validated through mounted `.pdmod` transport paths, including `archive.pdxxx::file` access through VFS, `fs`, and FileProvider-style loaders.
 - Saved skin mods now declare their `texture.tga` payload in `skin.ini` and register that texture through the catalog/FileProvider path.
 - Typed asset archive validation now recursively checks descriptor, GLTF, OBJ/MTL, JSON, and embedded typed-archive references so clean `.pdxxx` packages fail when their authored closure is incomplete.
+- Typed asset archive validation now enforces the full planned family schema, not just the presence of an authorable file; fresh extracted base archives now pass the strict checker.
+- Typed asset archive validation now enforces definitive optional-slot contracts, including documented role/owner/load/absence/status entries for every optional public slot and `_meta/` whitelist entry.
+- Base extracted content now includes all 27 typed asset families as strict on-disk archives, and fresh extraction passes strict conformance with `--require-all-families`.
+- Runtime ROM fallback after extraction is now tracked as an Asset Pipeline failure condition; `c3844` owns removal/fatal hardening of remaining runtime fallback paths.
 - Typed `.pdxxx` examples now cover every frozen family, including projectile, entity, material, texture, and character samples, with `_meta/manifest.json` and the frozen `.pdmesh` `mesh.ini` descriptor.
-- Release packaging now fails stale typed asset outputs before zipping if they are `.pdwpn`, non-zip, descriptor-less, legacy `.pdmesh` `model.ini`, root-metadata, or `.bin`-backed archives.
+- Release packaging now fails stale typed asset outputs before zipping if they are `.pdwpn`, non-zip, descriptor-less, legacy `.pdmesh` `model.ini`, root-metadata, `.bin`-backed archives, typed-family `.zip` inspection copies, or loose extracted typed archive folders; arena/scenario extraction now also invalidates stale clean-shape caches with nested metadata clutter.
 - Saving a weapon mod now opens a confirmation modal with Creator and Display Name, derives the custom weapon catalog name as `mod:weapon_<name>`, and enables the new mod immediately.
 - Cutscene skipping now uses a held button with a contextual radial progress prompt instead of an accidental tap.
 - Startup asset extraction now reuses validated per-family cache stamps and shows a centered progress modal with smoother time-weighted progress.
@@ -80,6 +87,9 @@
 ## Fixed
 
 - Fixed Dev Window v2 release commits on Git Bash/MSYS Python by running the Asset Pipeline pre-commit guard through a repository-relative path and removing the automatic hook-bypass retry.
+- Fixed typed asset extraction cleanup so arena/scenario/mesh `.zip` inspection copies do not survive fast-cache skips, and embedded arena scenario folders no longer grow duplicate nested `_meta` sidecar trees.
+- Fixed first-run `.pdtexture` extraction by correcting the `texture.ini` format string so texture metadata generation no longer shifts its arguments and crashes.
+- Fixed the sample `.pdmesh` archive so mesh textures are no longer loose public sidecars; mesh materials/textures now stay in typed dependencies or the model source.
 - Removed the outdated v0.0.7 dedicated-server release notes that were being reused for new releases.
 - Cleared stale Kanban Bug Tracker rows B-318 through B-326.
 - Fixed Combat Simulator post-match endscreen X and Quit/Disconnect confirmation clicks so the visible results screen can be exited normally.

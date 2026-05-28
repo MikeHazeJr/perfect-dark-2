@@ -54,6 +54,13 @@ s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 	 * (load from path), base-game ROM (catalog_id >= 0), or not cataloged. */
 	{
 		CatalogResolveResult r = catalogResolveTexture((s32)num);
+		if (r.source_only_blocked) {
+			const asset_entry_t *entry = assetCatalogGetByIndex(r.catalog_id);
+			sysFatalError("ASSET.SOURCE_ONLY: texture %d maps to '%s' but has "
+			              "no public FileProvider source; refusing ROM/static fallback.",
+			              (s32)num, entry ? entry->id : "?");
+			return -1;
+		}
 		if (r.is_mod_override && r.path) {
 			const s32 ret = fsFileLoadTo(r.path, dst, dstSize);
 			if (ret > 0) {
@@ -159,6 +166,13 @@ void *modAnimationLoadData(u16 num)
 	 * (load from path), base-game ROM (catalog_id >= 0), or not cataloged. */
 	{
 		CatalogResolveResult r = catalogResolveAnim((s32)num);
+		if (r.source_only_blocked) {
+			const asset_entry_t *entry = assetCatalogGetByIndex(r.catalog_id);
+			sysFatalError("ASSET.SOURCE_ONLY: animation %d maps to '%s' but has "
+			              "no public FileProvider source; refusing ROM/static fallback.",
+			              (s32)num, entry ? entry->id : "?");
+			return NULL;
+		}
 		if (r.is_mod_override && r.path) {
 			if (modAssetCompilerIsExternalSource(r.path)) {
 				void *clip = modAnimationLoadCatalogClip(&r, num);

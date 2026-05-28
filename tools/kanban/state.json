@@ -95,7 +95,7 @@
       "title": "Connectivity: online friend presence and invites",
       "description": "Mike and Chris can add each other by correct client code, but both appear offline. Remove the obsolete Main Menu Online Play entry, rename Solo Play to Play, and make friend invite/join work from the Social flow even when a stale row still says offline.",
       "pillar": "networking",
-      "column": "active",
+      "column": "done",
       "order": 5000,
       "notes": "Second-pass code/build verified 2026-05-22; pending Mike+Chris live two-client confirmation before the goal can close. First pass fixed the offline-after-add root cause by validating signed presence against per-agent handles, storing the loaded save-slot agent name, splitting presence agent/status fields, sending LAN bootstrap presence to UDP 27105, exposing Invite from stale Offline rows, routing invite/group-session/spectator handoffs through the NAT-aware path, and cleaning up Main Menu Play. Second pass fixed the existing-agent lifecycle gap: successful prefs sidecar loads re-bound the per-agent code and marked presence loaded but skipped socialHubBringOnline(), so P2P LAN and presence sockets never opened. `prefsAgentLoad()` now calls socialHubBringOnline() before presenceMarkAgentLoaded() on both sidecar and no-sidecar paths. Verification: online367 [c3828] passed with 44 assertions / 3 cases and online367 all-target build passed.",
       "flag": "star",
@@ -360,7 +360,7 @@
       "title": "B-362: Falcon 2 mission-start beam stretches to center",
       "description": "Mike reported that starting a mission with the Falcon 2 points the gun down while geometry stretches to the center of the screen. Root cause is the Falcon laser-sight beam rendering during weapon-change/equip frames, plus an unchecked laser-sight node matrix index.",
       "pillar": "engine",
-      "column": "done",
+      "column": "active",
       "order": 83000,
       "notes": "Fixed 2026-05-21 in bondgun.c. Falcon laser sights are now pre-culled before beam rendering, hidden/freed while the hand is in HANDSTATE_CHANGEGUN, missing laser-sight nodes free stale beam state, and modelFindNodeMtxIndex is bounded before reading first-person weapon matrices. Scoped diff check passed, focused [bondgun][laser][static] passed in isolated session falconlaser, and queued all-target build passed. Manual playtest remains before closure.",
       "flag": null,
@@ -3154,7 +3154,7 @@
       "column": "done",
       "order": 1000,
       "priority": 1,
-      "notes": "Created 2026-05-21 from Mike's request to walk each asset type and implement the clean-but-functional archive shape. Reprioritized 2026-05-22 as the top Asset Pipeline migration plan. Process order is locked: first define every asset-family format, starting with c3832 for .pdweapon; then freeze the contracts; then rebuild extraction/examples/validators in the full sweep. Shared contract: root descriptor required; no .pdwpn; no authored .bin; no reference-only dependency closure; duplicate embedded payloads are allowed on disk and deduped after ingestion by catalog identity and canonical SHA-256. Preferred archive zones are authoring files first, nested typed dependencies second, and _meta/ for manifest.json, inventory.json, provenance.json, validation reports, source handles, SHA rows, and compatibility bookkeeping. During transition, scanners/loaders may accept old root manifest.json and root SHA sidecars but new emitters should write _meta/ and release validation should fail stale installed outputs that are non-zip, .pdwpn, .bin-backed, descriptor-less, or unresolved internally. c3832 is the detailed .pdweapon format card and sits immediately under this migration plan. Approved 2026-05-23 first format decisions: .pdweapon, .pdprojectile, .pdentity, .pdmaterial, and .pdtexture are recorded on this single tracker. Higher-level assets link typed dependencies by catalog ID and self-contained exports embed those dependency assets as intact typed archives under dependencies/assets; they do not absorb dependency internals into the parent schema. Approved 2026-05-23 second format batch: .pdcharacter, .pdhead, .pdbody, .pdarena, and .pdscenario are recorded on this single tracker. Character is an assembler/meta asset; body owns skeleton and first-person hands; head owns head-specific rig/expression data; arena wraps playable multiplayer selection metadata around an embedded scenario; scenario owns level content and spawn profiles for default, gametype/team, CTF/objective, and mission-phase respawn cases. Approved 2026-05-23 third format batch: .pdmesh, .pdanim, .pdsfx, .pdvoice, and .pdsong are recorded on this single tracker. Mesh owns reusable geometry and rig-facing model data; animation owns reusable timelines/events/retargeting metadata; SFX owns atomic sound sources and playback metadata; voice owns spoken-line metadata, per-locale audio variants, subtitle bindings, voice-mod override compatibility, and global-language fallback behavior while .pdlang owns text strings; song owns editable sequence/track music data and adaptive playback metadata. Approved 2026-05-24 final format batch: .pdui, .pdfont, and .pdlang are recorded on this tracker, and all family formats are frozen in context/designs/modding/asset-archive-clean-formats.md. UI owns reusable texture/chrome assets with readable layout/nine-slice metadata; font owns vector or decoded bitmap font sources plus metrics/kerning; lang owns UTF-8 strings.tsv text banks while voice owns spoken audio. c3824-s1 shared two-zone validation/migration is done 2026-05-24: policy/scanner/loader/emitters/package gates now enforce the migration-vs-release boundary, with _meta/manifest.json and _meta/*.sha256 as new output. Next c3824 work is c3824-s20/c3824-s18, the broad extraction/examples/validators/release-gate sweep with deeper recursive internal reference closure. c3824-s18 examples/docs/package-gate slice is done 2026-05-24: recursive validation now checks descriptor, GLTF, OBJ/MTL, JSON, and embedded typed-archive references; typed-pdxxx-basic examples now cover every frozen family with _meta/manifest.json and mesh.ini. Remaining c3824 work is c3824-s20, the stale extraction/installed-output cleanup and release-gate sweep. c3824 is wrapped 2026-05-24: final release packaging gate validates the assembled dist tree before zip creation and fails stale typed outputs that are .pdwpn, non-zip, descriptor-less, legacy .pdmesh model.ini, root-metadata, or .bin-backed. No manual retest required for this headless validator/examples/release-gate card. Asset decision intake 2026-05-24 final: Mike approved all 35 Asset Decisions rows. New first-class families are .pdskin, .pdeffect, .pdprop, .pdvehicle, .pdmission, .pdgamemode, .pdbotprofile, .pdhud, and .pdtheme. .pdtool is deferred from the current asset implementation sweep but is a high-priority secure tool/plugin package follow-up. .pdentity remains behavior/archetype-focused and can depend on .pdprop for physical object payloads, including Laptop Gun-style deployed entities. .pdmaterial is classic-first but PBR-extensible; future PBR material payloads should remain standalone material assets. .pdscenario owns world/map content and maps to new ASSET_SCENARIO, separate from ASSET_ARENA, ASSET_MISSION, and ASSET_GAMEMODE. .pdmesh owns geometry, UVs, hierarchy, sockets, LODs, skinning, and collision proxy; textures/materials are typed dependencies with model_specific or reusable tags. Raw editable source files are allowed when owned by that family, while cross-family resources embed as intact typed archives under dependencies/assets. Mod utilities must export files in an easily accessible way for modders and import/reconstruct them as valid typed assets. Validators fail unresolved references unless the archive embeds the dependency or declares an approved base fallback with catalog id, compatibility/version/hash where available, and reason. Approved mapping decisions include ASSET_MATERIAL for .pdmaterial, ASSET_FONT for .pdfont, unified ASSET_AUDIO with strict category/channel/mod tags for .pdsfx/.pdvoice/.pdsong, and ASSET_MODEL reuse for .pdmesh. No authored .bin files belong in any asset archive. Post-decision load/use sweep 2026-05-24: context/designs/modding/asset-archive-clean-formats.md now includes all approved game-content families through .pdtheme, the .pdtool deferral note, and a per-family load/utilization closure matrix for the extraction implementation card c3838.",
+      "notes": "Created 2026-05-21 from Mike's request to walk each asset type and implement the clean-but-functional archive shape. Reprioritized 2026-05-22 as the top Asset Pipeline migration plan. Process order is locked: first define every asset-family format, starting with c3832 for .pdweapon; then freeze the contracts; then rebuild extraction/examples/validators in the full sweep. Shared contract: root descriptor required; no .pdwpn; no authored .bin; no reference-only dependency closure; duplicate embedded payloads are allowed on disk and deduped after ingestion by catalog identity and canonical SHA-256. Preferred archive zones are authoring files first, nested typed dependencies second, and _meta/ for manifest.json, inventory.json, provenance.json, validation reports, source handles, SHA rows, and compatibility bookkeeping. During transition, scanners/loaders may accept old root manifest.json and root SHA sidecars but new emitters should write _meta/ and release validation should fail stale installed outputs that are non-zip, .pdwpn, .bin-backed, descriptor-less, or unresolved internally. c3832 is the detailed .pdweapon format card and sits immediately under this migration plan. Approved 2026-05-23 first format decisions: .pdweapon, .pdprojectile, .pdentity, .pdmaterial, and .pdtexture are recorded on this single tracker. Higher-level assets link typed dependencies by catalog ID and self-contained exports embed those dependency assets as intact typed archives under dependencies/assets; they do not absorb dependency internals into the parent schema. Approved 2026-05-23 second format batch: .pdcharacter, .pdhead, .pdbody, .pdarena, and .pdscenario are recorded on this single tracker. Character is an assembler/meta asset; body owns skeleton and first-person hands; head owns head-specific rig/expression data; arena wraps playable multiplayer selection metadata around an embedded scenario; scenario owns level content and spawn profiles for default, gametype/team, CTF/objective, and mission-phase respawn cases. Approved 2026-05-23 third format batch: .pdmesh, .pdanim, .pdsfx, .pdvoice, and .pdsong are recorded on this single tracker. Mesh owns reusable geometry and rig-facing model data; animation owns reusable timelines/events/retargeting metadata; SFX owns atomic sound sources and playback metadata; voice owns spoken-line metadata, per-locale audio variants, subtitle bindings, voice-mod override compatibility, and global-language fallback behavior while .pdlang owns text strings; song owns editable sequence/track music data and adaptive playback metadata. Approved 2026-05-24 final format batch: .pdui, .pdfont, and .pdlang are recorded on this tracker, and all family formats are frozen in context/designs/modding/asset-archive-clean-formats.md. UI owns reusable texture/chrome assets with readable layout/nine-slice metadata; font owns vector or decoded bitmap font sources plus metrics/kerning; lang owns UTF-8 strings.tsv text banks while voice owns spoken audio. c3824-s1 shared two-zone validation/migration is done 2026-05-24: policy/scanner/loader/emitters/package gates now enforce the migration-vs-release boundary, with _meta/manifest.json and _meta/*.sha256 as new output. Next c3824 work is c3824-s20/c3824-s18, the broad extraction/examples/validators/release-gate sweep with deeper recursive internal reference closure. c3824-s18 examples/docs/package-gate slice is done 2026-05-24: recursive validation now checks descriptor, GLTF, OBJ/MTL, JSON, and embedded typed-archive references; typed-pdxxx-basic examples now cover every frozen family with _meta/manifest.json and mesh.ini. Remaining c3824 work is c3824-s20, the stale extraction/installed-output cleanup and release-gate sweep. c3824 is wrapped 2026-05-24: final release packaging gate validates the assembled dist tree before zip creation and fails stale typed outputs that are .pdwpn, non-zip, descriptor-less, legacy .pdmesh model.ini, root-metadata, or .bin-backed. No manual retest required for this headless validator/examples/release-gate card. Asset decision intake 2026-05-24 final: Mike approved all 35 Asset Decisions rows. New first-class families are .pdskin, .pdeffect, .pdprop, .pdvehicle, .pdmission, .pdgamemode, .pdbotprofile, .pdhud, and .pdtheme. .pdtool is deferred from the current asset implementation sweep but is a high-priority secure tool/plugin package follow-up. .pdentity remains behavior/archetype-focused and can depend on .pdprop for physical object payloads, including Laptop Gun-style deployed entities. .pdmaterial is classic-first but PBR-extensible; future PBR material payloads should remain standalone material assets. .pdscenario owns world/map content and maps to new ASSET_SCENARIO, separate from ASSET_ARENA, ASSET_MISSION, and ASSET_GAMEMODE. .pdmesh owns geometry, UVs, hierarchy, sockets, LODs, skinning, and collision proxy; textures/materials are typed dependencies with model_specific or reusable tags. Raw editable source files are allowed when owned by that family, while cross-family resources embed as intact typed archives under dependencies/assets. Mod utilities must export files in an easily accessible way for modders and import/reconstruct them as valid typed assets. Validators fail unresolved references unless the archive embeds the dependency or declares an approved base dependency with catalog id, compatibility/version/hash where available, reason, and on-disk/catalog provider source. Approved mapping decisions include ASSET_MATERIAL for .pdmaterial, ASSET_FONT for .pdfont, unified ASSET_AUDIO with strict category/channel/mod tags for .pdsfx/.pdvoice/.pdsong, and ASSET_MODEL reuse for .pdmesh. No authored .bin files belong in any asset archive. Post-decision load/use sweep 2026-05-24: context/designs/modding/asset-archive-clean-formats.md now includes all approved game-content families through .pdtheme, the .pdtool deferral note, and a per-family load/utilization closure matrix for the extraction implementation card c3838.",
       "subtasks": [
         {
           "id": "c3824-s1",
@@ -3320,7 +3320,7 @@
     {
       "id": "c3832",
       "title": "Asset Pipeline: define clean .pdweapon archive format",
-      "description": "Lock the human-readable .pdweapon authoring format before rebuilding extraction. The archive uses purpose folders for models, materials, textures, animations, sounds, behavior, projectiles, entities, and UI, with machine/provenance data under _meta/. Primary and secondary behavior are authored as separate graph files with shared settings and variables. Hands are character-owned, mod weapons default to one model, material slots enable skin overrides, .pdmod is transport only, and the weapon manifest declares dependencies plus base-game fallbacks.",
+      "description": "Lock the human-readable .pdweapon authoring format before rebuilding extraction. The archive uses purpose folders for models, materials, textures, animations, sounds, behavior, projectiles, entities, and UI, with machine/provenance data under _meta/. Primary and secondary behavior are authored as separate graph files with shared settings and variables. Hands are character-owned, mod weapons default to one model, material slots enable skin overrides, .pdmod is transport only, and the weapon manifest declares dependencies plus base-game dependency records.",
       "pillar": "modding",
       "column": "done",
       "order": 2000,
@@ -4145,7 +4145,7 @@
     {
       "id": "c3838",
       "title": "Asset Pipeline: implement final archive extraction process",
-      "description": "Implement the new extraction/emission process from the final approved .pdxxx contracts and the modularization verification audit. The source of truth is context/designs/modding/asset-archive-clean-formats.md, context/designs/modding/weapon-archive-clean-format.md, and context/audits/asset-archive-modularization-verification-2026-05-24.md. Emit only self-contained typed archives with accessible public files, _meta metadata, embedded dependency assets, explicit base fallbacks, catalog/runtime mappings, and no authored .bin or numeric identity leaks. .pdtool is excluded from this game-content extraction sweep.",
+      "description": "Implement the new extraction/emission process from the final approved .pdxxx contracts and the modularization verification audit. The source of truth is context/designs/modding/asset-archive-clean-formats.md, context/designs/modding/weapon-archive-clean-format.md, and context/audits/asset-archive-modularization-verification-2026-05-24.md. Emit only self-contained typed archives with accessible public files, _meta metadata, embedded dependency assets, explicit base dependency records, catalog/runtime mappings, and no authored .bin or numeric identity leaks. .pdtool is excluded from this game-content extraction sweep.",
       "pillar": "modding",
       "column": "done",
       "order": 2500,
@@ -4384,7 +4384,7 @@
       "column": "done",
       "order": 2450,
       "priority": 1,
-      "notes": "Done 2026-05-25. Created from Mike's clarification that this was the original Asset Pipeline intent for every asset type, not only scenarios: users edit the standard public files directly, and the game utilizes those files natively. The audit fixed the concrete c3838-era gaps where coverage validated accessibility without enforcing runtime source use. Runtime import/cache overhead is acceptable when it eliminates authoring redundancy and source/runtime inconsistency. Private renderer/GPU/collision/audio/animation/behavior products must be source-hashed rebuildable cache, not shipped or hand-maintained authored payloads. Guard rails added 2026-05-25: AGENTS.md Codex preflight, pd2-large-change-sweep c3842 gate, tools/asset_native_source_guard.py, tracked pre-commit hook, and [modding][pdxxx][c3842] static tests. Numeric/legacy asset-reference guard added 2026-05-25 after Mike spotted model IDs in PDSCENARIO-derived output. Final closure fixed .pdgamemode and .pdbotprofile runtime activation to require rules_file/profile_file from the public source, preserved bot target_body as a catalog ID, removed the generated public .pdweapon behavior/runtime.graph.json payload, and made weapon runtime compile from behavior/primary.graph.json plus behavior/secondary.graph.json. Verification passed asset_native_source_guard.py, [modding][pdxxx][weapon_graph][compiler][c3814] (70 assertions / 5 cases), [c3814] (745 assertions / 23 cases), [modding][pdxxx][runtime][c3838] (294 assertions / 9 cases), [modding][pdxxx][c3842] (61 assertions / 5 cases), and isolated c3842 all-target build.",
+      "notes": "Done 2026-05-25 for native editable-source utilization, then closed again 2026-05-27 for definitive optional-slot hardening. Created from Mike's clarification that this was the original Asset Pipeline intent for every asset type, not only scenarios: users edit the standard public files directly, and the game utilizes those files natively. The audit fixed the concrete c3838-era gaps where coverage validated accessibility without enforcing runtime source use. Runtime import/cache overhead is acceptable when it eliminates authoring redundancy and source/runtime inconsistency. Private renderer/GPU/collision/audio/animation/behavior products must be source-hashed rebuildable cache, not shipped or hand-maintained authored payloads. Guard rails added 2026-05-25: AGENTS.md Codex preflight, pd2-large-change-sweep c3842 gate, tools/asset_native_source_guard.py, tracked pre-commit hook, and [modding][pdxxx][c3842] static tests. Numeric/legacy asset-reference guard added 2026-05-25 after Mike spotted model IDs in PDSCENARIO-derived output. Native-source closure fixed .pdgamemode and .pdbotprofile runtime activation to require rules_file/profile_file from the public source, preserved bot target_body as a catalog ID, removed the generated public .pdweapon behavior/runtime.graph.json payload, and made weapon runtime compile from behavior/primary.graph.json plus behavior/secondary.graph.json. Definitive-slot closure documents every optional public file, dependency glob, and _meta entry with semantic role, owner subsystem, loader/importer contract, deterministic absence behavior, and final-vs-transition status; the validator rejects any public slot or _meta entry that is not justified by that contract. Debug-source gate added 2026-05-27: Settings > Debug can select one archive family at a time and force runtime loads to use public FileProvider source, failing loudly if ROM/static fallback would be used. Verification passed asset_native_source_guard.py, focused c3842 tests, all-target build, boot_smoke, and strict conformance on fresh generated archives.",
       "subtasks": [
         {
           "id": "c3842-s0",
@@ -4434,13 +4434,145 @@
           "status": "done",
           "order": 6000,
           "notes": "Done 2026-05-25. tools/asset_native_source_guard.py now rejects numeric or legacy-symbol asset-reference fields such as model_id, modelnum, filenum, weapon_id, sound_id, texnum, and MODEL_*/FILE_* in public typed archive text. The PDSCENARIO extractor no longer writes raw setup.tsv, mpsetup.tsv, or visual_segments.tsv public dumps where legacy model/table numbers leaked."
+        },
+        {
+          "id": "c3842-s7",
+          "title": "Document definitive optional slots by family",
+          "status": "done",
+          "order": 7000,
+          "notes": "Done 2026-05-27. context/designs/modding/asset-archive-clean-formats.md now mirrors the definitive optional-slot matrix by family, and tools/asset_archive_conformance.py owns the executable per-slot role/owner/load/absence/status contract."
+        },
+        {
+          "id": "c3842-s8",
+          "title": "Make validator enforce justified optional slots",
+          "status": "done",
+          "order": 8000,
+          "notes": "Done 2026-05-27. tools/asset_archive_conformance.py now validates its own optional-slot table, rejects undocumented optional public entries, enforces a strict _meta whitelist, and allows _meta/*.sha256 only when the matching public source entry exists. The loose .pdmesh texture.png sidecar slot was removed."
+        },
+        {
+          "id": "c3842-s9",
+          "title": "Revalidate examples and fresh extraction against definitive contract",
+          "status": "done",
+          "order": 9000,
+          "notes": "Done 2026-05-27. Checked-in examples were regenerated; tri_mesh.pdmesh no longer contains loose texture.png and passes the definitive validator. Verification passed definitive conformance on examples, asset_native_source_guard.py, focused [modding][pdxxx][c3842] (102 assertions / 6 cases), isolated c3842final all-target build, boot_smoke from that binary, and definitive conformance on the fresh smoke-extracted archive set (3,503 root / 4,434 total archives)."
+        },
+        {
+          "id": "c3842-s10",
+          "title": "Add Debug asset-family source-only gate",
+          "status": "done",
+          "order": 10000,
+          "notes": "Done 2026-05-27. Settings > Debug now persists Debug.AssetSourceOnlyType and shows one checkbox-active family at a time. The catalog resolve result carries source_only_blocked, typed lifecycle loads refuse selected-family entries without FileProvider source, and file/texture/animation/sound gateways fail loudly instead of falling back to ROM/static data. Verification passed asset_native_source_guard.py, focused [modding][pdxxx][c3842][debug][source_gate] (31 assertions / 1 case), focused [modding][pdxxx][c3842] (133 assertions / 7 cases), and isolated sourcegate all-target build."
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-25T13:20:00Z",
       "pending_completion": null,
       "created": "2026-05-25T13:20:00Z",
-      "updated": "2026-05-25T19:30:00Z"
+      "updated": "2026-05-27T18:35:00Z"
+    },
+    {
+      "id": "c3843",
+      "title": "Asset Pipeline: extract and natively load remaining 11 base asset families",
+      "description": "Complete the base-game side of the clean archive contract for .pdmaterial, .pdtexture, .pdskin, .pdeffect, .pdprop, .pdvehicle, .pdmission, .pdgamemode, .pdbotprofile, .pdhud, and .pdtheme: every family must be emitted on disk from ROM/static base content as a strict, user-editable typed archive, registered by catalog ID, and loaded by the game through the catalog/provider path instead of relying on ROM/static-source-only runtime paths.",
+      "pillar": "modding",
+      "column": "done",
+      "order": 2400,
+      "priority": 1,
+      "notes": "Done 2026-05-27. The remaining 11 base families now emit strict user-editable typed archives from ROM/static base content and bind catalog primary source paths for native provider loading: .pdmaterial, .pdtexture, .pdskin, .pdeffect, .pdprop, .pdvehicle, .pdmission, .pdgamemode, .pdbotprofile, .pdhud, and .pdtheme. Fresh boot extraction wrote 3,503 textures, 3 materials, 68 skins, 6 effects, 8 props, 1 vehicle, 14 missions, 6 game modes, 18 bot profiles, 6 HUD archives, and 7 themes. A first-run .pdtexture crash was fixed by correcting the texture.ini format string, and static coverage now pins that regression. Verification passed asset_native_source_guard.py, focused [modding][pdxxx][c3843] (57 assertions / 1 case), focused [modding][pdxxx][c3842] (102 assertions / 6 cases), isolated c3843meta all-target build, boot_smoke from that binary, and strict conformance on the fresh smoke output with --require-all-families (7,143 root / 8,088 total archives across all 27 families).",
+      "subtasks": [
+        {
+          "id": "c3843-s1",
+          "title": "Map remaining 11 source owners and runtime cutovers",
+          "status": "done",
+          "order": 1000,
+          "notes": "Done 2026-05-27. Mapped source owners, catalog registration, extractor output, and runtime primary-file use for all 11 families; each now has a catalog/provider source binding rather than a ROM/static-source-only public path."
+        },
+        {
+          "id": "c3843-s2",
+          "title": "Emit table-backed base metadata archives",
+          "status": "done",
+          "order": 2000,
+          "notes": "Done 2026-05-27. Base .pdgamemode, .pdbotprofile, .pdhud, .pdtheme, and .pdmission archives are emitted as strict public source packages with catalog primary bindings and no public numeric refs."
+        },
+        {
+          "id": "c3843-s3",
+          "title": "Emit texture/material/skin source archives and native load paths",
+          "status": "done",
+          "order": 3000,
+          "notes": "Done 2026-05-27. Base .pdtexture archives emit editable texture.png source, and material/skin archive rows carry source-file bindings that feed the texture/material/skin runtime path through the catalog/provider layer."
+        },
+        {
+          "id": "c3843-s4",
+          "title": "Emit prop/vehicle/effect archives from decoded source",
+          "status": "done",
+          "order": 4000,
+          "notes": "Done 2026-05-27. Base .pdprop, .pdvehicle, and .pdeffect archives are emitted from decoded/base metadata with catalog IDs and typed dependency/source fields instead of placeholder category rows."
+        },
+        {
+          "id": "c3843-s5",
+          "title": "Strict conformance and fresh extraction proof",
+          "status": "done",
+          "order": 5000,
+          "notes": "Done 2026-05-27. Fresh boot extraction produced all expected families and strict conformance passed with --require-all-families: 7,143 root archives / 8,088 total archives across .pdanim, .pdarena, .pdbody, .pdbotprofile, .pdcharacter, .pdeffect, .pdentity, .pdfont, .pdgamemode, .pdhead, .pdhud, .pdlang, .pdmaterial, .pdmesh, .pdmission, .pdprojectile, .pdprop, .pdscenario, .pdsfx, .pdskin, .pdsong, .pdtexture, .pdtheme, .pdui, .pdvehicle, .pdvoice, and .pdweapon."
+        }
+      ],
+      "flag": "star",
+      "flagged_at": "2026-05-27T00:00:00Z",
+      "pending_completion": null,
+      "created": "2026-05-27T00:00:00Z",
+      "updated": "2026-05-27T18:00:00Z"
+    },
+    {
+      "id": "c3844",
+      "title": "Asset Pipeline: make runtime ROM fallback a hard failure",
+      "description": "Audit and remove every runtime path that can load asset bytes from ROM/RomProvider as a fallback after extraction. Runtime ROM fallback is an asset-chain failure. ROM is bootstrap/source input only; gameplay/runtime loading must resolve through extracted typed archives, FileProvider/catalog source, or deterministic source-derived cache. Any missing chain must fail loudly and be fixed at the owning asset-family boundary.",
+      "pillar": "modding",
+      "column": "active",
+      "order": 2425,
+      "priority": 1,
+      "notes": "Created 2026-05-27 from Mike's clarification that any ROM fallback after extraction is an asset-chain failure and a break in the asset ecosystem. This card owns the global pass beyond the one-family Debug source gate: inventory remaining RomProvider/fileLoadRom/assetLoadRom fallback sites, convert valid base references to extracted typed archives/catalog provider sources, make unavoidable misses fatal/diagnostic, and add static/runtime coverage so new ROM fallback branches cannot enter.",
+      "subtasks": [
+        {
+          "id": "c3844-s1",
+          "title": "Inventory all runtime ROM/RomProvider fallback sites",
+          "status": "active",
+          "order": 1000,
+          "notes": "Include assetLoadRomToNew, assetLoadRomToAddr, fileLoadRomToNew, fileLoadRomToAddr, catalogSetPrimaryRomFilenum, catalogBindPrimaryFromDiskOrRom, and raw file/texture/animation/sound fallback gateways. Separate bootstrap extraction reads from runtime fallback reads."
+        },
+        {
+          "id": "c3844-s2",
+          "title": "Classify bootstrap ROM extraction versus forbidden runtime fallback",
+          "status": "backlog",
+          "order": 2000,
+          "notes": "ROM may seed extraction/verification. After extraction, runtime load paths must use extracted typed archives, on-disk provider sources, or deterministic source-derived cache."
+        },
+        {
+          "id": "c3844-s3",
+          "title": "Convert family-owned fallbacks to FileProvider/catalog source",
+          "status": "backlog",
+          "order": 3000,
+          "notes": "Move each valid base dependency reference to catalog IDs and extracted typed archive/provider sources at the owning family boundary instead of reading bytes from ROM."
+        },
+        {
+          "id": "c3844-s4",
+          "title": "Add fatal diagnostics and static guards",
+          "status": "backlog",
+          "order": 4000,
+          "notes": "Missing runtime source should fail loudly with actionable family/catalog diagnostics. Guards should reject new fallback branches in asset-runtime code."
+        },
+        {
+          "id": "c3844-s5",
+          "title": "Run family-by-family playtest and conformance closure",
+          "status": "backlog",
+          "order": 5000,
+          "notes": "Use the Debug asset source gate plus focused tests to close each family after its runtime path no longer depends on ROM fallback."
+        }
+      ],
+      "flag": "star",
+      "flagged_at": "2026-05-27T18:45:00Z",
+      "pending_completion": null,
+      "created": "2026-05-27T18:45:00Z",
+      "updated": "2026-05-27T18:45:00Z"
     }
   ],
   "x_special_notes": {
@@ -4637,7 +4769,7 @@
         "target": ".pdanim",
         "recommendation_level": "freeze",
         "recommendation": "Keep as reusable animation data: animation.ini, timelines/channels, events/notifies, target rig or weapon binding metadata, retarget metadata, and optional legacy opcode listings.",
-        "decision_needed": "Confirm target rig/body/weapon dependencies must be embedded or declared with an approved base fallback.",
+        "decision_needed": "Confirm target rig/body/weapon dependencies must be embedded or declared with an approved base dependency.",
         "recorded_status": "recorded",
         "recorded_card_id": "c3824",
         "recorded_label": "Approved decision recorded on tracker card",
@@ -4990,11 +5122,11 @@
         "group": "Containment Fixes",
         "target": "Catalog references inside examples",
         "recommendation_level": "recommended",
-        "recommendation": "Example archives with bindings to body/head/rig/texture/material/localization assets must embed those dependencies or use an explicit approved base fallback.",
-        "decision_needed": "Confirm validators should reject unresolved example-local dependency refs unless the ref is declared as base-game fallback.",
-        "additional_info": "Self-contained exports should not be reference-only shells. If an archive points at another authored asset, that dependency must be embedded unless it is deliberately using a base-game fallback. Base fallbacks need to be explicit so validators know the missing dependency is intentional, not broken.",
-        "proposed_decision": "Validators should fail unresolved references unless the archive either embeds the dependency as a typed archive or declares an approved base fallback with catalog id, compatibility/version/hash where available, and reason.",
-        "answer_prompt": "Approve this dependency closure and base-fallback validation rule?",
+        "recommendation": "Example archives with bindings to body/head/rig/texture/material/localization assets must embed those dependencies or use an explicit approved base dependency.",
+        "decision_needed": "Confirm validators should reject unresolved example-local dependency refs unless the ref is declared as a base-game dependency.",
+        "additional_info": "Self-contained exports should not be reference-only shells. If an archive points at another authored asset, that dependency must be embedded unless it is deliberately using a base-game dependency that resolves through catalog/on-disk provider source. Base dependency records need to be explicit so validators know the missing dependency is intentional, not broken.",
+        "proposed_decision": "Validators should fail unresolved references unless the archive either embeds the dependency as a typed archive or declares an approved base dependency with catalog id, compatibility/version/hash where available, reason, and on-disk/catalog provider source.",
+        "answer_prompt": "Approve this dependency closure and base-dependency validation rule?",
         "recorded_status": "recorded",
         "recorded_card_id": "c3824",
         "recorded_at": "2026-05-24T22:24:00Z",
@@ -5010,8 +5142,8 @@
   "x_asset_archive_decisions_recorded_at": "2026-05-24T22:24:00Z",
   "x_card_task_context": {
     "version": 1,
-    "updated": "2026-05-25T12:00:00Z",
-    "active_card_id": "c3838",
+    "updated": "2026-05-27T18:45:00Z",
+    "active_card_id": "c3844",
     "cards": {
       "c3824": {
         "card_id": "c3824",
@@ -5147,7 +5279,7 @@
           {
             "id": "archive-pdanim",
             "title": ".pdanim",
-            "prompt": "Confirm target rig/body/weapon dependencies must be embedded or declared with an approved base fallback.",
+            "prompt": "Confirm target rig/body/weapon dependencies must be embedded or declared with an approved base dependency.",
             "recommendation": "Keep as reusable animation data: animation.ini, timelines/channels, events/notifies, target rig or weapon binding metadata, retarget metadata, and optional legacy opcode listings.",
             "status": "approved",
             "mike_decision": "",
@@ -5400,8 +5532,8 @@
           {
             "id": "closure-dependency-refs",
             "title": "Catalog references inside examples",
-            "prompt": "Confirm validators should reject unresolved example-local dependency refs unless the ref is declared as base-game fallback.",
-            "recommendation": "Example archives with bindings to body/head/rig/texture/material/localization assets must embed those dependencies or use an explicit approved base fallback.\n\nAdditional info: Self-contained exports should not be reference-only shells. If an archive points at another authored asset, that dependency must be embedded unless it is deliberately using a base-game fallback. Base fallbacks need to be explicit so validators know the missing dependency is intentional, not broken.\n\nRecommendation: Validators should fail unresolved references unless the archive either embeds the dependency as a typed archive or declares an approved base fallback with catalog id, compatibility/version/hash where available, and reason.\n\nAnswer needed: Approve this dependency closure and base-fallback validation rule?",
+            "prompt": "Confirm validators should reject unresolved example-local dependency refs unless the ref is declared as a base-game dependency.",
+            "recommendation": "Example archives with bindings to body/head/rig/texture/material/localization assets must embed those dependencies or use an explicit approved base dependency.\n\nAdditional info: Self-contained exports should not be reference-only shells. If an archive points at another authored asset, that dependency must be embedded unless it is deliberately using a base-game dependency that resolves through catalog/on-disk provider source. Base dependency records need to be explicit so validators know the missing dependency is intentional, not broken.\n\nRecommendation: Validators should fail unresolved references unless the archive either embeds the dependency as a typed archive or declares an approved base dependency with catalog id, compatibility/version/hash where available, reason, and on-disk/catalog provider source.\n\nAnswer needed: Approve this dependency closure and base-dependency validation rule?",
             "status": "approved",
             "mike_decision": "Yes",
             "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
@@ -5420,6 +5552,77 @@
         "codex_recommendation": "Treat the full Asset Pipeline migration and weapon graph parity lane as complete. Keep c3834 and c3835 in backlog for future utility/editor work; do not reopen c3832/c3838/c3814 unless a regression breaks the verified archive, file-access, or gameplay-parity contracts.",
         "next_action": "Move the project priority to the next non-Asset-Pipeline active lane. If returning to modding, pick c3834 for utility flows or c3835 for reusable graph-editor foundation as new follow-up work.",
         "items": []
+      },
+      "c3842": {
+        "card_id": "c3842",
+        "updated": "2026-05-27T00:00:00Z",
+        "progress_status": "completed",
+        "progress_summary": "C-3842 is complete for the definitive optional-slot contract and native-source guard hooks. It remains the rule source for public editable files as native runtime source, and c3843 has now closed the base-output gap for the 11 approved families.",
+        "context_notes": "Keep c3842 as the hook/validator/source-contract card. C-3843 completed actual base archive emission and native-load cutover for .pdmaterial, .pdtexture, .pdskin, .pdeffect, .pdprop, .pdvehicle, .pdmission, .pdgamemode, .pdbotprofile, .pdhud, and .pdtheme.",
+        "card_memories": "Keep this attached to C-3842 rather than creating a detached follow-up. The point is to complete the original native-source contract definitively, not to spawn another vague migration card.",
+        "codex_recommendation": "Treat c3842 as closed unless a future asset change violates the native-source or definitive-slot guard. Do not add loose optional slots or parallel runtime source files.",
+        "next_action": "None for c3842.",
+        "items": []
+      },
+      "c3843": {
+        "card_id": "c3843",
+        "updated": "2026-05-27T18:00:00Z",
+        "progress_status": "completed",
+        "progress_summary": "Completed 2026-05-27. The remaining 11 base families now emit strict user-editable typed archives from ROM/static base content and bind catalog primary source paths for native provider loading: .pdmaterial, .pdtexture, .pdskin, .pdeffect, .pdprop, .pdvehicle, .pdmission, .pdgamemode, .pdbotprofile, .pdhud, and .pdtheme.",
+        "context_notes": "Fresh boot extraction produced 3,503 .pdtexture, 3 .pdmaterial, 68 .pdskin, 6 .pdeffect, 8 .pdprop, 1 .pdvehicle, 14 .pdmission, 6 .pdgamemode, 18 .pdbotprofile, 6 .pdhud, and 7 .pdtheme archives. Strict conformance passed with --require-all-families for 7,143 root archives / 8,088 total archives across all 27 families.",
+        "card_memories": "Mike explicitly rejected leaving the remaining 11 out: all assets should be on disk, extracted from the ROM, accessible for modding/extending, and utilized by the game for loading rather than on-ROM content.",
+        "codex_recommendation": "Do not reopen this card for utility/editor polish. Future asset work should preserve the c3842/c3843 native-source contract and run the native-source guard plus strict conformance.",
+        "next_action": "None. Next active high-priority modding lane is c3840 OG weapon routine modularization.",
+        "items": [
+          {
+            "id": "c3843-s1",
+            "title": "Map remaining 11 source owners and runtime cutovers",
+            "status": "done",
+            "notes": "Done 2026-05-27. Mapped source owners, catalog registration, extractor output, and runtime primary-file use for all 11 families."
+          },
+          {
+            "id": "c3843-s2",
+            "title": "Emit table-backed base metadata archives",
+            "status": "done",
+            "notes": "Done 2026-05-27. Base .pdgamemode, .pdbotprofile, .pdhud, .pdtheme, and .pdmission archives emit as strict public source packages with catalog primary bindings and no public numeric refs."
+          },
+          {
+            "id": "c3843-s3",
+            "title": "Emit texture/material/skin source archives and native load paths",
+            "status": "done",
+            "notes": "Done 2026-05-27. Base textures emit standard editable texture.png archives, and texture/material/skin rows bind public source files into the catalog/provider runtime path."
+          },
+          {
+            "id": "c3843-s4",
+            "title": "Emit prop/vehicle/effect archives from decoded source",
+            "status": "done",
+            "notes": "Done 2026-05-27. Prop, vehicle, and effect archives now come from decoded/base metadata with catalog IDs and typed dependency/source fields."
+          },
+          {
+            "id": "c3843-s5",
+            "title": "Strict conformance and fresh extraction proof",
+            "status": "done",
+            "notes": "Done 2026-05-27. Verification passed asset_native_source_guard.py, focused c3843/c3842 tests, isolated all-target build, boot_smoke, and strict generated-output conformance with --require-all-families."
+          }
+        ]
+      },
+      "c3844": {
+        "card_id": "c3844",
+        "updated": "2026-05-27T18:45:00Z",
+        "progress_status": "active",
+        "progress_summary": "High-priority card created from Mike's clarification that any runtime ROM/RomProvider fallback after extraction is a break in the asset ecosystem, not resilience.",
+        "context_notes": "ROM is bootstrap/source input only. Runtime load paths must resolve through extracted typed archives, catalog/FileProvider source, or deterministic source-derived cache. Missing chain links should fail loudly and be fixed at the owning asset-family boundary.",
+        "card_memories": "Do not describe ROM fallback as acceptable or optional. Treat it as an asset-chain failure and track every remaining fallback path to removal or fatal diagnostic coverage.",
+        "codex_recommendation": "Start with an inventory separating bootstrap extraction reads from runtime fallback reads, then convert family-owned fallbacks to provider/catalog source and add guard coverage.",
+        "next_action": "Run the c3844-s1 inventory across assetLoadRom/fileLoadRom/RomProvider/catalog fallback gateways and classify each site as bootstrap-only or forbidden runtime fallback.",
+        "items": [
+          {
+            "id": "c3844-s1",
+            "title": "Inventory all runtime ROM/RomProvider fallback sites",
+            "status": "active",
+            "notes": "Include assetLoadRomToNew, assetLoadRomToAddr, fileLoadRomToNew, fileLoadRomToAddr, catalogSetPrimaryRomFilenum, catalogBindPrimaryFromDiskOrRom, and raw file/texture/animation/sound fallback gateways."
+          }
+        ]
       },
       "c3840": {
         "card_id": "c3840",

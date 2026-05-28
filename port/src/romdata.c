@@ -1014,6 +1014,16 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 		 * changes behavior; the other two fall through to the legacy files/ + ROM path. */
 		{
 			CatalogResolveResult r = catalogResolveFile(fileNum);
+			if (r.source_only_blocked) {
+				const asset_entry_t *ce = assetCatalogGetByIndex(r.catalog_id);
+				sysFatalError("ASSET.SOURCE_ONLY: file %d (%s) maps to '%s' "
+				              "but has no public FileProvider source; refusing "
+				              "ROM/static fallback.",
+				              fileNum,
+				              fileSlots[fileNum].name ? fileSlots[fileNum].name : "?",
+				              ce ? ce->id : "?");
+				return NULL;
+			}
 			if (r.is_mod_override && r.path) {
 				u32 size = 0;
 				u8 *modOut = fsFileLoad(r.path, &size);

@@ -137,6 +137,11 @@ TEST_CASE("release package validates clean typed asset archive outputs",
 	        std::string::npos);
 	REQUIRE(release.find("contains forbidden authored .bin payload") !=
 	        std::string::npos);
+	REQUIRE(release.find("Test-IsTypedArchiveFamilyPath") != std::string::npos);
+	REQUIRE(release.find("stale typed-asset .zip inspection copy") !=
+	        std::string::npos);
+	REQUIRE(release.find("loose extracted typed archive folder") !=
+	        std::string::npos);
 }
 
 TEST_CASE("game client logs are rooted under logs game client",

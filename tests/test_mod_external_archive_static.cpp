@@ -1241,9 +1241,16 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	REQUIRE(extractor.find("device.activate") != std::string::npos);
 	REQUIRE(extractor.find("projectile.ini") != std::string::npos);
 	REQUIRE(extractor.find("entity.ini") != std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v9\"") != std::string::npos);
+	REQUIRE(extractor.find("bindings.json") != std::string::npos);
+	REQUIRE(extractor.find("model_catalog_id = %s") != std::string::npos);
+	REQUIRE(extractor.find("model_ref = %s") == std::string::npos);
+	REQUIRE(extractor.find("projectile_model_catalog_id") != std::string::npos);
+	REQUIRE(extractor.find("projectile_model_ref") == std::string::npos);
+	REQUIRE(extractor.find("shoot_sound_catalog_id") != std::string::npos);
+	REQUIRE(extractor.find("special_sound_catalog_id") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v10\"") != std::string::npos);
 	REQUIRE(extractor.find("dependency_closure = \" PDWEAPON_DEPENDENCY_CLOSURE_MARKER") != std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v9\"") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v10_clean_public\"") != std::string::npos);
 	REQUIRE(extractor.find("PDWEAPON_DEP_MODELS \"dependencies/assets/models\"") != std::string::npos);
 	REQUIRE(extractor.find("/held_hi.pdmesh") != std::string::npos);
 	REQUIRE(extractor.find("/held_lo.pdmesh") != std::string::npos);
@@ -2062,13 +2069,13 @@ TEST_CASE("weapon graph runtime captures projectile and entity adapter payloads"
 		"        \"ammo_slot\": 0,\n"
 		"        \"flags\": 134217728,\n"
 		"        \"projectile_ref\": \"base:dyrocket_projectile\",\n"
-		"        \"projectile_model_ref\": \"MODEL_dyrocket\",\n"
+		"        \"projectile_model_catalog_id\": \"base:model_chrdyrocketmis\",\n"
 		"        \"scale\": 1.5,\n"
 		"        \"speed\": 300,\n"
 		"        \"travel_distance\": 900,\n"
 		"        \"timer_ticks60\": 120,\n"
 		"        \"reflect_angle\": 0.75,\n"
-		"        \"soundnum\": \"SFX_LAUNCH_ROCKET_8053\"\n"
+		"        \"projectile_sound_catalog_id\": \"base:sfx_launch_rocket\"\n"
 		"      }\n"
 		"    },\n"
 		"    {\n"
@@ -2080,7 +2087,7 @@ TEST_CASE("weapon graph runtime captures projectile and entity adapter payloads"
 		"        \"ammo_slot\": 1,\n"
 		"        \"payload_ref\": \"base:laptop_autogun\",\n"
 		"        \"entity_ref\": \"base:laptop_autogun\",\n"
-		"        \"projectile_model_ref\": \"MODEL_autogun\",\n"
+		"        \"projectile_model_catalog_id\": \"base:model_chrautogun\",\n"
 		"        \"activation_time_ticks60\": 90,\n"
 		"        \"recovery_time_ticks60\": 45,\n"
 		"        \"damage\": 12.5\n"
@@ -2150,7 +2157,7 @@ TEST_CASE("weapon graph runtime registers projectile and entity behavior assets"
 		"  \"graph_id\": \"projectile_asset_runtime_test_v1\",\n"
 		"  \"nodes\": [\n"
 		"    { \"id\": \"spawn\", \"kind\": \"projectile.spawn_state\", \"params\": {\n"
-		"      \"model_ref\": \"MODEL_skrocket\",\n"
+		"      \"model_catalog_id\": \"base:model_chrskrocketmis\",\n"
 		"      \"model_archive\": \"dependencies/assets/model/visual.pdmesh\",\n"
 		"      \"source_mode\": \"secondary\",\n"
 		"      \"source_function_type\": \"shoot_projectile\",\n"
@@ -2184,7 +2191,7 @@ TEST_CASE("weapon graph runtime registers projectile and entity behavior assets"
 		"    } },\n"
 		"    { \"id\": \"impact\", \"kind\": \"projectile.impact\", \"params\": {\n"
 		"      \"impact_filter\": \"solid_or_chr\",\n"
-		"      \"hit_sound\": \"SFX_LAUNCH_ROCKET_8053\",\n"
+		"      \"hit_sound\": \"base:sfx_launch_rocket\",\n"
 		"      \"consume_on_hit\": true,\n"
 		"      \"stick_on_hit\": false\n"
 		"    } },\n"
@@ -2208,7 +2215,7 @@ TEST_CASE("weapon graph runtime registers projectile and entity behavior assets"
 		"  \"nodes\": [\n"
 		"    { \"id\": \"armed\", \"kind\": \"entity.armed_explosive\", \"params\": {\n"
 		"      \"archetype\": \"armed_proxy_explosive\",\n"
-		"      \"model_ref\": \"MODEL_proximity_mine\",\n"
+		"      \"model_catalog_id\": \"base:model_chrproximitymine\",\n"
 		"      \"model_archive\": \"dependencies/assets/model/visual.pdmesh\",\n"
 		"      \"source_mode\": \"secondary\",\n"
 		"      \"activation_time60\": 240,\n"
@@ -2420,7 +2427,7 @@ TEST_CASE("weapon graph runtime captures special and device adapter payloads",
 		"        \"ammo_slot\": 0,\n"
 		"        \"specialfunc\": 5,\n"
 		"        \"recovery_time_ticks60\": 30,\n"
-		"        \"soundnum\": \"SFX_LAUNCH_ROCKET_8053\"\n"
+		"        \"special_sound_catalog_id\": \"base:sfx_launch_rocket\"\n"
 		"      }\n"
 		"    },\n"
 		"    {\n"
@@ -3164,38 +3171,44 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(character.find("head_archive = dependencies/assets/head/tri_head.pdhead") != std::string::npos);
 
 	const std::string head = readArchiveEntryText(headArchivePath.c_str(), "head.ini");
-	const std::string model = readArchiveEntryText(headArchivePath.c_str(), "model.gltf");
 	REQUIRE(head.find("catalog_id = example:tri_head") != std::string::npos);
-	REQUIRE(head.find("model_file = model.gltf") != std::string::npos);
-	REQUIRE(model.find("\"meshes\"") != std::string::npos);
-	REQUIRE(model.find("\"TEXCOORD_0\"") != std::string::npos);
-	REQUIRE(model.find("\"baseColorTexture\"") != std::string::npos);
-	REQUIRE(model.find("\"uri\": \"texture.png\"") != std::string::npos);
-	REQUIRE(model.find("data:application/octet-stream;base64,") != std::string::npos);
+	REQUIRE(head.find("mesh_archive = mesh.pdmesh") != std::string::npos);
+	{
+		OpenArchive opened;
+		opened.archive = modArchiveOpen(headArchivePath.c_str());
+		REQUIRE(opened.archive != nullptr);
+		REQUIRE(archiveHasEntry(opened.archive, "mesh.pdmesh"));
+		REQUIRE_FALSE(archiveHasEntry(opened.archive, "model.gltf"));
+	}
 
 	const std::string body = readArchiveEntryText(bodyArchivePath.c_str(), "body.ini");
-	const std::string bodyModel = readArchiveEntryText(bodyArchivePath.c_str(), "model.gltf");
 	REQUIRE(body.find("catalog_id = example:tri_body") != std::string::npos);
 	REQUIRE(body.find("rig_class = human_male_neck_standard") != std::string::npos);
-	REQUIRE(body.find("model_file = model.gltf") != std::string::npos);
-	REQUIRE(body.find("hand_model_file = hand.gltf") != std::string::npos);
-	REQUIRE(bodyModel.find("\"skins\"") != std::string::npos);
-	REQUIRE(bodyModel.find("\"JOINTS_0\"") != std::string::npos);
-	REQUIRE(bodyModel.find("\"WEIGHTS_0\"") != std::string::npos);
-	REQUIRE(bodyModel.find("\"TEXCOORD_0\"") != std::string::npos);
+	REQUIRE(body.find("mesh_archive = mesh.pdmesh") != std::string::npos);
+	REQUIRE(body.find("hand_archive = hand.pdmesh") != std::string::npos);
+	{
+		OpenArchive opened;
+		opened.archive = modArchiveOpen(bodyArchivePath.c_str());
+		REQUIRE(opened.archive != nullptr);
+		REQUIRE(archiveHasEntry(opened.archive, "mesh.pdmesh"));
+		REQUIRE(archiveHasEntry(opened.archive, "hand.pdmesh"));
+		REQUIRE_FALSE(archiveHasEntry(opened.archive, "model.gltf"));
+		REQUIRE_FALSE(archiveHasEntry(opened.archive, "hand.gltf"));
+	}
 
 	const std::string arena = readArchiveEntryText(arenaArchivePath.c_str(), "arena.ini");
-	const std::string geometry = readArchiveEntryText(arenaArchivePath.c_str(), "geometry.obj");
-	const std::string pads = readArchiveEntryText(arenaArchivePath.c_str(), "pads.ini");
-	const std::string setup = readArchiveEntryText(arenaArchivePath.c_str(), "setup.ini");
 	REQUIRE(arena.find("catalog_id = example:tri_arena") != std::string::npos);
-	REQUIRE(arena.find("geometry_file = geometry.obj") != std::string::npos);
-	REQUIRE(arena.find("pads_file = pads.ini") != std::string::npos);
-	REQUIRE(arena.find("setup_file = setup.ini") != std::string::npos);
-	REQUIRE(geometry.find("vt 0 0") != std::string::npos);
-	REQUIRE(geometry.find("f 1/1 2/2 3/3") != std::string::npos);
-	REQUIRE(pads.find("default_spawn = 0,0,0") != std::string::npos);
-	REQUIRE(setup.find("props = none") != std::string::npos);
+	REQUIRE(arena.find("scenario = example:tri_scenario") != std::string::npos);
+	REQUIRE(arena.find("scenario_archive = dependencies/assets/scenarios/tri_scenario.pdscenario") != std::string::npos);
+	REQUIRE(arena.find("geometry_file") == std::string::npos);
+	{
+		OpenArchive opened;
+		opened.archive = modArchiveOpen(arenaArchivePath.c_str());
+		REQUIRE(opened.archive != nullptr);
+		REQUIRE(archiveHasEntry(opened.archive,
+			"dependencies/assets/scenarios/tri_scenario.pdscenario"));
+		REQUIRE_FALSE(archiveHasEntry(opened.archive, "geometry.obj"));
+	}
 
 	const std::string mesh = readArchiveEntryText(meshArchivePath.c_str(), "mesh.ini");
 	const std::string meshModel = readArchiveEntryText(meshArchivePath.c_str(), "model.gltf");
@@ -3268,16 +3281,22 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(projectile.find("behavior_graph = behavior.graph.json") != std::string::npos);
 
 	const std::string weapon = readArchiveEntryText(weaponArchiveFullPath.c_str(), "weapon.ini");
-	const std::string weaponGraph = readArchiveEntryText(weaponArchiveFullPath.c_str(), "behavior.graph.json");
+	const std::string weaponPrimaryGraph =
+		readArchiveEntryText(weaponArchiveFullPath.c_str(), "behavior/primary.graph.json");
+	const std::string weaponSecondaryGraph =
+		readArchiveEntryText(weaponArchiveFullPath.c_str(), "behavior/secondary.graph.json");
 	REQUIRE(weapon.find("catalog_id = example:tri_weapon") != std::string::npos);
-	REQUIRE(weapon.find("model_file = model.gltf") != std::string::npos);
-	REQUIRE(weapon.find("behavior_graph = behavior.graph.json") != std::string::npos);
-	REQUIRE(weaponGraph.find("\"schema\": \"pd.weapon_graph.v1\"") != std::string::npos);
-	REQUIRE(weaponGraph.find("\"asset_id\": \"example:tri_weapon\"") != std::string::npos);
-	REQUIRE(weapon.find("hand_model_file = hand.gltf") != std::string::npos);
-	REQUIRE(weapon.find("texture_file = weapon_texture.png") != std::string::npos);
-	REQUIRE(weapon.find("animation_file = reload.gltf") != std::string::npos);
-	REQUIRE(weapon.find("file_path = fire.wav") != std::string::npos);
+	REQUIRE(weapon.find("model_file = dependencies/assets/models/weapon.pdmesh") != std::string::npos);
+	REQUIRE(weapon.find("primary_graph = behavior/primary.graph.json") != std::string::npos);
+	REQUIRE(weapon.find("secondary_graph = behavior/secondary.graph.json") != std::string::npos);
+	REQUIRE(weapon.find("behavior_graph") == std::string::npos);
+	REQUIRE(weaponPrimaryGraph.find("\"schema\": \"pd.weapon_graph.v1\"") != std::string::npos);
+	REQUIRE(weaponPrimaryGraph.find("\"asset_id\": \"example:tri_weapon\"") != std::string::npos);
+	REQUIRE(weaponSecondaryGraph.find("\"graph_id\": \"secondary\"") != std::string::npos);
+	REQUIRE(weapon.find("hand_model_file") == std::string::npos);
+	REQUIRE(weapon.find("texture_file = weapon_texture.png") == std::string::npos);
+	REQUIRE(weapon.find("animation_file = reload.gltf") == std::string::npos);
+	REQUIRE(weapon.find("file_path = fire.wav") == std::string::npos);
 
 	const std::string weaponAnim = readArchiveEntryText(weaponArchivePath.c_str(), "animation.ini");
 	const std::string weaponGltf = readArchiveEntryText(weaponArchivePath.c_str(), "animation.gltf");
@@ -3319,22 +3338,22 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			"head",
 			".pdhead",
 			"heads/tri_head.pdhead",
-			{ "head.ini", "model.gltf", "texture.png",
-			  "_meta/manifest.json" },
+			{ "head.ini", "mesh.pdmesh", "_meta/manifest.json" },
 		},
 		{
 			"body",
 			".pdbody",
 			"bodies/tri_body.pdbody",
-			{ "body.ini", "model.gltf", "hand.gltf", "texture.png",
+			{ "body.ini", "mesh.pdmesh", "hand.pdmesh",
 			  "_meta/manifest.json" },
 		},
 		{
 			"arena",
 			".pdarena",
 			"arenas/tri_arena.pdarena",
-			{ "arena.ini", "geometry.obj", "arena.mtl", "arena_texture.png",
-			  "pads.ini", "setup.ini", "_meta/manifest.json" },
+			{ "arena.ini",
+			  "dependencies/assets/scenarios/tri_scenario.pdscenario",
+			  "_meta/manifest.json" },
 		},
 		{
 			"mesh/model",
@@ -3439,8 +3458,13 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			"weapon",
 			".pdweapon",
 			"weapons/tri_weapon.pdweapon",
-			{ "weapon.ini", "model.gltf", "hand.gltf", "weapon_texture.png",
-			  "texture.png", "reload.gltf", "fire.wav", "behavior.graph.json",
+			{ "weapon.ini", "behavior/primary.graph.json",
+			  "behavior/secondary.graph.json", "behavior/settings.json",
+			  "behavior/variables.json", "behavior/shared-context.json",
+			  "bindings/material-slots.json", "bindings/grip-sockets.json",
+			  "bindings/presentation.json",
+			  "dependencies/assets/models/weapon.pdmesh",
+			  "dependencies/assets/projectiles/primary.pdprojectile",
 			  "_meta/manifest.json" },
 		},
 		{
@@ -3495,7 +3519,7 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			"scenario",
 			".pdscenario",
 			"scenarios/tri_scenario.pdscenario",
-			{ "scenario.ini", "scene.glb", "rooms.obj", "scenario.mtl",
+			{ "scenario.ini", "scene.glb",
 			  "pads.tsv", "spawns.tsv", "volumes.tsv", "objects.tsv",
 			  "objectives.tsv", "navigation.ini", "level.graph.json",
 			  "_meta/generated-collision.json", "_meta/generated-navmesh.json",
@@ -3556,23 +3580,23 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 		{
 			"heads/tri_head.pdhead",
 			"head.ini",
-			{ "model_file" },
-			{ "model.gltf" },
+			{ "mesh_archive" },
+			{},
 			{},
 		},
 		{
 			"bodies/tri_body.pdbody",
 			"body.ini",
-			{ "model_file", "hand_model_file" },
-			{ "model.gltf", "hand.gltf" },
+			{ "mesh_archive", "hand_archive" },
+			{},
 			{},
 		},
 		{
 			"arenas/tri_arena.pdarena",
 			"arena.ini",
-			{ "geometry_file", "pads_file", "setup_file" },
+			{ "scenario_archive" },
 			{},
-			{ "geometry.obj" },
+			{},
 		},
 		{
 			"meshes/tri_mesh.pdmesh",
@@ -3675,10 +3699,13 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 		{
 			"weapons/tri_weapon.pdweapon",
 			"weapon.ini",
-			{ "model_file", "hand_model_file", "texture_file",
-			  "animation_file", "file_path", "behavior_graph" },
-			{ "model.gltf", "hand.gltf", "reload.gltf",
-			  "behavior.graph.json" },
+			{ "model_file", "primary_graph", "secondary_graph",
+			  "settings_file", "variables_file", "shared_context_file",
+			  "material_slots_file", "grip_sockets_file",
+			  "presentation_file", "primary_projectile_archive",
+			  "deployed_entity_archive", "fire_sound_archive",
+			  "idle_animation_archive", "reticle_archive" },
+			{},
 			{},
 		},
 		{
@@ -4236,17 +4263,17 @@ TEST_CASE("base arena extractor emits zip-openable pdarena archives",
 	REQUIRE(arena.find("assetArchiveWriterAddDescriptor(&asset_writer, \"arena.ini\"") != std::string::npos);
 	REQUIRE(arena.find("assetArchiveWriterAddManifestJson(&asset_writer") != std::string::npos);
 	REQUIRE(arena.find("assetArchiveWriterFinishMetadata(&asset_writer)") != std::string::npos);
-	REQUIRE(arena.find("s_copyArchiveEntriesWithPrefix") != std::string::npos);
-	REQUIRE(arena.find("\"scenario/scenario.ini\"") != std::string::npos);
-	REQUIRE(arena.find("\"scenario/rooms.obj\"") != std::string::npos);
-	REQUIRE(arena.find("\"scenario/visual/scene.obj\"") != std::string::npos);
-	REQUIRE(arena.find("\"scenario/visual/scene.mtl\"") != std::string::npos);
-	REQUIRE(arena.find("\"scenario/visual/materials.tsv\"") != std::string::npos);
-	REQUIRE(arena.find("\"scenario/visual/export_version.txt\"") !=
+	REQUIRE(arena.find("s_addScenarioArchiveDependency") != std::string::npos);
+	REQUIRE(arena.find("assetArchiveWriterAddPublicDisk(writer, dst_name") !=
 	        std::string::npos);
-	REQUIRE(arena.find("scenario_root = scenario") != std::string::npos);
-	REQUIRE(arena.find("\\\"scenario_root\\\": \\\"scenario\\\"") !=
+	REQUIRE(arena.find("\"dependencies/assets/scenarios/\"") != std::string::npos);
+	REQUIRE(arena.find("scenario_archive = dependencies/assets/scenarios/%s.pdscenario") !=
 	        std::string::npos);
+	REQUIRE(arena.find("s_copyArchiveEntriesWithPrefix") == std::string::npos);
+	REQUIRE(arena.find("\"scenario/scenario.ini\"") == std::string::npos);
+	REQUIRE(arena.find("\"scenario/rooms.obj\"") == std::string::npos);
+	REQUIRE(arena.find("\"scenario/visual/scene.obj\"") == std::string::npos);
+	REQUIRE(arena.find("scenario_root = scenario") == std::string::npos);
 	const auto scenarioEmit = arena.find("s_emitOnePdscenario(a, c->scenarios_dir");
 	const auto arenaEmit = arena.find("s_emitOnePdarena(a, i, c->arenas_dir");
 	REQUIRE(scenarioEmit != std::string::npos);
@@ -4271,8 +4298,6 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("preprocessPadsFile") != std::string::npos);
 	REQUIRE(arena.find("Stage preprocessors share process-global scratch state") !=
 	        std::string::npos);
-	REQUIRE(arena.find("rooms.obj") != std::string::npos);
-	REQUIRE(arena.find("scenario.mtl") != std::string::npos);
 	REQUIRE(arena.find("s_buildBgVisualExports") != std::string::npos);
 	REQUIRE(arena.find("preprocessBgSection1") != std::string::npos);
 	REQUIRE(arena.find("preprocessBgRoom") != std::string::npos);
@@ -4281,11 +4306,6 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("G_TRI4") != std::string::npos);
 	REQUIRE(arena.find("texInflateZlib") != std::string::npos);
 	REQUIRE(arena.find("texInflateNonZlib") != std::string::npos);
-	REQUIRE(arena.find("visual/scene.obj") != std::string::npos);
-	REQUIRE(arena.find("visual/scene.mtl") != std::string::npos);
-	REQUIRE(arena.find("visual/materials.tsv") != std::string::npos);
-	REQUIRE(arena.find("visual/export_version.txt") != std::string::npos);
-	REQUIRE(arena.find("visual/textures/tex_%04x.tga") != std::string::npos);
 	REQUIRE(arena.find("scene.glb") != std::string::npos);
 	REQUIRE(arena.find("stbi_write_png_to_mem") != std::string::npos);
 	REQUIRE(arena.find("bg_visual_scene_glb_v1") != std::string::npos);
@@ -4301,20 +4321,6 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	        std::string::npos);
 	REQUIRE(arena.find("blender_scene_file = scene.glb") !=
 	        std::string::npos);
-	REQUIRE(arena.find("visual_scene_file = visual/scene.obj") !=
-	        std::string::npos);
-	REQUIRE(arena.find("visual_material_file = visual/scene.mtl") !=
-	        std::string::npos);
-	REQUIRE(arena.find("texture_manifest_file = visual/materials.tsv") !=
-	        std::string::npos);
-	REQUIRE(arena.find("visual_format = OBJ+MTL+TGA") != std::string::npos);
-	REQUIRE(arena.find("\"visual_export_version = \" PDSCENARIO_BG_VISUAL_EXPORT_VERSION") !=
-	        std::string::npos);
-	REQUIRE(arena.find("\\\"visual_format\\\": \\\"OBJ+MTL+TGA\\\"") !=
-	        std::string::npos);
-	REQUIRE(arena.find("\\\"visual_export_version\\\": \\\"%s\\\"") !=
-	        std::string::npos);
-	REQUIRE(arena.find("tiles.tsv") != std::string::npos);
 	REQUIRE(arena.find("pads.tsv") != std::string::npos);
 	REQUIRE(arena.find("spawns.tsv") != std::string::npos);
 	REQUIRE(arena.find("volumes.tsv") != std::string::npos);
@@ -4327,27 +4333,29 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("setup.tsv") == std::string::npos);
 	REQUIRE(arena.find("mpsetup.tsv") == std::string::npos);
 	REQUIRE(arena.find("visual_segments.tsv") == std::string::npos);
-	REQUIRE(arena.find("geometry_file = rooms.obj") != std::string::npos);
-	REQUIRE(arena.find("geometry_format = OBJ") != std::string::npos);
-	REQUIRE(arena.find("s_existingArchiveHasEntry(dst_rel, \"rooms.obj\")") !=
+	REQUIRE(arena.find("geometry_file = rooms.obj") == std::string::npos);
+	REQUIRE(arena.find("geometry_format = OBJ") == std::string::npos);
+	REQUIRE(arena.find("visual_scene_file = visual/scene.obj") ==
 	        std::string::npos);
-	REQUIRE(arena.find("s_existingArchiveHasEntry(dst_rel, \"scene.glb\")") !=
+	REQUIRE(arena.find("visual_material_file = visual/scene.mtl") ==
 	        std::string::npos);
-	REQUIRE(arena.find("s_existingArchiveHasEntry(dst_rel, \"level.graph.json\")") !=
+	REQUIRE(arena.find("texture_manifest_file = visual/materials.tsv") ==
 	        std::string::npos);
-	REQUIRE(arena.find("s_existingArchiveHasEntry(dst_rel, \"visual/scene.obj\")") !=
+	REQUIRE(arena.find("s_existingArchiveHasEntry(relpath, \"scene.glb\")") !=
 	        std::string::npos);
-	REQUIRE(arena.find("s_existingArchiveHasEntry(dst_rel, \"visual/export_version.txt\")") !=
+	REQUIRE(arena.find("s_existingArchiveHasEntry(relpath, \"level.graph.json\")") !=
 	        std::string::npos);
-	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"rooms.obj\"") !=
+	REQUIRE(arena.find("s_existingArchiveHasEntry(relpath, \"rooms.obj\")") !=
+	        std::string::npos);
+	REQUIRE(arena.find("s_existingArchiveHasEntry(relpath, \"tiles.tsv\")") !=
 	        std::string::npos);
 	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"scene.glb\"") !=
 	        std::string::npos);
 	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"level.graph.json\"") !=
 	        std::string::npos);
-	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"visual/export_version.txt\"") !=
+	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"rooms.obj\"") ==
 	        std::string::npos);
-	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"visual/scene.obj\"") !=
+	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"visual/scene.obj\"") ==
 	        std::string::npos);
 	REQUIRE(arena.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
 	        std::string::npos);
@@ -4382,6 +4390,12 @@ TEST_CASE("base character extractors emit zip-openable pdhead and pdbody archive
 	REQUIRE(head.find("assetArchiveWriterFinishMetadata(&asset_writer)") != std::string::npos);
 	REQUIRE(head.find("s_existingArchiveHasEntry(relpath, \"mesh.pdmesh\")") !=
 	        std::string::npos);
+	REQUIRE(head.find("PDHEAD_FAST_CACHE_KIND") != std::string::npos);
+	REQUIRE(head.find("s_existingArchiveEntryContains(relpath, \"head.ini\", \"headnum\")") !=
+	        std::string::npos);
+	REQUIRE(head.find("headnum = %d") == std::string::npos);
+	REQUIRE(head.find("mesh = %s") == std::string::npos);
+	REQUIRE(head.find("mesh_catalog_id = %s") != std::string::npos);
 	REQUIRE(head.find("mesh_archive = %s") != std::string::npos);
 	REQUIRE(head.find("\\\"mesh_archive\\\": \\\"mesh.pdmesh\\\"") !=
 	        std::string::npos);
@@ -4401,6 +4415,14 @@ TEST_CASE("base character extractors emit zip-openable pdhead and pdbody archive
 	        std::string::npos);
 	REQUIRE(body.find("s_existingArchiveHasEntry(relpath, \"hand.pdmesh\")") !=
 	        std::string::npos);
+	REQUIRE(body.find("PDBODY_FAST_CACHE_KIND") != std::string::npos);
+	REQUIRE(body.find("s_existingArchiveEntryContains(relpath, \"body.ini\", \"bodynum\")") !=
+	        std::string::npos);
+	REQUIRE(body.find("bodynum = %d") == std::string::npos);
+	REQUIRE(body.find("mesh = %s") == std::string::npos);
+	REQUIRE(body.find("hand = %s") == std::string::npos);
+	REQUIRE(body.find("mesh_catalog_id = %s") != std::string::npos);
+	REQUIRE(body.find("hand_catalog_id = %s") != std::string::npos);
 	REQUIRE(body.find("mesh_archive = %s") != std::string::npos);
 	REQUIRE(body.find("hand_archive = hand.pdmesh") != std::string::npos);
 	REQUIRE(body.find("\\\"mesh_archive\\\": \\\"mesh.pdmesh\\\"") !=

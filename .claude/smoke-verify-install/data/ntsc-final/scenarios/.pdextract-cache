@@ -1,5 +1,5 @@
 schema=pdasset-fast-v1-20260521
-kind=pdscenario
+kind=pdscenario_scene_glb_clean_public_v3
 count=45
-total_bytes=51331698
-latest_mtime=1779427894
+total_bytes=7369471
+latest_mtime=1779915320

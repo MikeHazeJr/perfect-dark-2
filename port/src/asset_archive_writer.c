@@ -644,6 +644,15 @@ s32 assetArchiveWriterAddPublicDisk(asset_archive_writer_t *writer,
 		sidecar, (u32)strlen(sidecar));
 }
 
+s32 assetArchiveWriterAddBundledMem(asset_archive_writer_t *writer,
+                                    const char *entry_name,
+                                    const void *data,
+                                    u32 len,
+                                    const char *role)
+{
+	return addTrackedMem(writer, entry_name, data, len, role, 0);
+}
+
 s32 assetArchiveWriterAddMetaJson(asset_archive_writer_t *writer,
                                   const char *leaf_name,
                                   const void *data,

@@ -534,6 +534,11 @@ static void bootRunCatalogWork(void *arg)
 	(void)romExtractAllPdui(0);
 	bootProgressEndPhase();
 
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_META);
+	(void)romExtractAllPdmeta(0);
+	(void)romExtractAllPdtheme(0);
+	bootProgressEndPhase();
+
 	bootProgressBeginPhase(BOOT_PHASE_WALKER);
 	{
 		loader_walker_result_t walker_result;

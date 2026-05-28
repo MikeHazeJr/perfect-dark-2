@@ -229,6 +229,7 @@ typedef struct asset_entry {
         } character;
         struct {
             char target_id[CATALOG_ID_LEN];  /* soft reference to target char */
+            char skin_file[128];             /* editable skin/material binding source */
             char texture_file[128];          /* appearance payload for this skin */
         } skin;
         struct {
@@ -331,6 +332,7 @@ typedef struct asset_entry {
         struct {
             s32 prop_type;             /* PROPTYPE_* constant */
             char name[64];             /* human-readable display name */
+            char prop_file[128];       /* editable prop/archetype source */
             char model_file[128];      /* model file path (empty for base game) */
             u32  flags;                /* prop flags bitmask */
             f32  health;               /* base health value (0 = indestructible) */
@@ -375,6 +377,7 @@ typedef struct asset_entry {
             char name[64];             /* human-readable display name */
             s32 element_type;          /* HUD_ELEM_* constant */
             char texture_file[128];    /* texture file path (empty = uses default) */
+            char layout_file[128];     /* layout/source path for engine-rendered HUD */
         } hud;
         struct {
             char name[64];             /* human-readable display name */

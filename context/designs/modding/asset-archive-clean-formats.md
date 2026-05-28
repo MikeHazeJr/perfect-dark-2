@@ -1,6 +1,6 @@
 # Clean Asset Archive Family Formats
 
-Status: frozen target contracts created 2026-05-24; post-decision load/use sweep updated 2026-05-24. Kanban owner: `c3824`.
+Status: frozen target contracts created 2026-05-24; post-decision load/use sweep updated 2026-05-24; strict generated-archive conformance gate added 2026-05-26; definitive optional-slot justification enforced 2026-05-27; runtime ROM fallback failure rule added 2026-05-27. Kanban owners: `c3824` for the frozen family contracts, `c3842` for native-source and strict conformance hardening, and `c3844` for runtime ROM fallback removal.
 
 This document records the clean self-contained archive layouts for every current typed or otherwise referenceable Asset Pipeline family before the extraction, examples, validators, and release gates are rebuilt around them. It includes the later approved first-class families from the Asset Decisions tab. The broad implementation sweep starts from this file rather than inventing new family contracts piecemeal.
 
@@ -10,6 +10,8 @@ Every typed `*.pdxxx` archive is a zip-openable authoring unit. Changing the ext
 
 The public authoring files are also the game-facing source of truth. The client should ingest those files through the catalog/provider asset pipeline and derive any renderer, GPU, collision, animation, audio-codec, behavior-runtime, or other engine-ready products from them as source-hashed cache. The pipeline may pay a small import/cache cost to avoid duplicate authored representations; what it must not do is require users or extractors to maintain one editable file and a separate opaque runtime file for the same asset.
 
+Runtime ROM fallback is an asset-chain failure. ROM may seed extraction/verification, but after that runtime loads must resolve through extracted typed archives, FileProvider/catalog source, or deterministic source-derived cache. A base-game dependency declaration is not permission to read bytes from ROM at runtime; if the on-disk/catalog chain is missing, the loader should fail loudly and the owning family should be fixed.
+
 The archive has two zones:
 
 - Public authoring zone: the root descriptor and readable files or purpose-named folders that modders naturally edit.
@@ -17,13 +19,53 @@ The archive has two zones:
 
 New emitters write machine data under `_meta/`. Transition readers may accept legacy root `manifest.json` and root SHA sidecars, but release/package validation must fail newly emitted or installed stale outputs that are non-zip typed files, `.pdwpn`, descriptor-less, authored `.bin` backed, or unresolved internally.
 
-All asset references use catalog ID strings. Numeric or legacy-symbol asset references such as `model_id = 42`, `modelnum`, `filenum`, `weapon_id`, `sound_id`, `texnum`, `MODEL_*`, or `FILE_*` are invalid public authoring fields. A reference field is metadata, not dependency closure, unless the referenced authored payload also resolves inside the archive or inside an embedded typed dependency archive. Higher-level assets embed dependency assets as intact typed archives under `dependencies/assets/<type>/<id>.<typed-asset>` unless the family-specific notes below define a narrower legacy transition path. Validators fail unresolved references unless the archive embeds the dependency or declares an approved base fallback with catalog ID, compatibility/version/hash where available, and reason.
+All asset references use catalog ID strings. Numeric or legacy-symbol asset references such as `model_id = 42`, `modelnum`, `filenum`, `weapon_id`, `sound_id`, `texnum`, `MODEL_*`, or `FILE_*` are invalid public authoring fields. A reference field is metadata, not dependency closure, unless the referenced authored payload also resolves inside the archive or inside an embedded typed dependency archive. Higher-level assets embed dependency assets as intact typed archives under `dependencies/assets/<type>/<id>.<typed-asset>` unless the family-specific notes below define a narrower legacy transition path. Validators fail unresolved references unless the archive embeds the dependency or declares an approved base dependency with catalog ID, compatibility/version/hash where available, reason, and on-disk/catalog provider source.
 
 Each root descriptor must be sufficient to instantiate the asset without consulting legacy numeric tables: schema version, catalog ID or namespace hint, display name, role/kind, authored source paths, dependency roles, compatibility tags, fallback declarations, and loader/importer/exporter revision markers where relevant. Raw editable source files are allowed when owned by that family; cross-family resources stay as typed dependency archives.
 
 Tools must be able to export an archive into an accessible folder of modder-editable files and import that folder back into the same valid typed archive. Import reconstructs descriptors, `_meta/`, hashes, and embedded typed dependencies rather than preserving loose cross-family sidecars.
 
 Authored `.bin` payloads, raw preprocessed dumps, and parallel hand-maintained runtime payloads are rejected. Generated runtime cache remains private, readable when useful, source-hashed, rebuildable, and unshipped. `.pdmod` remains transport only.
+
+Validation is strict by family schema, not "at least one editable file." `tools/asset_archive_conformance.py` opens every typed archive, checks the exact required/allowed public entries, rejects stale public files and numeric/legacy public asset references, verifies `_meta/manifest.json`, and recursively validates embedded typed dependency archives. Clean examples and fresh generated base archives must pass this gate before the migration is considered conformant.
+
+Allowed entries are definitive schema slots, not a tolerance bucket. A public file may be optional only when the contract records its semantic role, owner subsystem or tool, loader/importer behavior, deterministic absence behavior, and final-vs-transition status. Examples: `collision.glb` is a scenario collision override whose absence means deterministic collision generation from `scene.glb`; arena `preview.png` is selection UI presentation data whose absence means generated/default UI preview; embedded `dependencies/assets/.../*.pdxxx` entries are typed dependency closure, not loose sidecars. Any public file, dependency path, or `_meta/` entry without a documented role must be removed from the schema and rejected by validation. This was completed under `c3842-s7` through `c3842-s9`.
+
+## Definitive Optional Slot Matrix
+
+The executable source of truth is `tools/asset_archive_conformance.py`: `OPTIONAL_PUBLIC_SLOT_CONTRACT` records each optional public exact path or glob with semantic role, owner, loader/importer behavior, absence behavior, and final/transition status; `META_SLOT_CONTRACT` plus the common meta contract do the same for `_meta/`. This table mirrors the family-level intent so users can understand the archives without reading the validator.
+
+| Family | Optional public slots | Why they exist / absence behavior |
+|--------|-----------------------|-----------------------------------|
+| `.pdweapon` | `bindings/*.json`, `bindings/*.tsv`, `dependencies/assets/{models,materials,textures,animations,audio,projectiles,entities,ui}/*.pdxxx` | Bind graph requests to typed dependency archives. Missing bindings mean graph/default presentation values; missing dependencies are valid only when the graph does not use that class or declares an approved base dependency that resolves through catalog/on-disk provider source. |
+| `.pdprojectile` | `dependencies/assets/{models,materials,textures,audio,effects,entities}/*.pdxxx` | Projectile graph visual/audio/effect/entity closure. Absence means the projectile graph does not use that dependency class or uses a declared base dependency that resolves through catalog/on-disk provider source. |
+| `.pdentity` | `composition.json`, `dependencies/assets/{props,models,materials,textures,audio,effects}/*.pdxxx` | Optional world composition and typed dependency closure. Without composition the entity is behavior-only. |
+| `.pdmaterial` | `dependencies/assets/texture/*.pdtexture`, `dependencies/assets/textures/*.pdtexture`, `dependencies/assets/effects/*.pdeffect` | Materials may bind reusable textures/effects. Absence means inline constant material values or no effect layer. |
+| `.pdtexture` | one of `texture.png`, `texture.tga`, `texture.jpg`, `texture.jpeg` | Standard editable image source alternatives. At least one must be present. |
+| `.pdcharacter` | `portrait.png`, `body.pdbody`, `head.pdhead`, `dependencies/assets/{body,bodies,head,heads,skins,voice,animations,ui}/*.pdxxx` | Top-level character assembler dependencies and portrait. Body/head are required through one of the accepted slots; other dependencies default to shared/base presentation. |
+| `.pdhead` | `dependencies/assets/{materials,textures,animations}/*.pdxxx` | Head mesh material, texture, and animation dependency closure. Absence means the mesh/shared animation source carries the default. |
+| `.pdbody` | `hand.pdmesh`, `dependencies/assets/{materials,textures,animations}/*.pdxxx` | Optional first-person hand mesh plus typed visual/animation closure. Without `hand.pdmesh`, `mesh.pdmesh` is the fallback hand/body source. |
+| `.pdarena` | `preview.png`, `thumbnail.png`, `dependencies/assets/scenarios/*.pdscenario` | Selection UI art and playable scenario closure. Only explicit Random selector arenas may omit a scenario dependency. |
+| `.pdscenario` | `scene.glb` or `scene.gltf`, `collision.glb`, `collision.obj`, `mission.graph.json` | One DCC-openable scene source is required. Collision overrides replace deterministic scene-derived collision; absence regenerates collision/nav from the scene, tables, and volumes. |
+| `.pdmesh` | `model.gltf`, `model.glb`, `model.obj`, `model.mtl`, `export_version.txt`, `dependencies/assets/{materials,textures}/*.pdxxx` | One mesh source is required. OBJ may use `model.mtl`; exporter provenance is diagnostic. Textures/materials are typed dependencies or embedded/declared by the model source, never loose mesh sidecars. |
+| `.pdanim` | `animation.gltf`, `animation.glb`, `header.tsv`, `frames.tsv`, `opcodes.json`, `events.tsv`, `notifies.tsv` | Animation source alternatives plus optional markers. At least one source shape is required; events/notifies are absent when not authored. |
+| `.pdsfx` | `sample.ogg`, `sample.flac` | Optional alternate standard audio source alongside authoritative `sample.wav`. Absence uses WAV. |
+| `.pdvoice` | `subtitle.tsv`, `locales/*.wav`, `locales/*.ogg` | Subtitle and locale variants. Absence uses no subtitle and default `sample.wav`. |
+| `.pdsong` | `sequence.mid`, `sequence.tsv`, `track.wav`, `track.ogg`, `track.mp3`, `cues.tsv`, `sections.tsv` | Music source alternatives and cue/section metadata. A sequence or track source is required; cues/sections are absent when not authored. |
+| `.pdui` | `texture.png`, `texture.tga`, `textures/*.png`, `textures/*.tga`, `layout.tsv`, `layout.json`, `nineslice.ini` | UI owns its own visual source. Multi-slot textures and layout/nine-slice metadata are only present when needed. |
+| `.pdfont` | `font.ttf`, `font.otf`, `glyphs.pgm`, `metrics.tsv`, `kerning.tsv` | Vector or bitmap font source alternatives. Bitmap metrics/kerning are required only for bitmap source. |
+| `.pdlang` | none | Localization has a definitive two-file shape: `lang.ini` plus `strings.tsv`. |
+| `.pdskin` | `texture.png`, `texture.tga`, `swatches.tsv`, `dependencies/assets/{material,materials,texture,textures}/*.pdxxx` | Skin appearance source can be inline texture/swatch data or typed material/texture dependencies. Absence means the compatible asset default is used. |
+| `.pdeffect` | `effect.graph.json`, `timeline.json`, `dependencies/assets/{materials,textures,audio}/*.pdxxx` | Effect source alternatives and typed visual/audio closure. One graph or timeline is required. |
+| `.pdprop` | `model.gltf`, `model.glb`, `model.obj`, `mesh.pdmesh`, `behavior.graph.json`, `dependencies/assets/{models,materials,textures,effects}/*.pdxxx` | Prop model source/dependency alternatives plus optional behavior and effects. A model source or model dependency is required. |
+| `.pdvehicle` | `model.gltf`, `model.glb`, `model.obj`, `mesh.pdmesh`, `behavior.graph.json`, `dependencies/assets/{models,materials,textures,audio,effects,weapons}/*.pdxxx` | Vehicle model, behavior, audio/effect, and mounted weapon closure. A model source or model dependency is required. |
+| `.pdmission` | `dependencies/assets/scenario/*.pdscenario`, `dependencies/assets/scenarios/*.pdscenario`, `dependencies/assets/audio/*.pdsfx`, `dependencies/assets/voice/*.pdvoice` | Campaign mission binds scenario, audio, and voice dependencies. A scenario dependency is required through one accepted path. |
+| `.pdgamemode` | `dependencies/assets/hud/*.pdhud`, `dependencies/assets/audio/*.pdsfx` | Rule packs can carry private HUD/audio dependencies. Absence uses default HUD/audio. |
+| `.pdbotprofile` | none | Bot profile has a definitive descriptor plus `profile.json` source. |
+| `.pdhud` | `texture.png`, `texture.tga`, `dependencies/assets/{ui,fonts,lang,audio}/*.pdxxx` | HUD can own a simple texture source or compose typed UI/font/lang/audio dependencies. Absence uses defaults or required UI dependency. |
+| `.pdtheme` | `dependencies/assets/{ui,font,fonts,audio,music,effects}/*.pdxxx` | Themes compose UI, font, audio, music, and effect assets. Missing classes mean no override for that class. |
+
+Definitive `_meta/` slots are common across families: `_meta/manifest.json`, `_meta/inventory.json`, `_meta/provenance.json`, `_meta/validation.json`, `_meta/source-handles.json`, `_meta/hashes.tsv`, plus `_meta/<public-entry>.sha256` only when the matching public source entry exists. Scenario may also carry `_meta/generated-collision.json` and `_meta/generated-navmesh.json`; weapon may carry `_meta/nested-payloads.json` as private dependency-closure inventory. No other `_meta/` entry is valid.
 
 ## Frozen Family Contracts
 
@@ -37,7 +79,7 @@ Authored `.bin` payloads, raw preprocessed dumps, and parallel hand-maintained r
 | `.pdcharacter` | `character.ini` | roster/faction/unlock tags, portraits, default body/head/skin/voice/anim/UI bindings | Top-level character assembler. Body/head/skin/voice/animation/UI assets remain typed dependencies. |
 | `.pdhead` | `head.ini` | head socket/expression/material-slot metadata and presentation bindings | Focused reusable head. Mesh, material, texture, and animation payloads remain typed dependencies. |
 | `.pdbody` | `body.ini` | skeleton/rig contract, body proportions, sockets, first-person hand bindings, material slots | Focused reusable body. Body and hand roles stay explicit so dedupe does not collapse responsibilities. |
-| `.pdarena` | `arena.ini` | preview/thumbnail, match defaults, spawn playlist metadata, scenario reference | Multiplayer-facing arena selection wrapper around an embedded `.pdscenario`. |
+| `.pdarena` | `arena.ini` | preview/thumbnail, match defaults, spawn playlist metadata, scenario reference | Multiplayer-facing arena selection wrapper around an embedded `.pdscenario`. Explicit Random selector meta-arenas are the only no-scenario variant and must declare that role in the descriptor. |
 | `.pdscenario` | `scenario.ini` | DCC-openable textured `scene.glb` or `scene.gltf`, optional `collision.glb`/`collision.obj`, pads/volumes, spawn profiles, generated navigation inputs, graph-linked level settings/triggers | Actual level/map content. Arena, mission, and gamemode wrappers select or configure it; the game consumes the same scene source through the asset pipeline. |
 | `.pdmesh` | `mesh.ini` | geometry, hierarchy, skinning/rig binding, sockets, LODs, optional collision proxy | Reusable geometry/model data. Materials and textures remain typed dependencies. |
 | `.pdanim` | `animation.ini` | timeline/channel data, events/notifies, retargeting/target rig metadata, optional legacy opcodes | Reusable animation clip or sequence. Body, weapon, mesh, and audio refs remain catalog IDs with embedded dependencies when needed. |
@@ -61,11 +103,11 @@ Authored `.bin` payloads, raw preprocessed dumps, and parallel hand-maintained r
 
 ## Load And Utilization Closure
 
-The extraction implementation should treat this as the minimum "can load and can be used" checklist. A family passes only when its descriptor, public payload, `_meta/` data, and embedded typed dependencies can feed the catalog loader, the relevant runtime subsystem, and mod tools without external lookup except approved base fallbacks. Public payloads should be the native client input; generated products are cache derived by the asset pipeline, not extra source files authors must edit or keep synchronized.
+The extraction implementation should treat this as the minimum "can load and can be used" checklist. A family passes only when its descriptor, public payload, `_meta/` data, and embedded typed dependencies can feed the catalog loader, the relevant runtime subsystem, and mod tools without external lookup except approved base dependencies that resolve through catalog/on-disk provider source. Public payloads should be the native client input; generated products are cache derived by the asset pipeline, not extra source files authors must edit or keep synchronized.
 
 | Family | Must be present to load | Must be present to utilize |
 |--------|-------------------------|----------------------------|
-| `.pdweapon` | `weapon.ini`, behavior entry files, dependency manifest/fallbacks, model/audio/projectile/entity refs | Held and AI fire-mode bindings, ammo/display defaults, model/material slots, sounds, animations, UI refs, projectiles/entities. |
+| `.pdweapon` | `weapon.ini`, behavior entry files, dependency manifests, model/audio/projectile/entity refs | Held and AI fire-mode bindings, ammo/display defaults, model/material slots, sounds, animations, UI refs, projectiles/entities. |
 | `.pdprojectile` | `projectile.ini`, motion, collision, damage, lifecycle, optional behavior graph | Owner/damage credit, impact rules, visual/audio/effect dependencies, entity transition or spawned payload refs. |
 | `.pdentity` | `entity.ini`, bindings/composition, optional behavior graph | Lifecycle state, interaction rules, ownership/team context, prop/mesh/effect/audio dependencies. |
 | `.pdmaterial` | `material.ini`, render/surface params, slot and texture/effect refs | Variants, compatibility tags, classic fields, optional PBR-ready fields; PBR material payloads remain standalone material assets. |
@@ -73,7 +115,7 @@ The extraction implementation should treat this as the minimum "can load and can
 | `.pdcharacter` | `character.ini`, identity/roster tags, body/head/skin/voice/anim/UI refs | Unlock/roster presentation, default loadout/appearance assembly, dependency closure for all bound parts. |
 | `.pdhead` | `head.ini`, socket/expression/material-slot metadata | Mesh/material/texture/animation deps, expression bindings, body compatibility tags. |
 | `.pdbody` | `body.ini`, skeleton/rig, proportions, sockets, first-person hand bindings | Body and hand mesh/material deps, animation target metadata, attachment compatibility. |
-| `.pdarena` | `arena.ini`, embedded `.pdscenario`, preview/default refs | Multiplayer selection metadata, match defaults, spawn playlists, gametype/team overrides. |
+| `.pdarena` | `arena.ini`, embedded `.pdscenario` for real arenas, preview/default refs | Multiplayer selection metadata, match defaults, spawn playlists, gametype/team overrides. Random selector meta-arenas resolve to a real arena at match start and do not carry level content. |
 | `.pdscenario` | `scenario.ini`, textured DCC-openable scene source, optional collision override, pads/volumes, decoded setup tables/graphs, navigation generation inputs | Native scenario load from the same scene source, spawn profiles, mission/gamemode hooks, lighting/material deps, objective/phase override anchors, graph-linked triggers/global settings. |
 
 ## Scenario Authoring Correction
@@ -129,7 +171,7 @@ Raw preprocessed setup dumps are not acceptable public payloads. The extractor n
 | `.pdhud` | `hud.ini`, widget layout and data bindings | Reticle/radar/ammo/status composition, `.pdui`/font/lang/SFX deps. |
 | `.pdtheme` | `theme.ini`, style tokens and theme asset refs | Chrome composition, procedural/animated texture behavior, accessibility and scope tags. |
 
-The extraction session should not emit descriptor-only stubs just to cover a family. Emit a typed archive only when the public zone contains enough authored data to load and use that asset, or when the descriptor explicitly declares an approved base fallback that provides the missing runtime payload.
+The extraction session should not emit descriptor-only stubs just to cover a family. Emit a typed archive only when the public zone contains enough authored data to load and use that asset, or when the descriptor explicitly declares an approved base dependency that provides the missing runtime payload through catalog/on-disk provider source.
 
 ## Final Batch Details
 
@@ -214,7 +256,7 @@ Acceptance for the sweep:
 - All descriptor, source-format, material, graph, nested-descriptor, and payload references resolve inside the archive or inside an embedded typed archive.
 - Export exposes files in an accessible modder-editable folder, and import reconstructs a valid typed archive with descriptors, `_meta/`, hashes, and embedded typed dependencies.
 - The game client utilizes each family from those same public source files through the catalog/provider pipeline, with generated cache allowed only as a source-hashed implementation detail.
-- Base fallbacks are explicit declarations with catalog ID, compatibility/version/hash where available, and reason; no unresolved reference passes silently.
+- Base dependency declarations are explicit records with catalog ID, compatibility/version/hash where available, reason, and on-disk/catalog provider source; no unresolved reference passes silently and no runtime ROM fallback is implied.
 - New emitters stop writing authored `.bin` payloads, `.pdwpn`, descriptor-less archives, and root machine-metadata clutter.
 - Transition readers can load legacy root metadata while validators reject stale installed outputs for release/package builds.
 - Examples show the clean two-zone shape for every current family, including `.pdcharacter`, `.pdprojectile`, `.pdentity`, `.pdskin`, `.pdeffect`, `.pdprop`, `.pdvehicle`, `.pdmission`, `.pdgamemode`, `.pdbotprofile`, `.pdhud`, `.pdtheme`, `.pdui`, `.pdfont`, and `.pdlang`.

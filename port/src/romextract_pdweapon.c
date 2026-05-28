@@ -43,8 +43,8 @@
 #include "weapondata_authored.h"
 #include "animdata_authored.h"
 
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v9"
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v9"
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v10"
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v10_clean_public"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -151,6 +151,12 @@ static s32 s_existingWeaponArchiveComplete(const char *relpath)
 	       s_existingArchiveHasEntry(relpath, PDWEAPON_NESTED_PAYLOADS_ENTRY) &&
 	       s_existingArchiveEntryContains(relpath, "weapon.ini",
 		"dependency_closure = " PDWEAPON_DEPENDENCY_CLOSURE_MARKER) &&
+	       !s_existingArchiveEntryContains(relpath, "weapon.ini", "weapon_id") &&
+	       !s_existingArchiveEntryContains(relpath, PDWEAPON_SETTINGS_ENTRY, "weapon_id") &&
+	       !s_existingArchiveEntryContains(relpath, PDWEAPON_PRIMARY_GRAPH_ENTRY, "MODEL_") &&
+	       !s_existingArchiveEntryContains(relpath, PDWEAPON_SECONDARY_GRAPH_ENTRY, "MODEL_") &&
+	       !s_existingArchiveEntryContains(relpath, PDWEAPON_PRIMARY_GRAPH_ENTRY, "soundnum") &&
+	       !s_existingArchiveEntryContains(relpath, PDWEAPON_SECONDARY_GRAPH_ENTRY, "soundnum") &&
 	       s_existingWeaponArchiveGraphCurrent(relpath);
 }
 
@@ -269,12 +275,18 @@ static const char *s_animNameForCmds(const struct guncmd *cmds)
 	return NULL;
 }
 
-/* Resolve a guncmd* anim pointer to its "invanim_*" name, emit string or null. */
+/* Resolve a guncmd* anim pointer to its catalog ID, emit string or null. */
 static void jw_field_anim_ref(jw_t *w, const char *key,
                                const struct guncmd *cmds, s32 last)
 {
 	const char *name = s_animNameForCmds(cmds);
-	jw_field_str(w, key, name, last);
+	if (name && name[0]) {
+		char id[128];
+		snprintf(id, sizeof(id), "base:%s", name);
+		jw_field_str(w, key, id, last);
+	} else {
+		jw_field_str(w, key, NULL, last);
+	}
 }
 
 typedef struct {
@@ -966,9 +978,18 @@ static const char *s_modelSlug(s32 modelnum)
 
 static void s_modelRef(s32 modelnum, char *out, size_t cap)
 {
+	if (!out || cap == 0) return;
 	const char *slug = s_modelSlug(modelnum);
-	if (slug) snprintf(out, cap, "MODEL_%s", slug);
-	else      snprintf(out, cap, "MODEL_%04x", (unsigned)(modelnum & 0xffff));
+	if (modelnum >= 0 && modelnum < NUM_MODELS &&
+			g_ModelStates[modelnum].fileid > 0) {
+		catalogReadableModelIdForModelnum(modelnum,
+			(s32)g_ModelStates[modelnum].fileid, out, cap);
+	} else if (slug) {
+		snprintf(out, cap, "base:model_%s", slug);
+	} else {
+		snprintf(out, cap, "base:model_%04x",
+			(unsigned)(modelnum & 0xffff));
+	}
 	out[cap - 1] = '\0';
 }
 
@@ -1542,7 +1563,7 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		"schema = pd.projectile.v1\n"
 		"catalog_id = %s\n"
 		"name = %s\n"
-		"model_ref = %s\n"
+		"model_catalog_id = %s\n"
 		"model_archive = " PDWEAPON_DEP_MODELS "/visual.pdmesh\n"
 		"behavior_graph = behavior.graph.json\n"
 		"%s%s%s",
@@ -1565,7 +1586,7 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		"      \"id\": \"spawn_state\",\n"
 		"      \"kind\": \"projectile.spawn_state\",\n"
 		"      \"params\": {\n"
-		"        \"model_ref\": \"%s\",\n"
+		"        \"model_catalog_id\": \"%s\",\n"
 		"        \"model_archive\": \"" PDWEAPON_DEP_MODELS "/visual.pdmesh\",\n"
 		"        \"source_mode\": \"%s\",\n"
 		"        \"source_function_type\": \"%s\",\n"
@@ -1680,8 +1701,9 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 		"catalog_id = %s\n"
 		"name = %s\n"
 		"archetype = %s\n"
-		"model_ref = %s\n"
+		"model_catalog_id = %s\n"
 		"model_archive = " PDWEAPON_DEP_MODELS "/visual.pdmesh\n"
+		"bindings_file = bindings.json\n"
 		"behavior_graph = behavior.graph.json\n",
 		p->catalog_id,
 		p->local_slug,
@@ -1708,7 +1730,7 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 		"      \"kind\": \"%s\",\n"
 		"      \"params\": {\n"
 		"        \"archetype\": \"%s\",\n"
-		"        \"model_ref\": \"%s\",\n"
+		"        \"model_catalog_id\": \"%s\",\n"
 		"        \"model_archive\": \"" PDWEAPON_DEP_MODELS "/visual.pdmesh\",\n"
 		"        \"source_mode\": \"%s\",\n"
 		"        \"activation_time60\": %d,\n"
@@ -1733,6 +1755,20 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 		(unsigned)flags);
 	if (graph_len <= 0 || (size_t)graph_len >= sizeof(graph)) return -1;
 
+	char bindings[512];
+	int bindings_len = snprintf(bindings, sizeof(bindings),
+		"{\n"
+		"  \"schema\": \"pd.entity_bindings.v1\",\n"
+		"  \"asset_id\": \"%s\",\n"
+		"  \"model_catalog_id\": \"%s\",\n"
+		"  \"model_archive\": \"" PDWEAPON_DEP_MODELS "/visual.pdmesh\",\n"
+		"  \"archetype\": \"%s\"\n"
+		"}\n",
+		p->catalog_id,
+		model_ref,
+		archetype);
+	if (bindings_len <= 0 || (size_t)bindings_len >= sizeof(bindings)) return -1;
+
 	mod_archive_writer_t *aw = modArchiveBegin(p->temp_fullpath);
 	if (!aw) return -1;
 	asset_archive_writer_t asset_writer;
@@ -1745,6 +1781,9 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 		"weapondata_authored", p->mode_index, p->local_slug);
 	if (assetArchiveWriterAddDescriptor(&asset_writer, "entity.ini",
 			entity_ini, (u32)ini_len) != 0 ||
+			assetArchiveWriterAddPublicMem(&asset_writer,
+			"bindings.json", bindings, (u32)bindings_len,
+			"bindings") != 0 ||
 			assetArchiveWriterAddPublicMem(&asset_writer,
 			"behavior.graph.json", graph, (u32)graph_len,
 			"behavior") != 0) {
@@ -1794,6 +1833,17 @@ static s32 s_emitNestedPayloadArchives(pdweapon_payload_plan_t *plan)
 	return 0;
 }
 
+static void s_emitSfxCatalogField(jw_t *w, const char *key, s32 sfx_idx,
+                                  s32 last)
+{
+	char catalog_id[128];
+	catalog_id[0] = '\0';
+	if (sfx_idx > 0) {
+		s_sfxCatalogIdForWeapon(sfx_idx, catalog_id, sizeof(catalog_id));
+	}
+	jw_field_str(w, key, catalog_id[0] ? catalog_id : NULL, last);
+}
+
 static void s_emitShootGraphParams(jw_t *w,
                                     const struct weaponfunc_shoot *sh,
                                     s32 has_more)
@@ -1811,7 +1861,7 @@ static void s_emitShootGraphParams(jw_t *w,
 	jw_field_f32(w, "slidemax", sh->slidemax, 0);
 	jw_field_f32(w, "impactforce", sh->impactforce, 0);
 	jw_field_uint(w, "duration_ticks60", sh->duration60, 0);
-	jw_field_sfx_or_int(w, "shootsound", sh->shootsound, 0);
+	s_emitSfxCatalogField(w, "shoot_sound_catalog_id", sh->shootsound, 0);
 	jw_field_uint(w, "penetration", sh->penetration, has_more ? 0 : 1);
 }
 
@@ -1869,14 +1919,15 @@ static void s_emitWeaponGraphParams(jw_t *w, const char *catalog_id,
 		s_modelRef(sp->projectilemodelnum, model_ref, sizeof(model_ref));
 		jw_field_str(w, "projectile_ref",
 			(projectile_ref && projectile_ref[0]) ? projectile_ref : NULL, 0);
-		jw_field_str(w, "projectile_model_ref", model_ref, 0);
+		jw_field_str(w, "projectile_model_catalog_id", model_ref, 0);
 		s_emitShootGraphParams(w, &sp->base, 1);
 		jw_field_f32(w, "scale", sp->scale, 0);
 		jw_field_int(w, "speed", sp->speed, 0);
 		jw_field_int(w, "travel_distance", sp->traveldist, 0);
 		jw_field_int(w, "timer_ticks60", sp->timer60, 0);
 		jw_field_f32(w, "reflect_angle", sp->reflectangle, 0);
-		jw_field_int(w, "soundnum", sp->soundnum, 1);
+		s_emitSfxCatalogField(w, "projectile_sound_catalog_id",
+			sp->soundnum, 1);
 		break;
 	}
 	case INVENTORYFUNCTYPE_THROW: {
@@ -1891,7 +1942,7 @@ static void s_emitWeaponGraphParams(jw_t *w, const char *catalog_id,
 			(projectile_ref && projectile_ref[0]) ? projectile_ref : NULL, 0);
 		jw_field_str(w, "entity_ref",
 			(entity_ref && entity_ref[0]) ? entity_ref : NULL, 0);
-		jw_field_str(w, "projectile_model_ref", model_ref, 0);
+		jw_field_str(w, "projectile_model_catalog_id", model_ref, 0);
 		jw_field_int(w, "activation_time_ticks60", tw->activatetime60, 0);
 		jw_field_int(w, "recovery_time_ticks60", tw->recoverytime60, 0);
 		jw_field_f32(w, "damage", tw->damage, 1);
@@ -1910,7 +1961,8 @@ static void s_emitWeaponGraphParams(jw_t *w, const char *catalog_id,
 		jw_field_int(w, "specialfunc", sx->specialfunc, 0);
 		jw_field_str(w, "special_name", s_specialName(sx->specialfunc), 0);
 		jw_field_int(w, "recovery_time_ticks60", sx->recoverytime60, 0);
-		jw_field_int(w, "soundnum", sx->soundnum, 1);
+		s_emitSfxCatalogField(w, "special_sound_catalog_id",
+			sx->soundnum, 1);
 		break;
 	}
 	case INVENTORYFUNCTYPE_DEVICE: {
@@ -2072,7 +2124,6 @@ static s32 s_buildWeaponSharedContextJson(const char *catalog_id,
 }
 
 static s32 s_buildWeaponSettingsJson(const char *catalog_id,
-                                     s32 weapon_id,
                                      char *out,
                                      size_t out_cap)
 {
@@ -2080,10 +2131,9 @@ static s32 s_buildWeaponSettingsJson(const char *catalog_id,
 		"{\n"
 		"  \"schema\": \"pd.weapon_settings.v1\",\n"
 		"  \"asset_id\": \"%s\",\n"
-		"  \"weapon_id\": %d,\n"
 		"  \"dependency_closure\": \"" PDWEAPON_DEPENDENCY_CLOSURE_MARKER "\"\n"
 		"}\n",
-		catalog_id, weapon_id);
+		catalog_id);
 	return (n > 0 && (size_t)n < out_cap) ? n : -1;
 }
 
@@ -2230,7 +2280,6 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 		"schema = pd.weapon.v1\n"
 		"dependency_closure = " PDWEAPON_DEPENDENCY_CLOSURE_MARKER "\n"
 		"catalog_id = %s\n"
-		"weapon_id = %d\n"
 		"manifest = _meta/manifest.json\n"
 		"primary_graph = " PDWEAPON_PRIMARY_GRAPH_ENTRY "\n"
 		"secondary_graph = " PDWEAPON_SECONDARY_GRAPH_ENTRY "\n"
@@ -2239,7 +2288,7 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 		"variables = " PDWEAPON_VARIABLES_ENTRY "\n"
 		"nested_payloads = " PDWEAPON_NESTED_PAYLOADS_ENTRY "\n"
 		"model_file = " PDWEAPON_DEP_MODELS "/held_hi.pdmesh\n",
-		catalog_id, weapon_id);
+		catalog_id);
 	if (weapon_ini_len <= 0 || (size_t)weapon_ini_len >= sizeof(weapon_ini)) {
 		sysMemFree(manifest_bytes);
 		sysLoudFailf("EXTRACT.PDWEAPON",
@@ -2325,8 +2374,8 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 	s32 shared_context_len = s_buildWeaponSharedContextJson(catalog_id,
 		shared_context_json, sizeof(shared_context_json));
 	char settings_json[1024];
-	s32 settings_len = s_buildWeaponSettingsJson(catalog_id, weapon_id,
-		settings_json, sizeof(settings_json));
+	s32 settings_len = s_buildWeaponSettingsJson(catalog_id, settings_json,
+		sizeof(settings_json));
 	char variables_json[512];
 	s32 variables_len = s_buildWeaponVariablesJson(catalog_id,
 		variables_json, sizeof(variables_json));

@@ -1078,12 +1078,16 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         break;
     case ASSET_SKIN:
         strncpy(e->ext.skin.target_id, iniGet(ini, "target", ""), CATALOG_ID_LEN - 1);
+        strncpy(e->ext.skin.skin_file, iniGet(ini, "skin_file",
+                iniGet(ini, "file_path", "")), sizeof(e->ext.skin.skin_file) - 1);
+        e->ext.skin.skin_file[sizeof(e->ext.skin.skin_file) - 1] = '\0';
         strncpy(e->ext.skin.texture_file, iniGet(ini, "texture_file",
-                iniGet(ini, "file_path",
-                iniGet(ini, "texture", ""))), sizeof(e->ext.skin.texture_file) - 1);
+                iniGet(ini, "texture", "")), sizeof(e->ext.skin.texture_file) - 1);
         e->ext.skin.texture_file[sizeof(e->ext.skin.texture_file) - 1] = '\0';
         if (e->ext.skin.texture_file[0]) {
             distribSetPrimaryFromFile(e, dirpath, e->ext.skin.texture_file);
+        } else if (e->ext.skin.skin_file[0]) {
+            distribSetPrimaryFromFile(e, dirpath, e->ext.skin.skin_file);
         }
         break;
     case ASSET_BOT_VARIANT:
@@ -1202,9 +1206,13 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
     case ASSET_PROP:
         e->ext.prop.prop_type = iniGetInt(ini, "prop_type", 0);
         strncpy(e->ext.prop.name, iniGet(ini, "name", ""), sizeof(e->ext.prop.name) - 1);
+        strncpy(e->ext.prop.prop_file, iniGet(ini, "prop_file",
+                iniGet(ini, "file_path", "")), sizeof(e->ext.prop.prop_file) - 1);
         strncpy(e->ext.prop.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.prop.model_file) - 1);
         if (e->ext.prop.model_file[0]) {
             distribSetPrimaryFromFile(e, dirpath, e->ext.prop.model_file);
+        } else if (e->ext.prop.prop_file[0]) {
+            distribSetPrimaryFromFile(e, dirpath, e->ext.prop.prop_file);
         }
         e->ext.prop.flags = (u32)iniGetInt(ini, "flags", 0);
         e->ext.prop.health = iniGetFloat(ini, "health", 100.0f);
@@ -1327,8 +1335,13 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         e->ext.hud.element_type = iniGetInt(ini, "element_type", HUD_ELEM_CROSSHAIR);
         strncpy(e->ext.hud.texture_file, iniGet(ini, "texture_file", ""),
                 sizeof(e->ext.hud.texture_file) - 1);
+        strncpy(e->ext.hud.layout_file,
+                iniGet(ini, "layout_file", iniGet(ini, "file_path", "")),
+                sizeof(e->ext.hud.layout_file) - 1);
         if (e->ext.hud.texture_file[0]) {
             distribSetPrimaryFromFile(e, dirpath, e->ext.hud.texture_file);
+        } else if (e->ext.hud.layout_file[0]) {
+            distribSetPrimaryFromFile(e, dirpath, e->ext.hud.layout_file);
         }
         break;
     case ASSET_UI:

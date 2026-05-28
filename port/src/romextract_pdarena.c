@@ -9,15 +9,13 @@
  *      arena.ini for the modder-facing descriptor plus _meta/manifest.json for
  *      the legacy universal walker until the base walker consumes the INI
  *      path directly. Playable arenas also embed their authored scenario
- *      dependency closure under scenario/ so opening one .pdarena exposes
- *      the DCC-openable scene source, compatibility OBJ exports, decoded
- *      wall/floor textures, pads/spawns/source tables, graph hooks, and
- *      provenance files without chasing a separate archive.
+ *      dependency closure under dependencies/assets/scenarios/ as an intact
+ *      .pdscenario archive so opening one .pdarena exposes the multiplayer
+ *      wrapper and the exact scenario content unit it uses.
  *
  *   2. data/<romid>/scenarios/<scenario_id>.pdscenario
- *      ZIP compound bundling scene.glb, compatibility visual/scene.obj,
- *      visual/scene.mtl, visual/textures/*.tga, tiles.tsv, pads.tsv,
- *      spawns.tsv, navigation.ini, level.graph.json, and
+ *      ZIP compound bundling scene.glb, pads.tsv, spawns.tsv, volumes.tsv,
+ *      objects.tsv, objectives.tsv, navigation.ini, level.graph.json, and
  *      _meta/generated-*.json envelopes. UNIFIED per Q-1 (one file per stage;
  *      modder-friendly atomic distribution).
  *      Schema: universality-pivot-schemas.md Section 2.10.
@@ -81,6 +79,8 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v1"
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
+#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v3"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v3"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -1527,8 +1527,8 @@ static s32 s_bgSceneInit(pdscenario_bgscene_t *scene)
 	scene->next_obj_index = 1;
 	scene->current_material = -1;
 	if (s_textbufAppend(&scene->obj,
-			"# Perfect Dark 2 BG visual display-list export\n"
-			"# Import visual/scene.obj in Blender; linked textures live in visual/textures/.\n"
+			"# Perfect Dark 2 BG visual scene source intermediate\n"
+			"# Converted into the public scene.glb archive entry.\n"
 			"mtllib scene.mtl\n") != 0) {
 		return -1;
 	}
@@ -1822,10 +1822,10 @@ static s32 s_decodeTexToRgba(const struct tex *tex, u8 **out_rgba)
 	return 0;
 }
 
-static s32 s_decodeTextureImages(u16 texnum,
-                                 u8 **out_tga, u32 *out_tga_size,
-                                 u8 **out_png, u32 *out_png_size,
-                                 u32 *out_width, u32 *out_height)
+s32 romExtractDecodeTextureImages(u16 texnum,
+                                  u8 **out_tga, u32 *out_tga_size,
+                                  u8 **out_png, u32 *out_png_size,
+                                  u32 *out_width, u32 *out_height)
 {
 	if (out_tga) *out_tga = NULL;
 	if (out_tga_size) *out_tga_size = 0;
@@ -1911,12 +1911,23 @@ static s32 s_decodeTextureImages(u16 texnum,
 	return 0;
 }
 
+s32 romExtractTextureSlotIsEmpty(u16 texnum)
+{
+	u8 *list_data = romdataSegGetData("textureslist");
+	u32 list_size = romdataSegGetSize("textureslist");
+	if (!list_data || list_size < sizeof(struct texture) * 2u) return 0;
+	u32 list_count = list_size / (u32)sizeof(struct texture);
+	if ((u32)texnum + 1u >= list_count || (u32)texnum >= NUM_TEXTURES) return 0;
+	const struct texture *list = (const struct texture *)list_data;
+	return list[texnum].dataoffset == list[(u32)texnum + 1u].dataoffset;
+}
+
 static void s_bgSceneDecodeTextures(pdscenario_bgscene_t *scene)
 {
 	for (u32 i = 0; i < scene->texture_count; i++) {
 		pdscenario_bgtexture_t *tex = &scene->textures[i];
 		if (tex->decoded || tex->tga) continue;
-		if (s_decodeTextureImages(tex->texnum,
+		if (romExtractDecodeTextureImages(tex->texnum,
 				&tex->tga, &tex->tga_size,
 				&tex->png, &tex->png_size,
 				&tex->width, &tex->height) == 0) {
@@ -2697,6 +2708,28 @@ static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
 	return has_entry;
 }
 
+static s32 s_existingArchiveHasEntryPrefix(const char *relpath,
+                                           const char *prefix)
+{
+	if (!relpath || !prefix || !prefix[0]) return 0;
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	size_t prefix_len = strlen(prefix);
+	s32 count = modArchiveGetEntryCount(arc);
+	for (s32 i = 0; i < count; i++) {
+		const char *name = modArchiveGetEntryName(arc, i);
+		if (name && strncmp(name, prefix, prefix_len) == 0) {
+			modArchiveClose(arc);
+			return 1;
+		}
+	}
+	modArchiveClose(arc);
+	return 0;
+}
+
 static void s_scenarioArchiveRelPath(const char *out_dir, const char *scenario_id,
                                      char *out, size_t out_size)
 {
@@ -2708,43 +2741,155 @@ static void s_scenarioArchiveRelPath(const char *out_dir, const char *scenario_i
 	snprintf(out, out_size, "%s/%s.pdscenario", out_dir, filename);
 }
 
-static s32 s_copyArchiveEntriesWithPrefix(asset_archive_writer_t *writer,
-                                          const char *src_rel,
-                                          const char *prefix)
+static void s_removeRelpathIfExists(const char *relpath, const char *kind)
 {
-	if (!writer || !src_rel || !prefix || !prefix[0]) return -1;
+	if (!relpath || fsFileSize(relpath) <= 0) return;
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (full && full[0] && remove(full) == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"romextract %s: removed stale typed-archive zip \"%s\"",
+			kind ? kind : "pdasset", relpath);
+	}
+}
+
+static void s_removeLegacyZipForCatalog(const char *out_dir,
+                                        const char *catalog_id,
+                                        const char *kind)
+{
+	if (!out_dir || !catalog_id || !catalog_id[0]) return;
+	char filename[128];
+	s_idToFilename(catalog_id, filename, sizeof(filename));
+	char relpath[FS_MAXPATH];
+	snprintf(relpath, sizeof(relpath), "%s/%s.zip", out_dir, filename);
+	s_removeRelpathIfExists(relpath, kind);
+}
+
+static void s_cleanupLegacyPdarenaZipSiblings(const char *arenas_dir,
+                                              const char *scenarios_dir)
+{
+	for (s32 i = 0; i < g_ArenaDataCount; i++) {
+		const arena_authored_record_t *a = &g_ArenaData[i];
+		s_removeLegacyZipForCatalog(arenas_dir, a->catalog_id, "pdarena");
+		if (stageGetIndex(a->stagenum) >= 0) {
+			char scenario_id[96];
+			s_scenarioCatalogIdFromSlug(a->slug, scenario_id,
+				sizeof(scenario_id));
+			s_removeLegacyZipForCatalog(scenarios_dir, scenario_id,
+				"pdscenario");
+		}
+	}
+}
+
+static s32 s_existingPdarenaArchiveIsClean(const char *relpath,
+                                           s32 expect_scenario)
+{
+	if (!relpath || fsFileSize(relpath) <= 0 || !s_existingZipArchive(relpath)) {
+		return 0;
+	}
+	if (s_existingArchiveHasEntryPrefix(relpath, "scenario/") ||
+	    s_existingArchiveHasEntryPrefix(relpath, "_meta/scenario/") ||
+	    s_existingArchiveHasEntry(relpath, "geometry.obj") ||
+	    s_existingArchiveHasEntry(relpath, "setup.ini") ||
+	    s_existingArchiveHasEntry(relpath, "pads.ini") ||
+	    s_existingArchiveHasEntry(relpath, "arena.mtl")) {
+		return 0;
+	}
+	if (!s_existingArchiveHasEntry(relpath, "arena.ini") ||
+	    !s_existingArchiveHasEntry(relpath, "_meta/manifest.json")) {
+		return 0;
+	}
+	if (!expect_scenario) return 1;
+	return s_existingArchiveHasEntryPrefix(relpath,
+		"dependencies/assets/scenarios/");
+}
+
+static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
+{
+	if (!relpath || fsFileSize(relpath) <= 0 || !s_existingZipArchive(relpath)) {
+		return 0;
+	}
+	if (s_existingArchiveHasEntryPrefix(relpath, "_meta/_meta/")) {
+		return 0;
+	}
+	if (s_existingArchiveHasEntry(relpath, "rooms.obj") ||
+	    s_existingArchiveHasEntry(relpath, "tiles.tsv") ||
+	    s_existingArchiveHasEntry(relpath, "scenario.mtl") ||
+	    s_existingArchiveHasEntryPrefix(relpath, "visual/")) {
+		return 0;
+	}
+	return s_existingArchiveHasEntry(relpath, "scenario.ini") &&
+		s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
+		s_existingArchiveHasEntry(relpath, "scene.glb") &&
+		s_existingArchiveHasEntry(relpath, "pads.tsv") &&
+		s_existingArchiveHasEntry(relpath, "spawns.tsv") &&
+		s_existingArchiveHasEntry(relpath, "volumes.tsv") &&
+		s_existingArchiveHasEntry(relpath, "objects.tsv") &&
+		s_existingArchiveHasEntry(relpath, "objectives.tsv") &&
+		s_existingArchiveHasEntry(relpath, "navigation.ini") &&
+		s_existingArchiveHasEntry(relpath, "level.graph.json") &&
+		s_existingArchiveHasEntry(relpath, "_meta/generated-collision.json") &&
+		s_existingArchiveHasEntry(relpath, "_meta/generated-navmesh.json");
+}
+
+static s32 s_pdarenaOutputsCleanForFastCache(const char *arenas_dir,
+                                             const char *scenarios_dir)
+{
+	for (s32 i = 0; i < g_ArenaDataCount; i++) {
+		const arena_authored_record_t *a = &g_ArenaData[i];
+		char filename[128];
+		s_idToFilename(a->catalog_id, filename, sizeof(filename));
+
+		char arena_rel[FS_MAXPATH];
+		snprintf(arena_rel, sizeof(arena_rel), "%s/%s.pdarena",
+			arenas_dir, filename);
+		s32 has_scenario = stageGetIndex(a->stagenum) >= 0;
+		if (fsFileSize(arena_rel) > 0 &&
+		    !s_existingPdarenaArchiveIsClean(arena_rel, has_scenario)) {
+			sysLogPrintf(LOG_NOTE,
+				"romextract pdarena: fast-cache blocked by stale archive \"%s\"",
+				arena_rel);
+			return 0;
+		}
+
+		if (has_scenario) {
+			char scenario_id[96];
+			s_scenarioCatalogIdFromSlug(a->slug, scenario_id,
+				sizeof(scenario_id));
+			char scenario_rel[FS_MAXPATH];
+			s_scenarioArchiveRelPath(scenarios_dir, scenario_id,
+				scenario_rel, sizeof(scenario_rel));
+			if (fsFileSize(scenario_rel) > 0 &&
+			    !s_existingPdscenarioArchiveIsClean(scenario_rel)) {
+				sysLogPrintf(LOG_NOTE,
+					"romextract pdscenario: fast-cache blocked by stale archive \"%s\"",
+					scenario_rel);
+				return 0;
+			}
+		}
+	}
+	return 1;
+}
+
+static s32 s_addScenarioArchiveDependency(asset_archive_writer_t *writer,
+                                          const char *src_rel,
+                                          const char *scenario_id)
+{
+	if (!writer || !src_rel || !scenario_id || !scenario_id[0]) return -1;
 	char full_buf[FS_MAXPATH + 1];
 	const char *full = fsFullPath(src_rel, full_buf, sizeof(full_buf));
 	if (!full || !full[0]) return -1;
 
-	mod_archive_t *arc = modArchiveOpen(full);
-	if (!arc) return -1;
-	s32 count = modArchiveGetEntryCount(arc);
-	for (s32 i = 0; i < count; i++) {
-		const char *name = modArchiveGetEntryName(arc, i);
-		if (!name || !name[0]) continue;
-		char dst_name[FS_MAXPATH];
-		int n = snprintf(dst_name, sizeof(dst_name), "%s/%s", prefix, name);
-		if (n <= 0 || (size_t)n >= sizeof(dst_name)) {
-			modArchiveClose(arc);
-			return -1;
-		}
-		u32 size = 0;
-		void *bytes = modArchiveExtractAlloc(arc, i, &size);
-		if (!bytes) {
-			modArchiveClose(arc);
-			return -1;
-		}
-		s32 add = assetArchiveWriterAddPublicMem(writer, dst_name,
-			bytes, size, "scenario");
-		free(bytes);
-		if (add != MODARCHIVE_OK) {
-			modArchiveClose(arc);
-			return -1;
-		}
+	char filename[128];
+	s_idToFilename(scenario_id, filename, sizeof(filename));
+	char dst_name[FS_MAXPATH];
+	int n = snprintf(dst_name, sizeof(dst_name),
+		"dependencies/assets/scenarios/%s.pdscenario", filename);
+	if (n <= 0 || (size_t)n >= sizeof(dst_name)) {
+		return -1;
 	}
-	modArchiveClose(arc);
-	return 0;
+	return assetArchiveWriterAddPublicDisk(writer, dst_name, full,
+		"scenario") == MODARCHIVE_OK ? 0 : -1;
 }
 
 /* Emit one .pdarena ZIP-openable archive. Returns 1 written, 0 skipped,
@@ -2769,32 +2914,21 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 	} else {
 		scenario_id[0] = '\0';
 	}
+	char scenario_filename[128];
+	if (scenario_id[0]) {
+		s_idToFilename(scenario_id, scenario_filename,
+			sizeof(scenario_filename));
+	} else {
+		scenario_filename[0] = '\0';
+	}
 
 	char scenario_rel[FS_MAXPATH];
 	s_scenarioArchiveRelPath(scenarios_dir, scenario_id,
 		scenario_rel, sizeof(scenario_rel));
 
-	if (!force_rewrite && fsFileSize(relpath) > 0 && s_existingZipArchive(relpath)) {
-		if (s_existingArchiveHasEntry(relpath, "arena.ini") &&
-		    s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
-		    (!scenario_id[0] ||
-		    (s_existingArchiveHasEntry(relpath, "scenario/scenario.ini") &&
-		     s_existingArchiveHasEntry(relpath, "scenario/scene.glb") &&
-		     s_existingArchiveHasEntry(relpath, "scenario/rooms.obj") &&
-		     s_existingArchiveHasEntry(relpath, "scenario/spawns.tsv") &&
-		     s_existingArchiveHasEntry(relpath, "scenario/volumes.tsv") &&
-		     s_existingArchiveHasEntry(relpath, "scenario/objects.tsv") &&
-		     s_existingArchiveHasEntry(relpath, "scenario/objectives.tsv") &&
-		     s_existingArchiveHasEntry(relpath, "scenario/navigation.ini") &&
-		     s_existingArchiveHasEntry(relpath, "scenario/level.graph.json") &&
-		     s_existingArchiveHasEntry(relpath, "scenario/_meta/generated-collision.json") &&
-		     s_existingArchiveHasEntry(relpath, "scenario/_meta/generated-navmesh.json") &&
-		     s_existingArchiveHasEntry(relpath, "scenario/visual/export_version.txt") &&
-		     s_existingArchiveHasEntry(relpath, "scenario/visual/scene.obj") &&
-		     s_existingArchiveHasEntry(relpath, "scenario/visual/scene.mtl") &&
-		     s_existingArchiveHasEntry(relpath, "scenario/visual/materials.tsv")))) {
-			return 0;
-		}
+	if (!force_rewrite &&
+	    s_existingPdarenaArchiveIsClean(relpath, scenario_id[0] != '\0')) {
+		return 0;
 	}
 
 	char full_buf[FS_MAXPATH + 1];
@@ -2834,9 +2968,9 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 		sizeof(manifest_buf) - manifest_len,
 		scenario_id[0]
 			? "  \"scenario\": \"%s\",\n"
-			  "  \"scenario_root\": \"scenario\"\n}\n"
+			  "  \"scenario_archive\": \"dependencies/assets/scenarios/%s.pdscenario\"\n}\n"
 			: "  \"scenario\": null\n}\n",
-		scenario_id);
+		scenario_id, scenario_filename);
 
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
 		sysLoudFailf("EXTRACT.PDARENA",
@@ -2861,8 +2995,8 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 	if (scenario_id[0]) {
 		ini_len += snprintf(ini_buf + ini_len, sizeof(ini_buf) - ini_len,
 			"scenario = %s\n"
-			"scenario_root = scenario\n",
-			scenario_id);
+			"scenario_archive = dependencies/assets/scenarios/%s.pdscenario\n",
+			scenario_id, scenario_filename);
 	}
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		sysLoudFailf("EXTRACT.PDARENA",
@@ -2903,8 +3037,8 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 	}
 	if (scenario_id[0]) {
 		if (!scenario_rel[0] ||
-		    s_copyArchiveEntriesWithPrefix(&asset_writer,
-				scenario_rel, "scenario") != 0) {
+		    s_addScenarioArchiveDependency(&asset_writer,
+				scenario_rel, scenario_id) != 0) {
 			sysLoudFailf("EXTRACT.PDARENA",
 				"scenario dependency copy failed for \"%s\" from \"%s\"",
 				full, scenario_rel[0] ? scenario_rel : "(missing)");
@@ -2947,23 +3081,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	char dst_rel[FS_MAXPATH];
 	s_scenarioArchiveRelPath(out_dir, scenario_id, dst_rel, sizeof(dst_rel));
 
-	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
-	    s_existingArchiveHasEntry(dst_rel, "scenario.ini") &&
-	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
-	    s_existingArchiveHasEntry(dst_rel, "scene.glb") &&
-	    s_existingArchiveHasEntry(dst_rel, "rooms.obj") &&
-	    s_existingArchiveHasEntry(dst_rel, "spawns.tsv") &&
-	    s_existingArchiveHasEntry(dst_rel, "volumes.tsv") &&
-	    s_existingArchiveHasEntry(dst_rel, "objects.tsv") &&
-	    s_existingArchiveHasEntry(dst_rel, "objectives.tsv") &&
-	    s_existingArchiveHasEntry(dst_rel, "navigation.ini") &&
-	    s_existingArchiveHasEntry(dst_rel, "level.graph.json") &&
-	    s_existingArchiveHasEntry(dst_rel, "_meta/generated-collision.json") &&
-	    s_existingArchiveHasEntry(dst_rel, "_meta/generated-navmesh.json") &&
-	    s_existingArchiveHasEntry(dst_rel, "visual/export_version.txt") &&
-	    s_existingArchiveHasEntry(dst_rel, "visual/scene.obj") &&
-	    s_existingArchiveHasEntry(dst_rel, "visual/scene.mtl") &&
-	    s_existingArchiveHasEntry(dst_rel, "visual/materials.tsv")) return 0;
+	if (!force_rewrite && s_existingPdscenarioArchiveIsClean(dst_rel)) return 0;
 
 	char dst_full_buf[FS_MAXPATH + 1];
 	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
@@ -3108,52 +3226,10 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		return -1;
 	}
 
-	if (has_tiles > 0) {
-		if (assetArchiveWriterAddPublicMem(&asset_writer, "rooms.obj",
-				rooms_obj.data, rooms_obj.len, "geometry") != MODARCHIVE_OK ||
-		    assetArchiveWriterAddPublicMem(&asset_writer, "tiles.tsv",
-				tiles_tsv.data, tiles_tsv.len, "tiles") != MODARCHIVE_OK) {
-			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
-				&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
-				&navigation_ini, &level_graph_json, &collision_meta_json,
-				&navmesh_meta_json,
-				&visual_mesh, &bg_scene);
-			modArchiveAbort(aw);
-			return -1;
-		}
-		static const char mtl_buf[] =
-			"# Perfect Dark 2 base scenario collision material export\n"
-			"newmtl collision\n"
-			"Kd 0.650000 0.650000 0.650000\n"
-			"Ka 0.150000 0.150000 0.150000\n"
-			"Ks 0.000000 0.000000 0.000000\n";
-		if (assetArchiveWriterAddPublicMem(&asset_writer, "scenario.mtl",
-				mtl_buf, (u32)strlen(mtl_buf), "material") != MODARCHIVE_OK) {
-			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
-				&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
-				&navigation_ini, &level_graph_json, &collision_meta_json,
-				&navmesh_meta_json,
-				&visual_mesh, &bg_scene);
-			modArchiveAbort(aw);
-			return -1;
-		}
-	}
-
 	if (has_visual > 0) {
 		if (assetArchiveWriterAddPublicMem(&asset_writer, "scene.glb",
 				bg_scene.scene_glb, bg_scene.scene_glb_size,
-				"scene") != MODARCHIVE_OK ||
-		    assetArchiveWriterAddPublicMem(&asset_writer, "visual/export_version.txt",
-				PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE,
-				(u32)strlen(PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE),
-				"version") != MODARCHIVE_OK ||
-		    assetArchiveWriterAddPublicMem(&asset_writer, "visual/scene.obj",
-				bg_scene.obj.data, bg_scene.obj.len, "visual_geometry") != MODARCHIVE_OK ||
-		    assetArchiveWriterAddPublicMem(&asset_writer, "visual/scene.mtl",
-				bg_scene.mtl.data, bg_scene.mtl.len, "visual_material") != MODARCHIVE_OK ||
-		    assetArchiveWriterAddPublicMem(&asset_writer, "visual/materials.tsv",
-				bg_scene.materials_tsv.data, bg_scene.materials_tsv.len,
-				"visual_materials") != MODARCHIVE_OK) {
+				"scene") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 				&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
 				&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -3161,20 +3237,6 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 				&visual_mesh, &bg_scene);
 			modArchiveAbort(aw);
 			return -1;
-		}
-		for (u32 i = 0; i < bg_scene.texture_count; i++) {
-			const pdscenario_bgtexture_t *tex = &bg_scene.textures[i];
-			if (!tex->decoded || !tex->tga || tex->tga_size == 0) continue;
-			if (assetArchiveWriterAddPublicMem(&asset_writer, tex->path,
-					tex->tga, tex->tga_size, "texture") != MODARCHIVE_OK) {
-				s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
-					&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
-					&navigation_ini, &level_graph_json, &collision_meta_json,
-					&navmesh_meta_json,
-					&visual_mesh, &bg_scene);
-				modArchiveAbort(aw);
-				return -1;
-			}
 		}
 	}
 
@@ -3203,9 +3265,9 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 			navigation_ini.data, navigation_ini.len, "navigation") != MODARCHIVE_OK ||
 	    assetArchiveWriterAddPublicMem(&asset_writer, "level.graph.json",
 			level_graph_json.data, level_graph_json.len, "level_graph") != MODARCHIVE_OK ||
-	    assetArchiveWriterAddPublicMem(&asset_writer, "_meta/generated-collision.json",
+	    assetArchiveWriterAddBundledMem(&asset_writer, "_meta/generated-collision.json",
 			collision_meta_json.data, collision_meta_json.len, "generated_collision") != MODARCHIVE_OK ||
-	    assetArchiveWriterAddPublicMem(&asset_writer, "_meta/generated-navmesh.json",
+	    assetArchiveWriterAddBundledMem(&asset_writer, "_meta/generated-navmesh.json",
 			navmesh_meta_json.data, navmesh_meta_json.len, "generated_navmesh") != MODARCHIVE_OK) {
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 			&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
@@ -3242,21 +3304,14 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		scenario_id, kind, (s32)a->stagenum, a->slug);
 
 	if (has_tiles > 0) n += snprintf(manifest_buf + n, sizeof(manifest_buf) - n,
-		",\n  \"compatibility_collision_obj\": \"rooms.obj\""
-		",\n  \"materials\": \"scenario.mtl\""
-		",\n  \"tiles\": \"tiles.tsv\""
 		",\n  \"room_count\": %u"
 		",\n  \"geo_count\": %u"
 		",\n  \"triangle_count\": %u",
 		(unsigned)room_count, (unsigned)geo_count, (unsigned)tri_count);
 	if (has_visual > 0) n += snprintf(manifest_buf + n, sizeof(manifest_buf) - n,
 		",\n  \"blender_scene\": \"scene.glb\""
-		",\n  \"visual_scene\": \"visual/scene.obj\""
-		",\n  \"visual_materials\": \"visual/scene.mtl\""
-		",\n  \"visual_materials_tsv\": \"visual/materials.tsv\""
-		",\n  \"visual_compatibility_format\": \"OBJ+MTL+TGA\""
-		",\n  \"visual_format\": \"OBJ+MTL+TGA\""
-		",\n  \"visual_export_version\": \"%s\""
+		",\n  \"scene_source_format\": \"GLB\""
+		",\n  \"scene_export_version\": \"%s\""
 		",\n  \"visual_room_count\": %u"
 		",\n  \"visual_gdl_count\": %u"
 		",\n  \"visual_triangle_count\": %u"
@@ -3308,22 +3363,13 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		scenario_id, kind, (s32)a->stagenum, a->slug);
 	if (has_tiles > 0) ini_len += snprintf(ini_buf + ini_len,
 		sizeof(ini_buf) - ini_len,
-		"geometry_file = rooms.obj\n"
-		"material_file = scenario.mtl\n"
-		"geometry_format = OBJ\n"
-		"geometry_role = compatibility_collision_export\n");
+		"source_room_count = %u\n"
+		"source_triangle_count = %u\n",
+		(unsigned)room_count, (unsigned)tri_count);
 	if (has_visual > 0) ini_len += snprintf(ini_buf + ini_len,
 		sizeof(ini_buf) - ini_len,
 		"blender_scene_file = scene.glb\n"
-		"visual_scene_file = visual/scene.obj\n"
-		"visual_material_file = visual/scene.mtl\n"
-		"visual_materials_file = visual/materials.tsv\n"
-		"visual_format = OBJ+MTL+TGA\n"
-		"visual_role = compatibility_export\n"
-		"visual_export_version = " PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
-		"texture_manifest_file = visual/materials.tsv\n");
-	if (has_tiles > 0) ini_len += snprintf(ini_buf + ini_len,
-		sizeof(ini_buf) - ini_len, "tiles_file = tiles.tsv\n");
+		"scene_export_version = " PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n");
 	if (has_pads > 0) ini_len += snprintf(ini_buf + ini_len,
 		sizeof(ini_buf) - ini_len,
 		"pads_file = pads.tsv\n"
@@ -3465,9 +3511,12 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 		return -1;
 	}
 
-	if (romExtractPdFastCacheCanSkip("pdarena", arenas_dir,
+	s_cleanupLegacyPdarenaZipSiblings(arenas_dir, scenarios_dir);
+
+	if (s_pdarenaOutputsCleanForFastCache(arenas_dir, scenarios_dir) &&
+	    romExtractPdFastCacheCanSkip(ROMEXTRACT_PDARENA_FAST_CACHE_KIND, arenas_dir,
 			".pdarena", force_rewrite) &&
-	    romExtractPdFastCacheCanSkip("pdscenario", scenarios_dir,
+	    romExtractPdFastCacheCanSkip(ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND, scenarios_dir,
 			".pdscenario", force_rewrite)) {
 		bootProgressUpdate(g_ArenaDataCount, g_ArenaDataCount);
 		sysLogPrintf(LOG_NOTE,
@@ -3516,8 +3565,10 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 		scenarios_written, scenarios_skipped, scenarios_failed);
 
 	if (arenas_failed == 0 && scenarios_failed == 0) {
-		romExtractPdFastCacheWrite("pdarena", arenas_dir, ".pdarena");
-		romExtractPdFastCacheWrite("pdscenario", scenarios_dir, ".pdscenario");
+		romExtractPdFastCacheWrite(ROMEXTRACT_PDARENA_FAST_CACHE_KIND,
+			arenas_dir, ".pdarena");
+		romExtractPdFastCacheWrite(ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND,
+			scenarios_dir, ".pdscenario");
 	}
 
 	return arenas_written + scenarios_written;

@@ -168,6 +168,7 @@ Mike's 2026-05-01 directive: "ROM is an initial asset source and then we use the
 - **Pass B Slices 1-13**: per-asset-class catalog migration from RomProvider to FileProvider (weapon models, sfx/music banks, lang, character models, animations, props, stage scenes, voice retag, music sequences, SFX residual ACCEPTED LIMIT, UI chrome). All shipped sequentially.
 - **Pass C** (`b15cc701`): `romdataReleaseRom()` frees `g_RomFile` after the verify pair, migrates SRC_ROM segments to disk-backed buffers, NULLs lazy fileSlot pointers into ROM range, emits `LOAD.PASSC` LOUD-FAIL on any missing fallback. Runtime never touches the ROM mapping post-extraction.
 - **Pass D** (S604, this commit lane): self-heal hardening on top of Pass A.4 + segment verify. Per-file system toasts on `corrected` / `failed` outcomes (5-cap), aggregated boot integrity report (`DATA INTEGRITY: V validated, R re-extracted, U unrecoverable`), deferred toast queue + drain (`romExtractToastDrain` after `gameInit`), quarantine path migrated to user-visible `data/_quarantine/<romid>/<unixtime>_<basename>`.
+- **2026-05-27 strengthening (`c3844`)**: Any remaining runtime ROM/RomProvider fallback after extraction is an asset-chain failure, not a valid fallback. `c3844` owns the removal/fatal-audit pass so bootstrap ROM input cannot leak back into gameplay/runtime loading.
 
 Test surface: `[catalog][passd]` 9 cases / ~25 assertions in `tests/test_romextract_passd.cpp` plus the existing Pass A / Pass B pins.
 

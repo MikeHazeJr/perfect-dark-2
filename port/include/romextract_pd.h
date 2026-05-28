@@ -398,6 +398,25 @@ s32 romExtractAllPdlang(s32 force_rewrite);
  * trigger. -1 reserved for infrastructure failure (data dir creation). */
 s32 romExtractAllPdui(s32 force_rewrite);
 
+/* c3843 remaining-family emitter: table-backed metadata families whose base
+ * source is already known at catalog build time. Emits .pdgamemode,
+ * .pdbotprofile, .pdhud, and .pdmission archives with public source files
+ * that static base catalog rows bind through FileProvider paths. */
+s32 romExtractAllPdmeta(s32 force_rewrite);
+
+/* c3843 built-in theme emitter. The implementation lives beside the theme
+ * loader because it owns the built-in palette table. Emits .pdtheme archives
+ * and lets the theme catalog rows load theme.json through FileProvider. */
+s32 romExtractAllPdtheme(s32 force_rewrite);
+
+/* Shared ROM texture decoder used by .pdscenario material export and the
+ * standalone .pdtexture emitter. Returns heap buffers that the caller frees. */
+s32 romExtractDecodeTextureImages(u16 texnum,
+                                  u8 **out_tga, u32 *out_tga_size,
+                                  u8 **out_png, u32 *out_png_size,
+                                  u32 *out_width, u32 *out_height);
+s32 romExtractTextureSlotIsEmpty(u16 texnum);
+
 /* Fast cached-boot guard shared by typed base-asset emitters.
  *
  * The per-asset emitters still own the authoritative stale/archive validation.

@@ -54,6 +54,7 @@
 #include "system.h"
 #include "inputctx.h"
 #include "assetcatalog.h"
+#include "asset_source_debug.h"
 #include "net/netmanifest.h"
 
 extern "C" {
@@ -4070,6 +4071,39 @@ static const ImVec4 s_ThemeTextColors[] = {
     ImVec4(0.90f, 0.78f, 0.35f, 1.0f),  /* Black & Gold (gold text) */
 };
 
+struct DebugAssetSourceFamily {
+    asset_type_e type;
+    const char *label;
+};
+
+static const DebugAssetSourceFamily s_DebugAssetSourceFamilies[] = {
+    { ASSET_WEAPON,      "Weapon (.pdweapon)" },
+    { ASSET_PROJECTILE,  "Projectile (.pdprojectile)" },
+    { ASSET_ENTITY,      "Entity (.pdentity)" },
+    { ASSET_CHARACTER,   "Character (.pdcharacter)" },
+    { ASSET_HEAD,        "Head (.pdhead)" },
+    { ASSET_BODY,        "Body (.pdbody)" },
+    { ASSET_ARENA,       "Arena (.pdarena)" },
+    { ASSET_SCENARIO,    "Scenario (.pdscenario)" },
+    { ASSET_MISSION,     "Mission (.pdmission)" },
+    { ASSET_MODEL,       "Mesh (.pdmesh)" },
+    { ASSET_ANIMATION,   "Animation (.pdanim)" },
+    { ASSET_TEXTURE,     "Texture (.pdtexture)" },
+    { ASSET_MATERIAL,    "Material (.pdmaterial)" },
+    { ASSET_SKIN,        "Skin (.pdskin)" },
+    { ASSET_EFFECT,      "Effect (.pdeffect)" },
+    { ASSET_PROP,        "Prop (.pdprop)" },
+    { ASSET_VEHICLE,     "Vehicle (.pdvehicle)" },
+    { ASSET_AUDIO,       "Audio (.pdsfx/.pdvoice/.pdsong)" },
+    { ASSET_UI,          "UI (.pdui)" },
+    { ASSET_FONT,        "Font (.pdfont)" },
+    { ASSET_LANG,        "Language (.pdlang)" },
+    { ASSET_GAMEMODE,    "Gamemode (.pdgamemode)" },
+    { ASSET_BOT_PROFILE, "Bot Profile (.pdbotprofile)" },
+    { ASSET_HUD,         "HUD (.pdhud)" },
+    { ASSET_THEME,       "Theme (.pdtheme)" },
+};
+
 static void renderSettingsDebug(float scale)
 {
     /* ------ Log Channel Filters ------ */
@@ -4166,6 +4200,33 @@ static void renderSettingsDebug(float scale)
             weaponGraphRuntimeSetEnabled(graphRuntime ? 1 : 0);
             configSave("pd.ini");
         }
+    }
+
+    ImGui::Spacing();
+
+    /* Select exactly one family whose runtime loads must come from public
+     * extracted/generated file sources. Checking a different row clears the
+     * previous family; unchecking the active row disables the gate. */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Asset Source Gate");
+    ImGui::Separator();
+    ImGui::Spacing();
+    {
+        asset_type_e selected = assetSourceDebugOnlyType();
+        ImGui::Columns(2, "##asset_source_gate_cols", false);
+        for (size_t i = 0; i < sizeof(s_DebugAssetSourceFamilies) / sizeof(s_DebugAssetSourceFamilies[0]); i++) {
+            const DebugAssetSourceFamily &family = s_DebugAssetSourceFamilies[i];
+            bool checked = (selected == family.type);
+            if (ImGui::Checkbox(family.label, &checked)) {
+                assetSourceDebugSetOnlyType(checked ? family.type : ASSET_NONE);
+                selected = assetSourceDebugOnlyType();
+                configSave("pd.ini");
+            }
+            if (i + 1 == (sizeof(s_DebugAssetSourceFamilies) / sizeof(s_DebugAssetSourceFamilies[0]) + 1) / 2) {
+                ImGui::NextColumn();
+            }
+        }
+        ImGui::Columns(1);
+        ImGui::TextDisabled("Active: %s", assetSourceDebugTypeLabel(selected));
     }
 
     ImGui::Spacing();

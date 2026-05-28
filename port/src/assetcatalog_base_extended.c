@@ -8,6 +8,10 @@
  *   ASSET_ANIMATION   -- 1207 animations (full table, indices 0x0000..0x04B6)
  *   ASSET_TEXTURE     -- NUM_TEXTURES base textures (3503 NTSC / 3511 JPN-final)
  *   ASSET_PROP        -- 8 base prop categories (PROPTYPE_* constants)
+ *   ASSET_MATERIAL    -- base renderer/material presets
+ *   ASSET_SKIN        -- one editable default skin binding per base body
+ *   ASSET_EFFECT      -- base renderer/effect archetypes
+ *   ASSET_VEHICLE     -- base vehicle archetypes
  *   ASSET_GAMEMODE    -- all 6 Combat Simulator scenarios (MPSCENARIO_*)
  *                       requirefeature populated from g_MpScenarioOverviews[].requirefeature
  *                       (catalog universality sweep, 2026-04-27)
@@ -60,6 +64,10 @@ extern struct mpscenariooverview g_MpScenarioOverviews[];
 extern struct mptrack           g_MpTracks[];
 extern struct botprofile        g_BotProfiles[18];
 
+#ifndef MP_BODY_COUNT
+#define MP_BODY_COUNT 63
+#endif
+
 static s32 s_catalogIdSeen(char ids[][CATALOG_ID_LEN], s32 count, const char *id)
 {
 	for (s32 i = 0; i < count; i++) {
@@ -95,6 +103,47 @@ static void s_makeReadableCatalogIdUnique(char ids[][CATALOG_ID_LEN],
 	snprintf(id, id_n, "%s_variant_%s", base, alpha);
 }
 
+static void s_catalogIdToFilenameSlug(const char *id, char *out, size_t out_n)
+{
+	if (!out || out_n == 0) return;
+	out[0] = '\0';
+	if (!id) return;
+	size_t j = 0;
+	for (size_t i = 0; id[i] && j + 1 < out_n; i++) {
+		char c = id[i];
+		out[j++] = (c == ':' || c == '/' || c == '\\') ? '_' : c;
+	}
+	out[j] = '\0';
+}
+
+static void s_buildArchiveMemberPath(const char *dir, const char *id,
+	const char *ext, const char *member, char *out, size_t out_n)
+{
+	if (!out || out_n == 0) return;
+	out[0] = '\0';
+	char slug[CATALOG_ID_LEN];
+	char rel[FS_MAXPATH];
+	s_catalogIdToFilenameSlug(id, slug, sizeof(slug));
+	snprintf(rel, sizeof(rel), "%s/%s%s::%s", dir, slug, ext, member);
+	fsDataPathFor(rel, out, out_n);
+}
+
+static const char *s_bodyCatalogIdForMpIndex(s32 mp_body_index)
+{
+	if (mp_body_index < 0 || mp_body_index >= MP_BODY_COUNT) {
+		return NULL;
+	}
+	s32 bodynum = (s32)g_MpBodies[mp_body_index].bodynum;
+	for (s32 i = 0; i < assetCatalogGetCount(); i++) {
+		const asset_entry_t *e = assetCatalogGetByIndex(i);
+		if (e && e->occupied && e->type == ASSET_BODY &&
+				e->runtime_index == bodynum) {
+			return e->id;
+		}
+	}
+	return NULL;
+}
+
 /* ========================================================================
  * Weapon Table
  * ======================================================================== */
@@ -102,7 +151,7 @@ static void s_makeReadableCatalogIdUnique(char ids[][CATALOG_ID_LEN],
 /*
  * Maps MPWEAPON_* constant -> catalog slug, display name, dual-wield flag.
  * weapon_id is the MP weapon table slot (MPWEAPON_* range 0x00-0x28).
- * model_file, damage, fire_rate are left at defaults -- base game loads from ROM.
+ * Mesh, stats, and behavior are populated by the .pdweapon emitter/loader path.
  */
 static const struct {
 	s32         weapon_id;
@@ -179,9 +228,8 @@ _Static_assert(NUM_BASE_WEAPONS == NUM_MPWEAPONS,
 /*
  * Full texture table: NUM_TEXTURES entries (3503 NTSC / 3511 JPN-final).
  * NUM_TEXTURES is defined in constants.h and is a compile-time constant.
- * width/height/format = 0 (loaded from ROM at runtime). IDs are generated
- * as readable texture placeholders, with the numeric texture index kept
- * only in runtime_index metadata.
+ * IDs are generated as readable texture placeholders; the numeric texture
+ * index is kept only in runtime_index metadata for extraction/adapter lookup.
  */
 /* NUM_TEXTURES pulled from constants.h */
 
@@ -191,8 +239,7 @@ _Static_assert(NUM_BASE_WEAPONS == NUM_MPWEAPONS,
 
 /*
  * One entry per PROPTYPE_* constant (fundamental prop categories).
- * model_file = "" (base game props load models from ROM / object tables).
- * These are prop *categories*, not individual prop definitions.
+ * These are prop category definitions emitted as .pdprop source archives.
  */
 static const struct {
 	s32         prop_type;
@@ -211,6 +258,57 @@ static const struct {
 };
 
 #define NUM_BASE_PROPS (sizeof(s_BaseProps) / sizeof(s_BaseProps[0]))
+
+/* ========================================================================
+ * Material / Effect / Vehicle Tables
+ * ======================================================================== */
+
+static const struct {
+	const char *slug;
+	const char *name;
+	const char *shading_model;
+	f32 base_color[4];
+	f32 roughness;
+	f32 metallic;
+} s_BaseMaterials[] = {
+	{ "material_default", "Default Material", "classic_lit",
+		{ 1.0f, 1.0f, 1.0f, 1.0f }, 0.55f, 0.0f },
+	{ "material_translucent", "Translucent Material", "classic_alpha",
+		{ 1.0f, 1.0f, 1.0f, 0.5f }, 0.45f, 0.0f },
+	{ "material_emissive", "Emissive Material", "classic_emissive",
+		{ 1.0f, 0.92f, 0.62f, 1.0f }, 0.2f, 0.0f },
+};
+
+#define NUM_BASE_MATERIALS (sizeof(s_BaseMaterials) / sizeof(s_BaseMaterials[0]))
+
+static const struct {
+	const char *slug;
+	const char *name;
+	s32 effect_type;
+	s32 target;
+	const char *shader_id;
+	f32 intensity;
+} s_BaseEffects[] = {
+	{ "effect_tint", "Tint", EFFECT_TYPE_TINT, EFFECT_TARGET_SCENE, "classic_tint", 1.0f },
+	{ "effect_glow", "Glow", EFFECT_TYPE_GLOW, EFFECT_TARGET_PROP, "classic_glow", 1.0f },
+	{ "effect_shimmer", "Shimmer", EFFECT_TYPE_SHIMMER, EFFECT_TARGET_PROP, "classic_shimmer", 1.0f },
+	{ "effect_darken", "Darken", EFFECT_TYPE_DARKEN, EFFECT_TARGET_SCENE, "classic_darken", 1.0f },
+	{ "effect_screen", "Screen Effect", EFFECT_TYPE_SCREEN, EFFECT_TARGET_PLAYER, "classic_screen", 1.0f },
+	{ "effect_particle", "Particle", EFFECT_TYPE_PARTICLE, EFFECT_TARGET_PROP, "classic_particle", 1.0f },
+};
+
+#define NUM_BASE_EFFECTS (sizeof(s_BaseEffects) / sizeof(s_BaseEffects[0]))
+
+static const struct {
+	const char *slug;
+	const char *name;
+	s32 modelnum;
+	const char *behavior_key;
+} s_BaseVehicles[] = {
+	{ "vehicle_hoverbike", "Hoverbike", MODEL_HOVBIKE, "og.hoverbike" },
+};
+
+#define NUM_BASE_VEHICLES (sizeof(s_BaseVehicles) / sizeof(s_BaseVehicles[0]))
 
 /* ========================================================================
  * Game Mode Table
@@ -599,6 +697,10 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = i;
+			s_buildArchiveMemberPath("textures", idbuf, ".pdtexture",
+				"texture.png", e->ext.texture.file_path,
+				sizeof(e->ext.texture.file_path));
+			catalogSetPrimaryFile(e, e->ext.texture.file_path);
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
@@ -622,10 +724,106 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = s_BaseProps[i].prop_type;
+			s_buildArchiveMemberPath("props", idbuf, ".pdprop",
+				"prop.json", e->ext.prop.prop_file,
+				sizeof(e->ext.prop.prop_file));
+			catalogSetPrimaryFile(e, e->ext.prop.prop_file);
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base props", n);
+		count += n;
+	}
+
+	/* ---- materials ---- */
+	{
+		s32 n = 0;
+		for (s32 i = 0; i < (s32)NUM_BASE_MATERIALS; i++) {
+			snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseMaterials[i].slug);
+			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MATERIAL);
+			if (!e) {
+				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register material %s", idbuf);
+				continue;
+			}
+			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1; e->enabled = 1;
+			e->runtime_index = i;
+			s_buildArchiveMemberPath("materials", idbuf, ".pdmaterial",
+				"material.json", e->ext.material.material_file,
+				sizeof(e->ext.material.material_file));
+			catalogSetPrimaryFile(e, e->ext.material.material_file);
+			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+			n++;
+		}
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base materials", n);
+		count += n;
+	}
+
+	/* ---- default body skins ---- */
+	{
+		s32 n = 0;
+		s32 body_count_snapshot = assetCatalogGetCount();
+		for (s32 i = 0; i < body_count_snapshot; i++) {
+			const asset_entry_t *body = assetCatalogGetByIndex(i);
+			if (!body || !body->occupied || body->type != ASSET_BODY ||
+					!body->id[0]) {
+				continue;
+			}
+			const char *body_slug = body->id;
+			if (strncmp(body_slug, "base:body_", 10) == 0) {
+				body_slug += 10;
+			} else if (strncmp(body_slug, "base:", 5) == 0) {
+				body_slug += 5;
+			}
+			char skin_id[CATALOG_ID_LEN];
+			snprintf(skin_id, sizeof(skin_id), "base:skin_%s_default", body_slug);
+			asset_entry_t *e = assetCatalogRegisterSkin(skin_id, body->id);
+			if (!e) {
+				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register skin %s", skin_id);
+				continue;
+			}
+			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1; e->enabled = 1;
+			e->runtime_index = body->runtime_index;
+			s_buildArchiveMemberPath("skins", skin_id, ".pdskin",
+				"skin.json", e->ext.skin.skin_file,
+				sizeof(e->ext.skin.skin_file));
+			catalogSetPrimaryFile(e, e->ext.skin.skin_file);
+			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+			n++;
+		}
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base default skins", n);
+		count += n;
+	}
+
+	/* ---- effects ---- */
+	{
+		s32 n = 0;
+		for (s32 i = 0; i < (s32)NUM_BASE_EFFECTS; i++) {
+			snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseEffects[i].slug);
+			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_EFFECT);
+			if (!e) {
+				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register effect %s", idbuf);
+				continue;
+			}
+			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1; e->enabled = 1;
+			e->runtime_index = i;
+			strncpy(e->ext.effect.name, s_BaseEffects[i].name,
+				sizeof(e->ext.effect.name) - 1);
+			e->ext.effect.effect_type = s_BaseEffects[i].effect_type;
+			e->ext.effect.target = s_BaseEffects[i].target;
+			strncpy(e->ext.effect.shader_id, s_BaseEffects[i].shader_id,
+				sizeof(e->ext.effect.shader_id) - 1);
+			e->ext.effect.intensity = s_BaseEffects[i].intensity;
+			s_buildArchiveMemberPath("effects", idbuf, ".pdeffect",
+				"effect.graph.json", e->ext.effect.effect_file,
+				sizeof(e->ext.effect.effect_file));
+			catalogSetPrimaryFile(e, e->ext.effect.effect_file);
+			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+			n++;
+		}
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base effects", n);
 		count += n;
 	}
 
@@ -653,6 +851,10 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			 * scenario's index into g_MpScenarioOverviews[] (MPSCENARIO_*),
 			 * so the requirefeature read is direct. */
 			e->ext.gamemode.requirefeature = g_MpScenarioOverviews[s_BaseGameModes[i].mode_id].requirefeature;
+			s_buildArchiveMemberPath("gamemodes", idbuf, ".pdgamemode",
+				"rules.json", e->ext.gamemode.rules_file,
+				sizeof(e->ext.gamemode.rules_file));
+			catalogSetPrimaryFile(e, e->ext.gamemode.rules_file);
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
@@ -815,6 +1017,20 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = i; /* index into g_BotProfiles[] */
 			e->mp_index = (s16)i;
+			{
+				const char *body_id = s_bodyCatalogIdForMpIndex(g_BotProfiles[i].body);
+				if (body_id) {
+					strncpy(e->ext.bot_profile.target_body, body_id,
+						sizeof(e->ext.bot_profile.target_body) - 1);
+					e->ext.bot_profile.target_body[
+						sizeof(e->ext.bot_profile.target_body) - 1] = '\0';
+				}
+				s_buildArchiveMemberPath("botprofiles", idbuf,
+					".pdbotprofile", "profile.json",
+					e->ext.bot_profile.profile_file,
+					sizeof(e->ext.bot_profile.profile_file));
+				catalogSetPrimaryFile(e, e->ext.bot_profile.profile_file);
+			}
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
@@ -838,6 +1054,10 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = s_BaseHud[i].hud_id;
+			s_buildArchiveMemberPath("hud", idbuf, ".pdhud",
+				"layout.json", e->ext.hud.layout_file,
+				sizeof(e->ext.hud.layout_file));
+			catalogSetPrimaryFile(e, e->ext.hud.layout_file);
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
@@ -889,6 +1109,41 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base prop models (ASSET_MODEL)", n);
+		count += n;
+	}
+
+	/* ---- vehicles ---- */
+	{
+		s32 n = 0;
+		for (s32 i = 0; i < (s32)NUM_BASE_VEHICLES; i++) {
+			snprintf(idbuf, sizeof(idbuf), "base:%s", s_BaseVehicles[i].slug);
+			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_VEHICLE);
+			if (!e) {
+				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register vehicle %s", idbuf);
+				continue;
+			}
+			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1; e->enabled = 1;
+			e->runtime_index = s_BaseVehicles[i].modelnum;
+			const char *model_id = catalogModelIdByModelnum(s_BaseVehicles[i].modelnum);
+			if (model_id && model_id[0]) {
+				char model_slug[CATALOG_ID_LEN];
+				s_catalogIdToFilenameSlug(model_id, model_slug, sizeof(model_slug));
+				snprintf(e->ext.vehicle.model_file,
+					sizeof(e->ext.vehicle.model_file),
+					"dependencies/assets/models/%s.pdmesh", model_slug);
+			}
+			s_buildArchiveMemberPath("vehicles", idbuf, ".pdvehicle",
+				"physics.json", e->ext.vehicle.physics_file,
+				sizeof(e->ext.vehicle.physics_file));
+			s_buildArchiveMemberPath("vehicles", idbuf, ".pdvehicle",
+				"behavior.graph.json", e->ext.vehicle.behavior_graph,
+				sizeof(e->ext.vehicle.behavior_graph));
+			catalogSetPrimaryFile(e, e->ext.vehicle.physics_file);
+			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+			n++;
+		}
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base vehicles", n);
 		count += n;
 	}
 

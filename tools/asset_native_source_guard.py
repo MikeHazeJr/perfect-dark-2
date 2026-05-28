@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Guard the c3842 Asset Pipeline native-source contract.
+"""Guard the c3842/c3844 Asset Pipeline native-source contract.
 
 The contract: typed asset archives expose directly editable public source
 files, and the game client consumes those same files through catalog/provider
-loading. Generated runtime products are source-hashed cache only.
+loading. Generated runtime products are source-hashed cache only, and runtime
+ROM fallback after extraction is an asset-chain failure.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ import subprocess
 import sys
 import zipfile
 from pathlib import Path
+
+from asset_archive_conformance import validate_root as validate_archive_conformance
 
 
 ROOT_MARKERS = ("AGENTS.md", "tools/kanban/state.json")
@@ -99,10 +102,12 @@ FORBIDDEN_NUMERIC_ASSET_REF_KEYS = {
     "file_id",
     "file_num",
     "filenum",
+    "fire_animation",
     "head",
     "head_id",
     "head_ref",
     "headnum",
+    "hit_sound",
     "material",
     "material_id",
     "material_ref",
@@ -116,6 +121,7 @@ FORBIDDEN_NUMERIC_ASSET_REF_KEYS = {
     "music",
     "music_id",
     "music_ref",
+    "projectile_model_ref",
     "projectile",
     "projectile_id",
     "projectile_ref",
@@ -125,9 +131,13 @@ FORBIDDEN_NUMERIC_ASSET_REF_KEYS = {
     "sfx",
     "sfx_id",
     "sfx_ref",
+    "shoot_sound",
+    "shoot_sound_ref",
+    "shootsound",
     "sound",
     "sound_id",
     "sound_ref",
+    "soundnum",
     "texnum",
     "texture",
     "texture_id",
@@ -153,6 +163,7 @@ LEGACY_ASSET_SYMBOL_PREFIXES = (
     "STAGE_",
     "TEX_",
     "WEAPON_",
+    "invanim_",
 )
 
 PUBLIC_TEXT_ENTRY_SUFFIXES = (
@@ -170,28 +181,37 @@ CONTRACT_SENTINELS = {
     "AGENTS.md": [
         "Asset Pipeline c3842",
         "Public asset source is the game-facing source",
+        "runtime ROM/RomProvider fallback after extraction as an asset-chain failure",
         "tools/asset_native_source_guard.py",
     ],
     ".agents/skills/pd2-large-change-sweep/SKILL.md": [
         "Asset Pipeline c3842 Gate",
         "public editable source",
         "runtime-cache-only",
+        "asset-chain failure",
     ],
     "context/constraints.md": [
         "Public asset source is the game-facing source",
+        "Runtime ROM fallback is an asset-chain failure",
         "source-hashed rebuildable cache",
     ],
     "context/designs/modding/asset-archive-clean-formats.md": [
         "The public authoring files are also the game-facing source of truth",
+        "Runtime ROM fallback is an asset-chain failure",
         "source-hashed cache",
+        "Allowed entries are definitive schema slots",
     ],
     "context/tasks.md": [
         "Asset Pipeline native-source correction",
+        "Runtime ROM fallback is an asset-chain failure",
         "c3842",
+        "c3844",
     ],
     "context/pillars/modding.md": [
         "Public asset source is the native game source",
+        "Runtime ROM fallback is an asset-chain failure",
         "c3842",
+        "c3844",
     ],
     ".githooks/pre-commit": [
         "pre-commit.py",
@@ -202,7 +222,19 @@ CONTRACT_SENTINELS = {
     ],
     "tests/test_asset_native_source_contract.cpp": [
         "[modding][pdxxx][c3842]",
+        "[modding][pdxxx][c3844]",
         "asset_native_source_guard.py",
+        "asset_archive_conformance.py",
+    ],
+    "tools/asset_archive_conformance.py": [
+        "Strict conformance checks for PD2 typed asset archives",
+        "require_all_families",
+        "OPTIONAL_PUBLIC_SLOT_CONTRACT",
+        "META_SLOT_CONTRACT",
+        "validate_schema_definitions",
+        "source entry hash sidecar",
+        "behavior/primary.graph.json",
+        "dependencies/assets/scenarios/*.pdscenario",
     ],
     "CMakeLists.txt": [
         "tests/test_asset_native_source_contract.cpp",
@@ -277,7 +309,7 @@ def require_sentinals(root: Path) -> list[str]:
             continue
         for needle in needles:
             if needle not in text:
-                errors.append(f"{rel} missing c3842 sentinel: {needle}")
+                errors.append(f"{rel} missing asset contract sentinel: {needle}")
     return errors
 
 
@@ -292,27 +324,58 @@ def require_kanban(root: Path) -> list[str]:
     card = next((c for c in cards if c.get("id") == "c3842"), None)
     if not card:
         return ["tools/kanban/state.json missing c3842 card"]
-    if card.get("column") not in {"active", "done"}:
+    column = card.get("column")
+    if column not in {"active", "done"}:
         errors.append("c3842 must stay active or done after the native-source audit closes")
     if card.get("priority") != 1:
         errors.append("c3842 must stay priority 1")
     subtasks = card.get("subtasks", [])
-    if card.get("column") == "active":
-        if not any(s.get("id") == "c3842-s1" and s.get("status") == "active"
-                   for s in subtasks):
-            errors.append("c3842-s1 native-source audit subtask must remain active")
+    status_by_id = {
+        str(s.get("id", "")): s.get("status")
+        for s in subtasks
+        if str(s.get("id", "")).startswith("c3842-s")
+    }
+    definitive_ids = ("c3842-s7", "c3842-s8", "c3842-s9")
+    for subtask_id in definitive_ids:
+        if subtask_id not in status_by_id:
+            errors.append(f"{subtask_id} definitive optional-slot subtask is missing")
+
+    if column == "active":
+        definitive_statuses = [status_by_id.get(s) for s in definitive_ids]
+        if not all(status in {"active", "todo", "done"} for status in definitive_statuses):
+            errors.append("c3842 definitive optional-slot subtasks have invalid status")
+        if (not all(status == "done" for status in definitive_statuses) and
+                "active" not in definitive_statuses):
+            errors.append(
+                "one of c3842-s7 through c3842-s9 must be active while c3842 is active"
+            )
     else:
         incomplete = [
-            s.get("id", "(missing)")
-            for s in subtasks
-            if str(s.get("id", "")).startswith("c3842-s")
-            and s.get("status") != "done"
+            subtask_id
+            for subtask_id, status in status_by_id.items()
+            if status != "done"
         ]
         if incomplete:
             errors.append(
                 "c3842 is done but has incomplete native-source subtasks: "
                 + ", ".join(incomplete)
             )
+    rom_card = next((c for c in cards if c.get("id") == "c3844"), None)
+    if not rom_card:
+        errors.append("tools/kanban/state.json missing c3844 card")
+    else:
+        if rom_card.get("priority") != 1:
+            errors.append("c3844 must stay priority 1")
+        if rom_card.get("column") not in {"active", "done"}:
+            errors.append("c3844 must stay active or done until runtime ROM fallback removal closes")
+        rom_text = " ".join(
+            str(rom_card.get(k, ""))
+            for k in ("title", "description", "notes")
+        )
+        if "ROM fallback" not in rom_text or "asset-chain failure" not in rom_text:
+            errors.append("c3844 must explicitly track ROM fallback as an asset-chain failure")
+        if not any(str(s.get("id", "")).startswith("c3844-s") for s in rom_card.get("subtasks", [])):
+            errors.append("c3844 must carry ordered ROM fallback removal subtasks")
     return errors
 
 
@@ -405,86 +468,13 @@ def scan_text_asset_refs(label: str, entry_name: str, text: str) -> list[str]:
 
 
 def scan_example_archives(root: Path) -> list[str]:
-    errors: list[str] = []
     example_root = root / "examples/modding/typed-pdxxx-basic"
-    if not example_root.exists():
-        return ["examples/modding/typed-pdxxx-basic is missing"]
-
-    archives = [
-        p for p in example_root.rglob("*")
-        if p.is_file() and p.suffix.lower() in TYPED_DESCRIPTORS
-    ]
-    if not archives:
-        return ["typed-pdxxx examples contain no typed archives"]
-
-    for archive_path in archives:
-        descriptor = TYPED_DESCRIPTORS[archive_path.suffix.lower()]
-        label = relpath(archive_path, root)
-        try:
-            with zipfile.ZipFile(archive_path) as zf:
-                names = zf.namelist()
-                if descriptor not in names:
-                    errors.append(f"{label} missing root descriptor {descriptor}")
-
-                public_entries = public_source_entries(names, descriptor)
-                if not public_entries:
-                    errors.append(f"{label} has no public editable source payload")
-
-                if archive_path.suffix.lower() == ".pdscenario":
-                    normalized_names = {n.replace("\\", "/") for n in names}
-                    missing = sorted(PDSCENARIO_REQUIRED_PUBLIC_ENTRY_NAMES -
-                                     normalized_names)
-                    for name in missing:
-                        errors.append(
-                            f"{label} missing required source-first scenario file {name}"
-                        )
-                    if descriptor in normalized_names:
-                        descriptor_text = zf.read(descriptor).decode(
-                            "utf-8", errors="replace"
-                        )
-                        if "scene_file = scene.glb" not in descriptor_text:
-                            errors.append(
-                                f"{label} scenario.ini must declare scene_file = scene.glb"
-                            )
-                        if "runtime_source_file = scene.glb" not in descriptor_text:
-                            errors.append(
-                                f"{label} scenario.ini must declare runtime_source_file = scene.glb"
-                            )
-                        if "setup_file" in descriptor_text:
-                            errors.append(
-                                f"{label} scenario.ini still declares setup_file; use decoded tables/graphs"
-                            )
-
-                for name in names:
-                    normalized = name.replace("\\", "/")
-                    leaf = normalized.rsplit("/", 1)[-1].lower()
-                    is_scenario_archive = archive_path.suffix.lower() == ".pdscenario"
-                    is_embedded_scenario_entry = normalized.startswith("scenario/")
-                    if ((is_scenario_archive or is_embedded_scenario_entry) and
-                            leaf in PDSCENARIO_FORBIDDEN_PUBLIC_ENTRY_NAMES):
-                        errors.append(
-                            f"{label} contains forbidden raw scenario dump {normalized}; "
-                            "decode setup into named tables/graphs with catalog IDs"
-                        )
-                    if leaf in FORBIDDEN_ARCHIVE_ENTRY_NAMES:
-                        errors.append(
-                            f"{label} contains forbidden authored runtime payload {normalized}"
-                        )
-                    if normalized.endswith(".bin"):
-                        errors.append(
-                            f"{label} contains forbidden authored .bin payload {normalized}"
-                        )
-                    if (normalized in public_entries and
-                            normalized.lower().endswith(PUBLIC_TEXT_ENTRY_SUFFIXES)):
-                        try:
-                            text = zf.read(name).decode("utf-8", errors="replace")
-                        except KeyError:
-                            continue
-                        errors.extend(scan_text_asset_refs(label, normalized, text))
-        except zipfile.BadZipFile:
-            errors.append(f"{label} is not zip-openable")
-            continue
-    return errors
+    result = validate_archive_conformance(
+        example_root,
+        require_all_families=True,
+        recurse=True,
+    )
+    return result.errors
 
 
 def staged_files(root: Path) -> list[str]:

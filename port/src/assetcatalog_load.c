@@ -20,6 +20,7 @@
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_deps.h"
+#include "asset_source_debug.h"
 #include "asset_runtime.h"
 #include "assetprovider.h"
 #include "assetload.h"
@@ -73,6 +74,9 @@ typedef struct catalog_animation_clip_payload {
 
 extern struct animtableentry *g_RomAnims;
 extern u8 **g_AnimReplacements;
+
+static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type);
+static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry);
 
 /* ========================================================================
  * Initialization
@@ -128,6 +132,14 @@ void catalogLoadInit(void)
             s_SoundnumOverride[e->source_soundnum] = i;
             if (e->bundled) { bundled_count++; } else { override_count++; }
         }
+
+        if (e->bundled && e->source.primary.provider == fileProvider()
+                && s_catalogTypeUsesMetadataRuntimePayload(e->type)) {
+            asset_entry_t *mutable_entry = assetCatalogGetMutable(e->id);
+            if (mutable_entry && mutable_entry->load_state < ASSET_STATE_ACTIVE) {
+                (void)s_catalogLoadEntryMetadataPayload(mutable_entry);
+            }
+        }
     }
 
     s_Initialized = 1;
@@ -177,6 +189,34 @@ static const char *entryGetFilePath(const asset_entry_t *e)
     }
 }
 
+static void s_catalogApplySourceOnlyDebug(CatalogResolveResult *r,
+                                          const asset_entry_t *e)
+{
+    if (r && assetSourceDebugEntryRequiresPublicFileSource(e)) {
+        r->source_only_blocked = 1;
+    }
+}
+
+static void s_catalogFatalSourceOnlyFallback(const CatalogResolveResult *r,
+                                             const char *kind,
+                                             s32 numeric_id)
+{
+    const asset_entry_t *entry;
+    const char *asset_id;
+    const char *type_label;
+
+    if (!r || !r->source_only_blocked) {
+        return;
+    }
+
+    entry = assetCatalogGetByIndex(r->catalog_id);
+    asset_id = entry ? entry->id : "?";
+    type_label = entry ? assetSourceDebugTypeLabel(entry->type) : "?";
+    sysFatalError("ASSET.SOURCE_ONLY: %s %d maps to %s '%s' but has no "
+                  "public FileProvider source; refusing ROM/static fallback.",
+                  kind ? kind : "asset", numeric_id, type_label, asset_id);
+}
+
 /* ========================================================================
  * Resolve API  (primary interface)
  *
@@ -196,7 +236,7 @@ static const char *entryGetFilePath(const asset_entry_t *e)
 
 CatalogResolveResult catalogResolveFile(s32 filenum)
 {
-    CatalogResolveResult r = { NULL, -1, 0 };
+    CatalogResolveResult r = { NULL, -1, 0, 0 };
 
     if (!s_Initialized || filenum < 0 || filenum >= LOAD_MAX_FILES) {
         return r;
@@ -232,6 +272,7 @@ CatalogResolveResult catalogResolveFile(s32 filenum)
             r.is_mod_override = 1;
         }
     }
+    s_catalogApplySourceOnlyDebug(&r, e);
     /* Otherwise: bundled with RomProvider primary (or null primary);
      * caller falls through to the legacy ROM read path. */
     return r;
@@ -239,7 +280,7 @@ CatalogResolveResult catalogResolveFile(s32 filenum)
 
 CatalogResolveResult catalogResolveTexture(s32 texnum)
 {
-    CatalogResolveResult r = { NULL, -1, 0 };
+    CatalogResolveResult r = { NULL, -1, 0, 0 };
 
     if (!s_Initialized || texnum < 0 || texnum >= LOAD_MAX_TEXTURES) {
         return r;
@@ -265,12 +306,13 @@ CatalogResolveResult catalogResolveTexture(s32 texnum)
             r.is_mod_override = 1;
         }
     }
+    s_catalogApplySourceOnlyDebug(&r, e);
     return r;
 }
 
 CatalogResolveResult catalogResolveAnim(s32 animnum)
 {
-    CatalogResolveResult r = { NULL, -1, 0 };
+    CatalogResolveResult r = { NULL, -1, 0, 0 };
 
     if (!s_Initialized || animnum < 0 || animnum >= LOAD_MAX_ANIMS) {
         return r;
@@ -296,12 +338,13 @@ CatalogResolveResult catalogResolveAnim(s32 animnum)
             r.is_mod_override = 1;
         }
     }
+    s_catalogApplySourceOnlyDebug(&r, e);
     return r;
 }
 
 CatalogResolveResult catalogResolveSound(s32 soundnum)
 {
-    CatalogResolveResult r = { NULL, -1, 0 };
+    CatalogResolveResult r = { NULL, -1, 0, 0 };
 
     if (!s_Initialized || soundnum < 0 || soundnum >= LOAD_MAX_SOUNDS) {
         return r;
@@ -327,6 +370,7 @@ CatalogResolveResult catalogResolveSound(s32 soundnum)
             r.is_mod_override = 1;
         }
     }
+    s_catalogApplySourceOnlyDebug(&r, e);
     return r;
 }
 
@@ -341,24 +385,28 @@ CatalogResolveResult catalogResolveSound(s32 soundnum)
 const char *catalogGetFileOverride(s32 filenum)
 {
     CatalogResolveResult r = catalogResolveFile(filenum);
+    s_catalogFatalSourceOnlyFallback(&r, "file", filenum);
     return (r.is_mod_override && r.path) ? r.path : NULL;
 }
 
 const char *catalogGetTextureOverride(s32 texnum)
 {
     CatalogResolveResult r = catalogResolveTexture(texnum);
+    s_catalogFatalSourceOnlyFallback(&r, "texture", texnum);
     return (r.is_mod_override && r.path) ? r.path : NULL;
 }
 
 const char *catalogGetAnimOverride(s32 animnum)
 {
     CatalogResolveResult r = catalogResolveAnim(animnum);
+    s_catalogFatalSourceOnlyFallback(&r, "animation", animnum);
     return (r.is_mod_override && r.path) ? r.path : NULL;
 }
 
 const char *catalogGetSoundOverride(s32 soundnum)
 {
     CatalogResolveResult r = catalogResolveSound(soundnum);
+    s_catalogFatalSourceOnlyFallback(&r, "sound", soundnum);
     return (r.is_mod_override && r.path) ? r.path : NULL;
 }
 
@@ -929,6 +977,22 @@ static s32 s_catalogLoadEntryFromProvider(asset_entry_t *entry, asset_type_e exp
 static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
 {
     asset_data_handle_t handle = catalogEffectiveHandle(entry);
+
+    if (assetSourceDebugEntryRequiresPublicFileSource(entry)) {
+        sysLogPrintf(LOG_WARNING,
+                     "ASSET.SOURCE_ONLY: typed '%s' %s has no public FileProvider source; refusing fallback",
+                     entry->id, assetSourceDebugTypeLabel(entry->type));
+        return 0;
+    }
+
+    if ((entry->bundled || entry->ref_count == ASSET_REF_BUNDLED)
+            && entry->source.primary.provider == fileProvider()
+            && s_catalogTypeUsesMetadataRuntimePayload(entry->type)) {
+        if (entry->load_state >= ASSET_STATE_ACTIVE && entry->loaded_data) {
+            return 1;
+        }
+        return s_catalogLoadEntryMetadataPayload(entry);
+    }
 
     if (entry->bundled || entry->ref_count == ASSET_REF_BUNDLED) {
         sysLogPrintf(LOG_NOTE, "CATALOG: retain bundled '%s'", entry->id);

@@ -7,13 +7,8 @@
  * Schema lock-down: context/designs/catalog/universality-pivot-schemas.md
  * Section 2.3 (.pdbody).
  *
- * Cross-reference convention for Step 2: `mesh` and `hand` fields
- * preserve the original FILE_* enum strings (resolved via reverse
- * lookup against loader_enum_reverse.c). Step 4 (universal loader) will
- * swap these to catalog IDs once the directory walker is minting the
- * universal mapping. The Step 2 emit format is therefore intermediate
- * and identical to the per-record envelope content; this is intentional so
- * the parity check at Step 2 is clean.
+ * Public descriptors use catalog IDs and embedded typed mesh archives. Legacy
+ * FILE_* and bodynum fields stay in _meta provenance only.
  *
  * Bodies-only fields preserved per audit: canvaryheight (Skedar's
  * per-chr height variance), handfilenum (first-person hand model;
@@ -43,6 +38,8 @@
 #include "romextract_pd.h"
 #include "system.h"
 #include "bodydata_authored.h"
+
+#define PDBODY_FAST_CACHE_KIND "pdbody_clean_public_v2"
 
 /* Convert "base:dark_combat" -> "base_dark_combat". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -77,6 +74,37 @@ static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
 	s32 has_entry = modArchiveFindEntry(arc, entry) >= 0;
 	modArchiveClose(arc);
 	return has_entry;
+}
+
+static s32 s_existingArchiveEntryContains(const char *relpath,
+                                          const char *entry,
+                                          const char *needle)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0] || !needle) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	s32 idx = modArchiveFindEntry(arc, entry);
+	if (idx < 0) {
+		modArchiveClose(arc);
+		return 0;
+	}
+	u32 size = 0;
+	char *bytes = (char *)modArchiveExtractAlloc(arc, idx, &size);
+	modArchiveClose(arc);
+	if (!bytes) return 0;
+	char *text = (char *)malloc((size_t)size + 1);
+	if (!text) {
+		free(bytes);
+		return 0;
+	}
+	memcpy(text, bytes, size);
+	text[size] = '\0';
+	free(bytes);
+	s32 found = strstr(text, needle) != NULL;
+	free(text);
+	return found;
 }
 
 static void s_meshCatalogId(u16 filenum, const char *hint_suffix,
@@ -141,14 +169,25 @@ static s32 s_emitOneBody(const body_authored_record_t *b,
 	    s_existingArchiveHasEntry(relpath, "body.ini") &&
 	    s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
 	    (b->filenum == 0 || s_existingArchiveHasEntry(relpath, "mesh.pdmesh")) &&
-	    (b->handfilenum == 0 || s_existingArchiveHasEntry(relpath, "hand.pdmesh"))) {
+	    (b->handfilenum == 0 || s_existingArchiveHasEntry(relpath, "hand.pdmesh")) &&
+	    !s_existingArchiveEntryContains(relpath, "body.ini", "bodynum") &&
+	    !s_existingArchiveEntryContains(relpath, "body.ini", "mesh = FILE_") &&
+	    !s_existingArchiveEntryContains(relpath, "body.ini", "hand = FILE_")) {
 		return 0;
 	}
 
 	char mesh_rel[FS_MAXPATH];
 	char hand_rel[FS_MAXPATH];
+	char mesh_id[128];
+	char hand_id[128];
+	mesh_id[0] = '\0';
+	hand_id[0] = '\0';
 	s_meshArchiveRelPath(b->filenum, NULL, mesh_rel, sizeof(mesh_rel));
 	s_meshArchiveRelPath(b->handfilenum, "hand", hand_rel, sizeof(hand_rel));
+	if (b->filenum != 0) s_meshCatalogId(b->filenum, NULL,
+		mesh_id, sizeof(mesh_id));
+	if (b->handfilenum != 0) s_meshCatalogId(b->handfilenum, "hand",
+		hand_id, sizeof(hand_id));
 
 	const char *type_str = loaderEnumNameForHeadbodyType(b->type);
 	const char *mesh_str = loaderEnumNameForFileEnum(b->filenum);
@@ -228,28 +267,27 @@ static s32 s_emitOneBody(const body_authored_record_t *b,
 	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
 		"[body]\n"
 		"catalog_id = %s\n"
-		"bodynum = %d\n"
 		"ismale = %u\n"
 		"unk00_01 = %u\n"
 		"canvaryheight = %u\n"
 		"type = %s\n"
 		"height = %u\n"
-		"mesh = %s\n"
+		"mesh_catalog_id = %s\n"
 		"mesh_archive = %s\n"
 		"scale = %.7g\n"
 		"animscale = %.7g\n",
-		catalog_id, (s32)b->bodynum, (unsigned)b->ismale,
+		catalog_id, (unsigned)b->ismale,
 		(unsigned)b->unk00_01, (unsigned)b->canvaryheight,
 		type_str ? type_str : "", (unsigned)b->height,
-		mesh_str ? mesh_str : "", b->filenum ? "mesh.pdmesh" : "",
+		mesh_id, b->filenum ? "mesh.pdmesh" : "",
 		(double)b->scale, (double)b->animscale);
 	if (b->handfilenum != 0) {
 		ini_len += snprintf(ini_buf + ini_len, sizeof(ini_buf) - ini_len,
-			"hand = %s\n"
-			"hand_archive = hand.pdmesh\n", hand_str ? hand_str : "");
+			"hand_catalog_id = %s\n"
+			"hand_archive = hand.pdmesh\n", hand_id);
 	} else {
 		ini_len += snprintf(ini_buf + ini_len, sizeof(ini_buf) - ini_len,
-			"hand = \n"
+			"hand_catalog_id = \n"
 			"hand_archive = \n");
 	}
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
@@ -370,7 +408,7 @@ s32 romExtractAllPdbody(s32 force_rewrite)
 		return -1;
 	}
 
-	if (romExtractPdFastCacheCanSkip("pdbody", bodies_dir,
+	if (romExtractPdFastCacheCanSkip(PDBODY_FAST_CACHE_KIND, bodies_dir,
 			".pdbody", force_rewrite)) {
 		bootProgressUpdate(g_BodyDataCount, g_BodyDataCount);
 		sysLogPrintf(LOG_NOTE,
@@ -402,7 +440,7 @@ s32 romExtractAllPdbody(s32 force_rewrite)
 		written, skipped, failed, g_BodyDataCount);
 
 	if (failed == 0) {
-		romExtractPdFastCacheWrite("pdbody", bodies_dir, ".pdbody");
+		romExtractPdFastCacheWrite(PDBODY_FAST_CACHE_KIND, bodies_dir, ".pdbody");
 	}
 
 	return written;

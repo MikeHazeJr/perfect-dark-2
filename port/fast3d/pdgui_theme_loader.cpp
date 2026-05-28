@@ -22,6 +22,7 @@
 #include <ctype.h>
 #include <dirent.h>   /* 2026-04-11: mods/ directory scan for custom theme.json */
 #include <sys/stat.h>
+#include <stdarg.h>
 #include <PR/ultratypes.h>
 
 #include "pdgui_theme_loader.h"
@@ -32,11 +33,14 @@
 #include "pdgui_fontmgr.h"
 #include "pdgui_font_mod.h"   /* S305 P4: theme → font-mod bundling */
 #include "assetcatalog.h"
+#include "asset_archive_writer.h"
+#include "boot_progress.h"
 #include "config.h"
 #include "system.h"
 #include "fs.h"
 #include "modmgr.h"           /* B-238 follow-up: MODMGR_RESERVED_NAMES_LIST */
 #include "modarchive.h"       /* B-238 follow-up: read theme.json from .pdmod archives */
+#include "romextract_pd.h"
 
 /* =========================================================================
  * Constants
@@ -54,6 +58,7 @@
 #define THEME_CATALOG_ID_LEN  64
 #define THEME_CFG_KEY         "Theme.ActiveTheme"
 #define THEME_DEFAULT_ID      "base:theme_blue"
+#define PDTHEME_FAST_CACHE_KIND "pdtheme_builtin_v1"
 
 /* =========================================================================
  * Theme definition structure
@@ -973,6 +978,178 @@ static const u32 k_BuiltinGlowColors[7] = {
     0xffc84080u, /* gold */
 };
 
+static void theme_id_to_slug(const char *id, char *out, size_t out_n)
+{
+    if (!out || out_n == 0) return;
+    out[0] = '\0';
+    if (!id) return;
+    size_t j = 0;
+    for (size_t i = 0; id[i] && j + 1 < out_n; i++) {
+        char c = id[i];
+        out[j++] = (c == ':' || c == '/' || c == '\\') ? '_' : c;
+    }
+    out[j] = '\0';
+}
+
+static void theme_archive_abs_path(const char *themes_dir, const char *id,
+                                   char *out, size_t out_n)
+{
+    char slug[THEME_CATALOG_ID_LEN];
+    theme_id_to_slug(id, slug, sizeof(slug));
+    snprintf(out, out_n, "%s/%s.pdtheme", themes_dir, slug);
+}
+
+static void theme_archive_member_path(const char *id, char *out, size_t out_n)
+{
+    char slug[THEME_CATALOG_ID_LEN];
+    char rel[THEME_FILEPATH_LEN];
+    theme_id_to_slug(id, slug, sizeof(slug));
+    snprintf(rel, sizeof(rel), "themes/%s.pdtheme::theme.json", slug);
+    fsDataPathFor(rel, out, out_n);
+}
+
+static s32 theme_archive_has_entry(const char *path, const char *entry_name)
+{
+    mod_archive_t *arc = modArchiveOpen(path);
+    if (!arc) return 0;
+    s32 found = modArchiveFindEntry(arc, entry_name) >= 0;
+    modArchiveClose(arc);
+    return found;
+}
+
+static bool appendf(char *out, size_t out_n, size_t *pos, const char *fmt, ...)
+{
+    if (!out || !pos || *pos >= out_n) return false;
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(out + *pos, out_n - *pos, fmt, ap);
+    va_end(ap);
+    if (n < 0 || (size_t)n >= out_n - *pos) return false;
+    *pos += (size_t)n;
+    return true;
+}
+
+static s32 build_builtin_theme_json(s32 index, char *out, size_t out_n)
+{
+    if (!out || out_n == 0 || index < 0 || index >= 7) return -1;
+    size_t pos = 0;
+    out[0] = '\0';
+
+    if (!appendf(out, out_n, &pos,
+            "{\n"
+            "  \"schema\": \"pd2.theme.v1\",\n"
+            "  \"catalog_id\": \"%s\",\n"
+            "  \"name\": \"%s\",\n"
+            "  \"author\": \"Perfect Dark 2\",\n"
+            "  \"version\": \"1\",\n"
+            "  \"palette\": {\n",
+            k_BuiltinIds[index], k_BuiltinNames[index])) {
+        return -1;
+    }
+
+    for (int i = 0; i < 15; i++) {
+        if (!appendf(out, out_n, &pos,
+                "    \"%s\": \"%08x\"%s\n",
+                k_PaletteFieldNames[i],
+                (unsigned int)k_BuiltinPalettes[index][i],
+                i == 14 ? "," : ",")) {
+            return -1;
+        }
+    }
+
+    if (!appendf(out, out_n, &pos,
+            "    \"title_glow\": \"%08x\"\n"
+            "  },\n"
+            "  \"textGlow\": {\n"
+            "    \"enabled\": true,\n"
+            "    \"intensity\": 0.6,\n"
+            "    \"color\": \"%08x\"\n"
+            "  }\n"
+            "}\n",
+            (unsigned int)k_BuiltinGlowColors[index],
+            (unsigned int)k_BuiltinGlowColors[index])) {
+        return -1;
+    }
+    return (s32)pos;
+}
+
+static s32 emit_builtin_theme_archive(s32 index, const char *themes_dir,
+                                      s32 force_rewrite)
+{
+    if (index < 0 || index >= 7 || !themes_dir || !themes_dir[0]) {
+        return -1;
+    }
+
+    char path[FS_MAXPATH];
+    theme_archive_abs_path(themes_dir, k_BuiltinIds[index], path, sizeof(path));
+    if (!force_rewrite && fsFileSize(path) > 0 &&
+            theme_archive_has_entry(path, "theme.ini") &&
+            theme_archive_has_entry(path, "theme.json")) {
+        return 0;
+    }
+
+    char ini[512];
+    int ini_len = snprintf(ini, sizeof(ini),
+        "[theme]\n"
+        "catalog_id = %s\n"
+        "name = %s\n"
+        "theme_file = theme.json\n"
+        "category = base\n",
+        k_BuiltinIds[index], k_BuiltinNames[index]);
+    if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) return -1;
+
+    char json[4096];
+    s32 json_len = build_builtin_theme_json(index, json, sizeof(json));
+    if (json_len <= 0) return -1;
+
+    char manifest[512];
+    int manifest_len = snprintf(manifest, sizeof(manifest),
+        "{\n"
+        "  \"pd_kind\": \"theme\",\n"
+        "  \"pd_schema_version\": 1,\n"
+        "  \"id\": \"%s\",\n"
+        "  \"theme_file\": \"theme.json\"\n"
+        "}\n",
+        k_BuiltinIds[index]);
+    if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest)) {
+        return -1;
+    }
+
+    mod_archive_writer_t *aw = modArchiveBegin(path);
+    if (!aw) {
+        sysLoudFailf("EXTRACT.PDTHEME", "modArchiveBegin failed for \"%s\"", path);
+        return -1;
+    }
+
+    asset_archive_writer_t writer;
+    if (assetArchiveWriterInit(&writer, aw, "theme", k_BuiltinIds[index])
+            != MODARCHIVE_OK) {
+        sysLoudFailf("EXTRACT.PDTHEME",
+            "assetArchiveWriterInit failed for \"%s\"", path);
+        modArchiveAbort(aw);
+        return -1;
+    }
+    assetArchiveWriterSetProvenance(&writer, "pdgui_theme_loader",
+        "builtin_theme_palette", index, k_BuiltinIds[index]);
+
+    if (assetArchiveWriterAddDescriptor(&writer, "theme.ini",
+            ini, (u32)ini_len) != MODARCHIVE_OK ||
+            assetArchiveWriterAddManifestJson(&writer,
+            manifest, (u32)manifest_len) != MODARCHIVE_OK ||
+            assetArchiveWriterAddPublicMem(&writer, "theme.json",
+            json, (u32)json_len, "theme-source") != MODARCHIVE_OK ||
+            assetArchiveWriterFinishMetadata(&writer) != MODARCHIVE_OK) {
+        modArchiveAbort(aw);
+        return -1;
+    }
+
+    if (modArchiveFinish(aw) != 0) {
+        sysLoudFailf("EXTRACT.PDTHEME", "modArchiveFinish failed for \"%s\"", path);
+        return -1;
+    }
+    return 1;
+}
+
 /* =========================================================================
  * Seen-mods helpers (first-sight detection for default-enabled policy)
  * ========================================================================= */
@@ -1499,6 +1676,56 @@ static void scan_catalog_for_themes(void)
 
 extern "C" {
 
+s32 romExtractAllPdtheme(s32 force_rewrite)
+{
+#if defined(PD_SERVER)
+    (void)force_rewrite;
+    return 0;
+#else
+    if (!fsDataDirEnsure()) {
+        sysLoudFailf("EXTRACT.PDTHEME", "fsDataDirEnsure failed");
+        return -1;
+    }
+
+    char data_dir_buf[FS_MAXPATH + 1];
+    const char *data_dir = fsDataDir(data_dir_buf, sizeof(data_dir_buf));
+    char themes_dir[FS_MAXPATH];
+    snprintf(themes_dir, sizeof(themes_dir), "%s/themes", data_dir);
+    if (!fsCreateDir(themes_dir)) {
+        sysLoudFailf("EXTRACT.PDTHEME", "failed to create theme output dir");
+        return -1;
+    }
+
+    if (romExtractPdFastCacheCanSkip(PDTHEME_FAST_CACHE_KIND, themes_dir,
+            ".pdtheme", force_rewrite)) {
+        sysLogPrintf(LOG_NOTE,
+            "romextract pdtheme: written=0 skipped=themes failed=0 (fast-cache)");
+        return 0;
+    }
+
+    s32 written = 0;
+    s32 skipped = 0;
+    s32 failed = 0;
+    bootProgressUpdate(0, 7);
+    for (s32 i = 0; i < 7; i++) {
+        s32 r = emit_builtin_theme_archive(i, themes_dir, force_rewrite);
+        if (r > 0) written++;
+        else if (r == 0) skipped++;
+        else failed++;
+        bootProgressUpdate(i + 1, 7);
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "romextract pdtheme: written=%d skipped=%d failed=%d",
+        written, skipped, failed);
+    if (failed == 0) {
+        romExtractPdFastCacheWrite(PDTHEME_FAST_CACHE_KIND, themes_dir,
+            ".pdtheme");
+    }
+    return failed ? -1 : written;
+#endif
+}
+
 void pdguiThemeLoaderInit(void)
 {
     if (s_LoaderInitDone) return;
@@ -1513,17 +1740,27 @@ void pdguiThemeLoaderInit(void)
         snprintf(s_ActiveThemeId, sizeof(s_ActiveThemeId), "%s", s_CfgThemeId);
     }
 
+    /* Built-in themes are public .pdtheme source archives too. Emit them
+     * before applying the configured theme so first launch uses the archive
+     * path instead of falling back to a parallel built-in palette path. */
+    (void)romExtractAllPdtheme(0);
+
     /* Register all 7 built-in palettes as catalog theme assets */
     for (int i = 0; i < 7; i++) {
+        char theme_path[THEME_FILEPATH_LEN];
+        theme_archive_member_path(k_BuiltinIds[i], theme_path, sizeof(theme_path));
         asset_entry_t *ae = assetCatalogRegister(k_BuiltinIds[i], ASSET_THEME);
         if (ae) {
             snprintf(ae->category, CATALOG_CATEGORY_LEN, "base");
             ae->bundled    = 1;
             ae->enabled    = 1;
+            snprintf(ae->ext.theme.theme_file, sizeof(ae->ext.theme.theme_file),
+                     "%s", theme_path);
+            catalogSetPrimaryFile(ae, ae->ext.theme.theme_file);
             ae->load_state = ASSET_STATE_LOADED;
             ae->ref_count  = ASSET_REF_BUNDLED;
         }
-        add_entry(k_BuiltinIds[i], k_BuiltinNames[i], nullptr, i);
+        add_entry(k_BuiltinIds[i], k_BuiltinNames[i], theme_path, i);
     }
 
     /* 2026-04-11: scan mods/ for custom theme.json files (Save-as-Mod
@@ -1558,19 +1795,13 @@ void pdguiThemeLoaderInit(void)
      * reverting the user to the default built-in palette.  Route through
      * pdguiThemeLoadFromCatalog so BOTH builtin and mod themes apply. */
     if (s_ActiveThemeId[0]) {
-        s32 palIdx = pdguiThemeIdToPaletteIndex(s_ActiveThemeId);
-        if (palIdx >= 0) {
-            pdguiThemeSetPalette(palIdx);
-        } else {
-            /* Mod theme — load from the registry (which scan_mods_for_themes
-             * has already populated) so theme_def JSON gets applied. */
-            s32 ok = pdguiThemeLoadFromCatalog(s_ActiveThemeId);
-            if (!ok) {
-                sysLogPrintf(LOG_WARNING,
-                    "PDGUI theme loader: saved theme '%s' not resolvable on startup — "
-                    "falling back to default palette",
-                    s_ActiveThemeId);
-            }
+        s32 ok = pdguiThemeLoadFromCatalog(s_ActiveThemeId);
+        if (!ok) {
+            sysLogPrintf(LOG_WARNING,
+                "PDGUI theme loader: saved theme '%s' not resolvable on startup — "
+                "falling back to default palette",
+                s_ActiveThemeId);
+            pdguiThemeLoadFromCatalog(THEME_DEFAULT_ID);
         }
     }
 }
@@ -1593,27 +1824,19 @@ s32 pdguiThemeLoadFromCatalog(const char *catalog_id)
 {
     if (!catalog_id || !catalog_id[0]) return 0;
 
-    /* Check if it's a built-in palette */
     s32 palIdx = pdguiThemeIdToPaletteIndex(catalog_id);
-    if (palIdx >= 0) {
-        pdguiThemeSetPalette(palIdx);
-
-        /* Apply built-in glow color */
-        pdguiThemeSetTextGlow(0.6f, k_BuiltinGlowColors[palIdx]);
-
-        /* Persist */
-        snprintf(s_ActiveThemeId, sizeof(s_ActiveThemeId), "%s", catalog_id);
-        snprintf(s_CfgThemeId, sizeof(s_CfgThemeId), "%s", catalog_id);
-
-        sysLogPrintf(LOG_NOTE,
-            "PDGUI theme loader: applied built-in '%s' (palette %d)",
-            catalog_id, palIdx);
-        return 1;
-    }
-
-    /* Look up in registry for file-based theme */
     struct theme_entry *entry = find_entry(catalog_id);
     if (!entry || !entry->filepath[0]) {
+        if (palIdx >= 0) {
+            pdguiThemeSetPalette(palIdx);
+            pdguiThemeSetTextGlow(0.6f, k_BuiltinGlowColors[palIdx]);
+            snprintf(s_ActiveThemeId, sizeof(s_ActiveThemeId), "%s", catalog_id);
+            snprintf(s_CfgThemeId, sizeof(s_CfgThemeId), "%s", catalog_id);
+            sysLogPrintf(LOG_WARNING,
+                "PDGUI theme loader: built-in '%s' used palette fallback; archive source missing",
+                catalog_id);
+            return 1;
+        }
         sysLogPrintf(LOG_WARNING,
             "PDGUI theme loader: '%s' not found in registry", catalog_id);
         return 0;
@@ -1634,6 +1857,13 @@ s32 pdguiThemeLoadFromCatalog(const char *catalog_id)
         if (!data) {
             sysLogPrintf(LOG_WARNING,
                 "PDGUI theme loader: failed to load '%s'", entry->filepath);
+            if (palIdx >= 0) {
+                pdguiThemeSetPalette(palIdx);
+                pdguiThemeSetTextGlow(0.6f, k_BuiltinGlowColors[palIdx]);
+                snprintf(s_ActiveThemeId, sizeof(s_ActiveThemeId), "%s", catalog_id);
+                snprintf(s_CfgThemeId, sizeof(s_CfgThemeId), "%s", catalog_id);
+                return 1;
+            }
             return 0;
         }
         json = (char *)malloc(fileSize + 1);
@@ -1650,6 +1880,13 @@ s32 pdguiThemeLoadFromCatalog(const char *catalog_id)
     if (!ok) {
         sysLogPrintf(LOG_WARNING,
             "PDGUI theme loader: parse failed for '%s'", entry->filepath);
+        if (palIdx >= 0) {
+            pdguiThemeSetPalette(palIdx);
+            pdguiThemeSetTextGlow(0.6f, k_BuiltinGlowColors[palIdx]);
+            snprintf(s_ActiveThemeId, sizeof(s_ActiveThemeId), "%s", catalog_id);
+            snprintf(s_CfgThemeId, sizeof(s_CfgThemeId), "%s", catalog_id);
+            return 1;
+        }
         return 0;
     }
 

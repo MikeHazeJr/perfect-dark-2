@@ -7,13 +7,8 @@
  * Schema lock-down: context/designs/catalog/universality-pivot-schemas.md
  * Section 2.2 (.pdhead).
  *
- * Cross-reference convention for Step 2: the `mesh` field preserves the
- * original FILE_* enum string (resolved via reverse lookup against
- * loader_enum_reverse.c). Step 4 (universal loader) will swap this to
- * a catalog ID once the directory walker is minting the universal
- * mapping. The Step 2 emit format is therefore intermediate and
- * identical to the per-record envelope content; this is intentional so the
- * parity check at Step 2 is clean.
+ * Public descriptors use catalog IDs and the embedded typed mesh archive.
+ * Legacy FILE_* and headnum fields stay in _meta provenance only.
  *
  * Server build: emitter early-returns 0 (loader not active server-side).
  */
@@ -37,6 +32,8 @@
 #include "romextract_pd.h"
 #include "system.h"
 #include "headdata_authored.h"
+
+#define PDHEAD_FAST_CACHE_KIND "pdhead_clean_public_v2"
 
 /* Convert a catalog ID like "base:head_carrington" to a filename slug
  * "base_head_carrington". Caller buffer must hold at least 64 bytes. */
@@ -72,6 +69,37 @@ static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
 	s32 has_entry = modArchiveFindEntry(arc, entry) >= 0;
 	modArchiveClose(arc);
 	return has_entry;
+}
+
+static s32 s_existingArchiveEntryContains(const char *relpath,
+                                          const char *entry,
+                                          const char *needle)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0] || !needle) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	s32 idx = modArchiveFindEntry(arc, entry);
+	if (idx < 0) {
+		modArchiveClose(arc);
+		return 0;
+	}
+	u32 size = 0;
+	char *bytes = (char *)modArchiveExtractAlloc(arc, idx, &size);
+	modArchiveClose(arc);
+	if (!bytes) return 0;
+	char *text = (char *)malloc((size_t)size + 1);
+	if (!text) {
+		free(bytes);
+		return 0;
+	}
+	memcpy(text, bytes, size);
+	text[size] = '\0';
+	free(bytes);
+	s32 found = strstr(text, needle) != NULL;
+	free(text);
+	return found;
 }
 
 static void s_meshCatalogId(u16 filenum, const char *hint_suffix,
@@ -135,12 +163,18 @@ static s32 s_emitOneHead(const head_authored_record_t *h,
 	    s_existingZipArchive(relpath) &&
 	    s_existingArchiveHasEntry(relpath, "head.ini") &&
 	    s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
-	    (h->filenum == 0 || s_existingArchiveHasEntry(relpath, "mesh.pdmesh"))) {
+	    (h->filenum == 0 || s_existingArchiveHasEntry(relpath, "mesh.pdmesh")) &&
+	    !s_existingArchiveEntryContains(relpath, "head.ini", "headnum") &&
+	    !s_existingArchiveEntryContains(relpath, "head.ini", "mesh = FILE_")) {
 		return 0;
 	}
 
 	char mesh_rel[FS_MAXPATH];
+	char mesh_id[128];
+	mesh_id[0] = '\0';
 	s_meshArchiveRelPath(h->filenum, NULL, mesh_rel, sizeof(mesh_rel));
+	if (h->filenum != 0) s_meshCatalogId(h->filenum, NULL,
+		mesh_id, sizeof(mesh_id));
 
 	const char *type_str = loaderEnumNameForHeadbodyType(h->type);
 	const char *file_str = loaderEnumNameForFileEnum(h->filenum);
@@ -198,18 +232,17 @@ static s32 s_emitOneHead(const head_authored_record_t *h,
 	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
 		"[head]\n"
 		"catalog_id = %s\n"
-		"headnum = %d\n"
 		"ismale = %u\n"
 		"unk00_01 = %u\n"
 		"type = %s\n"
 		"height = %u\n"
-		"mesh = %s\n"
+		"mesh_catalog_id = %s\n"
 		"mesh_archive = %s\n"
 		"scale = %.7g\n"
 		"animscale = %.7g\n",
-		catalog_id, (s32)h->headnum, (unsigned)h->ismale,
+		catalog_id, (unsigned)h->ismale,
 		(unsigned)h->unk00_01, type_str ? type_str : "",
-		(unsigned)h->height, file_str ? file_str : "",
+		(unsigned)h->height, mesh_id,
 		h->filenum ? "mesh.pdmesh" : "",
 		(double)h->scale, (double)h->animscale);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
@@ -324,7 +357,7 @@ s32 romExtractAllPdhead(s32 force_rewrite)
 		return -1;
 	}
 
-	if (romExtractPdFastCacheCanSkip("pdhead", heads_dir,
+	if (romExtractPdFastCacheCanSkip(PDHEAD_FAST_CACHE_KIND, heads_dir,
 			".pdhead", force_rewrite)) {
 		bootProgressUpdate(g_HeadDataCount, g_HeadDataCount);
 		sysLogPrintf(LOG_NOTE,
@@ -356,7 +389,7 @@ s32 romExtractAllPdhead(s32 force_rewrite)
 		written, skipped, failed, g_HeadDataCount);
 
 	if (failed == 0) {
-		romExtractPdFastCacheWrite("pdhead", heads_dir, ".pdhead");
+		romExtractPdFastCacheWrite(PDHEAD_FAST_CACHE_KIND, heads_dir, ".pdhead");
 	}
 
 	return written;

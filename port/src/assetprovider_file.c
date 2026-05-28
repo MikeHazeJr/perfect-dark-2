@@ -6,9 +6,10 @@
  * pool). Re-interning the same path returns the same offset, so handles
  * compare equal for identical paths.
  *
- * The interning pool is sized for all loose-file mod paths a player is
- * realistically running (~128 mods × 32-char avg). Overflow is a soft
- * error: handle construction returns a null handle and logs a warning.
+ * The interning pool is sized for the public base asset catalog plus loose
+ * mod paths. Base typed archives register thousands of data/<romid>/...
+ * FileProvider paths, so this must be a PC-scale registry, not a small mod
+ * side cache.
  *
  * Design doc: context/designs/direct-file-access-design-2026-04-17.md
  */
@@ -24,11 +25,11 @@
  * Path interning pool
  * ======================================================================== */
 
-/* Conservative sizing: holds paths for a heavily-modded install. If we ever
- * approach the cap we'll bump these — the interning keeps per-handle cost
- * at a single u64 regardless of path length. */
-#define FILE_PROVIDER_POOL_BYTES   (32 * 1024)
-#define FILE_PROVIDER_MAX_PATHS    1024
+/* PC-only sizing: enough for the generated base archive catalog plus a large
+ * enabled-mod set. Handles still carry one offset, so runtime handle size does
+ * not grow with the pool. */
+#define FILE_PROVIDER_POOL_BYTES   (1024 * 1024)
+#define FILE_PROVIDER_MAX_PATHS    16384
 
 static char s_PathPool[FILE_PROVIDER_POOL_BYTES];
 static s32  s_PathPoolUsed = 1;  /* offset 0 reserved as "null" sentinel */

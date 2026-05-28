@@ -29,6 +29,7 @@ For any asset-pipeline sweep, extraction change, catalog/provider load change, r
 - Generated renderer, GPU, collision, audio-codec, animation, graph-runtime, room/portal, or other engine-ready products are source-hashed cache only.
 - Reject preview-only paths, descriptor-only "load" claims, opaque `.bin` payloads, raw preprocessed dumps, and parallel authored runtime duplicates.
 - Reject public asset-reference fields that carry numeric or legacy-symbol identities such as `model_id = 42`, `model = MODEL_*`, `filenum`, `modelnum`, `weapon_id`, `sound_id`, or `texnum`; authored references use catalog IDs only.
+- Treat runtime ROM/RomProvider fallback after extraction as an asset-chain failure, not a valid fallback. Record and fix it under `c3844` at the owning asset-family boundary.
 - Before closeout, run `python tools/asset_native_source_guard.py` and focused `[modding][pdxxx][c3842]` tests when code/test changes are involved.
 - Any exception must be recorded as an explicit c3842 gap on the active card before proceeding.
 

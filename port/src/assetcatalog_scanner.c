@@ -1318,13 +1318,18 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		{
 			const char *target = iniGet(ini, "target", "");
 			const char *tf = iniGet(ini, "texture_file",
-				iniGet(ini, "file_path",
-				iniGet(ini, "texture", "")));
+				iniGet(ini, "texture", ""));
+			const char *sf = iniGet(ini, "skin_file",
+				iniGet(ini, "file_path", ""));
 			strncpy(e->ext.skin.target_id, target, CATALOG_ID_LEN - 1);
+			strncpy(e->ext.skin.skin_file, sf, sizeof(e->ext.skin.skin_file) - 1);
+			e->ext.skin.skin_file[sizeof(e->ext.skin.skin_file) - 1] = '\0';
 			strncpy(e->ext.skin.texture_file, tf, sizeof(e->ext.skin.texture_file) - 1);
 			e->ext.skin.texture_file[sizeof(e->ext.skin.texture_file) - 1] = '\0';
 			if (e->ext.skin.texture_file[0]) {
 				catalogSetPrimaryFile(e, e->ext.skin.texture_file);
+			} else if (e->ext.skin.skin_file[0]) {
+				catalogSetPrimaryFile(e, e->ext.skin.skin_file);
 			}
 		}
 		break;
@@ -1448,9 +1453,13 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	case ASSET_PROP:
 		e->ext.prop.prop_type = iniGetInt(ini, "prop_type", 0);
 		strncpy(e->ext.prop.name, iniGet(ini, "name", ""), sizeof(e->ext.prop.name) - 1);
+		strncpy(e->ext.prop.prop_file, iniGet(ini, "prop_file",
+			iniGet(ini, "file_path", "")), sizeof(e->ext.prop.prop_file) - 1);
 		strncpy(e->ext.prop.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.prop.model_file) - 1);
 		if (e->ext.prop.model_file[0]) {
 			catalogSetPrimaryFile(e, e->ext.prop.model_file);
+		} else if (e->ext.prop.prop_file[0]) {
+			catalogSetPrimaryFile(e, e->ext.prop.prop_file);
 		}
 		e->ext.prop.flags = (u32)iniGetInt(ini, "flags", 0);
 		e->ext.prop.health = iniGetFloat(ini, "health", 100.0f);
@@ -1597,8 +1606,12 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		strncpy(e->ext.hud.name, iniGet(ini, "name", ""), sizeof(e->ext.hud.name) - 1);
 		e->ext.hud.element_type = iniGetInt(ini, "element_type", HUD_ELEM_CROSSHAIR);
 		strncpy(e->ext.hud.texture_file, iniGet(ini, "texture_file", ""), sizeof(e->ext.hud.texture_file) - 1);
+		strncpy(e->ext.hud.layout_file, iniGet(ini, "layout_file",
+			iniGet(ini, "file_path", "")), sizeof(e->ext.hud.layout_file) - 1);
 		if (e->ext.hud.texture_file[0]) {
 			catalogSetPrimaryFile(e, e->ext.hud.texture_file);
+		} else if (e->ext.hud.layout_file[0]) {
+			catalogSetPrimaryFile(e, e->ext.hud.layout_file);
 		}
 		break;
 

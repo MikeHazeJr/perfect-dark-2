@@ -556,6 +556,47 @@ function Get-TypedArchiveDescriptorForPath {
     return $null
 }
 
+$script:TypedArchiveFamilyDirs = @(
+    "arenas",
+    "scenarios",
+    "meshes",
+    "weapons",
+    "heads",
+    "bodies",
+    "characters",
+    "animations",
+    "audio/sfx",
+    "audio/voice",
+    "music",
+    "fonts",
+    "lang",
+    "ui"
+)
+
+function Test-IsTypedArchiveFamilyPath {
+    param([string]$RelPath)
+    $normalized = $RelPath.Replace("\", "/")
+    foreach ($family in $script:TypedArchiveFamilyDirs) {
+        if ($normalized -match "(^|/)data/[^/]+/$([regex]::Escape($family))(/|$)") {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Test-DirectoryLooksLikeLooseTypedArchive {
+    param([string]$Path)
+    if (Test-Path -LiteralPath (Join-Path $Path "_meta")) {
+        return $true
+    }
+    foreach ($descriptor in $script:TypedArchiveDescriptors.Values) {
+        if (Test-Path -LiteralPath (Join-Path $Path $descriptor)) {
+            return $true
+        }
+    }
+    return $false
+}
+
 function Test-ReleaseTypedArchiveTree {
     param(
         [string]$Root,
@@ -573,6 +614,11 @@ function Test-ReleaseTypedArchiveTree {
 
     foreach ($file in (Get-ChildItem -LiteralPath $Root -Recurse -File)) {
         $rel = $file.FullName.Substring($rootFull.Length + 1).Replace("\", "/")
+        if ($rel.EndsWith(".zip", [System.StringComparison]::OrdinalIgnoreCase) -and
+                (Test-IsTypedArchiveFamilyPath $rel)) {
+            $errors.Add("$Label/$rel is a stale typed-asset .zip inspection copy; ship the .pdxxx archive")
+            continue
+        }
         if ($rel.EndsWith(".pdwpn", [System.StringComparison]::OrdinalIgnoreCase)) {
             $errors.Add("$Label/$rel uses deprecated .pdwpn")
             continue
@@ -611,6 +657,14 @@ function Test-ReleaseTypedArchiveTree {
             }
         } finally {
             $zip.Dispose()
+        }
+    }
+
+    foreach ($dir in (Get-ChildItem -LiteralPath $Root -Recurse -Directory)) {
+        $rel = $dir.FullName.Substring($rootFull.Length + 1).Replace("\", "/")
+        if ((Test-IsTypedArchiveFamilyPath $rel) -and
+                (Test-DirectoryLooksLikeLooseTypedArchive $dir.FullName)) {
+            $errors.Add("$Label/$rel is a loose extracted typed archive folder; ship the .pdxxx archive only")
         }
     }
 
