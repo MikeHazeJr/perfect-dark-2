@@ -2756,10 +2756,11 @@ TEST_CASE("catalog game mode and bot profile assets drive live runtime selectors
 
 	std::string scanner = readFile("port/src/assetcatalog_scanner.c");
 	REQUIRE(scanner.find("case ASSET_GAMEMODE:") != std::string::npos);
-	REQUIRE(scanner.find("e->ext.gamemode.mode_id = iniGetInt(ini, \"mode_id\"") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.gamemode.mode_id = parseModeKeyValue(") != std::string::npos);
 	REQUIRE(scanner.find("e->ext.gamemode.rules_file") != std::string::npos);
 	REQUIRE(scanner.find("case ASSET_BOT_PROFILE:") != std::string::npos);
-	REQUIRE(scanner.find("e->ext.bot_profile.difficulty = iniGetInt(ini, \"difficulty\"") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.bot_profile.type = parseBotTypeKeyValue(") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.bot_profile.difficulty = parseBotDifficultyKeyValue(") != std::string::npos);
 	REQUIRE(scanner.find("e->ext.bot_profile.target_body") != std::string::npos);
 	REQUIRE(scanner.find("e->ext.bot_profile.profile_file") != std::string::npos);
 
@@ -2774,6 +2775,9 @@ TEST_CASE("catalog game mode and bot profile assets drive live runtime selectors
 	REQUIRE(runtime.find("entry->ext.bot_profile.target_body") != std::string::npos);
 
 	std::string distrib = readFile("port/src/net/netdistrib.c");
+	REQUIRE(distrib.find("distribParseModeKeyValue") != std::string::npos);
+	REQUIRE(distrib.find("distribParseBotTypeKeyValue") != std::string::npos);
+	REQUIRE(distrib.find("distribParseBotDifficultyKeyValue") != std::string::npos);
 	REQUIRE(distrib.find("e->ext.gamemode.rules_file") != std::string::npos);
 	REQUIRE(distrib.find("e->ext.bot_profile.target_body") != std::string::npos);
 }
@@ -3215,7 +3219,7 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(mesh.find("catalog_id = example:tri_mesh") != std::string::npos);
 	REQUIRE(mesh.find("model_file = model.gltf") != std::string::npos);
 	REQUIRE(meshModel.find("\"TEXCOORD_0\"") != std::string::npos);
-	REQUIRE(meshModel.find("\"baseColorTexture\"") != std::string::npos);
+	REQUIRE(meshModel.find("\"baseColorFactor\"") != std::string::npos);
 
 	const std::string material = readArchiveEntryText(materialArchivePath.c_str(), "material.ini");
 	REQUIRE(material.find("catalog_id = example:tri_material") != std::string::npos);
@@ -3233,11 +3237,16 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	const std::string effect = readArchiveEntryText(effectArchivePath.c_str(), "effect.ini");
 	const std::string effectGraph = readArchiveEntryText(effectArchivePath.c_str(), "effect.graph.json");
 	REQUIRE(effect.find("catalog_id = example:tri_effect") != std::string::npos);
+	REQUIRE(effect.find("effect_key = glow") != std::string::npos);
+	REQUIRE(effect.find("target_key = weapon") != std::string::npos);
+	REQUIRE(effect.find("effect_type") == std::string::npos);
 	REQUIRE(effect.find("effect_file = effect.graph.json") != std::string::npos);
 	REQUIRE(effectGraph.find("\"schema\": \"pd.effect_graph.v1\"") != std::string::npos);
 
 	const std::string prop = readArchiveEntryText(propArchivePath.c_str(), "prop.ini");
 	REQUIRE(prop.find("catalog_id = example:tri_prop") != std::string::npos);
+	REQUIRE(prop.find("prop_key = object") != std::string::npos);
+	REQUIRE(prop.find("prop_type") == std::string::npos);
 	REQUIRE(prop.find("model_file = model.gltf") != std::string::npos);
 	REQUIRE(prop.find("behavior_graph = behavior.graph.json") != std::string::npos);
 
@@ -3254,14 +3263,21 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 
 	const std::string gamemode = readArchiveEntryText(gamemodeArchivePath.c_str(), "gamemode.ini");
 	REQUIRE(gamemode.find("catalog_id = example:tri_gamemode") != std::string::npos);
+	REQUIRE(gamemode.find("mode_key = custom") != std::string::npos);
+	REQUIRE(gamemode.find("mode_id") == std::string::npos);
 	REQUIRE(gamemode.find("rules_file = rules.json") != std::string::npos);
 
 	const std::string botprofile = readArchiveEntryText(botprofileArchivePath.c_str(), "botprofile.ini");
 	REQUIRE(botprofile.find("catalog_id = example:tri_botprofile") != std::string::npos);
+	REQUIRE(botprofile.find("type_key = general") != std::string::npos);
+	REQUIRE(botprofile.find("difficulty_key = normal") != std::string::npos);
 	REQUIRE(botprofile.find("profile_file = profile.json") != std::string::npos);
 
 	const std::string hud = readArchiveEntryText(hudArchivePath.c_str(), "hud.ini");
 	REQUIRE(hud.find("catalog_id = example:tri_hud") != std::string::npos);
+	REQUIRE(hud.find("hud_key = ammo") != std::string::npos);
+	REQUIRE(hud.find("hud_id") == std::string::npos);
+	REQUIRE(hud.find("element_type") == std::string::npos);
 	REQUIRE(hud.find("texture_file = texture.png") != std::string::npos);
 	REQUIRE(hud.find("layout_file = layout.json") != std::string::npos);
 
@@ -3359,7 +3375,7 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			"mesh/model",
 			".pdmesh",
 			"meshes/tri_mesh.pdmesh",
-			{ "mesh.ini", "model.gltf", "texture.png",
+			{ "mesh.ini", "model.gltf",
 			  "_meta/manifest.json" },
 		},
 		{
@@ -3521,7 +3537,7 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			"scenarios/tri_scenario.pdscenario",
 			{ "scenario.ini", "scene.glb",
 			  "pads.tsv", "spawns.tsv", "volumes.tsv", "objects.tsv",
-			  "objectives.tsv", "navigation.ini", "level.graph.json",
+			  "setup.fields.tsv", "objectives.tsv", "navigation.ini", "level.graph.json",
 			  "_meta/generated-collision.json", "_meta/generated-navmesh.json",
 			  "_meta/manifest.json" },
 		},
@@ -3769,7 +3785,7 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 			"scenario.ini",
 			{ "scene_file", "runtime_source_file", "pads_file",
 			  "spawns_file", "volumes_file", "objects_file",
-			  "objectives_file", "navigation_file", "level_graph_file" },
+			  "setup_fields_file", "objectives_file", "navigation_file", "level_graph_file" },
 			{},
 			{},
 		},
@@ -4308,7 +4324,7 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("texInflateNonZlib") != std::string::npos);
 	REQUIRE(arena.find("scene.glb") != std::string::npos);
 	REQUIRE(arena.find("stbi_write_png_to_mem") != std::string::npos);
-	REQUIRE(arena.find("bg_visual_scene_glb_v1") != std::string::npos);
+	REQUIRE(arena.find("bg_visual_scene_glb_v2") != std::string::npos);
 	REQUIRE(arena.find("mat_%03u_tex_%04x") != std::string::npos);
 	REQUIRE(arena.find("texture_inventory_%04x") != std::string::npos);
 	REQUIRE(arena.find("strncmp(mtl_texture_path, \"visual/\", 7)") !=
@@ -4548,9 +4564,16 @@ TEST_CASE("base language extractor emits editable tsv payloads",
 
 	REQUIRE(lang.find("s_buildStringsTsv") != std::string::npos);
 	REQUIRE(lang.find("s_langStringCount") != std::string::npos);
+	REQUIRE(lang.find("rzipIs1173") != std::string::npos);
+	REQUIRE(lang.find("rzipInflate") != std::string::npos);
+	REQUIRE(lang.find("PDLANG_EXTRACT_VERSION") != std::string::npos);
+	REQUIRE(lang.find("PDLANG_FAST_CACHE_KIND") != std::string::npos);
 	REQUIRE(lang.find("s_existingArchiveHasEntry(dst_rel, \"strings.tsv\")") !=
 	        std::string::npos);
+	REQUIRE(lang.find("s_existingArchiveEntryContains(dst_rel, \"lang.ini\"") !=
+	        std::string::npos);
 	REQUIRE(lang.find("strings_file = strings.tsv") != std::string::npos);
+	REQUIRE(lang.find("extract_version = %s\\n") != std::string::npos);
 	REQUIRE(lang.find("assetArchiveWriterAddPublicMem(&asset_writer, \"strings.tsv\"") !=
 	        std::string::npos);
 	REQUIRE(lang.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
@@ -4680,18 +4703,25 @@ TEST_CASE("base weapon animation extractor emits zip-openable opcode payloads",
 TEST_CASE("base mesh extractor emits standard obj geometry payloads",
           "[modding][pdxxx][base][static][c3812]") {
 	const std::string mesh = readFile("port/src/romextract_pdmesh.c");
+	const std::string gbi = readFile("port/src/preprocess/gbi.c");
+	const std::string model_core = readFile("src/lib/model.c");
 	REQUIRE(!mesh.empty());
+	REQUIRE(!gbi.empty());
+	REQUIRE(!model_core.empty());
 
 	REQUIRE(mesh.find("s_buildModelObj") != std::string::npos);
 	REQUIRE(mesh.find("s_exportGdlToObj") != std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v8\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v9_skeleton\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v8\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v10_skeleton_allmodels\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("#include \"preprocess.h\"") != std::string::npos);
 	REQUIRE(mesh.find("#include \"game/modeldef.h\"") != std::string::npos);
 	REQUIRE(mesh.find("#include \"lib/rzip.h\"") != std::string::npos);
 	REQUIRE(mesh.find("s_loadSourceModelPreprocessed") != std::string::npos);
+	REQUIRE(mesh.find("romextract pdmesh: preprocessed filenum") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("trace 0x019c") == std::string::npos);
 	REQUIRE(mesh.find("rzipIs1173") != std::string::npos);
 	REQUIRE(mesh.find("rzipInflate") != std::string::npos);
 	REQUIRE(mesh.find("preprocessModelFile") != std::string::npos);
@@ -4716,6 +4746,7 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("s_objApplyMtxCommand") != std::string::npos);
 	REQUIRE(mesh.find("SPSEGMENT_MODEL_MTX") != std::string::npos);
 	REQUIRE(mesh.find("s_objBuildDefaultModelMatrices") != std::string::npos);
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_NODE_DEPTH_CAP") != std::string::npos);
 	REQUIRE(mesh.find("s_objMtxTransformPoint") != std::string::npos);
 	REQUIRE(mesh.find("s_objNodeUnderHiddenGunToggle") != std::string::npos);
 	REQUIRE(mesh.find("s_objHiddenGunToggleTargetsNode") != std::string::npos);
@@ -4762,9 +4793,15 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	        std::string::npos);
 	REQUIRE(mesh.find("const char *wanted_hint = hint ? hint : \"\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("strcmp(jobs[i].hint, wanted_hint) == 0") !=
+	REQUIRE(mesh.find("strcmp(existing_id, wanted_id) == 0") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("unique_mesh_jobs") != std::string::npos);
+	REQUIRE(gbi.find("GBI_GDL_REWRITE_MAX_CMDS") != std::string::npos);
+	REQUIRE(gbi.find("no ENDDL within") != std::string::npos);
+	REQUIRE(model_core.find("MODEL_PROMOTE_NODE_VISIT_CAP") !=
+	        std::string::npos);
+	REQUIRE(model_core.find("promotion stopped at repeated/deep node") !=
+	        std::string::npos);
 
 	REQUIRE(mesh.find("modeldef.tsv") == std::string::npos);
 	REQUIRE(mesh.find("geometry_file = geometry.bin") == std::string::npos);

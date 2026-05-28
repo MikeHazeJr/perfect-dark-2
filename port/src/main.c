@@ -153,6 +153,12 @@ extern s32 g_StageNum;
  *       With --debug-auto-start-match, arms a deferred direct match start
  *       for deterministic match-start smoke coverage after CI setup exists.
  *
+ *   --debug-spawn-weapon <catalog_id>
+ *       After --launch-mp-room seeds g_MatchConfig, forces the spawn weapon
+ *       mode to SPECIFIC using the supplied weapon catalog ID.  Used by
+ *       archive-source smokes to prove a named .pdweapon is the runtime
+ *       weapon rather than relying on Random mode.
+ *
  *   --debug-mount-bike
  *       Post-setupCreateProps hook: walks g_Vars.activeprops on the
  *       first frame after stage load and mounts player 0 on the
@@ -237,6 +243,7 @@ static bool        g_BootDebugAutoStartMatch = false;
 static s32         g_BootLaunchMpMatchPending = 0;
 static u32         g_BootDebugMpOptions   = 0;
 static bool        g_BootDebugMpOptionsSet = false;
+static const char *g_BootDebugSpawnWeapon = NULL;
 /* Mike directive 2026-05-18 follow-up: override the swarm bench's
  * default arena. Default is base:mp_felicity (a cramped alley/rooftop
  * map where wallrun mechanics aren't visually obvious). Smokes /
@@ -780,6 +787,16 @@ static void bootApplyLaunchMpRoom(void)
 			sizeof(g_MatchConfig.scenario_id) - 1);
 		g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
 	}
+	if (g_BootDebugSpawnWeapon && g_BootDebugSpawnWeapon[0]) {
+		strncpy(g_MatchConfig.spawn_weapon_id, g_BootDebugSpawnWeapon,
+			sizeof(g_MatchConfig.spawn_weapon_id) - 1);
+		g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
+		g_MatchConfig.spawnWeaponMode = SPAWNWEAPON_MODE_SPECIFIC;
+		g_MatchConfig.spawnWeaponNum = 0xFF;
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-spawn-weapon '%s' (SPECIFIC)",
+			g_MatchConfig.spawn_weapon_id);
+	}
 	/* Resolve stage_id -> stagenum so the room screen displays the
 	 * right arena thumbnail even before matchStart() runs. */
 	{
@@ -1280,14 +1297,19 @@ s32 bootLaunchScenarioTick(void)
 
 /* Called once per frame from pdmain.c's mainTick when --launch-mp-room
  * is paired with --debug-auto-start-match. Defers matchStart until the
- * CI boot stage is live, mirroring the launch-scenario gate so MP init
- * and player setup exist before the match transition begins. */
+ * CI boot stage has created the player prop, then starts the match before
+ * the first CI render can tick unrelated source-body setup. */
 s32 bootLaunchMpMatchTick(void)
 {
 	if (!g_BootLaunchMpMatchPending) {
 		return 0;
 	}
-	if (g_Vars.stagenum != STAGE_CITRAINING || g_Vars.lvframenum < 4) {
+	if (g_Vars.stagenum != STAGE_CITRAINING) {
+		return 0;
+	}
+	if (!g_Vars.players[0]
+			|| !g_Vars.players[0]->prop
+			|| !g_Vars.players[0]->prop->chr) {
 		return 0;
 	}
 
@@ -1702,6 +1724,7 @@ int main(int argc, const char **argv)
 	/* Mike directive 2026-05-18: end-to-end CS smoke infra. */
 	g_BootDebugAutoStartMatch = sysArgCheck("--debug-auto-start-match") ? true : false;
 	g_BootDebugSwarmMap       = sysArgGetString("--debug-swarm-map");
+	g_BootDebugSpawnWeapon    = sysArgGetString("--debug-spawn-weapon");
 	{
 		const char *mpopts = sysArgGetString("--debug-mp-options");
 		if (mpopts && mpopts[0]) {

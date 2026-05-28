@@ -47,6 +47,7 @@
 #include "net/sessioncatalog.h"
 #include "room.h"
 #include "scenario_save.h"
+#include "scenario_source_runtime.h"
 #include "assetcatalog.h"
 #include "audio.h"
 #include "modmusic.h"
@@ -4485,6 +4486,7 @@ u32 netmsgSvcStageFlagRead(struct netbuf *src, struct netclient *srccl)
 	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_FLAG read flags=0x%08x", flags);
 
 	g_StageFlags = flags;
+	scenarioSourceObjectiveGraphRecordStageFlags(g_StageFlags);
 
 	return src->error;
 }

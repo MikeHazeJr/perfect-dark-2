@@ -10,6 +10,7 @@ and dependency archive requirements that match the clean c3824/c3842 contract.
 from __future__ import annotations
 
 import argparse
+import csv
 import fnmatch
 import json
 import re
@@ -143,6 +144,54 @@ PUBLIC_TEXT_ENTRY_SUFFIXES = (
     ".csv",
 )
 
+SCENARIO_OBJECTIVES_HEADER = [
+    "objective_id",
+    "kind",
+    "text_token",
+    "difficulty_mask",
+    "graph_node",
+    "operand_kind",
+    "target_ref",
+    "target_record_ref",
+    "pad_ref",
+    "state_ref",
+    "match_value",
+    "initial_status",
+]
+
+MISSION_OBJECTIVES_HEADER = [
+    "objective_id",
+    "kind",
+    "text_token",
+    "difficulty_mask",
+    "graph_node",
+    "scenario_source",
+    "operand_kind",
+    "target_ref",
+    "target_record_ref",
+    "pad_ref",
+    "state_ref",
+    "match_value",
+    "initial_status",
+]
+
+OBJECTIVE_KIND_OPERANDS = {
+    "objective": "objective",
+    "objective_destroy_object": "tag_target",
+    "objective_complete_flags": "stage_flag",
+    "objective_fail_flags": "stage_flag",
+    "objective_collect_object": "tag_target",
+    "objective_throw_object": "tag_target",
+    "objective_holograph": "tag_target_status",
+    "objective_enter_room": "pad_status",
+    "objective_throw_in_room": "throw_match_pad_status",
+}
+
+FORBIDDEN_SETUP_OBJECTIVE_FIELDS = {
+    "objective_step.argument",
+    "objective_holograph.object",
+}
+
 KEY_VALUE_RE = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*[:=]\s*(.*?)\s*$")
 NUMERIC_LITERAL_RE = re.compile(r"^[+-]?(?:0x[0-9A-Fa-f]+|\d+)$")
 CATALOG_ID_RE = re.compile(
@@ -169,11 +218,14 @@ FORBIDDEN_NUMERIC_ASSET_REF_KEYS = {
     "file_num",
     "filenum",
     "fire_animation",
+    "effect_type",
+    "element_type",
     "head",
     "head_id",
     "head_ref",
     "headnum",
     "hit_sound",
+    "hud_id",
     "material",
     "material_id",
     "material_ref",
@@ -184,6 +236,7 @@ FORBIDDEN_NUMERIC_ASSET_REF_KEYS = {
     "model_id",
     "model_ref",
     "modelnum",
+    "mode_id",
     "music",
     "music_id",
     "projectile_model_ref",
@@ -191,6 +244,8 @@ FORBIDDEN_NUMERIC_ASSET_REF_KEYS = {
     "projectile_id",
     "scenario",
     "scenario_id",
+    "stagenum",
+    "prop_type",
     "sfx",
     "sfx_id",
     "shoot_sound",
@@ -245,7 +300,6 @@ CATALOG_REFERENCE_KEYS = FORBIDDEN_NUMERIC_ASSET_REF_KEYS | {
 
 NON_ASSET_ID_KEYS = {
     "graph_id",
-    "mode_id",
     "node_id",
     "slot_id",
     "source_id",
@@ -460,7 +514,11 @@ SCHEMAS: dict[str, Schema] = {
             "pads.tsv",
             "spawns.tsv",
             "volumes.tsv",
+            "navigation/waypoints.tsv",  # decoded waypoint graph source
+            "navigation/waygroups.tsv",
+            "navigation/covers.tsv",
             "objects.tsv",
+            "setup.fields.tsv",
             "objectives.tsv",
             "navigation.ini",
             "level.graph.json",
@@ -475,7 +533,11 @@ SCHEMAS: dict[str, Schema] = {
             "pads.tsv",
             "spawns.tsv",
             "volumes.tsv",
+            "navigation/waypoints.tsv",
+            "navigation/waygroups.tsv",
+            "navigation/covers.tsv",
             "objects.tsv",
+            "setup.fields.tsv",
             "objectives.tsv",
             "navigation.ini",
             "level.graph.json",
@@ -1140,6 +1202,22 @@ def is_catalog_ref_key(key: str, path: str = "") -> bool:
     )
 
 
+def is_delimited_catalog_ref_column(column: str) -> bool:
+    """TSV/CSV table columns use pad_ref/room_ref too, so avoid generic _ref."""
+    normalized = normalize_key(column)
+    if normalized in CATALOG_IDENTITY_KEYS:
+        return False
+    if normalized in NON_ASSET_ID_KEYS:
+        return False
+    return (
+        normalized in FORBIDDEN_NUMERIC_ASSET_REF_KEYS
+        or normalized in CATALOG_REFERENCE_KEYS
+        or normalized.endswith("_catalog_id")
+        or normalized.endswith("_asset_ref")
+        or normalized.endswith("_asset_id")
+    )
+
+
 def validate_catalog_id_reference(value: object, known_catalog_ids: set[str] | None,
                                   label: str, entry_name: str, path: str,
                                   errors: list[str]) -> None:
@@ -1215,6 +1293,165 @@ def scan_text_asset_refs(label: str, entry_name: str, text: str,
                 value, known_catalog_ids, label, entry_name,
                 f"{line_num} {match.group(1)}", errors
             )
+    return errors
+
+
+def scan_delimited_asset_refs(label: str, entry_name: str, text: str,
+                              known_catalog_ids: set[str] | None = None) -> list[str]:
+    errors: list[str] = []
+    lower = entry_name.lower()
+    delimiter = "\t" if lower.endswith(".tsv") else ","
+
+    try:
+        rows = list(csv.reader(text.splitlines(), delimiter=delimiter))
+    except csv.Error as exc:
+        return [f"{label} has unreadable delimited table {entry_name}: {exc}"]
+
+    if not rows:
+        return errors
+
+    header = rows[0]
+    if not header:
+        return errors
+
+    checked_columns = [
+        (index, column)
+        for index, column in enumerate(header)
+        if is_delimited_catalog_ref_column(column)
+    ]
+    if not checked_columns:
+        return errors
+
+    for row_num, row in enumerate(rows[1:], 2):
+        if not row or not any(cell.strip() for cell in row):
+            continue
+        for index, column in checked_columns:
+            if index >= len(row):
+                continue
+            value = row[index].strip()
+            if not value:
+                continue
+
+            field_label = f"{row_num} {column}"
+            if is_forbidden_asset_ref_value(value):
+                errors.append(
+                    f"{label} contains numeric/legacy asset reference "
+                    f"{entry_name}:{field_label}={clean_value(value)}; "
+                    "use a catalog ID"
+                )
+                continue
+            if not is_catalog_id_value(value):
+                errors.append(
+                    f"{label} contains invalid catalog ID reference "
+                    f"{entry_name}:{field_label}={clean_value(value)}; "
+                    "use a catalog ID"
+                )
+                continue
+            validate_catalog_id_reference(
+                value, known_catalog_ids, label, entry_name, field_label, errors
+            )
+    return errors
+
+
+def read_tsv_rows(label: str, entry_name: str, text: str) -> tuple[list[list[str]], list[str]]:
+    try:
+        return list(csv.reader(text.splitlines(), delimiter="\t")), []
+    except csv.Error as exc:
+        return [], [f"{label} has unreadable TSV table {entry_name}: {exc}"]
+
+
+def validate_objectives_tsv_schema(label: str, entry_name: str, text: str,
+                                   expected_header: list[str]) -> list[str]:
+    rows, errors = read_tsv_rows(label, entry_name, text)
+    if errors:
+        return errors
+    if not rows:
+        return [f"{label} {entry_name} must contain the definitive objective source header"]
+
+    header = rows[0]
+    if header != expected_header:
+        return [
+            f"{label} {entry_name} must use definitive objective source columns: "
+            + ", ".join(expected_header)
+        ]
+
+    col = {name: index for index, name in enumerate(header)}
+    for row_num, row in enumerate(rows[1:], 2):
+        if not row or not any(cell.strip() for cell in row):
+            continue
+        padded = row + [""] * (len(header) - len(row))
+        kind = padded[col["kind"]].strip()
+        operand = padded[col["operand_kind"]].strip()
+        expected_operand = OBJECTIVE_KIND_OPERANDS.get(kind)
+        if expected_operand and operand != expected_operand:
+            errors.append(
+                f"{label} {entry_name}:{row_num} kind {kind} must use operand_kind={expected_operand}"
+            )
+            continue
+        if kind in {
+            "objective_destroy_object",
+            "objective_collect_object",
+            "objective_throw_object",
+            "objective_holograph",
+        } and not padded[col["target_ref"]].strip().startswith("tag_"):
+            errors.append(
+                f"{label} {entry_name}:{row_num} {kind} must declare target_ref as tag_####"
+            )
+        if kind in {"objective_complete_flags", "objective_fail_flags"} and not padded[
+            col["state_ref"]
+        ].strip().startswith("stage_flag_0x"):
+            errors.append(
+                f"{label} {entry_name}:{row_num} {kind} must declare state_ref as stage_flag_0x########"
+            )
+        if kind in {"objective_enter_room", "objective_throw_in_room"} and not padded[
+            col["pad_ref"]
+        ].strip().startswith("pad_"):
+            errors.append(
+                f"{label} {entry_name}:{row_num} {kind} must declare pad_ref as pad_####"
+            )
+        if kind == "objective_throw_in_room" and not padded[col["match_value"]].strip():
+            errors.append(
+                f"{label} {entry_name}:{row_num} objective_throw_in_room must declare match_value"
+            )
+    return errors
+
+
+def validate_setup_fields_objective_schema(label: str, entry_name: str,
+                                           text: str) -> list[str]:
+    rows, errors = read_tsv_rows(label, entry_name, text)
+    if errors:
+        return errors
+    if not rows:
+        return errors
+
+    header = rows[0]
+    col = {name: index for index, name in enumerate(header)}
+    field_index = col.get("field")
+    type_index = col.get("type")
+    value_index = col.get("value")
+    if field_index is None:
+        return [f"{label} {entry_name} must include a field column"]
+
+    for row_num, row in enumerate(rows[1:], 2):
+        if field_index >= len(row):
+            continue
+        field = row[field_index].strip()
+        value_type = row[type_index].strip() if type_index is not None and type_index < len(row) else ""
+        value = row[value_index].strip() if value_index is not None and value_index < len(row) else ""
+        if field in FORBIDDEN_SETUP_OBJECTIVE_FIELDS:
+            errors.append(
+                f"{label} {entry_name}:{row_num} uses raw {field}; use typed objective target/stage source fields"
+            )
+        if field in {"objective_step.target_tag", "objective_holograph.target_tag"}:
+            if value_type != "tag_ref" or not value.startswith("tag_"):
+                errors.append(
+                    f"{label} {entry_name}:{row_num} {field} must be a tag_ref value"
+                )
+        if field == "objective_step.stage_flag":
+            if value_type != "stage_flag_ref" or not value.startswith("stage_flag_0x"):
+                errors.append(
+                    f"{label} {entry_name}:{row_num} {field} must be a stage_flag_ref value"
+                )
     return errors
 
 
@@ -1434,6 +1671,10 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         text = zf.read(name).decode("utf-8", errors="replace")
                     except KeyError:
                         continue
+                    if name.lower().endswith((".tsv", ".csv")):
+                        result.errors.extend(scan_delimited_asset_refs(
+                            label, name, text, active_catalog_ids
+                        ))
                     result.errors.extend(scan_text_asset_refs(
                         label, name, text, active_catalog_ids
                     ))
@@ -1456,11 +1697,104 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                     result.errors.append(
                         f"{label} scenario.ini must declare runtime_source_file matching the scene source"
                     )
+                if "setup_fields_file = setup.fields.tsv" not in text:
+                    result.errors.append(
+                        f"{label} scenario.ini must declare setup_fields_file = setup.fields.tsv"
+                    )
                 for stale_key in ("setup_file", "mpsetup_file", "rooms_file", "geometry_file", "visual_scene_file"):
                     if stale_key in text:
                         result.errors.append(
                             f"{label} scenario.ini still declares {stale_key}; use scene/native tables/graphs"
                         )
+                if "objectives.tsv" in name_set:
+                    objectives_text = zf.read("objectives.tsv").decode(
+                        "utf-8", errors="replace"
+                    )
+                    result.errors.extend(validate_objectives_tsv_schema(
+                        label, "objectives.tsv", objectives_text,
+                        SCENARIO_OBJECTIVES_HEADER
+                    ))
+                if "setup.fields.tsv" in name_set:
+                    setup_fields_text = zf.read("setup.fields.tsv").decode(
+                        "utf-8", errors="replace"
+                    )
+                    result.errors.extend(validate_setup_fields_objective_schema(
+                        label, "setup.fields.tsv", setup_fields_text
+                    ))
+                if "level.graph.json" in name_set:
+                    graph_text = zf.read("level.graph.json").decode(
+                        "utf-8", errors="replace"
+                    )
+                    try:
+                        graph = json.loads(graph_text)
+                    except json.JSONDecodeError as exc:
+                        result.errors.append(
+                            f"{label} level.graph.json is not valid JSON: {exc.msg}"
+                        )
+                        graph = {}
+                    nodes = graph.get("nodes")
+                    if not isinstance(nodes, list) or not nodes:
+                        result.errors.append(
+                            f"{label} level.graph.json must contain executable scenario graph nodes"
+                        )
+                    elif not any(
+                        isinstance(node, dict)
+                        and str(node.get("kind", "")) == "scenario.global.settings.source"
+                        for node in nodes
+                    ):
+                        result.errors.append(
+                            f"{label} level.graph.json must include global settings graph nodes"
+                        )
+
+            if ext == ".pdmission":
+                if "mission.graph.json" in name_set:
+                    graph_text = zf.read("mission.graph.json").decode(
+                        "utf-8", errors="replace"
+                    )
+                    try:
+                        graph = json.loads(graph_text)
+                    except json.JSONDecodeError as exc:
+                        result.errors.append(
+                            f"{label} mission.graph.json is not valid JSON: {exc.msg}"
+                        )
+                        graph = {}
+                    nodes = graph.get("nodes")
+                    if not isinstance(nodes, list) or not nodes:
+                        result.errors.append(
+                            f"{label} mission.graph.json must contain executable mission/objective nodes"
+                        )
+                    elif not any(
+                        isinstance(node, dict)
+                        and str(node.get("kind", ""))
+                        in {
+                            "mission.objective.source",
+                            "mission.objective.criteria.source",
+                        }
+                        for node in nodes
+                    ):
+                        result.errors.append(
+                            f"{label} mission.graph.json must include mission objective graph nodes"
+                        )
+                    if isinstance(nodes, list) and nodes and not any(
+                        isinstance(node, dict)
+                        and str(node.get("kind", "")) == "mission.phase.source"
+                        for node in nodes
+                    ):
+                        result.errors.append(
+                            f"{label} mission.graph.json must include mission phase graph nodes"
+                        )
+                if "objectives.tsv" in name_set:
+                    objectives_text = zf.read("objectives.tsv").decode(
+                        "utf-8", errors="replace"
+                    )
+                    if "original_perfect_dark_setup" in objectives_text:
+                        result.errors.append(
+                            f"{label} objectives.tsv still points at original_perfect_dark_setup; use mission graph source nodes"
+                        )
+                    result.errors.extend(validate_objectives_tsv_schema(
+                        label, "objectives.tsv", objectives_text,
+                        MISSION_OBJECTIVES_HEADER
+                    ))
 
             if ext == ".pdarena" and descriptor in name_set:
                 text = zf.read(descriptor).decode("utf-8", errors="replace")

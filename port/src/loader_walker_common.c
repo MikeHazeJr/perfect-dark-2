@@ -133,6 +133,54 @@ s32 loaderWalkerEnvelopeInt(const char *json, size_t json_len,
     return 1;
 }
 
+s32 loaderWalkerArchiveMemberPath(const char *archive_path,
+                                  const char *member,
+                                  char *out, size_t out_n)
+{
+    if (!out || out_n == 0) {
+        return 0;
+    }
+    out[0] = '\0';
+    if (!archive_path || !archive_path[0]) {
+        return 0;
+    }
+
+    if (!member || !member[0]) {
+        snprintf(out, out_n, "%s", archive_path);
+        out[out_n - 1] = '\0';
+        return out[0] != '\0';
+    }
+
+    while (*member == '/' || *member == '\\') {
+        member++;
+    }
+    if (!member[0] || strstr(member, "::")
+            || member[0] == '/' || member[0] == '\\'
+            || (isalpha((unsigned char)member[0]) && member[1] == ':')) {
+        return 0;
+    }
+
+    snprintf(out, out_n, "%s::%s", archive_path, member);
+    out[out_n - 1] = '\0';
+    return out[0] != '\0';
+}
+
+void loaderWalkerMarkBaseArchiveEntry(asset_entry_t *entry)
+{
+    if (!entry) {
+        return;
+    }
+
+    strncpy(entry->category, "base", CATALOG_CATEGORY_LEN - 1);
+    entry->category[CATALOG_CATEGORY_LEN - 1] = '\0';
+    entry->bundled = 1;
+    entry->enabled = 1;
+    if (entry->load_state < ASSET_STATE_LOADED) {
+        entry->load_state = ASSET_STATE_LOADED;
+    }
+    entry->ref_count = ASSET_REF_BUNDLED;
+}
+
 /* ------------------------------------------------------------------ */
 /* Manifest extraction (plain JSON or ZIP)                            */
 /* ------------------------------------------------------------------ */
@@ -246,6 +294,7 @@ typedef struct {
     s32                                register_failures;
 
     SDL_atomic_t                       processed;
+    SDL_mutex                         *register_mutex;
 } walker_scan_ctx_t;
 
 static void s_walkerOneFile(int idx, void *user_ctx)
@@ -293,18 +342,28 @@ static void s_walkerOneFile(int idx, void *user_ctx)
         goto cleanup;
     }
 
+    if (ctx->register_mutex) {
+        SDL_LockMutex(ctx->register_mutex);
+    }
     /* Non-destructive overlay default; pool kinds (weapon/head/body/arena
      * + animation) set always_invoke so the per-kind callback runs even
-     * for already-registered IDs and populates the loader_pool payload. */
+     * for already-registered IDs and populates the loader_pool payload.
+     *
+     * The callback mutates catalog entries returned by register/resolve and
+     * binds FileProvider handles. Keep that whole section serialized so a
+     * concurrent catalog realloc or provider-pool append cannot invalidate
+     * the entry pointer or splice adjacent archive paths together. */
     if (!ctx->desc->always_invoke && assetCatalogResolve(id_buf) != NULL) {
         lreg++;
-        goto cleanup;
+    } else {
+        s32 r = ctx->register_fn(manifest, manifest_len, kind_buf, id_buf, rel_path);
+        if (r > 0)      lreg++;
+        else if (r < 0) lregfail++;
+        /* r == 0 is a benign skip. */
     }
-
-    s32 r = ctx->register_fn(manifest, manifest_len, kind_buf, id_buf, rel_path);
-    if (r > 0)      lreg++;
-    else if (r < 0) lregfail++;
-    /* r == 0 is a benign skip. */
+    if (ctx->register_mutex) {
+        SDL_UnlockMutex(ctx->register_mutex);
+    }
 
 cleanup:
     if (arc) modArchiveClose(arc);
@@ -414,12 +473,16 @@ s32 loaderWalkerScanKind(
     ctx.desc               = desc;
     ctx.register_fn        = register_fn;
     ctx.mutex              = SDL_CreateMutex();
+    ctx.register_mutex     = SDL_CreateMutex();
     SDL_AtomicSet(&ctx.processed, 0);
 
     bootProgressUpdate(0, count);
     bootPoolForRangeBlocking(0, count, s_walkerOneFile, &ctx);
     bootProgressUpdate(count, count);
 
+    if (ctx.register_mutex) {
+        SDL_DestroyMutex(ctx.register_mutex);
+    }
     SDL_DestroyMutex(ctx.mutex);
     free(paths);
 

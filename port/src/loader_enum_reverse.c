@@ -10,6 +10,7 @@
  * per-asset emitters. Linear scan is fine -- one-time at startup. */
 
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 #include <PR/ultratypes.h>
 #include "loader_enum_reverse.h"
@@ -5475,6 +5476,66 @@ static const enum_reverse_entry_t k_FileEnum[] = {
 };
 static const size_t k_FileEnum_count = sizeof(k_FileEnum) / sizeof(k_FileEnum[0]);
 
+/*
+ * The authored weapon archives use L_GUN_* symbols for weapon and fire-mode
+ * labels. Keep those resolved by formula so this table cannot drift behind the
+ * generated lang/gun.h enum again.
+ */
+#define LOADER_ENUM_L_GUN_BASE  0x4c00
+#define LOADER_ENUM_L_GUN_COUNT 244
+
+static s32 parse_l_gun_name(const char *name, s32 *out)
+{
+    s32 n = 0;
+
+    if (!name || !out) {
+        return 0;
+    }
+
+    if (strcmp(name, "L_GUN_END") == 0) {
+        *out = LOADER_ENUM_L_GUN_BASE + LOADER_ENUM_L_GUN_COUNT;
+        return 1;
+    }
+
+    if (strncmp(name, "L_GUN_", 6) != 0) {
+        return 0;
+    }
+
+    name += 6;
+    if (name[0] < '0' || name[0] > '9'
+            || name[1] < '0' || name[1] > '9'
+            || name[2] < '0' || name[2] > '9'
+            || name[3] != '\0') {
+        return 0;
+    }
+
+    n = (name[0] - '0') * 100 + (name[1] - '0') * 10 + (name[2] - '0');
+    if (n < 0 || n >= LOADER_ENUM_L_GUN_COUNT) {
+        return 0;
+    }
+
+    *out = LOADER_ENUM_L_GUN_BASE + n;
+    return 1;
+}
+
+static const char *name_for_l_gun_value(s32 value)
+{
+    static __thread char namebuf[16];
+
+    if (value == LOADER_ENUM_L_GUN_BASE + LOADER_ENUM_L_GUN_COUNT) {
+        return "L_GUN_END";
+    }
+
+    if (value < LOADER_ENUM_L_GUN_BASE
+            || value >= LOADER_ENUM_L_GUN_BASE + LOADER_ENUM_L_GUN_COUNT) {
+        return NULL;
+    }
+
+    snprintf(namebuf, sizeof(namebuf), "L_GUN_%03d",
+             value - LOADER_ENUM_L_GUN_BASE);
+    return namebuf;
+}
+
 static s32 lookup_enum(const enum_reverse_entry_t *table,
                        size_t count,
                        const char *name,
@@ -5496,7 +5557,13 @@ s32 loaderEnumResolveSfxEnum(const char *name, s32 fallback)
 { return lookup_enum(k_SfxEnum, k_SfxEnum_count, name, fallback); }
 
 s32 loaderEnumResolveLangEnum(const char *name, s32 fallback)
-{ return lookup_enum(k_LangEnum, k_LangEnum_count, name, fallback); }
+{
+    s32 value;
+    if (parse_l_gun_name(name, &value)) {
+        return value;
+    }
+    return lookup_enum(k_LangEnum, k_LangEnum_count, name, fallback);
+}
 
 s32 loaderEnumResolveFileEnum(const char *name, s32 fallback)
 { return lookup_enum(k_FileEnum, k_FileEnum_count, name, fallback); }
@@ -5528,7 +5595,13 @@ const char *loaderEnumNameForSfxEnum(s32 value)
 { return reverse_lookup(k_SfxEnum, k_SfxEnum_count, value); }
 
 const char *loaderEnumNameForLangEnum(s32 value)
-{ return reverse_lookup(k_LangEnum, k_LangEnum_count, value); }
+{
+    const char *name = name_for_l_gun_value(value);
+    if (name) {
+        return name;
+    }
+    return reverse_lookup(k_LangEnum, k_LangEnum_count, value);
+}
 
 const char *loaderEnumNameForFileEnum(s32 value)
 { return reverse_lookup(k_FileEnum, k_FileEnum_count, value); }

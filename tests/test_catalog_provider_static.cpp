@@ -337,6 +337,13 @@ TEST_CASE("source-filenum provider handle reverse lookups stay catalog-owned", "
 	};
 	const std::string header = readTextFile("port/include/assetcatalog.h");
 	const std::string api = stripComments(readTextFile("port/src/assetcatalog_api.c"), true);
+	const std::string meshWalker = readTextFile("port/src/loader_walker_mesh.c");
+	const size_t sourceHelperStart = api.find("catalogHandleBySourceFilenum");
+	REQUIRE(sourceHelperStart != std::string::npos);
+	const size_t sourceHelperEnd = api.find("catalogHandleByModelSourceFilenum", sourceHelperStart);
+	REQUIRE(sourceHelperEnd != std::string::npos);
+	const std::string sourceHelperBlock = api.substr(
+		sourceHelperStart, sourceHelperEnd - sourceHelperStart);
 	const size_t helperStart = api.find("catalogHandleByModelSourceFilenum");
 	REQUIRE(helperStart != std::string::npos);
 	const size_t helperEnd = api.find("static s32 s_catalogHandleEquals", helperStart);
@@ -344,6 +351,13 @@ TEST_CASE("source-filenum provider handle reverse lookups stay catalog-owned", "
 	const std::string helperBlock = api.substr(helperStart, helperEnd - helperStart);
 
 	REQUIRE(header.find("catalogHandleByModelSourceFilenum") != std::string::npos);
+	REQUIRE(sourceHelperBlock.find("fallback_handle") != std::string::npos);
+	REQUIRE(sourceHelperBlock.find("handle.provider == fileProvider()") != std::string::npos);
+	REQUIRE(sourceHelperBlock.find("catalogReadableModelIdForFile(source_filenum") != std::string::npos);
+	REQUIRE(meshWalker.find("\"mesh\", \"meshes\", \".pdmesh\", /* always_invoke: */ 1") != std::string::npos);
+	REQUIRE(meshWalker.find("const asset_entry_t *existing = assetCatalogResolve(id)") != std::string::npos);
+	REQUIRE(meshWalker.find("e->runtime_index = preserved_runtime_index") != std::string::npos);
+	REQUIRE(meshWalker.find("catalogSetPrimaryFile(e, source_path)") != std::string::npos);
 	REQUIRE(helperBlock.find("catalogHandleBySourceFilenum(") != std::string::npos);
 	REQUIRE(helperBlock.find("ASSET_MODEL") != std::string::npos);
 	REQUIRE(helperBlock.find("ASSET_BODY") != std::string::npos);
@@ -466,7 +480,7 @@ TEST_CASE("typed catalog model lifecycle activates model payloads", "[catalog][p
 	REQUIRE(!modelPayloadBlock.empty());
 	REQUIRE(!metadataPayloadBlock.empty());
 	REQUIRE(modelPayloadBlock.find("case ASSET_WEAPON:") == std::string::npos);
-	REQUIRE(metadataPayloadBlock.find("type == ASSET_WEAPON") != std::string::npos);
+	REQUIRE(catalogLoad.find("|| type == ASSET_WEAPON") != std::string::npos);
 	REQUIRE(catalogLoad.find("catalogGetLoadedModeldef") != std::string::npos);
 	REQUIRE(api.find("catalogGetLoadedModeldef") != std::string::npos);
 }
@@ -586,6 +600,8 @@ TEST_CASE("SP-in-MP setup overlay bounds-checks auxiliary setup props",
 	const std::string setup = readTextFile("src/game/setup.c");
 
 	REQUIRE(setup.find("setupResolvePropsInLoadedSetup") != std::string::npos);
+	REQUIRE(setup.find("assetSourceDebugHandleUsesPublicFileSource(spStage.setup_handle)") != std::string::npos);
+	REQUIRE(setup.find("public setup overlay source unavailable; skipping raw setup overlay") != std::string::npos);
 	REQUIRE(setup.find("assetLoadGetLoadedSize(spStage.setup_handle)") != std::string::npos);
 	REQUIRE(setup.find("invalid SP setup props") != std::string::npos);
 	REQUIRE(setup.find("nextobj > spSetupEnd") != std::string::npos);
@@ -658,8 +674,8 @@ TEST_CASE("rom-backed catalog registration helpers populate provider handles", "
 	REQUIRE(catalog.find("catalogSetPrimary(entry, romProviderHandle(filenum))") != std::string::npos);
 	REQUIRE(base.find("#include \"assetprovider_internal.h\"") == std::string::npos);
 	REQUIRE(baseExtended.find("#include \"assetprovider_internal.h\"") == std::string::npos);
-	REQUIRE(countOccurrences(base, "catalogSetPrimaryRomFilenum(e, e->source_filenum)") >= 4);
-	REQUIRE(countOccurrences(baseExtended, "catalogSetPrimaryRomFilenum(e, e->source_filenum)") >= 2);
+	REQUIRE(countOccurrences(base, "catalogBindPrimaryFromDiskOrRom(e, e->source_filenum)") >= 4);
+	REQUIRE(countOccurrences(baseExtended, "catalogBindPrimaryFromDiskOrRom(e, e->source_filenum)") >= 2);
 	REQUIRE(base.find("catalogSetPrimary(e, romProviderHandle") == std::string::npos);
 	REQUIRE(baseExtended.find("catalogSetPrimary(e, romProviderHandle") == std::string::npos);
 }
@@ -705,6 +721,20 @@ TEST_CASE("swarm debug scenarios enter through match setup", "[testscenarios][st
 	REQUIRE(swarmBlock.find("g_MatchConfig.timelimit      = 60") != std::string::npos);
 	REQUIRE(swarmBlock.find("g_MatchConfig.scorelimit     = 100") != std::string::npos);
 	REQUIRE(header.find("Swarm scenarios enter through matchStart()") != std::string::npos);
+}
+
+TEST_CASE("direct MP smoke start waits for CI player prop, not render frames", "[smoke][combat-sim][static][c3844]")
+{
+	const std::string main = readTextFile("port/src/main.c");
+	const std::string block = functionBlock(main, "bootLaunchMpMatchTick");
+
+	REQUIRE_FALSE(block.empty());
+	REQUIRE(block.find("g_Vars.stagenum != STAGE_CITRAINING") != std::string::npos);
+	REQUIRE(block.find("g_Vars.players[0]") != std::string::npos);
+	REQUIRE(block.find("g_Vars.players[0]->prop") != std::string::npos);
+	REQUIRE(block.find("g_Vars.players[0]->prop->chr") != std::string::npos);
+	REQUIRE(block.find("g_Vars.lvframenum < 4") == std::string::npos);
+	REQUIRE(block.find("matchStart()") != std::string::npos);
 }
 
 TEST_CASE("skedar swarm behavior intents stay wired for CPU and GPU benchmarks", "[testscenarios][static]")

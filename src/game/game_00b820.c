@@ -11,6 +11,7 @@
 #include "lib/rng.h"
 #include "data.h"
 #include "types.h"
+#include "scenario_source_runtime.h"
 
 struct prop *g_DangerousProps[12];
 
@@ -23,6 +24,7 @@ void resetSomeStageThings(void)
 	}
 
 	g_StageFlags = 0;
+	scenarioSourceObjectiveGraphRecordStageFlags(g_StageFlags);
 
 	g_EnemyAccuracyScale = 1;
 	g_PlayerDamageRxScale = 1;

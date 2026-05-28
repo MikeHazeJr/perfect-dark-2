@@ -9,6 +9,8 @@
 #include "system.h"
 #include "assetcatalog.h"
 #include "assetload.h"
+#include "asset_source_debug.h"
+#include "scenario_source_runtime.h"
 
 void stageParseTiles(void);
 
@@ -24,6 +26,28 @@ void tilesReset(void)
 	catalogGetStageResultByIndex(index, &stage);
 
 	g_LoadType = LOADTYPE_TILES;
+	{
+		s32 source_size = 0;
+		s32 source_rooms = 0;
+		s32 source_tiles = 0;
+		u8 *source_tiles_data = scenarioSourceLoadTilesForStage(&stage,
+			g_Vars.normmplayerisrunning, &source_size,
+			&source_rooms, &source_tiles);
+		if (source_tiles_data) {
+			g_TileFileData.u8 = source_tiles_data;
+			g_TileNumRooms = *g_TileFileData.u32;
+			g_TileRooms = g_TileFileData.u32 + 1;
+			sysLogPrintf(LOG_NOTE,
+				"TILES: using scenario source scene-derived tile cache rooms=%d tiles=%d bytes=%d",
+				source_rooms, source_tiles, source_size);
+			stageParseTiles();
+			return;
+		}
+	}
+
+	assetSourceDebugFatalHandleFallback(ASSET_SCENARIO, "tiles",
+		stage.entry && stage.entry->id[0] ? stage.entry->id : "?",
+		stage.tile_handle);
 	g_TileFileData.u8 = assetLoadToNew(stage.tile_handle, FILELOADMETHOD_DEFAULT, LOADTYPE_TILES);
 	if (!g_TileFileData.u8) {
 		sysLogPrintf(LOG_ERROR, "TILES: failed to load tilefileid=%d for stage index=%d",

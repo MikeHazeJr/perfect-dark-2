@@ -15,6 +15,7 @@
  */
 
 #include <PR/ultratypes.h>
+#include <SDL.h>
 #include <stdio.h>
 #include <string.h>
 #include "assetprovider.h"
@@ -36,6 +37,19 @@ static s32  s_PathPoolUsed = 1;  /* offset 0 reserved as "null" sentinel */
 static s32  s_PathOffsets[FILE_PROVIDER_MAX_PATHS];
 static s32  s_PathCount = 0;
 static s32  s_Warned = 0;
+static SDL_mutex *s_PathMutex = NULL;
+static SDL_SpinLock s_PathMutexInitLock = 0;
+
+static void fileProviderEnsureMutex(void)
+{
+    if (s_PathMutex == NULL) {
+        SDL_AtomicLock(&s_PathMutexInitLock);
+        if (s_PathMutex == NULL) {
+            s_PathMutex = SDL_CreateMutex();
+        }
+        SDL_AtomicUnlock(&s_PathMutexInitLock);
+    }
+}
 
 static s32 fileProviderInternPath(const char *path)
 {
@@ -43,11 +57,20 @@ static s32 fileProviderInternPath(const char *path)
         return 0;
     }
 
+    fileProviderEnsureMutex();
+    if (s_PathMutex) {
+        SDL_LockMutex(s_PathMutex);
+    }
+
     /* Dedup: scan the offsets table. O(n) but n is small (< 1024 in any
      * realistic install) and only runs at catalog registration time. */
     for (s32 i = 0; i < s_PathCount; i++) {
         if (strcmp(&s_PathPool[s_PathOffsets[i]], path) == 0) {
-            return s_PathOffsets[i];
+            s32 offset = s_PathOffsets[i];
+            if (s_PathMutex) {
+                SDL_UnlockMutex(s_PathMutex);
+            }
+            return offset;
         }
     }
 
@@ -61,6 +84,9 @@ static s32 fileProviderInternPath(const char *path)
                 s_PathCount, s_PathPoolUsed, need);
             s_Warned = 1;
         }
+        if (s_PathMutex) {
+            SDL_UnlockMutex(s_PathMutex);
+        }
         return 0;
     }
 
@@ -68,6 +94,9 @@ static s32 fileProviderInternPath(const char *path)
     memcpy(&s_PathPool[offset], path, (size_t)need);
     s_PathPoolUsed += need;
     s_PathOffsets[s_PathCount++] = offset;
+    if (s_PathMutex) {
+        SDL_UnlockMutex(s_PathMutex);
+    }
     return offset;
 }
 

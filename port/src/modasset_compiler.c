@@ -9,12 +9,14 @@
 #include <ctype.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <PR/ultratypes.h>
 
 #include "constants.h"
 #include "types.h"
+#include "data.h"
 #include "gbiex.h"
 #include "lib/meshcollision.h"
 #include "lib/model.h"
@@ -66,6 +68,162 @@ static const char *sourceKindForPath(const char *path)
 
 static u32 readLe32(const u8 *data);
 
+typedef struct skeleton_symbol_binding {
+	const char *symbol;
+	struct skeleton *skeleton;
+	s16 skeleton_id;
+} skeleton_symbol_binding_t;
+
+static const skeleton_symbol_binding_t kSkeletonSymbols[] = {
+	{ "SKEL_CHR", &g_SkelChr, 0 },
+	{ "SKEL_CLASSICGUN", &g_SkelClassicGun, 0 },
+	{ "SKEL_06", &g_Skel06, 0 },
+	{ "SKEL_UZI", &g_SkelUzi, 0 },
+	{ "SKEL_BASIC", &g_SkelBasic, 0 },
+	{ "SKEL_HEAD", NULL, SKEL_HEAD },
+	{ "SKEL_CCTV", &g_SkelCctv, 0 },
+	{ "SKEL_WINDOWEDDOOR", &g_SkelWindowedDoor, 0 },
+	{ "SKEL_11", &g_Skel11, 0 },
+	{ "SKEL_12", &g_Skel12, 0 },
+	{ "SKEL_13", &g_Skel13, 0 },
+	{ "SKEL_TERMINAL", &g_SkelTerminal, 0 },
+	{ "SKEL_CIHUB", &g_SkelCiHub, 0 },
+	{ "SKEL_AUTOGUN", &g_SkelAutogun, 0 },
+	{ "SKEL_17", &g_Skel17, 0 },
+	{ "SKEL_18", &g_Skel18, 0 },
+	{ "SKEL_19", &g_Skel19, 0 },
+	{ "SKEL_0A", &g_Skel0A, 0 },
+	{ "SKEL_0B", &g_Skel0B, 0 },
+	{ "SKEL_CASING", &g_SkelCasing, 0 },
+	{ "SKEL_CHRGUN", &g_SkelChrGun, 0 },
+	{ "SKEL_0C", &g_Skel0C, 0 },
+	{ "SKEL_JOYPAD", &g_SkelJoypad, 0 },
+	{ "SKEL_21", &g_Skel21, 0 },
+	{ "SKEL_LIFT", &g_SkelLift, 0 },
+	{ "SKEL_SKEDAR", &g_SkelSkedar, 0 },
+	{ "SKEL_LOGO", &g_SkelLogo, 0 },
+	{ "SKEL_PDLOGO", &g_SkelPdLogo, 0 },
+	{ "SKEL_HOVERBIKE", &g_SkelHoverbike, 0 },
+	{ "SKEL_JUMPSHIP", &g_SkelJumpship, 0 },
+	{ "SKEL_20", &g_Skel20, 0 },
+	{ "SKEL_22", &g_Skel22, 0 },
+	{ "SKEL_LAPTOPGUN", &g_SkelLaptopGun, 0 },
+	{ "SKEL_K7AVENGER", &g_SkelK7Avenger, 0 },
+	{ "SKEL_CHOPPER", &g_SkelChopper, 0 },
+	{ "SKEL_FALCON2", &g_SkelFalcon2, 0 },
+	{ "SKEL_KNIFE", &g_SkelKnife, 0 },
+	{ "SKEL_DRCAROLL", &g_SkelDrCaroll, 0 },
+	{ "SKEL_ROPE", &g_SkelRope, 0 },
+	{ "SKEL_CMP150", &g_SkelCmp150, 0 },
+	{ "SKEL_BANNER", &g_SkelBanner, 0 },
+	{ "SKEL_DRAGON", &g_SkelDragon, 0 },
+	{ "SKEL_SUPERDRAGON", &g_SkelSuperDragon, 0 },
+	{ "SKEL_ROCKET", &g_SkelRocket, 0 },
+	{ "SKEL_4A", &g_Skel4A, 0 },
+	{ "SKEL_SHOTGUN", &g_SkelShotgun, 0 },
+	{ "SKEL_FARSIGHT", &g_SkelFarsight, 0 },
+	{ "SKEL_4D", &g_Skel4D, 0 },
+	{ "SKEL_REAPER", &g_SkelReaper, 0 },
+	{ "SKEL_DROPSHIP", &g_SkelDropship, 0 },
+	{ "SKEL_MAULER", &g_SkelMauler, 0 },
+	{ "SKEL_DEVASTATOR", &g_SkelDevastator, 0 },
+	{ "SKEL_ROBOT", &g_SkelRobot, 0 },
+	{ "SKEL_PISTOL", &g_SkelPistol, 0 },
+	{ "SKEL_AR34", &g_SkelAr34, 0 },
+	{ "SKEL_MAGNUM", &g_SkelMagnum, 0 },
+	{ "SKEL_SLAYERROCKET", &g_SkelSlayerRocket, 0 },
+	{ "SKEL_CYCLONE", &g_SkelCyclone, 0 },
+	{ "SKEL_SNIPERRIFLE", &g_SkelSniperRifle, 0 },
+	{ "SKEL_TRANQUILIZER", &g_SkelTranquilizer, 0 },
+	{ "SKEL_CROSSBOW", &g_SkelCrossbow, 0 },
+	{ "SKEL_HUDPIECE", &g_SkelHudPiece, 0 },
+	{ "SKEL_TIMEDPROXYMINE", &g_SkelTimedProxyMine, 0 },
+	{ "SKEL_PHOENIX", &g_SkelPhoenix, 0 },
+	{ "SKEL_CALLISTO", &g_SkelCallisto, 0 },
+	{ "SKEL_HAND", &g_SkelHand, 0 },
+	{ "SKEL_RCP120", &g_SkelRcp120, 0 },
+	{ "SKEL_SKSHUTTLE", &g_SkelSkShuttle, 0 },
+	{ "SKEL_LASER", &g_SkelLaser, 0 },
+	{ "SKEL_MAIANUFO", &g_SkelMaianUfo, 0 },
+	{ "SKEL_GRENADE", &g_SkelGrenade, 0 },
+	{ "SKEL_CABLECAR", &g_SkelCableCar, 0 },
+	{ "SKEL_SUBMARINE", &g_SkelSubmarine, 0 },
+	{ "SKEL_TARGET", &g_SkelTarget, 0 },
+	{ "SKEL_ECMMINE", &g_SkelEcmMine, 0 },
+	{ "SKEL_UPLINK", &g_SkelUplink, 0 },
+	{ "SKEL_RARELOGO", &g_SkelRareLogo, 0 },
+	{ "SKEL_WIREFENCE", &g_SkelWireFence, 0 },
+	{ "SKEL_REMOTEMINE", &g_SkelRemoteMine, 0 },
+	{ "SKEL_BB", &g_SkelBB, 0 },
+};
+
+static const char *modAssetCompilerSkeletonSymbolForId(s16 skeleton_id)
+{
+	for (s32 i = 0; i < (s32)(sizeof(kSkeletonSymbols) / sizeof(kSkeletonSymbols[0])); i++) {
+		if ((kSkeletonSymbols[i].skeleton
+					&& kSkeletonSymbols[i].skeleton->skel == skeleton_id)
+				|| (!kSkeletonSymbols[i].skeleton
+					&& kSkeletonSymbols[i].skeleton_id == skeleton_id)) {
+			return kSkeletonSymbols[i].symbol;
+		}
+	}
+
+	return NULL;
+}
+
+const char *modAssetCompilerSkeletonSymbolForPointer(
+	const struct skeleton *skeleton)
+{
+	uintptr_t token;
+
+	if (!skeleton) {
+		return NULL;
+	}
+
+	token = (uintptr_t)skeleton;
+	if (token < 0x10000) {
+		return modAssetCompilerSkeletonSymbolForId((s16)token);
+	}
+
+	for (s32 i = 0; i < (s32)(sizeof(kSkeletonSymbols) / sizeof(kSkeletonSymbols[0])); i++) {
+		if (kSkeletonSymbols[i].skeleton == skeleton
+				|| (kSkeletonSymbols[i].skeleton
+					&& kSkeletonSymbols[i].skeleton->skel == skeleton->skel)) {
+			return kSkeletonSymbols[i].symbol;
+		}
+	}
+
+	return NULL;
+}
+
+struct skeleton *modAssetCompilerSkeletonForSymbol(const char *symbol)
+{
+	if (!symbol || !symbol[0]) {
+		return NULL;
+	}
+
+	for (s32 i = 0; i < (s32)(sizeof(kSkeletonSymbols) / sizeof(kSkeletonSymbols[0])); i++) {
+		if (strcmp(kSkeletonSymbols[i].symbol, symbol) == 0) {
+			if (kSkeletonSymbols[i].skeleton) {
+				return kSkeletonSymbols[i].skeleton;
+			}
+			if (kSkeletonSymbols[i].skeleton_id) {
+				return (struct skeleton *)(uintptr_t)kSkeletonSymbols[i].skeleton_id;
+			}
+			return NULL;
+		}
+	}
+
+	return NULL;
+}
+
+static s32 modAssetFloatIsFinite(f32 value)
+{
+	return value == value
+		&& value <= 3.402823466e+38F
+		&& value >= -3.402823466e+38F;
+}
+
 static s32 assetKindUsesGeneratedModeldef(const char *asset_kind)
 {
 	if (!asset_kind || !asset_kind[0]) {
@@ -88,12 +246,14 @@ typedef struct obj_vertex {
 	f32 x;
 	f32 y;
 	f32 z;
+	s32 roomnum;
 } obj_vertex_t;
 
 typedef struct obj_triangle {
 	s32 a;
 	s32 b;
 	s32 c;
+	s32 roomnum;
 } obj_triangle_t;
 
 typedef struct obj_mesh {
@@ -193,6 +353,7 @@ static s32 objMeshAddVertex(obj_mesh_t *mesh, f32 x, f32 y, f32 z)
 	v->x = x;
 	v->y = y;
 	v->z = z;
+	v->roomnum = 0;
 	return 1;
 }
 
@@ -208,6 +369,18 @@ static s32 objMeshAddTriangle(obj_mesh_t *mesh, s32 a, s32 b, s32 c)
 	tri->a = a;
 	tri->b = b;
 	tri->c = c;
+	tri->roomnum = 0;
+	if (a >= 0 && b >= 0 && c >= 0
+			&& a < mesh->vertex_count
+			&& b < mesh->vertex_count
+			&& c < mesh->vertex_count) {
+		s32 ar = mesh->vertices[a].roomnum;
+		s32 br = mesh->vertices[b].roomnum;
+		s32 cr = mesh->vertices[c].roomnum;
+		if (ar == br && br == cr) {
+			tri->roomnum = ar;
+		}
+	}
 	return 1;
 }
 
@@ -1226,6 +1399,67 @@ static s32 gltfAppendPositions(const gltf_accessor_t *accessor,
 	return 1;
 }
 
+static s32 gltfReadIndex(const u8 *p, s32 component_type, u32 *out);
+
+static s32 gltfApplyRoomTags(const gltf_accessor_t *accessor,
+                             const gltf_buffer_view_t *views,
+                             s32 view_count,
+                             const u8 *bin,
+                             u32 bin_size,
+                             obj_mesh_t *mesh,
+                             s32 vertex_base,
+                             s32 vertex_count)
+{
+	const u8 *data;
+	u32 stride;
+	u32 element_size;
+
+	if (!accessor || !mesh || vertex_base < 0 || vertex_count <= 0) {
+		return 0;
+	}
+	if (strcmp(accessor->type, "SCALAR") != 0
+			|| (accessor->component_type != 5121
+				&& accessor->component_type != 5123
+				&& accessor->component_type != 5125
+				&& accessor->component_type != 5126)) {
+		objMeshSetError(mesh, 0, "gltf_room_accessor_must_be_scalar");
+		return 0;
+	}
+	if (accessor->count != vertex_count) {
+		objMeshSetError(mesh, 0, "gltf_room_accessor_count_mismatch");
+		return 0;
+	}
+	if (!gltfAccessorData(accessor, views, view_count, bin, bin_size,
+			&data, &stride, &element_size)) {
+		objMeshSetError(mesh, 0, "gltf_room_accessor_out_of_bounds");
+		return 0;
+	}
+
+	for (s32 i = 0; i < accessor->count; i++) {
+		const u8 *p = data + (u32)i * stride;
+		u32 room = 0;
+		if (accessor->component_type == 5126) {
+			f32 value = readLeFloat(p);
+			if (value < 0.0f || value > 32767.0f) {
+				objMeshSetError(mesh, 0, "gltf_room_value_out_of_range");
+				return 0;
+			}
+			room = (u32)(value + 0.5f);
+		} else if (!gltfReadIndex(p, accessor->component_type, &room)) {
+			objMeshSetError(mesh, 0, "gltf_room_decode_failed");
+			return 0;
+		}
+		if (room > 32767u || vertex_base + i >= mesh->vertex_count) {
+			objMeshSetError(mesh, 0, "gltf_room_value_out_of_range");
+			return 0;
+		}
+		mesh->vertices[vertex_base + i].roomnum = (s32)room;
+	}
+
+	(void)element_size;
+	return 1;
+}
+
 static s32 gltfReadIndex(const u8 *p, s32 component_type, u32 *out)
 {
 	if (!p || !out) {
@@ -1376,6 +1610,7 @@ static s32 parseGltfMeshFromJson(const char *json,
 			json_span_t attributes;
 			s32 mode = 4;
 			s32 position_accessor_index;
+			s32 room_accessor_index = -1;
 			s32 indices_accessor_index = -1;
 			s32 vertex_base = 0;
 			s32 vertex_count = 0;
@@ -1402,6 +1637,21 @@ static s32 parseGltfMeshFromJson(const char *json,
 					&vertex_base, &vertex_count)) {
 				ok = 0;
 				break;
+			}
+
+			if (jsonObjectInt(attributes, "_PD_ROOM", &room_accessor_index)) {
+				if (room_accessor_index < 0
+						|| room_accessor_index >= accessor_count) {
+					objMeshSetError(mesh, 0, "gltf_room_accessor_out_of_range");
+					ok = 0;
+					break;
+				}
+				if (!gltfApplyRoomTags(&accessors[room_accessor_index],
+						views, view_count, bin, bin_size, mesh,
+						vertex_base, vertex_count)) {
+					ok = 0;
+					break;
+				}
 			}
 
 			if (jsonObjectInt(primitive, "indices", &indices_accessor_index)) {
@@ -2965,9 +3215,17 @@ s32 modAssetCompilerEnsureCache(const asset_entry_t *entry,
 typedef struct generated_modeldef {
 	struct modeldef def;
 	struct modelnode root_node;
+	struct modelnode bbox_node;
+	struct modelnode toggle_node;
 	struct modelnode dl_node;
 	union modelrodata root_rodata;
+	union modelrodata bbox_rodata;
+	union modelrodata toggle_rodata;
 	union modelrodata dl_rodata;
+	struct {
+		struct modelnode *nodes[4];
+		s16 partnums[5];
+	} part_table;
 	Vtx *vertices;
 	Col *colours;
 	Gfx *gdl;
@@ -2998,6 +3256,213 @@ static void fillGeneratedVertex(Vtx *dst, const obj_vertex_t *src)
 	dst->colour = 0;
 }
 
+static s32 generatedModeldefNeedsChrRoot(const asset_entry_t *entry)
+{
+	return entry != NULL && entry->type == ASSET_BODY;
+}
+
+static void generatedModeldefMeshBounds(const obj_mesh_t *mesh,
+                                        struct modelrodata_bbox *bbox)
+{
+	f32 xmin = 0.0f;
+	f32 xmax = 0.0f;
+	f32 ymin = 0.0f;
+	f32 ymax = 0.0f;
+	f32 zmin = 0.0f;
+	f32 zmax = 0.0f;
+
+	if (mesh && mesh->vertex_count > 0) {
+		xmin = xmax = mesh->vertices[0].x;
+		ymin = ymax = mesh->vertices[0].y;
+		zmin = zmax = mesh->vertices[0].z;
+
+		for (s32 i = 1; i < mesh->vertex_count; i++) {
+			const obj_vertex_t *v = &mesh->vertices[i];
+			if (v->x < xmin) xmin = v->x;
+			if (v->x > xmax) xmax = v->x;
+			if (v->y < ymin) ymin = v->y;
+			if (v->y > ymax) ymax = v->y;
+			if (v->z < zmin) zmin = v->z;
+			if (v->z > zmax) zmax = v->z;
+		}
+	}
+
+	bbox->hitpart = 0;
+	bbox->xmin = xmin;
+	bbox->xmax = xmax;
+	bbox->ymin = ymin;
+	bbox->ymax = ymax;
+	bbox->zmin = zmin;
+	bbox->zmax = zmax;
+}
+
+static void generatedModeldefConfigureCctvParts(generated_modeldef_t *owner,
+                                                const obj_mesh_t *mesh)
+{
+	if (!owner || owner->def.skel != &g_SkelCctv) {
+		return;
+	}
+
+	owner->bbox_node.type = MODELNODETYPE_BBOX;
+	owner->bbox_node.rodata = &owner->bbox_rodata;
+	owner->bbox_node.parent = &owner->root_node;
+	owner->bbox_node.next = &owner->toggle_node;
+	generatedModeldefMeshBounds(mesh, &owner->bbox_rodata.bbox);
+
+	owner->toggle_node.type = MODELNODETYPE_TOGGLE;
+	owner->toggle_node.rodata = &owner->toggle_rodata;
+	owner->toggle_node.parent = &owner->root_node;
+	owner->toggle_node.prev = &owner->bbox_node;
+	owner->toggle_node.child = &owner->dl_node;
+	owner->toggle_rodata.toggle.target = &owner->dl_node;
+
+	owner->dl_node.parent = &owner->toggle_node;
+	owner->root_node.child = &owner->bbox_node;
+
+	owner->part_table.nodes[0] = &owner->root_node;
+	owner->part_table.nodes[1] = &owner->dl_node;
+	owner->part_table.nodes[2] = &owner->bbox_node;
+	owner->part_table.nodes[3] = &owner->toggle_node;
+	owner->part_table.partnums[0] = MODELPART_CCTV_CASING;
+	owner->part_table.partnums[1] = MODELPART_CCTV_LENS;
+	owner->part_table.partnums[2] = MODELPART_CCTV_0002;
+	owner->part_table.partnums[3] = MODELPART_CCTV_0003;
+	owner->part_table.partnums[4] = 0x7fff;
+
+	owner->def.parts = owner->part_table.nodes;
+	owner->def.numparts = 4;
+	owner->def.nummatrices = 2;
+}
+
+static s32 generatedModeldefMetadataPath(const char *source_path,
+                                         const char *member,
+                                         char *out,
+                                         size_t out_n)
+{
+	const char *sep;
+	const char *next;
+	int prefix_len;
+
+	if (!source_path || !member || !out || out_n == 0) {
+		return 0;
+	}
+
+	sep = strstr(source_path, "::");
+	if (!sep) {
+		return 0;
+	}
+	while ((next = strstr(sep + 2, "::")) != NULL) {
+		sep = next;
+	}
+
+	prefix_len = (int)(sep - source_path);
+	if (prefix_len <= 0) {
+		return 0;
+	}
+
+	return snprintf(out, out_n, "%.*s::%s", prefix_len, source_path,
+		member) > 0;
+}
+
+static s32 generatedModeldefReadStringValue(const char *text,
+                                            const char *key,
+                                            char *out,
+                                            size_t out_n)
+{
+	const char *p;
+	const char *value;
+	size_t len = 0;
+
+	if (!text || !key || !out || out_n == 0) {
+		return 0;
+	}
+
+	out[0] = '\0';
+	p = strstr(text, key);
+	if (!p) {
+		return 0;
+	}
+
+	p += strlen(key);
+	while (*p && *p != ':' && *p != '=') {
+		p++;
+	}
+	if (!*p) {
+		return 0;
+	}
+	p++;
+	while (*p == ' ' || *p == '\t' || *p == '"') {
+		p++;
+	}
+
+	value = p;
+	while (value[len]
+			&& value[len] != '"'
+			&& value[len] != ','
+			&& value[len] != '\r'
+			&& value[len] != '\n') {
+		len++;
+	}
+	while (len > 0 && (value[len - 1] == ' ' || value[len - 1] == '\t')) {
+		len--;
+	}
+	if (len == 0) {
+		return 0;
+	}
+	if (len >= out_n) {
+		len = out_n - 1;
+	}
+
+	memcpy(out, value, len);
+	out[len] = '\0';
+	return 1;
+}
+
+static struct skeleton *generatedModeldefSkeletonFromMetadata(
+	const char *source_path)
+{
+	static const char *members[] = {
+		"_meta/manifest.json",
+		"mesh.ini",
+	};
+	char metadata_path[FS_MAXPATH + 1];
+	char skeleton_symbol[64];
+
+	for (s32 i = 0; i < (s32)(sizeof(members) / sizeof(members[0])); i++) {
+		u32 size = 0;
+		char *text;
+
+		if (!generatedModeldefMetadataPath(source_path, members[i],
+				metadata_path, sizeof(metadata_path))) {
+			continue;
+		}
+
+		text = (char *)fsFileLoad(metadata_path, &size);
+		if (!text || size == 0) {
+			if (text) {
+				free(text);
+			}
+			continue;
+		}
+
+		skeleton_symbol[0] = '\0';
+		if (generatedModeldefReadStringValue(text, "skeleton_symbol",
+				skeleton_symbol, sizeof(skeleton_symbol))) {
+			struct skeleton *skeleton =
+				modAssetCompilerSkeletonForSymbol(skeleton_symbol);
+			free(text);
+			if (skeleton) {
+				return skeleton;
+			}
+			continue;
+		}
+
+		free(text);
+	}
+
+	return NULL;
+}
+
 static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
                                           const char *source_path,
                                           const obj_mesh_t *mesh,
@@ -3007,6 +3472,10 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	Gfx *gdl;
 	s32 vtx_count;
 	s32 gdl_count;
+	size_t vertex_bytes;
+	size_t vertex_colour_bytes;
+	s32 chr_root;
+	struct skeleton *skeleton;
 
 	if (out_modeldef) {
 		*out_modeldef = NULL;
@@ -3029,8 +3498,10 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 		return -1;
 	}
 
-	owner->vertices = calloc((size_t)vtx_count, sizeof(*owner->vertices));
-	owner->colours = calloc(1, sizeof(*owner->colours));
+	vertex_bytes = (size_t)vtx_count * sizeof(*owner->vertices);
+	vertex_colour_bytes = (size_t)ALIGN8(vertex_bytes) + sizeof(*owner->colours);
+	owner->vertices = calloc(1, vertex_colour_bytes);
+	owner->colours = (Col *)((u8 *)owner->vertices + ALIGN8(vertex_bytes));
 	owner->gdl = calloc((size_t)gdl_count, sizeof(*owner->gdl));
 	if (!owner->vertices || !owner->colours || !owner->gdl) {
 		modAssetCompilerFreeModeldef(&owner->def);
@@ -3061,17 +3532,27 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	}
 	gSPEndDisplayList(gdl++);
 
-	owner->root_node.type = MODELNODETYPE_POSITION;
+	chr_root = generatedModeldefNeedsChrRoot(entry);
+	skeleton = chr_root ? &g_SkelChr :
+		generatedModeldefSkeletonFromMetadata(source_path);
+	owner->root_node.type = chr_root ? MODELNODETYPE_CHRINFO : MODELNODETYPE_POSITION;
 	owner->root_node.rodata = &owner->root_rodata;
 	owner->root_node.child = &owner->dl_node;
-	owner->root_rodata.position.pos.x = 0.0f;
-	owner->root_rodata.position.pos.y = 0.0f;
-	owner->root_rodata.position.pos.z = 0.0f;
-	owner->root_rodata.position.part = 0xffff;
-	owner->root_rodata.position.mtxindex0 = 0;
-	owner->root_rodata.position.mtxindex1 = -1;
-	owner->root_rodata.position.mtxindex2 = -1;
-	owner->root_rodata.position.drawdist = 0.0f;
+	if (chr_root) {
+		owner->root_rodata.chrinfo.animpart = 0;
+		owner->root_rodata.chrinfo.mtxindex = 0;
+		owner->root_rodata.chrinfo.unk04 = 0.0f;
+		owner->root_rodata.chrinfo.rwdataindex = 0;
+	} else {
+		owner->root_rodata.position.pos.x = 0.0f;
+		owner->root_rodata.position.pos.y = 0.0f;
+		owner->root_rodata.position.pos.z = 0.0f;
+		owner->root_rodata.position.part = skeleton ? 0 : 0xffff;
+		owner->root_rodata.position.mtxindex0 = 0;
+		owner->root_rodata.position.mtxindex1 = -1;
+		owner->root_rodata.position.mtxindex2 = -1;
+		owner->root_rodata.position.drawdist = 0.0f;
+	}
 
 	owner->dl_node.type = MODELNODETYPE_DL;
 	owner->dl_node.rodata = &owner->dl_rodata;
@@ -3085,7 +3566,7 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	owner->dl_rodata.dl.numcolours = 1;
 
 	owner->def.rootnode = &owner->root_node;
-	owner->def.skel = NULL;
+	owner->def.skel = skeleton;
 	owner->def.parts = NULL;
 	owner->def.numparts = 0;
 	owner->def.nummatrices = 1;
@@ -3093,13 +3574,17 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	owner->def.numtexconfigs = 0;
 	owner->def.texconfigs = NULL;
 	owner->def.rwdatalen = modelCalculateRwDataIndexes(owner->def.rootnode);
+	generatedModeldefConfigureCctvParts(owner, mesh);
+	owner->def.rwdatalen = modelCalculateRwDataIndexes(owner->def.rootnode);
 
 	*out_modeldef = &owner->def;
 	sysLogPrintf(LOG_NOTE,
-		"MODASSET.COMPILER: built generated modeldef '%s' source=%s vertices=%d tris=%d rwdatalen=%d",
+		"MODASSET.COMPILER: built generated modeldef '%s' source=%s vertices=%d tris=%d rwdatalen=%d skeleton=%s",
 		entry ? entry->id : "(unknown)",
 		source_path ? source_path : "(null)",
-		vtx_count, mesh->triangle_count, owner->def.rwdatalen);
+		vtx_count, mesh->triangle_count, owner->def.rwdatalen,
+		modAssetCompilerSkeletonSymbolForPointer(owner->def.skel) ?
+			modAssetCompilerSkeletonSymbolForPointer(owner->def.skel) : "(none)");
 	return 1;
 }
 
@@ -3162,7 +3647,6 @@ void modAssetCompilerFreeModeldef(struct modeldef *modeldef)
 
 	owner = (generated_modeldef_t *)modeldef;
 	free(owner->vertices);
-	free(owner->colours);
 	free(owner->gdl);
 	free(owner);
 }
@@ -3175,6 +3659,7 @@ s32 modAssetCompilerBuildColmesh(const char *source_path,
 	obj_mesh_t obj_mesh;
 	const char *source_kind;
 	s32 parsed = 0;
+	s32 skipped_degenerate = 0;
 
 	if (!modAssetCompilerIsExternalSource(source_path)) {
 		return 0;
@@ -3221,20 +3706,49 @@ s32 modAssetCompilerBuildColmesh(const char *source_path,
 		struct coord v0 = { a->x, a->y, a->z };
 		struct coord v1 = { b->x, b->y, b->z };
 		struct coord v2 = { c->x, c->y, c->z };
+		f32 e1x = v1.x - v0.x;
+		f32 e1y = v1.y - v0.y;
+		f32 e1z = v1.z - v0.z;
+		f32 e2x = v2.x - v0.x;
+		f32 e2y = v2.y - v0.y;
+		f32 e2z = v2.z - v0.z;
+		f32 nx = e1y * e2z - e1z * e2y;
+		f32 ny = e1z * e2x - e1x * e2z;
+		f32 nz = e1x * e2y - e1y * e2x;
+		f32 len2 = nx * nx + ny * ny + nz * nz;
+
+		if (!modAssetFloatIsFinite(v0.x)
+				|| !modAssetFloatIsFinite(v0.y)
+				|| !modAssetFloatIsFinite(v0.z)
+				|| !modAssetFloatIsFinite(v1.x)
+				|| !modAssetFloatIsFinite(v1.y)
+				|| !modAssetFloatIsFinite(v1.z)
+				|| !modAssetFloatIsFinite(v2.x)
+				|| !modAssetFloatIsFinite(v2.y)
+				|| !modAssetFloatIsFinite(v2.z)
+				|| !modAssetFloatIsFinite(len2)
+				|| len2 <= 0.000001f) {
+			skipped_degenerate++;
+			continue;
+		}
 
 		if (!meshAddTriangle(out_mesh, &v0, &v1, &v2)) {
 			sysLogPrintf(LOG_WARNING,
-				"MODASSET.COMPILER: colmesh triangle add failed for %s",
-				source_path);
+				"MODASSET.COMPILER: colmesh triangle add failed for %s tri=%d/%d built=%d capacity=%d skipped_degenerate=%d len2=%g",
+				source_path, i, obj_mesh.triangle_count, out_mesh->numtris,
+				out_mesh->capacity, skipped_degenerate, len2);
 			meshFree(out_mesh);
 			objMeshFree(&obj_mesh);
 			return -1;
 		}
+		out_mesh->tris[out_mesh->numtris - 1].roomnum =
+			(RoomNum)tri->roomnum;
 	}
 
 	sysLogPrintf(LOG_NOTE,
-		"MODASSET.COMPILER: built colmesh source=%s format=%s vertices=%d tris=%d",
-		source_path, source_kind, obj_mesh.vertex_count, out_mesh->numtris);
+		"MODASSET.COMPILER: built colmesh source=%s format=%s vertices=%d tris=%d skipped_degenerate=%d",
+		source_path, source_kind, obj_mesh.vertex_count, out_mesh->numtris,
+		skipped_degenerate);
 	objMeshFree(&obj_mesh);
 	return out_mesh->numtris > 0 ? 1 : -1;
 }

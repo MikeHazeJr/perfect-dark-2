@@ -1,9 +1,9 @@
 /**
  * romextract_pdmesh.c -- Catalog universality pivot Step 1 (2026-05-02).
  *
- * Walks the unique set of mesh references from the loader_pool weapon
- * pool (hi_model + lo_model fields) and emits one .pdmesh ZIP compound
- * per unique mesh at data/<romid>/meshes/<id>.pdmesh.
+ * Walks the unique set of mesh references from g_ModelStates plus the
+ * loader_pool weapon/head/body tables and emits one .pdmesh ZIP compound
+ * per unique catalog mesh identity at data/<romid>/meshes/<id>.pdmesh.
  *
  * Compound layout per universality-pivot-schemas.md Section 2.5:
  *   mesh.ini             editable mesh descriptor
@@ -32,6 +32,7 @@
 
 #include "boot_pool.h"
 #include "boot_progress.h"
+#include "assetcatalog.h"
 #include "catalog_readable_ids.h"
 #include "data.h"
 #include "types.h"
@@ -44,6 +45,7 @@
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
+#include "modasset_compiler.h"
 #include "system.h"
 #include "preprocess.h"
 #include "weapondata_authored.h"
@@ -54,15 +56,17 @@
 #include "lib/rzip.h"
 
 /* Track filenums already emitted to avoid duplicate work when multiple
- * weapons / heads / bodies share a mesh. Cap covers ~86 weapons * 2
- * (hi + lo) + 84 head meshes + 68 body meshes + 68 hand meshes plus
- * dedup headroom. */
-#define ROMEXTRACT_PDMESH_SEEN_CAP 512
+ * weapons / heads / bodies share a mesh. Cap covers every g_ModelStates
+ * model plus weapon hi/lo, projectile/entity payloads, heads, bodies, and
+ * body hand meshes with dedup headroom. */
+#define ROMEXTRACT_PDMESH_SEEN_CAP 1024
 #define ROMEXTRACT_PDMESH_MODEL_VMA 0x05000000u
 #define ROMEXTRACT_PDMESH_MTX_STACK_CAP 11
-#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v8"
+#define ROMEXTRACT_PDMESH_NODE_DEPTH_CAP 2048
+#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v9_skeleton"
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "\n"
-#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v8"
+#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v10_skeleton_allmodels"
+extern u16 g_CartFileNums[];
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
 
@@ -230,6 +234,7 @@ typedef struct {
 	u32 mtx_model_ref_count;
 	u32 mtx_bad_addr_count;
 	u32 transformed_vertex_count;
+	char skeleton_symbol[64];
 } pdmesh_obj_stats_t;
 
 static s32 s_ptrInModel(const pdmesh_obj_export_t *ctx, const void *ptr,
@@ -338,7 +343,9 @@ static s32 s_objParentMtxIndex(const pdmesh_obj_export_t *ctx,
                                const struct modelnode *node)
 {
 	const struct modelnode *parent = node ? node->parent : NULL;
-	while (parent && s_ptrInModel(ctx, parent, sizeof(*parent))) {
+	s32 guard = 0;
+	while (parent && s_ptrInModel(ctx, parent, sizeof(*parent)) &&
+			guard++ < ROMEXTRACT_PDMESH_NODE_DEPTH_CAP) {
 		s32 idx = s_objNodeMtxIndex(ctx, parent, 0);
 		if (idx >= 0) return idx;
 		parent = parent->parent;
@@ -370,9 +377,11 @@ static void s_objStoreNodeTranslationMtx(pdmesh_obj_export_t *ctx,
 }
 
 static void s_objBuildDefaultModelMatrices(pdmesh_obj_export_t *ctx,
-                                           struct modelnode *node)
+                                           struct modelnode *node,
+                                           s32 depth)
 {
 	if (!node || !s_ptrInModel(ctx, node, sizeof(*node))) return;
+	if (depth > ROMEXTRACT_PDMESH_NODE_DEPTH_CAP) return;
 
 	u32 type = node->type & 0xff;
 	if (type == MODELNODETYPE_POSITION && node->rodata &&
@@ -398,8 +407,12 @@ static void s_objBuildDefaultModelMatrices(pdmesh_obj_export_t *ctx,
 		}
 	}
 
-	if (node->child) s_objBuildDefaultModelMatrices(ctx, node->child);
-	if (node->next) s_objBuildDefaultModelMatrices(ctx, node->next);
+	if (node->child) {
+		s_objBuildDefaultModelMatrices(ctx, node->child, depth + 1);
+	}
+	if (node->next) {
+		s_objBuildDefaultModelMatrices(ctx, node->next, depth + 1);
+	}
 }
 
 static s32 s_objPartNumForNode(const pdmesh_obj_export_t *ctx,
@@ -452,12 +465,14 @@ static s32 s_objNodeUnderHiddenGunToggle(const pdmesh_obj_export_t *ctx,
                                          const struct modelnode *node)
 {
 	const struct modelnode *cur = node;
+	s32 guard = 0;
 
 	if (!ctx || !ctx->static_gun_model) {
 		return 0;
 	}
 
-	while (cur && s_ptrInModel(ctx, cur, sizeof(*cur))) {
+	while (cur && s_ptrInModel(ctx, cur, sizeof(*cur)) &&
+			guard++ < ROMEXTRACT_PDMESH_NODE_DEPTH_CAP) {
 		u32 type = cur->type & 0xff;
 		s32 partnum = s_objPartNumForNode(ctx, cur);
 
@@ -482,12 +497,14 @@ static s32 s_objNodeIsOrDescendsFrom(const pdmesh_obj_export_t *ctx,
                                      const struct modelnode *target)
 {
 	const struct modelnode *cur = node;
+	s32 guard = 0;
 
 	if (!ctx || !node || !target) {
 		return 0;
 	}
 
-	while (cur && s_ptrInModel(ctx, cur, sizeof(*cur))) {
+	while (cur && s_ptrInModel(ctx, cur, sizeof(*cur)) &&
+			guard++ < ROMEXTRACT_PDMESH_NODE_DEPTH_CAP) {
 		if (cur == target) {
 			return 1;
 		}
@@ -897,13 +914,15 @@ static s32 s_exportGunDlToObj(pdmesh_obj_export_t *ctx,
 	return 0;
 }
 
-static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node)
+static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node,
+                           s32 depth)
 {
 	if (!node || !s_ptrInModel(ctx, node, sizeof(*node))) return 0;
+	if (depth > ROMEXTRACT_PDMESH_NODE_DEPTH_CAP) return 0;
 	if (s_objNodeUnderHiddenGunToggle(ctx, node) ||
 	    s_objHiddenGunToggleTargetsNode(ctx, ctx->modeldef ?
 			ctx->modeldef->rootnode : NULL, node, 0)) {
-		if (node->next && s_exportNodeObj(ctx, node->next) != 0) return -1;
+		if (node->next && s_exportNodeObj(ctx, node->next, depth + 1) != 0) return -1;
 		return 0;
 	}
 
@@ -925,8 +944,8 @@ static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node)
 		if (s_exportGdlToObj(ctx, star->gdl, star->vertices, 4, 0) != 0) return -1;
 	}
 
-	if (node->child && s_exportNodeObj(ctx, node->child) != 0) return -1;
-	if (node->next && s_exportNodeObj(ctx, node->next) != 0) return -1;
+	if (node->child && s_exportNodeObj(ctx, node->child, depth + 1) != 0) return -1;
+	if (node->next && s_exportNodeObj(ctx, node->next, depth + 1) != 0) return -1;
 	return 0;
 }
 
@@ -1023,10 +1042,11 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 			s_objMtxIdentity(ctx.model_matrices[i]);
 		}
 		if (modeldef->rootnode) {
-			s_objBuildDefaultModelMatrices(&ctx, modeldef->rootnode);
+			s_objBuildDefaultModelMatrices(&ctx, modeldef->rootnode, 0);
 		}
 	}
-	if (modeldef->rootnode && s_exportNodeObj(&ctx, modeldef->rootnode) != 0) {
+	if (modeldef->rootnode &&
+			s_exportNodeObj(&ctx, modeldef->rootnode, 0) != 0) {
 		if (ctx.model_matrices) free(ctx.model_matrices);
 		free(copy);
 		return -1;
@@ -1046,6 +1066,14 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 		out_stats->mtx_model_ref_count = ctx.mtx_model_ref_count;
 		out_stats->mtx_bad_addr_count = ctx.mtx_bad_addr_count;
 		out_stats->transformed_vertex_count = ctx.transformed_vertex_count;
+		const char *skeleton_symbol =
+			modAssetCompilerSkeletonSymbolForPointer(modeldef->skel);
+		if (skeleton_symbol) {
+			strncpy(out_stats->skeleton_symbol, skeleton_symbol,
+				sizeof(out_stats->skeleton_symbol) - 1);
+			out_stats->skeleton_symbol[
+				sizeof(out_stats->skeleton_symbol) - 1] = '\0';
+		}
 	}
 	if (ctx.model_matrices) free(ctx.model_matrices);
 	free(copy);
@@ -1170,6 +1198,9 @@ static s32 s_loadSourceModelPreprocessed(u16 filenum, const char *src_rel,
 	} else {
 		(void)preprocessModelFile(work, inflated_size, &new_size);
 	}
+	sysLogPrintf(LOG_NOTE,
+		"romextract pdmesh: preprocessed filenum=0x%04x loadtype=%u new_size=%u",
+		(unsigned)filenum, (unsigned)loadtype, (unsigned)new_size);
 
 	if (new_size == 0 || new_size > cap) {
 		sysMemFree(work);
@@ -1189,6 +1220,7 @@ static s32 s_loadSourceModelPreprocessed(u16 filenum, const char *src_rel,
  * Callers from parallel workers can invoke this safely on disjoint
  * (filenum, hint) tuples. */
 static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
+                          const char *catalog_id_override,
                           const char *out_dir, s32 force_rewrite)
 {
 	if (filenum == 0) return 0;
@@ -1212,7 +1244,12 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	}
 
 	char catalog_id[128];
-	s_synthCatalogId(filenum, hint_suffix, catalog_id, sizeof(catalog_id));
+	if (catalog_id_override && catalog_id_override[0]) {
+		strncpy(catalog_id, catalog_id_override, sizeof(catalog_id) - 1);
+		catalog_id[sizeof(catalog_id) - 1] = '\0';
+	} else {
+		s_synthCatalogId(filenum, hint_suffix, catalog_id, sizeof(catalog_id));
+	}
 
 	char filename_slug[128];
 	s_catalogIdToFilename(catalog_id, filename_slug, sizeof(filename_slug));
@@ -1280,13 +1317,14 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	const char *sym_for_provenance = loaderEnumNameForFileEnum(filenum);
 
 	/* Build _meta/manifest.json text in memory. */
-	char manifest_buf[1024];
+	char manifest_buf[1280];
 	int manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
 		"{\n"
 		"  \"pd_kind\": \"mesh\",\n"
 		"  \"pd_schema_version\": 1,\n"
 		"  \"id\": \"%s\",\n"
 		"  \"source_filenum_symbol\": \"%s\",\n"
+		"  \"skeleton_symbol\": \"%s\",\n"
 		"  \"source_format\": \"PD_MODELDEF\",\n"
 		"  \"format\": \"OBJ\",\n"
 		"  \"obj_export_version\": \"%s\",\n"
@@ -1299,6 +1337,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"}\n",
 		catalog_id,
 		sym_for_provenance ? sym_for_provenance : "",
+		stats.skeleton_symbol,
 		ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL,
 		(unsigned)stats.triangle_count,
 		(unsigned)stats.gdl_count,
@@ -1312,7 +1351,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		return -1;
 	}
 
-	char ini_buf[768];
+	char ini_buf[896];
 	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
 		"[model]\n"
 		"catalog_id = %s\n"
@@ -1322,6 +1361,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"obj_export_version = %s\n"
 		"geometry_file = model.obj\n"
 		"material_file = model.mtl\n"
+		"skeleton_symbol = %s\n"
 		"triangle_count = %u\n"
 		"display_list_count = %u\n"
 		"matrix_command_count = %u\n"
@@ -1329,6 +1369,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"source_filenum_symbol = %s\n",
 		catalog_id,
 		ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL,
+		stats.skeleton_symbol,
 		(unsigned)stats.triangle_count,
 		(unsigned)stats.gdl_count,
 		(unsigned)stats.mtx_cmd_count,
@@ -1447,6 +1488,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 typedef struct {
 	u16  filenum;
 	char hint[8];   /* "hi", "lo", "hand", or "" */
+	char catalog_id[CATALOG_ID_LEN];
 } pdmesh_work_t;
 
 typedef struct {
@@ -1467,7 +1509,9 @@ static void s_pdmeshWork(int idx, void *user)
 
 	const pdmesh_work_t *j = &c->jobs[idx];
 	const char *hint = j->hint[0] ? j->hint : NULL;
-	s32 r = s_emitOneMesh(j->filenum, hint, c->out_dir, c->force_rewrite);
+	const char *catalog_id = j->catalog_id[0] ? j->catalog_id : NULL;
+	s32 r = s_emitOneMesh(j->filenum, hint, catalog_id,
+		c->out_dir, c->force_rewrite);
 	if (r > 0)       SDL_AtomicAdd(&c->written, 1);
 	else if (r == 0) SDL_AtomicAdd(&c->skipped, 1);
 	else             SDL_AtomicAdd(&c->failed,  1);
@@ -1478,23 +1522,58 @@ static void s_pdmeshWork(int idx, void *user)
 	}
 }
 
-static s32 s_pdmeshAddWork(pdmesh_work_t *jobs, s32 *job_count, s32 cap,
-                            u16 filenum, const char *hint)
+static void s_pdmeshWorkCatalogId(const pdmesh_work_t *job,
+	char *out, size_t out_n)
+{
+	if (!out || out_n == 0) {
+		return;
+	}
+
+	out[0] = '\0';
+	if (!job) {
+		return;
+	}
+
+	if (job->catalog_id[0]) {
+		strncpy(out, job->catalog_id, out_n - 1);
+		out[out_n - 1] = '\0';
+		return;
+	}
+
+	s_synthCatalogId(job->filenum, job->hint[0] ? job->hint : NULL, out,
+		out_n);
+}
+
+static s32 s_pdmeshAddWorkWithId(pdmesh_work_t *jobs, s32 *job_count, s32 cap,
+                            u16 filenum, const char *hint,
+                            const char *catalog_id)
 {
 	if (filenum == 0) return 0;
 	const char *wanted_hint = hint ? hint : "";
+	char wanted_id[CATALOG_ID_LEN];
+
+	if (catalog_id && catalog_id[0]) {
+		strncpy(wanted_id, catalog_id, sizeof(wanted_id) - 1);
+		wanted_id[sizeof(wanted_id) - 1] = '\0';
+	} else {
+		s_synthCatalogId(filenum, wanted_hint[0] ? wanted_hint : NULL,
+			wanted_id, sizeof(wanted_id));
+	}
+
 	/* Dedup by output identity, not only filenum. Some files are both
 	 * weapon meshes and body/hand meshes, which intentionally emit separate
 	 * archive names from the same source bytes. */
 	for (s32 i = 0; i < *job_count; i++) {
-		if (jobs[i].filenum == filenum &&
-		    strcmp(jobs[i].hint, wanted_hint) == 0) {
+		char existing_id[CATALOG_ID_LEN];
+		s_pdmeshWorkCatalogId(&jobs[i], existing_id, sizeof(existing_id));
+		if (strcmp(existing_id, wanted_id) == 0) {
 			return 0;
 		}
 	}
 	if (*job_count >= cap) return 0;
 	jobs[*job_count].filenum = filenum;
 	jobs[*job_count].hint[0] = '\0';
+	jobs[*job_count].catalog_id[0] = '\0';
 	if (hint && hint[0]) {
 		size_t hlen = strlen(hint);
 		if (hlen >= sizeof(jobs[*job_count].hint)) {
@@ -1503,8 +1582,20 @@ static s32 s_pdmeshAddWork(pdmesh_work_t *jobs, s32 *job_count, s32 cap,
 		memcpy(jobs[*job_count].hint, hint, hlen);
 		jobs[*job_count].hint[hlen] = '\0';
 	}
+	if (catalog_id && catalog_id[0]) {
+		strncpy(jobs[*job_count].catalog_id, catalog_id,
+			sizeof(jobs[*job_count].catalog_id) - 1);
+		jobs[*job_count].catalog_id[
+			sizeof(jobs[*job_count].catalog_id) - 1] = '\0';
+	}
 	(*job_count)++;
 	return 1;
+}
+
+static s32 s_pdmeshAddWork(pdmesh_work_t *jobs, s32 *job_count, s32 cap,
+                            u16 filenum, const char *hint)
+{
+	return s_pdmeshAddWorkWithId(jobs, job_count, cap, filenum, hint, NULL);
 }
 
 static void s_pdmeshAddModelnumWork(pdmesh_work_t *jobs, s32 *job_count,
@@ -1512,7 +1603,16 @@ static void s_pdmeshAddModelnumWork(pdmesh_work_t *jobs, s32 *job_count,
 {
 	if (modelnum < 0 || modelnum >= NUM_MODELS) return;
 	u16 filenum = g_ModelStates[modelnum].fileid;
-	s_pdmeshAddWork(jobs, job_count, cap, filenum, NULL);
+	const char *catalog_id = catalogModelIdByModelnum(modelnum);
+	char fallback_id[CATALOG_ID_LEN];
+
+	if (!catalog_id || !catalog_id[0]) {
+		catalogReadableModelIdForModelnum(modelnum, (s32)filenum,
+			fallback_id, sizeof(fallback_id));
+		catalog_id = fallback_id;
+	}
+
+	s_pdmeshAddWorkWithId(jobs, job_count, cap, filenum, NULL, catalog_id);
 }
 
 static void s_pdmeshAddWeaponFuncPayloadWork(pdmesh_work_t *jobs,
@@ -1554,11 +1654,14 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 		return -1;
 	}
 
-	/* Phase 1: collect unique (filenum, hint) tuples single-threaded.
-	 * Cap matches the pre-Phase-4 dedup cap. */
+	/* Phase 1: collect unique output mesh identities single-threaded. */
 	pdmesh_work_t jobs[ROMEXTRACT_PDMESH_SEEN_CAP];
 	s32 job_count = 0;
 
+	for (s32 i = 0; i < NUM_MODELS; i++) {
+		s_pdmeshAddModelnumWork(jobs, &job_count,
+			ROMEXTRACT_PDMESH_SEEN_CAP, i);
+	}
 	for (s32 i = 0; i < g_WeaponDataCount; i++) {
 		const struct weapon *wpn = g_WeaponData[i];
 		if (!wpn) continue;
@@ -1572,6 +1675,20 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 		s_pdmeshAddWeaponFuncPayloadWork(jobs, &job_count,
 			ROMEXTRACT_PDMESH_SEEN_CAP,
 			(const struct weaponfunc *)wpn->functions[1]);
+	}
+	{
+		static const char *cart_ids[] = {
+			"base:model_cartridge_rifle",
+			"base:model_cartridge_rifle_alt",
+			"base:model_cartridge_blue",
+			"base:model_cartridge_shell",
+		};
+
+		for (s32 i = 0; i < (s32)(sizeof(cart_ids) / sizeof(cart_ids[0])); i++) {
+			s_pdmeshAddWorkWithId(jobs, &job_count,
+				ROMEXTRACT_PDMESH_SEEN_CAP, g_CartFileNums[i],
+				"cart", cart_ids[i]);
+		}
 	}
 	for (s32 i = 0; i < g_HeadDataCount; i++) {
 		s_pdmeshAddWork(jobs, &job_count, ROMEXTRACT_PDMESH_SEEN_CAP,

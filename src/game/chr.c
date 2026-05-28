@@ -2571,6 +2571,7 @@ s32 chrTick(struct prop *prop)
 	struct modelrenderdata sp210 = {0, 1, 3};
 	struct chrdata *chr = prop->chr;
 	struct model *model;
+	bool model_has_anim;
 	bool needsupdate;
 	bool hatvisible = true;
 	s32 lvupdate240 = g_Vars.lvupdate240;
@@ -2609,6 +2610,7 @@ s32 chrTick(struct prop *prop)
 	}
 
 	model = chr->model;
+	model_has_anim = (model->anim != NULL);
 	race = CHRRACE(chr);
 
 	if (prop->flags & PROPFLAG_NOTYETTICKED) {
@@ -2659,7 +2661,7 @@ s32 chrTick(struct prop *prop)
 		chrTickPoisoned(chr);
 
 		if ((chr->chrflags & CHRCFLAG_HIDDEN) == 0 || (chr->chrflags & CHRCFLAG_NEVERSLEEP)) {
-			if (var8006296c) {
+			if (var8006296c && model_has_anim) {
 				if (animHasFrames(g_SelectedAnimNum)) {
 					if (modelGetAnimNum(model) != g_SelectedAnimNum || !animHasFrames(modelGetAnimNum(model))) {
 						modelSetAnimation(model, g_SelectedAnimNum, 0, 0.0f, 0.5f, 0.0f);
@@ -2687,6 +2689,9 @@ s32 chrTick(struct prop *prop)
 				if (chr->model == NULL) {
 					return TICKOP_FREE;
 				}
+
+				model = chr->model;
+				model_has_anim = (model->anim != NULL);
 			}
 
 			if (var80062974) {
@@ -2708,7 +2713,11 @@ s32 chrTick(struct prop *prop)
 		}
 	}
 
-	if (race == RACE_EYESPY) {
+	if (!model_has_anim) {
+		needsupdate = (chr->chrflags & CHRCFLAG_HIDDEN)
+			? false
+			: func0f08e8ac(prop, &prop->pos, modelGetEffectiveScale(model), true);
+	} else if (race == RACE_EYESPY) {
 		struct eyespy *eyespy = chrToEyespy(chr);
 
 		if (eyespy && eyespy->deployed) {
@@ -2861,7 +2870,7 @@ s32 chrTick(struct prop *prop)
 	}
 
 	if (fulltick) {
-		if (chr->actiontype != ACT_STAND || model->anim->animnum2 != 0 || prop->type == PROPTYPE_PLAYER) {
+		if (!model_has_anim || chr->actiontype != ACT_STAND || model->anim->animnum2 != 0 || prop->type == PROPTYPE_PLAYER) {
 #if VERSION >= VERSION_NTSC_1_0
 			chr->hidden2 |= CHRH2FLAG_CONSIDERPROXIES;
 #else

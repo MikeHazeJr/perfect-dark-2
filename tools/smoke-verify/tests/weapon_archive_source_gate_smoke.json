@@ -1,0 +1,54 @@
+{
+  "scenario_name": "weapon_archive_source_gate_smoke",
+  "description": "c3844 runtime smoke: force the weapon family through public .pdweapon FileProvider source, then load DY-357 by canonical catalog ID. This catches generated archives that populate the loader pool but are not bound as runtime catalog sources.",
+  "tags": ["modding", "pdxxx", "weapon", "source-gate", "c3844", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/loader_walker_weapon.c",
+    "port/src/assetcatalog_base_extended.c",
+    "port/src/assetcatalog_load.c",
+    "port/src/romextract_pdweapon.c",
+    "port/src/weapondata_authored.c",
+    "tools/smoke-verify/fixtures/weapon_archive_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/weapon_archive_source_pd.ini", "dst": "pd.ini" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets",
+    "weapon=base:dy357"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "catalog bootstrap extracts and walks base .pdweapon archives before the debug typed-load request fires." },
+    { "at_ms": 25000, "type": "exit", "comment": "exit after the forced weapon typed-load has either activated or emitted the source-only failure. This smoke intentionally stays out of the skip-intro stage dwell path so it only validates .pdweapon source binding and typed runtime activation." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=weapon_archive_source_gate_smoke",
+      "LOADER\\.UNIVERSAL\\.OK: kind=weapon scanned=\\d+ registered=\\d+ envelope_failures=0 register_failures=0",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='base:dy357'",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated weapon metadata payload 'base:dy357'",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:dy357' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "typed 'base:dy357' Weapon has no public FileProvider source",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: 'base:dy357' weapon runtime adapter rejected missing authored payload",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:dy357' result=FAIL"
+    ],
+    "required_counts": [
+      { "pattern": "BOOT: --debug-load-catalog-assets result type=weapon id='base:dy357' result=OK", "min": 1, "max": 1 }
+    ]
+  }
+}

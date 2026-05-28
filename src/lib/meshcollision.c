@@ -139,6 +139,7 @@ static bool addTriToMesh(struct colmesh *mesh,
 	tri->v1.x = x1; tri->v1.y = y1; tri->v1.z = z1;
 	tri->v2.x = x2; tri->v2.y = y2; tri->v2.z = z2;
 	tri->flags = flags;
+	tri->roomnum = 0;
 	meshComputeNormal(&tri->v0, &tri->v1, &tri->v2, &tri->normal);
 
 	/* Update AABB */

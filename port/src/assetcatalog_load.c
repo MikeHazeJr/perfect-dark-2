@@ -76,6 +76,7 @@ extern struct animtableentry *g_RomAnims;
 extern u8 **g_AnimReplacements;
 
 static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type);
+static s32 s_catalogTypePreloadsBundledMetadataPayload(asset_type_e type);
 static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry);
 
 /* ========================================================================
@@ -134,7 +135,7 @@ void catalogLoadInit(void)
         }
 
         if (e->bundled && e->source.primary.provider == fileProvider()
-                && s_catalogTypeUsesMetadataRuntimePayload(e->type)) {
+                && s_catalogTypePreloadsBundledMetadataPayload(e->type)) {
             asset_entry_t *mutable_entry = assetCatalogGetMutable(e->id);
             if (mutable_entry && mutable_entry->load_state < ASSET_STATE_ACTIVE) {
                 (void)s_catalogLoadEntryMetadataPayload(mutable_entry);
@@ -633,6 +634,14 @@ static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type)
         || type == ASSET_THEME;
 }
 
+static s32 s_catalogTypePreloadsBundledMetadataPayload(asset_type_e type)
+{
+    if (type == ASSET_ANIMATION || type == ASSET_SCENARIO) {
+        return 0;
+    }
+    return s_catalogTypeUsesMetadataRuntimePayload(type);
+}
+
 static s32 s_catalogTypeCanUseObjColmeshPayload(asset_type_e type)
 {
     return type == ASSET_ARENA
@@ -992,6 +1001,16 @@ static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
             return 1;
         }
         return s_catalogLoadEntryMetadataPayload(entry);
+    }
+
+    if ((entry->bundled || entry->ref_count == ASSET_REF_BUNDLED)
+            && entry->source.primary.provider == fileProvider()
+            && s_catalogTypeUsesModelPayload(entry->type)) {
+        if (entry->load_state >= ASSET_STATE_LOADED && entry->loaded_data) {
+            entry->ref_count++;
+            return 1;
+        }
+        return s_catalogLoadEntryModelPayload(entry, handle);
     }
 
     if (entry->bundled || entry->ref_count == ASSET_REF_BUNDLED) {

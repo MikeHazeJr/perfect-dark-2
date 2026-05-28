@@ -15,7 +15,7 @@
  *
  *   2. data/<romid>/scenarios/<scenario_id>.pdscenario
  *      ZIP compound bundling scene.glb, pads.tsv, spawns.tsv, volumes.tsv,
- *      objects.tsv, objectives.tsv, navigation.ini, level.graph.json, and
+ *      objects.tsv, setup.fields.tsv, objectives.tsv, navigation.ini, level.graph.json, and
  *      _meta/generated-*.json envelopes. UNIFIED per Q-1 (one file per stage;
  *      modder-friendly atomic distribution).
  *      Schema: universality-pivot-schemas.md Section 2.10.
@@ -70,17 +70,18 @@
 #include "game/texdecompress.h"
 #include "game/tex.h"
 #include "arenadata_authored.h"
+#include "weapondata_authored.h"
 #include "lib/rzip.h"
 
 #define STB_IMAGE_WRITE_STATIC
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../external/stb_image_write.h"
 
-#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v1"
+#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v2"
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
-#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v3"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v3"
+#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v4"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v9"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -122,6 +123,11 @@ typedef struct {
 } pdscenario_textbuf_t;
 
 typedef struct {
+	u32 tag_id;
+	s32 target_index;
+} pdscenario_tag_target_t;
+
+typedef struct {
 	u8  *data;
 	u32  len;
 	u32  cap;
@@ -130,6 +136,7 @@ typedef struct {
 typedef struct {
 	f32 x, y, z;
 	f32 u, v;
+	u16 roomnum;
 } pdscenario_visual_vertex_t;
 
 typedef struct {
@@ -461,7 +468,11 @@ static void s_pdscenarioScratchFree(pdscenario_textbuf_t *rooms_obj,
                                     pdscenario_textbuf_t *pads_tsv,
                                     pdscenario_textbuf_t *spawns_tsv,
                                     pdscenario_textbuf_t *volumes_tsv,
+                                    pdscenario_textbuf_t *waypoints_tsv,
+                                    pdscenario_textbuf_t *waygroups_tsv,
+                                    pdscenario_textbuf_t *covers_tsv,
                                     pdscenario_textbuf_t *objects_tsv,
+                                    pdscenario_textbuf_t *setup_fields_tsv,
                                     pdscenario_textbuf_t *objectives_tsv,
                                     pdscenario_textbuf_t *navigation_ini,
                                     pdscenario_textbuf_t *level_graph_json,
@@ -475,7 +486,11 @@ static void s_pdscenarioScratchFree(pdscenario_textbuf_t *rooms_obj,
 	s_textbufFree(pads_tsv);
 	s_textbufFree(spawns_tsv);
 	s_textbufFree(volumes_tsv);
+	s_textbufFree(waypoints_tsv);
+	s_textbufFree(waygroups_tsv);
+	s_textbufFree(covers_tsv);
 	s_textbufFree(objects_tsv);
+	s_textbufFree(setup_fields_tsv);
 	s_textbufFree(objectives_tsv);
 	s_textbufFree(navigation_ini);
 	s_textbufFree(level_graph_json);
@@ -795,6 +810,18 @@ static void s_padRef(s32 pad, char *out, size_t out_size)
 	snprintf(out, out_size, "pad_%04d", pad);
 }
 
+static void s_tagRef(u32 tag_id, char *out, size_t out_size)
+{
+	if (!out || out_size == 0) return;
+	snprintf(out, out_size, "tag_%04u", (unsigned)tag_id);
+}
+
+static void s_stageFlagRef(u32 flag_mask, char *out, size_t out_size)
+{
+	if (!out || out_size == 0) return;
+	snprintf(out, out_size, "stage_flag_0x%08x", (unsigned)flag_mask);
+}
+
 static void s_roomRef(s32 room, char *out, size_t out_size)
 {
 	if (!out || out_size == 0) return;
@@ -803,6 +830,224 @@ static void s_roomRef(s32 room, char *out, size_t out_size)
 		return;
 	}
 	snprintf(out, out_size, "room_%04d", room);
+}
+
+static void s_waypointRef(s32 waypoint, char *out, size_t out_size)
+{
+	if (!out || out_size == 0) return;
+	if (waypoint < 0) {
+		out[0] = '\0';
+		return;
+	}
+	snprintf(out, out_size, "waypoint_%04d", waypoint);
+}
+
+static void s_waygroupRef(s32 waygroup, char *out, size_t out_size)
+{
+	if (!out || out_size == 0) return;
+	if (waygroup < 0) {
+		out[0] = '\0';
+		return;
+	}
+	snprintf(out, out_size, "waygroup_%04d", waygroup);
+}
+
+static s32 s_offsetRangeValid(u32 size, uintptr_t offset, size_t len)
+{
+	if (offset > (uintptr_t)size) return 0;
+	if (len > (size_t)((uintptr_t)size - offset)) return 0;
+	return 1;
+}
+
+static s32 s_appendSegmentRef(pdscenario_textbuf_t *tsv, u32 segment,
+                              const char *prefix)
+{
+	u32 id = segment & 0x3fffu;
+	u32 flags = segment & ~0x3fffu;
+
+	if (s_textbufAppendf(tsv, "%s_%04u", prefix, (unsigned)id) != 0) {
+		return -1;
+	}
+	if (flags & 0x4000u) {
+		if (s_textbufAppend(tsv, "|outward") != 0) return -1;
+	}
+	if (flags & 0x8000u) {
+		if (s_textbufAppend(tsv, "|inward") != 0) return -1;
+	}
+	return 0;
+}
+
+static s32 s_appendSegmentList(pdscenario_textbuf_t *tsv,
+                               const u8 *data, u32 size, uintptr_t offset,
+                               const char *prefix)
+{
+	const u32 *segments;
+	u32 guard;
+	const char *sep = "";
+
+	if (!tsv) return -1;
+	if (!offset) return 0;
+	if (!s_offsetRangeValid(size, offset, sizeof(u32))) return -1;
+
+	segments = (const u32 *)(const void *)(data + offset);
+	for (guard = 0; guard < 8192; guard++) {
+		u32 segment;
+		if (!s_offsetRangeValid(size, offset + (uintptr_t)guard * sizeof(u32),
+				sizeof(u32))) {
+			return -1;
+		}
+		segment = segments[guard];
+		if (segment == 0xffffffffu) {
+			return 0;
+		}
+		if (s_textbufAppend(tsv, sep) != 0 ||
+		    s_appendSegmentRef(tsv, segment, prefix) != 0) {
+			return -1;
+		}
+		sep = ";";
+	}
+
+	return -1;
+}
+
+static s32 s_buildNavigationTsv(const u8 *data, u32 size,
+                                pdscenario_textbuf_t *waypoints_tsv,
+                                pdscenario_textbuf_t *waygroups_tsv,
+                                pdscenario_textbuf_t *covers_tsv,
+                                u32 *out_waypoints,
+                                u32 *out_waygroups,
+                                u32 *out_covers)
+{
+	const struct padsfileheader *hdr;
+	u32 waypoint_count = 0;
+	u32 waygroup_count = 0;
+	u32 cover_count = 0;
+
+	if (out_waypoints) *out_waypoints = 0;
+	if (out_waygroups) *out_waygroups = 0;
+	if (out_covers) *out_covers = 0;
+	if (!data || size < sizeof(struct padsfileheader) ||
+			!waypoints_tsv || !waygroups_tsv || !covers_tsv) {
+		return -1;
+	}
+
+	hdr = (const struct padsfileheader *)data;
+	if (hdr->numpads < 0 || hdr->numpads > 8192 ||
+			hdr->numcovers < 0 || hdr->numcovers > 8192) {
+		return -1;
+	}
+
+	if (s_textbufAppend(waypoints_tsv,
+			"waypoint_id\tpad_ref\tgroup_ref\tstep\tneighbours\n") != 0 ||
+	    s_textbufAppend(waygroups_tsv,
+			"waygroup_id\tstep\twaypoints\tneighbours\n") != 0 ||
+	    s_textbufAppend(covers_tsv,
+			"cover_id\tflags\tpos_x\tpos_y\tpos_z\tlook_x\tlook_y\tlook_z\n") != 0) {
+		return -1;
+	}
+
+	if (hdr->waypointsoffset) {
+		const struct waypoint *waypoints;
+		u32 i;
+		if (!s_offsetRangeValid(size, hdr->waypointsoffset,
+				sizeof(struct waypoint))) {
+			return -1;
+		}
+		waypoints = (const struct waypoint *)(const void *)(data + hdr->waypointsoffset);
+		for (i = 0; i < 8192; i++) {
+			char waypoint_ref[32];
+			char pad_ref[32];
+			char group_ref[32];
+			if (!s_offsetRangeValid(size,
+					hdr->waypointsoffset + (uintptr_t)i * sizeof(*waypoints),
+					sizeof(*waypoints))) {
+				return -1;
+			}
+			if (waypoints[i].padnum < 0) {
+				break;
+			}
+			s_waypointRef((s32)i, waypoint_ref, sizeof(waypoint_ref));
+			s_padRef(waypoints[i].padnum, pad_ref, sizeof(pad_ref));
+			s_waygroupRef(waypoints[i].groupnum, group_ref, sizeof(group_ref));
+			if (s_textbufAppendf(waypoints_tsv, "%s\t%s\t%s\t%d\t",
+					waypoint_ref, pad_ref, group_ref, waypoints[i].step) != 0 ||
+			    s_appendSegmentList(waypoints_tsv, data, size,
+					(uintptr_t)waypoints[i].neighbours, "waypoint") != 0 ||
+			    s_textbufAppend(waypoints_tsv, "\n") != 0) {
+				return -1;
+			}
+			waypoint_count++;
+		}
+		if (i >= 8192) {
+			return -1;
+		}
+	}
+
+	if (hdr->waygroupsoffset) {
+		const struct waygroup *waygroups;
+		u32 i;
+		if (!s_offsetRangeValid(size, hdr->waygroupsoffset,
+				sizeof(struct waygroup))) {
+			return -1;
+		}
+		waygroups = (const struct waygroup *)(const void *)(data + hdr->waygroupsoffset);
+		for (i = 0; i < 8192; i++) {
+			char waygroup_ref[32];
+			if (!s_offsetRangeValid(size,
+					hdr->waygroupsoffset + (uintptr_t)i * sizeof(*waygroups),
+					sizeof(*waygroups))) {
+				return -1;
+			}
+			if (!waygroups[i].neighbours) {
+				break;
+			}
+			s_waygroupRef((s32)i, waygroup_ref, sizeof(waygroup_ref));
+			if (s_textbufAppendf(waygroups_tsv, "%s\t%d\t",
+					waygroup_ref, waygroups[i].step) != 0 ||
+			    s_appendSegmentList(waygroups_tsv, data, size,
+					(uintptr_t)waygroups[i].waypoints, "waypoint") != 0 ||
+			    s_textbufAppend(waygroups_tsv, "\t") != 0 ||
+			    s_appendSegmentList(waygroups_tsv, data, size,
+					(uintptr_t)waygroups[i].neighbours, "waygroup") != 0 ||
+			    s_textbufAppend(waygroups_tsv, "\n") != 0) {
+				return -1;
+			}
+			waygroup_count++;
+		}
+		if (i >= 8192) {
+			return -1;
+		}
+	}
+
+	cover_count = (u32)hdr->numcovers;
+	if (cover_count > 0) {
+		const struct coverdefinition *covers;
+		u32 i;
+		if (!hdr->coversoffset ||
+				!s_offsetRangeValid(size, hdr->coversoffset,
+					(size_t)cover_count * sizeof(*covers))) {
+			return -1;
+		}
+		covers = (const struct coverdefinition *)(const void *)(data + hdr->coversoffset);
+		for (i = 0; i < cover_count; i++) {
+			if (s_textbufAppendf(covers_tsv,
+					"cover_%04u\t0x%04x\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\n",
+					(unsigned)i, (unsigned)covers[i].flags,
+					(double)covers[i].pos.x,
+					(double)covers[i].pos.y,
+					(double)covers[i].pos.z,
+					(double)covers[i].look.x,
+					(double)covers[i].look.y,
+					(double)covers[i].look.z) != 0) {
+				return -1;
+			}
+		}
+	}
+
+	if (out_waypoints) *out_waypoints = waypoint_count;
+	if (out_waygroups) *out_waygroups = waygroup_count;
+	if (out_covers) *out_covers = cover_count;
+	return 0;
 }
 
 static s32 s_buildPadsTsv(const u8 *data, u32 size,
@@ -1099,15 +1344,1228 @@ static const char *s_nonnullCatalogId(const char *id)
 	return id ? id : "";
 }
 
+static s32 s_setupFieldAppend(pdscenario_textbuf_t *fields,
+                              const char *record_id,
+                              const char *kind,
+                              const char *field,
+                              const char *type,
+                              const char *value,
+                              const char *catalog_id,
+                              const char *ref_record_id)
+{
+	if (!fields) {
+		return 0;
+	}
+	return s_textbufAppendf(fields, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		record_id ? record_id : "",
+		kind ? kind : "",
+		field ? field : "",
+		type ? type : "",
+		value ? value : "",
+		catalog_id ? catalog_id : "",
+		ref_record_id ? ref_record_id : "");
+}
+
+static s32 s_setupFieldS32(pdscenario_textbuf_t *fields,
+                           const char *record_id,
+                           const char *kind,
+                           const char *field,
+                           s32 value)
+{
+	char buf[32];
+	snprintf(buf, sizeof(buf), "%d", value);
+	return s_setupFieldAppend(fields, record_id, kind, field, "s32",
+		buf, "", "");
+}
+
+static s32 s_setupFieldU32Hex(pdscenario_textbuf_t *fields,
+                              const char *record_id,
+                              const char *kind,
+                              const char *field,
+                              u32 value)
+{
+	char buf[32];
+	snprintf(buf, sizeof(buf), "0x%08x", (unsigned)value);
+	return s_setupFieldAppend(fields, record_id, kind, field, "u32_hex",
+		buf, "", "");
+}
+
+static s32 s_setupFieldF32(pdscenario_textbuf_t *fields,
+                           const char *record_id,
+                           const char *kind,
+                           const char *field,
+                           f32 value)
+{
+	char buf[64];
+	snprintf(buf, sizeof(buf), "%.9g", (double)value);
+	return s_setupFieldAppend(fields, record_id, kind, field, "f32",
+		buf, "", "");
+}
+
+static s32 s_setupFieldPad(pdscenario_textbuf_t *fields,
+                           const char *record_id,
+                           const char *kind,
+                           const char *field,
+                           s32 pad)
+{
+	char buf[32];
+	s_padRef(pad, buf, sizeof(buf));
+	return s_setupFieldAppend(fields, record_id, kind, field, "pad_ref",
+		buf, "", "");
+}
+
+static s32 s_setupFieldTag(pdscenario_textbuf_t *fields,
+                           const char *record_id,
+                           const char *kind,
+                           const char *field,
+                           u32 tag_id,
+                           const char *ref_record_id)
+{
+	char buf[32];
+	s_tagRef(tag_id, buf, sizeof(buf));
+	return s_setupFieldAppend(fields, record_id, kind, field, "tag_ref",
+		buf, "", ref_record_id ? ref_record_id : "");
+}
+
+static s32 s_setupFieldStageFlag(pdscenario_textbuf_t *fields,
+                                 const char *record_id,
+                                 const char *kind,
+                                 const char *field,
+                                 u32 flag_mask)
+{
+	char buf[40];
+	s_stageFlagRef(flag_mask, buf, sizeof(buf));
+	return s_setupFieldAppend(fields, record_id, kind, field,
+		"stage_flag_ref", buf, "", "");
+}
+
+static s32 s_setupFieldAilist(pdscenario_textbuf_t *fields,
+                              const char *record_id,
+                              const char *kind,
+                              const char *field,
+                              s32 ailist)
+{
+	char buf[32];
+	if (ailist < 0) {
+		buf[0] = '\0';
+	} else {
+		snprintf(buf, sizeof(buf), "ailist_%04d", ailist);
+	}
+	return s_setupFieldAppend(fields, record_id, kind, field, "ailist_ref",
+		buf, "", "");
+}
+
+static s32 s_setupFieldCatalog(pdscenario_textbuf_t *fields,
+                               const char *record_id,
+                               const char *kind,
+                               const char *field,
+                               const char *type,
+                               const char *catalog_id)
+{
+	return s_setupFieldAppend(fields, record_id, kind, field, type,
+		"", s_nonnullCatalogId(catalog_id), "");
+}
+
+static s32 s_setupFieldHeadRef(pdscenario_textbuf_t *fields,
+                               const char *record_id,
+                               const char *kind,
+                               const char *field,
+                               s32 bodynum,
+                               s32 headnum)
+{
+	const char *catalog_id = catalogHeadIdByHeadnum(headnum);
+
+	if (catalog_id && catalog_id[0]) {
+		return s_setupFieldCatalog(fields, record_id, kind, field,
+			"head_catalog_id", catalog_id);
+	}
+
+	if (headnum == HEAD_RANDOM) {
+		return s_setupFieldAppend(fields, record_id, kind, field,
+			"head_selector", "random", "", "");
+	}
+
+	if (catalogGetBodyIsComplete(bodynum)) {
+		return s_setupFieldAppend(fields, record_id, kind, field,
+			"head_selector", "embedded", "", "");
+	}
+
+	return s_setupFieldAppend(fields, record_id, kind, field,
+		"head_unresolved", "unmapped", "", "");
+}
+
+static const char *s_setupWeaponCatalogIdByRuntime(s32 weaponnum)
+{
+	const char *catalog_id = catalogWeaponIdByRuntimeWeaponNum(weaponnum);
+
+	if (catalog_id && catalog_id[0]) {
+		return catalog_id;
+	}
+
+	if (weaponnum >= 0 && weaponnum < g_WeaponDataCount) {
+		catalog_id = g_WeaponDataCatalogIds[weaponnum];
+		if (catalog_id && catalog_id[0]) {
+			return catalog_id;
+		}
+	}
+
+	return NULL;
+}
+
+static s32 s_setupFieldWeaponRef(pdscenario_textbuf_t *fields,
+                                 const char *record_id,
+                                 const char *kind,
+                                 const char *field,
+                                 s32 weaponnum)
+{
+	char selector[32];
+	const char *catalog_id = s_setupWeaponCatalogIdByRuntime(weaponnum);
+
+	if (catalog_id && catalog_id[0]) {
+		return s_setupFieldCatalog(fields, record_id, kind, field,
+			"weapon_catalog_id", catalog_id);
+	}
+
+	if (weaponnum <= WEAPON_NONE) {
+		return s_setupFieldAppend(fields, record_id, kind, field,
+			"weapon_selector", "none", "", "");
+	}
+
+	if (weaponnum >= WEAPON_MPLOCATION00 && weaponnum <= WEAPON_MPLOCATION15) {
+		snprintf(selector, sizeof(selector), "mp_location_%02d",
+			weaponnum - WEAPON_MPLOCATION00);
+		return s_setupFieldAppend(fields, record_id, kind, field,
+			"weapon_selector", selector, "", "");
+	}
+
+	return s_setupFieldAppend(fields, record_id, kind, field,
+		"weapon_unresolved", "unmapped", "", "");
+}
+
+static s32 s_setupFieldRecordIndex(pdscenario_textbuf_t *fields,
+                                   const char *record_id,
+                                   const char *kind,
+                                   const char *field,
+                                   s32 target_index,
+                                   u32 record_count)
+{
+	char ref[32];
+	ref[0] = '\0';
+	if (target_index >= 0 && (u32)target_index < record_count) {
+		snprintf(ref, sizeof(ref), "setup_%04u", (unsigned)target_index);
+	}
+	return s_setupFieldAppend(fields, record_id, kind, field, "record_ref",
+		"", "", ref);
+}
+
+static const pdscenario_tag_target_t *s_findTagTarget(
+	const pdscenario_tag_target_t *tag_targets, u32 tag_target_count,
+	u32 tag_id)
+{
+	u32 i;
+
+	if (!tag_targets) {
+		return NULL;
+	}
+
+	for (i = 0; i < tag_target_count; i++) {
+		if (tag_targets[i].tag_id == tag_id) {
+			return &tag_targets[i];
+		}
+	}
+
+	return NULL;
+}
+
+static void s_tagTargetRecordRef(
+	const pdscenario_tag_target_t *tag_targets, u32 tag_target_count,
+	u32 tag_id, char *out, size_t out_n)
+{
+	const pdscenario_tag_target_t *target;
+
+	if (!out || out_n == 0) {
+		return;
+	}
+	out[0] = '\0';
+
+	target = s_findTagTarget(tag_targets, tag_target_count, tag_id);
+	if (target && target->target_index >= 0) {
+		snprintf(out, out_n, "setup_%04u",
+			(unsigned)target->target_index);
+	}
+}
+
+static s32 s_setupAppendCoordFields(pdscenario_textbuf_t *fields,
+                                    const char *record_id,
+                                    const char *kind,
+                                    const char *prefix,
+                                    const struct coord *coord)
+{
+	char field[96];
+	if (!coord) {
+		return 0;
+	}
+	snprintf(field, sizeof(field), "%s.x", prefix);
+	if (s_setupFieldF32(fields, record_id, kind, field, coord->x) != 0) return -1;
+	snprintf(field, sizeof(field), "%s.y", prefix);
+	if (s_setupFieldF32(fields, record_id, kind, field, coord->y) != 0) return -1;
+	snprintf(field, sizeof(field), "%s.z", prefix);
+	if (s_setupFieldF32(fields, record_id, kind, field, coord->z) != 0) return -1;
+	return 0;
+}
+
+static s32 s_setupAppendU8ArrayFields(pdscenario_textbuf_t *fields,
+                                      const char *record_id,
+                                      const char *kind,
+                                      const char *prefix,
+                                      const u8 *values,
+                                      u32 count)
+{
+	char field[96];
+	for (u32 i = 0; i < count; i++) {
+		snprintf(field, sizeof(field), "%s[%u]", prefix, (unsigned)i);
+		if (s_setupFieldS32(fields, record_id, kind, field,
+				(s32)values[i]) != 0) {
+			return -1;
+		}
+	}
+	return 0;
+}
+
+static s32 s_setupAppendF32ArrayFields(pdscenario_textbuf_t *fields,
+                                       const char *record_id,
+                                       const char *kind,
+                                       const char *prefix,
+                                       const f32 *values,
+                                       u32 count)
+{
+	char field[96];
+	for (u32 i = 0; i < count; i++) {
+		snprintf(field, sizeof(field), "%s[%u]", prefix, (unsigned)i);
+		if (s_setupFieldF32(fields, record_id, kind, field,
+				values[i]) != 0) {
+			return -1;
+		}
+	}
+	return 0;
+}
+
+static s32 s_setupAppendTvScreenFields(pdscenario_textbuf_t *fields,
+                                       const char *record_id,
+                                       const char *kind,
+                                       const char *prefix,
+                                       const struct tvscreen *screen)
+{
+	char field[96];
+	if (!screen) {
+		return 0;
+	}
+#define TV_S32(name) do { \
+	snprintf(field, sizeof(field), "%s.%s", prefix, #name); \
+	if (s_setupFieldS32(fields, record_id, kind, field, (s32)screen->name) != 0) return -1; \
+} while (0)
+#define TV_F32(name) do { \
+	snprintf(field, sizeof(field), "%s.%s", prefix, #name); \
+	if (s_setupFieldF32(fields, record_id, kind, field, screen->name) != 0) return -1; \
+} while (0)
+	TV_S32(offset);
+	TV_S32(pause60);
+	TV_F32(rot);
+	TV_F32(xscale);
+	TV_F32(xscalefrac);
+	TV_F32(xscaleinc);
+	TV_F32(xscaleold);
+	TV_F32(xscalenew);
+	TV_F32(yscale);
+	TV_F32(yscalefrac);
+	TV_F32(yscaleinc);
+	TV_F32(yscaleold);
+	TV_F32(yscalenew);
+	TV_F32(xmid);
+	TV_F32(xmidfrac);
+	TV_F32(xmidinc);
+	TV_F32(xmidold);
+	TV_F32(xmidnew);
+	TV_F32(ymid);
+	TV_F32(ymidfrac);
+	TV_F32(ymidinc);
+	TV_F32(ymidold);
+	TV_F32(ymidnew);
+	TV_S32(red);
+	TV_S32(redold);
+	TV_S32(rednew);
+	TV_S32(green);
+	TV_S32(greenold);
+	TV_S32(greennew);
+	TV_S32(blue);
+	TV_S32(blueold);
+	TV_S32(bluenew);
+	TV_S32(alpha);
+	TV_S32(alphaold);
+	TV_S32(alphanew);
+	TV_F32(colfrac);
+	TV_F32(colinc);
+#undef TV_S32
+#undef TV_F32
+	return 0;
+}
+
+static s32 s_setupAppendHoverFields(pdscenario_textbuf_t *fields,
+                                    const char *record_id,
+                                    const char *kind,
+                                    const char *prefix,
+                                    const struct hov *hov)
+{
+	char field[96];
+	if (!hov) {
+		return 0;
+	}
+#define HOV_S32(name) do { \
+	snprintf(field, sizeof(field), "%s.%s", prefix, #name); \
+	if (s_setupFieldS32(fields, record_id, kind, field, (s32)hov->name) != 0) return -1; \
+} while (0)
+#define HOV_F32(name) do { \
+	snprintf(field, sizeof(field), "%s.%s", prefix, #name); \
+	if (s_setupFieldF32(fields, record_id, kind, field, hov->name) != 0) return -1; \
+} while (0)
+	HOV_S32(type);
+	HOV_S32(flags);
+	HOV_F32(bobycur);
+	HOV_F32(bobytarget);
+	HOV_F32(bobyspeed);
+	HOV_F32(yrot);
+	HOV_F32(bobpitchcur);
+	HOV_F32(bobpitchtarget);
+	HOV_F32(bobpitchspeed);
+	HOV_F32(bobrollcur);
+	HOV_F32(bobrolltarget);
+	HOV_F32(bobrollspeed);
+	HOV_F32(groundpitch);
+	HOV_F32(y);
+	HOV_F32(ground);
+	HOV_S32(prevframe60);
+	HOV_S32(prevgroundframe60);
+#undef HOV_S32
+#undef HOV_F32
+	return 0;
+}
+
+static s32 s_setupAppendDefaultObjectFields(pdscenario_textbuf_t *fields,
+                                            const char *record_id,
+                                            const char *kind,
+                                            const struct defaultobj *obj)
+{
+	char field[96];
+	if (!obj) {
+		return 0;
+	}
+	if (s_setupFieldS32(fields, record_id, kind, "base.extra_scale",
+			(s32)obj->extrascale) != 0) return -1;
+	if (s_setupFieldS32(fields, record_id, kind, "base.hidden2",
+			(s32)obj->hidden2) != 0) return -1;
+	if (s_setupFieldCatalog(fields, record_id, kind, "base.model",
+			"model_catalog_id",
+			catalogModelIdByModelnum(obj->modelnum)) != 0) return -1;
+	if (s_setupFieldPad(fields, record_id, kind, "base.pad",
+			(s32)obj->pad) != 0) return -1;
+	if (s_setupFieldU32Hex(fields, record_id, kind, "base.flags",
+			obj->flags) != 0) return -1;
+	if (s_setupFieldU32Hex(fields, record_id, kind, "base.flags2",
+			obj->flags2) != 0) return -1;
+	if (s_setupFieldU32Hex(fields, record_id, kind, "base.flags3",
+			obj->flags3) != 0) return -1;
+	for (u32 r = 0; r < 3; r++) {
+		for (u32 c = 0; c < 3; c++) {
+			snprintf(field, sizeof(field), "base.rotation[%u][%u]",
+				(unsigned)r, (unsigned)c);
+			if (s_setupFieldF32(fields, record_id, kind, field,
+					obj->realrot[r][c]) != 0) {
+				return -1;
+			}
+		}
+	}
+	if (s_setupFieldU32Hex(fields, record_id, kind, "base.hidden",
+			obj->hidden) != 0) return -1;
+	if (s_setupFieldS32(fields, record_id, kind, "base.damage",
+			(s32)obj->damage) != 0) return -1;
+	if (s_setupFieldS32(fields, record_id, kind, "base.max_damage",
+			(s32)obj->maxdamage) != 0) return -1;
+	if (s_setupAppendU8ArrayFields(fields, record_id, kind,
+			"base.shade_color", obj->shadecol,
+			ARRAYCOUNT(obj->shadecol)) != 0) return -1;
+	if (s_setupAppendU8ArrayFields(fields, record_id, kind,
+			"base.next_color", obj->nextcol,
+			ARRAYCOUNT(obj->nextcol)) != 0) return -1;
+	if (s_setupFieldS32(fields, record_id, kind, "base.floor_color",
+			(s32)obj->floorcol) != 0) return -1;
+	if (s_setupFieldS32(fields, record_id, kind, "base.geo_count",
+			(s32)obj->geocount) != 0) return -1;
+	return 0;
+}
+
+static s32 s_setupAppendCommandFields(pdscenario_textbuf_t *fields,
+                                      const char *record_id,
+                                      const char *kind,
+                                      const u8 *ptr,
+                                      u8 type,
+                                      u32 index,
+                                      u32 record_count,
+                                      const pdscenario_tag_target_t *tag_targets,
+                                      u32 tag_target_count)
+{
+	char field[96];
+
+	if (!fields || !record_id || !kind || !ptr) {
+		return 0;
+	}
+
+	if (s_setupFieldS32(fields, record_id, kind, "command.order",
+			(s32)index) != 0) return -1;
+
+	if (type == OBJTYPE_CHR) {
+		const struct packedchr *chr = (const struct packedchr *)ptr;
+		if (s_setupFieldS32(fields, record_id, kind, "character.index",
+				(s32)chr->chrindex) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind, "character.kind",
+				(s32)chr->typenum) != 0) return -1;
+		if (s_setupFieldU32Hex(fields, record_id, kind,
+				"character.spawn_flags", chr->spawnflags) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind, "character.slot",
+				(s32)chr->chrnum) != 0) return -1;
+		if (s_setupFieldPad(fields, record_id, kind, "character.pad",
+				(s32)chr->padnum) != 0) return -1;
+		if (s_setupFieldCatalog(fields, record_id, kind, "character.body",
+				"body_catalog_id",
+				catalogBodyIdByBodynum(chr->bodynum)) != 0) return -1;
+		if (s_setupFieldHeadRef(fields, record_id, kind,
+				"character.head", (s32)chr->bodynum,
+				(s32)chr->headnum) != 0) return -1;
+		if (s_setupFieldAilist(fields, record_id, kind,
+				"character.ai_list", (s32)chr->ailistnum) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"character.pad_preset", (s32)chr->padpreset) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"character.character_preset", (s32)chr->chrpreset) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"character.hearing_scale", (s32)chr->hearscale) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"character.view_distance", (s32)chr->viewdist) != 0) return -1;
+		if (s_setupFieldU32Hex(fields, record_id, kind,
+				"character.flags", chr->flags) != 0) return -1;
+		if (s_setupFieldU32Hex(fields, record_id, kind,
+				"character.flags2", chr->flags2) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"character.team", (s32)chr->team) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"character.squadron", (s32)chr->squadron) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"character.chair", (s32)chr->chair) != 0) return -1;
+		if (s_setupFieldU32Hex(fields, record_id, kind,
+				"character.conversation_talk", chr->convtalk) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"character.attitude", (s32)chr->tude) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"character.natural_animation", (s32)chr->naturalanim) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"character.visible_yaw_angle", (s32)chr->yvisang) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"character.team_scan_distance", (s32)chr->teamscandist) != 0) return -1;
+		return 0;
+	}
+
+	if (s_objTypeHasDefaultBase(type)) {
+		const struct defaultobj *base = (const struct defaultobj *)ptr;
+		if (s_setupAppendDefaultObjectFields(fields, record_id, kind,
+				base) != 0) {
+			return -1;
+		}
+	}
+
+	switch (type) {
+	case OBJTYPE_DOOR: {
+		const struct doorobj *door = (const struct doorobj *)ptr;
+#define DOOR_F32(name) if (s_setupFieldF32(fields, record_id, kind, "door." #name, door->name) != 0) return -1
+#define DOOR_S32(name) if (s_setupFieldS32(fields, record_id, kind, "door." #name, (s32)door->name) != 0) return -1
+		DOOR_F32(maxfrac);
+		DOOR_F32(perimfrac);
+		DOOR_F32(accel);
+		DOOR_F32(decel);
+		DOOR_F32(maxspeed);
+		DOOR_S32(doorflags);
+		DOOR_S32(doortype);
+		if (s_setupFieldU32Hex(fields, record_id, kind,
+				"door.key_flags", door->keyflags) != 0) return -1;
+		DOOR_S32(autoclosetime);
+		DOOR_F32(frac);
+		DOOR_F32(fracspeed);
+		DOOR_S32(mode);
+		DOOR_S32(glasshits);
+		DOOR_S32(fadealpha);
+		DOOR_S32(xludist);
+		DOOR_S32(opadist);
+		if (s_setupAppendCoordFields(fields, record_id, kind,
+				"door.start_position", &door->startpos) != 0) return -1;
+		for (u32 r = 0; r < 3; r++) {
+			for (u32 c = 0; c < 3; c++) {
+				snprintf(field, sizeof(field), "door.matrix[%u][%u]",
+					(unsigned)r, (unsigned)c);
+				if (s_setupFieldF32(fields, record_id, kind, field,
+						door->mtx98[r][c]) != 0) return -1;
+			}
+		}
+		DOOR_S32(lastopen60);
+		DOOR_S32(portalnum);
+		DOOR_S32(soundtype);
+		DOOR_S32(fadetime60);
+		DOOR_S32(lastcalc60);
+		DOOR_S32(laserfade);
+		if (s_setupAppendU8ArrayFields(fields, record_id, kind,
+				"door.shade_info_player1", door->shadeinfo1,
+				ARRAYCOUNT(door->shadeinfo1)) != 0) return -1;
+		if (s_setupAppendU8ArrayFields(fields, record_id, kind,
+				"door.shade_info_player2", door->shadeinfo2,
+				ARRAYCOUNT(door->shadeinfo2)) != 0) return -1;
+		DOOR_S32(actual1);
+		DOOR_S32(actual2);
+		DOOR_S32(extra1);
+		DOOR_S32(extra2);
+#undef DOOR_F32
+#undef DOOR_S32
+		break;
+	}
+	case OBJTYPE_DOORSCALE: {
+		const struct doorscaleobj *scale = (const struct doorscaleobj *)ptr;
+		if (s_setupFieldS32(fields, record_id, kind, "door_scale.scale",
+				scale->scale) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_KEY: {
+		const struct keyobj *key = (const struct keyobj *)ptr;
+		if (s_setupFieldU32Hex(fields, record_id, kind, "key.flags",
+				key->keyflags) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_CCTV: {
+		const struct cctvobj *cctv = (const struct cctvobj *)ptr;
+		if (s_setupFieldPad(fields, record_id, kind, "cctv.look_at_pad",
+				(s32)cctv->lookatpadnum) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind, "cctv.to_left",
+				(s32)cctv->toleft) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "cctv.y_zero",
+				cctv->yzero) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "cctv.y_rot",
+				cctv->yrot) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "cctv.y_left",
+				cctv->yleft) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "cctv.y_right",
+				cctv->yright) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "cctv.y_speed",
+				cctv->yspeed) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "cctv.y_max_speed",
+				cctv->ymaxspeed) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"cctv.see_bond_time60", cctv->seebondtime60) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "cctv.max_distance",
+				cctv->maxdist) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "cctv.x_zero",
+				cctv->xzero) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_AMMOCRATE: {
+		const struct ammocrateobj *crate = (const struct ammocrateobj *)ptr;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"ammo_crate.ammo_kind", crate->ammotype) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_WEAPON:
+	case OBJTYPE_MINE: {
+		const struct weaponobj *weapon = (const struct weaponobj *)ptr;
+		if (s_setupFieldWeaponRef(fields, record_id, kind,
+				"pickup.weapon", (s32)weapon->weaponnum) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"pickup.unknown_5d", (s32)weapon->unk5d) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"pickup.unknown_5e", (s32)weapon->unk5e) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"pickup.fire_mode", (s32)weapon->gunfunc) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"pickup.fadeout_timer60", (s32)weapon->fadeouttimer60) != 0) return -1;
+		if (s_setupFieldWeaponRef(fields, record_id, kind,
+				"pickup.dual_weapon", (s32)weapon->dualweaponnum) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"pickup.team_or_timer240", (s32)weapon->team) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_SINGLEMONITOR: {
+		const struct singlemonitorobj *mon = (const struct singlemonitorobj *)ptr;
+		if (s_setupAppendTvScreenFields(fields, record_id, kind,
+				"monitor.screen", &mon->screen) != 0) return -1;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"monitor.owner", (s32)index + mon->owneroffset,
+				record_count) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"monitor.owner_part", (s32)mon->ownerpart) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"monitor.image", (s32)mon->imagenum) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_MULTIMONITOR: {
+		const struct multimonitorobj *mon = (const struct multimonitorobj *)ptr;
+		for (u32 i = 0; i < ARRAYCOUNT(mon->screens); i++) {
+			snprintf(field, sizeof(field), "monitor.screens[%u]",
+				(unsigned)i);
+			if (s_setupAppendTvScreenFields(fields, record_id, kind,
+					field, &mon->screens[i]) != 0) return -1;
+			snprintf(field, sizeof(field), "monitor.images[%u]",
+				(unsigned)i);
+			if (s_setupFieldS32(fields, record_id, kind, field,
+					(s32)mon->imagenums[i]) != 0) return -1;
+		}
+		break;
+	}
+	case OBJTYPE_AUTOGUN: {
+		const struct autogunobj *gun = (const struct autogunobj *)ptr;
+		if (s_setupFieldPad(fields, record_id, kind, "autogun.target_pad",
+				(s32)gun->targetpad) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind, "autogun.firing",
+				(s32)gun->firing) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind, "autogun.fire_count",
+				(s32)gun->firecount) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "autogun.y_zero",
+				gun->yzero) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "autogun.y_max_left",
+				gun->ymaxleft) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "autogun.y_max_right",
+				gun->ymaxright) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "autogun.y_rot",
+				gun->yrot) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "autogun.y_speed",
+				gun->yspeed) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "autogun.x_zero",
+				gun->xzero) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "autogun.x_rot",
+				gun->xrot) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "autogun.x_speed",
+				gun->xspeed) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "autogun.max_speed",
+				gun->maxspeed) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "autogun.aim_distance",
+				gun->aimdist) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "autogun.barrel_speed",
+				gun->barrelspeed) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind, "autogun.barrel_rot",
+				gun->barrelrot) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"autogun.last_see_bond60", gun->lastseebond60) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"autogun.last_aim_bond60", gun->lastaimbond60) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"autogun.allow_sound_frame", gun->allowsoundframe) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"autogun.shot_bond_sum", gun->shotbondsum) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"autogun.target_team", (s32)gun->targetteam) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"autogun.ammo_quantity", (s32)gun->ammoquantity) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"autogun.next_character_test", (s32)gun->nextchrtest) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_LINKGUNS: {
+		const struct linkgunsobj *link = (const struct linkgunsobj *)ptr;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"linked_guns.weapon_1", (s32)index + link->offset1,
+				record_count) != 0) return -1;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"linked_guns.weapon_2", (s32)index + link->offset2,
+				record_count) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_GRENADEPROB: {
+		const struct grenadeprobobj *prob = (const struct grenadeprobobj *)ptr;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"grenade_probability.character", (s32)prob->chrnum) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"grenade_probability.percent", (s32)prob->probability) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_LINKLIFTDOOR: {
+		const struct linkliftdoorobj *link = (const struct linkliftdoorobj *)ptr;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"lift_door_link.door", (s32)index + (s32)(uintptr_t)link->door,
+				record_count) != 0) return -1;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"lift_door_link.lift", (s32)index + (s32)(uintptr_t)link->lift,
+				record_count) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"lift_door_link.stop", link->stopnum) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_MULTIAMMOCRATE: {
+		const struct multiammocrateobj *crate = (const struct multiammocrateobj *)ptr;
+		for (u32 i = 0; i < ARRAYCOUNT(crate->slots); i++) {
+			snprintf(field, sizeof(field), "multi_ammo_crate.slots[%u].model",
+				(unsigned)i);
+			if (s_setupFieldCatalog(fields, record_id, kind, field,
+					"model_catalog_id",
+					catalogModelIdByModelnum(crate->slots[i].modelnum)) != 0) return -1;
+			snprintf(field, sizeof(field), "multi_ammo_crate.slots[%u].quantity",
+				(unsigned)i);
+			if (s_setupFieldS32(fields, record_id, kind, field,
+					(s32)crate->slots[i].quantity) != 0) return -1;
+		}
+		break;
+	}
+	case OBJTYPE_SHIELD: {
+		const struct shieldobj *shield = (const struct shieldobj *)ptr;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"shield.initial_amount", shield->initialamount) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"shield.amount", shield->amount) != 0) return -1;
+		if (s_setupFieldU32Hex(fields, record_id, kind,
+				"shield.unknown_64", shield->unk64) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_TAG: {
+		const struct tag *tag = (const struct tag *)ptr;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"tag.id", (s32)tag->tagnum) != 0) return -1;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"tag.target", (s32)index + tag->cmdoffset,
+				record_count) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_BEGINOBJECTIVE: {
+		const struct objective *obj = (const struct objective *)ptr;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"objective.index", obj->index) != 0) return -1;
+		if (s_setupFieldU32Hex(fields, record_id, kind,
+				"objective.text_token", obj->text) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"objective.flags", (s32)obj->flags) != 0) return -1;
+		if (s_setupFieldU32Hex(fields, record_id, kind,
+				"objective.difficulty_mask", (u32)(u8)obj->difficulties) != 0) return -1;
+		break;
+	}
+	case OBJECTIVETYPE_DESTROYOBJ:
+	case OBJECTIVETYPE_COLLECTOBJ:
+	case OBJECTIVETYPE_THROWOBJ: {
+		const u32 *words = (const u32 *)ptr;
+		u32 tag_id = PD_BE32(words[1]);
+		char target_ref[32];
+		s_tagTargetRecordRef(tag_targets, tag_target_count, tag_id,
+			target_ref, sizeof(target_ref));
+		if (s_setupFieldTag(fields, record_id, kind,
+				"objective_step.target_tag", tag_id,
+				target_ref) != 0) return -1;
+		break;
+	}
+	case OBJECTIVETYPE_COMPFLAGS:
+	case OBJECTIVETYPE_FAILFLAGS: {
+		const u32 *words = (const u32 *)ptr;
+		u32 flag_mask = PD_BE32(words[1]);
+		if (s_setupFieldStageFlag(fields, record_id, kind,
+				"objective_step.stage_flag", flag_mask) != 0) return -1;
+		break;
+	}
+	case OBJECTIVETYPE_HOLOGRAPH: {
+		const struct criteria_holograph *criteria = (const struct criteria_holograph *)ptr;
+		char target_ref[32];
+		s_tagTargetRecordRef(tag_targets, tag_target_count,
+			criteria->obj, target_ref, sizeof(target_ref));
+		if (s_setupFieldTag(fields, record_id, kind,
+				"objective_holograph.target_tag", criteria->obj,
+				target_ref) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"objective_holograph.status", (s32)criteria->status) != 0) return -1;
+		break;
+	}
+	case OBJECTIVETYPE_ENTERROOM: {
+		const struct criteria_roomentered *criteria = (const struct criteria_roomentered *)ptr;
+		if (s_setupFieldPad(fields, record_id, kind,
+				"objective_enter_room.pad", (s32)criteria->pad) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"objective_enter_room.status", (s32)criteria->status) != 0) return -1;
+		break;
+	}
+	case OBJECTIVETYPE_THROWINROOM: {
+		const struct criteria_throwinroom *criteria = (const struct criteria_throwinroom *)ptr;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"objective_throw_in_room.match_value", (s32)criteria->unk04) != 0) return -1;
+		if (s_setupFieldPad(fields, record_id, kind,
+				"objective_throw_in_room.pad", (s32)criteria->pad) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"objective_throw_in_room.status", (s32)criteria->status) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_BRIEFING: {
+		const struct briefingobj *briefing = (const struct briefingobj *)ptr;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"briefing.kind", (s32)briefing->type) != 0) return -1;
+		if (s_setupFieldU32Hex(fields, record_id, kind,
+				"briefing.text_token", briefing->text) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_RENAMEOBJ: {
+		const struct textoverride *text = (const struct textoverride *)ptr;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"rename_object.target", (s32)index + text->objoffset,
+				record_count) != 0) return -1;
+		if (s_setupFieldWeaponRef(fields, record_id, kind,
+				"rename_object.weapon", text->weapon) != 0) return -1;
+		if (s_setupFieldU32Hex(fields, record_id, kind,
+				"rename_object.obtain_text", text->obtaintext) != 0) return -1;
+		if (s_setupFieldU32Hex(fields, record_id, kind,
+				"rename_object.owner_text", text->ownertext) != 0) return -1;
+		if (s_setupFieldU32Hex(fields, record_id, kind,
+				"rename_object.inventory_text", text->inventorytext) != 0) return -1;
+		if (s_setupFieldU32Hex(fields, record_id, kind,
+				"rename_object.inventory2_text", text->inventory2text) != 0) return -1;
+		if (s_setupFieldU32Hex(fields, record_id, kind,
+				"rename_object.pickup_text", text->pickuptext) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_PADLOCKEDDOOR: {
+		const struct padlockeddoorobj *link = (const struct padlockeddoorobj *)ptr;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"padlocked_door.door", (s32)index + (s32)(uintptr_t)link->door,
+				record_count) != 0) return -1;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"padlocked_door.lock", (s32)index + (s32)(uintptr_t)link->lock,
+				record_count) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_TRUCK: {
+		const struct truckobj *truck = (const struct truckobj *)ptr;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"vehicle.ai_offset", (s32)truck->aioffset) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"vehicle.ai_return_list", (s32)truck->aireturnlist) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.speed", truck->speed) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.wheel_x_rot", truck->wheelxrot) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.wheel_y_rot", truck->wheelyrot) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.speed_aim", truck->speedaim) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.speed_time60", truck->speedtime60) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.turn_rot60", truck->turnrot60) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.rot_y", truck->roty) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"vehicle.next_step", truck->nextstep) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_HELI: {
+		const struct heliobj *heli = (const struct heliobj *)ptr;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"vehicle.ai_offset", (s32)heli->aioffset) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"vehicle.ai_return_list", (s32)heli->aireturnlist) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.rotor_y_rot", heli->rotoryrot) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.rotor_y_speed", heli->rotoryspeed) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.rotor_y_speed_aim", heli->rotoryspeedaim) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.rotor_y_speed_time", heli->rotoryspeedtime) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.speed", heli->speed) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.speed_aim", heli->speedaim) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.speed_time60", heli->speedtime60) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.rot_y", heli->yrot) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"vehicle.next_step", heli->nextstep) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_GLASS: {
+		const struct glassobj *glass = (const struct glassobj *)ptr;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"glass.portal", (s32)glass->portalnum) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_SAFEITEM: {
+		const struct safeitemobj *link = (const struct safeitemobj *)ptr;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"safe_item.item", (s32)index + (s32)(uintptr_t)link->item,
+				record_count) != 0) return -1;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"safe_item.safe", (s32)index + (s32)(uintptr_t)link->safe,
+				record_count) != 0) return -1;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"safe_item.door", (s32)index + (s32)(uintptr_t)link->door,
+				record_count) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_CAMERAPOS: {
+		const struct cameraposobj *cam = (const struct cameraposobj *)ptr;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"camera_position.x", cam->x) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"camera_position.y", cam->y) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"camera_position.z", cam->z) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"camera_position.theta", cam->theta) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"camera_position.vertical_angle", cam->verta) != 0) return -1;
+		if (s_setupFieldPad(fields, record_id, kind,
+				"camera_position.pad", cam->pad) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_TINTEDGLASS: {
+		const struct tintedglassobj *glass = (const struct tintedglassobj *)ptr;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"tinted_glass.xlu_distance", (s32)glass->xludist) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"tinted_glass.opa_distance", (s32)glass->opadist) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"tinted_glass.opacity", (s32)glass->opacity) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"tinted_glass.portal", (s32)glass->portalnum) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"tinted_glass.unknown_64", glass->unk64) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_LIFT: {
+		const struct liftobj *lift = (const struct liftobj *)ptr;
+		for (u32 i = 0; i < ARRAYCOUNT(lift->pads); i++) {
+			snprintf(field, sizeof(field), "lift.stops[%u].pad",
+				(unsigned)i);
+			if (s_setupFieldPad(fields, record_id, kind, field,
+					(s32)lift->pads[i]) != 0) return -1;
+			snprintf(field, sizeof(field), "lift.stops[%u].door",
+				(unsigned)i);
+			if (s_setupFieldRecordIndex(fields, record_id, kind, field,
+					(s32)index + *(const s32 *)&lift->doors[i],
+					record_count) != 0) return -1;
+		}
+		if (s_setupFieldF32(fields, record_id, kind,
+				"lift.distance", lift->dist) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"lift.speed", lift->speed) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"lift.accel", lift->accel) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"lift.max_speed", lift->maxspeed) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"lift.sound", (s32)lift->soundtype) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"lift.current_level", (s32)lift->levelcur) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"lift.target_level", (s32)lift->levelaim) != 0) return -1;
+		if (s_setupAppendCoordFields(fields, record_id, kind,
+				"lift.previous_position", &lift->prevpos) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_CONDITIONALSCENERY: {
+		const struct linksceneryobj *link = (const struct linksceneryobj *)ptr;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"conditional_scenery.trigger", (s32)index + (s32)(uintptr_t)link->trigger,
+				record_count) != 0) return -1;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"conditional_scenery.unexploded", (s32)index + (s32)(uintptr_t)link->unexp,
+				record_count) != 0) return -1;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"conditional_scenery.exploded", (s32)index + (s32)(uintptr_t)link->exp,
+				record_count) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_BLOCKEDPATH: {
+		const struct blockedpathobj *blocked = (const struct blockedpathobj *)ptr;
+		if (s_setupFieldRecordIndex(fields, record_id, kind,
+				"blocked_path.blocker", (s32)index + (s32)(uintptr_t)blocked->blocker,
+				record_count) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"blocked_path.waypoint_1", (s32)blocked->waypoint1) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"blocked_path.waypoint_2", (s32)blocked->waypoint2) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_HOVERBIKE: {
+		const struct hoverbikeobj *bike = (const struct hoverbikeobj *)ptr;
+		if (s_setupAppendHoverFields(fields, record_id, kind,
+				"hover", &bike->hov) != 0) return -1;
+		if (s_setupAppendF32ArrayFields(fields, record_id, kind,
+				"hoverbike.speed", bike->speed,
+				ARRAYCOUNT(bike->speed)) != 0) return -1;
+		if (s_setupAppendF32ArrayFields(fields, record_id, kind,
+				"hoverbike.previous_position", bike->prevpos,
+				ARRAYCOUNT(bike->prevpos)) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"hoverbike.ex_real", bike->exreal) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"hoverbike.ez_real", bike->ezreal) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"hoverbike.ez_real2", bike->ezreal2) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"hoverbike.lean_speed", bike->leanspeed) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"hoverbike.lean_diff", bike->leandiff) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"hoverbike.max_speed_time240", bike->maxspeedtime240) != 0) return -1;
+		if (s_setupAppendF32ArrayFields(fields, record_id, kind,
+				"hoverbike.relative", bike->rels,
+				ARRAYCOUNT(bike->rels)) != 0) return -1;
+		if (s_setupAppendF32ArrayFields(fields, record_id, kind,
+				"hoverbike.absolute_speed", bike->speedabs,
+				ARRAYCOUNT(bike->speedabs)) != 0) return -1;
+		if (s_setupAppendF32ArrayFields(fields, record_id, kind,
+				"hoverbike.relative_speed", bike->speedrel,
+				ARRAYCOUNT(bike->speedrel)) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_HOVERPROP: {
+		const struct hoverpropobj *prop = (const struct hoverpropobj *)ptr;
+		if (s_setupAppendHoverFields(fields, record_id, kind,
+				"hover", &prop->hov) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_FAN: {
+		const struct fanobj *fan = (const struct fanobj *)ptr;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"fan.y_rot", fan->yrot) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"fan.previous_y_rot", fan->yrotprev) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"fan.y_max_speed", fan->ymaxspeed) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"fan.y_speed", fan->yspeed) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"fan.y_accel", fan->yaccel) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"fan.on", (s32)fan->on) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_HOVERCAR:
+	case OBJTYPE_CHOPPER: {
+		const struct hovercarobj *car = (const struct hovercarobj *)ptr;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"vehicle.ai_offset", (s32)car->aioffset) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"vehicle.ai_return_list", (s32)car->aireturnlist) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.speed", car->speed) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.speed_aim", car->speedaim) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.speed_time60", car->speedtime60) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.turn_y_speed60", car->turnyspeed60) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.turn_x_speed60", car->turnxspeed60) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.turn_rot60", car->turnrot60) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.rot_y", car->roty) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.rot_x", car->rotx) != 0) return -1;
+		if (s_setupFieldF32(fields, record_id, kind,
+				"vehicle.rot_z", car->rotz) != 0) return -1;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"vehicle.next_step", car->nextstep) != 0) return -1;
+		if (type == OBJTYPE_CHOPPER) {
+			const struct chopperobj *chopper = (const struct chopperobj *)ptr;
+			if (s_setupFieldS32(fields, record_id, kind,
+					"chopper.weapons_armed", (s32)chopper->weaponsarmed) != 0) return -1;
+			if (s_setupFieldS32(fields, record_id, kind,
+					"chopper.on_target", (s32)chopper->ontarget) != 0) return -1;
+			if (s_setupFieldS32(fields, record_id, kind,
+					"chopper.target", (s32)chopper->target) != 0) return -1;
+			if (s_setupFieldS32(fields, record_id, kind,
+					"chopper.attack_mode", (s32)chopper->attackmode) != 0) return -1;
+			if (s_setupFieldS32(fields, record_id, kind,
+					"chopper.clockwise", (s32)chopper->cw) != 0) return -1;
+			if (s_setupFieldF32(fields, record_id, kind,
+					"chopper.vx", chopper->vx) != 0) return -1;
+			if (s_setupFieldF32(fields, record_id, kind,
+					"chopper.vy", chopper->vy) != 0) return -1;
+			if (s_setupFieldF32(fields, record_id, kind,
+					"chopper.vz", chopper->vz) != 0) return -1;
+			if (s_setupFieldF32(fields, record_id, kind,
+					"chopper.power", chopper->power) != 0) return -1;
+			if (s_setupFieldF32(fields, record_id, kind,
+					"chopper.origin_target_x", chopper->otx) != 0) return -1;
+			if (s_setupFieldF32(fields, record_id, kind,
+					"chopper.origin_target_y", chopper->oty) != 0) return -1;
+			if (s_setupFieldF32(fields, record_id, kind,
+					"chopper.origin_target_z", chopper->otz) != 0) return -1;
+			if (s_setupFieldF32(fields, record_id, kind,
+					"chopper.bob", chopper->bob) != 0) return -1;
+			if (s_setupFieldF32(fields, record_id, kind,
+					"chopper.bob_strength", chopper->bobstrength) != 0) return -1;
+			if (s_setupFieldS32(fields, record_id, kind,
+					"chopper.target_visible", chopper->targetvisible ? 1 : 0) != 0) return -1;
+			if (s_setupFieldS32(fields, record_id, kind,
+					"chopper.timer60", chopper->timer60) != 0) return -1;
+			if (s_setupFieldS32(fields, record_id, kind,
+					"chopper.patrol_timer60", chopper->patroltimer60) != 0) return -1;
+			if (s_setupFieldF32(fields, record_id, kind,
+					"chopper.gun_turn_y_speed60", chopper->gunturnyspeed60) != 0) return -1;
+			if (s_setupFieldF32(fields, record_id, kind,
+					"chopper.gun_turn_x_speed60", chopper->gunturnxspeed60) != 0) return -1;
+			if (s_setupFieldF32(fields, record_id, kind,
+					"chopper.gun_rot_y", chopper->gunroty) != 0) return -1;
+			if (s_setupFieldF32(fields, record_id, kind,
+					"chopper.gun_rot_x", chopper->gunrotx) != 0) return -1;
+			if (s_setupFieldF32(fields, record_id, kind,
+					"chopper.barrel_rot_speed", chopper->barrelrotspeed) != 0) return -1;
+			if (s_setupFieldF32(fields, record_id, kind,
+					"chopper.barrel_rot", chopper->barrelrot) != 0) return -1;
+			if (s_setupFieldS32(fields, record_id, kind,
+					"chopper.dead", chopper->dead ? 1 : 0) != 0) return -1;
+		} else {
+			if (s_setupFieldS32(fields, record_id, kind,
+					"vehicle.status", (s32)car->status) != 0) return -1;
+			if (s_setupFieldS32(fields, record_id, kind,
+					"vehicle.dead", (s32)car->dead) != 0) return -1;
+			if (s_setupFieldS32(fields, record_id, kind,
+					"vehicle.dead_timer60", (s32)car->deadtimer60) != 0) return -1;
+			if (s_setupFieldS32(fields, record_id, kind,
+					"vehicle.sparks_timer60", (s32)car->sparkstimer60) != 0) return -1;
+		}
+		break;
+	}
+	case OBJTYPE_PADEFFECT: {
+		const struct padeffectobj *effect = (const struct padeffectobj *)ptr;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"pad_effect.effect", effect->effect) != 0) return -1;
+		if (s_setupFieldPad(fields, record_id, kind,
+				"pad_effect.pad", effect->pad) != 0) return -1;
+		break;
+	}
+	case OBJTYPE_ESCASTEP: {
+		const struct escalatorobj *step = (const struct escalatorobj *)ptr;
+		if (s_setupFieldS32(fields, record_id, kind,
+				"escalator_step.frame", step->frame) != 0) return -1;
+		if (s_setupAppendCoordFields(fields, record_id, kind,
+				"escalator_step.previous_position", &step->prevpos) != 0) return -1;
+		break;
+	}
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 static s32 s_buildSetupTables(const u8 *data, u32 size,
                               pdscenario_textbuf_t *objects_tsv,
                               pdscenario_textbuf_t *objectives_tsv,
+                              pdscenario_textbuf_t *setup_fields_tsv,
                               u32 *out_objects, u32 *out_objectives)
 {
 	if (out_objects) *out_objects = 0;
 	if (out_objectives) *out_objectives = 0;
 	if (!data || size < sizeof(struct stagesetup) || !objects_tsv ||
-			!objectives_tsv) {
+			!objectives_tsv || !setup_fields_tsv) {
 		return -1;
 	}
 
@@ -1115,21 +2573,65 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 	uintptr_t props_ofs = (uintptr_t)setup->props;
 	if (props_ofs >= size) return -1;
 
+	const u8 *end = data + size;
+	const u8 *scan = data + props_ofs;
+	u32 record_count = 0;
+	while (scan + sizeof(u32) <= end && record_count < 16384u) {
+		u8 type = s_setupCommandType(scan);
+		s32 len = s_setupCommandLengthBytes(scan);
+		if (len <= 0 || scan + len > end) return -1;
+		if (type == OBJTYPE_END) break;
+		record_count++;
+		scan += len;
+	}
+	if (record_count >= 16384u) return -1;
+
+	pdscenario_tag_target_t *tag_targets =
+		(pdscenario_tag_target_t *)calloc(record_count ? record_count : 1,
+			sizeof(*tag_targets));
+	u32 tag_target_count = 0;
+	if (!tag_targets) return -1;
+
+	scan = data + props_ofs;
+	for (u32 i = 0; i < record_count && scan + sizeof(u32) <= end; i++) {
+		u8 type = s_setupCommandType(scan);
+		s32 len = s_setupCommandLengthBytes(scan);
+		if (len <= 0 || scan + len > end) {
+			free(tag_targets);
+			return -1;
+		}
+		if (type == OBJTYPE_TAG && len >= (s32)sizeof(struct tag)) {
+			const struct tag *tag = (const struct tag *)scan;
+			s32 target = (s32)i + tag->cmdoffset;
+			if (target >= 0 && (u32)target < record_count) {
+				tag_targets[tag_target_count].tag_id = tag->tagnum;
+				tag_targets[tag_target_count].target_index = target;
+				tag_target_count++;
+			}
+		}
+		scan += len;
+	}
+
 	if (s_textbufAppend(objects_tsv,
 			"record_id\tkind\tpad_ref\tmodel_catalog_id\tweapon_catalog_id\tsecondary_weapon_catalog_id\tbody_catalog_id\thead_catalog_id\tailist_ref\tflags\tflags2\tflags3\n") != 0 ||
+	    s_textbufAppend(setup_fields_tsv,
+			"record_id\tkind\tfield\ttype\tvalue\tcatalog_id\tref_record_id\n") != 0 ||
 	    s_textbufAppend(objectives_tsv,
-			"objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\n") != 0) {
+			"objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\toperand_kind\ttarget_ref\ttarget_record_ref\tpad_ref\tstate_ref\tmatch_value\tinitial_status\n") != 0) {
+		free(tag_targets);
 		return -1;
 	}
 
 	const u8 *ptr = data + props_ofs;
-	const u8 *end = data + size;
 	u32 object_count = 0;
 	u32 objective_count = 0;
 	while (ptr + sizeof(u32) <= end && object_count < 16384u) {
 		u8 type = s_setupCommandType(ptr);
 		s32 len = s_setupCommandLengthBytes(ptr);
-		if (len <= 0 || ptr + len > end) return -1;
+		if (len <= 0 || ptr + len > end) {
+			free(tag_targets);
+			return -1;
+		}
 		if (type == OBJTYPE_END) break;
 
 		char record_id[32];
@@ -1149,6 +2651,7 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 					s_nonnullCatalogId(catalogHeadIdByHeadnum(chr->headnum)),
 					ailist_ref, (unsigned)chr->flags,
 					(unsigned)chr->flags2) != 0) {
+				free(tag_targets);
 				return -1;
 			}
 		} else if (s_objTypeHasDefaultBase(type)) {
@@ -1172,32 +2675,93 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 					weapon_ref, dual_weapon_ref,
 					(unsigned)obj->flags, (unsigned)obj->flags2,
 					(unsigned)obj->flags3) != 0) {
+				free(tag_targets);
 				return -1;
 			}
 		} else {
 			if (s_textbufAppendf(objects_tsv,
 					"%s\t%s\t\t\t\t\t\t\t\t\t\t\n",
 					record_id, s_objTypeName(type)) != 0) {
+				free(tag_targets);
 				return -1;
 			}
+		}
+
+		if (s_setupAppendCommandFields(setup_fields_tsv, record_id,
+				s_objTypeName(type), ptr, type, object_count,
+				record_count, tag_targets, tag_target_count) != 0) {
+			free(tag_targets);
+			return -1;
 		}
 
 		if (type == OBJTYPE_BEGINOBJECTIVE) {
 			const struct objective *obj = (const struct objective *)ptr;
 			if (s_textbufAppendf(objectives_tsv,
-					"objective_%04u\tobjective\tobjective_text_%04d\t0x%02x\tlevel.objective.%04u\n",
+					"objective_%04u\tobjective\tobjective_text_%04d\t0x%02x\tlevel.objective.%04u\tobjective\t\t\t\t\t\t\n",
 					(unsigned)objective_count, obj->index,
 					(unsigned)obj->difficulties,
 					(unsigned)objective_count) != 0) {
+				free(tag_targets);
 				return -1;
 			}
 			objective_count++;
 		} else if (type >= OBJECTIVETYPE_DESTROYOBJ &&
 				type <= OBJECTIVETYPE_THROWINROOM) {
+			char target_ref[32] = "";
+			char target_record_ref[32] = "";
+			char pad_ref[32] = "";
+			char state_ref[64] = "";
+			const char *operand_kind = "none";
+			s32 match_value = 0;
+			s32 initial_status = -1;
+			if (type == OBJECTIVETYPE_DESTROYOBJ ||
+					type == OBJECTIVETYPE_COLLECTOBJ ||
+					type == OBJECTIVETYPE_THROWOBJ) {
+				u32 tag_id = PD_BE32(((const u32 *)ptr)[1]);
+				s_tagRef(tag_id, target_ref, sizeof(target_ref));
+				s_tagTargetRecordRef(tag_targets, tag_target_count,
+					tag_id, target_record_ref,
+					sizeof(target_record_ref));
+				operand_kind = "tag_target";
+			} else if (type == OBJECTIVETYPE_COMPFLAGS ||
+					type == OBJECTIVETYPE_FAILFLAGS) {
+				u32 flag_mask = PD_BE32(((const u32 *)ptr)[1]);
+				s_stageFlagRef(flag_mask, state_ref,
+					sizeof(state_ref));
+				operand_kind = "stage_flag";
+			} else if (type == OBJECTIVETYPE_HOLOGRAPH) {
+				const struct criteria_holograph *criteria =
+					(const struct criteria_holograph *)ptr;
+				s_tagRef(criteria->obj, target_ref,
+					sizeof(target_ref));
+				s_tagTargetRecordRef(tag_targets, tag_target_count,
+					criteria->obj, target_record_ref,
+					sizeof(target_record_ref));
+				initial_status = (s32)criteria->status;
+				operand_kind = "tag_target_status";
+			} else if (type == OBJECTIVETYPE_ENTERROOM) {
+				const struct criteria_roomentered *criteria =
+					(const struct criteria_roomentered *)ptr;
+				s_padRef((s32)criteria->pad, pad_ref,
+					sizeof(pad_ref));
+				initial_status = (s32)criteria->status;
+				operand_kind = "pad_status";
+			} else if (type == OBJECTIVETYPE_THROWINROOM) {
+				const struct criteria_throwinroom *criteria =
+					(const struct criteria_throwinroom *)ptr;
+				s_padRef((s32)criteria->pad, pad_ref,
+					sizeof(pad_ref));
+				match_value = (s32)criteria->unk04;
+				initial_status = (s32)criteria->status;
+				operand_kind = "throw_match_pad_status";
+			}
 			if (s_textbufAppendf(objectives_tsv,
-					"objective_step_%04u\t%s\t\t\tlevel.objective_step.%04u\n",
+					"objective_step_%04u\t%s\t\t\tlevel.objective_step.%04u\t%s\t%s\t%s\t%s\t%s\t%d\t%d\n",
 					(unsigned)objective_count, s_objTypeName(type),
-					(unsigned)objective_count) != 0) {
+					(unsigned)objective_count, operand_kind,
+					target_ref, target_record_ref, pad_ref, state_ref,
+					match_value, initial_status) != 0) {
+				free(tag_targets);
 				return -1;
 			}
 			objective_count++;
@@ -1209,6 +2773,7 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 
 	if (out_objects) *out_objects = object_count;
 	if (out_objectives) *out_objectives = objective_count;
+	free(tag_targets);
 	return 0;
 }
 
@@ -1217,6 +2782,9 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
                                       u32 room_count, u32 tri_count,
                                       u32 pad_count, u32 object_count,
                                       u32 objective_count,
+                                      u32 waypoint_count,
+                                      u32 waygroup_count,
+                                      u32 cover_count,
                                       pdscenario_textbuf_t *navigation_ini,
                                       pdscenario_textbuf_t *level_graph_json,
                                       pdscenario_textbuf_t *collision_meta_json,
@@ -1239,6 +2807,9 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"pads_file = pads.tsv\n"
 			"spawns_file = spawns.tsv\n"
 			"volumes_file = volumes.tsv\n"
+			"waypoints_file = navigation/waypoints.tsv\n"
+			"waygroups_file = navigation/waygroups.tsv\n"
+			"covers_file = navigation/covers.tsv\n"
 			"generated_cache = _meta/generated-navmesh.json\n") != 0) {
 		return -1;
 	}
@@ -1254,27 +2825,63 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"    \"spawns\": \"spawns.tsv\",\n"
 			"    \"volumes\": \"volumes.tsv\",\n"
 			"    \"objects\": \"objects.tsv\",\n"
-			"    \"objectives\": \"objectives.tsv\"\n"
+			"    \"setup_fields\": \"setup.fields.tsv\",\n"
+			"    \"objectives\": \"objectives.tsv\",\n"
+			"    \"waypoints\": \"navigation/waypoints.tsv\",\n"
+			"    \"waygroups\": \"navigation/waygroups.tsv\",\n"
+			"    \"covers\": \"navigation/covers.tsv\"\n"
 			"  },\n"
 			"  \"nodes\": [\n"
 			"    { \"id\": \"scenario.load\", \"kind\": \"event.scenario.load\" },\n"
 			"    { \"id\": \"source.scene\", \"kind\": \"scenario.scene.source\", \"file\": \"scene.glb\" },\n"
 			"    { \"id\": \"collision.generate\", \"kind\": \"scenario.collision.generate\", \"source\": \"scene.glb\", \"cache\": \"_meta/generated-collision.json\" },\n"
 			"    { \"id\": \"navigation.generate\", \"kind\": \"scenario.navigation.generate\", \"source\": \"navigation.ini\", \"cache\": \"_meta/generated-navmesh.json\" },\n"
-			"    { \"id\": \"setup.tables\", \"kind\": \"scenario.setup.tables\", \"objects\": \"objects.tsv\", \"objectives\": \"objectives.tsv\" }\n"
+			"    { \"id\": \"setup.tables\", \"kind\": \"scenario.setup.tables\", \"objects\": \"objects.tsv\", \"fields\": \"setup.fields.tsv\", \"objectives\": \"objectives.tsv\" },\n"
+			"    { \"id\": \"scenario.global.settings\", \"kind\": \"scenario.global.settings.source\", \"scenario\": \"%s\", \"source\": \"scenario.ini\", \"scene\": \"scene.glb\", \"collision\": \"scene.glb\", \"navigation\": \"navigation.ini\", \"pads\": %u, \"volumes\": %u }%s\n",
+			scenario_id, kind ? kind : "scenario",
+			scenario_id, (unsigned)pad_count, (unsigned)pad_count,
+			pad_count > 0 ? "," : "") != 0) {
+		return -1;
+	}
+
+	for (u32 i = 0; i < pad_count; i++) {
+		if (s_textbufAppendf(level_graph_json,
+				"    { \"id\": \"trigger.volume.%04u\", \"kind\": \"scenario.trigger.volume.source\", \"table\": \"volumes.tsv\", \"volume\": \"volume_pad_%04u\", \"pad\": \"pad_%04u\" }%s\n",
+				(unsigned)i, (unsigned)i, (unsigned)i,
+				i + 1 < pad_count ? "," : "") != 0) {
+			return -1;
+		}
+	}
+
+	if (s_textbufAppendf(level_graph_json,
 			"  ],\n"
 			"  \"links\": [\n"
 			"    { \"from\": \"scenario.load\", \"to\": \"source.scene\" },\n"
 			"    { \"from\": \"source.scene\", \"to\": \"collision.generate\" },\n"
 			"    { \"from\": \"collision.generate\", \"to\": \"navigation.generate\" },\n"
-			"    { \"from\": \"setup.tables\", \"to\": \"scenario.load\" }\n"
+			"    { \"from\": \"scenario.load\", \"to\": \"scenario.global.settings\" },\n"
+			"    { \"from\": \"setup.tables\", \"to\": \"scenario.load\" }%s\n",
+			pad_count > 0 ? "," : "") != 0) {
+		return -1;
+	}
+
+	for (u32 i = 0; i < pad_count; i++) {
+		if (s_textbufAppendf(level_graph_json,
+				"    { \"from\": \"scenario.load\", \"to\": \"trigger.volume.%04u\" }%s\n",
+				(unsigned)i, i + 1 < pad_count ? "," : "") != 0) {
+			return -1;
+		}
+	}
+
+	if (s_textbufAppendf(level_graph_json,
 			"  ],\n"
-			"  \"counts\": { \"rooms\": %u, \"triangles\": %u, \"pads\": %u, \"objects\": %u, \"objectives\": %u }\n"
+			"  \"counts\": { \"rooms\": %u, \"triangles\": %u, \"pads\": %u, \"volumes\": %u, \"objects\": %u, \"objectives\": %u, \"waypoints\": %u, \"waygroups\": %u, \"covers\": %u }\n"
 			"}\n",
-			scenario_id, kind ? kind : "scenario",
 			(unsigned)room_count, (unsigned)tri_count,
-			(unsigned)pad_count, (unsigned)object_count,
-			(unsigned)objective_count) != 0) {
+			(unsigned)pad_count, (unsigned)pad_count,
+			(unsigned)object_count,
+			(unsigned)objective_count, (unsigned)waypoint_count,
+			(unsigned)waygroup_count, (unsigned)cover_count) != 0) {
 		return -1;
 	}
 
@@ -1301,7 +2908,7 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"  \"schema\": \"pd2.generated.navmesh.v1\",\n"
 			"  \"scenario\": \"%s\",\n"
 			"  \"derived_from\": \"scene.glb\",\n"
-			"  \"inputs\": [\"navigation.ini\", \"pads.tsv\", \"spawns.tsv\", \"volumes.tsv\"],\n"
+			"  \"inputs\": [\"navigation.ini\", \"pads.tsv\", \"spawns.tsv\", \"volumes.tsv\", \"navigation/waypoints.tsv\", \"navigation/waygroups.tsv\", \"navigation/covers.tsv\"],\n"
 			"  \"generator\": \"deterministic.surface_graph.v1\",\n"
 			"  \"capabilities\": [\"walk\", \"jump\", \"drop\", \"wall\", \"ceiling\"],\n"
 			"  \"cache_only\": true\n"
@@ -1454,15 +3061,17 @@ static s32 s_bgMaterialReserveVertices(pdscenario_bgmaterial_t *m, u32 add)
 static s32 s_bgMaterialAddTri(pdscenario_bgmaterial_t *m,
                               f32 x0, f32 y0, f32 z0, f32 u0, f32 v0,
                               f32 x1, f32 y1, f32 z1, f32 u1, f32 v1,
-                              f32 x2, f32 y2, f32 z2, f32 u2, f32 v2)
+                              f32 x2, f32 y2, f32 z2, f32 u2, f32 v2,
+                              u32 roomnum)
 {
 	if (!m || s_bgMaterialReserveVertices(m, 3) != 0) return -1;
+	u16 room = roomnum > 0xffffu ? 0xffffu : (u16)roomnum;
 	m->vertices[m->vertex_count++] =
-		(pdscenario_visual_vertex_t){ x0, y0, z0, u0, v0 };
+		(pdscenario_visual_vertex_t){ x0, y0, z0, u0, v0, room };
 	m->vertices[m->vertex_count++] =
-		(pdscenario_visual_vertex_t){ x1, y1, z1, u1, v1 };
+		(pdscenario_visual_vertex_t){ x1, y1, z1, u1, v1, room };
 	m->vertices[m->vertex_count++] =
-		(pdscenario_visual_vertex_t){ x2, y2, z2, u2, v2 };
+		(pdscenario_visual_vertex_t){ x2, y2, z2, u2, v2, room };
 	return 0;
 }
 
@@ -1537,7 +3146,7 @@ static s32 s_bgSceneInit(pdscenario_bgscene_t *scene)
 
 static s32 s_bgSceneAddTri(pdscenario_bgscene_t *scene, s32 material_index,
                            const Vtx *a, const Vtx *b, const Vtx *c,
-                           const struct coord *room_pos)
+                           const struct coord *room_pos, u32 roomnum)
 {
 	if (!scene || !a || !b || !c || !room_pos) return -1;
 	if (material_index < 0 || (u32)material_index >= scene->material_count) {
@@ -1590,7 +3199,7 @@ static s32 s_bgSceneAddTri(pdscenario_bgscene_t *scene, s32 material_index,
 	if (s_bgMaterialAddTri(&scene->materials[material_index],
 			x0, y0, z0, u0, v0,
 			x1, y1, z1, u1, v1,
-			x2, y2, z2, u2, v2) != 0) {
+			x2, y2, z2, u2, v2, roomnum) != 0) {
 		return -1;
 	}
 
@@ -2011,11 +3620,21 @@ static s32 s_bgSceneFinalizeMaterials(pdscenario_bgscene_t *scene)
 typedef struct {
 	u32 pos_view;
 	u32 uv_view;
+	u32 room_view;
 	u32 pos_accessor;
 	u32 uv_accessor;
+	u32 room_accessor;
 	f32 min_x, min_y, min_z;
 	f32 max_x, max_y, max_z;
 } pdscenario_gltf_material_t;
+
+static s32 s_binbufAppendLe16(pdscenario_binbuf_t *b, u16 value)
+{
+	u8 tmp[2];
+	tmp[0] = (u8)(value & 0xffu);
+	tmp[1] = (u8)((value >> 8) & 0xffu);
+	return s_binbufAppend(b, tmp, sizeof(tmp));
+}
 
 static s32 s_binbufAppendF32(pdscenario_binbuf_t *b, f32 value)
 {
@@ -2083,8 +3702,9 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 		return -1;
 	}
 	for (u32 i = 0; i < scene->material_count; i++) {
-		mr[i].pos_view = mr[i].uv_view = 0xffffffffu;
-		mr[i].pos_accessor = mr[i].uv_accessor = 0xffffffffu;
+		mr[i].pos_view = mr[i].uv_view = mr[i].room_view = 0xffffffffu;
+		mr[i].pos_accessor = mr[i].uv_accessor = mr[i].room_accessor =
+			0xffffffffu;
 	}
 	for (u32 i = 0; i < scene->texture_count; i++) {
 		texture_views[i] = 0xffffffffu;
@@ -2113,6 +3733,14 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 			if (s_binbufAppendF32(&bin, m->vertices[v].u) != 0 ||
 			    s_binbufAppendF32(&bin, m->vertices[v].v) != 0) goto fail;
 		}
+		if (s_binbufPad4(&bin) != 0) goto fail;
+		mr[i].room_view = view_count++;
+		mr[i].room_accessor = accessor_count++;
+		for (u32 v = 0; v < m->vertex_count; v++) {
+			if (s_binbufAppendLe16(&bin, m->vertices[v].roomnum) != 0) {
+				goto fail;
+			}
+		}
 	}
 
 	for (u32 i = 0; i < scene->texture_count; i++) {
@@ -2140,10 +3768,12 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 		if (!first && s_textbufAppend(&json, ",") != 0) goto fail_json;
 		first = 0;
 		if (s_textbufAppendf(&json,
-				"{\"attributes\":{\"POSITION\":%u,\"TEXCOORD_0\":%u},"
+				"{\"attributes\":{\"POSITION\":%u,\"TEXCOORD_0\":%u,"
+				"\"_PD_ROOM\":%u},"
 				"\"material\":%u,\"mode\":4}",
 				(unsigned)mr[i].pos_accessor,
 				(unsigned)mr[i].uv_accessor,
+				(unsigned)mr[i].room_accessor,
 				(unsigned)i) != 0) goto fail_json;
 	}
 	if (s_textbufAppend(&json, "]}],\"materials\":[") != 0) goto fail_json;
@@ -2203,6 +3833,7 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 		if (m->vertex_count == 0) continue;
 		u32 pos_len = m->vertex_count * 12u;
 		u32 uv_len = m->vertex_count * 8u;
+		u32 room_len = m->vertex_count * 2u;
 		offset = (offset + 3u) & ~3u;
 		if (emitted_view++ && s_textbufAppend(&json, ",") != 0) goto fail_json;
 		if (s_textbufAppendf(&json,
@@ -2216,6 +3847,13 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				"{\"buffer\":0,\"byteOffset\":%u,\"byteLength\":%u,\"target\":34962}",
 				(unsigned)offset, (unsigned)uv_len) != 0) goto fail_json;
 		offset += uv_len;
+		offset = (offset + 3u) & ~3u;
+		if (s_textbufAppend(&json, ",") != 0) goto fail_json;
+		emitted_view++;
+		if (s_textbufAppendf(&json,
+				"{\"buffer\":0,\"byteOffset\":%u,\"byteLength\":%u,\"target\":34962}",
+				(unsigned)offset, (unsigned)room_len) != 0) goto fail_json;
+		offset += room_len;
 	}
 	for (u32 i = 0; i < scene->texture_count; i++) {
 		const pdscenario_bgtexture_t *tex = &scene->textures[i];
@@ -2249,6 +3887,14 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				"{\"bufferView\":%u,\"componentType\":5126,\"count\":%u,"
 				"\"type\":\"VEC2\"}",
 				(unsigned)mr[i].uv_view, (unsigned)m->vertex_count) != 0) {
+			goto fail_json;
+		}
+		if (s_textbufAppend(&json, ",") != 0) goto fail_json;
+		emitted_accessor++;
+		if (s_textbufAppendf(&json,
+				"{\"bufferView\":%u,\"componentType\":5123,\"count\":%u,"
+				"\"type\":\"SCALAR\"}",
+				(unsigned)mr[i].room_view, (unsigned)m->vertex_count) != 0) {
 			goto fail_json;
 		}
 	}
@@ -2362,19 +4008,21 @@ static s32 s_exportBgTriByIndices(pdscenario_bgscene_t *scene,
                                   const Vtx loaded[16],
                                   const u8 valid[16],
                                   u32 a, u32 b, u32 c,
-                                  const struct coord *room_pos)
+                                  const struct coord *room_pos,
+                                  u32 roomnum)
 {
 	if (a >= 16u || b >= 16u || c >= 16u) return 0;
 	if (!valid[a] || !valid[b] || !valid[c]) return 0;
 	if (a == b && b == c) return 0;
 	return s_bgSceneAddTri(scene, material_index,
-		&loaded[a], &loaded[b], &loaded[c], room_pos);
+		&loaded[a], &loaded[b], &loaded[c], room_pos, roomnum);
 }
 
 static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
                          const u8 *room_base, u32 room_size,
                          const Vtx *vertices, u32 vertex_span,
-                         const struct coord *room_pos)
+                         const struct coord *room_pos,
+                         u32 roomnum)
 {
 	if (!gdl || !vertices || !room_pos) return 0;
 	if (!s_rangeInBuffer(room_base, room_size, gdl, (u32)sizeof(Gfx))) return 0;
@@ -2427,7 +4075,7 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			u32 b = ((w1 >> 8) & 0xffu) / 10u;
 			u32 c = (w1 & 0xffu) / 10u;
 			if (s_exportBgTriByIndices(scene, material_index, loaded,
-					valid, a, b, c, room_pos) != 0) {
+					valid, a, b, c, room_pos, roomnum) != 0) {
 				return -1;
 			}
 		} else if (op == (u8)G_TRI4) {
@@ -2438,13 +4086,13 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			u32 x3 = (w1 >> 16) & 0x0fu, y3 = (w1 >> 20) & 0x0fu, z3 = (w0 >> 8) & 0x0fu;
 			u32 x4 = (w1 >> 24) & 0x0fu, y4 = (w1 >> 28) & 0x0fu, z4 = (w0 >> 12) & 0x0fu;
 			if (s_exportBgTriByIndices(scene, material_index, loaded,
-					valid, x1, y1, z1, room_pos) != 0 ||
+					valid, x1, y1, z1, room_pos, roomnum) != 0 ||
 			    s_exportBgTriByIndices(scene, material_index, loaded,
-					valid, x2, y2, z2, room_pos) != 0 ||
+					valid, x2, y2, z2, room_pos, roomnum) != 0 ||
 			    s_exportBgTriByIndices(scene, material_index, loaded,
-					valid, x3, y3, z3, room_pos) != 0 ||
+					valid, x3, y3, z3, room_pos, roomnum) != 0 ||
 			    s_exportBgTriByIndices(scene, material_index, loaded,
-					valid, x4, y4, z4, room_pos) != 0) {
+					valid, x4, y4, z4, room_pos, roomnum) != 0) {
 				return -1;
 			}
 		}
@@ -2456,7 +4104,8 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 static s32 s_exportBgRoomBlocks(pdscenario_bgscene_t *scene,
                                 struct roomgfxdata *gfx,
                                 const u8 *room_base, u32 room_size,
-                                const struct coord *room_pos)
+                                const struct coord *room_pos,
+                                u32 roomnum)
 {
 	if (!scene || !gfx || !gfx->vertices || !gfx->colours) return 0;
 	uintptr_t end = (uintptr_t)gfx->vertices;
@@ -2473,7 +4122,7 @@ static s32 s_exportBgRoomBlocks(pdscenario_bgscene_t *scene,
 				if (vertex_span > 0) {
 					if (s_exportBgGdl(scene, block->gdl, room_base,
 							room_size, block->vertices, vertex_span,
-							room_pos) != 0) {
+							room_pos, roomnum) != 0) {
 						return -1;
 					}
 				}
@@ -2658,7 +4307,7 @@ static s32 s_buildBgVisualExports(const u8 *bg, u32 bg_size,
 		}
 		struct roomgfxdata *gfx = (struct roomgfxdata *)room;
 		if (s_exportBgRoomBlocks(scene, gfx, room, new_len,
-				&rooms[roomnum].pos) != 0) {
+				&rooms[roomnum].pos, roomnum) != 0) {
 			sysMemFree(room);
 			sysMemFree(primary);
 			return -1;
@@ -2706,6 +4355,39 @@ static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
 	s32 has_entry = modArchiveFindEntry(arc, entry) >= 0;
 	modArchiveClose(arc);
 	return has_entry;
+}
+
+static s32 s_existingArchiveEntryContains(const char *relpath,
+                                          const char *entry,
+                                          const char *needle)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	s32 found = 0;
+
+	if (!full || !full[0] || !entry || !needle) return 0;
+
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+
+	s32 idx = modArchiveFindEntry(arc, entry);
+	if (idx >= 0) {
+		u32 size = 0;
+		char *bytes = (char *)modArchiveExtractAlloc(arc, idx, &size);
+		if (bytes && size > 0) {
+			char *text = (char *)malloc((size_t)size + 1u);
+			if (text) {
+				memcpy(text, bytes, size);
+				text[size] = '\0';
+				found = strstr(text, needle) != NULL;
+				free(text);
+			}
+		}
+		if (bytes) free(bytes);
+	}
+
+	modArchiveClose(arc);
+	return found;
 }
 
 static s32 s_existingArchiveHasEntryPrefix(const char *relpath,
@@ -2824,10 +4506,20 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 		s_existingArchiveHasEntry(relpath, "pads.tsv") &&
 		s_existingArchiveHasEntry(relpath, "spawns.tsv") &&
 		s_existingArchiveHasEntry(relpath, "volumes.tsv") &&
+		s_existingArchiveHasEntry(relpath, "navigation/waypoints.tsv") &&
+		s_existingArchiveHasEntry(relpath, "navigation/waygroups.tsv") &&
+		s_existingArchiveHasEntry(relpath, "navigation/covers.tsv") &&
 		s_existingArchiveHasEntry(relpath, "objects.tsv") &&
+		s_existingArchiveHasEntry(relpath, "setup.fields.tsv") &&
 		s_existingArchiveHasEntry(relpath, "objectives.tsv") &&
+		s_existingArchiveEntryContains(relpath, "objectives.tsv",
+			"operand_kind") &&
+		!s_existingArchiveEntryContains(relpath, "setup.fields.tsv",
+			"objective_step.argument") &&
 		s_existingArchiveHasEntry(relpath, "navigation.ini") &&
 		s_existingArchiveHasEntry(relpath, "level.graph.json") &&
+		s_existingArchiveEntryContains(relpath, "level.graph.json",
+			"scenario.global.settings.source") &&
 		s_existingArchiveHasEntry(relpath, "_meta/generated-collision.json") &&
 		s_existingArchiveHasEntry(relpath, "_meta/generated-navmesh.json");
 }
@@ -2985,11 +4677,10 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 		"arena_index = %d\n"
 		"slug = %s\n"
 		"category = %s\n"
-		"stagenum = %d\n"
 		"requirefeature = %u\n"
 		"name_langid = %d\n"
 		"load_mode = %s\n",
-		catalog_id, arena_index, a->slug, a->category, (s32)a->stagenum,
+		catalog_id, arena_index, a->slug, a->category,
 		(unsigned)a->requirefeature, a->name_langid,
 		load_mode_str ? load_mode_str : "ARENA_LOADMODE_PLAYABLE");
 	if (scenario_id[0]) {
@@ -3113,7 +4804,11 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	pdscenario_textbuf_t pads_tsv = { 0 };
 	pdscenario_textbuf_t spawns_tsv = { 0 };
 	pdscenario_textbuf_t volumes_tsv = { 0 };
+	pdscenario_textbuf_t waypoints_tsv = { 0 };
+	pdscenario_textbuf_t waygroups_tsv = { 0 };
+	pdscenario_textbuf_t covers_tsv = { 0 };
 	pdscenario_textbuf_t objects_tsv = { 0 };
+	pdscenario_textbuf_t setup_fields_tsv = { 0 };
 	pdscenario_textbuf_t objectives_tsv = { 0 };
 	pdscenario_textbuf_t navigation_ini = { 0 };
 	pdscenario_textbuf_t level_graph_json = { 0 };
@@ -3127,6 +4822,9 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	u32 geo_count = 0;
 	u32 tri_count = 0;
 	u32 pad_count = 0;
+	u32 waypoint_count = 0;
+	u32 waygroup_count = 0;
+	u32 cover_count = 0;
 	u32 object_count = 0;
 	u32 objective_count = 0;
 	s32 has_visual = 0;
@@ -3159,6 +4857,15 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 				scenario_id);
 			has_pads = -1;
 		}
+		if (has_pads > 0 &&
+				s_buildNavigationTsv(pads_data, pads_size, &waypoints_tsv,
+					&waygroups_tsv, &covers_tsv, &waypoint_count,
+					&waygroup_count, &cover_count) != 0) {
+			sysLogPrintf(LOG_WARNING,
+				"romextract pdscenario: navigation table conversion failed for \"%s\"",
+				scenario_id);
+			has_pads = -1;
+		}
 		sysMemFree(pads_data);
 	}
 
@@ -3168,7 +4875,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		LOADTYPE_SETUP, &setup_data, &setup_size);
 	if (has_setup > 0) {
 		if (s_buildSetupTables(setup_data, setup_size, &objects_tsv,
-				&objectives_tsv, &object_count,
+				&objectives_tsv, &setup_fields_tsv, &object_count,
 				&objective_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: setup table conversion failed for \"%s\"",
@@ -3179,8 +4886,10 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	} else {
 		if (s_textbufAppend(&objects_tsv,
 				"record_id\tkind\tpad_ref\tmodel_catalog_id\tweapon_catalog_id\tsecondary_weapon_catalog_id\tbody_catalog_id\thead_catalog_id\tailist_ref\tflags\tflags2\tflags3\n") != 0 ||
+		    s_textbufAppend(&setup_fields_tsv,
+				"record_id\tkind\tfield\ttype\tvalue\tcatalog_id\tref_record_id\n") != 0 ||
 		    s_textbufAppend(&objectives_tsv,
-				"objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\n") != 0) {
+				"objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\toperand_kind\ttarget_ref\ttarget_record_ref\tpad_ref\tstate_ref\tmatch_value\tinitial_status\n") != 0) {
 			has_setup = -1;
 		}
 	}
@@ -3207,7 +4916,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	}
 
 	if (s_buildScenarioSourceFiles(scenario_id, kind, room_count, tri_count,
-			pad_count, object_count, objective_count, &navigation_ini,
+			pad_count, object_count, objective_count,
+			waypoint_count, waygroup_count, cover_count, &navigation_ini,
 			&level_graph_json, &collision_meta_json,
 			&navmesh_meta_json) != 0) {
 		sysLogPrintf(LOG_WARNING,
@@ -3218,7 +4928,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 
 	if (has_tiles < 0 || has_pads < 0 || has_setup < 0 || has_bg < 0) {
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
+			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
+			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -3231,7 +4942,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 				bg_scene.scene_glb, bg_scene.scene_glb_size,
 				"scene") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
-				&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
+				&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
+				&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
 				&navigation_ini, &level_graph_json, &collision_meta_json,
 				&navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -3246,9 +4958,19 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		    assetArchiveWriterAddPublicMem(&asset_writer, "spawns.tsv",
 				spawns_tsv.data, spawns_tsv.len, "spawns") != MODARCHIVE_OK ||
 		    assetArchiveWriterAddPublicMem(&asset_writer, "volumes.tsv",
-				volumes_tsv.data, volumes_tsv.len, "volumes") != MODARCHIVE_OK) {
+				volumes_tsv.data, volumes_tsv.len, "volumes") != MODARCHIVE_OK ||
+		    assetArchiveWriterAddPublicMem(&asset_writer,
+				"navigation/waypoints.tsv", waypoints_tsv.data,
+				waypoints_tsv.len, "waypoints") != MODARCHIVE_OK ||
+		    assetArchiveWriterAddPublicMem(&asset_writer,
+				"navigation/waygroups.tsv", waygroups_tsv.data,
+				waygroups_tsv.len, "waygroups") != MODARCHIVE_OK ||
+		    assetArchiveWriterAddPublicMem(&asset_writer,
+				"navigation/covers.tsv", covers_tsv.data,
+				covers_tsv.len, "covers") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
-				&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
+				&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
+				&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
 				&navigation_ini, &level_graph_json, &collision_meta_json,
 				&navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -3259,6 +4981,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 
 	if (assetArchiveWriterAddPublicMem(&asset_writer, "objects.tsv",
 			objects_tsv.data, objects_tsv.len, "objects") != MODARCHIVE_OK ||
+	    assetArchiveWriterAddPublicMem(&asset_writer, "setup.fields.tsv",
+			setup_fields_tsv.data, setup_fields_tsv.len, "setup_fields") != MODARCHIVE_OK ||
 	    assetArchiveWriterAddPublicMem(&asset_writer, "objectives.tsv",
 			objectives_tsv.data, objectives_tsv.len, "objectives") != MODARCHIVE_OK ||
 	    assetArchiveWriterAddPublicMem(&asset_writer, "navigation.ini",
@@ -3270,7 +4994,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	    assetArchiveWriterAddBundledMem(&asset_writer, "_meta/generated-navmesh.json",
 			navmesh_meta_json.data, navmesh_meta_json.len, "generated_navmesh") != MODARCHIVE_OK) {
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
+			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
+			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -3298,6 +5023,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		"  \"navigation\": \"navigation.ini\",\n"
 		"  \"level_graph\": \"level.graph.json\",\n"
 		"  \"objects\": \"objects.tsv\",\n"
+		"  \"setup_fields\": \"setup.fields.tsv\",\n"
 		"  \"objectives\": \"objectives.tsv\",\n"
 		"  \"generated_collision\": \"_meta/generated-collision.json\",\n"
 		"  \"generated_navmesh\": \"_meta/generated-navmesh.json\"",
@@ -3327,8 +5053,15 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		",\n  \"pads\": \"pads.tsv\""
 		",\n  \"spawns\": \"spawns.tsv\""
 		",\n  \"volumes\": \"volumes.tsv\""
-		",\n  \"pad_count\": %u",
-		(unsigned)pad_count);
+		",\n  \"waypoints\": \"navigation/waypoints.tsv\""
+		",\n  \"waygroups\": \"navigation/waygroups.tsv\""
+		",\n  \"covers\": \"navigation/covers.tsv\""
+		",\n  \"pad_count\": %u"
+		",\n  \"waypoint_count\": %u"
+		",\n  \"waygroup_count\": %u"
+		",\n  \"cover_count\": %u",
+		(unsigned)pad_count, (unsigned)waypoint_count,
+		(unsigned)waygroup_count, (unsigned)cover_count);
 
 	n += snprintf(manifest_buf + n, sizeof(manifest_buf) - n, "\n}\n");
 
@@ -3336,7 +5069,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"manifest snprintf truncated for \"%s\"", scenario_id);
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
+			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
+			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -3349,7 +5083,6 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		"[scenario]\n"
 		"catalog_id = %s\n"
 		"kind = %s\n"
-		"stagenum = %d\n"
 		"display_name = %s\n"
 		"scene_file = scene.glb\n"
 		"scene_format = GLB\n"
@@ -3359,8 +5092,9 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		"navigation_file = navigation.ini\n"
 		"level_graph_file = level.graph.json\n"
 		"objects_file = objects.tsv\n"
+		"setup_fields_file = setup.fields.tsv\n"
 		"objectives_file = objectives.tsv\n",
-		scenario_id, kind, (s32)a->stagenum, a->slug);
+		scenario_id, kind, a->slug);
 	if (has_tiles > 0) ini_len += snprintf(ini_buf + ini_len,
 		sizeof(ini_buf) - ini_len,
 		"source_room_count = %u\n"
@@ -3374,12 +5108,16 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		sizeof(ini_buf) - ini_len,
 		"pads_file = pads.tsv\n"
 		"spawns_file = spawns.tsv\n"
-		"volumes_file = volumes.tsv\n");
+		"volumes_file = volumes.tsv\n"
+		"waypoints_file = navigation/waypoints.tsv\n"
+		"waygroups_file = navigation/waygroups.tsv\n"
+		"covers_file = navigation/covers.tsv\n");
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"scenario.ini snprintf truncated for \"%s\"", scenario_id);
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
+			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
+			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -3392,7 +5130,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"AddFileMem scenario.ini failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
+			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
+			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -3404,7 +5143,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
+			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
+			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -3415,7 +5155,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"assetArchiveWriterFinishMetadata failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
+			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
+			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -3427,14 +5168,16 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"modArchiveFinish failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
-			&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
+			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
+			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
 		return -1;
 	}
 	s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
-		&spawns_tsv, &volumes_tsv, &objects_tsv, &objectives_tsv,
+		&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
+		&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
 		&navigation_ini, &level_graph_json, &collision_meta_json,
 		&navmesh_meta_json,
 		&visual_mesh, &bg_scene);

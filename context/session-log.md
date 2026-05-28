@@ -1,5 +1,322 @@
 # Session Log (Active)
 
+## Session (`main-checkout-2026-05-28-scenario-mission-graph-source`) - 2026-05-28 - Scenario and mission graph sources activate at runtime
+
+Continued `c3844-s1` under open `B-385`. Mike's current `Build/logs/game client/pd-client.log` still shows the manual run did not use extracted weapon source cleanly: the loader scanned 86 weapon archives, but source-only mode refused weapon rows such as `base:dy357magnum` because those runtime rows lacked public FileProvider source in that build. The fixed tree is verified separately: current `weapon_match_source_gate_smoke` proves `base:dy357` and its held/cartridge meshes load from public archives, and the DY-357 "Falcon 2" fire-mode label was fixed as a language enum issue.
+
+### Implemented
+
+- Added `scenarioSourceActivateGraphsForStage()` and call it from `setupLoadFiles()` before setup fallback.
+- Stage load now reads and validates `.pdscenario::level.graph.json` by schema and scenario reference through `fsFileLoad()`.
+- Solo stage load now finds the matching `.pdmission`, reads `mission.graph.json`, validates schema plus scenario reference, and records the active graph source.
+- Level graph table refs now bind the public pads, setup fields, objects, objectives, waypoints, waygroups, and covers members during activation.
+- Runtime source loaders now prefer the active level graph table refs for the matching scenario instead of independently picking public table paths.
+- Active stage rows now derive their scenario source binding by catalog ID (`namespace:scenario_<stage_slug>`) when no explicit scenario ref is present, so source-only Scenario activation uses the matching public `.pdscenario` archive instead of falling through to graph/setup misses.
+- Generated `.pdmission` archives now emit executable `mission.objectives.source` and `mission.behavior.parity_backend` nodes instead of empty `nodes: []` placeholders.
+- Stale `.pdmission` archives with empty mission graphs or `objectives.tsv` pointing at `original_perfect_dark_setup` are forced to regenerate, and runtime/conformance reject that shape.
+- Generated `.pdmission` archives now mirror decoded scenario objective rows as `mission.objective.source` and `mission.objective.criteria.source` graph nodes, with `objectives.tsv` rows pointing at both the mission graph node and the scenario source row.
+- `objectiveCheck()` now records/validates against the active mission objective graph before returning the OG parity result, so the graph participates in runtime objective evaluation while the parity backend is replaced module-by-module.
+- `objectiveInsert()` now validates the inserted runtime objective against the active `.pdmission::objectives.tsv` graph row, matching the public graph node, difficulty mask, and criteria sequence before later objective checks can rely on the OG parity backend.
+- Active mission graphs now drive objective criteria evaluation order through `scenarioSourceObjectiveGraphGetCriterionType()`, while the operand data remains the source-compiled setup records so OG parity is preserved during the module-by-module cutover.
+- Enter Room, Throw In Room, and Holograph objective criteria now store mutable runtime status in graph-owned state, and graph objective evaluation consumes `graph.objective.state` instead of reading OG criteria status directly.
+- COMPFLAGS/FAILFLAGS objective criteria now read graph-owned mission flag state instead of calling the legacy stage-flag helper from graph evaluation; stage reset, `chrSetStageFlag()`, `chrUnsetStageFlag()`, direct Eyespy-destroyed flag writes, and co-op stage-flag network receive all update the graph mirror.
+- Destroy Object, Collect Object, Throw Object, and Holograph objective criteria now read tagged object present/healthy/held-by-player state from the graph runtime; tags seed this state after `tagsReset()`, object destroy/free/respawn refresh it, and inventory insert/remove refresh held state.
+- Source-only mode treats missing/invalid Scenario or Mission graph source as a source-chain failure; no raw setup dumps, `.bin` payloads, or fake handles were added.
+
+### Verification
+
+- `python tools\asset_native_source_guard.py` PASS.
+- `python -m py_compile tools\asset_archive_conformance.py` PASS.
+- `python tools\asset_archive_conformance.py --root examples\modding\typed-pdxxx-basic --require-all-families` PASS with 28 root archives and 52 checked archives across all families.
+- Scoped `git diff --check` PASS for touched files.
+- `.\devtools\run-pd-tests.ps1 -Session c3844graph -Selector "[modding][pdxxx][c3844][scenario][source_gate][static]" -BuildTimeoutSeconds 300` PASS with 104 assertions / 1 case.
+- `.\devtools\build-session.ps1 -Session c3844graph -Target all -BuildTimeoutSeconds 600` PASS: client and updater linked.
+- `.\tools\smoke-verify\run.ps1 -Test scenario_pads_source_gate_smoke -SourceBinary .\.claude\session-builds\c3844graph\PerfectDark.exe -Timeout 180` PASS with 23/23 assertions, proving Chicago loaded `base_scenario_chicago.pdscenario::level.graph.json` and `base_mission_chicago.pdmission::mission.graph.json` from public archives at runtime.
+- Follow-up table-ref verification: focused `[modding][pdxxx][c3844][scenario][source_gate][static]` PASS with 109 assertions / 1 case, isolated `c3844graph2` all-target build PASS, and `scenario_pads_source_gate_smoke` PASS with 25/25 assertions.
+- Mission graph source-node follow-up: focused `[modding][pdxxx][c3844][scenario][source_gate][static],[modding][pdxxx][c3844][weapon][static],[modding][pdxxx][c3841][scenario][static],[modding][pdxxx][examples]` PASS with 1668 assertions / 7 cases, isolated `c3844missiongraph` all-target build PASS, and `scenario_pads_source_gate_smoke` PASS with 25/25 assertions.
+- Mission objective runtime follow-up: `python -m py_compile tools\asset_archive_conformance.py tools\build_typed_pdxxx_examples.py` PASS; strict example conformance PASS; `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844][scenario][source_gate][static],[modding][pdxxx][examples]` PASS with 1576 assertions / 5 cases; isolated `c3844objgraph` all-target build PASS; strict generated-output conformance PASS with 7,572 root / 8,573 checked archives; `scenario_pads_source_gate_smoke` PASS with 29/29 assertions.
+- Runtime log proof: `SCENARIO.GRAPH: table refs 'base:scenario_chicago'` selected `pads.tsv`, `setup.fields.tsv`, `objects.tsv`, `objectives.tsv`, `navigation/waypoints.tsv`, `navigation/waygroups.tsv`, and `navigation/covers.tsv`; Chicago then compiled 294 pads, 153 waypoints, 21 waygroups, and 88 covers from the graph-selected public source path.
+- Runtime objective proof: Chicago loaded `base_mission_chicago.pdmission::objectives.tsv` as the objective graph runtime source with 5 objectives and 15 criteria, then logged `MISSION.GRAPH: objective check routed through graph source`.
+- Weapon-source question revalidation: after Mike reported DY-357 showing `Falcon 2` as fire-mode text, current-tree focused weapon/lang tests passed with 109 assertions / 2 cases, isolated `weaponanswer` all-target build passed, and `weapon_match_source_gate_smoke` passed 35/35. The smoke log proves `base:dy357` selected/spawned as weapon 8, `base:model_dy357_hi` and `base:model_cartridge_rifle` loaded from public archive sources, and no `ASSET.SOURCE_ONLY`, `Gdy357Z.bin`, `GcartridgeZ.bin`, `base:dy357magnum`, or `Falcon 2` fire-mode mismatch appeared.
+- Objective insert graph validation follow-up: `python tools\asset_native_source_guard.py` PASS; `python -m json.tool tools\smoke-verify\tests\scenario_pads_source_gate_smoke.json` PASS; focused `[modding][pdxxx][c3844][scenario][source_gate][static]` PASS with 140 assertions / 1 case; isolated `c3844objinsert` all-target build PASS; `scenario_pads_source_gate_smoke` PASS with 31/31 assertions and `MISSION.GRAPH: objective insert matched graph source`; strict generated-output conformance PASS across 7,572 root / 8,573 checked archives.
+- Objective criteria graph evaluation follow-up: source guard PASS; scoped diff check PASS; smoke JSON parse PASS; focused `[modding][pdxxx][c3844][scenario][source_gate][static]` PASS with 146 assertions / 1 case; isolated `c3844objeval` all-target build PASS; `scenario_pads_source_gate_smoke` PASS with 33/33 assertions and `MISSION.GRAPH: objective criteria evaluated from graph source`; strict generated-output conformance PASS across 7,572 root / 8,573 checked archives.
+- Scenario derived-binding follow-up: focused `[modding][pdxxx][c3844][scenario][source_gate][static]` PASS with 153 assertions / 1 case; isolated `c3844src` all-target build PASS after fixing the Arena helper compile break and explicitly confirming `PerfectDark.exe`, `pd-tests.exe`, and `Updater.exe` exist; `scenario_pads_source_gate_smoke` PASS with 33/33 assertions proving Chicago scene colmesh, level graph, mission graph, table refs, objectives, and pads all came from public archive source.
+- Current weapon-source answer proof: latest `weapon_match_source_gate_smoke` against `weaponrun2` PASS with 35/35 assertions. The saved result is `.claude\smoke-verify-runs\results-20260528T162747Z.json`; the smoke log proves `MANIFEST-SP: load 'base:dy357'`, `SPAWN: player 0 spawned with weapon 8 (DY357)`, and `BONDGUN.SOURCE` loads for `base:model_dy357_hi` / `base:model_cartridge_rifle` from public archive-member model sources.
+- Objective graph-state follow-up: `python tools\asset_native_source_guard.py` PASS; scoped diff check PASS; isolated `c3844state` client/updater build PASS; isolated `c3844state` tests build PASS; focused `[modding][pdxxx][c3844]` PASS with 476 assertions / 5 cases; `scenario_pads_source_gate_smoke` PASS with 33/33 assertions and `backend=graph.objective.operands+graph.objective.state`; `weapon_match_source_gate_smoke` PASS with 35/35 assertions against the same binary, proving `base:dy357` activated/spawned from `.pdweapon` and no `Falcon 2` fire-mode mismatch.
+- Objective mission-flag graph-state follow-up: `python tools\asset_native_source_guard.py` PASS; scoped diff check PASS; isolated `c3844flags` all-target build PASS; focused `[modding][pdxxx][c3844]` PASS with 495 assertions / 5 cases; `scenario_pads_source_gate_smoke` PASS with 33/33 assertions and `backend=graph.objective.operands+graph.objective.state+graph.mission.flags`; `weapon_match_source_gate_smoke` PASS with 35/35 assertions against the same binary, proving `base:dy357` selected/spawned as weapon 8 with no `Falcon 2` or `ASSET.SOURCE_ONLY` log matches.
+- Objective object-state graph follow-up: `python tools\asset_native_source_guard.py` PASS; scoped diff check PASS; isolated `c3844obj` all-target build PASS; focused `[modding][pdxxx][c3844]` PASS with 508 assertions / 5 cases; `scenario_pads_source_gate_smoke` PASS with 33/33 assertions and `backend=graph.objective.operands+graph.objective.state+graph.objective.object_state+graph.mission.flags`; `weapon_match_source_gate_smoke` PASS with 35/35 assertions against the same binary, proving `base:dy357` still selected/spawned from `.pdweapon` with no `Falcon 2`, raw-bin, or `ASSET.SOURCE_ONLY` log matches.
+- Final guards for this slice: `python tools\asset_native_source_guard.py` PASS and strict generated-output conformance PASS across 7,572 root / 8,573 checked archives with all 27 `.pdxxx` families required.
+
+### Next
+
+- Continue `B-385`: graph source activation, table-ref source selection, per-objective mission graph generation, runtime objective insertion validation, graph-driven objective criteria evaluation, graph-owned objective status/object/mission-flag transitions, and objective check routing are verified, but mission/level graph behavior still needs full parity execution cutover. Keep OG routines only as parity backend/reference while replacing trigger/global/phase, setup behavior, and AI action modules one at a time.
+
+---
+
+## Session (`main-checkout-2026-05-28-scenario-setup-fields-source`) - 2026-05-28 - Scenario setup field source table added
+
+Continued `c3844-s1` under open `B-385`. Mike's weapon-source run question was checked against the latest log: that run did not prove extracted weapon runtime use because source-only rejected weapon rows such as `base:dy357magnum`; the current tree still has the later DY-357 smoke proof for `base:dy357` plus the language-label fix.
+
+### Implemented
+
+- Added required `.pdscenario` `setup.fields.tsv` output as a named per-command setup source table paired with `objects.tsv` and `objectives.tsv`.
+- Bound `setup_fields_file` through scenario manifest/scanner/distribution metadata, strict conformance, examples, and native-source guard coverage.
+- Fixed the setup field exporter to treat vehicle AI offsets as offsets, not AI-list catalog labels, and to emit helicopter fields through `struct heliobj` rather than the truck layout.
+- Kept `B-385` open: runtime still needs a compiler from public `objects.tsv`/`setup.fields.tsv` into full setup data, plus mission/level graph behavior parity.
+
+### Verification
+
+- `python -m py_compile tools/asset_archive_conformance.py tools/asset_native_source_guard.py tools/build_typed_pdxxx_examples.py` PASS.
+- `python tools/asset_archive_conformance.py --root examples/modding/typed-pdxxx-basic --require-all-families` PASS with 28 root archives and 52 checked archives across all families.
+- `python tools/asset_native_source_guard.py` PASS.
+- `.\devtools\run-pd-tests.ps1 -Session c3844setupfields -Selector "[modding][pdxxx][c3841][scenario][static],[modding][pdxxx][c3844][scenario][source_gate][static],[modding][pdxxx][examples]" -BuildTimeoutSeconds 240` PASS with 1532 assertions / 6 cases.
+- `.\devtools\build-session.ps1 -Session c3844setupfields -Target all -BuildTimeoutSeconds 240` PASS: client and updater linked.
+
+### Next
+
+- Continue `B-385`: compile runtime setup from the public setup tables and cut over mission/level graph behavior without raw setup dumps, `.bin` payloads, or fake FileProvider handles.
+
+---
+
+## Session (`main-checkout-2026-05-28-catalog-ref-table-guard`) - 2026-05-28 - Public TSV asset refs now require real catalog IDs
+
+Continued `c3844-s1` after answering Mike's weapon-source run question. The run he described did not prove extracted weapon runtime use in that build because the log showed source-only weapon rows falling back before the current fix; the fixed tree now has `weapon_match_source_gate_smoke` coverage for `base:dy357` and the DY-357 fire-mode label fix.
+
+### Implemented
+
+- Tightened `tools/asset_archive_conformance.py` so public `.tsv`/`.csv` asset-reference columns are checked, not only JSON and INI-style key/value text.
+- `*_catalog_id`, `*_asset_ref`, `*_asset_id`, and known asset-ref columns now reject raw numbers, legacy symbols, invalid catalog strings, and catalog-looking names that are not actually declared by the root/nested archive closure.
+- Updated c3842 static coverage after the stricter guard exposed two stale string pins (`decoded waypoint graph source` and the FileProvider source helper).
+
+### Verification
+
+- `python tools/asset_archive_conformance.py --root .claude/smoke-verify-install/data/ntsc-final` PASS with 7,143 root archives and 8,143 checked archives across all families.
+- `python tools/asset_native_source_guard.py` PASS.
+- `.\devtools\run-pd-tests.ps1 -Session c3844refs -Selector "[modding][pdxxx][c3842][static]" -BuildTimeoutSeconds 180` PASS with 152 assertions / 7 cases.
+- `.\devtools\run-pd-tests.ps1 -Session c3844refs -Selector "[modding][pdxxx][c3844][scenario][source_gate][static]" -BuildTimeoutSeconds 180` PASS with 64 assertions / 1 case.
+
+### Next
+
+- Continue open `B-385`: strict catalog-reference validation is now covering public setup tables, but full Scenario closure still requires complete per-type setup source/graph tables and mission/level graph runtime behavior parity. No raw setup dumps, `.bin` cache payloads, or fake FileProvider handles.
+
+---
+
+## Session (`main-checkout-2026-05-28-scenario-scene-tiles-source`) - 2026-05-28 - Scenario scene source now feeds tile cache
+
+Continued `c3844-s1` under open `B-385` after rechecking Mike's weapon-source playtest. The build log from Mike's run did not count as successful extracted-weapon runtime use: source-only rejected `base:dy357magnum` and related weapon rows as missing public FileProvider source. The fixed tree now passes the strict DY-357 smoke with `base:dy357` loaded from `.pdweapon` and the corrected DY-357 function label IDs.
+
+### Implemented
+
+- Added `_PD_ROOM` vertex metadata to generated `.pdscenario` `scene.glb` output so room identity lives in the DCC-openable scene source.
+- Preserved `_PD_ROOM` through the GLB compiler into `struct meshtri.roomnum`.
+- Added `scenarioSourceLoadTilesForStage()` and changed `tilesReset()` to compile a stage tile cache from the active Scenario scene/collision colmesh before legacy tile fallback.
+- Bumped the `.pdscenario` scene export/cache marker to `bg_visual_scene_glb_v2` / `pdscenario_scene_glb_clean_public_v6` so extracted archives regenerate with room metadata.
+
+### Verification
+
+- User-run log review: `Build/logs/game client/pd-client.log` showed the old run failed source-only weapon loading for `base:dy357magnum`; it was not using the extracted `.pdweapon` chain.
+- `.\devtools\build-session.ps1 -Session weaponcheck -Target all -BuildTimeoutSeconds 300` PASS.
+- `.\tools\smoke-verify\run.ps1 -Test weapon_match_source_gate_smoke -SourceBinary .\.claude\session-builds\weaponcheck\PerfectDark.exe -Timeout 180` PASS; log proved `base:dy357` loaded once, spawned as weapon 8, labels were `primary_name=19541` and `secondary_name=19550`, and there was no `ASSET.SOURCE_ONLY` fallback or `Falcon 2` mismatch.
+- `python tools\asset_native_source_guard.py` PASS.
+- Scoped `git diff --check` PASS for touched source/test files.
+- `.\devtools\run-pd-tests.ps1 -Session scenariotiles -Selector "[modding][pdxxx][c3844][scenario][source_gate][static]" -BuildTimeoutSeconds 300` PASS with 64 assertions / 1 case.
+- `.\devtools\build-session.ps1 -Session scenariotiles -Target all -BuildTimeoutSeconds 300` PASS.
+- `.\tools\smoke-verify\run.ps1 -Test scenario_pads_source_gate_smoke -SourceBinary .\.claude\session-builds\scenariotiles\PerfectDark.exe -Timeout 180` PASS with 19/19 assertions; log proved Chicago compiled 107 rooms / 6,661 tiles from `base_scenario_chicago.pdscenario::scene.glb`, used that scene-derived tile cache, then used the same scene source for world mesh and public TSVs for pads/navigation.
+- `python tools\asset_archive_conformance.py --root .claude\smoke-verify-install\data\ntsc-final --require-all-families` PASS with 7,143 root archives and 8,143 checked archives across all families.
+
+### Next
+
+- Continue open `B-385`: complete `.pdscenario` setup object/source tables and mission/level graph behavior runtime parity. The old tile-handle path is no longer the primary runtime path when room-tagged public scene source is available, but setup parity is still not complete and must not be closed with raw setup dumps or fake source handles.
+
+---
+
+## Session (`main-checkout-2026-05-28-weapon-match-source-pad-fix`) - 2026-05-28 - DY-357 archive source match smoke fixed
+
+Continued `c3844-s1` after Mike's weapon-source playtest. The original run did not count as clean archive-source runtime use: the log showed 86 `.pdweapon` archives written, then source-only weapon rows rejected and raw extracted weapon files loaded later. The DY-357 `Falcon 2` fire-mode text was a separate language-source defect, already fixed under `B-379`.
+
+### Implemented
+
+- Removed the temporary pad-header tracker used during the crash hunt.
+- Fixed `B-386`: bounded stage AI-list conversion, sorting, and `g_NumLvAilists` counting by the loaded setup blob size. The previous unbounded stage AI-list sort could swap past the MP setup AI-list table and overwrite the source-compiled pad buffer allocated next in `MEMPOOL_STAGE`.
+- Kept source-pad promotion hardened by loaded padfile size for waypoint, waygroup, and cover tables.
+- Hardened the SP-in-MP transport overlay under `B-385`: if the auxiliary SP setup handle is not public FileProvider source, it logs and skips the overlay rather than loading raw setup data. This does not close setup parity; it preserves the source contract until complete setup tables/graphs exist.
+- Added static pins for the empty `mods-enabled.json` fixture in the DY-357 match smoke and for the SP overlay source guard.
+
+### Verification
+
+- `python tools\asset_native_source_guard.py` PASS.
+- Temporary tracker grep PASS: no `setupTrackPadFileHeader`, `setupCheckTrackedPadFileHeader`, `SETUP.PADS.TRACK`, or pad-header mutation marker remains.
+- `.\devtools\run-pd-tests.ps1 -Session weaponrun -Selector "[modding][pdxxx][c3844][weapon][static],[modding][pdxxx][c3844][lang],[setup][combat-sim][static]" -BuildTimeoutSeconds 300` PASS with 118 assertions / 3 cases.
+- `.\devtools\build-session.ps1 -Session weaponrun -Target all -BuildTimeoutSeconds 300` PASS.
+- `.\tools\smoke-verify\run.ps1 -Test weapon_archive_source_gate_smoke -SourceBinary .\.claude\session-builds\weaponrun\PerfectDark.exe -Timeout 180` PASS with 14/14 assertions.
+- `.\tools\smoke-verify\run.ps1 -Test weapon_match_source_gate_smoke -SourceBinary .\.claude\session-builds\weaponrun\PerfectDark.exe -Timeout 180` PASS with 31/31 assertions, `base:dy357` loaded/spawned from extracted `.pdweapon` FileProvider source, corrected DY-357 function label ids, and the SP overlay refusing raw setup source.
+- `.\tools\smoke-verify\run.ps1 -Test scenario_pads_source_gate_smoke -SourceBinary .\.claude\session-builds\weaponrun\PerfectDark.exe -Timeout 180` PASS with 19/19 assertions.
+- Removed the isolated `weaponrun` session build directory after verification.
+
+### Next
+
+- Continue open `B-385`: complete `.pdscenario` setup source tables/graphs plus tile/room/portal runtime cache generation from scene/collision metadata. Do not close Scenario source-only mode by raw setup dumps, `.bin` payloads, or fake FileProvider handles.
+
+---
+
+## Session (`main-checkout-2026-05-28-scenario-scene-worldmesh-runtime`) - 2026-05-28 - Scenario scene source feeds world mesh runtime
+
+Continued `c3844-s1` under open `B-385`. The prior handoff was correct that setup and tile/room/portal cannot be closed by swapping incomplete public files into legacy handles. This slice moves one real runtime path anyway: the DCC-openable `.pdscenario` scene source now feeds the stage world mesh when available.
+
+### Implemented
+
+- Exposed `scenarioSourceFindEntryForStage()` so runtime code can resolve the active Scenario archive by the current stage catalog row and MP/solo mode.
+- Made Scenario matching prefer the same catalog category as the active stage, so mod scenarios are not accidentally shadowed by base scenarios with the same `stagenum`.
+- Updated `lvReset()` world-mesh setup to activate the active `ASSET_SCENARIO` through `catalogLoadTypedAsset()` and use the resulting `catalogGetLoadedColmesh()` payload from public `scene.glb` or `collision_file` before falling back to legacy rendered-room mesh extraction.
+- Kept `B-385` open. Setup objects, tile handle replacement, room/portal cache generation, and mission/level graph behavior still require complete schemas and source-derived cache generation.
+
+### Verification
+
+- `python tools\asset_native_source_guard.py` PASS.
+- `python tools\asset_archive_conformance.py --root examples\modding\typed-pdxxx-basic --require-all-families` PASS.
+- `python -m json.tool tools\smoke-verify\tests\scenario_pads_source_gate_smoke.json` PASS.
+- `git diff --check` PASS for the scenario runtime, level loader, static test, and smoke definition.
+- `.\devtools\run-pd-tests.ps1 -Session c3844scene -Selector "[modding][pdxxx][c3844][scenario][source_gate][static]" -BuildTimeoutSeconds 240` PASS with 51 assertions / 1 case.
+- `.\devtools\build-session.ps1 -Session c3844scene -Target all -BuildTimeoutSeconds 300` PASS.
+- `.\tools\smoke-verify\run.ps1 -Test scenario_pads_source_gate_smoke -SourceBinary .\.claude\session-builds\c3844scene\PerfectDark.exe -Timeout 120` PASS with 19/19 assertions, including `base:scenario_chicago` scene colmesh from `base_scenario_chicago.pdscenario::scene.glb` and pads/navigation from public source.
+- `python tools\asset_archive_conformance.py --root .claude\smoke-verify-install\data\ntsc-final --require-all-families` PASS with 7,143 root archives and 8,143 checked archives across all families.
+- Removed the isolated session build directory `c3844scene`.
+
+### Next
+
+- Continue `B-385`: expand `.pdscenario` setup source into complete per-type tables or graph-linked nodes, then add deterministic room/portal/tile runtime cache generation from scene/collision metadata. Do not use raw setup dumps, `.bin` cache payloads, or fake FileProvider handles.
+
+---
+
+## Session (`main-checkout-2026-05-28-scenario-navigation-source-runtime`) - 2026-05-28 - Scenario navigation tables load from public `.pdscenario` source
+
+Continued `c3844-s1` after the pads source-runtime slice. The first pads smoke passed, but the runtime padfile still lacked decoded waypoint, waygroup, and cover tables, so setup disabled waypoints when it tried to interpret the padfile header as waypoint data.
+
+### Implemented
+
+- Added required public `.pdscenario` navigation tables: `navigation/waypoints.tsv`, `navigation/waygroups.tsv`, and `navigation/covers.tsv`.
+- Extended scenario extraction to decode those tables from the original pads payload into authorable TSV source and to list them in `navigation.ini`, `scenario.ini`, `level.graph.json`, and `_meta/manifest.json`.
+- Extended `scenario_source_runtime` so stage load parses the navigation TSVs from archive-member FileProvider paths and builds the runtime waypoint, waygroup, and cover tables beside `pads.tsv`.
+- Updated strict conformance, the native-source guard, examples, clean-format docs, and static tests so the navigation files are part of the definitive `.pdscenario` schema.
+- Recorded `B-384` as fixed. Setup objects, tiles/room-portal source runtime, and mission/level graph runtime behavior remain active under `c3844-s1`.
+
+### Verification
+
+- `python tools\asset_native_source_guard.py` PASS.
+- `python tools\asset_archive_conformance.py --root examples\modding\typed-pdxxx-basic --require-all-families` PASS.
+- `python -m py_compile tools\asset_archive_conformance.py tools\asset_native_source_guard.py tools\build_typed_pdxxx_examples.py` PASS.
+- `git diff --check` PASS for the scenario runtime, extractor, validators, examples, smoke, tests, and docs.
+- `.\devtools\run-pd-tests.ps1 -Session c3844nav -Selector "[modding][pdxxx][c3844][scenario][source_gate][static]" -BuildTimeoutSeconds 240` PASS with 39 assertions / 1 case.
+- `.\devtools\build-session.ps1 -Session c3844nav -Target all -BuildTimeoutSeconds 300` PASS.
+- `.\tools\smoke-verify\run.ps1 -Test scenario_pads_source_gate_smoke -SourceBinary .\.claude\session-builds\c3844nav\PerfectDark.exe -Timeout 120` PASS with 16/16 assertions. Chicago compiled 294 pads, 153 waypoints, 21 waygroups, and 88 covers from `base_scenario_chicago.pdscenario` with no invalid-waypoint warning.
+- `python tools\asset_archive_conformance.py --root .claude\smoke-verify-install\data\ntsc-final --require-all-families` PASS with 7,143 root archives and 8,143 checked archives across all families.
+- Removed the isolated session build directory `c3844nav`.
+
+### Next
+
+- Continue `c3844-s1` with `B-385`: Scenario setup objects and tile/room/portal source runtime need a real schema/cache cutover, not a handle swap. Current `objects.tsv` cannot rebuild every `stagesetup` command, and `scene.glb` does not yet carry enough room/portal tags for a deterministic tile/room/portal cache. The weapon archive path and DY-357 fire-mode label issue are already fixed and smoke-verified.
+
+---
+
+## Session (`main-checkout-2026-05-28-scenario-pads-source-runtime`) - 2026-05-28 - Scenario pads load from public `.pdscenario` source
+
+Continued `c3844-s1` after the raw FileProvider cache rejection. The next concrete fallback was Scenario pads: source-only mode would fatal-gate the legacy handle, but normal stage load still had no public-source adapter for `pads.tsv`.
+
+### Implemented
+
+- Added `scenario_source_runtime` to compile public `.pdscenario` `pads.tsv` into the existing runtime padfile layout.
+- Extended the Scenario walker to bind public setup members as archive-member FileProvider paths: `pads_file`, `spawns_file`, `volumes_file`, `objects_file`, `objectives_file`, and `navigation_file`.
+- Changed `setupLoadFiles()` so stage load tries `scenarioSourceLoadPadsForStage()` before falling back to the legacy pad handle.
+- Recorded `B-383` as fixed. This converts pads only; setup/tiles, waypoint/group/cover/navigation runtime conversion, and mission/level graph runtime cutover remain active under `c3844-s1`.
+- Re-ran the weapon match smoke with the same binary, but the current match-start harness did not complete and is not counted as verification. The prior DY-357 proof remains the valid weapon-source verification.
+
+### Verification
+
+- `python tools\asset_native_source_guard.py` PASS.
+- `git diff --check` PASS for the scenario source-runtime files, setup hook, focused test, and new smoke definition.
+- `.\devtools\run-pd-tests.ps1 -Session c3844pads -Selector "[modding][pdxxx][c3844][scenario][source_gate][static]" -BuildTimeoutSeconds 180` PASS with 36 assertions / 1 case.
+- `.\devtools\build-session.ps1 -Session c3844pads -Target all -BuildTimeoutSeconds 240` PASS.
+- `.\tools\smoke-verify\run.ps1 -Test archive_walker_source_gate_smoke -SourceBinary .\.claude\session-builds\c3844pads\PerfectDark.exe -Timeout 180` PASS with 19/19 assertions.
+- `.\tools\smoke-verify\run.ps1 -Test scenario_pads_source_gate_smoke -SourceBinary .\.claude\session-builds\c3844pads\PerfectDark.exe -Timeout 90` PASS with 15/15 assertions and Chicago pads compiled from `base_scenario_chicago.pdscenario::pads.tsv`.
+
+### Next
+
+- Continue `c3844-s1`: convert Scenario setup/tiles and waypoint/group/cover/navigation data to public `.pdscenario` sources, then wire mission/level graph runtime behavior so the source graph is the game-facing source rather than a documentation artifact.
+
+---
+
+## Session (`main-checkout-2026-05-28-source-gate-raw-file-reject`) - 2026-05-28 - Source gate rejects raw extracted ROM cache paths
+
+Continued `c3844-s1` after confirming Mike's weapon-source run was not a clean success at the time, and that the current tree now fixes the `.pdweapon` path plus DY-357 label issue.
+
+### Implemented
+
+- Confirmed from `Build/logs/game client/pd-client.log` that Mike's run wrote 86 `.pdweapon` archives but still hit `ASSET.SOURCE_ONLY` failures for base weapon IDs; later `weapon_match_source_gate_smoke` now passes with `base:dy357` loaded from `.pdweapon` and correct function label ids.
+- Fixed `B-382`: source-only mode no longer treats raw FileProvider paths as clean public source if they point at `data/<romid>/files`, `data/<romid>/segments`, or `.bin` payloads.
+- Kept `c3844-s1` active. Scenario setup/pads/tiles are still only fatal-gated; they still need conversion to public `.pdscenario` sources such as `pads.tsv`, `objects.tsv`, and `level.graph.json`.
+
+### Verification
+
+- `python tools\asset_native_source_guard.py` PASS.
+- `.\devtools\run-pd-tests.ps1 -Session c3844rawgate -Selector "[modding][pdxxx][c3844][scenario][source_gate][static]" -BuildTimeoutSeconds 180` PASS with 24 assertions / 1 case.
+- Removed session build `c3844rawgate`.
+
+### Next
+
+- Continue `c3844-s1`: build the runtime conversion path for Scenario setup/pads/tile data from clean `.pdscenario` public source rather than raw ROM-derived handles or raw extracted `files/*.bin` cache.
+
+---
+
+## Session (`main-checkout-2026-05-28-scenario-source-gate`) - 2026-05-28 - Scenario stage fallback guard
+
+Continued `c3844-s1` after the weapon source-gate fixes. The next concrete runtime fallback boundary was Scenario stage setup/pads/tiles: stage catalog handles can still be RomProvider-backed, and briefing setup was still loaded directly by ROM filenum.
+
+### Implemented
+
+- Added handle-level source checks to `asset_source_debug`, including a fatal `ASSET.SOURCE_ONLY` helper for selected-family handles that do not come from FileProvider.
+- Changed `setupLoadBriefing()` to load through the catalog stage `setup_handle` instead of direct `assetLoadRomToAddr(setupfilenum, ...)`.
+- Gated SP setup, MP setup, pads, and tiles when `ASSET_SCENARIO` is selected in the debug source-only gate.
+- Added static c3844 coverage so the Scenario gate cannot regress silently.
+- Recorded `B-381` as fixed. This is source-gate hardening, not the final setup/pads/tiles public-source conversion; that remains active under `c3844-s1`.
+
+### Verification
+
+- `git diff --check -- port\include\asset_source_debug.h port\src\asset_source_debug.c src\game\setup.c src\game\tilesreset.c tests\test_asset_native_source_contract.cpp` PASS.
+- `python tools\asset_native_source_guard.py` PASS.
+- `.\devtools\run-pd-tests.ps1 -Session scenario-source-gate -Selector "[modding][pdxxx][c3844]" -BuildTimeoutSeconds 300` PASS with 289 assertions / 5 cases.
+- `.\devtools\build-session.ps1 -Session scenario-source-gate -Target all -BuildTimeoutSeconds 300` PASS.
+
+### Next
+
+- Continue `c3844-s1`: finish the full fallback inventory and convert Scenario setup/pads/tiles to public authorable source instead of only fatal-gating the legacy handles.
+
+---
+
+## Session (`main-checkout-2026-05-28-weapon-archive-runtime-smoke`) - 2026-05-28 - Weapon archive runtime smoke and DY-357 label fix
+
+Mike asked whether the build/run with extracted weapon archives actually worked and reported that DY-357 showed `Falcon 2` as its fire-mode text.
+
+### Implemented
+
+- Confirmed the earlier user run was not a clean success yet: the `.pdweapon` source path had been fixed, but the DY-357 HUD label was a separate language-source defect.
+- Fixed `B-379`: restored missing `L_GUN_050` through `L_GUN_057` entries in all six source `gun.json` language sets and added formula-based `L_GUN_*` reverse lookup in `loader_enum_reverse.c` so weapon function label IDs resolve to the intended strings.
+- Fixed `B-380`: generated public-source body modeldefs now use the character model root when needed, and player/body loading accepts generated catalog/FileProvider modeldefs without falling back to `BODY_DARK_COMBAT`.
+- Hardened the runtime source path exposed by the smoke: FileProvider path interning and universal walker registration now serialize shared path/provider state, and final smoke logging records DY-357 weapon/function IDs at spawn.
+- Removed temporary crash-hunt breadcrumbs from the final code path so the smoke log only retains durable proof lines.
+
+### Verification
+
+- `python tools\asset_native_source_guard.py` PASS.
+- Focused tests PASS: `[modding][pdxxx][c3844][weapon]`, `[modding][pdxxx][c3844][source][static]`, `[modding][pdxxx][c3844][lang]`, and `[modding][pdxxx][base][static][c3812]` with 627 assertions / 15 cases.
+- Isolated `weapon-match-source` all-target build PASS.
+- Final strict `weapon_match_source_gate_smoke` PASS with 31/31 assertions, `base:dy357` loaded/spawned through the extracted `.pdweapon`/FileProvider source path, DY-357 function ids `primary_name=19541` and `secondary_name=19550`, and no source-only fallback/body fallback/temporary diagnostic markers in the final smoke log.
+
+### Next
+
+- Continue `c3844-s1` beyond the weapon/body smoke findings: finish the runtime ROM/RomProvider fallback inventory, then classify each remaining site as bootstrap-only or forbidden runtime fallback.
+
+---
+
 ## Session (`main-checkout-2026-05-27-runtime-rom-fallback-failure-contract`) - 2026-05-27 - Runtime ROM fallback failure contract
 
 Mike clarified that any need to load from ROM as a fallback after extraction is a failure of the asset system/ecosystem, not acceptable resilience.
@@ -29,6 +346,13 @@ Mike clarified that any need to load from ROM as a fallback after extraction is 
 - Verification: asset native-source guard PASS; focused `[modding][pdxxx][c3844][weapon][static]` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS; isolated `b374weapon` all-target build PASS; patched `boot_smoke` PASS with direct archive audit proving new underscored archives exist and old no-underscore archives are absent; patched `mission_intro_flow` PASS with `AssetSourceOnlyType=5`, 86/86 weapon archives registered, and no source-only fallback or missing-asset warnings.
 - Follow-up catalog-name audit fixed `B-375`: strict archive conformance now validates catalog-looking references against actual declared/root/nested catalog IDs instead of accepting any syntactically valid `base:*` string, and weapon extraction normalizes high-bit SFX aliases through `g_AudioRussMappings` before writing graph params, `bindings/audio.tsv`, dependency paths, and `_meta/manifest.json` dependency IDs. Current `.pdweapon` archives are `embedded.v12`.
 - Verification: example strict conformance PASS; asset native-source guard PASS; focused `[modding][pdxxx][c3844][weapon][static]` PASS; broad `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 191 assertions / 9 cases; isolated `catrefs` all-target build PASS; patched `boot_smoke` PASS; strict conformance on fresh extracted output PASS with 7,143 root / 8,143 total archives; direct Falcon 2 Silencer audit confirmed behavior graph, audio binding, and manifest refs point at actual embedded `.pdsfx` catalog IDs.
+- Mike's next Weapon source-gate run showed the second failure mode: `.pdweapon` extraction and DY-357 loader-pool data were correct, but the weapon walker ignored each archive path and never bound a FileProvider primary source to the catalog row. That made source-only typed loads fail despite the archives existing. The reported DY-357 fire-mode text showing "Falcon 2" did not match the loader data (`Single Shot` / `Pistol Whip` for runtime weapon 8), so it should be retested after the source binding fix before treating it as a separate HUD bug.
+- Fixed `B-376`: `loader_walker_weapon.c` now binds walked `.pdweapon` archives with `catalogSetPrimaryFile`, preserves existing base weapon display/unlock metadata, separates runtime `WEAPON_*` ids from MPWEAPON slots, and base MP slugs now align with generated canonical IDs (`base:nothing`, `base:magsec`, `base:dy357`, `base:hammer_slot83`, `base:hammer_slot84`).
+- Verification: asset native-source guard PASS; focused `[modding][pdxxx][c3844][weapon][static]` PASS (55 assertions / 1 case); isolated `weapon-archive-source` all-target build PASS; `weapon_archive_source_gate_smoke` PASS with `Debug.AssetSourceOnlyType=5`, 86 weapon archives scanned, `base:dy357` activated as weapon metadata payload, forced typed load result=OK, and zero `ASSET.SOURCE_ONLY` matches.
+- Fixed `B-377`: public metadata-family descriptors/templates no longer expose numeric selector fields (`mode_id`, `hud_id`, `element_type`, `effect_type`, `prop_type`, public `stagenum`). Extraction writes named keys for game modes, bot profiles, HUD, effects, props, arenas, and scenarios; scanner and net-distribution registration parse the named keys while retaining legacy numeric fallback only for old input.
+- Verification: `python tools\asset_native_source_guard.py` PASS; strict example conformance PASS across all 27 families; focused `[modding][pdxxx][c3843],[modding][pdxxx][c3842],[modding][pdxxx][runtime][c3838]` PASS (530 assertions / 17 cases); isolated `asset-named-keys` all-target build PASS; `weapon_archive_source_gate_smoke` rerun against that build PASS with `base:dy357` forced typed load result=OK.
+- Fixed `B-378`: the remaining universal archive walkers now bind public archive members into FileProvider primary sources. Scenario, arena, mesh, font, lang, UI, SFX, voice, song, animation, body, and head rows use `archive.pdxxx::member` source paths, and scenario activation now compiles authored collision from `scene.glb` when no optional collision override exists. `modAssetCompilerBuildColmesh()` skips non-finite or degenerate GLB/OBJ triangles with diagnostics instead of breaking the entire source chain.
+- Verification: `python tools\asset_native_source_guard.py` PASS; strict example conformance across all 27 families PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842],[modding][pdxxx][runtime][c3838]` PASS (616 assertions / 19 cases); isolated `asset-walker-source` all-target build PASS; `archive_walker_source_gate_smoke` PASS with `base:scenario_airbase` activated from `scene.glb` and `8989` collision triangles; `weapon_archive_source_gate_smoke` PASS with `base:dy357` typed load result=OK and zero `ASSET.SOURCE_ONLY` matches.
 
 ---
 
@@ -13048,3 +13372,78 @@ Mike's release failure: `error: cannot rebase: You have unstaged changes. error:
 Verified: PowerShell parser passes on all five edited scripts (release.ps1, dev-window-v2.ps1, _dev-window.ps1, version-util.ps1, keygen.ps1). The pre-existing parser warnings on release.ps1 lines 623/647 cleared themselves -- my added pre-rebase block shifted the line numbers past whatever the parser was confused about (likely the `$()` inline interpolation in the SkipPush print).
 
 Files: `devtools/release.ps1`, `devtools/keygen.ps1`, `devtools/_dev-window.ps1`.
+
+## 2026-05-28 - c3844 weapon source-gate and archive closure verification
+
+- Answered Mike's weapon source-gate run: the current verified build does load/spawn `base:dy357` from the extracted `.pdweapon`/FileProvider path. The earlier DY-357 `Falcon 2` fire-mode text was the B-379 language enum/reverse-lookup issue, not bad weapon behavior data; the current smoke has no `Falcon 2` mismatch.
+- Completed the current B-385 setup-source slice: SP-in-MP setup overlay loading now routes through `scenarioSourceLoadSetupForStage()` and compiles public `.pdscenario` `setup.fields.tsv` source instead of trying a raw setup overlay load. The source-gated weapon match smoke compiled 201 setup records and no longer logs `public setup overlay source unavailable`.
+- Fixed B-387: strict archive conformance found scenario `objects.tsv` model refs without corresponding `.pdmesh` archives. `.pdmesh` extraction now emits all `NUM_MODELS` catalog model archives via `catalogModelIdByModelnum()`, producing 728 `.pdmesh` archives in the smoke install.
+- Verification: focused `[modding][pdxxx][c3844][scenario][source_gate][static]` PASS (94 assertions / 1 case), isolated `c3844setupsrc` all-target build PASS, `weapon_match_source_gate_smoke` PASS (31/31), strict generated-output conformance PASS across 7,568 root / 8,569 checked archives with `--require-all-families`, and `python tools\asset_native_source_guard.py` PASS.
+- Remaining c3844 work: mission/level graph behavior runtime parity is still open; ROM/RomProvider fallback remains an asset-chain failure, and no raw setup dumps, `.bin` public payloads, fake source handles, or unresolved catalog-looking references are acceptable.
+
+## 2026-05-28 - c3844 weapon source-gate final validation and pdmesh skeleton guard
+
+- Answer to Mike: the earlier weapon-archive-enabled run was not a clean pass at that time, but the final verified build now does load DY-357 and its nested model assets from extracted public archive sources. The DY-357 `Falcon 2` fire-mode text was fixed separately as B-379 and was a language enum/reverse-lookup problem, not a weapon graph behavior problem.
+- Fixed B-388: all-model `.pdmesh` extraction no longer treats small legacy skeleton tokens such as `SKEL_HEAD` as dereferenceable pointers, nested generated modeldef metadata lookup follows the innermost archive-member path such as `.pdhead::mesh.pdmesh`, and temporary 0x019c trace logs are removed.
+- Verification: focused `[modding][pdxxx][base][static][c3812]` PASS (383 assertions / 12 cases), focused `[modding][pdxxx][c3844][source][static]` PASS (193 assertions / 1 case), focused `[modding][pdxxx][c3844][weapon][static]` PASS (80 assertions / 1 case), `python tools\asset_native_source_guard.py` PASS, isolated `wpnskel` all-target build PASS, and final `weapon_match_source_gate_smoke` PASS (35/35).
+- Runtime source proof: logs show 86/86 weapon archives registered, `base:dy357` selected for the match, `base:model_dy357_hi` loaded from `data/ntsc-final/meshes/base_model_dy357_hi.pdmesh::model.obj`, and `base:model_cartridge_rifle` loaded from `data/ntsc-final/meshes/base_model_cartridge_rifle.pdmesh::model.obj`. The final log contains no raw `Gdy357Z.bin`/`GcartridgeZ.bin` fallback, no `ASSET.SOURCE_ONLY`, no `Falcon 2` mismatch, and no `.pdhead::mesh.ini` metadata miss.
+- Remaining c3844 work: mission/level graph behavior runtime parity remains open. The ROM fallback rule is unchanged: fallback after extraction is a system failure and must not be treated as acceptable resilience.
+
+## 2026-05-28 - c3844 model source cutover and DY-357 run answer
+
+- Answered Mike's latest run check directly: the build he ran was not a clean archive-source pass. `Build/logs/game client/pd-client.log` still showed old weapon function labels for `weapon_id=8` (`19533`/`19542`) and `ASSET.SOURCE_ONLY` failures for weapon IDs such as `base:dy357magnum`, so the observed DY-357 mode text resolving to `Falcon 2` came from stale/misaligned weapon language data rather than the verified current archive path.
+- Tightened the current source path: `modeldefLoad*` now resolves model source through catalog/FileProvider handles and refuses ROM fallback, and queued held-gun model loading resolves catalog model source handles instead of loading weapon/cartridge modeldefs from the legacy path. The direct match smoke starts as soon as the CI player prop/chr exists, avoiding unrelated CI first-render source-body setup before the Chicago weapon-source proof can run.
+- Verification: isolated `c3844model` all-target build PASS; focused `[smoke][combat-sim][static][c3844]` PASS (8 assertions / 1 case); focused `[modding][pdxxx][c3844]` PASS (527 assertions / 5 cases); focused `[catalog][provider][static]` PASS (10,879 assertions / 27 cases); `python tools\asset_native_source_guard.py` PASS; `weapon_match_source_gate_smoke` PASS (35/35) from `.claude\session-builds\c3844model\PerfectDark.exe`; strict generated-output conformance PASS across 7,572 root / 8,573 checked archives with all families required.
+- Runtime proof: current smoke selected `base:dy357`, loaded `MANIFEST-SP: load 'base:dy357'`, activated `base:dy357` metadata, stored DY-357 function labels `primary_name=19541` and `secondary_name=19550`, spawned player 0 with weapon 8 `(DY357)`, loaded `base:model_dy357_hi` and `base:model_cartridge_rifle` from `.pdmesh::model.obj`, and reached `SMOKE: result=scripted_exit` with no `ASSET.SOURCE_ONLY`, `base:dy357magnum`, raw weapon/cartridge bin fallback, `ACCESS_VIOLATION`, or `Falcon 2` label mismatch in the final assertion set.
+- Remaining c3844 work stays active: weapon archive runtime use is verified, but full mission/level graph behavior parity still needs module-by-module cutover for trigger/global/phase/setup/AI behavior without raw setup dumps, `.bin` public payloads, fake source handles, or ROM fallback.
+
+## 2026-05-28 - c3844 setup behavior-link graph guard
+
+- Added the next B-385 graph-parity slice: source-compiled setup behavior links now record through the active `.pdscenario::level.graph.json` and `setup.fields.tsv` source chain before live setup behavior registration.
+- Covered linked guns, lift-door links, safe-item/padlock links, conditional scenery, and blocked paths. If a live setup behavior link cannot bind to public graph/setup source while source-only/debug validation is active, the runtime emits `ASSET.SOURCE_ONLY` and refuses the legacy-only behavior.
+- Verification: native-source guard PASS; scoped diff check PASS; focused `[modding][pdxxx][c3844][scenario][source_gate][static]` PASS (211 assertions / 1 case); isolated `c3844graph` all-target build PASS; `scenario_pads_source_gate_smoke` PASS (33/33) with Chicago `linked_guns` setup-link proof; `weapon_match_source_gate_smoke` PASS (35/35) with DY-357 and model source loading still clean; strict generated-output conformance PASS across 7,572 root / 8,573 checked archives; focused `[modding][pdxxx][c3844]` PASS (541 assertions / 5 cases).
+- Remaining c3844 work: full mission/level graph behavior parity still needs native graph execution for trigger volumes/global settings, mission phase flow, and AI action modules. The no-ROM-fallback, no raw setup dump, no public `.bin`, no fake source handle contract is unchanged.
+
+## 2026-05-28 - c3844 level-volume graph source runtime
+
+- Added the next B-385 graph-source slice: `level.graph.json` now binds the public `volumes` table ref and `scenario_source_runtime` parses `.pdscenario::volumes.tsv` into graph-owned trigger-volume source rows during stage activation.
+- Runtime proof: Chicago smoke loaded `base_scenario_chicago.pdscenario::volumes.tsv` through the archive-member FileProvider path and logged 294 volume rows with `backend=graph.trigger.volumes+volumes.tsv`.
+- Verification: scoped diff check PASS; smoke JSON parse PASS; focused `[modding][pdxxx][c3844][scenario][source_gate][static]` PASS (215 assertions / 1 case); isolated `c3844vol` all-target build PASS; `python tools\asset_native_source_guard.py` PASS; `scenario_pads_source_gate_smoke` PASS (35/35); focused `[modding][pdxxx][c3844]` PASS (545 assertions / 5 cases); strict generated-output conformance PASS across 7,572 root / 8,573 checked archives; `weapon_match_source_gate_smoke` PASS (35/35).
+- Remaining c3844 work: graph-owned volume rows prove the trigger-volume source table is now runtime-owned, but actual trigger evaluation, global settings, mission phase flow, and AI action behavior still need full graph execution parity.
+
+## 2026-05-28 - c3844 trigger-volume objective callsite cutover
+
+- Added the next B-385 trigger slice: Enter Room and Throw In Room objective criteria now ask the active level graph's `volumes.tsv` rows to resolve pad-room matches, and use the legacy `chrGetPadRoom`/room-array check only when no level graph is active.
+- Source-only behavior is loud: if a level graph is active but the requested pad is missing from public `volumes.tsv`, Scenario source-only mode fails instead of silently using legacy-only trigger data.
+- Verification: scoped diff check PASS; smoke JSON parse PASS; focused `[modding][pdxxx][c3844][scenario][source_gate][static]` PASS (222 assertions / 1 case); isolated `c3844trig` all-target build PASS; `python tools\asset_native_source_guard.py` PASS; `scenario_pads_source_gate_smoke` PASS (35/35); focused `[modding][pdxxx][c3844]` PASS (552 assertions / 5 cases); `weapon_match_source_gate_smoke` PASS (35/35); strict generated-output conformance PASS across 7,572 root / 8,573 checked archives. Chicago does not naturally exercise Enter Room / Throw In Room criteria, so this slice is build/static/callsite verified while the broader mission/level behavior parity lane remains open.
+- Remaining c3844 work: complete native graph execution for broader trigger/global/phase behavior and AI action modules. The no-ROM-fallback, no raw setup dump, no public `.bin`, no fake source handle contract is unchanged.
+
+## 2026-05-28 - c3844 trigger-volume graph nodes
+
+- Added explicit `scenario.trigger.volume.source` nodes and `scenario.load -> trigger.volume.*` links to generated `.pdscenario::level.graph.json`, one node per public `volumes.tsv` row.
+- Stage graph activation now counts those trigger-volume graph nodes and rejects a graph whose node count diverges from the public `volumes.tsv` rows, so trigger-volume source cannot drift between graph and table.
+- Verification: smoke JSON parse PASS; scoped diff check PASS; focused `[modding][pdxxx][c3844][scenario][source_gate][static]` PASS (228 assertions / 1 case); isolated `c3844trig2` all-target build PASS; `python tools\asset_native_source_guard.py` PASS; `scenario_pads_source_gate_smoke` PASS (37/37) with `backend=graph.trigger.volumes+level.graph.nodes+volumes.tsv`; focused `[modding][pdxxx][c3844]` PASS (558 assertions / 5 cases); `weapon_match_source_gate_smoke` PASS (35/35); strict generated-output conformance PASS across 7,572 root / 8,573 checked archives.
+- Remaining c3844 work: full mission/level graph behavior parity is still open for broader trigger/global/phase behavior and AI action modules. The no-ROM-fallback, no raw setup dump, no public `.bin`, no fake source handle contract is unchanged.
+
+## 2026-05-28 - c3844 mission phase graph lifecycle
+
+- Added the next B-385 graph-runtime slice: generated `.pdmission::mission.graph.json` now emits required `mission.phase.source` nodes for `load`, `active`, `complete`, `failed`, and `end`, and strict conformance rejects mission archives that lack those phase nodes.
+- Runtime now records mission phase transitions through the active graph source: activation records `load`, first `lvTick()` records `active`, objective checks record `complete`/`failed`, and `mainEndStage()` records `end`.
+- Verification: smoke JSON parse PASS; scoped diff check PASS; focused `[modding][pdxxx][c3844][scenario][source_gate][static]` PASS (245 assertions / 1 case); isolated `c3844phase` all-target build PASS; `scenario_pads_source_gate_smoke` PASS (41/41) with `backend=graph.mission.phase`; focused `[modding][pdxxx][c3844]` PASS (575 assertions / 5 cases); `weapon_match_source_gate_smoke` PASS (35/35); strict generated-output conformance PASS across 7,572 root / 8,573 checked archives; `python tools\asset_native_source_guard.py` PASS.
+- Remaining c3844 work: broader trigger/global behavior and AI action modules still need native graph execution before B-385 can close. The no-ROM-fallback, no raw setup dump, no public `.bin`, no fake source handle contract is unchanged.
+
+## 2026-05-28 - c3844 level-global settings graph source
+
+- Added the next B-385 graph-source slice: generated `.pdscenario::level.graph.json` now emits one required `scenario.global.settings.source` node linked from `scenario.load`, stale scenario archives are rejected when the node is absent, strict conformance enforces the node, and the example `.pdscenario` plus nested arena/mission dependencies carry the updated graph.
+- Runtime now validates and logs the global-settings source node from the active public `.pdscenario::level.graph.json` before accepting the level graph. This covers settings source ownership, not broad AI/trigger behavior replacement.
+- Verification: smoke JSON parse PASS; scoped diff check PASS; example strict conformance PASS; focused `[modding][pdxxx][c3844][scenario][source_gate][static]` PASS (251 assertions / 1 case); isolated `c3844global` all-target build PASS; `scenario_pads_source_gate_smoke` PASS (43/43) with `backend=graph.global.settings+level.graph.nodes`; focused `[modding][pdxxx][c3844]` PASS (581 assertions / 5 cases); `weapon_match_source_gate_smoke` PASS (35/35); strict generated-output conformance PASS across 7,572 root / 8,573 checked archives; `python tools\asset_native_source_guard.py` PASS.
+- Remaining c3844 work: broader trigger behavior, any remaining global/phase behavior replacement beyond the current source validation/recording slices, and AI action modules still need native graph execution before B-385 can close. The no-ROM-fallback, no raw setup dump, no public `.bin`, no fake source handle contract is unchanged.
+
+## 2026-05-28 - c3844 handoff pause at validated global-settings boundary
+
+- State saved for Saturday continuation. The active goal remains open: all asset types and behavior/runtime parity are not complete until the remaining mission/level graph behavior modules are source-native and verified.
+- Clean stopping point: `c3844global` is the validated boundary. The extractor cache stamp remains `pdscenario_scene_glb_clean_public_v9`, and no partial AI-list implementation is intentionally left in the tree. A brief probe after the pause request confirmed `port/src/romextract_pdarena.c` has no `game/chrai.h` include and no `pdscenario_scene_glb_clean_public_v10` cache stamp.
+- What is already source-active and verified: weapon archive runtime loading for `base:dy357`; DY-357 fire-mode text repair; public `.pdmesh` closure for all model refs; `.pdscenario` `scene.glb` world mesh and optional collision source path; room-tagged tile cache; pads, navigation, objects, setup fields, volumes, level graph refs, trigger-volume graph rows/nodes, setup behavior-link validation, mission objective graph rows, objective runtime state, mission flags, object state, mission phase lifecycle recording, and the required level-global settings graph node. Strict generated-output conformance and the native-source guard passed at this boundary.
+- Next implementation slice: AI-list and AI action behavior source. Source setup currently protects legacy AI-list sorting and uses public setup/object/pad data, but stage-owned AI command streams and AI action modules still need public source representation and runtime compilation. Preferred shape: add an authorable `.pdscenario` AI source such as `ai/ailists.tsv` plus graph nodes or a graph file, reference it from `level.graph.json` with `scenario.ai.lists.source`, compile it into the source-derived `struct stagesetup`, and make `g_StageSetup.ailists` / `ailistFindById` resolve from public source while preserving original Perfect Dark behavior as the parity oracle until each module is replaced.
+- Do not reopen completed slices unless a verification failure proves regression. Keep rejecting raw setup dumps, public `.bin` payloads, fake source handles, numeric asset references, and ROM/RomProvider runtime fallback.
+- Push safety: branch is `dev` and remote is `https://github.com/MikeHazeJr/perfect-dark-2.git`. The working tree also contains large generated smoke artifacts under `.claude/smoke-verify-install` and `.claude/smoke-verify-runs`; those should not be pushed accidentally. Stage only intended source, example, test, context, and Kanban files unless Mike explicitly decides generated smoke output belongs in the commit.

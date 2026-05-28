@@ -20,6 +20,17 @@ void setupLoadWaypoints(void)
 	s32 i;
 	s32 currentroom;
 
+	for (i = 0; i < g_Vars.roomcount; i++) {
+		g_Rooms[i].numwaypoints = 0;
+		g_Rooms[i].firstwaypoint = 0;
+	}
+
+	if (g_StageSetup.waypoints == NULL) {
+		g_Vars.waypointnums = NULL;
+		g_Vars.padrandomroutes = false;
+		return;
+	}
+
 	// Count the number of waypoints. The "waypoints" pointer is mostly used in
 	// this function to point to the head of the waypoints array, but is being
 	// reused here to iterate the waypoints one at a time.
@@ -30,6 +41,12 @@ void setupLoadWaypoints(void)
 	}
 
 	waypoints = g_StageSetup.waypoints;
+
+	if (numwaypoints <= 0) {
+		g_Vars.waypointnums = NULL;
+		g_Vars.padrandomroutes = false;
+		return;
+	}
 
 	// Allocate memory for the waypoint numbers array
 	g_Vars.waypointnums = mempAlloc(ALIGN16(numwaypoints * sizeof(s16)), MEMPOOL_STAGE);
@@ -67,13 +84,6 @@ void setupLoadWaypoints(void)
 	}
 
 	// Next, populate the properties in each room that are related to waypoints.
-	// Start by resetting them in all rooms, then iterate the waypoints in
-	// order and calculate them.
-	for (i = 0; i < g_Vars.roomcount; i++) {
-		g_Rooms[i].numwaypoints = 0;
-		g_Rooms[i].firstwaypoint = 0;
-	}
-
 	currentroom = -1;
 
 	for (i = 0; i < numwaypoints; i++) {
@@ -82,10 +92,13 @@ void setupLoadWaypoints(void)
 
 		if (pad.room != currentroom) {
 			currentroom = pad.room;
-			g_Rooms[currentroom].firstwaypoint = i;
+
+			if (currentroom >= 0 && currentroom < g_Vars.roomcount) {
+				g_Rooms[currentroom].firstwaypoint = i;
+			}
 		}
 
-		if ((pad.flags & PADFLAG_AIDROP) == 0 && currentroom != -1) {
+		if ((pad.flags & PADFLAG_AIDROP) == 0 && currentroom >= 0 && currentroom < g_Vars.roomcount) {
 			g_Rooms[currentroom].numwaypoints++;
 		}
 	}

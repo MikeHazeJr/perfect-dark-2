@@ -25,7 +25,10 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "assetcatalog.h"
+#include "assetcatalog_load.h"
 #include "assetload.h"
+#include "modasset_compiler.h"
 
 struct skeleton *g_Skeletons[] = {
 	&g_SkelChr,
@@ -211,8 +214,9 @@ void modelPromoteTypeToPointer(struct modeldef *modeldef)
 	s32 i;
 
 	if ((u32)modeldef->skel < 0x10000) {
-		for (i = 0; g_Skeletons[i] != NULL; i++) {
-			if ((s16)modeldef->skel == g_Skeletons[i]->skel) {
+		for (i = 0; i < ARRAYCOUNT(g_Skeletons); i++) {
+			if (g_Skeletons[i]
+					&& (s16)modeldef->skel == g_Skeletons[i]->skel) {
 				modeldef->skel = g_Skeletons[i];
 				return;
 			}
@@ -292,9 +296,129 @@ static struct modeldef *modeldefFinalizeLoaded(struct modeldef *modeldef, s32 so
 		true);
 }
 
+static const char *modeldefCatalogSourcePath(asset_data_handle_t handle)
+{
+	if (assetHandleIsNull(handle)) {
+		return NULL;
+	}
+
+	return fileProviderPath(handle);
+}
+
+static asset_data_handle_t modeldefCatalogModelSourceHandle(s32 source_filenum)
+{
+	if (source_filenum <= 0) {
+		asset_data_handle_t null_handle = ASSET_HANDLE_NULL_INIT;
+		return null_handle;
+	}
+
+	return catalogHandleByModelSourceFilenum(ASSET_NONE, source_filenum);
+}
+
+static struct modeldef *modeldefLoadExternalCatalogSource(asset_data_handle_t handle, s32 source_filenum)
+{
+	static const asset_type_e model_payload_types[] = {
+		ASSET_MODEL,
+		ASSET_BODY,
+		ASSET_HEAD,
+		ASSET_PROP,
+	};
+	const char *source_path = modeldefCatalogSourcePath(handle);
+	const char *model_id = NULL;
+	asset_type_e model_type = ASSET_NONE;
+	struct modeldef *modeldef;
+	s32 i;
+
+	if (!modAssetCompilerIsExternalSource(source_path)) {
+		return NULL;
+	}
+
+	for (i = 0; i < (s32)(sizeof(model_payload_types) / sizeof(model_payload_types[0])); i++) {
+		model_id = catalogIdBySourceHandle(model_payload_types[i], handle);
+		if (model_id) {
+			model_type = model_payload_types[i];
+			break;
+		}
+	}
+
+	if (model_id == NULL || model_type == ASSET_NONE) {
+		sysLogPrintf(LOG_WARNING,
+			"MODELDEF.SOURCE: external model source filenum=%d path=%s has no model-payload catalog id",
+			source_filenum,
+			source_path ? source_path : "(null)");
+		return NULL;
+	}
+
+	if (!catalogLoadTypedAsset(model_type, model_id)) {
+		sysLogPrintf(LOG_WARNING,
+			"MODELDEF.SOURCE: catalog model source load failed type=%d filenum=%d id=%s path=%s",
+			(s32)model_type,
+			source_filenum,
+			model_id,
+			source_path ? source_path : "(null)");
+		return NULL;
+	}
+
+	modeldef = catalogGetLoadedModeldef(model_id);
+
+	if (modeldef == NULL) {
+		sysLogPrintf(LOG_WARNING,
+			"MODELDEF.SOURCE: catalog model source produced NULL modeldef type=%d filenum=%d id=%s path=%s",
+			(s32)model_type,
+			source_filenum,
+			model_id,
+			source_path ? source_path : "(null)");
+		return NULL;
+	}
+
+	g_LoadType = LOADTYPE_NONE;
+	sysLogPrintf(LOG_NOTE,
+		"MODELDEF.SOURCE: loaded catalog model source type=%d filenum=%d id=%s path=%s",
+		(s32)model_type,
+		source_filenum,
+		model_id,
+		source_path ? source_path : "(null)");
+	return modeldef;
+}
+
+static asset_data_handle_t modeldefExternalCatalogSourceHandle(s32 source_filenum)
+{
+	asset_data_handle_t null_handle = ASSET_HANDLE_NULL_INIT;
+	asset_data_handle_t handle;
+
+	if (source_filenum <= 0) {
+		return null_handle;
+	}
+
+	handle = modeldefCatalogModelSourceHandle(source_filenum);
+	if (!assetHandleIsNull(handle)
+			&& modAssetCompilerIsExternalSource(modeldefCatalogSourcePath(handle))) {
+		return handle;
+	}
+
+	return null_handle;
+}
+
+static s32 modeldefRefuseRomSource(asset_data_handle_t handle, s32 source_filenum)
+{
+	char desc[128];
+
+	if (assetHandleIsNull(handle) || !(handle.provider == romProvider())) {
+		return 0;
+	}
+
+	g_LoadType = LOADTYPE_NONE;
+	sysFatalError("CATALOG_CRITICAL: modeldef fileid=%d still resolves to %s; "
+		"public .pdmesh source is required and ROM fallback is refused.",
+		source_filenum,
+		assetDescribe(handle, desc, sizeof(desc)));
+	return 1;
+}
+
 struct modeldef *modeldefLoadFromHandle(asset_data_handle_t handle, s32 source_filenum, u8 *dst, s32 size, struct texpool *arg3)
 {
 	struct modeldef *modeldef;
+	asset_data_handle_t external_handle;
 
 	g_LoadType = LOADTYPE_MODEL;
 
@@ -306,6 +430,27 @@ struct modeldef *modeldefLoadFromHandle(asset_data_handle_t handle, s32 source_f
 			source_filenum,
 			assetDescribe(handle, desc, sizeof(desc)));
 		return NULL;
+	}
+
+	external_handle = modeldefExternalCatalogSourceHandle(source_filenum);
+	if (!assetHandleIsNull(external_handle)) {
+		handle = external_handle;
+	}
+
+	if (modeldefRefuseRomSource(handle, source_filenum)) {
+		return NULL;
+	}
+
+	if (modAssetCompilerIsExternalSource(modeldefCatalogSourcePath(handle))) {
+		modeldef = modeldefLoadExternalCatalogSource(handle, source_filenum);
+
+		if (modeldef == NULL) {
+			g_LoadType = LOADTYPE_NONE;
+			sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: modeldef fileid=%d failed to load -- "
+				"external source not activated through catalog lifecycle", source_filenum);
+		}
+
+		return modeldef;
 	}
 
 	if (dst) {
@@ -346,24 +491,19 @@ struct modeldef *modeldefLoadFromHandle(asset_data_handle_t handle, s32 source_f
 
 struct modeldef *modeldefLoad(u16 fileid, u8 *dst, s32 size, struct texpool *arg3)
 {
-	struct modeldef *modeldef;
+	asset_data_handle_t handle;
 
 	g_LoadType = LOADTYPE_MODEL;
 
-	if (dst) {
-		modeldef = assetLoadRomToAddr(fileid, FILELOADMETHOD_EXTRAMEM, dst, size);
-	} else {
-		modeldef = assetLoadRomToNew((s32)fileid, FILELOADMETHOD_EXTRAMEM, LOADTYPE_MODEL);
-	}
-
-	if (modeldef == NULL) {
+	handle = modeldefCatalogModelSourceHandle((s32)fileid);
+	if (assetHandleIsNull(handle)) {
 		g_LoadType = LOADTYPE_NONE;
 		sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: modeldef fileid=%d failed to load -- "
-			"asset not in catalog or ROM data missing", fileid);
+			"no catalog model source handle; ROM fallback refused", fileid);
 		return NULL;
 	}
 
-	return modeldefFinalizeLoaded(modeldef, (s32)fileid, dst, arg3);
+	return modeldefLoadFromHandle(handle, (s32)fileid, dst, size, arg3);
 }
 
 struct modeldef *modeldefLoadToNew(u16 fileid)

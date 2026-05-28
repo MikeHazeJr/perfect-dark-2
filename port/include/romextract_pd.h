@@ -134,11 +134,11 @@ s32 romExtractAllPdcharacter(s32 force_rewrite);
  * The .pdarena (Section 2.4) carries arena_index / slug / category /
  * stagenum / requirefeature / name_langid / load_mode and a `scenario`
  * catalog ID reference. Playable .pdarena archives embed the readable
- * scenario dependency payload under scenario/ so the arena archive is
- * self-contained on disk. The standalone .pdscenario (Section 2.10) remains
- * the lower-level typed scenario content unit and carries rooms.obj,
- * scenario.mtl, tiles.tsv, pads.tsv, setup.tsv, mpsetup.tsv,
- * visual_segments.tsv, descriptors, and SHA-256 sidecars.
+ * scenario dependency payload under dependencies/assets/scenarios/ so the
+ * arena archive is self-contained on disk. The standalone .pdscenario
+ * remains the lower-level typed scenario content unit and carries scene.glb,
+ * pads.tsv, navigation tables, objects.tsv, setup.fields.tsv,
+ * objectives.tsv, level.graph.json, descriptors, and metadata sidecars.
  *
  * 47 arenas total (CATALOG_MGR_ARENA_COUNT). The CANVAS-mode arenas
  * (Solo Missions group) carry a stagenum of 0 and have no playable

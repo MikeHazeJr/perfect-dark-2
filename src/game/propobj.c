@@ -2918,6 +2918,7 @@ void objFree(struct defaultobj *obj, bool freeprop, bool canregen)
 
 			obj->prop->obj = NULL;
 			obj->prop = NULL;
+			objectiveRecordObjectState(obj);
 		}
 	}
 }
@@ -11358,6 +11359,8 @@ u32 objTick(struct prop *prop)
 				shield->amount = shield->initialamount;
 			}
 
+			objectiveRecordObjectState(obj);
+
 			if (!silent) {
 				// Play respawn sound
 				psCreate(NULL, prop, SFX_REGEN, -1,
@@ -15200,6 +15203,7 @@ void objCheckDestroyed(struct defaultobj *obj, struct coord *pos, s32 playernum)
 			// Obj is now destroyed
 			obj->damage = 0;
 			obj->hidden2 |= OBJH2FLAG_DESTROYED;
+			objectiveRecordObjectState(obj);
 
 			func0f065e74(&rootprop->pos, rootprop->rooms, pos, rooms);
 			explosionCreateComplex(prop, pos, rooms, exptype, playernum);
@@ -15637,6 +15641,7 @@ void glassDestroy(struct defaultobj *obj)
 	obj->damage = 0;
 	obj->hidden |= OBJHFLAG_DELETING;
 	obj->hidden2 |= OBJH2FLAG_DESTROYED;
+	objectiveRecordObjectState(obj);
 }
 
 void doorDestroyGlass(struct doorobj *door)

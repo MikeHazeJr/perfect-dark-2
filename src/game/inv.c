@@ -4,6 +4,7 @@
 #include "game/bondgun.h"
 #include "game/game_0b0fd0.h"
 #include "game/inv.h"
+#include "game/objectives.h"
 #include "game/training.h"
 #include "game/lang.h"
 #include "bss.h"
@@ -95,8 +96,11 @@ void invSortItem(struct invitem *subject)
 
 void invInsertItem(struct invitem *item)
 {
+	struct prop *insertedprop = NULL;
+
 	if (item->type == INVITEMTYPE_PROP) {
 		struct prop *prop = item->type_prop.prop;
+		insertedprop = prop;
 
 		if (prop && prop->obj) {
 			struct textoverride *override = invGetTextOverrideForObj(prop->obj);
@@ -139,12 +143,21 @@ void invInsertItem(struct invitem *item)
 
 	invSortItem(item);
 	invCalculateCurrentIndex();
+
+	if (insertedprop) {
+		objectiveRecordPropState(insertedprop);
+	}
 }
 
 void invRemoveItem(struct invitem *item)
 {
 	struct invitem *next = item->next;
 	struct invitem *prev = item->prev;
+	struct prop *removedprop = NULL;
+
+	if (item->type == INVITEMTYPE_PROP) {
+		removedprop = item->type_prop.prop;
+	}
 
 	if (g_Vars.currentplayer->weapons == item) {
 		if (item == item->next) {
@@ -159,6 +172,10 @@ void invRemoveItem(struct invitem *item)
 	item->type = -1;
 
 	invCalculateCurrentIndex();
+
+	if (removedprop) {
+		objectiveRecordPropState(removedprop);
+	}
 }
 
 struct invitem *invFindUnusedSlot(void)

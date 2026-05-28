@@ -5,6 +5,8 @@
 #include "types.h"
 
 void setupPreparePads(void);
+void setupSetPadFileDataSize(s32 size);
+s32 setupGetPadFileDataSize(void);
 void setupLoadWaypoints(void);
 void setupPrepareCover(void);
 

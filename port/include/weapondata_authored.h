@@ -17,6 +17,7 @@
  *   - port/src/weapondata_authored.c          (the definitions)
  *   - port/src/animdata_authored.c            (cross-references invanim_*)
  *   - port/src/romextract_pdweapon.c          (the emitter)
+ *   - port/src/romextract_pdarena.c           (scenario setup weapon refs)
  *   - port/src/romextract_pdmesh.c            (walks weapon hi/lo meshes)
  *
  * @see context/audits/catalog-universality-pivot-plan-2026-05-02.md

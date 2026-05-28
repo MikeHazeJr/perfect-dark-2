@@ -27,6 +27,7 @@
 #include "data.h"
 #include "types.h"
 #include "assetcatalog.h"
+#include "assetcatalog_load.h"
 #include "catalog_mgr_heads.h"  /* Catalog Gate 3 F5: catalogManagerHeadIsModeldefLoaded */
 #include "net/netmanifest.h"
 
@@ -358,6 +359,9 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 	(void)catalogGetBodyAnimScaleChecked(bodynum, &animscale);
 	f32 scale = scaleRaw * 0.10000001f; /* SA-5-cleanup */
 	struct modelnode *node = NULL;
+	const char *body_source_id = NULL;
+	bool public_source_generated_modeldef = false;
+	bool public_source_static_modeldef = false;
 	u32 stack[2];
 
 	if (cheatIsActive(CHEAT_DKMODE)) {
@@ -372,14 +376,23 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		}
 	}
 
+	body_source_id = catalogBodyIdByBodynum(bodynum);
+	public_source_generated_modeldef = (bodymodeldef != NULL
+		&& bodymodeldef->rootnode != NULL
+		&& bodymodeldef->numparts == 0
+		&& body_source_id != NULL
+		&& catalogGetLoadedModeldef(body_source_id) == bodymodeldef);
+	public_source_static_modeldef = public_source_generated_modeldef
+		&& bodymodeldef->skel == NULL;
+
 	/* Safety: if model still couldn't load or contains garbage data, bail out.
 	 * The ROM data loader can return allocated-but-uninitialized memory when a
 	 * file is missing, so a non-NULL pointer doesn't guarantee valid data.
 	 * Check multiple fields for basic sanity. */
 	if (bodymodeldef == NULL
-		|| bodymodeldef->skel == NULL
 		|| bodymodeldef->rootnode == NULL
-		|| bodymodeldef->numparts <= 0
+		|| (!public_source_generated_modeldef && bodymodeldef->skel == NULL)
+		|| (!public_source_generated_modeldef && bodymodeldef->numparts <= 0)
 		|| bodymodeldef->numparts > 500) {
 		sysLogPrintf(LOG_WARNING, "body0f02ce8c: truly invalid bodymodeldef for bodynum %d (file 0x%04x) "
 		             "ptr=%p skel=%p root=%p parts=%d -- skipping",
@@ -414,7 +427,9 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 
 	modelAllocateRwData(bodymodeldef);
 
-	if (!catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
+	if (public_source_generated_modeldef) {
+		headmodeldef = NULL;
+	} else if (!catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
 		if (bodymodeldef->skel == &g_SkelChr) {
 			node = modelGetPart(bodymodeldef, MODELPART_CHR_HEADSPOT);
 
@@ -488,7 +503,9 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 	if (model) {
 		if (model->rwdatalen < bodymodeldef->rwdatalen);
 	} else {
-		model = modelmgrInstantiateModelWithAnim(bodymodeldef);
+		model = public_source_static_modeldef
+			? modelmgrInstantiateModelWithoutAnim(bodymodeldef)
+			: modelmgrInstantiateModelWithAnim(bodymodeldef);
 	}
 
 	if (model) {

@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "memsizes.h"
 #include "assetcatalog.h" /* Catalog-owned asset identity and source handles */
+#include "assetcatalog_load.h"
 #include "assetload.h"    /* Provider-aware asset load bridge */
 #include "../lib/naudio/n_sndp.h"
 #include "game/bondmove.h"
@@ -64,6 +65,7 @@
 #include "video.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "modasset_compiler.h"
 #include "system.h" /* B-246 instrumentation: sysLogPrintf for LOG.WPN.DIAG lines */
 
 #define GUNLOADSTATE_FLUX     0
@@ -4383,6 +4385,95 @@ static bool bgunQueuedLoadCanUseHandle(struct player *player)
 	return !assetHandleIsNull(player->gunctrl.loadhandle);
 }
 
+static const char *bgunQueuedModelSourcePath(struct player *player)
+{
+	if (!bgunQueuedLoadCanUseHandle(player)) {
+		return NULL;
+	}
+
+	return fileProviderPath(player->gunctrl.loadhandle);
+}
+
+static bool bgunQueuedLoadUsesExternalModelSource(struct player *player)
+{
+	return modAssetCompilerIsExternalSource(bgunQueuedModelSourcePath(player)) != 0;
+}
+
+static struct modeldef *bgunQueuedLoadCatalogModelSource(struct player *player)
+{
+	const char *source_path = bgunQueuedModelSourcePath(player);
+	const char *model_id;
+	struct modeldef *modeldef;
+
+	if (!modAssetCompilerIsExternalSource(source_path)) {
+		return NULL;
+	}
+
+	model_id = catalogIdBySourceHandle(ASSET_MODEL, player->gunctrl.loadhandle);
+
+	if (model_id == NULL) {
+		sysLogPrintf(LOG_WARNING,
+			"BONDGUN.SOURCE: external model source filenum=%d path=%s has no ASSET_MODEL catalog id",
+			(s32)player->gunctrl.loadfilenum,
+			source_path ? source_path : "(null)");
+		return NULL;
+	}
+
+	if (!catalogLoadTypedAsset(ASSET_MODEL, model_id)) {
+		sysLogPrintf(LOG_WARNING,
+			"BONDGUN.SOURCE: catalog model source load failed filenum=%d id=%s path=%s",
+			(s32)player->gunctrl.loadfilenum,
+			model_id,
+			source_path ? source_path : "(null)");
+		return NULL;
+	}
+
+	modeldef = catalogGetLoadedModeldef(model_id);
+
+	if (modeldef == NULL) {
+		sysLogPrintf(LOG_WARNING,
+			"BONDGUN.SOURCE: catalog model source produced NULL modeldef filenum=%d id=%s path=%s",
+			(s32)player->gunctrl.loadfilenum,
+			model_id,
+			source_path ? source_path : "(null)");
+		return NULL;
+	}
+
+	*player->gunctrl.loadtomodeldef = modeldef;
+	player->gunctrl.fileinfo.loadedsize = 0;
+	player->gunctrl.fileinfo.allocsize = 0;
+	player->gunctrl.nexttexturetoload = 0;
+	modelAllocateRwData(modeldef);
+
+	sysLogPrintf(LOG_NOTE,
+		"BONDGUN.SOURCE: loaded catalog model source filenum=%d id=%s path=%s",
+		(s32)player->gunctrl.loadfilenum,
+		model_id,
+		source_path ? source_path : "(null)");
+
+	return modeldef;
+}
+
+static void bgunFailQueuedModelLoad(struct player *player)
+{
+	/* Throttle: log once per failing filenum. Without throttle the
+	 * gunloadstate flips back to FLUX and the master-load retries
+	 * the same miss next tick, flooding the log at 60 lines/sec.
+	 * One ERROR is the visibility we need; the GUNLOADSTATE_FLUX
+	 * retry stays in case a transient resource pressure clears
+	 * up later. */
+	static s32 s_last_critical_filenum = -1;
+
+	if (s_last_critical_filenum != (s32)player->gunctrl.loadfilenum) {
+		s_last_critical_filenum = (s32)player->gunctrl.loadfilenum;
+		sysLogPrintf(LOG_ERROR,
+			"CATALOG_CRITICAL: bgun model filenum=%d failed to load",
+			(s32)player->gunctrl.loadfilenum);
+	}
+
+	player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
+}
+
 /*
  * Strict-catalog load: no ROM-filenum fallback.
  *
@@ -4467,6 +4558,19 @@ void bgunTickGunLoad(void)
 	if (player->gunctrl.gunloadstate == GUNLOADSTATE_MODEL) {
 		osSyncPrintf("BriGun:  BriGunLoadTick process GUN_LOADSTATE_LOAD_OBJ\n");
 
+		if (bgunQueuedLoadUsesExternalModelSource(player)) {
+			modeldef = bgunQueuedLoadCatalogModelSource(player);
+
+			if (modeldef == NULL) {
+				g_LoadType = LOADTYPE_NONE;
+				bgunFailQueuedModelLoad(player);
+				return;
+			}
+
+			player->gunctrl.gunloadstate = GUNLOADSTATE_LOADED;
+			return;
+		}
+
 		ptr = *player->gunctrl.loadmemptr;
 		remaining = *player->gunctrl.loadmemremaining;
 
@@ -4498,20 +4602,7 @@ void bgunTickGunLoad(void)
 
 		if (modeldef == NULL) {
 			g_LoadType = LOADTYPE_NONE;
-			/* Throttle: log once per failing filenum. Without throttle the
-			 * gunloadstate flips back to FLUX and the master-load retries
-			 * the same miss next tick, flooding the log at 60 lines/sec.
-			 * One ERROR is the visibility we need; the GUNLOADSTATE_FLUX
-			 * retry stays in case a transient resource pressure clears
-			 * up later. */
-			static s32 s_last_critical_filenum = -1;
-			if (s_last_critical_filenum != (s32)player->gunctrl.loadfilenum) {
-				s_last_critical_filenum = (s32)player->gunctrl.loadfilenum;
-				sysLogPrintf(LOG_ERROR,
-					"CATALOG_CRITICAL: bgun model filenum=%d failed to load",
-					(s32)player->gunctrl.loadfilenum);
-			}
-			player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
+			bgunFailQueuedModelLoad(player);
 			return;
 		}
 

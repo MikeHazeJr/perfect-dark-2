@@ -13,6 +13,8 @@
 #define HOST_DWORDS_PER_CMD 1
 #endif
 
+#define GBI_GDL_REWRITE_MAX_CMDS 8192
+
 struct vtx {
 	s16 x;
 	s16 y;
@@ -149,7 +151,7 @@ void gbiGdlRewriteAddrs(u8 *dst, u32 offset)
 
 	u64 cmd;
 
-	do {
+	for (u32 guard = 0; guard < GBI_GDL_REWRITE_MAX_CMDS; guard++) {
 		cmd = *cmds;
 		Gfx* gfxcmd = (Gfx *)cmds;
 		int idx = 0;
@@ -169,8 +171,16 @@ void gbiGdlRewriteAddrs(u8 *dst, u32 offset)
 			gfxcmd->words.w1 |= 1;
 		}
 
+		if (CMD_IS_ENDDL(cmd)) {
+			return;
+		}
+
 		cmds += HOST_DWORDS_PER_CMD;
-	} while (!CMD_IS_ENDDL(cmd));
+	}
+
+	sysLogPrintf(LOG_WARNING,
+		"gbiGdlRewriteAddrs: no ENDDL within %u commands at offset=0x%08x",
+		(unsigned)GBI_GDL_REWRITE_MAX_CMDS, (unsigned)offset);
 }
 
 u32 gbiConvertGdl(u8 *dst, u32 dstpos, u8 *src, u32 srcpos, u32 src_size, int segment_cmds)

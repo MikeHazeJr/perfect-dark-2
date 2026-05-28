@@ -1626,15 +1626,19 @@ static void parseWeapon(jstream_t *s)
 			(const struct weaponfunc *)w.functions[0];
 		const struct weaponfunc *fn1 =
 			(const struct weaponfunc *)w.functions[1];
+		const u32 shortname = (u32)w.shortname;
+		const u32 name = (u32)w.name;
 		const u32 fn0_name = fn0 ? (u32)fn0->name : 0u;
 		const u32 fn1_name = fn1 ? (u32)fn1->name : 0u;
 		const u32 fn0_type = fn0 ? (u32)fn0->type : 0u;
 		const u32 fn1_type = fn1 ? (u32)fn1->type : 0u;
 		sysLogPrintf(LOG_NOTE,
 			"LOADER.POOL.WEAPON.STORED: weapon_id=%d "
+			"shortname=%u name=%u "
 			"functions[0]=%p name=%u type=%u "
 			"functions[1]=%p name=%u type=%u",
-			weapon_id, (const void *)fn0, fn0_name, fn0_type,
+			weapon_id, shortname, name,
+			(const void *)fn0, fn0_name, fn0_type,
 			(const void *)fn1, fn1_name, fn1_type);
 	} else {
 		sysLogPrintf(LOG_WARNING,

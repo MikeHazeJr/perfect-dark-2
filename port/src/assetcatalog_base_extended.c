@@ -159,14 +159,14 @@ static const struct {
 	const char *name;
 	s32         dual_wieldable;
 } s_BaseWeapons[] = {
-	{ MPWEAPON_NONE,            "none",              "Nothing",             0 },
+	{ MPWEAPON_NONE,            "nothing",           "Nothing",             0 },
 	{ MPWEAPON_FALCON2,         "falcon2",           "Falcon 2",            0 },
 	{ MPWEAPON_FALCON2_SILENCER, "falcon2_silencer", "Falcon 2 Silencer",   0 },
 	{ MPWEAPON_FALCON2_SCOPE,   "falcon2_scope",     "Falcon 2 Scope",      1 },
-	{ MPWEAPON_MAGSEC4,         "magsec4",           "Magsec 4",            1 },
+	{ MPWEAPON_MAGSEC4,         "magsec",            "Magsec 4",            1 },
 	{ MPWEAPON_MAULER,          "mauler",            "Mauler",              1 },
 	{ MPWEAPON_PHOENIX,         "phoenix",           "Phoenix",             0 },
-	{ MPWEAPON_DY357MAGNUM,     "dy357magnum",       "DY357 Magnum",        1 },
+	{ MPWEAPON_DY357MAGNUM,     "dy357",             "DY357 Magnum",        1 },
 	{ MPWEAPON_DY357LX,         "dy357lx",           "DY357-LX",            1 },
 	{ MPWEAPON_CMP150,          "cmp150",            "CMP150",              1 },
 	{ MPWEAPON_CYCLONE,         "cyclone",           "Cyclone",             1 },
@@ -198,8 +198,8 @@ static const struct {
 	{ MPWEAPON_IRSCANNER,       "irscanner",         "IR Scanner",          0 },
 	{ MPWEAPON_CLOAKINGDEVICE,  "cloakingdevice",    "Cloaking Device",     0 },
 	{ MPWEAPON_COMBATBOOST,     "combatboost",       "Combat Boost",        0 },
-	{ MPWEAPON_SHIELD,          "shield",            "Shield",              0 },
-	{ MPWEAPON_DISABLED,        "disabled",          "Disabled",            0 },
+	{ MPWEAPON_SHIELD,          "hammer_slot83",     "Shield",              0 },
+	{ MPWEAPON_DISABLED,        "hammer_slot84",     "Disabled",            0 },
 };
 
 #define NUM_BASE_WEAPONS (sizeof(s_BaseWeapons) / sizeof(s_BaseWeapons[0]))
@@ -544,6 +544,9 @@ static const struct {
  * bundled=1 so assetCatalogClearMods() never removes them.
  * load_state=ASSET_STATE_ENABLED (not LOADED): lang banks require explicit
  * loading via langLoad() and are NOT pre-loaded at catalog registration time.
+ * When extracted .pdlang archives are present, loader_walker_lang.c registers
+ * locale-suffixed base rows such as base:lang_options_en with public
+ * strings.tsv FileProvider source. langLoad() prefers those source rows.
  */
 static const struct {
 	s32 bank_id;
@@ -1204,14 +1207,11 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 
 	/* ---- lang banks (Phase 3: manifest-based lang loading) ----
 	 *
-	 * Catalog coverage audit (2026-05-01) Section 3.E closure: bind
-	 * each ASSET_LANG entry to its ROM source filenum via
-	 * langGetFileId(bank_id) so catalogResolveFile picks them up in
-	 * the s_FilenumOverride[] reverse index.  Without this, mods
-	 * cannot override language banks: a mod that ships a replacement
-	 * weapon-name string table or scenario briefing translation has
-	 * no way to redirect lang.c's assetLoadRomToNew(langGetFileId(...))
-	 * call to a mod-supplied file.
+	 * Catalog coverage audit (2026-05-01) Section 3.E closure originally
+	 * bound each ASSET_LANG entry to its ROM source filenum for override
+	 * lookup. Under c3844 the filenum is migration/provenance only:
+	 * steady-state language loading is routed by bank id through
+	 * langManifestLoadBankFromCatalog() and the .pdlang FileProvider source.
 	 *
 	 * The bank_id-to-filenum map (g_LangFiles[bank] + JPN offset)
 	 * lives in src/game/lang.c.  Calling langGetFileId at registration
@@ -1234,9 +1234,8 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->ext.lang.bank_id = s_BaseLangBanks[i].bank_id;
 			/* ENABLED not LOADED: langLoad() must be called explicitly */
 			e->load_state = ASSET_STATE_ENABLED; e->ref_count = 0;
-			/* Section 3.E closure: bind to ROM filenum so mods can
-			 * override individual language banks via the standard
-			 * romdataFileLoad mod-override path. */
+			/* Migration/provenance only: runtime language loading should
+			 * prefer the locale-suffixed .pdlang FileProvider rows. */
 			s32 fnum = langGetFileId(s_BaseLangBanks[i].bank_id);
 			if (fnum > 0) {
 				/* Phase 3 Pass B Slice 3: disk-or-ROM bind for lang banks. */

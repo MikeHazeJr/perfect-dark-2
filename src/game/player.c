@@ -83,6 +83,8 @@
 #include "spawn_predicate.h"  /* INV-2: spawn-with-weapon mutual-exclusion gate */
 #include "assetcatalog.h"
 #include "assetload.h"
+#include "assetcatalog_load.h"
+#include "assetprovider.h"
 #include "actionmap.h"
 #include "scene.h"
 #include "game/spawnpool.h"
@@ -2207,8 +2209,35 @@ void playerSpawn(void)
 					}
 					bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
 					bgunEquipWeapon2(HAND_RIGHT, resolvedWeaponNum);
-					sysLogPrintf(LOG_NOTE, "SPAWN: player %d spawned with weapon %d (%s) -- auto-equipped to right hand",
-							g_Vars.currentplayernum, resolvedWeaponNum, bgunGetShortName(resolvedWeaponNum));
+					{
+						struct weapon *spawnWeapon = weaponFindById(resolvedWeaponNum);
+						const struct weaponfunc *spawnPri = spawnWeapon
+							? (const struct weaponfunc *)spawnWeapon->functions[0] : NULL;
+						const struct weaponfunc *spawnSec = spawnWeapon
+							? (const struct weaponfunc *)spawnWeapon->functions[1] : NULL;
+						char spawnName[64];
+						const char *rawSpawnName = bgunGetShortName(resolvedWeaponNum);
+						strncpy(spawnName, rawSpawnName ? rawSpawnName : "",
+							sizeof(spawnName) - 1);
+						spawnName[sizeof(spawnName) - 1] = '\0';
+						for (char *p = spawnName; *p; p++) {
+							if (*p == '\r' || *p == '\n') {
+								*p = '\0';
+								break;
+							}
+						}
+						sysLogPrintf(LOG_NOTE,
+							"SPAWN.WEAPON: player=%d weapon=%d shortname=%u name=%u "
+							"primary_name=%u secondary_name=%u",
+							g_Vars.currentplayernum, resolvedWeaponNum,
+							spawnWeapon ? (u32)spawnWeapon->shortname : 0u,
+							spawnWeapon ? (u32)spawnWeapon->name : 0u,
+							spawnPri ? (u32)spawnPri->name : 0u,
+							spawnSec ? (u32)spawnSec->name : 0u);
+						sysLogPrintf(LOG_NOTE,
+							"SPAWN: player %d spawned with weapon %d (%s) -- auto-equipped to right hand",
+							g_Vars.currentplayernum, resolvedWeaponNum, spawnName);
+					}
 				} else if (g_DefaultWeapons[HAND_RIGHT] != 0 || g_DefaultWeapons[HAND_LEFT] != 0) {
 					/* Catalog miss BUT INTROCMD_WEAPON gave us defaults (Co-Op,
 					 * Counter-Op Bond, or normal MP if the Cohort B guard is
@@ -2547,9 +2576,9 @@ void playerTickChrBody(void)
 	if (g_Vars.currentplayer->haschrbody == false) {
 		struct chrdata *chr;
 		struct texpool texpool;
-		struct modeldef *bodymodeldef;
+		struct modeldef *bodymodeldef = NULL;
 		struct modeldef *headmodeldef = NULL;
-		struct modeldef *weaponmodeldef;
+		struct modeldef *weaponmodeldef = NULL;
 		s32 offset1 = 0;
 		u8 *allocation;
 		void *spe8;
@@ -2557,6 +2586,8 @@ void playerTickChrBody(void)
 		u32 stack2;
 		struct weaponobj *weaponobj = NULL;
 		s32 weapon_filenum_1p = -1;
+		const char *weapon_model_id_1p = NULL;
+		s32 weapon_model_file_source_1p = 0;
 		asset_data_handle_t weapon_handle = ASSET_HANDLE_NULL_INIT;
 		catalog_model_result_t weapon_model_result;
 
@@ -2662,6 +2693,8 @@ void playerTickChrBody(void)
 			const char *bodyid = catalogBodyIdByBodynum(bodynum);
 			const char *headid = (headnum >= 0) ? catalogHeadIdByHeadnum(headnum) : NULL;
 			s32 havehead = 0;
+			s32 body_file_source = 0;
+			s32 head_file_source = 0;
 			s32 body_filenum_1p;
 			s32 head_filenum_1p = -1;
 			if (!bodyid || !catalogResolveBody(bodyid, &bodyresult)) {
@@ -2671,26 +2704,34 @@ void playerTickChrBody(void)
 			}
 
 			body_filenum_1p = bodyresult.filenum;
+			body_file_source = (bodyresult.handle.provider == fileProvider());
 
 			if (headid && catalogResolveHead(headid, &headresult)) {
 				havehead = 1;
 				head_filenum_1p = headresult.filenum;
+				head_file_source = (headresult.handle.provider == fileProvider());
 			}
 
 			if (weaponmodelnum >= 0) {
 				if (catalogResolveModelByModelnum(weaponmodelnum, &weapon_model_result)) {
 					weapon_filenum_1p = weapon_model_result.filenum;
 					weapon_handle = weapon_model_result.handle;
+					weapon_model_id_1p = weapon_model_result.entry ? weapon_model_result.entry->id : NULL;
+					weapon_model_file_source_1p = (weapon_model_result.handle.provider == fileProvider());
 				}
 			}
 
-			offset2 = offset1 + ALIGN64(assetLoadGetInflatedSize(bodyresult.handle, LOADTYPE_MODEL));
+			offset2 = offset1;
 
-			if (havehead) {
+			if (!body_file_source) {
+				offset2 += ALIGN64(assetLoadGetInflatedSize(bodyresult.handle, LOADTYPE_MODEL));
+			}
+
+			if (havehead && !head_file_source) {
 				offset2 += ALIGN64(assetLoadGetInflatedSize(headresult.handle, LOADTYPE_MODEL));
 			}
 
-			if (weapon_filenum_1p >= 0 && !assetHandleIsNull(weapon_handle)) {
+			if (weapon_filenum_1p >= 0 && !assetHandleIsNull(weapon_handle) && !weapon_model_file_source_1p) {
 				offset2 += ALIGN64(assetLoadGetInflatedSize(weapon_handle, LOADTYPE_MODEL));
 			}
 
@@ -2701,7 +2742,12 @@ void playerTickChrBody(void)
 			bgunCalculateGunMemCapacity();
 			spe8 = g_Vars.currentplayer->gunmem2 + offset2;
 			texInitPool(&texpool, spe8, bgunCalculateGunMemCapacity() - offset2);
-			bodymodeldef = modeldefLoadFromHandle(bodyresult.handle, bodyresult.filenum, allocation + offset1, offset2 - offset1, &texpool);
+
+			if (body_file_source) {
+				bodymodeldef = catalogGetBodyModeldef(bodynum);
+			} else {
+				bodymodeldef = modeldefLoadFromHandle(bodyresult.handle, bodyresult.filenum, allocation + offset1, offset2 - offset1, &texpool);
+			}
 
 			if (bodymodeldef == NULL) {
 				// Body model failed to load -- player will be invisible but won't crash
@@ -2710,12 +2756,20 @@ void playerTickChrBody(void)
 				return;
 			}
 
-			offset1 = ALIGN64(assetLoadGetLoadedSize(bodyresult.handle) + offset1);
+			if (!body_file_source) {
+				offset1 = ALIGN64(assetLoadGetLoadedSize(bodyresult.handle) + offset1);
+			}
 
 			if (havehead) {
-				headmodeldef = modeldefLoadFromHandle(headresult.handle, headresult.filenum, allocation + offset1, offset2 - offset1, &texpool);
+				if (head_file_source) {
+					headmodeldef = catalogGetHeadModeldef(headnum);
+				} else {
+					headmodeldef = modeldefLoadFromHandle(headresult.handle, headresult.filenum, allocation + offset1, offset2 - offset1, &texpool);
+				}
 				if (headmodeldef != NULL) {
-					offset1 = ALIGN64(assetLoadGetLoadedSize(headresult.handle) + offset1);
+					if (!head_file_source) {
+						offset1 = ALIGN64(assetLoadGetLoadedSize(headresult.handle) + offset1);
+					}
 				} else {
 					sysLogPrintf(LOG_WARNING, "PLAYER: headmodeldef NULL for headnum=%d filenum=0x%04x",
 						headnum, head_filenum_1p);
@@ -2748,7 +2802,15 @@ void playerTickChrBody(void)
 			texGetPoolLeftPos(&texpool);
 		} else {
 			// 2-4 players
+			const char *multi_body_id = catalogBodyIdByBodynum(bodynum);
+			bool public_source_generated_body = false;
+
 			bodymodeldef = catalogGetBodyModeldef(bodynum); /* SA-5f */
+			public_source_generated_body = bodymodeldef != NULL
+				&& bodymodeldef->rootnode != NULL
+				&& bodymodeldef->numparts == 0
+				&& multi_body_id != NULL
+				&& catalogGetLoadedModeldef(multi_body_id) == bodymodeldef;
 
 			/* Check for NULL or structurally corrupt modeldef (bad pointer fixup,
 			 * missing file, etc.). If the player's configured body is broken,
@@ -2756,9 +2818,9 @@ void playerTickChrBody(void)
 			 * models with bad scale here — body0f02ce8c will clamp the scale
 			 * instead of rejecting, preventing cascading failures. */
 			if (bodymodeldef == NULL
-				|| bodymodeldef->skel == NULL
 				|| bodymodeldef->rootnode == NULL
-				|| bodymodeldef->numparts <= 0
+				|| (!public_source_generated_body && bodymodeldef->skel == NULL)
+				|| (!public_source_generated_body && bodymodeldef->numparts <= 0)
 				|| bodymodeldef->numparts > 500) {
 				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef bad (multi) for bodynum=%d filenum=0x%04x, trying BODY_DARK_COMBAT",
 					bodynum, catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
@@ -2853,8 +2915,18 @@ void playerTickChrBody(void)
 				if (wfn < 0) {
 					weaponmodeldef = NULL;
 				} else if (!assetHandleIsNull(weapon_handle)) {
-					weaponmodeldef = modeldefLoadFromHandle(weapon_handle, wfn, allocation + offset1, offset2 - offset1, &texpool);
-					assetLoadGetLoadedSize(weapon_handle);
+					if (weapon_model_file_source_1p) {
+						if (weapon_model_id_1p != NULL && catalogLoadTypedAsset(ASSET_MODEL, weapon_model_id_1p)) {
+							weaponmodeldef = catalogGetLoadedModeldef(weapon_model_id_1p);
+						} else {
+							sysLogPrintf(LOG_WARNING,
+								"PLAYER: public weapon model source failed for modelnum=%d id=%s",
+								weaponmodelnum, weapon_model_id_1p ? weapon_model_id_1p : "(null)");
+						}
+					} else {
+						weaponmodeldef = modeldefLoadFromHandle(weapon_handle, wfn, allocation + offset1, offset2 - offset1, &texpool);
+						assetLoadGetLoadedSize(weapon_handle);
+					}
 				} else {
 					static s32 s_last_missing_weapon_filenum = -1;
 

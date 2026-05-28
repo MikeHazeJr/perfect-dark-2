@@ -57,6 +57,7 @@
 #include "constants.h"
 #include "fs.h"
 #include "loader_enum_reverse.h"
+#include "lib/rzip.h"
 #include "asset_archive_writer.h"
 #include "modarchive.h"
 #include "romdata.h"
@@ -65,6 +66,8 @@
 #include "system.h"
 
 #define PDLANG_OUT_DIR "lang"
+#define PDLANG_EXTRACT_VERSION "strings_tsv_rzip_v2"
+#define PDLANG_FAST_CACHE_KIND "pdlang_strings_tsv_rzip_v2"
 
 /* Walk range. g_LangFiles[] is sized 69 in src/game/lang.c (bank 0
  * is a sentinel zero entry, banks 1..68 carry real files). The
@@ -125,6 +128,84 @@ static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
 	s32 has_entry = modArchiveFindEntry(arc, entry) >= 0;
 	modArchiveClose(arc);
 	return has_entry;
+}
+
+static s32 s_existingArchiveEntryContains(const char *relpath, const char *entry,
+	const char *needle)
+{
+	if (!needle || !needle[0]) return 1;
+
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+
+	s32 idx = modArchiveFindEntry(arc, entry);
+	if (idx < 0) {
+		modArchiveClose(arc);
+		return 0;
+	}
+
+	u32 size = 0;
+	void *bytes = modArchiveExtractAlloc(arc, idx, &size);
+	s32 found = 0;
+	if (bytes) {
+		const char *hay = (const char *)bytes;
+		size_t nlen = strlen(needle);
+		for (u32 i = 0; i + nlen <= size; i++) {
+			if (memcmp(hay + i, needle, nlen) == 0) {
+				found = 1;
+				break;
+			}
+		}
+		free(bytes);
+	}
+
+	modArchiveClose(arc);
+	return found;
+}
+
+static s32 s_prepareLangSource(const u8 *src, u32 src_size,
+                               u8 **out_bytes, u32 *out_size,
+                               s32 *out_was_rzip)
+{
+	*out_bytes = NULL;
+	*out_size = 0;
+	*out_was_rzip = 0;
+
+	if (!src || src_size == 0) {
+		return 0;
+	}
+
+	if (src_size >= 5 && rzipIs1173((void *)src)) {
+		u32 inflated_size =
+			((u32)src[2] << 16) | ((u32)src[3] << 8) | (u32)src[4];
+		if (inflated_size == 0) {
+			return 0;
+		}
+
+		u8 *inflated = (u8 *)calloc(1, inflated_size + 16u);
+		if (!inflated) {
+			return 0;
+		}
+
+		s32 actual_size = rzipInflate((void *)src, inflated, NULL);
+		if (actual_size <= 0 || (u32)actual_size > inflated_size) {
+			free(inflated);
+			return 0;
+		}
+
+		*out_bytes = inflated;
+		*out_size = (u32)actual_size;
+		*out_was_rzip = 1;
+		return 1;
+	}
+
+	*out_bytes = (u8 *)src;
+	*out_size = src_size;
+	return 1;
 }
 
 static u32 s_readBe32(const u8 *p)
@@ -281,7 +362,9 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
 	    s_existingArchiveHasEntry(dst_rel, "lang.ini") &&
 	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
-	    s_existingArchiveHasEntry(dst_rel, "strings.tsv")) return 0;
+	    s_existingArchiveHasEntry(dst_rel, "strings.tsv") &&
+	    s_existingArchiveEntryContains(dst_rel, "lang.ini",
+		    "extract_version = " PDLANG_EXTRACT_VERSION)) return 0;
 
 	u32 src_size = (u32)fsFileSize(src_rel);
 	u32 src_bytes_size = 0;
@@ -293,14 +376,28 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		return -1;
 	}
 
+	u8 *lang_source = NULL;
+	u32 lang_source_size = 0;
+	s32 lang_source_was_rzip = 0;
+	if (!s_prepareLangSource((const u8 *)src_bytes, src_bytes_size,
+	                         &lang_source, &lang_source_size,
+	                         &lang_source_was_rzip)) {
+		sysLoudFailf("EXTRACT.PDLANG",
+			"could not prepare lang source for bank=%d source \"%s\"",
+			bank, src_rel);
+		sysMemFree(src_bytes);
+		return -1;
+	}
+
 	char *tsv_text = NULL;
 	u32 tsv_size = 0;
 	u32 string_count = 0;
-	if (!s_buildStringsTsv((const u8 *)src_bytes, src_bytes_size,
+	if (!s_buildStringsTsv(lang_source, lang_source_size,
 	                       &tsv_text, &tsv_size, &string_count)) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"could not build strings.tsv for bank=%d source \"%s\"",
 			bank, src_rel);
+		if (lang_source_was_rzip) free(lang_source);
 		sysMemFree(src_bytes);
 		return -1;
 	}
@@ -326,7 +423,9 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		"  \"data\": \"strings.tsv\",\n"
 		"  \"data_size\": %u,\n"
 		"  \"source_data_size\": %u,\n"
+		"  \"decoded_source_size\": %u,\n"
 		"  \"string_count\": %u,\n"
+		"  \"extract_version\": \"%s\",\n"
 		"  \"source_bank\": %d,\n"
 		"  \"source_filenum\": %u,\n"
 		"  \"source_symbol\": \"%s\"\n"
@@ -334,12 +433,15 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		catalog_id, locale_tag, category,
 		(unsigned)tsv_size,
 		(unsigned)src_size,
+		(unsigned)lang_source_size,
 		(unsigned)string_count,
+		PDLANG_EXTRACT_VERSION,
 		bank, (unsigned)file_id,
 		file_sym ? file_sym : "");
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"manifest.json snprintf truncated for bank=%d", bank);
+		if (lang_source_was_rzip) free(lang_source);
 		free(tsv_text);
 		sysMemFree(src_bytes);
 		return -1;
@@ -354,19 +456,24 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		"strings_file = strings.tsv\n"
 		"data_size = %u\n"
 		"source_data_size = %u\n"
+		"decoded_source_size = %u\n"
 		"string_count = %u\n"
+		"extract_version = %s\n"
 		"source_bank = %d\n"
 		"source_filenum = %u\n"
 		"source_symbol = %s\n",
 		catalog_id, locale_tag, category,
 		(unsigned)tsv_size,
 		(unsigned)src_size,
+		(unsigned)lang_source_size,
 		(unsigned)string_count,
+		PDLANG_EXTRACT_VERSION,
 		bank, (unsigned)file_id,
 		file_sym ? file_sym : "");
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"lang.ini snprintf truncated for bank=%d", bank);
+		if (lang_source_was_rzip) free(lang_source);
 		free(tsv_text);
 		sysMemFree(src_bytes);
 		return -1;
@@ -377,6 +484,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 	if (!dst_full || !dst_full[0]) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"fsFullPath empty for \"%s\"", dst_rel);
+		if (lang_source_was_rzip) free(lang_source);
 		free(tsv_text);
 		sysMemFree(src_bytes);
 		return -1;
@@ -386,6 +494,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 	if (!aw) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"modArchiveBegin failed for \"%s\"", dst_full);
+		if (lang_source_was_rzip) free(lang_source);
 		free(tsv_text);
 		sysMemFree(src_bytes);
 		return -1;
@@ -397,6 +506,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		sysLoudFailf("EXTRACT.PDLANG",
 			"assetArchiveWriterInit failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
+		if (lang_source_was_rzip) free(lang_source);
 		free(tsv_text);
 		sysMemFree(src_bytes);
 		return -1;
@@ -409,6 +519,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		sysLoudFailf("EXTRACT.PDLANG",
 			"AddFileMem lang.ini failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
+		if (lang_source_was_rzip) free(lang_source);
 		free(tsv_text);
 		sysMemFree(src_bytes);
 		return -1;
@@ -418,6 +529,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		sysLoudFailf("EXTRACT.PDLANG",
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
+		if (lang_source_was_rzip) free(lang_source);
 		free(tsv_text);
 		sysMemFree(src_bytes);
 		return -1;
@@ -429,6 +541,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 			"AddFileMem strings.tsv failed for bank=%d -> \"%s\"",
 			bank, dst_full);
 		modArchiveAbort(aw);
+		if (lang_source_was_rzip) free(lang_source);
 		free(tsv_text);
 		sysMemFree(src_bytes);
 		return -1;
@@ -438,6 +551,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		sysLoudFailf("EXTRACT.PDLANG",
 			"assetArchiveWriterFinishMetadata failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
+		if (lang_source_was_rzip) free(lang_source);
 		free(tsv_text);
 		sysMemFree(src_bytes);
 		return -1;
@@ -446,11 +560,13 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 	if (modArchiveFinish(aw) != 0) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"modArchiveFinish failed for \"%s\"", dst_full);
+		if (lang_source_was_rzip) free(lang_source);
 		free(tsv_text);
 		sysMemFree(src_bytes);
 		return -1;
 	}
 
+	if (lang_source_was_rzip) free(lang_source);
 	free(tsv_text);
 	sysMemFree(src_bytes);
 	return 1;
@@ -517,7 +633,7 @@ s32 romExtractAllPdlang(s32 force_rewrite)
 	 * follow-up's IDs don't collide with these. */
 	const char *locale_tag = "en";
 
-	if (romExtractPdFastCacheCanSkip("pdlang", lang_dir,
+	if (romExtractPdFastCacheCanSkip(PDLANG_FAST_CACHE_KIND, lang_dir,
 			".pdlang", force_rewrite)) {
 		bootProgressUpdate(PDLANG_BANK_MAX, PDLANG_BANK_MAX);
 		sysLogPrintf(LOG_NOTE,
@@ -552,7 +668,7 @@ s32 romExtractAllPdlang(s32 force_rewrite)
 		written, skipped, failed, PDLANG_BANK_MAX, locale_tag, lang_dir);
 
 	if (failed == 0) {
-		romExtractPdFastCacheWrite("pdlang", lang_dir, ".pdlang");
+		romExtractPdFastCacheWrite(PDLANG_FAST_CACHE_KIND, lang_dir, ".pdlang");
 	}
 
 	return written;

@@ -29,6 +29,8 @@
 #include "game/modeldef.h"  /* modeldefLoadToNewFromHandle */
 #endif
 #include "assetcatalog.h"
+#include "assetcatalog_load.h"
+#include "assetprovider.h"
 #include "catalog_mgr_heads.h"
 #include "catalog_mgr_heads_pure.h"
 #include "loader_pool.h"  /* Catalog Gate 3 F12: pool-backed source when active */
@@ -213,7 +215,25 @@ struct modeldef *catalogManagerGetHeadModeldef(s32 headnum)
 		catalogManagerHeadInit();
 	}
 	if (!s_Heads[headnum].modeldef) {
+		const char *id = catalogHeadIdByHeadnum(headnum);
 		s32 filenum = catalogGetHeadFilenumByIndex(headnum);
+
+		if (id && catalogLoadTypedAsset(ASSET_HEAD, id)) {
+			s_Heads[headnum].modeldef = catalogGetLoadedModeldef(id);
+		}
+		if (s_Heads[headnum].modeldef) {
+			return s_Heads[headnum].modeldef;
+		}
+		{
+			const asset_entry_t *e = id ? assetCatalogResolve(id) : NULL;
+			if (e && e->source.primary.provider == fileProvider()) {
+				sysLogPrintf(LOG_WARNING,
+					"CATALOG.MGR.HEAD.MISS: catalog_id=\"%s\" public source modeldef conversion failed",
+					id ? id : "(null)");
+				return NULL;
+			}
+		}
+
 		s_Heads[headnum].modeldef = modeldefLoadToNewFromHandle(
 			catalogGetHeadHandle(headnum),
 			(u16)filenum);

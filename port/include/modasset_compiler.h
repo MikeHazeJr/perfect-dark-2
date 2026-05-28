@@ -24,6 +24,7 @@ extern "C" {
 struct colmesh;
 struct modeldef;
 struct animtableentry;
+struct skeleton;
 
 typedef struct modasset_compiled_result {
 	s32 ready;
@@ -98,6 +99,10 @@ s32 modAssetCompilerBuildModeldef(const asset_entry_t *entry,
                                   struct modeldef **out_modeldef);
 
 void modAssetCompilerFreeModeldef(struct modeldef *modeldef);
+
+const char *modAssetCompilerSkeletonSymbolForPointer(
+	const struct skeleton *skeleton);
+struct skeleton *modAssetCompilerSkeletonForSymbol(const char *symbol);
 
 /**
  * Build an engine animation clip from a GLTF/GLB animation source. Static clips

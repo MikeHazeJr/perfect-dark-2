@@ -72,9 +72,37 @@
 - Typed asset archive validation now recursively checks descriptor, GLTF, OBJ/MTL, JSON, and embedded typed-archive references so clean `.pdxxx` packages fail when their authored closure is incomplete.
 - Typed asset archive validation now enforces the full planned family schema, not just the presence of an authorable file; fresh extracted base archives now pass the strict checker.
 - Typed asset archive validation now enforces definitive optional-slot contracts, including documented role/owner/load/absence/status entries for every optional public slot and `_meta/` whitelist entry.
-- Typed asset archive validation now rejects catalog-looking references that do not match actual declared/root/nested catalog IDs, including `_meta/manifest.json` dependency records.
+- Typed asset archive validation now rejects catalog-looking references that do not match actual declared/root/nested catalog IDs, including public TSV/CSV table columns and `_meta/manifest.json` dependency records.
 - Base extracted content now includes all 27 typed asset families as strict on-disk archives, and fresh extraction passes strict conformance with `--require-all-families`.
 - Runtime ROM fallback after extraction is now tracked as an Asset Pipeline failure condition; `c3844` owns removal/fatal hardening of remaining runtime fallback paths.
+- Source-only asset checks now reject raw extracted ROM cache paths such as `data/<romid>/files`, `data/<romid>/segments`, and `.bin` payloads instead of treating every FileProvider path as clean public source.
+- Scenario pads now compile from public `.pdscenario` `pads.tsv` during stage load instead of relying on the legacy pad payload when public source is available.
+- Scenario archives now include decoded public waypoint, waygroup, and cover tables, and stage load compiles those tables with public `pads.tsv` instead of disabling navigation.
+- Scenario and Mission graph sources now activate during stage load from public archive members, proving `level.graph.json` and `mission.graph.json` are accessible to the runtime before behavior parity cutover.
+- Scenario level graph table refs now select the public setup, pads, objective, and navigation source members consumed by runtime loaders.
+- Mission archives now generate objective source and parity-backend graph nodes instead of empty graph placeholders or `original_perfect_dark_setup` pointers.
+- Mission archives now generate per-objective and per-criteria graph nodes from decoded scenario objective rows, and runtime objective checks validate against the active mission graph before returning the current parity result.
+- Mission objective Enter Room, Throw In Room, and Holograph criteria now keep their mutable status in graph-owned runtime state instead of reading legacy criteria status during graph evaluation.
+- Mission objective completion/fail flag criteria now read graph-owned mission flag state instead of consulting the legacy stage-flag helper during graph evaluation.
+- Mission objective Destroy, Collect, Throw, and Holograph criteria now read tagged object present/healthy/held state from graph-owned runtime state instead of querying object and inventory state during graph evaluation.
+- Scenario setup behavior links now validate against graph-owned source records before live registration, covering linked guns, lift-door links, safe-item/padlock links, conditional scenery, and blocked paths.
+- Scenario level graphs now bind and parse public `volumes.tsv` into graph-owned trigger-volume source rows during stage load.
+- Enter Room and Throw In Room objective criteria now use graph-owned trigger-volume rows when a level graph is active, with the legacy room check kept only as the inactive-graph fallback.
+- Scenario level graphs now emit explicit trigger-volume graph nodes, and stage activation validates those nodes against public `volumes.tsv` rows before trigger-volume source can be used.
+- Scenario level graphs now emit a required global-settings source node, and stage activation validates it from public `.pdscenario::level.graph.json` before accepting the level graph.
+- Scenario source activation now derives the matching `.pdscenario` catalog row from the active stage catalog ID when no explicit scenario ref is present.
+- Mission graphs now emit required phase source nodes, and runtime records mission `load`/`active`/`complete`/`failed`/`end` transitions through the active `.pdmission` graph source.
+
+## Fixed
+
+- Fixed `.pdmesh` skeleton metadata export/loading so legacy small skeleton IDs like `SKEL_HEAD` are not treated as pointers, allowing all-model extraction and source-gated weapon matches to complete from public archive sources.
+- Fixed held weapon model loading so modeldefs resolve through catalog/FileProvider `.pdmesh::model.obj` sources and refuse ROM fallback under the asset-source contract.
+- Scenario setup overlays now compile from public `.pdscenario` setup source in source-gated match startup, and base `.pdmesh` extraction now emits every catalog model archive so scenario model references resolve under strict conformance.
+- Scenario stage load now uses public `.pdscenario` `scene.glb` or an optional collision override as the source-derived world mesh when available.
+- Scenario archives now include `setup.fields.tsv` as a named per-command setup source table, avoiding raw setup word dumps while preserving a complete authoring path for setup parity.
+- Public metadata-family typed archives now use named selector keys for game modes, bot profiles, HUD elements, effects, props, arenas, and scenarios instead of public numeric selector fields.
+- Universal extracted archive walkers now bind game-facing catalog rows to public archive-member sources such as `archive.pdxxx::scene.glb`, so runtime activation uses the same user-editable files the archives expose.
+- Weapon language IDs now preserve the full `L_GUN_*` range used by extracted weapon function labels, including DY-357 primary/secondary fire-mode text.
 - Typed `.pdxxx` examples now cover every frozen family, including projectile, entity, material, texture, and character samples, with `_meta/manifest.json` and the frozen `.pdmesh` `mesh.ini` descriptor.
 - Release packaging now fails stale typed asset outputs before zipping if they are `.pdwpn`, non-zip, descriptor-less, legacy `.pdmesh` `model.ini`, root-metadata, `.bin`-backed archives, typed-family `.zip` inspection copies, or loose extracted typed archive folders; arena/scenario extraction now also invalidates stale clean-shape caches with nested metadata clutter.
 - Saving a weapon mod now opens a confirmation modal with Creator and Display Name, derives the custom weapon catalog name as `mod:weapon_<name>`, and enables the new mod immediately.
@@ -85,9 +113,22 @@
 - Tiny Mode now leaves the player at normal size, camera height, movement scale, shadow size, and shelf-pickup range.
 - Tiny Mode is now the only small-character cheat shown in Cheats; the old Small Characters slot is hidden as a legacy id.
 
-## Fixed
-
 - Fixed base Falcon 2 Silencer/Scope weapon archives so extracted `.pdweapon` files bind to the same catalog IDs requested during mission loads, while preserving base MP weapon runtime bindings.
+- Fixed weapon source-only loading so generated `.pdweapon` archives bind as FileProvider sources for canonical base weapon IDs such as `base:dy357`.
+- Fixed DY-357 fire-mode labels under extracted weapon loading by restoring missing gun language entries and pinning `L_GUN_*` enum resolution.
+- Fixed generated body/head public-source modeldefs so extracted archive source bodies can instantiate through the character model path without falling back to Dark Combat.
+- Fixed metadata archive scanning and distribution registration so named public selector keys are consumed natively while stale numeric public selectors are rejected by conformance guards.
+- Fixed scenario source activation so authored collision can be compiled directly from public `scene.glb` when no collision override is present, with degenerate source triangles skipped instead of forcing fallback.
+- Fixed Scenario source-only playtests so setup, briefing setup, pads, and tiles now fail loudly if their stage handles still point at ROM/RomProvider instead of extracted FileProvider source.
+- Fixed source-only validation so raw extracted ROM dump/cache files cannot satisfy the public typed-archive source requirement.
+- Fixed Scenario navigation source loading so decoded waypoint, waygroup, and cover TSV files build valid runtime navigation tables from `.pdscenario` archives.
+- Fixed Scenario graph-source runtime coverage so Chicago stage load validates `base_scenario_chicago.pdscenario::level.graph.json` and `base_mission_chicago.pdmission::mission.graph.json` through real archive-member file loads.
+- Fixed Scenario graph-source selection so Chicago stage load binds `level.graph.json` table refs before compiling public pads/navigation source.
+- Fixed source-gated Scenario startup so stage-owned scenario archives bind by catalog name instead of missing the public source row.
+- Fixed stale mission archive regeneration and validation so empty `mission.graph.json` files and `original_perfect_dark_setup` objective rows are rejected.
+- Fixed mission objective graph validation so generic placeholder objective nodes are rejected and Chicago smoke proves objective checks route through `base_mission_chicago.pdmission::objectives.tsv`.
+- Fixed a source-gated Combat Simulator match crash by bounding MP setup AI-list sorting so it cannot overwrite source-compiled pad data.
+- Fixed SP-in-MP transport setup handling under the source contract so missing public setup source skips the raw overlay instead of loading raw setup data.
 - Fixed generated weapon graph/audio references so high-bit SFX aliases resolve to actual leaf `.pdsfx` catalog IDs before graph, binding, dependency, and manifest emission.
 - Fixed Dev Window v2 release commits on Git Bash/MSYS Python by running the Asset Pipeline pre-commit guard through a repository-relative path and removing the automatic hook-bypass retry.
 - Fixed typed asset extraction cleanup so arena/scenario/mesh `.zip` inspection copies do not survive fast-cache skips, and embedded arena scenario folders no longer grow duplicate nested `_meta` sidecar trees.

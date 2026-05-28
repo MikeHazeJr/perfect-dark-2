@@ -3988,13 +3988,35 @@ s32 modelTestForHit(struct model *model, struct coord *arg1, struct coord *arg2,
 	if (var) \
 		var = (void *)((uintptr_t)var + diff)
 
+#define MODEL_PROMOTE_NODE_VISIT_CAP 4096
+
 void modelPromoteNodeOffsetsToPointers(struct modelnode *node, u32 vma, uintptr_t fileramaddr)
 {
 	union modelrodata *rodata;
     uintptr_t diff = fileramaddr - vma;
+	struct modelnode *visited[MODEL_PROMOTE_NODE_VISIT_CAP];
+	s32 visited_count = 0;
 
 	while (node) {
 		u32 type = node->type & 0xff;
+		s32 seen = false;
+
+		for (s32 i = 0; i < visited_count; i++) {
+			if (visited[i] == node) {
+				seen = true;
+				break;
+			}
+		}
+
+		if (seen || visited_count >= MODEL_PROMOTE_NODE_VISIT_CAP) {
+			sysLogPrintf(LOG_WARNING,
+				"MODELDEF: promotion stopped at repeated/deep node=%p seen=%d count=%d cap=%d",
+				(void *)node, seen, visited_count,
+				MODEL_PROMOTE_NODE_VISIT_CAP);
+			return;
+		}
+
+		visited[visited_count++] = node;
 
 		PROMOTE(node->rodata);
 		PROMOTE(node->parent);
@@ -4063,6 +4085,7 @@ void modelPromoteNodeOffsetsToPointers(struct modelnode *node, u32 vma, uintptr_
 		if (node->child) {
 			node = node->child;
 		} else {
+			s32 climb_count = 0;
 			while (node) {
 				if (node->next) {
 					node = node->next;
@@ -4070,6 +4093,12 @@ void modelPromoteNodeOffsetsToPointers(struct modelnode *node, u32 vma, uintptr_
 				}
 
 				node = node->parent;
+				if (++climb_count >= MODEL_PROMOTE_NODE_VISIT_CAP) {
+					sysLogPrintf(LOG_WARNING,
+						"MODELDEF: promotion parent climb stopped at cap=%d",
+						MODEL_PROMOTE_NODE_VISIT_CAP);
+					return;
+				}
 			}
 		}
 	}

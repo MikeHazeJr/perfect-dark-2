@@ -1032,6 +1032,144 @@ static s32 distribParseAudioCategoryValue(const char *value, s32 default_categor
     return default_category;
 }
 
+static void distribLowerKey(const char *value, char *out, size_t out_n)
+{
+    if (!out || out_n == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (!value) {
+        return;
+    }
+
+    size_t i = 0;
+    while (value[i] && i + 1 < out_n) {
+        char c = (char)tolower((u8)value[i]);
+        if (c == '-' || c == ' ') {
+            c = '_';
+        }
+        out[i] = c;
+        i++;
+    }
+    out[i] = '\0';
+}
+
+static s32 distribParseNamedIntValue(const char *value, s32 default_value,
+                                     const char *const *keys,
+                                     const s32 *values, s32 count)
+{
+    if (!value || !value[0]) {
+        return default_value;
+    }
+    if (((u8)value[0] >= '0' && (u8)value[0] <= '9')
+            || value[0] == '-' || value[0] == '+') {
+        return (s32)strtol(value, NULL, 10);
+    }
+
+    char lower[64];
+    distribLowerKey(value, lower, sizeof(lower));
+    for (s32 i = 0; i < count; i++) {
+        if (strcmp(lower, keys[i]) == 0) {
+            return values[i];
+        }
+    }
+    return default_value;
+}
+
+static s32 distribParseModeKeyValue(const char *value, s32 default_value)
+{
+    static const char *const keys[] = {
+        "combat",
+        "hold_the_briefcase",
+        "hacker_central",
+        "pop_a_cap",
+        "king_of_the_hill",
+        "capture_the_case",
+    };
+    static const s32 values[] = { 0, 1, 2, 3, 4, 5 };
+    return distribParseNamedIntValue(value, default_value, keys, values,
+        (s32)(sizeof(values) / sizeof(values[0])));
+}
+
+static s32 distribParseBotTypeKeyValue(const char *value, s32 default_value)
+{
+    static const char *const keys[] = {
+        "general", "peace", "shield", "rocket", "kaze", "fist",
+        "prey", "coward", "judge", "feud", "speed", "turtle", "venge",
+    };
+    static const s32 values[] = {
+        BOTTYPE_GENERAL, BOTTYPE_PEACE, BOTTYPE_SHIELD, BOTTYPE_ROCKET,
+        BOTTYPE_KAZE, BOTTYPE_FIST, BOTTYPE_PREY, BOTTYPE_COWARD,
+        BOTTYPE_JUDGE, BOTTYPE_FEUD, BOTTYPE_SPEED, BOTTYPE_TURTLE,
+        BOTTYPE_VENGE,
+    };
+    return distribParseNamedIntValue(value, default_value, keys, values,
+        (s32)(sizeof(values) / sizeof(values[0])));
+}
+
+static s32 distribParseBotDifficultyKeyValue(const char *value, s32 default_value)
+{
+    static const char *const keys[] = {
+        "meat", "easy", "normal", "hard", "perfect", "dark",
+    };
+    static const s32 values[] = {
+        BOTDIFF_MEAT, BOTDIFF_EASY, BOTDIFF_NORMAL, BOTDIFF_HARD,
+        BOTDIFF_PERFECT, BOTDIFF_DARK,
+    };
+    return distribParseNamedIntValue(value, default_value, keys, values,
+        (s32)(sizeof(values) / sizeof(values[0])));
+}
+
+static s32 distribParseHudElementKeyValue(const char *value, s32 default_value)
+{
+    static const char *const keys[] = {
+        "crosshair", "ammo", "radar", "health", "timer", "score",
+    };
+    static const s32 values[] = {
+        HUD_ELEM_CROSSHAIR, HUD_ELEM_AMMO, HUD_ELEM_RADAR,
+        HUD_ELEM_HEALTH, HUD_ELEM_TIMER, HUD_ELEM_SCORE,
+    };
+    return distribParseNamedIntValue(value, default_value, keys, values,
+        (s32)(sizeof(values) / sizeof(values[0])));
+}
+
+static s32 distribParsePropKeyValue(const char *value, s32 default_value)
+{
+    static const char *const keys[] = {
+        "object", "door", "character", "weapon_pickup",
+        "eyespy", "player", "explosion", "smoke",
+    };
+    static const s32 values[] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+    return distribParseNamedIntValue(value, default_value, keys, values,
+        (s32)(sizeof(values) / sizeof(values[0])));
+}
+
+static s32 distribParseEffectTypeKeyValue(const char *value, s32 default_value)
+{
+    static const char *const keys[] = {
+        "tint", "glow", "shimmer", "darken", "screen", "particle",
+    };
+    static const s32 values[] = {
+        EFFECT_TYPE_TINT, EFFECT_TYPE_GLOW, EFFECT_TYPE_SHIMMER,
+        EFFECT_TYPE_DARKEN, EFFECT_TYPE_SCREEN, EFFECT_TYPE_PARTICLE,
+    };
+    return distribParseNamedIntValue(value, default_value, keys, values,
+        (s32)(sizeof(values) / sizeof(values[0])));
+}
+
+static s32 distribParseEffectTargetKeyValue(const char *value, s32 default_value)
+{
+    static const char *const keys[] = {
+        "scene", "player", "character", "prop", "weapon", "level",
+    };
+    static const s32 values[] = {
+        EFFECT_TARGET_SCENE, EFFECT_TARGET_PLAYER, EFFECT_TARGET_CHR,
+        EFFECT_TARGET_PROP, EFFECT_TARGET_WEAPON, EFFECT_TARGET_LEVEL,
+    };
+    return distribParseNamedIntValue(value, default_value, keys, values,
+        (s32)(sizeof(values) / sizeof(values[0])));
+}
+
 static void distribSetPrimaryFromFile(asset_entry_t *e, const char *dirpath, const char *relpath)
 {
     char fullpath[FS_MAXPATH];
@@ -1204,7 +1342,8 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         }
         break;
     case ASSET_PROP:
-        e->ext.prop.prop_type = iniGetInt(ini, "prop_type", 0);
+        e->ext.prop.prop_type = distribParsePropKeyValue(
+            iniGet(ini, "prop_key", iniGet(ini, "prop_type", "")), 0);
         strncpy(e->ext.prop.name, iniGet(ini, "name", ""), sizeof(e->ext.prop.name) - 1);
         strncpy(e->ext.prop.prop_file, iniGet(ini, "prop_file",
                 iniGet(ini, "file_path", "")), sizeof(e->ext.prop.prop_file) - 1);
@@ -1263,7 +1402,8 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         }
         break;
     case ASSET_GAMEMODE:
-        e->ext.gamemode.mode_id = iniGetInt(ini, "mode_id", -1);
+        e->ext.gamemode.mode_id = distribParseModeKeyValue(
+            iniGet(ini, "mode_key", iniGet(ini, "mode_id", "")), -1);
         strncpy(e->ext.gamemode.name, iniGet(ini, "name", ""),
                 sizeof(e->ext.gamemode.name) - 1);
         strncpy(e->ext.gamemode.description, iniGet(ini, "description", ""),
@@ -1313,6 +1453,9 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
             strncpy(e->ext.scenario.objects_file,
                     iniGet(ini, "objects_file", iniGet(ini, "props_file", "")),
                     sizeof(e->ext.scenario.objects_file) - 1);
+            strncpy(e->ext.scenario.setup_fields_file,
+                    iniGet(ini, "setup_fields_file", ""),
+                    sizeof(e->ext.scenario.setup_fields_file) - 1);
             strncpy(e->ext.scenario.objectives_file,
                     iniGet(ini, "objectives_file", ""),
                     sizeof(e->ext.scenario.objectives_file) - 1);
@@ -1330,9 +1473,14 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         }
         break;
     case ASSET_HUD:
-        e->ext.hud.hud_id = iniGetInt(ini, "hud_id", -1);
+        e->ext.hud.element_type = distribParseHudElementKeyValue(
+            iniGet(ini, "hud_key",
+                iniGet(ini, "element",
+                iniGet(ini, "element_type", ""))),
+            HUD_ELEM_CROSSHAIR);
+        e->ext.hud.hud_id = iniGetInt(ini, "hud_id",
+            e->ext.hud.element_type);
         strncpy(e->ext.hud.name, iniGet(ini, "name", ""), sizeof(e->ext.hud.name) - 1);
-        e->ext.hud.element_type = iniGetInt(ini, "element_type", HUD_ELEM_CROSSHAIR);
         strncpy(e->ext.hud.texture_file, iniGet(ini, "texture_file", ""),
                 sizeof(e->ext.hud.texture_file) - 1);
         strncpy(e->ext.hud.layout_file,
@@ -1383,8 +1531,12 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
     case ASSET_EFFECT:
         strncpy(e->ext.effect.name, iniGet(ini, "name", ""),
                 sizeof(e->ext.effect.name) - 1);
-        e->ext.effect.effect_type = iniGetInt(ini, "effect_type", EFFECT_TYPE_PARTICLE);
-        e->ext.effect.target = iniGetInt(ini, "target", EFFECT_TARGET_SCENE);
+        e->ext.effect.effect_type = distribParseEffectTypeKeyValue(
+            iniGet(ini, "effect_key", iniGet(ini, "effect_type", "")),
+            EFFECT_TYPE_PARTICLE);
+        e->ext.effect.target = distribParseEffectTargetKeyValue(
+            iniGet(ini, "target_key", iniGet(ini, "target", "")),
+            EFFECT_TARGET_SCENE);
         strncpy(e->ext.effect.effect_file, iniGet(ini, "effect_file",
                 iniGet(ini, "behavior_graph",
                 iniGet(ini, "file_path", ""))),
@@ -1400,8 +1552,12 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         }
         break;
     case ASSET_BOT_PROFILE:
-        e->ext.bot_profile.type = iniGetInt(ini, "type", 0);
-        e->ext.bot_profile.difficulty = iniGetInt(ini, "difficulty", 0);
+        e->ext.bot_profile.type = distribParseBotTypeKeyValue(
+            iniGet(ini, "type_key", iniGet(ini, "type", "")),
+            BOTTYPE_GENERAL);
+        e->ext.bot_profile.difficulty = distribParseBotDifficultyKeyValue(
+            iniGet(ini, "difficulty_key", iniGet(ini, "difficulty", "")),
+            BOTDIFF_NORMAL);
         e->ext.bot_profile.body = (s16)iniGetInt(ini, "body", -1);
         e->ext.bot_profile.name_langid = (s16)iniGetInt(ini, "name_langid", 0);
         e->ext.bot_profile.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);

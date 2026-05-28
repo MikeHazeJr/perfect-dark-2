@@ -12,6 +12,167 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#include "system.h"
+
+static s32 s_SetupPadFileDataSize;
+
+void setupSetPadFileDataSize(s32 size)
+{
+	s_SetupPadFileDataSize = size > 0 ? size : 0;
+}
+
+s32 setupGetPadFileDataSize(void)
+{
+	return s_SetupPadFileDataSize;
+}
+
+static bool setupPadFileContains(uintptr_t offset, s32 size)
+{
+	uintptr_t file_size = (uintptr_t)s_SetupPadFileDataSize;
+
+	return s_SetupPadFileDataSize > 0
+		&& size >= 0
+		&& offset <= file_size
+		&& (uintptr_t)size <= file_size - offset;
+}
+
+static bool setupPadFileListHasTerminator(uintptr_t offset)
+{
+	uintptr_t file_size = (uintptr_t)s_SetupPadFileDataSize;
+	uintptr_t pos;
+
+	if ((offset & (sizeof(s32) - 1)) != 0 || !setupPadFileContains(offset, sizeof(s32))) {
+		return false;
+	}
+
+	for (pos = offset; pos + sizeof(s32) <= file_size; pos += sizeof(s32)) {
+		if (*(s32 *)(g_StageSetup.padfiledata + pos) < 0) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static bool setupPromoteWaypointOffsets(void)
+{
+	struct waypoint *waypoints;
+	uintptr_t offset = g_PadsFile->waypointsoffset;
+	s32 maxwaypoints;
+	s32 numwaypoints = -1;
+	s32 i;
+
+	if ((offset & (sizeof(s32) - 1)) != 0 || !setupPadFileContains(offset, sizeof(struct waypoint))) {
+		sysLogPrintf(LOG_WARNING,
+			"SETUP.PADS: invalid waypoint table offset=%llu size=%d -- disabling waypoints",
+			(unsigned long long)offset, s_SetupPadFileDataSize);
+		g_StageSetup.waypoints = NULL;
+		return false;
+	}
+
+	waypoints = (struct waypoint *)((uintptr_t)g_StageSetup.padfiledata + offset);
+	maxwaypoints = (s32)(((uintptr_t)s_SetupPadFileDataSize - offset) / sizeof(struct waypoint));
+
+	for (i = 0; i < maxwaypoints; i++) {
+		uintptr_t neighbours;
+
+		if (waypoints[i].padnum < 0) {
+			numwaypoints = i;
+			break;
+		}
+
+		if (waypoints[i].padnum >= g_PadsFile->numpads) {
+			sysLogPrintf(LOG_WARNING,
+				"SETUP.PADS: invalid waypoint padnum index=%d padnum=%d numpads=%d -- disabling waypoints",
+				i, waypoints[i].padnum, g_PadsFile->numpads);
+			g_StageSetup.waypoints = NULL;
+			return false;
+		}
+
+		neighbours = (uintptr_t)waypoints[i].neighbours;
+
+		if (!setupPadFileListHasTerminator(neighbours)) {
+			sysLogPrintf(LOG_WARNING,
+				"SETUP.PADS: invalid waypoint neighbours index=%d offset=%llu size=%d -- disabling waypoints",
+				i, (unsigned long long)neighbours, s_SetupPadFileDataSize);
+			g_StageSetup.waypoints = NULL;
+			return false;
+		}
+	}
+
+	if (numwaypoints < 0) {
+		sysLogPrintf(LOG_WARNING,
+			"SETUP.PADS: waypoint table reached file bounds offset=%llu size=%d -- disabling waypoints",
+			(unsigned long long)offset, s_SetupPadFileDataSize);
+		g_StageSetup.waypoints = NULL;
+		return false;
+	}
+
+	for (i = 0; i < numwaypoints; i++) {
+		waypoints[i].neighbours = (s32 *)((uintptr_t)g_StageSetup.padfiledata + (uintptr_t)waypoints[i].neighbours);
+	}
+
+	g_StageSetup.waypoints = waypoints;
+	return true;
+}
+
+static bool setupPromoteWaygroupOffsets(void)
+{
+	struct waygroup *waygroups;
+	uintptr_t offset = g_PadsFile->waygroupsoffset;
+	s32 maxwaygroups;
+	s32 numwaygroups = -1;
+	s32 i;
+
+	if ((offset & (sizeof(s32) - 1)) != 0 || !setupPadFileContains(offset, sizeof(struct waygroup))) {
+		sysLogPrintf(LOG_WARNING,
+			"SETUP.PADS: invalid waygroup table offset=%llu size=%d -- disabling waygroups",
+			(unsigned long long)offset, s_SetupPadFileDataSize);
+		g_StageSetup.waygroups = NULL;
+		return false;
+	}
+
+	waygroups = (struct waygroup *)((uintptr_t)g_StageSetup.padfiledata + offset);
+	maxwaygroups = (s32)(((uintptr_t)s_SetupPadFileDataSize - offset) / sizeof(struct waygroup));
+
+	for (i = 0; i < maxwaygroups; i++) {
+		uintptr_t neighbours;
+		uintptr_t waypoints;
+
+		if (waygroups[i].neighbours == NULL) {
+			numwaygroups = i;
+			break;
+		}
+
+		neighbours = (uintptr_t)waygroups[i].neighbours;
+		waypoints = (uintptr_t)waygroups[i].waypoints;
+
+		if (!setupPadFileListHasTerminator(neighbours) || !setupPadFileListHasTerminator(waypoints)) {
+			sysLogPrintf(LOG_WARNING,
+				"SETUP.PADS: invalid waygroup lists index=%d neighbours=%llu waypoints=%llu size=%d -- disabling waygroups",
+				i, (unsigned long long)neighbours, (unsigned long long)waypoints,
+				s_SetupPadFileDataSize);
+			g_StageSetup.waygroups = NULL;
+			return false;
+		}
+	}
+
+	if (numwaygroups < 0) {
+		sysLogPrintf(LOG_WARNING,
+			"SETUP.PADS: waygroup table reached file bounds offset=%llu size=%d -- disabling waygroups",
+			(unsigned long long)offset, s_SetupPadFileDataSize);
+		g_StageSetup.waygroups = NULL;
+		return false;
+	}
+
+	for (i = 0; i < numwaygroups; i++) {
+		waygroups[i].neighbours = (s32 *)((uintptr_t)g_StageSetup.padfiledata + (uintptr_t)waygroups[i].neighbours);
+		waygroups[i].waypoints = (s32 *)((uintptr_t)g_StageSetup.padfiledata + (uintptr_t)waygroups[i].waypoints);
+	}
+
+	g_StageSetup.waygroups = waygroups;
+	return true;
+}
 
 /**
  * The function assumes that a pad file's data has been loaded from the ROM
@@ -34,8 +195,6 @@ void setupPreparePads(void)
 	s32 numpads;
 	s32 roomnum;
 	struct pad pad;
-	struct waypoint *waypoint;
-	struct waygroup *waygroup;
 	RoomNum inrooms[24];
 	RoomNum aboverooms[22];
 	s32 offset;
@@ -92,28 +251,29 @@ void setupPreparePads(void)
 		}
 	}
 
-	g_StageSetup.waypoints = (struct waypoint *) ((uintptr_t)g_StageSetup.padfiledata + g_PadsFile->waypointsoffset);
-	g_StageSetup.waygroups = (struct waygroup *) ((uintptr_t)g_StageSetup.padfiledata + g_PadsFile->waygroupsoffset);
-	g_StageSetup.cover = (void *) ((intptr_t)g_StageSetup.padfiledata + g_PadsFile->coversoffset);
+	if (!setupPromoteWaypointOffsets()) {
+		g_StageSetup.waygroups = NULL;
+	} else {
+		setupPromoteWaygroupOffsets();
+	}
+
+	if (g_PadsFile->numcovers > 0 && g_PadsFile->coversoffset != 0
+			&& g_PadsFile->numcovers <= 8192
+			&& setupPadFileContains(g_PadsFile->coversoffset,
+				(s32)(g_PadsFile->numcovers * sizeof(struct coverdefinition)))) {
+		g_StageSetup.cover = (void *) ((intptr_t)g_StageSetup.padfiledata + g_PadsFile->coversoffset);
+	} else {
+		if (g_PadsFile->numcovers > 0 || g_PadsFile->coversoffset != 0) {
+			sysLogPrintf(LOG_WARNING,
+				"SETUP.PADS: invalid cover table numcovers=%d offset=%llu size=%d -- disabling cover",
+				g_PadsFile->numcovers,
+				(unsigned long long)g_PadsFile->coversoffset,
+				s_SetupPadFileDataSize);
+		}
+		g_StageSetup.cover = NULL;
+	}
 
 	if (g_StageSetup.cover != NULL) {
 		setupPrepareCover();
-	}
-
-	// Promote offsets to pointers in waypoints
-	waypoint = g_StageSetup.waypoints;
-
-	while (waypoint->padnum >= 0) {
-		waypoint->neighbours = (s32 *)((uintptr_t)g_StageSetup.padfiledata + (uintptr_t)waypoint->neighbours);
-		waypoint++;
-	}
-
-	// Promote offsets to pointers in waygroups
-	waygroup = g_StageSetup.waygroups;
-
-	while (waygroup->neighbours != NULL) {
-		waygroup->neighbours = (s32 *)((uintptr_t)g_StageSetup.padfiledata + (uintptr_t)waygroup->neighbours);
-		waygroup->waypoints = (s32 *)((uintptr_t)g_StageSetup.padfiledata + (uintptr_t)waygroup->waypoints);
-		waygroup++;
 	}
 }

@@ -24,6 +24,8 @@
 #include <PR/ultratypes.h>
 #include <stddef.h>
 
+#include "assetcatalog.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -34,10 +36,13 @@ typedef struct {
     const char *subdir;       /* "weapons", "audio/sfx", ... (under tier_dir) */
     const char *extension;    /* ".pdweapon" / ".pdmesh" / ... (with leading dot) */
     /* When non-zero, the scaffold invokes register_fn even if the
-     * catalog row already exists. Set by the four pool kinds (weapon,
-     * head, body, arena) so the callback can populate the loader_pool
-     * payload regardless of how the row was created. Defaults to 0
-     * (Step 4 non-destructive overlay) for the nine row-only kinds. */
+     * catalog row already exists. Pool kinds (weapon, head, body,
+     * arena, animation) use this to populate loader_pool payloads
+     * regardless of how the row was created. Mesh also uses it so
+     * extracted .pdmesh source members replace earlier ROM-backed
+     * ASSET_MODEL rows while preserving runtime model indices. Defaults
+     * to 0 (Step 4 non-destructive overlay) for row-only kinds that do
+     * not need to refresh existing handles. */
     s32         always_invoke;
 } loader_walker_kind_desc_t;
 
@@ -114,6 +119,15 @@ s32 loaderWalkerEnvelopeInt(const char *json, size_t json_len,
  * out_n - 1 bytes), 0 if absent. */
 s32 loaderWalkerEnvelopeStrCopy(const char *json, size_t json_len,
                                  const char *key, char *out, size_t out_n);
+
+/* Build a FileProvider path for a member inside a typed archive. If member is
+ * NULL/empty, the archive path itself is copied. Returns 1 on success. */
+s32 loaderWalkerArchiveMemberPath(const char *archive_path,
+                                  const char *member,
+                                  char *out, size_t out_n);
+
+/* Mark a row discovered under data/<romid>/ as base extracted content. */
+void loaderWalkerMarkBaseArchiveEntry(asset_entry_t *entry);
 
 #ifdef __cplusplus
 }

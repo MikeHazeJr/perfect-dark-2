@@ -28,6 +28,8 @@
 #include "game/modeldef.h"  /* modeldefLoadToNewFromHandle */
 #endif
 #include "assetcatalog.h"
+#include "assetcatalog_load.h"
+#include "assetprovider.h"
 #include "catalog_mgr_bodies.h"
 #include "catalog_mgr_bodies_pure.h"
 #include "loader_pool.h"  /* Catalog Gate 3 Bodies F12: pool-backed source when active */
@@ -207,6 +209,19 @@ struct modeldef *catalogManagerGetBodyModeldef(s32 bodynum)
 		id = catalogBodyIdByBodynum(bodynum);
 		e = id ? assetCatalogResolve(id) : NULL;
 		fallback_filenum = e ? e->source_filenum : -1;
+
+		if (id && catalogLoadTypedAsset(ASSET_BODY, id)) {
+			s_Bodies[bodynum].modeldef = catalogGetLoadedModeldef(id);
+		}
+		if (s_Bodies[bodynum].modeldef) {
+			return s_Bodies[bodynum].modeldef;
+		}
+		if (e && e->source.primary.provider == fileProvider()) {
+			sysLogPrintf(LOG_WARNING,
+				"CATALOG.MGR.BODY.MISS: catalog_id=\"%s\" public source modeldef conversion failed",
+				id ? id : "(null)");
+			return NULL;
+		}
 
 		s_Bodies[bodynum].modeldef = modeldefLoadToNewFromHandle(
 			catalogGetBodyHandle(bodynum),

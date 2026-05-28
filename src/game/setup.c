@@ -47,6 +47,8 @@
 #include "system.h"
 #include "assetcatalog.h"
 #include "assetload.h"
+#include "asset_source_debug.h"
+#include "scenario_source_runtime.h"
 #include "net/matchsetup.h"
 
 /* Phase 3: lang manifest tracking (port/src/langmanifest.c) */
@@ -58,6 +60,19 @@ static s32 s_SetupMpCreatedWeaponCount;
 
 #define SETUP_TINY_MODE_EXTRA_SPACING 48.0f
 #define SETUP_TINY_MODE_OFFSET_ATTEMPTS 8
+
+static void setupRequireScenarioSourceHandle(const char *context,
+	const catalog_stage_result_t *stage, asset_data_handle_t handle)
+{
+	const char *stageid = "?";
+
+	if (stage && stage->entry && stage->entry->id[0]) {
+		stageid = stage->entry->id;
+	}
+
+	assetSourceDebugFatalHandleFallback(ASSET_SCENARIO, context, stageid,
+		handle);
+}
 
 struct tvscreen var80061a80 = {
 	g_TvCmdlist00, // cmdlist
@@ -606,6 +621,40 @@ static bool setupResolvePropsInLoadedSetup(struct stagesetup *setup, s32 loadeds
 	}
 
 	*props = (u32 *)propsaddr;
+	return true;
+}
+
+static bool setupResolvePointerInLoadedSetup(struct stagesetup *setup, s32 loadedsize,
+		const void *rawptr, size_t minsize, size_t align, void **out)
+{
+	uintptr_t base;
+	uintptr_t end;
+	uintptr_t raw;
+	uintptr_t addr;
+
+	if (!setup || !out || rawptr == NULL || loadedsize <= (s32)sizeof(*setup)) {
+		return false;
+	}
+
+	base = (uintptr_t)setup;
+	end = base + (uintptr_t)loadedsize;
+	raw = (uintptr_t)rawptr;
+
+	if (raw >= base && raw < end) {
+		addr = raw;
+	} else if (raw < (uintptr_t)loadedsize) {
+		addr = base + raw;
+	} else {
+		return false;
+	}
+
+	if (addr < base + sizeof(*setup)
+			|| addr + minsize > end
+			|| (align > 0 && (addr & (align - 1)) != 0)) {
+		return false;
+	}
+
+	*out = (void *)addr;
 	return true;
 }
 
@@ -1499,6 +1548,7 @@ void setupLoadBriefing(s32 stagenum, u8 *buffer, s32 bufferlen, struct briefing 
 		s32 langbufferlen;
 		struct stagesetup *setup;
 		catalog_stage_result_t stage;
+		asset_data_handle_t setup_handle = ASSET_HANDLE_NULL_INIT;
 
 		if (stageindex < 0) {
 			stageindex = 0;
@@ -1506,12 +1556,28 @@ void setupLoadBriefing(s32 stagenum, u8 *buffer, s32 bufferlen, struct briefing 
 
 		catalogGetStageResultByIndex(stageindex, &stage);
 		setupfilenum = (u16)stage.setupfileid;
+		setup_handle = stage.setup_handle;
 		g_LoadType = LOADTYPE_SETUP;
 
-		assetLoadRomToAddr(setupfilenum, FILELOADMETHOD_DEFAULT, buffer, bufferlen);
+		setupRequireScenarioSourceHandle("briefing setup", &stage, setup_handle);
+		if (assetLoadToAddr(setup_handle, FILELOADMETHOD_DEFAULT,
+				buffer, (u32)bufferlen) == NULL) {
+			sysLogPrintf(LOG_ERROR,
+				"SETUP: failed to load briefing setup fileid=%d for stage index=%d",
+				setupfilenum, stageindex);
+			g_LoadType = LOADTYPE_NONE;
+			return;
+		}
 
 		setup = (struct stagesetup *)buffer;
-		setupfilesize = fileGetLoadedSize(setupfilenum);
+		setupfilesize = assetLoadGetLoadedSize(setup_handle);
+		if (setupfilesize <= 0 || setupfilesize >= bufferlen) {
+			sysLogPrintf(LOG_ERROR,
+				"SETUP: invalid briefing setup size=%d buffer=%d fileid=%d",
+				setupfilesize, bufferlen, setupfilenum);
+			g_LoadType = LOADTYPE_NONE;
+			return;
+		}
 		langbuffer = &buffer[setupfilesize];
 		langbufferlen = bufferlen - setupfilesize;
 
@@ -1583,6 +1649,11 @@ void setupLoadFiles(s32 stagenum)
 	u16 filenum;
 	bool modified;
 	catalog_stage_result_t stage;
+	asset_data_handle_t setup_handle = ASSET_HANDLE_NULL_INIT;
+	s32 setup_loaded_size = 0;
+	s32 source_pad_size = 0;
+	s32 stage_ailist_capacity = 0;
+	s32 stage_ailist_count = 0;
 
 	sysLogPrintf(LOG_NOTE, "LOAD: setupLoadFiles(0x%02x) g_StageIndex=%d normmplay=%d", stagenum, g_StageIndex, g_Vars.normmplayerisrunning);
 	g_PadEffects = NULL;
@@ -1606,7 +1677,18 @@ void setupLoadFiles(s32 stagenum)
 		g_LoadType = LOADTYPE_SETUP;
 
 		sysLogPrintf(LOG_NOTE, "LOAD: loading setup file id=%d (mp=%d, sp=%d)", filenum, stage.mpsetupfileid, stage.setupfileid);
-		g_GeCreditsData = (u8 *)assetLoadToNew(g_Vars.normmplayerisrunning ? stage.mpsetup_handle : stage.setup_handle, FILELOADMETHOD_DEFAULT, LOADTYPE_SETUP);
+		setup_handle = g_Vars.normmplayerisrunning ? stage.mpsetup_handle : stage.setup_handle;
+		(void)scenarioSourceActivateGraphsForStage(&stage,
+			g_Vars.normmplayerisrunning);
+		g_GeCreditsData = scenarioSourceLoadSetupForStage(&stage,
+			g_Vars.normmplayerisrunning, &setup_loaded_size);
+		if (!g_GeCreditsData) {
+			setupRequireScenarioSourceHandle(
+				g_Vars.normmplayerisrunning ? "mp setup" : "setup",
+				&stage, setup_handle);
+			g_GeCreditsData = (u8 *)assetLoadToNew(setup_handle, FILELOADMETHOD_DEFAULT, LOADTYPE_SETUP);
+			setup_loaded_size = assetLoadGetLoadedSize(setup_handle);
+		}
 		setup = (struct stagesetup *)g_GeCreditsData;
 		{
 			s32 stagebank = (s32)langGetLangBankIndexFromStagenum(stagenum);
@@ -1616,8 +1698,34 @@ void setupLoadFiles(s32 stagenum)
 
 		g_StageSetup.intro = (s32 *)((uintptr_t)setup + (uintptr_t)setup->intro);
 		g_StageSetup.props = (u32 *)((uintptr_t)setup + (uintptr_t)setup->props);
-		g_StageSetup.paths = (struct path *)((uintptr_t)setup + (uintptr_t)setup->paths);
-		g_StageSetup.ailists = (struct ailist *)((uintptr_t)setup + (uintptr_t)setup->ailists);
+		if (setup->paths) {
+			void *paths_ptr = NULL;
+			if (setupResolvePointerInLoadedSetup(setup, setup_loaded_size,
+					setup->paths, sizeof(struct path), 4, &paths_ptr)) {
+				g_StageSetup.paths = (struct path *)paths_ptr;
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"SETUP: invalid paths pointer for stagenum=0x%02x file=%d size=%d raw=%p -- disabling paths",
+					stagenum, filenum, setup_loaded_size, (void *)setup->paths);
+				g_StageSetup.paths = NULL;
+			}
+		} else {
+			g_StageSetup.paths = NULL;
+		}
+		if (setup->ailists) {
+			void *ailists_ptr = NULL;
+			if (setupResolvePointerInLoadedSetup(setup, setup_loaded_size,
+					setup->ailists, sizeof(struct ailist), 4, &ailists_ptr)) {
+				g_StageSetup.ailists = (struct ailist *)ailists_ptr;
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"SETUP: invalid ailists pointer for stagenum=0x%02x file=%d size=%d raw=%p -- disabling ailists",
+					stagenum, filenum, setup_loaded_size, (void *)setup->ailists);
+				g_StageSetup.ailists = NULL;
+			}
+		} else {
+			g_StageSetup.ailists = NULL;
+		}
 
 		// PC: Validate intro command data. Mod stages may have setup files where
 		// the intro offset doesn't point to valid intro command data (e.g. it lands
@@ -1650,7 +1758,15 @@ void setupLoadFiles(s32 stagenum)
 		g_LoadType = LOADTYPE_PADS;
 
 		sysLogPrintf(LOG_NOTE, "LOAD: loading pad file id=%d", stage.padsfileid);
-		g_StageSetup.padfiledata = assetLoadToNew(stage.pads_handle, FILELOADMETHOD_DEFAULT, LOADTYPE_PADS);
+		g_StageSetup.padfiledata = scenarioSourceLoadPadsForStage(&stage,
+			g_Vars.normmplayerisrunning, &source_pad_size);
+		if (g_StageSetup.padfiledata) {
+			setupSetPadFileDataSize(source_pad_size);
+		} else {
+			setupRequireScenarioSourceHandle("pads", &stage, stage.pads_handle);
+			g_StageSetup.padfiledata = assetLoadToNew(stage.pads_handle, FILELOADMETHOD_DEFAULT, LOADTYPE_PADS);
+			setupSetPadFileDataSize(g_StageSetup.padfiledata ? assetLoadGetLoadedSize(stage.pads_handle) : 0);
+		}
 		if (!g_StageSetup.padfiledata) {
 			sysLogPrintf(LOG_ERROR, "SETUP: failed to load pads fileid=%d for stage index=%d",
 				stage.padsfileid, g_StageIndex);
@@ -1662,8 +1778,33 @@ void setupLoadFiles(s32 stagenum)
 
 		// Convert ailist pointers from file-local to proper pointers
 		if (g_StageSetup.ailists) {
-			for (i = 0; g_StageSetup.ailists[i].list != NULL; i++) {
-				g_StageSetup.ailists[i].list = (u8 *)((uintptr_t)setup + (uintptr_t)g_StageSetup.ailists[i].list);
+			uintptr_t table_addr = (uintptr_t)g_StageSetup.ailists;
+			uintptr_t setup_end = (uintptr_t)setup + (uintptr_t)setup_loaded_size;
+			stage_ailist_capacity = (s32)((setup_end - table_addr) / sizeof(struct ailist));
+
+			for (i = 0; i < stage_ailist_capacity && g_StageSetup.ailists[i].list != NULL; i++) {
+				void *list_ptr = NULL;
+				if (!setupResolvePointerInLoadedSetup(setup, setup_loaded_size,
+						g_StageSetup.ailists[i].list, 2, 1, &list_ptr)) {
+					sysLogPrintf(LOG_WARNING,
+						"SETUP: invalid ailist list pointer for stagenum=0x%02x file=%d ailist=%d id=%d raw=%p -- truncating ailists",
+						stagenum, filenum, i, g_StageSetup.ailists[i].id,
+						(void *)g_StageSetup.ailists[i].list);
+					g_StageSetup.ailists[i].list = NULL;
+					break;
+				}
+
+				g_StageSetup.ailists[i].list = (u8 *)list_ptr;
+			}
+
+			if (i >= stage_ailist_capacity) {
+				sysLogPrintf(LOG_WARNING,
+					"SETUP: ailist table for stagenum=0x%02x file=%d reached setup bounds -- disabling ailists",
+					stagenum, filenum);
+				g_StageSetup.ailists = NULL;
+				stage_ailist_count = 0;
+			} else {
+				stage_ailist_count = i;
 			}
 		}
 
@@ -1684,34 +1825,74 @@ void setupLoadFiles(s32 stagenum)
 		} while (modified);
 
 		// Sort the stage AI lists by ID asc
-		do {
-			modified = false;
+		if (g_StageSetup.ailists && stage_ailist_count > 1) {
+			do {
+				modified = false;
 
-			for (i = 0; g_StageSetup.ailists[i + 1].list != NULL; i++) {
-				if (g_StageSetup.ailists[i + 1].id < g_StageSetup.ailists[i].id) {
-					// Swap them
-					tmp = g_StageSetup.ailists[i];
-					g_StageSetup.ailists[i] = g_StageSetup.ailists[i + 1];
-					g_StageSetup.ailists[i + 1] = tmp;
+				for (i = 0; i + 1 < stage_ailist_count; i++) {
+					if (g_StageSetup.ailists[i + 1].id < g_StageSetup.ailists[i].id) {
+						// Swap them
+						tmp = g_StageSetup.ailists[i];
+						g_StageSetup.ailists[i] = g_StageSetup.ailists[i + 1];
+						g_StageSetup.ailists[i + 1] = tmp;
 
-					modified = true;
+						modified = true;
+					}
 				}
-			}
-		} while (modified);
+			} while (modified);
+		}
 
 		// Count the AI lists
 		for (g_NumGlobalAilists = 0; g_GlobalAilists[g_NumGlobalAilists].list != NULL; g_NumGlobalAilists++);
-		for (g_NumLvAilists = 0; g_StageSetup.ailists[g_NumLvAilists].list != NULL; g_NumLvAilists++);
+		if (g_StageSetup.ailists) {
+			g_NumLvAilists = stage_ailist_count;
+		} else {
+			g_NumLvAilists = 0;
+		}
 
 		// Convert path pad pointers from file-local to proper pointers
 		// and calculate the path lengths
 		if (g_StageSetup.paths) {
-			for (i = 0; g_StageSetup.paths[i].pads != NULL; i++) {
-				g_StageSetup.paths[i].pads = (s32 *)((uintptr_t)g_StageSetup.paths[i].pads + (uintptr_t)setup);
+			uintptr_t paths_base = (uintptr_t)g_StageSetup.paths;
+			uintptr_t setup_base = (uintptr_t)setup;
+			s32 max_paths = (s32)(((uintptr_t)setup + (uintptr_t)setup_loaded_size - paths_base) / sizeof(struct path));
 
-				for (j = 0; g_StageSetup.paths[i].pads[j] >= 0; j++);
+			for (i = 0; i < max_paths && g_StageSetup.paths[i].pads != NULL; i++) {
+				void *pads_ptr = NULL;
+				if (!setupResolvePointerInLoadedSetup(setup, setup_loaded_size,
+						g_StageSetup.paths[i].pads, sizeof(s32), 4, &pads_ptr)) {
+					sysLogPrintf(LOG_WARNING,
+						"SETUP: invalid path pads pointer for stagenum=0x%02x file=%d path=%d raw=%p -- disabling paths",
+						stagenum, filenum, i, (void *)g_StageSetup.paths[i].pads);
+					g_StageSetup.paths = NULL;
+					break;
+				}
+
+				g_StageSetup.paths[i].pads = (s32 *)pads_ptr;
+
+				{
+					uintptr_t pads_addr = (uintptr_t)g_StageSetup.paths[i].pads;
+					s32 max_pad_words = (s32)((setup_base + (uintptr_t)setup_loaded_size - pads_addr) / sizeof(s32));
+
+					for (j = 0; j < max_pad_words && g_StageSetup.paths[i].pads[j] >= 0; j++);
+
+					if (j >= max_pad_words) {
+						sysLogPrintf(LOG_WARNING,
+							"SETUP: path pads for stagenum=0x%02x file=%d path=%d reached setup bounds -- disabling paths",
+							stagenum, filenum, i);
+						g_StageSetup.paths = NULL;
+						break;
+					}
+				}
 
 				g_StageSetup.paths[i].len = j;
+			}
+
+			if (g_StageSetup.paths && i >= max_paths) {
+				sysLogPrintf(LOG_WARNING,
+					"SETUP: path list for stagenum=0x%02x file=%d reached setup bounds -- disabling paths",
+					stagenum, filenum);
+				g_StageSetup.paths = NULL;
 			}
 		}
 
@@ -1812,6 +1993,7 @@ void setupLoadFiles(s32 stagenum)
 		g_StageSetup.paths = NULL;
 		g_StageSetup.ailists = NULL;
 		g_StageSetup.padfiledata = NULL;
+		setupSetPadFileDataSize(0);
 
 		modelmgrAllocateSlots(0, 0);
 	}
@@ -2642,12 +2824,17 @@ void setupCreateProps(s32 stagenum)
 				case OBJTYPE_LINKGUNS:
 					{
 						struct linkgunsobj *link = (struct linkgunsobj *)obj;
-						struct weaponobj *gun1 = (struct weaponobj *)setupGetCmdByIndex(link->offset1 + index);
-						struct weaponobj *gun2 = (struct weaponobj *)setupGetCmdByIndex(link->offset2 + index);
+						s32 gun1index = link->offset1 + index;
+						s32 gun2index = link->offset2 + index;
+						struct weaponobj *gun1 = (struct weaponobj *)setupGetCmdByIndex(gun1index);
+						struct weaponobj *gun2 = (struct weaponobj *)setupGetCmdByIndex(gun2index);
 
 						if (gun1 && gun2
 								&& gun1->base.type == OBJTYPE_WEAPON
 								&& gun2->base.type == OBJTYPE_WEAPON) {
+							scenarioSourceSetupGraphRecordBehaviorLink(
+								OBJTYPE_LINKGUNS, index,
+								gun1index, gun2index, -1, -1, -1);
 							propweaponSetDual(gun1, gun2);
 						}
 					}
@@ -2657,10 +2844,16 @@ void setupCreateProps(s32 stagenum)
 						struct linkliftdoorobj *link = (struct linkliftdoorobj *)obj;
 						uintptr_t dooroffset = (uintptr_t)link->door;
 						uintptr_t liftoffset = (uintptr_t)link->lift;
-						struct defaultobj *door = setupGetObjByCmdIndex(index + dooroffset);
-						struct defaultobj *lift = setupGetObjByCmdIndex(index + liftoffset);
+						s32 doorindex = index + (s32)dooroffset;
+						s32 liftindex = index + (s32)liftoffset;
+						struct defaultobj *door = setupGetObjByCmdIndex(doorindex);
+						struct defaultobj *lift = setupGetObjByCmdIndex(liftindex);
 
 						if (door && door->prop && lift && lift->prop) {
+							scenarioSourceSetupGraphRecordBehaviorLink(
+								OBJTYPE_LINKLIFTDOOR, index,
+								doorindex, liftindex, -1,
+								link->stopnum, -1);
 							link->door = door->prop;
 							link->lift = lift->prop;
 
@@ -2676,13 +2869,19 @@ void setupCreateProps(s32 stagenum)
 						uintptr_t itemoffset = (uintptr_t)link->item;
 						uintptr_t safeoffset = (uintptr_t)link->safe;
 						uintptr_t dooroffset = (uintptr_t)link->door;
-						struct defaultobj *item = setupGetObjByCmdIndex(index + itemoffset);
-						struct defaultobj *safe = setupGetObjByCmdIndex(index + safeoffset);
-						struct defaultobj *door = setupGetObjByCmdIndex(index + dooroffset);
+						s32 itemindex = index + (s32)itemoffset;
+						s32 safeindex = index + (s32)safeoffset;
+						s32 doorindex = index + (s32)dooroffset;
+						struct defaultobj *item = setupGetObjByCmdIndex(itemindex);
+						struct defaultobj *safe = setupGetObjByCmdIndex(safeindex);
+						struct defaultobj *door = setupGetObjByCmdIndex(doorindex);
 
 						if (item && item->prop
 								&& safe && safe->prop && safe->type == OBJTYPE_SAFE
 								&& door && door->prop && door->type == OBJTYPE_DOOR) {
+							scenarioSourceSetupGraphRecordBehaviorLink(
+								OBJTYPE_SAFEITEM, index,
+								itemindex, safeindex, doorindex, -1, -1);
 							link->item = item;
 							link->safe = (struct safeobj *)safe;
 							link->door = (struct doorobj *)door;
@@ -2699,11 +2898,16 @@ void setupCreateProps(s32 stagenum)
 						struct padlockeddoorobj *link = (struct padlockeddoorobj *)obj;
 						uintptr_t dooroffset = (uintptr_t)link->door;
 						uintptr_t lockoffset = (uintptr_t)link->lock;
-						struct defaultobj *door = setupGetObjByCmdIndex(index + dooroffset);
-						struct defaultobj *lock = setupGetObjByCmdIndex(index + lockoffset);
+						s32 doorindex = index + (s32)dooroffset;
+						s32 lockindex = index + (s32)lockoffset;
+						struct defaultobj *door = setupGetObjByCmdIndex(doorindex);
+						struct defaultobj *lock = setupGetObjByCmdIndex(lockindex);
 
 						if (door && door->prop && lock && lock->prop
 								&& door->type == OBJTYPE_DOOR) {
+							scenarioSourceSetupGraphRecordBehaviorLink(
+								OBJTYPE_PADLOCKEDDOOR, index,
+								doorindex, lockindex, -1, -1, -1);
 							link->door = (struct doorobj *)door;
 							link->lock = lock;
 
@@ -2719,22 +2923,28 @@ void setupCreateProps(s32 stagenum)
 						uintptr_t triggeroffset = (uintptr_t)link->trigger;
 						uintptr_t unexpoffset = (uintptr_t)link->unexp;
 						uintptr_t expoffset = (uintptr_t)link->exp;
-						struct defaultobj *trigger = setupGetObjByCmdIndex(index + triggeroffset);
+						s32 triggerindex = index + (s32)triggeroffset;
+						s32 unexpindex = unexpoffset ? index + (s32)unexpoffset : -1;
+						s32 expindex = expoffset ? index + (s32)expoffset : -1;
+						struct defaultobj *trigger = setupGetObjByCmdIndex(triggerindex);
 						struct defaultobj *unexp = NULL;
 						struct defaultobj *exp = NULL;
 						s32 alwayszero = 0;
 
 						if (unexpoffset) {
-							unexp = setupGetObjByCmdIndex(index + unexpoffset);
+							unexp = setupGetObjByCmdIndex(unexpindex);
 						}
 
 						if (expoffset) {
-							exp = setupGetObjByCmdIndex(index + expoffset);
+							exp = setupGetObjByCmdIndex(expindex);
 						}
 
 						if (trigger && trigger->prop
 								&& (unexpoffset == 0 || (unexp && unexp->prop))
 								&& (expoffset == 0 || (exp && exp->prop))) {
+							scenarioSourceSetupGraphRecordBehaviorLink(
+								OBJTYPE_CONDITIONALSCENERY, index,
+								triggerindex, unexpindex, expindex, -1, -1);
 							link->trigger = trigger;
 							link->unexp = unexp;
 							link->exp = exp;
@@ -2769,9 +2979,15 @@ void setupCreateProps(s32 stagenum)
 					{
 						struct blockedpathobj *blockedpath = (struct blockedpathobj *)obj;
 						uintptr_t objoffset = (uintptr_t)blockedpath->blocker;
-						struct defaultobj *blocker = setupGetObjByCmdIndex(index + objoffset);
+						s32 blockerindex = index + (s32)objoffset;
+						struct defaultobj *blocker = setupGetObjByCmdIndex(blockerindex);
 
 						if (blocker && blocker->prop) {
+							scenarioSourceSetupGraphRecordBehaviorLink(
+								OBJTYPE_BLOCKEDPATH, index,
+								blockerindex, -1, -1,
+								blockedpath->waypoint1,
+								blockedpath->waypoint2);
 							blockedpath->blocker = blocker;
 
 							setupCreateBlockedPath(blockedpath);
@@ -2823,12 +3039,12 @@ void setupCreateProps(s32 stagenum)
 					stagenum == STAGE_G5BUILDING ||
 					stagenum == STAGE_PELAGIC)) {
 				catalog_stage_result_t spStage;
-				if (catalogGetStageResultByIndex(g_StageIndex, &spStage) > 0
-						&& !assetHandleIsNull(spStage.setup_handle)) {
-					struct stagesetup *spSetupHdr = (struct stagesetup *)assetLoadToNew(
-							spStage.setup_handle, FILELOADMETHOD_DEFAULT, LOADTYPE_SETUP);
+				if (catalogGetStageResultByIndex(g_StageIndex, &spStage) > 0) {
+					s32 spSetupSize = 0;
+					struct stagesetup *spSetupHdr =
+						(struct stagesetup *)scenarioSourceLoadSetupForStage(
+							&spStage, 0, &spSetupSize);
 					if (spSetupHdr) {
-						s32 spSetupSize = assetLoadGetLoadedSize(spStage.setup_handle);
 						u32 *spProps = NULL;
 						u32 *savedMpProps = g_StageSetup.props;
 
@@ -2990,7 +3206,7 @@ void setupCreateProps(s32 stagenum)
 						}
 					} else {
 						sysLogPrintf(LOG_WARNING,
-							"SETUP.LIFT: SP-in-MP stagenum=0x%02x -- failed to load SP setup blob",
+							"SETUP.LIFT: SP-in-MP stagenum=0x%02x -- public setup overlay source unavailable; skipping setup overlay",
 							(u32)stagenum);
 					}
 				}

@@ -1,0 +1,60 @@
+{
+  "scenario_name": "archive_walker_source_gate_smoke",
+  "description": "c3844 runtime smoke: force scenario loading through public .pdscenario FileProvider source and load representative archive families whose walkers bind public archive members.",
+  "tags": ["modding", "pdxxx", "source-gate", "c3844", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/loader_walker_common.c",
+    "port/src/loader_walker_scenario.c",
+    "port/src/loader_walker_sfx.c",
+    "port/src/loader_walker_lang.c",
+    "port/src/loader_walker_font.c",
+    "port/src/loader_walker_mesh.c",
+    "tools/smoke-verify/fixtures/archive_walker_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 150,
+  "install_state": "clean",
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/archive_walker_source_pd.ini", "dst": "pd.ini" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-load-catalog-assets",
+    "scenario=base:scenario_airbase,audio=base:sfx_alarm_2,lang=base:lang_ame_en,font=base:font_fontjpnsingle,model=base:model_ar34_hi,animation=base:animation_big_sneeze"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "catalog bootstrap extracts and walks base typed archives before the debug typed-load requests fire." },
+    { "at_ms": 25000, "type": "exit", "comment": "exit after representative typed-load requests have either activated or emitted source-only failures. This smoke intentionally stays out of the skip-intro stage dwell path so it only validates archive walker source binding and typed runtime activation." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=archive_walker_source_gate_smoke",
+      "LOADER\\.UNIVERSAL\\.OK: kind=scenario scanned=\\d+ registered=\\d+ envelope_failures=0 register_failures=0",
+      "LOADER\\.UNIVERSAL\\.OK: kind=sfx scanned=\\d+ registered=\\d+ envelope_failures=0 register_failures=0",
+      "LOADER\\.UNIVERSAL\\.OK: kind=lang scanned=\\d+ registered=\\d+ envelope_failures=0 register_failures=0",
+      "BOOT: --debug-load-catalog-assets request type=scenario id='base:scenario_airbase'",
+      "BOOT: --debug-load-catalog-assets result type=scenario id='base:scenario_airbase' result=OK",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_alarm_2' result=OK",
+      "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_ame_en' result=OK",
+      "BOOT: --debug-load-catalog-assets result type=font id='base:font_fontjpnsingle' result=OK",
+      "BOOT: --debug-load-catalog-assets result type=model id='base:model_ar34_hi' result=OK",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_big_sneeze' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "has no public FileProvider source",
+      "BOOT: --debug-load-catalog-assets result type=scenario id='base:scenario_airbase' result=FAIL"
+    ],
+    "required_counts": [
+      { "pattern": "BOOT: --debug-load-catalog-assets result type=scenario id='base:scenario_airbase' result=OK", "min": 1, "max": 1 }
+    ]
+  }
+}

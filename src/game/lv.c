@@ -118,6 +118,7 @@
 #include <string.h>
 #include "assetcatalog_resolve.h"
 #include "assetcatalog_load.h"
+#include "scenario_source_runtime.h"
 
 /* PC: persistent stats tracking */
 extern void statIncrement(const char *key, u64 amount);
@@ -128,7 +129,8 @@ static asset_type_e lvCatalogAssetTypeForId(const char *assetId)
 	return entry ? entry->type : ASSET_NONE;
 }
 
-static s32 lvAddLoadedCatalogColmeshes(const char *category)
+static s32 lvAddLoadedCatalogColmeshes(const char *category,
+	const char *exclude_id)
 {
 	s32 added = 0;
 	s32 total = assetCatalogGetCount();
@@ -143,6 +145,11 @@ static s32 lvAddLoadedCatalogColmeshes(const char *category)
 		s32 before;
 
 		if (!entry || !entry->occupied || entry->bundled) {
+			continue;
+		}
+
+		if (exclude_id && exclude_id[0]
+				&& strncmp(entry->id, exclude_id, CATALOG_ID_LEN) == 0) {
 			continue;
 		}
 
@@ -167,6 +174,77 @@ static s32 lvAddLoadedCatalogColmeshes(const char *category)
 	}
 
 	return added;
+}
+
+static s32 lvResolveStageForScenarioSource(s32 stagenum,
+	catalog_stage_result_t *stage)
+{
+	const struct asset_entry *modMap = assetCatalogFindModMapByStagenum(stagenum);
+	const char *stage_id = modMap ? modMap->id : catalogStageIdByStagenum(stagenum);
+
+	if (!stage || !stage_id || !stage_id[0]) {
+		return 0;
+	}
+
+	return catalogResolveStage(stage_id, stage);
+}
+
+static s32 lvAddScenarioSourceColmesh(s32 stagenum, s32 prefer_mp,
+	char *out_scenario_id, size_t out_scenario_id_n)
+{
+	catalog_stage_result_t stage;
+	const asset_entry_t *scenario;
+	struct colmesh *mesh;
+	s32 before;
+	const char *source_path;
+
+	if (out_scenario_id && out_scenario_id_n > 0) {
+		out_scenario_id[0] = '\0';
+	}
+
+	if (!lvResolveStageForScenarioSource(stagenum, &stage)) {
+		return 0;
+	}
+
+	scenario = scenarioSourceFindEntryForStage(&stage, prefer_mp);
+	if (!scenario || !scenario->id[0]) {
+		return 0;
+	}
+
+	if (!catalogLoadTypedAsset(ASSET_SCENARIO, scenario->id)) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.SOURCE: failed to activate scene source '%s'",
+			scenario->id);
+		return 0;
+	}
+
+	mesh = catalogGetLoadedColmesh(scenario->id);
+	if (!mesh || mesh->numtris <= 0) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.SOURCE: scene source '%s' produced no usable world mesh",
+			scenario->id);
+		return 0;
+	}
+
+	before = g_WorldMesh.numtris;
+	meshWorldAddMesh(mesh, NULL);
+	if (g_WorldMesh.numtris <= before) {
+		return 0;
+	}
+
+	if (out_scenario_id && out_scenario_id_n > 0) {
+		strncpy(out_scenario_id, scenario->id, out_scenario_id_n - 1);
+		out_scenario_id[out_scenario_id_n - 1] = '\0';
+	}
+
+	source_path = scenario->ext.scenario.collision_file[0]
+		? scenario->ext.scenario.collision_file
+		: scenario->ext.scenario.scene_file;
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.SOURCE: added scene colmesh '%s' tris=%d source=%s",
+		scenario->id, g_WorldMesh.numtris - before,
+		source_path && source_path[0] ? source_path : "(none)");
+	return 1;
 }
 
 /* M0.2: helper — returns true if player has any button or stick input.
@@ -505,20 +583,30 @@ void lvReset(s32 stagenum)
 		meshWorldInit();
 		{
 			s32 meshrooms = 0;
+			s32 source_mesh_added;
 			s32 meshtris_before = 0;
-			for (i = 1; i < g_Vars.roomcount; i++) {
-				meshtris_before = g_WorldMesh.numtris;
-				if (meshWorldAddRenderedRoom(i) == 0) {
-					meshWorldAddRoomGeo(i);
-				}
-				if (g_WorldMesh.numtris > meshtris_before) {
-					meshrooms++;
+			char sourceScenarioId[CATALOG_ID_LEN];
+
+			source_mesh_added = lvAddScenarioSourceColmesh(g_Vars.stagenum,
+				g_Vars.normmplayerisrunning, sourceScenarioId,
+				sizeof(sourceScenarioId));
+			if (!source_mesh_added) {
+				for (i = 1; i < g_Vars.roomcount; i++) {
+					meshtris_before = g_WorldMesh.numtris;
+					if (meshWorldAddRenderedRoom(i) == 0) {
+						meshWorldAddRoomGeo(i);
+					}
+					if (g_WorldMesh.numtris > meshtris_before) {
+						meshrooms++;
+					}
 				}
 			}
-			meshrooms += lvAddLoadedCatalogColmeshes(stageAssetCategory);
+			meshrooms += lvAddLoadedCatalogColmeshes(stageAssetCategory,
+				sourceScenarioId);
 			meshWorldFinalize();
-			sysLogPrintf(LOG_NOTE, "MESHCOL: ENABLED -- rooms=%d tris=%d",
-				meshrooms, g_WorldMesh.numtris);
+			sysLogPrintf(LOG_NOTE,
+				"MESHCOL: ENABLED -- source=%d rooms=%d tris=%d",
+				source_mesh_added, meshrooms, g_WorldMesh.numtris);
 		}
 
 		skyReset(g_Vars.stagenum);
@@ -2373,6 +2461,7 @@ void lvTick(void)
 	}
 	if (s_LvTickFirstRun) {
 		sysLogPrintf(LOG_NOTE, "TICK: lvTick enter tick=%d stagenum=0x%02x g_MpNumChrs=%d", g_Vars.lvframe60, g_Vars.stagenum, g_MpNumChrs);
+		scenarioSourceMissionGraphRecordPhase("active", "lvTick.start");
 		s_LvTickFirstRun = 0;
 	}
 
@@ -2715,13 +2804,7 @@ void lvTickPlayer(void)
 {
 	f32 xdiff;
 	f32 zdiff;
-	if (g_Vars.lvframe60 < 3) {
-		sysLogPrintf(LOG_NOTE, "TICK: lvTickPlayer playernum=%d prop=%p MpAllChr=%p frame=%d",
-			g_Vars.currentplayernum,
-			(void *)(g_Vars.currentplayer ? g_Vars.currentplayer->prop : NULL),
-			(void *)(g_MpAllChrPtrs[g_Vars.currentplayernum]),
-			g_Vars.lvframe60);
-	}
+	struct playerstats *stats;
 
 	if (var80075d64 == 2) {
 		if (var80075d68 == 2) {
@@ -2731,15 +2814,30 @@ void lvTickPlayer(void)
 		}
 	}
 
+	if (!g_Vars.currentplayer || !g_Vars.currentplayer->prop
+			|| g_Vars.currentplayernum < 0 || g_Vars.currentplayernum >= MAX_PLAYERS) {
+		return;
+	}
+
+	stats = &g_Vars.playerstats[g_Vars.currentplayernum];
+
+	if (g_Vars.currentplayerstats != stats) {
+		sysLogPrintf(LOG_WARNING,
+			"LV: distance stats using canonical player slot=%d currentstats=%p expected=%p",
+			g_Vars.currentplayernum,
+			(void *)g_Vars.currentplayerstats,
+			(void *)stats);
+	}
+
 	xdiff = g_Vars.currentplayer->prop->pos.x - g_Vars.currentplayer->bondprevpos.x;
 	zdiff = g_Vars.currentplayer->prop->pos.z - g_Vars.currentplayer->bondprevpos.z;
 
-	g_Vars.currentplayerstats->distance += sqrtf(xdiff * xdiff + zdiff * zdiff);
+	stats->distance += sqrtf(xdiff * xdiff + zdiff * zdiff);
 
 	/* PC: persistent distance stat — flush in chunks of 10000 game units
 	 * to avoid hammering the hash-table on every tick.  g_Vars.playerstats
 	 * is 1:1 with local player slot; only track local players (playernum<PLAYERCOUNT()). */
-	if (g_Vars.currentplayernum < PLAYERCOUNT() && g_Vars.currentplayerstats) {
+	if (g_Vars.currentplayernum < PLAYERCOUNT()) {
 		static f32 s_StatDistanceAccum[MAX_PLAYERS] = { 0.0f };
 		const f32 STAT_FLUSH_THRESHOLD = 10000.0f;
 		s32 pn = g_Vars.currentplayernum;

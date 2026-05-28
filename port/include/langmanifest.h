@@ -16,10 +16,11 @@
  *     Used by langSetEuropean() / langSetJpnEnabled() instead of langReload()
  *     so the manifest stays authoritative.
  *
- * Backward compatibility:
- *   langReset() continues to load the common banks (GUN, MPMENU, OPTIONS,
- *   MISC, etc.) exactly as before.  Screens that don't call langManifestEnsureId
- *   continue to work unchanged.
+ * Runtime source:
+ *   langReset(), langLoad(), and langLoadToAddr() should load the selected
+ *   LANGBANK_* through the catalog entry whose public .pdlang source exposes
+ *   strings.tsv. ROM-backed language files are bootstrap extraction input, not
+ *   the steady-state runtime source.
  *
  * Mod lang banks:
  *   Mods register catalog entries of type ASSET_LANG with an allocated bank_id.
@@ -91,6 +92,18 @@ void langManifestRecordBank(s32 bank);
  *   langManifestEnsureId("base:lang_mpmenu");
  */
 s32 langManifestEnsureId(const char *lang_id);
+
+/**
+ * Load a LANGBANK_* slot from the best enabled catalog ASSET_LANG entry.
+ *
+ * This is the bank-index bridge for legacy game code paths that still carry
+ * LANGBANK_* values. It prefers enabled mod entries over bundled base entries,
+ * then loads that entry's public FileProvider strings.tsv source into the
+ * g_LangBanks[] runtime table.
+ *
+ * Returns 1 when the bank is loaded from catalog/FileProvider source.
+ */
+s32 langManifestLoadBankFromCatalog(s32 bank);
 
 /**
  * Reload all tracked banks in the current language.

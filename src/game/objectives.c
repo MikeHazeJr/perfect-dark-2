@@ -26,6 +26,7 @@
 #include "system.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "scenario_source_runtime.h"
 
 struct objective *g_Objectives[MAX_OBJECTIVES];
 u32 g_ObjectiveStatuses[MAX_OBJECTIVES];
@@ -41,6 +42,9 @@ u32 var8009d0cc;
 s32 g_ObjectiveLastIndex = -1;
 bool g_ObjectiveChecksDisabled = false;
 bool g_DebugForceCompleteCurrentMissionObjectives = false;
+
+static bool objectiveGraphRequirementUsesObjectState(u8 type);
+static void objectiveSeedGraphObjectStates(void);
 
 #if PIRACYCHECKS
 u32 xorBaffbeff(u32 value)
@@ -110,6 +114,8 @@ void tagsReset(void)
 		tag = tag->next;
 	}
 
+	objectiveSeedGraphObjectStates();
+
 #if PIRACYCHECKS
 	{
 		// mtxGetObfuscatedRomBase() returns the value at ROM offset 0xa5c.
@@ -171,6 +177,112 @@ struct defaultobj *objFindByTagId(s32 tag_id)
 	return obj;
 }
 
+static s32 objectivePropHeldByMissionPlayer(struct prop *prop)
+{
+	s32 held = false;
+	s32 prevplayernum;
+	s32 i;
+
+	if (!prop) {
+		return false;
+	}
+
+	prevplayernum = g_Vars.currentplayernum;
+
+	for (i = 0; i < PLAYERCOUNT(); i++) {
+		if (g_Vars.players[i] &&
+				(g_Vars.players[i] == g_Vars.bond ||
+				g_Vars.players[i] == g_Vars.coop)) {
+			setCurrentPlayerNum(i);
+
+			if (invHasProp(prop)) {
+				held = true;
+				break;
+			}
+		}
+	}
+
+	setCurrentPlayerNum(prevplayernum);
+	return held;
+}
+
+void objectiveRecordObjectState(struct defaultobj *obj)
+{
+	s32 tag_id;
+	s32 present;
+	s32 healthy;
+	s32 held_by_player;
+
+	if (!scenarioSourceObjectiveGraphIsActive() || !obj) {
+		return;
+	}
+
+	tag_id = objGetTagNum(obj);
+	if (tag_id < 0) {
+		return;
+	}
+
+	present = obj->prop != NULL;
+	healthy = present && objIsHealthy(obj);
+	held_by_player = present && objectivePropHeldByMissionPlayer(obj->prop);
+
+	scenarioSourceObjectiveGraphRecordObjectState(tag_id,
+		present, healthy, held_by_player);
+}
+
+void objectiveRecordPropState(struct prop *prop)
+{
+	if (prop && prop->obj) {
+		objectiveRecordObjectState(prop->obj);
+	}
+}
+
+static void objectiveRecordMissingObjectState(s32 tag_id)
+{
+	if (scenarioSourceObjectiveGraphIsActive() && tag_id >= 0) {
+		scenarioSourceObjectiveGraphRecordObjectState(tag_id,
+			false, false, false);
+	}
+}
+
+static void objectiveSeedGraphObjectStates(void)
+{
+	s32 index;
+
+	if (!scenarioSourceObjectiveGraphIsActive()) {
+		return;
+	}
+
+	for (index = 0; index < ARRAYCOUNT(g_Objectives); index++) {
+		s32 criteria_count =
+			scenarioSourceObjectiveGraphGetCriterionCount(index);
+		s32 i;
+
+		if (criteria_count < 0) {
+			continue;
+		}
+
+		for (i = 0; i < criteria_count; i++) {
+			scenario_source_objective_operand_t operand;
+			struct defaultobj *obj;
+
+			if (!scenarioSourceObjectiveGraphGetCriterionOperand(
+					index, i, &operand) ||
+					!objectiveGraphRequirementUsesObjectState(
+					operand.type)) {
+				continue;
+			}
+
+			obj = objFindByTagId(operand.tag_id);
+			if (obj) {
+				objectiveRecordObjectState(obj);
+			} else {
+				objectiveRecordMissingObjectState(operand.tag_id);
+			}
+		}
+	}
+}
+
 s32 objectiveGetCount(void)
 {
 	return g_ObjectiveLastIndex + 1;
@@ -194,6 +306,326 @@ u32 objectiveGetDifficultyBits(s32 index)
 	return DIFFBIT_A | DIFFBIT_SA | DIFFBIT_PA | DIFFBIT_PD;
 }
 
+static s32 objectiveMergeRequirementStatus(s32 objstatus, s32 reqstatus)
+{
+	if (objstatus == OBJECTIVE_COMPLETE) {
+		if (reqstatus != OBJECTIVE_COMPLETE) {
+			return reqstatus;
+		}
+	} else if (objstatus == OBJECTIVE_INCOMPLETE) {
+		if (reqstatus == OBJECTIVE_FAILED) {
+			return reqstatus;
+		}
+	}
+
+	return objstatus;
+}
+
+static s32 objectiveEvaluateRequirement(u8 type, u32 *cmd)
+{
+	s32 reqstatus = OBJECTIVE_COMPLETE;
+
+	switch (type) {
+	case OBJECTIVETYPE_DESTROYOBJ:
+		{
+			struct defaultobj *obj = objFindByTagId(cmd[1]);
+			if (obj && obj->prop && objIsHealthy(obj)) {
+				reqstatus = OBJECTIVE_INCOMPLETE;
+			}
+		}
+		break;
+	case OBJECTIVETYPE_COMPFLAGS:
+		if (!chrHasStageFlag(NULL, cmd[1])) {
+			reqstatus = OBJECTIVE_INCOMPLETE;
+		}
+		break;
+	case OBJECTIVETYPE_FAILFLAGS:
+		if (chrHasStageFlag(NULL, cmd[1])) {
+			reqstatus = OBJECTIVE_FAILED;
+		}
+		break;
+	case OBJECTIVETYPE_COLLECTOBJ:
+		{
+			struct defaultobj *obj = objFindByTagId(cmd[1]);
+			s32 prevplayernum;
+			s32 collected = false;
+			s32 i;
+
+			if (!obj || !obj->prop || !objIsHealthy(obj)) {
+				reqstatus = OBJECTIVE_FAILED;
+			} else {
+				prevplayernum = g_Vars.currentplayernum;
+
+				for (i = 0; i < PLAYERCOUNT(); i++) {
+					if (g_Vars.players[i] == g_Vars.bond || g_Vars.players[i] == g_Vars.coop) {
+						setCurrentPlayerNum(i);
+
+						if (invHasProp(obj->prop)) {
+							collected = true;
+							break;
+						}
+					}
+				}
+
+				setCurrentPlayerNum(prevplayernum);
+
+				if (!collected) {
+					reqstatus = OBJECTIVE_INCOMPLETE;
+				}
+			}
+		}
+		break;
+	case OBJECTIVETYPE_THROWOBJ:
+		{
+			struct defaultobj *obj = objFindByTagId(cmd[1]);
+
+			if (obj && obj->prop) {
+				s32 i;
+				s32 prevplayernum = g_Vars.currentplayernum;
+
+				for (i = 0; i < PLAYERCOUNT(); i++) {
+					if (g_Vars.players[i] == g_Vars.bond || g_Vars.players[i] == g_Vars.coop) {
+						setCurrentPlayerNum(i);
+
+						if (invHasProp(obj->prop)) {
+							reqstatus = OBJECTIVE_INCOMPLETE;
+							break;
+						}
+					}
+				}
+
+				setCurrentPlayerNum(prevplayernum);
+			}
+		}
+		break;
+	case OBJECTIVETYPE_HOLOGRAPH:
+		{
+			struct defaultobj *obj = objFindByTagId(cmd[1]);
+
+			if (cmd[2] == 0) {
+				if (!obj || !obj->prop || !objIsHealthy(obj)) {
+					reqstatus = OBJECTIVE_FAILED;
+				} else {
+					reqstatus = OBJECTIVE_INCOMPLETE;
+				}
+			}
+		}
+		break;
+	case OBJECTIVETYPE_ENTERROOM:
+		if (cmd[2] == 0) {
+			reqstatus = OBJECTIVE_INCOMPLETE;
+		}
+		break;
+	case OBJECTIVETYPE_THROWINROOM:
+		if (cmd[3] == 0) {
+			reqstatus = OBJECTIVE_INCOMPLETE;
+		}
+		break;
+	case OBJTYPE_BEGINOBJECTIVE:
+	case OBJTYPE_ENDOBJECTIVE:
+		break;
+	}
+
+	return reqstatus;
+}
+
+static bool objectiveGraphRequirementUsesRuntimeStatus(u8 type)
+{
+	return type == OBJECTIVETYPE_HOLOGRAPH ||
+		type == OBJECTIVETYPE_ENTERROOM ||
+		type == OBJECTIVETYPE_THROWINROOM;
+}
+
+static bool objectiveGraphRequirementUsesMissionFlags(u8 type)
+{
+	return type == OBJECTIVETYPE_COMPFLAGS ||
+		type == OBJECTIVETYPE_FAILFLAGS;
+}
+
+static bool objectiveGraphRequirementUsesObjectState(u8 type)
+{
+	return type == OBJECTIVETYPE_DESTROYOBJ ||
+		type == OBJECTIVETYPE_COLLECTOBJ ||
+		type == OBJECTIVETYPE_THROWOBJ ||
+		type == OBJECTIVETYPE_HOLOGRAPH;
+}
+
+static s32 objectiveEvaluateGraphRequirement(
+	const scenario_source_objective_operand_t *operand)
+{
+	s32 reqstatus = OBJECTIVE_COMPLETE;
+	s32 has_stage_flag = false;
+
+	if (!operand) {
+		return OBJECTIVE_INCOMPLETE;
+	}
+
+	switch (operand->type) {
+	case OBJECTIVETYPE_DESTROYOBJ:
+		if (operand->runtime_object_present &&
+				operand->runtime_object_healthy) {
+			reqstatus = OBJECTIVE_INCOMPLETE;
+		}
+		break;
+	case OBJECTIVETYPE_COMPFLAGS:
+		scenarioSourceObjectiveGraphHasStageFlag(
+			operand->stage_flag_mask, &has_stage_flag);
+		if (!has_stage_flag) {
+			reqstatus = OBJECTIVE_INCOMPLETE;
+		}
+		break;
+	case OBJECTIVETYPE_FAILFLAGS:
+		scenarioSourceObjectiveGraphHasStageFlag(
+			operand->stage_flag_mask, &has_stage_flag);
+		if (has_stage_flag) {
+			reqstatus = OBJECTIVE_FAILED;
+		}
+		break;
+	case OBJECTIVETYPE_COLLECTOBJ:
+		if (!operand->runtime_object_present ||
+				!operand->runtime_object_healthy) {
+			reqstatus = OBJECTIVE_FAILED;
+		} else if (!operand->runtime_object_held_by_player) {
+			reqstatus = OBJECTIVE_INCOMPLETE;
+		}
+		break;
+	case OBJECTIVETYPE_THROWOBJ:
+		if (operand->runtime_object_present &&
+				operand->runtime_object_held_by_player) {
+			reqstatus = OBJECTIVE_INCOMPLETE;
+		}
+		break;
+	case OBJECTIVETYPE_HOLOGRAPH:
+		if (operand->runtime_status_valid &&
+				operand->runtime_status ==
+				OBJECTIVE_INCOMPLETE) {
+			if (!operand->runtime_object_present ||
+					!operand->runtime_object_healthy) {
+				reqstatus = OBJECTIVE_FAILED;
+			} else {
+				reqstatus = OBJECTIVE_INCOMPLETE;
+			}
+		}
+		break;
+	case OBJECTIVETYPE_ENTERROOM:
+		if (operand->runtime_status_valid &&
+				operand->runtime_status == OBJECTIVE_INCOMPLETE) {
+			reqstatus = OBJECTIVE_INCOMPLETE;
+		}
+		break;
+	case OBJECTIVETYPE_THROWINROOM:
+		if (operand->runtime_status_valid &&
+				operand->runtime_status == OBJECTIVE_INCOMPLETE) {
+			reqstatus = OBJECTIVE_INCOMPLETE;
+		}
+		break;
+	case OBJTYPE_BEGINOBJECTIVE:
+	case OBJTYPE_ENDOBJECTIVE:
+		break;
+	}
+
+	return reqstatus;
+}
+
+static bool objectiveCheckGraphSource(s32 index, s32 *out_status)
+{
+	u32 *cmd;
+	s32 objstatus = OBJECTIVE_COMPLETE;
+	s32 criteria_count;
+	s32 i;
+
+	if (!out_status || !scenarioSourceObjectiveGraphIsActive()) {
+		return false;
+	}
+	if (index < 0 || index >= ARRAYCOUNT(g_Objectives)
+			|| g_Objectives[index] == NULL) {
+		scenarioSourceObjectiveGraphReportRuntimeMismatch(index,
+			"evaluate", "missing runtime objective");
+		return false;
+	}
+
+	criteria_count = scenarioSourceObjectiveGraphGetCriterionCount(index);
+	if (criteria_count < 0) {
+		scenarioSourceObjectiveGraphReportRuntimeMismatch(index,
+			"evaluate", "missing objective source node");
+		return false;
+	}
+
+	cmd = (u32 *)g_Objectives[index];
+	if ((u8)PD_BE32(cmd[0]) != OBJTYPE_BEGINOBJECTIVE) {
+		scenarioSourceObjectiveGraphReportRuntimeMismatch(index,
+			"evaluate", "objective command stream missing begin node");
+		return false;
+	}
+	cmd = cmd + setupGetCmdLength(cmd);
+
+	for (i = 0; i < criteria_count; i++) {
+		u8 expected_type;
+		u8 runtime_type = (u8)PD_BE32(cmd[0]);
+		scenario_source_objective_operand_t operand;
+
+		if (!scenarioSourceObjectiveGraphGetCriterionType(index, i,
+				&expected_type)) {
+			scenarioSourceObjectiveGraphReportRuntimeMismatch(index,
+				"evaluate", "missing criteria source node");
+			return false;
+		}
+		if (runtime_type == OBJTYPE_ENDOBJECTIVE) {
+			scenarioSourceObjectiveGraphReportRuntimeMismatch(index,
+				"evaluate", "runtime has fewer criteria than graph source");
+			return false;
+		}
+		if (runtime_type != expected_type) {
+			scenarioSourceObjectiveGraphReportRuntimeMismatch(index,
+				"evaluate", "criteria type differs from graph source");
+			return false;
+		}
+		if (!scenarioSourceObjectiveGraphGetCriterionOperand(index, i,
+				&operand)) {
+			scenarioSourceObjectiveGraphReportRuntimeMismatch(index,
+				"evaluate", "missing criteria graph operand");
+			return false;
+		}
+		if (objectiveGraphRequirementUsesRuntimeStatus(operand.type) &&
+				!operand.runtime_status_valid) {
+			scenarioSourceObjectiveGraphReportRuntimeMismatch(index,
+				"evaluate", "missing criteria graph runtime status");
+			return false;
+		}
+		if (objectiveGraphRequirementUsesMissionFlags(operand.type) &&
+				!scenarioSourceObjectiveGraphHasStageFlag(
+				operand.stage_flag_mask, NULL)) {
+			scenarioSourceObjectiveGraphReportRuntimeMismatch(index,
+				"evaluate", "missing graph mission flag state");
+			return false;
+		}
+		if (objectiveGraphRequirementUsesObjectState(operand.type) &&
+				!operand.runtime_object_state_valid) {
+			scenarioSourceObjectiveGraphReportRuntimeMismatch(index,
+				"evaluate", "missing graph object state");
+			return false;
+		}
+
+		objstatus = objectiveMergeRequirementStatus(objstatus,
+			objectiveEvaluateGraphRequirement(&operand));
+		cmd = cmd + setupGetCmdLength(cmd);
+	}
+
+	if ((u8)PD_BE32(cmd[0]) != OBJTYPE_ENDOBJECTIVE) {
+		scenarioSourceObjectiveGraphReportRuntimeMismatch(index,
+			"evaluate", "runtime has more criteria than graph source");
+		return false;
+	}
+
+	if (!scenarioSourceObjectiveGraphRecordEvaluate(index,
+			criteria_count)) {
+		return false;
+	}
+
+	*out_status = objstatus;
+	return true;
+}
+
 /**
  * Check if an objective is complete.
  *
@@ -213,6 +645,8 @@ s32 objectiveCheck(s32 index)
 	if (index < ARRAYCOUNT(g_Objectives)) {
 		if (g_Objectives[index] == NULL) {
 			objstatus = g_ObjectiveStatuses[index];
+		} else if (objectiveCheckGraphSource(index, &objstatus)) {
+			/* Graph-driven path used. */
 		} else {
 			// Note: This is setting the cmd pointer to the start of the
 			// beginobjective macro in the stage's setup file. The first
@@ -220,123 +654,8 @@ s32 objectiveCheck(s32 index)
 			u32 *cmd = (u32 *)g_Objectives[index];
 
 			while ((u8)PD_BE32(cmd[0]) != OBJTYPE_ENDOBJECTIVE) {
-				// The status of this requirement
-				s32 reqstatus = OBJECTIVE_COMPLETE;
-
-				switch ((u8)PD_BE32(cmd[0])) {
-				case OBJECTIVETYPE_DESTROYOBJ:
-					{
-						struct defaultobj *obj = objFindByTagId(cmd[1]);
-						if (obj && obj->prop && objIsHealthy(obj)) {
-							reqstatus = OBJECTIVE_INCOMPLETE;
-						}
-					}
-					break;
-				case OBJECTIVETYPE_COMPFLAGS:
-					if (!chrHasStageFlag(NULL, cmd[1])) {
-						reqstatus = OBJECTIVE_INCOMPLETE;
-					}
-					break;
-				case OBJECTIVETYPE_FAILFLAGS:
-					if (chrHasStageFlag(NULL, cmd[1])) {
-						reqstatus = OBJECTIVE_FAILED;
-					}
-					break;
-				case OBJECTIVETYPE_COLLECTOBJ:
-					{
-						struct defaultobj *obj = objFindByTagId(cmd[1]);
-						s32 prevplayernum;
-						s32 collected = false;
-						s32 i;
-
-						if (!obj || !obj->prop || !objIsHealthy(obj)) {
-							reqstatus = OBJECTIVE_FAILED;
-						} else {
-							prevplayernum = g_Vars.currentplayernum;
-
-							for (i = 0; i < PLAYERCOUNT(); i++) {
-								if (g_Vars.players[i] == g_Vars.bond || g_Vars.players[i] == g_Vars.coop) {
-									setCurrentPlayerNum(i);
-
-									if (invHasProp(obj->prop)) {
-										collected = true;
-										break;
-									}
-								}
-							}
-
-							setCurrentPlayerNum(prevplayernum);
-
-							if (!collected) {
-								reqstatus = OBJECTIVE_INCOMPLETE;
-							}
-						}
-					}
-					break;
-				case OBJECTIVETYPE_THROWOBJ:
-					{
-						struct defaultobj *obj = objFindByTagId(cmd[1]);
-
-						if (obj && obj->prop) {
-							s32 i;
-							s32 prevplayernum = g_Vars.currentplayernum;
-
-							for (i = 0; i < PLAYERCOUNT(); i++) {
-								if (g_Vars.players[i] == g_Vars.bond || g_Vars.players[i] == g_Vars.coop) {
-									setCurrentPlayerNum(i);
-
-									if (invHasProp(obj->prop)) {
-										reqstatus = OBJECTIVE_INCOMPLETE;
-										break;
-									}
-								}
-							}
-
-							setCurrentPlayerNum(prevplayernum);
-						}
-					}
-					break;
-				case OBJECTIVETYPE_HOLOGRAPH:
-					{
-						struct defaultobj *obj = objFindByTagId(cmd[1]);
-
-						if (cmd[2] == 0) {
-							if (!obj || !obj->prop || !objIsHealthy(obj)) {
-								reqstatus = OBJECTIVE_FAILED;
-							} else {
-								reqstatus = OBJECTIVE_INCOMPLETE;
-							}
-						}
-					}
-					break;
-				case OBJECTIVETYPE_ENTERROOM:
-					if (cmd[2] == 0) {
-						reqstatus = OBJECTIVE_INCOMPLETE;
-					}
-					break;
-				case OBJECTIVETYPE_THROWINROOM:
-					if (cmd[3] == 0) {
-						reqstatus = OBJECTIVE_INCOMPLETE;
-					}
-					break;
-				case OBJTYPE_BEGINOBJECTIVE:
-				case OBJTYPE_ENDOBJECTIVE:
-					break;
-				}
-
-				if (objstatus == OBJECTIVE_COMPLETE) {
-					if (reqstatus != OBJECTIVE_COMPLETE) {
-						// This is the first requirement that is causing the
-						// objective to not be complete, so apply it.
-						objstatus = reqstatus;
-					}
-				} else if (objstatus == OBJECTIVE_INCOMPLETE) {
-					if (reqstatus == OBJECTIVE_FAILED) {
-						// An earlier requirement was incomplete,
-						// and this requirement is failed.
-						objstatus = reqstatus;
-					}
-				}
+				objstatus = objectiveMergeRequirementStatus(objstatus,
+					objectiveEvaluateRequirement((u8)PD_BE32(cmd[0]), cmd));
 
 				cmd = cmd + setupGetCmdLength(cmd);
 			}
@@ -347,7 +666,7 @@ s32 objectiveCheck(s32 index)
 		objstatus = OBJECTIVE_COMPLETE;
 	}
 
-	return objstatus;
+	return scenarioSourceObjectiveGraphRecordCheck(index, objstatus);
 }
 
 s32 objectivesDebugCompleteCurrentMission(void)
@@ -390,11 +709,16 @@ bool objectiveIsAllComplete(void)
 			}
 
 			if (status != OBJECTIVE_COMPLETE) {
+				scenarioSourceMissionGraphRecordPhase(
+					status == OBJECTIVE_FAILED ? "failed" : "active",
+					"objectiveIsAllComplete");
 				return false;
 			}
 		}
 	}
 
+	scenarioSourceMissionGraphRecordPhase("complete",
+		"objectiveIsAllComplete");
 	return true;
 }
 
@@ -427,6 +751,9 @@ void objectivesShowHudmsg(char *buffer, s32 hudmsgtype)
 void objectivesCheckAll(void)
 {
 	s32 availableindex = 0;
+	s32 any_active_objective = 0;
+	s32 any_failed_objective = 0;
+	s32 all_active_objectives_complete = 1;
 	s32 i;
 	char buffer[50] = "";
 
@@ -492,8 +819,23 @@ void objectivesCheckAll(void)
 			}
 
 			if (objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty())) {
+				any_active_objective = 1;
+				if (status == OBJECTIVE_FAILED) {
+					any_failed_objective = 1;
+				}
+				if (status != OBJECTIVE_COMPLETE) {
+					all_active_objectives_complete = 0;
+				}
 				availableindex++;
 			}
+		}
+
+		if (any_active_objective) {
+			scenarioSourceMissionGraphRecordPhase(
+				any_failed_objective ? "failed" :
+					(all_active_objectives_complete ? "complete" :
+						"active"),
+				"objectives.check");
 		}
 	}
 }
@@ -504,10 +846,19 @@ void objectiveCheckRoomEntered(s32 currentroom)
 
 	while (criteria) {
 		if (criteria->status == OBJECTIVE_INCOMPLETE) {
-			s32 room = chrGetPadRoom(NULL, criteria->pad);
+			s32 graph_matched = 0;
+			s32 graph_checked =
+				scenarioSourceLevelGraphCheckPadRoom(criteria->pad,
+					currentroom, "objective.enter_room",
+					&graph_matched);
+			s32 legacy_room = graph_checked ? -1 :
+				chrGetPadRoom(NULL, criteria->pad);
 
-			if (room >= 0 && room == currentroom) {
+			if (graph_checked ? graph_matched :
+					(legacy_room >= 0 && legacy_room == currentroom)) {
 				criteria->status = OBJECTIVE_COMPLETE;
+				scenarioSourceObjectiveGraphRecordCriterionStatus(
+					criteria, criteria->status);
 			}
 		}
 
@@ -521,16 +872,46 @@ void objectiveCheckThrowInRoom(s32 arg0, RoomNum *inrooms)
 
 	while (criteria) {
 		if (criteria->status == OBJECTIVE_INCOMPLETE && criteria->unk04 == arg0) {
-			s32 room = chrGetPadRoom(NULL, criteria->pad);
+			s32 graph_checked = 0;
+			s32 graph_matched = 0;
+			s32 complete = 0;
 
-			if (room >= 0) {
-				RoomNum requirerooms[2];
-				requirerooms[0] = room;
-				requirerooms[1] = -1;
+			if (inrooms) {
+				s32 i;
 
-				if (arrayIntersects(requirerooms, inrooms)) {
-					criteria->status = OBJECTIVE_COMPLETE;
+				for (i = 0; inrooms[i] != -1; i++) {
+					s32 room_matched = 0;
+
+					if (scenarioSourceLevelGraphCheckPadRoom(
+							criteria->pad, inrooms[i],
+							"objective.throw_in_room",
+							&room_matched)) {
+						graph_checked = 1;
+						if (room_matched) {
+							graph_matched = 1;
+							break;
+						}
+					}
 				}
+			}
+
+			if (graph_checked) {
+				complete = graph_matched;
+			} else {
+				s32 room = chrGetPadRoom(NULL, criteria->pad);
+
+				if (room >= 0) {
+					RoomNum requirerooms[2];
+					requirerooms[0] = room;
+					requirerooms[1] = -1;
+					complete = arrayIntersects(requirerooms, inrooms);
+				}
+			}
+
+			if (complete) {
+				criteria->status = OBJECTIVE_COMPLETE;
+				scenarioSourceObjectiveGraphRecordCriterionStatus(
+					criteria, criteria->status);
 			}
 		}
 
@@ -545,6 +926,8 @@ void objectiveCheckHolograph(f32 maxdist)
 	while (criteria) {
 		if (g_Vars.stagenum == STAGE_CITRAINING) {
 			criteria->status = OBJECTIVE_INCOMPLETE;
+			scenarioSourceObjectiveGraphRecordCriterionStatus(
+				criteria, criteria->status);
 		}
 
 		if (criteria->status == OBJECTIVE_INCOMPLETE) {
@@ -580,6 +963,8 @@ void objectiveCheckHolograph(f32 maxdist)
 							&& sp70[1] > camGetScreenTop()
 							&& sp70[1] < camGetScreenTop() + camGetScreenHeight()) {
 						criteria->status = OBJECTIVE_COMPLETE;
+						scenarioSourceObjectiveGraphRecordCriterionStatus(
+							criteria, criteria->status);
 
 						if (g_Vars.stagenum == STAGE_CITRAINING) {
 							struct trainingdata *data = dtGetData();

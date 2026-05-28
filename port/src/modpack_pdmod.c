@@ -381,7 +381,7 @@ static const char *packerSidecarTemplate(const char *leaf)
 	}
 	if (strcmp(leaf, "objectives.tsv") == 0) {
 		return
-			"objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\n";
+			"objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\toperand_kind\ttarget_ref\ttarget_record_ref\tpad_ref\tstate_ref\tmatch_value\tinitial_status\n";
 	}
 	if (strcmp(leaf, "navigation.ini") == 0) {
 		return
@@ -739,7 +739,7 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 	};
 	static const char *scenarioOptionalKeys[] = {
 		"collision_file", "collision_source_file", "collision_source",
-		"objects_file", "objectives_file", "tiles_file",
+		"objects_file", "setup_fields_file", "objectives_file", "tiles_file",
 		"pads_file", "spawns_file", "volumes_file",
 		"navigation_file", "level_graph_file",
 		"material_file", "texture_file", "texture_manifest_file",
@@ -1154,7 +1154,7 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 	};
 	static const char *scenarioOptionalKeys[] = {
 		"collision_file", "collision_source_file", "collision_source",
-		"objects_file", "objectives_file", "tiles_file",
+		"objects_file", "setup_fields_file", "objectives_file", "tiles_file",
 		"pads_file", "spawns_file", "volumes_file",
 		"navigation_file", "level_graph_file",
 		"material_file", "texture_file", "texture_manifest_file",

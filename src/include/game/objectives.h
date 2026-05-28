@@ -33,6 +33,8 @@ void objectivesCheckAll(void);
 void objectiveCheckRoomEntered(s32 currentroom);
 void objectiveCheckThrowInRoom(s32 arg0, RoomNum *requiredrooms);
 void objectiveCheckHolograph(f32 sqdist);
+void objectiveRecordObjectState(struct defaultobj *obj);
+void objectiveRecordPropState(struct prop *prop);
 struct prop *chopperGetTargetProp(struct chopperobj *heli);
 struct defaultobj *objFindByTagId(s32 tag_id);
 struct tag *tagFindById(s32 tag_id);

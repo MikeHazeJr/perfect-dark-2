@@ -2119,6 +2119,8 @@ void propsTickPlayer(bool islastplayer)
 	u16 least;
 	u16 most;
 	s32 i;
+	s32 roomidx;
+	s32 roomnum;
 	bool done;
 	struct chrdata *chr1;
 	struct chrdata *chr2;
@@ -2240,12 +2242,25 @@ void propsTickPlayer(bool islastplayer)
 		// If the prop is in an on-screen room, it's in the foreground
 		rooms = prop->rooms;
 
-		while (*rooms != -1) {
-			if (g_Rooms[*rooms].flags & ROOMFLAG_ONSCREEN) {
-				i++;
+		for (roomidx = 0; roomidx < ARRAYCOUNT(prop->rooms) && rooms[roomidx] != -1; roomidx++) {
+			roomnum = rooms[roomidx];
+
+			if (roomnum < 0 || roomnum >= g_Vars.roomcount || g_Rooms == NULL) {
+				if (g_Vars.lvframe60 < 3) {
+					sysLogPrintf(LOG_WARNING,
+						"PROP: invalid prop room prop=%p type=%d room=%d roomcount=%d index=%d",
+						(void *)prop,
+						prop->type,
+						roomnum,
+						g_Vars.roomcount,
+						roomidx);
+				}
+				continue;
 			}
 
-			rooms++;
+			if (g_Rooms[roomnum].flags & ROOMFLAG_ONSCREEN) {
+				i++;
+			}
 		}
 
 		if (i == 0) {
@@ -2274,15 +2289,28 @@ void propsTickPlayer(bool islastplayer)
 				} else {
 					rooms = prop->rooms;
 
-					while (*rooms != -1) {
-						if (g_Rooms[*rooms].flags & ROOMFLAG_STANDBY) {
-							break;
+					for (roomidx = 0; roomidx < ARRAYCOUNT(prop->rooms) && rooms[roomidx] != -1; roomidx++) {
+						roomnum = rooms[roomidx];
+
+						if (roomnum < 0 || roomnum >= g_Vars.roomcount || g_Rooms == NULL) {
+							if (g_Vars.lvframe60 < 3) {
+								sysLogPrintf(LOG_WARNING,
+									"PROP: invalid standby room prop=%p type=%d room=%d roomcount=%d index=%d",
+									(void *)prop,
+									prop->type,
+									roomnum,
+									g_Vars.roomcount,
+									roomidx);
+							}
+							continue;
 						}
 
-						rooms++;
+						if (g_Rooms[roomnum].flags & ROOMFLAG_STANDBY) {
+							break;
+						}
 					}
 
-					if (*rooms != -1) {
+					if (roomidx < ARRAYCOUNT(prop->rooms) && rooms[roomidx] != -1) {
 						i++;
 					}
 				}

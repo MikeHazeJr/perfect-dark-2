@@ -12,6 +12,7 @@
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "fs.h"
 #include "loader_walker.h"
 #include "loader_walker_common.h"
 
@@ -19,10 +20,24 @@ static s32 s_register(const char *manifest, size_t manifest_len,
                       const char *pd_kind, const char *id,
                       const char *file_path)
 {
-    (void)pd_kind; (void)file_path;
+    (void)pd_kind;
 
     asset_entry_t *e = assetCatalogRegister(id, ASSET_FONT);
     if (!e) return -1;
+    loaderWalkerMarkBaseArchiveEntry(e);
+
+    char source_member[128];
+    char source_path[FS_MAXPATH + 1];
+    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "font",
+                                     source_member, sizeof(source_member))
+            && !loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "glyphs",
+                                            source_member, sizeof(source_member))) {
+        snprintf(source_member, sizeof(source_member), "font.otf");
+    }
+    if (loaderWalkerArchiveMemberPath(file_path, source_member,
+                                      source_path, sizeof(source_path))) {
+        catalogSetPrimaryFile(e, source_path);
+    }
 
     /* Engine Phase 4: walker may run from boot-pool workers; build the
      * "font:<face>" string locally and route the field-fill through the

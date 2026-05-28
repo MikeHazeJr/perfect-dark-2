@@ -105,6 +105,68 @@ static void fsCopyArchiveEntryName(const char *entry, char *out, size_t outSize)
 	out[i] = '\0';
 }
 
+static void *fsTerminateArchiveBytes(void *raw, u32 entrySize, u32 *outSize)
+{
+	void *out;
+
+	if (!raw) {
+		return NULL;
+	}
+
+	out = realloc(raw, (size_t)entrySize + 1);
+	if (!out) {
+		free(raw);
+		return NULL;
+	}
+
+	((u8 *)out)[entrySize] = 0;
+	if (outSize) {
+		*outSize = entrySize;
+	}
+	return out;
+}
+
+static void *fsExtractNestedArchiveChain(void *archiveBytes, u32 archiveSize,
+		const char *entryChain, u32 *outSize)
+{
+	char entryName[FS_MAXPATH + 1];
+	char nestedName[FS_MAXPATH + 1];
+	const char *sep;
+	u32 entrySize = 0;
+	void *raw;
+
+	if (!archiveBytes || archiveSize == 0 || !entryChain || !entryChain[0]) {
+		return NULL;
+	}
+
+	sep = fsNestedArchiveSeparator(entryChain);
+	if (sep) {
+		size_t entryLen = (size_t)(sep - entryChain);
+		if (entryLen == 0 || entryLen >= sizeof(entryName)) {
+			return NULL;
+		}
+		memcpy(entryName, entryChain, entryLen);
+		entryName[entryLen] = '\0';
+		fsCopyArchiveEntryName(entryName, nestedName, sizeof(nestedName));
+		raw = modArchiveExtractMemAlloc(archiveBytes, archiveSize,
+			nestedName, &entrySize);
+		if (!raw) {
+			return NULL;
+		}
+		void *out = fsExtractNestedArchiveChain(raw, entrySize, sep + 2, outSize);
+		free(raw);
+		return out;
+	}
+
+	fsCopyArchiveEntryName(entryChain, entryName, sizeof(entryName));
+	if (!entryName[0]) {
+		return NULL;
+	}
+
+	raw = modArchiveExtractMemAlloc(archiveBytes, archiveSize, entryName, &entrySize);
+	return fsTerminateArchiveBytes(raw, entrySize, outSize);
+}
+
 static void *fsLoadNestedArchiveEntry(const char *name, u32 *outSize)
 {
 	const char *sep = fsNestedArchiveSeparator(name);
@@ -131,23 +193,10 @@ static void *fsLoadNestedArchiveEntry(const char *name, u32 *outSize)
 		u32 archiveSize = 0;
 		void *archiveBytes = modVfsResolveAnyAlloc(archiveName, &archiveSize, NULL, 0);
 		if (archiveBytes) {
-			u32 entrySize = 0;
-			void *raw = modArchiveExtractMemAlloc(archiveBytes, archiveSize,
-				entryName, &entrySize);
+			void *raw = fsExtractNestedArchiveChain(archiveBytes, archiveSize,
+				entryName, outSize);
 			free(archiveBytes);
-			if (!raw) {
-				return NULL;
-			}
-			void *out = realloc(raw, (size_t)entrySize + 1);
-			if (!out) {
-				free(raw);
-				return NULL;
-			}
-			((u8 *)out)[entrySize] = 0;
-			if (outSize) {
-				*outSize = entrySize;
-			}
-			return out;
+			return raw;
 		}
 	}
 #endif
@@ -160,7 +209,21 @@ static void *fsLoadNestedArchiveEntry(const char *name, u32 *outSize)
 		return NULL;
 	}
 
-	s32 idx = modArchiveFindEntry(arc, entryName);
+	char topEntry[FS_MAXPATH + 1];
+	const char *nestedSep = fsNestedArchiveSeparator(entryName);
+	if (nestedSep) {
+		size_t topLen = (size_t)(nestedSep - entryName);
+		if (topLen == 0 || topLen >= sizeof(topEntry)) {
+			modArchiveClose(arc);
+			return NULL;
+		}
+		memcpy(topEntry, entryName, topLen);
+		topEntry[topLen] = '\0';
+	} else {
+		snprintf(topEntry, sizeof(topEntry), "%s", entryName);
+	}
+
+	s32 idx = modArchiveFindEntry(arc, topEntry);
 	if (idx < 0) {
 		modArchiveClose(arc);
 		return NULL;
@@ -169,20 +232,13 @@ static void *fsLoadNestedArchiveEntry(const char *name, u32 *outSize)
 	u32 entrySize = 0;
 	void *raw = modArchiveExtractAlloc(arc, idx, &entrySize);
 	modArchiveClose(arc);
-	if (!raw) {
-		return NULL;
-	}
-
-	void *out = realloc(raw, (size_t)entrySize + 1);
-	if (!out) {
+	if (raw && nestedSep) {
+		void *out = fsExtractNestedArchiveChain(raw, entrySize,
+			nestedSep + 2, outSize);
 		free(raw);
-		return NULL;
+		return out;
 	}
-	((u8 *)out)[entrySize] = 0;
-	if (outSize) {
-		*outSize = entrySize;
-	}
-	return out;
+	return fsTerminateArchiveBytes(raw, entrySize, outSize);
 }
 
 const char *fsFullPath(const char *relPath, char *out, size_t outSize)

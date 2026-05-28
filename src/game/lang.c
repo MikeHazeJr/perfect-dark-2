@@ -12,7 +12,7 @@
 #include "platform.h"
 #include "video.h"
 #include "system.h"
-#include "assetload.h"
+#include "langmanifest.h"
 
 /**
  * Officially, the NTSC versions are American English only, while the PAL
@@ -400,33 +400,23 @@ s32 langGetFileId(s32 bank)
 
 void langLoad(s32 bank)
 {
-#if VERSION >= VERSION_PAL_BETA
-	s32 len = fileGetInflatedSize(langGetFileId(bank), LOADTYPE_LANG);
+	if (bank <= 0 || bank >= (s32)ARRAYCOUNT(g_LangBanks)) {
+		sysLogPrintf(LOG_WARNING, "LANG: invalid bank=%d", bank);
+		return;
+	}
 
-	if ((uintptr_t)g_LangBuffer + len + g_LangBufferSize - (uintptr_t)g_LangBufferPos >= 0) {
-		s32 len2 = (uintptr_t)g_LangBuffer + g_LangBufferSize - (uintptr_t)g_LangBufferPos;
-		len2 = len2 / 32 * 32;
-		g_LoadType = LOADTYPE_LANG;
-		g_LangBanks[bank] = assetLoadRomToAddr(langGetFileId(bank), FILELOADMETHOD_DEFAULT, g_LangBufferPos, len2);
-		g_LangBufferPos = (u8 *)(align32((uintptr_t)g_LangBufferPos + len));
-	} else {
-		CRASH();
+	if (langManifestLoadBankFromCatalog(bank)) {
+		return;
 	}
-#else
-	s32 file_id = langGetFileId(bank);
-	g_LoadType = LOADTYPE_LANG;
-	g_LangBanks[bank] = assetLoadRomToNew(file_id, FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
-	if (!g_LangBanks[bank]) {
-		sysLogPrintf(LOG_WARNING, "LANG: failed to load bank=%d fileid=%d", bank, file_id);
-	}
-#endif
+
+	sysFatalError("ASSET.CHAIN: language bank %d has no public .pdlang FileProvider source; refusing ROM fallback.", bank);
 }
 
 void langLoadToAddr(s32 bank, u8 *dst, s32 size)
 {
-	s32 file_id = langGetFileId(bank);
-	g_LoadType = LOADTYPE_LANG;
-	g_LangBanks[bank] = assetLoadRomToAddr(file_id, FILELOADMETHOD_DEFAULT, dst, size);
+	(void)dst;
+	(void)size;
+	langLoad(bank);
 }
 
 void langClearBank(s32 bank)

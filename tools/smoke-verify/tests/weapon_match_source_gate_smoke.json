@@ -1,0 +1,82 @@
+{
+  "scenario_name": "weapon_match_source_gate_smoke",
+  "description": "c3844 runtime smoke: start a known-good Combat Simulator match with DY-357 forced through public .pdweapon FileProvider source. This proves a named weapon catalog ID feeds runtime spawn and manifest loading instead of relying on a random roll.",
+  "tags": ["modding", "pdxxx", "weapon", "source-gate", "combat-sim", "match-start", "c3844", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/net/netmanifest.c",
+    "port/src/loader_walker_weapon.c",
+    "port/src/loader_walker_mesh.c",
+    "port/src/assetcatalog_base_extended.c",
+    "port/src/assetcatalog_load.c",
+    "src/game/bondgun.c",
+    "tools/smoke-verify/fixtures/weapon_archive_source_pd.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/weapon_archive_source_pd.ini", "dst": "pd.ini" },
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-mp-room",
+    "base:arena_chicago",
+    "base:combat",
+    "12",
+    "--debug-spawn-weapon",
+    "base:dy357",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "boot, extract/walk .pdweapon archives, seed Combat Simulator config, and fire direct debug match start." },
+    { "at_ms": 38000, "type": "exit", "comment": "leave enough time for manifest load, Chicago stage load, setupCreateProps, DY-357 source model load, and a few gameplay frames." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=weapon_match_source_gate_smoke",
+      "LOADER\\.UNIVERSAL\\.OK: kind=weapon scanned=86 registered=86 envelope_failures=0 register_failures=0",
+      "BOOT: --debug-auto-start-match consumed",
+      "BOOT: --launch-mp-room direct match start",
+      "BOOT: --debug-spawn-weapon 'base:dy357' \\(SPECIFIC\\)",
+      "MATCHSTART\\.DIAG: entry stage_id='base:arena_chicago'",
+      "MATCHSETUP: weapon set 0 applied",
+      "MATCHSETUP: spawn weapon mode=SPECIFIC 'base:dy357'",
+      "manifest: weapon pool enumeration -- added=\\d+ filtered=\\d+ invalid=0",
+      "MANIFEST-SP: load 'base:dy357'",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated weapon metadata payload 'base:dy357'",
+      "BONDGUN\\.SOURCE: loaded catalog model source filenum=890 id=base:model_dy357_hi",
+      "BONDGUN\\.SOURCE: loaded catalog model source filenum=89 id=base:model_cartridge_rifle",
+      "LOADER\\.POOL\\.WEAPON\\.STORED: weapon_id=8 shortname=19540 name=19468 .*name=19541.*name=19550",
+      "SPAWN\\.WEAPON: player=0 weapon=8 shortname=19540 name=19468 primary_name=19541 secondary_name=19550",
+      "SPAWN: player 0 spawned with weapon 8 \\(DY357\\)",
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x1d",
+      "SETUP: prop iteration done",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "refusing fallback",
+      "asset missing",
+      "base:dy357magnum",
+      "base:magsec4",
+      "base:falcon2silencer",
+      "base:falcon2scope",
+      "Gdy357Z\\.bin",
+      "GcartridgeZ\\.bin",
+      "SPAWN: player 0 spawned with weapon 8 \\(Horizon Scanner\\)",
+      "typed '.*' Weapon has no public FileProvider source"
+    ],
+    "required_counts": [
+      { "pattern": "MANIFEST-SP: load 'base:dy357'", "min": 1, "max": 1 }
+    ]
+  }
+}

@@ -9,6 +9,7 @@
 
 #include <PR/ultratypes.h>
 #include <SDL.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,7 +26,30 @@
 #include "romextract_pd.h"
 #include "system.h"
 
-#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v1"
+#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v6"
+
+#define PDMETA_MAX_MISSION_OBJECTIVE_ROWS 512
+
+typedef struct pdmeta_textbuf {
+	char *data;
+	size_t len;
+	size_t cap;
+} pdmeta_textbuf_t;
+
+typedef struct pdmeta_objective_row {
+	char objective_id[64];
+	char kind[64];
+	char text_token[64];
+	char difficulty_mask[32];
+	char scenario_node[96];
+	char operand_kind[48];
+	char target_ref[32];
+	char target_record_ref[32];
+	char pad_ref[32];
+	char state_ref[64];
+	char match_value[32];
+	char initial_status[32];
+} pdmeta_objective_row_t;
 
 static const u8 k_Transparent1x1Png[] = {
 	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -72,6 +96,34 @@ static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
 	s32 has_entry = modArchiveFindEntry(arc, entry) >= 0;
 	modArchiveClose(arc);
 	return has_entry;
+}
+
+static s32 s_existingArchiveEntryContains(const char *relpath,
+	const char *entry, const char *needle)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0] || !entry || !needle) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	s32 idx = modArchiveFindEntry(arc, entry);
+	s32 found = 0;
+	if (idx >= 0) {
+		u32 size = 0;
+		char *bytes = (char *)modArchiveExtractAlloc(arc, idx, &size);
+		if (bytes && size > 0) {
+			char *text = malloc((size_t)size + 1u);
+			if (text) {
+				memcpy(text, bytes, size);
+				text[size] = '\0';
+				found = strstr(text, needle) != NULL;
+				free(text);
+			}
+			free(bytes);
+		}
+	}
+	modArchiveClose(arc);
+	return found;
 }
 
 static s32 s_openWriter(const char *relpath, const char *family,
@@ -128,6 +180,417 @@ static s32 s_finishWriter(mod_archive_writer_t *aw,
 		return -1;
 	}
 	return 1;
+}
+
+static void s_copyString(char *out, size_t out_n, const char *value)
+{
+	if (!out || out_n == 0) return;
+	out[0] = '\0';
+	if (!value || !value[0]) return;
+	strncpy(out, value, out_n - 1);
+	out[out_n - 1] = '\0';
+}
+
+static s32 s_textbufReserve(pdmeta_textbuf_t *buf, size_t extra)
+{
+	size_t need;
+	size_t cap;
+	char *grown;
+
+	if (!buf) return -1;
+	need = buf->len + extra + 1u;
+	if (need <= buf->cap) return 0;
+
+	cap = buf->cap ? buf->cap : 4096u;
+	while (cap < need) {
+		cap *= 2u;
+	}
+
+	grown = (char *)realloc(buf->data, cap);
+	if (!grown) return -1;
+	buf->data = grown;
+	buf->cap = cap;
+	return 0;
+}
+
+static s32 s_textbufAppend(pdmeta_textbuf_t *buf, const char *text)
+{
+	size_t len;
+
+	if (!buf || !text) return -1;
+	len = strlen(text);
+	if (s_textbufReserve(buf, len) != 0) return -1;
+	memcpy(buf->data + buf->len, text, len);
+	buf->len += len;
+	buf->data[buf->len] = '\0';
+	return 0;
+}
+
+static s32 s_textbufAppendf(pdmeta_textbuf_t *buf, const char *fmt, ...)
+{
+	va_list ap;
+	va_list copy;
+	int len;
+
+	if (!buf || !fmt) return -1;
+
+	va_start(ap, fmt);
+	va_copy(copy, ap);
+	len = vsnprintf(NULL, 0, fmt, copy);
+	va_end(copy);
+	if (len < 0) {
+		va_end(ap);
+		return -1;
+	}
+
+	if (s_textbufReserve(buf, (size_t)len) != 0) {
+		va_end(ap);
+		return -1;
+	}
+
+	vsnprintf(buf->data + buf->len, buf->cap - buf->len, fmt, ap);
+	va_end(ap);
+	buf->len += (size_t)len;
+	return 0;
+}
+
+static void s_textbufFree(pdmeta_textbuf_t *buf)
+{
+	if (!buf) return;
+	free(buf->data);
+	buf->data = NULL;
+	buf->len = 0;
+	buf->cap = 0;
+}
+
+static char *s_archiveEntryTextAlloc(const char *relpath,
+	const char *entry, u32 *out_size)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full;
+	mod_archive_t *arc;
+	s32 idx;
+	u32 size = 0;
+	char *bytes;
+	char *text;
+
+	if (out_size) *out_size = 0;
+	if (!relpath || !entry) return NULL;
+
+	full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return NULL;
+
+	arc = modArchiveOpen(full);
+	if (!arc) return NULL;
+
+	idx = modArchiveFindEntry(arc, entry);
+	if (idx < 0) {
+		modArchiveClose(arc);
+		return NULL;
+	}
+
+	bytes = (char *)modArchiveExtractAlloc(arc, idx, &size);
+	modArchiveClose(arc);
+	if (!bytes || size == 0) {
+		free(bytes);
+		return NULL;
+	}
+
+	text = (char *)malloc((size_t)size + 1u);
+	if (!text) {
+		free(bytes);
+		return NULL;
+	}
+	memcpy(text, bytes, size);
+	text[size] = '\0';
+	free(bytes);
+	if (out_size) *out_size = size;
+	return text;
+}
+
+static char *s_nextTsvLine(char **cursor)
+{
+	char *start;
+	char *p;
+
+	if (!cursor || !*cursor) return NULL;
+	start = *cursor;
+	p = start;
+	while (*p && *p != '\n') p++;
+	if (*p == '\n') {
+		*p++ = '\0';
+		*cursor = p;
+	} else {
+		*cursor = NULL;
+	}
+	if (p > start && p[-1] == '\0' && p - start >= 2 && p[-2] == '\r') {
+		p[-2] = '\0';
+	}
+	return start;
+}
+
+static char *s_nextTsvField(char **cursor)
+{
+	char *start;
+	char *p;
+
+	if (!cursor || !*cursor) return NULL;
+	start = *cursor;
+	p = start;
+	while (*p && *p != '\t') p++;
+	if (*p == '\t') {
+		*p++ = '\0';
+		*cursor = p;
+	} else {
+		*cursor = NULL;
+	}
+	return start;
+}
+
+static s32 s_loadScenarioObjectiveRows(const char *scenario_rel,
+	pdmeta_objective_row_t *rows, s32 max_rows)
+{
+	char *text;
+	char *cursor;
+	char *line;
+	s32 count = 0;
+	s32 header = 1;
+
+	if (!scenario_rel || !rows || max_rows <= 0) return -1;
+
+	text = s_archiveEntryTextAlloc(scenario_rel, "objectives.tsv", NULL);
+	if (!text) return -1;
+
+	cursor = text;
+	while ((line = s_nextTsvLine(&cursor)) != NULL) {
+		char *field_cursor;
+		char *objective_id;
+		char *kind;
+		char *text_token;
+		char *difficulty_mask;
+		char *scenario_node;
+		char *operand_kind;
+		char *target_ref;
+		char *target_record_ref;
+		char *pad_ref;
+		char *state_ref;
+		char *match_value;
+		char *initial_status;
+
+		if (!line[0]) continue;
+		if (header) {
+			header = 0;
+			continue;
+		}
+		if (count >= max_rows) {
+			free(text);
+			return -1;
+		}
+
+		field_cursor = line;
+		objective_id = s_nextTsvField(&field_cursor);
+		kind = s_nextTsvField(&field_cursor);
+		text_token = s_nextTsvField(&field_cursor);
+		difficulty_mask = s_nextTsvField(&field_cursor);
+		scenario_node = s_nextTsvField(&field_cursor);
+		operand_kind = s_nextTsvField(&field_cursor);
+		target_ref = s_nextTsvField(&field_cursor);
+		target_record_ref = s_nextTsvField(&field_cursor);
+		pad_ref = s_nextTsvField(&field_cursor);
+		state_ref = s_nextTsvField(&field_cursor);
+		match_value = s_nextTsvField(&field_cursor);
+		initial_status = s_nextTsvField(&field_cursor);
+
+		if (!objective_id || !objective_id[0] || !kind || !kind[0]) {
+			continue;
+		}
+
+		s_copyString(rows[count].objective_id,
+			sizeof(rows[count].objective_id), objective_id);
+		s_copyString(rows[count].kind, sizeof(rows[count].kind), kind);
+		s_copyString(rows[count].text_token,
+			sizeof(rows[count].text_token), text_token);
+		s_copyString(rows[count].difficulty_mask,
+			sizeof(rows[count].difficulty_mask), difficulty_mask);
+		s_copyString(rows[count].scenario_node,
+			sizeof(rows[count].scenario_node), scenario_node);
+		s_copyString(rows[count].operand_kind,
+			sizeof(rows[count].operand_kind), operand_kind);
+		s_copyString(rows[count].target_ref,
+			sizeof(rows[count].target_ref), target_ref);
+		s_copyString(rows[count].target_record_ref,
+			sizeof(rows[count].target_record_ref), target_record_ref);
+		s_copyString(rows[count].pad_ref,
+			sizeof(rows[count].pad_ref), pad_ref);
+		s_copyString(rows[count].state_ref,
+			sizeof(rows[count].state_ref), state_ref);
+		s_copyString(rows[count].match_value,
+			sizeof(rows[count].match_value), match_value);
+		s_copyString(rows[count].initial_status,
+			sizeof(rows[count].initial_status), initial_status);
+		count++;
+	}
+
+	free(text);
+	return count;
+}
+
+static void s_missionObjectiveNodeId(const pdmeta_objective_row_t *row,
+	s32 row_index, char *out, size_t out_n)
+{
+	const char *suffix;
+
+	if (!out || out_n == 0) return;
+	out[0] = '\0';
+	if (!row) return;
+
+	suffix = strrchr(row->scenario_node, '.');
+	if (suffix && suffix[1]) {
+		snprintf(out, out_n, "%s.%s",
+			strcmp(row->kind, "objective") == 0
+				? "mission.objective"
+				: "mission.objective_step",
+			suffix + 1);
+	} else {
+		snprintf(out, out_n, "%s.%04d",
+			strcmp(row->kind, "objective") == 0
+				? "mission.objective"
+				: "mission.objective_step",
+			row_index);
+	}
+}
+
+static s32 s_buildMissionObjectivesTsv(const char *scenario_file,
+	const pdmeta_objective_row_t *rows, s32 row_count,
+	pdmeta_textbuf_t *out)
+{
+	s32 i;
+
+	if (!scenario_file || !rows || row_count <= 0 || !out) return -1;
+
+	if (s_textbufAppend(out,
+			"objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\tscenario_source\toperand_kind\ttarget_ref\ttarget_record_ref\tpad_ref\tstate_ref\tmatch_value\tinitial_status\n") != 0) {
+		return -1;
+	}
+
+	for (i = 0; i < row_count; i++) {
+		char node_id[96];
+		s_missionObjectiveNodeId(&rows[i], i, node_id, sizeof(node_id));
+		if (s_textbufAppendf(out,
+				"%s\t%s\t%s\t%s\t%s\tdependencies/assets/scenarios/%s.pdscenario::objectives.tsv#%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				rows[i].objective_id, rows[i].kind,
+				rows[i].text_token, rows[i].difficulty_mask,
+				node_id, scenario_file, rows[i].objective_id,
+				rows[i].operand_kind, rows[i].target_ref,
+				rows[i].target_record_ref, rows[i].pad_ref,
+				rows[i].state_ref, rows[i].match_value,
+				rows[i].initial_status) != 0) {
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+static s32 s_buildMissionGraph(const char *mission_id,
+	const char *scenario_id, const char *scenario_file, const char *slug,
+	const pdmeta_objective_row_t *rows, s32 row_count,
+	pdmeta_textbuf_t *out)
+{
+	s32 i;
+	char current_objective[96] = "";
+
+	if (!mission_id || !scenario_id || !scenario_file || !slug ||
+			!rows || row_count <= 0 || !out) {
+		return -1;
+	}
+
+	if (s_textbufAppendf(out,
+			"{\n"
+			"  \"schema\": \"pd2.mission.graph.v1\",\n"
+			"  \"catalog_id\": \"%s\",\n"
+			"  \"scenario_ref\": \"%s\",\n"
+			"  \"runtime\": { \"parity_backend\": \"og.mission.%s\" },\n"
+			"  \"nodes\": [\n"
+			"    { \"id\": \"mission.load\", \"kind\": \"event.mission.load\", \"scenario\": \"%s\" },\n"
+			"    { \"id\": \"mission.phase.load\", \"kind\": \"mission.phase.source\", \"phase\": \"load\" },\n"
+			"    { \"id\": \"mission.phase.active\", \"kind\": \"mission.phase.source\", \"phase\": \"active\" },\n"
+			"    { \"id\": \"mission.phase.complete\", \"kind\": \"mission.phase.source\", \"phase\": \"complete\" },\n"
+			"    { \"id\": \"mission.phase.failed\", \"kind\": \"mission.phase.source\", \"phase\": \"failed\" },\n"
+			"    { \"id\": \"mission.phase.end\", \"kind\": \"mission.phase.source\", \"phase\": \"end\" },\n"
+			"    { \"id\": \"mission.objectives\", \"kind\": \"mission.objectives.source\", \"file\": \"objectives.tsv\", \"scenario_table\": \"dependencies/assets/scenarios/%s.pdscenario::objectives.tsv\" },\n",
+			mission_id, scenario_id, slug, scenario_id, scenario_file) != 0) {
+		return -1;
+	}
+
+	for (i = 0; i < row_count; i++) {
+		char node_id[96];
+		const char *node_kind;
+
+		s_missionObjectiveNodeId(&rows[i], i, node_id, sizeof(node_id));
+		node_kind = strcmp(rows[i].kind, "objective") == 0
+			? "mission.objective.source"
+			: "mission.objective.criteria.source";
+		if (s_textbufAppendf(out,
+				"    { \"id\": \"%s\", \"kind\": \"%s\", \"source_row\": \"%s\", \"scenario_node\": \"%s\", \"text_token\": \"%s\", \"difficulty_mask\": \"%s\", \"criteria\": \"%s\", \"operand_kind\": \"%s\", \"target_ref\": \"%s\", \"target_record_ref\": \"%s\", \"pad_ref\": \"%s\", \"state_ref\": \"%s\", \"match_value\": \"%s\", \"initial_status\": \"%s\" },\n",
+				node_id, node_kind, rows[i].objective_id,
+				rows[i].scenario_node, rows[i].text_token,
+				rows[i].difficulty_mask, rows[i].kind,
+				rows[i].operand_kind, rows[i].target_ref,
+				rows[i].target_record_ref, rows[i].pad_ref,
+				rows[i].state_ref, rows[i].match_value,
+				rows[i].initial_status) != 0) {
+			return -1;
+		}
+	}
+
+	if (s_textbufAppendf(out,
+			"    { \"id\": \"mission.parity_backend\", \"kind\": \"mission.behavior.parity_backend\", \"module\": \"og.mission.%s\" }\n"
+			"  ],\n"
+			"  \"edges\": [\n"
+			"    { \"from\": \"mission.load\", \"to\": \"mission.phase.load\" },\n"
+			"    { \"from\": \"mission.phase.load\", \"to\": \"mission.phase.active\" },\n"
+			"    { \"from\": \"mission.phase.active\", \"to\": \"mission.objectives\" }",
+			slug) != 0) {
+		return -1;
+	}
+
+	for (i = 0; i < row_count; i++) {
+		char node_id[96];
+		s_missionObjectiveNodeId(&rows[i], i, node_id, sizeof(node_id));
+		if (strcmp(rows[i].kind, "objective") == 0) {
+			s_copyString(current_objective, sizeof(current_objective),
+				node_id);
+			if (s_textbufAppendf(out,
+					",\n    { \"from\": \"mission.objectives\", \"to\": \"%s\" }",
+					node_id) != 0) {
+				return -1;
+			}
+		} else if (current_objective[0]) {
+			if (s_textbufAppendf(out,
+					",\n    { \"from\": \"%s\", \"to\": \"%s\" }",
+					current_objective, node_id) != 0) {
+				return -1;
+			}
+		} else if (s_textbufAppendf(out,
+				",\n    { \"from\": \"mission.objectives\", \"to\": \"%s\" }",
+				node_id) != 0) {
+			return -1;
+		}
+	}
+
+	if (s_textbufAppend(out,
+			",\n    { \"from\": \"mission.objectives\", \"to\": \"mission.phase.complete\" },\n"
+			"    { \"from\": \"mission.objectives\", \"to\": \"mission.phase.failed\" },\n"
+			"    { \"from\": \"mission.phase.complete\", \"to\": \"mission.phase.end\" },\n"
+			"    { \"from\": \"mission.phase.failed\", \"to\": \"mission.phase.end\" },\n"
+			"    { \"from\": \"mission.objectives\", \"to\": \"mission.parity_backend\" }\n"
+			"  ]\n"
+			"}\n") != 0) {
+		return -1;
+	}
+
+	return 0;
 }
 
 static const char *s_modeKey(s32 mode_id)
@@ -269,7 +732,6 @@ static s32 s_emitGamemode(const asset_entry_t *e, const char *out_dir,
 		"[gamemode]\n"
 		"catalog_id = %s\n"
 		"mode_key = %s\n"
-		"mode_id = %d\n"
 		"name = %s\n"
 		"description = %s\n"
 		"min_players = %d\n"
@@ -278,7 +740,7 @@ static s32 s_emitGamemode(const asset_entry_t *e, const char *out_dir,
 		"requirefeature = %u\n"
 		"rules_file = rules.json\n",
 		e->id, s_modeKey(e->ext.gamemode.mode_id),
-		e->ext.gamemode.mode_id, e->ext.gamemode.name,
+		e->ext.gamemode.name,
 		e->ext.gamemode.description, e->ext.gamemode.min_players,
 		e->ext.gamemode.max_players, e->ext.gamemode.team_based,
 		(unsigned)e->ext.gamemode.requirefeature);
@@ -355,14 +817,11 @@ static s32 s_emitBotProfile(const asset_entry_t *e, const char *out_dir,
 		"[botprofile]\n"
 		"catalog_id = %s\n"
 		"type_key = %s\n"
-		"type = %d\n"
 		"difficulty_key = %s\n"
-		"difficulty = %d\n"
 		"target_body = %s\n"
 		"requirefeature = %u\n"
 		"profile_file = profile.json\n",
-		e->id, type_key, e->ext.bot_profile.type, diff_key,
-		e->ext.bot_profile.difficulty, body_id,
+		e->id, type_key, diff_key, body_id,
 		(unsigned)e->ext.bot_profile.requirefeature);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) return -1;
 
@@ -429,12 +888,9 @@ static s32 s_emitHud(const asset_entry_t *e, const char *out_dir,
 		"[hud]\n"
 		"catalog_id = %s\n"
 		"hud_key = %s\n"
-		"hud_id = %d\n"
 		"name = %s\n"
-		"element_type = %d\n"
 		"layout_file = layout.json\n",
-		e->id, element_key, e->ext.hud.hud_id, e->ext.hud.name,
-		e->ext.hud.element_type);
+		e->id, element_key, e->ext.hud.name);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) return -1;
 
 	char layout[1536];
@@ -754,15 +1210,12 @@ static s32 s_emitEffect(const asset_entry_t *e, const char *out_dir,
 		"catalog_id = %s\n"
 		"name = %s\n"
 		"effect_key = %s\n"
-		"effect_type = %d\n"
 		"target_key = %s\n"
-		"target = %d\n"
 		"shader_id = %s\n"
 		"intensity = %.3f\n"
 		"effect_file = effect.graph.json\n",
 		e->id, e->ext.effect.name[0] ? e->ext.effect.name : type_key,
-		type_key, e->ext.effect.effect_type, target_key,
-		e->ext.effect.target, e->ext.effect.shader_id,
+		type_key, target_key, e->ext.effect.shader_id,
 		e->ext.effect.intensity);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) return -1;
 
@@ -832,11 +1285,9 @@ static s32 s_emitProp(const asset_entry_t *e, const char *out_dir,
 		"catalog_id = %s\n"
 		"name = %s\n"
 		"prop_key = %s\n"
-		"prop_type = %d\n"
 		"health = %.3f\n"
 		"prop_file = prop.json\n",
-		e->id, e->ext.prop.name, prop_key, e->ext.prop.prop_type,
-		e->ext.prop.health);
+		e->id, e->ext.prop.name, prop_key, e->ext.prop.health);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) return -1;
 
 	char prop[1536];
@@ -1010,7 +1461,21 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 		s_existingArchiveHasEntry(relpath, "mission.ini") &&
 		s_existingArchiveHasEntry(relpath, "mission.graph.json") &&
 		s_existingArchiveHasEntry(relpath, "objectives.tsv") &&
-		s_existingArchiveHasEntry(relpath, "briefing.tsv"));
+		s_existingArchiveHasEntry(relpath, "briefing.tsv") &&
+		s_existingArchiveEntryContains(relpath, "mission.graph.json",
+			"mission.phase.source") &&
+		s_existingArchiveEntryContains(relpath, "mission.graph.json",
+			"mission.objectives.source") &&
+		s_existingArchiveEntryContains(relpath, "mission.graph.json",
+			"mission.objective.source") &&
+		s_existingArchiveEntryContains(relpath, "mission.graph.json",
+			"\"operand_kind\"") &&
+		s_existingArchiveEntryContains(relpath, "objectives.tsv",
+			"operand_kind") &&
+		!s_existingArchiveEntryContains(relpath, "mission.graph.json",
+			"\"nodes\": []") &&
+		!s_existingArchiveEntryContains(relpath, "objectives.tsv",
+			"original_perfect_dark_setup"));
 
 	char scenario_id[CATALOG_ID_LEN];
 	s_scenarioIdFromSlug(a->slug, scenario_id, sizeof(scenario_id));
@@ -1023,6 +1488,16 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 		sysLogPrintf(LOG_WARNING,
 			"romextract pdmission: missing scenario dependency %s for %s",
 			scenario_rel, mission_id);
+		return -1;
+	}
+
+	pdmeta_objective_row_t objective_rows[PDMETA_MAX_MISSION_OBJECTIVE_ROWS];
+	s32 objective_row_count = s_loadScenarioObjectiveRows(scenario_rel,
+		objective_rows, ARRAYCOUNT(objective_rows));
+	if (objective_row_count <= 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdmission: missing decoded scenario objectives for %s",
+			mission_id);
 		return -1;
 	}
 
@@ -1067,22 +1542,16 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 		mission_id, scenario_id, scenario_file, a->category);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) return -1;
 
-	char graph[2048];
-	int graph_len = snprintf(graph, sizeof(graph),
-		"{\n"
-		"  \"schema\": \"pd2.mission.graph.v1\",\n"
-		"  \"catalog_id\": \"%s\",\n"
-		"  \"scenario_ref\": \"%s\",\n"
-		"  \"runtime\": { \"parity_backend\": \"og.mission.%s\" },\n"
-		"  \"nodes\": [],\n"
-		"  \"edges\": []\n"
-		"}\n",
-		mission_id, scenario_id, a->slug);
-	if (graph_len <= 0 || (size_t)graph_len >= sizeof(graph)) return -1;
-
-	const char *objectives =
-		"objective_key\ttitle\tstate_source\n"
-		"primary\tOriginal mission objectives\toriginal_perfect_dark_setup\n";
+	pdmeta_textbuf_t graph = { 0 };
+	pdmeta_textbuf_t objectives = { 0 };
+	if (s_buildMissionGraph(mission_id, scenario_id, scenario_file,
+			a->slug, objective_rows, objective_row_count, &graph) != 0 ||
+			s_buildMissionObjectivesTsv(scenario_file, objective_rows,
+			objective_row_count, &objectives) != 0) {
+		s_textbufFree(&graph);
+		s_textbufFree(&objectives);
+		return -1;
+	}
 	const char *briefing =
 		"section\ttext\n"
 		"summary\tOriginal mission briefing is loaded from base language banks.\n";
@@ -1116,16 +1585,20 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 			assetArchiveWriterAddManifestJson(&writer,
 			manifest, (u32)manifest_len) != MODARCHIVE_OK ||
 			assetArchiveWriterAddPublicMem(&writer, "mission.graph.json",
-			graph, (u32)graph_len, "mission-graph") != MODARCHIVE_OK ||
+			graph.data, (u32)graph.len, "mission-graph") != MODARCHIVE_OK ||
 			assetArchiveWriterAddPublicMem(&writer, "objectives.tsv",
-			objectives, (u32)strlen(objectives), "objectives") != MODARCHIVE_OK ||
+			objectives.data, (u32)objectives.len, "objectives") != MODARCHIVE_OK ||
 			assetArchiveWriterAddPublicMem(&writer, "briefing.tsv",
 			briefing, (u32)strlen(briefing), "briefing") != MODARCHIVE_OK ||
 			assetArchiveWriterAddPublicDisk(&writer, dep_name,
 			scenario_rel, "scenario-dependency") != MODARCHIVE_OK) {
+		s_textbufFree(&graph);
+		s_textbufFree(&objectives);
 		modArchiveAbort(aw);
 		return -1;
 	}
+	s_textbufFree(&graph);
+	s_textbufFree(&objectives);
 	return s_finishWriter(aw, &writer, relpath);
 }
 

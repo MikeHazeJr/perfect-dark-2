@@ -367,7 +367,7 @@ const char *modiniTemplateForKind(const char *kind)
 			"[prop]\n"
 			"; catalog_id = mod:prop_id\n"
 			"name = New Prop\n"
-			"prop_type = 0\n"
+			"prop_key = object\n"
 			"model_file = model.gltf\n"
 			"health = 100\n"
 			"; flags = 0\n"
@@ -442,7 +442,6 @@ const char *modiniTemplateForKind(const char *kind)
 			"; arena.ini - external map/arena metadata\n"
 			"[arena]\n"
 			"; catalog_id = mod:arena_id\n"
-			"stagenum = -1\n"
 			"load_mode = 0\n"
 			"; name_langid = 0\n"
 			"; requirefeature = 0\n"
@@ -463,7 +462,6 @@ const char *modiniTemplateForKind(const char *kind)
 			"[scenario]\n"
 			"; catalog_id = mod:scenario_id\n"
 			"name = New Scenario\n"
-			"stagenum = -1\n"
 			"mode = mp|solo\n"
 			"\n"
 			"[source]\n"
@@ -478,6 +476,7 @@ const char *modiniTemplateForKind(const char *kind)
 			"spawns_file = spawns.tsv\n"
 			"volumes_file = volumes.tsv\n"
 			"objects_file = objects.tsv\n"
+			"setup_fields_file = setup.fields.tsv\n"
 			"objectives_file = objectives.tsv\n"
 			"navigation_file = navigation.ini\n"
 			"level_graph_file = level.graph.json\n"
@@ -490,7 +489,7 @@ const char *modiniTemplateForKind(const char *kind)
 			"[gamemode]\n"
 			"; catalog_id = mod:gamemode_id\n"
 			"name = New Game Mode\n"
-			"mode_id = -1\n"
+			"mode_key = custom\n"
 			"min_players = 2\n"
 			"max_players = 8\n"
 			"team_based = 0\n"
@@ -504,8 +503,8 @@ const char *modiniTemplateForKind(const char *kind)
 			"; botprofile.ini - reusable bot skill/personality metadata\n"
 			"[bot_profile]\n"
 			"; catalog_id = mod:bot_profile_id\n"
-			"type = 0\n"
-			"difficulty = 0\n"
+			"type_key = general\n"
+			"difficulty_key = normal\n"
 			"profile_file = profile.json\n"
 			"; target_body = base:body_id\n"
 			"; name_langid = 0\n"
@@ -519,8 +518,7 @@ const char *modiniTemplateForKind(const char *kind)
 			"[hud]\n"
 			"; catalog_id = mod:hud_id\n"
 			"name = New HUD\n"
-			"hud_id = -1\n"
-			"element_type = 0\n"
+			"hud_key = crosshair\n"
 			"texture_file = texture.png\n"
 			"; font_archive = dependencies/assets/font/body.pdfont\n";
 	}
@@ -1003,6 +1001,7 @@ static void qualifyIniSourcePaths(ini_section_t *ini, const char *component_dir)
 		"spawns_file",
 		"volumes_file",
 		"objects_file",
+		"setup_fields_file",
 		"setup_file",
 		"mpsetup_file",
 		"rooms_file",
@@ -1118,6 +1117,7 @@ static void qualifyTypedArchiveSourcePaths(ini_section_t *ini,
 		"spawns_file",
 		"volumes_file",
 		"objects_file",
+		"setup_fields_file",
 		"setup_file",
 		"mpsetup_file",
 		"rooms_file",
@@ -1192,6 +1192,144 @@ static s32 parseAudioCategoryValue(const char *value, s32 default_category)
 	}
 
 	return default_category;
+}
+
+static void lowerKey(const char *value, char *out, size_t out_n)
+{
+	if (!out || out_n == 0) {
+		return;
+	}
+	out[0] = '\0';
+	if (!value) {
+		return;
+	}
+
+	size_t i = 0;
+	while (value[i] && i + 1 < out_n) {
+		char c = (char)tolower((u8)value[i]);
+		if (c == '-' || c == ' ') {
+			c = '_';
+		}
+		out[i] = c;
+		i++;
+	}
+	out[i] = '\0';
+}
+
+static s32 parseNamedIntValue(const char *value, s32 default_value,
+                              const char *const *keys,
+                              const s32 *values, s32 count)
+{
+	if (!value || !value[0]) {
+		return default_value;
+	}
+	if (((u8)value[0] >= '0' && (u8)value[0] <= '9')
+			|| value[0] == '-' || value[0] == '+') {
+		return (s32)strtol(value, NULL, 10);
+	}
+
+	char lower[64];
+	lowerKey(value, lower, sizeof(lower));
+	for (s32 i = 0; i < count; i++) {
+		if (strcmp(lower, keys[i]) == 0) {
+			return values[i];
+		}
+	}
+	return default_value;
+}
+
+static s32 parseModeKeyValue(const char *value, s32 default_value)
+{
+	static const char *const keys[] = {
+		"combat",
+		"hold_the_briefcase",
+		"hacker_central",
+		"pop_a_cap",
+		"king_of_the_hill",
+		"capture_the_case",
+	};
+	static const s32 values[] = { 0, 1, 2, 3, 4, 5 };
+	return parseNamedIntValue(value, default_value, keys, values,
+		(s32)(sizeof(values) / sizeof(values[0])));
+}
+
+static s32 parseBotTypeKeyValue(const char *value, s32 default_value)
+{
+	static const char *const keys[] = {
+		"general", "peace", "shield", "rocket", "kaze", "fist",
+		"prey", "coward", "judge", "feud", "speed", "turtle", "venge",
+	};
+	static const s32 values[] = {
+		BOTTYPE_GENERAL, BOTTYPE_PEACE, BOTTYPE_SHIELD, BOTTYPE_ROCKET,
+		BOTTYPE_KAZE, BOTTYPE_FIST, BOTTYPE_PREY, BOTTYPE_COWARD,
+		BOTTYPE_JUDGE, BOTTYPE_FEUD, BOTTYPE_SPEED, BOTTYPE_TURTLE,
+		BOTTYPE_VENGE,
+	};
+	return parseNamedIntValue(value, default_value, keys, values,
+		(s32)(sizeof(values) / sizeof(values[0])));
+}
+
+static s32 parseBotDifficultyKeyValue(const char *value, s32 default_value)
+{
+	static const char *const keys[] = {
+		"meat", "easy", "normal", "hard", "perfect", "dark",
+	};
+	static const s32 values[] = {
+		BOTDIFF_MEAT, BOTDIFF_EASY, BOTDIFF_NORMAL, BOTDIFF_HARD,
+		BOTDIFF_PERFECT, BOTDIFF_DARK,
+	};
+	return parseNamedIntValue(value, default_value, keys, values,
+		(s32)(sizeof(values) / sizeof(values[0])));
+}
+
+static s32 parseHudElementKeyValue(const char *value, s32 default_value)
+{
+	static const char *const keys[] = {
+		"crosshair", "ammo", "radar", "health", "timer", "score",
+	};
+	static const s32 values[] = {
+		HUD_ELEM_CROSSHAIR, HUD_ELEM_AMMO, HUD_ELEM_RADAR,
+		HUD_ELEM_HEALTH, HUD_ELEM_TIMER, HUD_ELEM_SCORE,
+	};
+	return parseNamedIntValue(value, default_value, keys, values,
+		(s32)(sizeof(values) / sizeof(values[0])));
+}
+
+static s32 parsePropKeyValue(const char *value, s32 default_value)
+{
+	static const char *const keys[] = {
+		"object", "door", "character", "weapon_pickup",
+		"eyespy", "player", "explosion", "smoke",
+	};
+	static const s32 values[] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+	return parseNamedIntValue(value, default_value, keys, values,
+		(s32)(sizeof(values) / sizeof(values[0])));
+}
+
+static s32 parseEffectTypeKeyValue(const char *value, s32 default_value)
+{
+	static const char *const keys[] = {
+		"tint", "glow", "shimmer", "darken", "screen", "particle",
+	};
+	static const s32 values[] = {
+		EFFECT_TYPE_TINT, EFFECT_TYPE_GLOW, EFFECT_TYPE_SHIMMER,
+		EFFECT_TYPE_DARKEN, EFFECT_TYPE_SCREEN, EFFECT_TYPE_PARTICLE,
+	};
+	return parseNamedIntValue(value, default_value, keys, values,
+		(s32)(sizeof(values) / sizeof(values[0])));
+}
+
+static s32 parseEffectTargetKeyValue(const char *value, s32 default_value)
+{
+	static const char *const keys[] = {
+		"scene", "player", "character", "prop", "weapon", "level",
+	};
+	static const s32 values[] = {
+		EFFECT_TARGET_SCENE, EFFECT_TARGET_PLAYER, EFFECT_TARGET_CHR,
+		EFFECT_TARGET_PROP, EFFECT_TARGET_WEAPON, EFFECT_TARGET_LEVEL,
+	};
+	return parseNamedIntValue(value, default_value, keys, values,
+		(s32)(sizeof(values) / sizeof(values[0])));
 }
 
 static void registerDependencyList(const char *owner_id, const char *deps,
@@ -1482,7 +1620,8 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		break;
 
 	case ASSET_PROP:
-		e->ext.prop.prop_type = iniGetInt(ini, "prop_type", 0);
+		e->ext.prop.prop_type = parsePropKeyValue(
+			iniGet(ini, "prop_key", iniGet(ini, "prop_type", "")), 0);
 		strncpy(e->ext.prop.name, iniGet(ini, "name", ""), sizeof(e->ext.prop.name) - 1);
 		strncpy(e->ext.prop.prop_file, iniGet(ini, "prop_file",
 			iniGet(ini, "file_path", "")), sizeof(e->ext.prop.prop_file) - 1);
@@ -1547,7 +1686,8 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		break;
 
 	case ASSET_GAMEMODE:
-		e->ext.gamemode.mode_id = iniGetInt(ini, "mode_id", -1);
+		e->ext.gamemode.mode_id = parseModeKeyValue(
+			iniGet(ini, "mode_key", iniGet(ini, "mode_id", "")), -1);
 		strncpy(e->ext.gamemode.name, iniGet(ini, "name", ""), sizeof(e->ext.gamemode.name) - 1);
 		strncpy(e->ext.gamemode.description, iniGet(ini, "description", ""), sizeof(e->ext.gamemode.description) - 1);
 		e->ext.gamemode.min_players = iniGetInt(ini, "min_players", 2);
@@ -1600,6 +1740,9 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 				iniGet(ini, "objects_file",
 				iniGet(ini, "props_file", "")),
 				sizeof(e->ext.scenario.objects_file) - 1);
+			strncpy(e->ext.scenario.setup_fields_file,
+				iniGet(ini, "setup_fields_file", ""),
+				sizeof(e->ext.scenario.setup_fields_file) - 1);
 			strncpy(e->ext.scenario.objectives_file,
 				iniGet(ini, "objectives_file", ""),
 				sizeof(e->ext.scenario.objectives_file) - 1);
@@ -1633,9 +1776,14 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		break;
 
 	case ASSET_HUD:
-		e->ext.hud.hud_id = iniGetInt(ini, "hud_id", -1);
+		e->ext.hud.element_type = parseHudElementKeyValue(
+			iniGet(ini, "hud_key",
+				iniGet(ini, "element",
+				iniGet(ini, "element_type", ""))),
+			HUD_ELEM_CROSSHAIR);
+		e->ext.hud.hud_id = iniGetInt(ini, "hud_id",
+			e->ext.hud.element_type);
 		strncpy(e->ext.hud.name, iniGet(ini, "name", ""), sizeof(e->ext.hud.name) - 1);
-		e->ext.hud.element_type = iniGetInt(ini, "element_type", HUD_ELEM_CROSSHAIR);
 		strncpy(e->ext.hud.texture_file, iniGet(ini, "texture_file", ""), sizeof(e->ext.hud.texture_file) - 1);
 		strncpy(e->ext.hud.layout_file, iniGet(ini, "layout_file",
 			iniGet(ini, "file_path", "")), sizeof(e->ext.hud.layout_file) - 1);
@@ -1649,8 +1797,12 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	case ASSET_EFFECT:
 		strncpy(e->ext.effect.name, iniGet(ini, "name", ""),
 			sizeof(e->ext.effect.name) - 1);
-		e->ext.effect.effect_type = iniGetInt(ini, "effect_type", EFFECT_TYPE_PARTICLE);
-		e->ext.effect.target = iniGetInt(ini, "target", EFFECT_TARGET_SCENE);
+		e->ext.effect.effect_type = parseEffectTypeKeyValue(
+			iniGet(ini, "effect_key", iniGet(ini, "effect_type", "")),
+			EFFECT_TYPE_PARTICLE);
+		e->ext.effect.target = parseEffectTargetKeyValue(
+			iniGet(ini, "target_key", iniGet(ini, "target", "")),
+			EFFECT_TARGET_SCENE);
 		strncpy(e->ext.effect.effect_file, iniGet(ini, "effect_file",
 			iniGet(ini, "behavior_graph",
 			iniGet(ini, "file_path", ""))),
@@ -1707,8 +1859,12 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		break;
 
 	case ASSET_BOT_PROFILE:
-		e->ext.bot_profile.type = iniGetInt(ini, "type", 0);
-		e->ext.bot_profile.difficulty = iniGetInt(ini, "difficulty", 0);
+		e->ext.bot_profile.type = parseBotTypeKeyValue(
+			iniGet(ini, "type_key", iniGet(ini, "type", "")),
+			BOTTYPE_GENERAL);
+		e->ext.bot_profile.difficulty = parseBotDifficultyKeyValue(
+			iniGet(ini, "difficulty_key", iniGet(ini, "difficulty", "")),
+			BOTDIFF_NORMAL);
 		e->ext.bot_profile.body = (s16)iniGetInt(ini, "body", -1);
 		e->ext.bot_profile.name_langid = (s16)iniGetInt(ini, "name_langid", 0);
 		e->ext.bot_profile.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
@@ -2516,6 +2672,7 @@ static void qualifyArchiveIniPaths(ini_section_t *ini, const char *component_dir
 		"spawns_file",
 		"volumes_file",
 		"objects_file",
+		"setup_fields_file",
 		"setup_file",
 		"rooms_file",
 		"rooms",

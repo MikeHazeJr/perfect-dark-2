@@ -21,6 +21,11 @@ void assetSourceDebugSetOnlyType(asset_type_e type);
 s32 assetSourceDebugIsEnabledFor(asset_type_e type);
 s32 assetSourceDebugEntryUsesPublicFileSource(const asset_entry_t *entry);
 s32 assetSourceDebugEntryRequiresPublicFileSource(const asset_entry_t *entry);
+s32 assetSourceDebugHandleUsesPublicFileSource(asset_data_handle_t handle);
+s32 assetSourceDebugHandleRequiresPublicFileSource(asset_type_e type,
+	asset_data_handle_t handle);
+void assetSourceDebugFatalHandleFallback(asset_type_e type,
+	const char *context, const char *asset_id, asset_data_handle_t handle);
 const char *assetSourceDebugTypeLabel(asset_type_e type);
 
 #ifdef __cplusplus

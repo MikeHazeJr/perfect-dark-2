@@ -1399,7 +1399,8 @@ static void s_manifestScanAilists(match_manifest_t *out)
     cmd = g_StageSetup.ailists[listidx].list;
     while (cmd) {
         s32 safety = 0;
-        while (cmd[0] != AICMD_END) {
+        u16 cmdtype = (u16)((cmd[0] << 8) | cmd[1]);
+        while (cmdtype != AICMD_END) {
             if (++safety > 50000) {
                 sysLogPrintf(LOG_WARNING,
                              "manifestBuildMission: ailist[%d] exceeded 50000 cmds, aborting",
@@ -1407,7 +1408,7 @@ static void s_manifestScanAilists(match_manifest_t *out)
                 break;
             }
 
-            switch (cmd[0]) {
+            switch (cmdtype) {
             case AICMD_DROPITEM: {
                 u16 modelid = (u16)((cmd[2] << 8) | cmd[3]);
                 s_manifestAddModel(out, (s32)modelid, "ailist");
@@ -1438,6 +1439,7 @@ static void s_manifestScanAilists(match_manifest_t *out)
             }
 
             cmd += chraiGetCommandLength(cmd, 0);
+            cmdtype = (u16)((cmd[0] << 8) | cmd[1]);
         }
 
         listidx++;
@@ -1944,9 +1946,10 @@ void manifestSPRescanSetup(s32 stagenum)
         return;
     }
 
-    if (g_NetMode != NETMODE_NONE) {
-        /* MP: client manifest was populated by the network path —
-         * SP rescan would build, diff, and discard.  Skip it. */
+    if (g_NetMode != NETMODE_NONE || g_Vars.normmplayerisrunning || g_Vars.mplayerisrunning) {
+        /* MP: client manifest was populated by the match/network path.
+         * SP rescan would read the MP setup as a solo setup and can walk
+         * MP-only empty/compact setup tables. Skip it. */
         return;
     }
 

@@ -68,6 +68,7 @@
 #include "lib/joy.h"
 #include "lib/main.h"
 #include "lib/meshcollision.h"
+#include "scenario_source_runtime.h"
 #include "lib/snd.h"
 #include "lib/memp.h"
 #include "lib/mema.h"
@@ -1024,6 +1025,7 @@ void mainTick(void)
 
 void mainEndStage(void)
 {
+	scenarioSourceMissionGraphRecordPhase("end", "mainEndStage");
 	sndStopNosedive();
 	sceneFire(SCENE_EVENT_CUTSCENE_END, NULL);
 

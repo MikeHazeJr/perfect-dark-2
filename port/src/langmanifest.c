@@ -4,10 +4,10 @@
  * Tracks which LANGBANK_* entries are currently loaded and provides an API
  * for screens and stages to declare lang bank dependencies via catalog IDs.
  *
- * The existing langReset() path is unchanged: it still loads the common banks
- * (GUN, MPMENU, OPTIONS, etc.) and calls langManifestRecordBank() for each.
- * Screens with additional deps call langManifestEnsureId("base:lang_title")
- * to load and track the bank on demand.
+ * The base runtime path now loads the common banks (GUN, MPMENU, OPTIONS,
+ * etc.) through .pdlang FileProvider source when present. Screens with
+ * additional deps call langManifestEnsureId("base:lang_title") to load and
+ * track the bank on demand.
  *
  * Language-change reload:
  *   langManifestReload() iterates g_LangManifest.bank_ids[] and calls
@@ -223,11 +223,16 @@ static s32 langManifestLoadExternalTsv(const asset_entry_t *entry)
             cursor = line + strlen(line);
         }
 
-        line = trimLine(line);
+        while (*line == ' ' || *line == '\r' || *line == '\n') {
+            line++;
+        }
+
         if (!line[0] || line[0] == '#' || line[0] == ';') {
             continue;
         }
 
+        /* Split before trimming the key so valid empty TSV values such as
+         * "438\t" are preserved as empty strings instead of being dropped. */
         tab = strchr(line, '\t');
         if (!tab) {
             continue;
@@ -292,6 +297,59 @@ static s32 langManifestLoadExternalTsv(const asset_entry_t *entry)
     sysLogPrintf(LOG_NOTE, "LANG-MANIFEST: loaded TSV bank %d (%s) from %s",
                  bank, entry->id, path);
     return 1;
+}
+
+static const asset_entry_t *langManifestFindBestEntryForBank(s32 bank)
+{
+    const asset_entry_t *best = NULL;
+    s32 best_score = -1;
+    s32 count;
+
+    if (bank <= 0 || bank >= LANG_MANIFEST_MAX_BANKS) {
+        return NULL;
+    }
+
+    count = assetCatalogGetCount();
+
+    for (s32 i = 0; i < count; i++) {
+        const asset_entry_t *entry = assetCatalogGetByIndex(i);
+        const char *path;
+        s32 score;
+
+        if (!entry || !entry->occupied || entry->type != ASSET_LANG) {
+            continue;
+        }
+        if (!entry->enabled || entry->ext.lang.bank_id != bank) {
+            continue;
+        }
+
+        path = langEntryFilePath(entry);
+        if (!path || !path[0]) {
+            continue;
+        }
+
+        score = entry->bundled ? 1 : 2;
+        if (score >= best_score) {
+            best = entry;
+            best_score = score;
+        }
+    }
+
+    return best;
+}
+
+s32 langManifestLoadBankFromCatalog(s32 bank)
+{
+    const asset_entry_t *entry = langManifestFindBestEntryForBank(bank);
+
+    if (!entry) {
+        sysLogPrintf(LOG_WARNING,
+                     "LANG-MANIFEST: no enabled FileProvider .pdlang source for bank %d",
+                     bank);
+        return 0;
+    }
+
+    return langManifestLoadExternalTsv(entry);
 }
 
 /* =========================================================================
@@ -365,8 +423,14 @@ s32 langManifestEnsureId(const char *lang_id)
             }
         }
     } else if (!langIsBankLoaded(bank)) {
-        langLoad(bank);
-        sysLogPrintf(LOG_NOTE, "LANG-MANIFEST: loaded bank %d (%s)", bank, lang_id);
+        if (!langManifestLoadBankFromCatalog(bank)) {
+            sysLogPrintf(LOG_WARNING,
+                         "LANG-MANIFEST: failed to load catalog bank %d (%s)",
+                         bank, lang_id);
+            return 0;
+        }
+        sysLogPrintf(LOG_NOTE, "LANG-MANIFEST: loaded catalog bank %d (%s)",
+                     bank, lang_id);
     }
 
     langManifestRecordBank(bank);
@@ -394,7 +458,11 @@ void langManifestReload(void)
                     s_ModLangCatalogIds[bank][0] = '\0';
                     g_LangBanks[bank] = NULL;
                 }
-                langLoad(bank);
+                if (!langManifestLoadBankFromCatalog(bank)) {
+                    sysLogPrintf(LOG_WARNING,
+                                 "LANG-MANIFEST: reload failed for catalog bank %d",
+                                 bank);
+                }
             }
         }
     }

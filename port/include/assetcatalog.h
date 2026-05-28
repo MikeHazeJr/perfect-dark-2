@@ -357,6 +357,7 @@ typedef struct asset_entry {
             char spawns_file[FS_MAXPATH];
             char volumes_file[FS_MAXPATH];
             char objects_file[FS_MAXPATH];
+            char setup_fields_file[FS_MAXPATH];
             char objectives_file[FS_MAXPATH];
             char navigation_file[FS_MAXPATH];
             char level_graph_file[FS_MAXPATH];

@@ -17,6 +17,9 @@ collision.glb
 pads.tsv
 volumes.tsv
 spawns.tsv
+objects.tsv
+setup.fields.tsv
+objectives.tsv
 navigation.ini
 level.graph.json
 _meta/
@@ -39,6 +42,8 @@ The same scene file is the game-facing source. Scenario loading should ingest `s
 `rooms.obj` should become a generated compatibility/debug artifact, not the primary user-edited source. It may remain in `_meta/` or generated cache while migration code needs it, but the authoring contract should not require editing two similar meshes.
 
 Implementation note, 2026-05-26: generated `.pdscenario` archives now emit root `scene.glb` as the public level source and catalog primary file. Public `rooms.obj`, `tiles.tsv`, `scenario.mtl`, `visual/scene.obj`, `visual/scene.mtl`, `visual/materials.tsv`, and visual texture folders are stale outputs and fail strict archive conformance. `scenario.ini` declares `scene_file = scene.glb` and `runtime_source_file = scene.glb`; runtime metadata prefers `scene_file`, accepts optional `collision_file`, and builds collision from the override or scene source through `modAssetCompilerBuildColmesh()`.
+
+Implementation note, 2026-05-28: generated base `scene.glb` also includes `_PD_ROOM` vertex metadata. The runtime compiler preserves that room ownership and `tilesReset()` derives the legacy-compatible tile cache from the same public scene/collision source before legacy tile fallback. This keeps room/tile utility unified under the editable scene source instead of reintroducing public `rooms.obj` or `tiles.tsv`.
 
 ## Navigation
 
@@ -79,11 +84,11 @@ The raw `setup.tsv`, `mpsetup.tsv`, and `visual_segments.tsv` public outputs hav
 
 Reusable level-local behavior lives in `level.graph.json`. Campaign story flow, objective progression, cutscenes, checkpoints, unlocks, and mission phase logic belong in `.pdmission` graph assets that reference one or more `.pdscenario` archives.
 
-Implementation note, 2026-05-25: raw setup/mpsetup/visual word dumps are no longer public outputs. The extractor emits `objects.tsv` and `objectives.tsv` with named records and catalog-ID asset refs. `level.graph.json` links scene, collision, navigation, and decoded setup/objective tables. `.pdmission` descriptors, scanner/distribution/runtime bindings, and examples now prefer `mission.graph.json`.
+Implementation note, 2026-05-25: raw setup/mpsetup/visual word dumps are no longer public outputs. The extractor emits `objects.tsv` and `objectives.tsv` with named records and catalog-ID asset refs. 2026-05-28 follow-up: `setup.fields.tsv` is the named per-command field table for setup parity work, so `objects.tsv` remains the readable object index and no raw setup words re-enter the public archive. `level.graph.json` links scene, collision, navigation, and decoded setup/objective tables. `.pdmission` descriptors, scanner/distribution/runtime bindings, and examples now prefer `mission.graph.json`.
 
 ## Runtime Parity
 
-The migration must follow the weapon graph model: audit the original setup/AI/objective behavior first, define graph modules from the existing behavior, feed runtime from graph records, and keep original behavior parity until replacements are proven.
+The migration must follow the weapon graph model: audit the original setup/AI/objective behavior first, define graph modules from the existing behavior, feed runtime from graph records, and keep original behavior parity until replacements are proven. Current B-385 progress has moved mission objective rows, criteria order, Enter Room / Throw In Room / Holograph mutable criterion state, COMPFLAGS/FAILFLAGS mission-stage flag state, tagged objective object state, setup behavior links, explicit trigger-volume graph nodes/rows, Enter Room / Throw In Room pad-room checks, mission phase lifecycle state, and level-global settings source validation into runtime graph source. Broader trigger behavior, any remaining global behavior beyond settings source validation, and AI action modules still need native graph execution before the parity backend can be retired.
 
 Acceptance:
 

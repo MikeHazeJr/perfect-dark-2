@@ -59,6 +59,7 @@
 #include "types.h"
 #include "system.h"
 #include "weapon_graph_runtime.h"
+#include "scenario_source_runtime.h"
 #include "crashbreadcrumb.h"
 #include "net/net.h"
 #include "net/netmsg.h"
@@ -1730,6 +1731,15 @@ void func0f02e9a0(struct chrdata *chr, f32 mergetime)
 
 	fsleep = mergetime;
 
+	if (chr->model == NULL || chr->model->anim == NULL) {
+		chr->sleep = fsleep > limit ? limit : fsleep;
+		chr->hidden &= ~CHRHFLAG_NEEDANIM;
+		sysLogPrintf(LOG_VERBOSE,
+			"CHR: static model has no animation controller for chrnum=%d action=stand",
+			chr->chrnum);
+		return;
+	}
+
 	if (chr->model->anim->playspeed != PALUPF(1.0f)) {
 		fsleep *= PALUPF(1.0f) / chr->model->anim->playspeed;
 	}
@@ -3112,7 +3122,7 @@ void chrBeginDeath(struct chrdata *chr, struct coord *dir, f32 relangle, s32 hit
 			}
 
 			if (objectivenum >= 0 && objectiveCheck(objectivenum) != OBJECTIVE_COMPLETE) {
-				g_StageFlags |= STAGEFLAG_EYESPY_DESTROYED;
+				chrSetStageFlag(NULL, STAGEFLAG_EYESPY_DESTROYED);
 			}
 		}
 
@@ -14865,10 +14875,13 @@ void chrSetStageFlag(struct chrdata *chr, u32 flag)
 {
 	u32 prev = g_StageFlags;
 	g_StageFlags |= flag;
-	if (g_StageFlags != prev && g_NetMode == NETMODE_SERVER
-			&& (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI)) {
-		sysLogPrintf(LOG_NOTE, "NET: chrSetStageFlag 0x%08x broadcast to clients", flag);
-		netmsgSvcStageFlagWrite(&g_NetMsgRel);
+	if (g_StageFlags != prev) {
+		scenarioSourceObjectiveGraphRecordStageFlags(g_StageFlags);
+		if (g_NetMode == NETMODE_SERVER
+				&& (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI)) {
+			sysLogPrintf(LOG_NOTE, "NET: chrSetStageFlag 0x%08x broadcast to clients", flag);
+			netmsgSvcStageFlagWrite(&g_NetMsgRel);
+		}
 	}
 }
 
@@ -14876,10 +14889,13 @@ void chrUnsetStageFlag(struct chrdata *chr, u32 flag)
 {
 	u32 prev = g_StageFlags;
 	g_StageFlags = g_StageFlags & ~flag;
-	if (g_StageFlags != prev && g_NetMode == NETMODE_SERVER
-			&& (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI)) {
-		sysLogPrintf(LOG_NOTE, "NET: chrUnsetStageFlag 0x%08x broadcast to clients", flag);
-		netmsgSvcStageFlagWrite(&g_NetMsgRel);
+	if (g_StageFlags != prev) {
+		scenarioSourceObjectiveGraphRecordStageFlags(g_StageFlags);
+		if (g_NetMode == NETMODE_SERVER
+				&& (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI)) {
+			sysLogPrintf(LOG_NOTE, "NET: chrUnsetStageFlag 0x%08x broadcast to clients", flag);
+			netmsgSvcStageFlagWrite(&g_NetMsgRel);
+		}
 	}
 }
 

@@ -7,14 +7,10 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
-#include "assetload.h"
+#include "langmanifest.h"
 
 extern u8 *g_LangBuffer;
 extern s32 g_LangBufferSize;
-
-/* Phase 3: lang manifest tracking (port/src/langmanifest.c) */
-void langManifestReset(void);
-void langManifestRecordBank(s32 bank);
 
 void langReset(s32 stagenum)
 {
@@ -71,33 +67,26 @@ void langReset(s32 stagenum)
 	}
 #else
 	// Versions prior to PAL load the language directly
-	g_LoadType = LOADTYPE_LANG; // find be a better way to do this..
-	g_LangBanks[LANGBANK_GUN] = assetLoadRomToNew(langGetFileId(LANGBANK_GUN), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+	langLoad(LANGBANK_GUN);
 	langManifestRecordBank(LANGBANK_GUN);
 
-	g_LoadType = LOADTYPE_LANG;
-	g_LangBanks[LANGBANK_MPMENU] = assetLoadRomToNew(langGetFileId(LANGBANK_MPMENU), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+	langLoad(LANGBANK_MPMENU);
 	langManifestRecordBank(LANGBANK_MPMENU);
 
-	g_LoadType = LOADTYPE_LANG;
-	g_LangBanks[LANGBANK_PROPOBJ] = assetLoadRomToNew(langGetFileId(LANGBANK_PROPOBJ), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+	langLoad(LANGBANK_PROPOBJ);
 	langManifestRecordBank(LANGBANK_PROPOBJ);
 
-	g_LoadType = LOADTYPE_LANG;
-	g_LangBanks[LANGBANK_MPWEAPONS] = assetLoadRomToNew(langGetFileId(LANGBANK_MPWEAPONS), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+	langLoad(LANGBANK_MPWEAPONS);
 	langManifestRecordBank(LANGBANK_MPWEAPONS);
 
-	g_LoadType = LOADTYPE_LANG;
-	g_LangBanks[LANGBANK_OPTIONS] = assetLoadRomToNew(langGetFileId(LANGBANK_OPTIONS), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+	langLoad(LANGBANK_OPTIONS);
 	langManifestRecordBank(LANGBANK_OPTIONS);
 
-	g_LoadType = LOADTYPE_LANG;
-	g_LangBanks[LANGBANK_MISC] = assetLoadRomToNew(langGetFileId(LANGBANK_MISC), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+	langLoad(LANGBANK_MISC);
 	langManifestRecordBank(LANGBANK_MISC);
 
 	if (stagenum == STAGE_CREDITS) {
-		g_LoadType = LOADTYPE_LANG;
-		g_LangBanks[LANGBANK_TITLE] = assetLoadRomToNew(langGetFileId(LANGBANK_TITLE), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+		langLoad(LANGBANK_TITLE);
 		langManifestRecordBank(LANGBANK_TITLE);
 	}
 #endif

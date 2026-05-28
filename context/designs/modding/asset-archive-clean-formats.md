@@ -46,7 +46,7 @@ The executable source of truth is `tools/asset_archive_conformance.py`: `OPTIONA
 | `.pdhead` | `dependencies/assets/{materials,textures,animations}/*.pdxxx` | Head mesh material, texture, and animation dependency closure. Absence means the mesh/shared animation source carries the default. |
 | `.pdbody` | `hand.pdmesh`, `dependencies/assets/{materials,textures,animations}/*.pdxxx` | Optional first-person hand mesh plus typed visual/animation closure. Without `hand.pdmesh`, `mesh.pdmesh` is the fallback hand/body source. |
 | `.pdarena` | `preview.png`, `thumbnail.png`, `dependencies/assets/scenarios/*.pdscenario` | Selection UI art and playable scenario closure. Only explicit Random selector arenas may omit a scenario dependency. |
-| `.pdscenario` | `scene.glb` or `scene.gltf`, `collision.glb`, `collision.obj`, `mission.graph.json` | One DCC-openable scene source is required. Collision overrides replace deterministic scene-derived collision; absence regenerates collision/nav from the scene, tables, and volumes. |
+| `.pdscenario` | `scene.glb` or `scene.gltf`, `collision.glb`, `collision.obj`, `mission.graph.json` | One DCC-openable scene source is required. Decoded navigation tables are required public source files; empty tables mean deterministic navigation is generated from the scene, pads, and volumes. Collision overrides replace deterministic scene-derived collision. |
 | `.pdmesh` | `model.gltf`, `model.glb`, `model.obj`, `model.mtl`, `export_version.txt`, `dependencies/assets/{materials,textures}/*.pdxxx` | One mesh source is required. OBJ may use `model.mtl`; exporter provenance is diagnostic. Textures/materials are typed dependencies or embedded/declared by the model source, never loose mesh sidecars. |
 | `.pdanim` | `animation.gltf`, `animation.glb`, `header.tsv`, `frames.tsv`, `opcodes.json`, `events.tsv`, `notifies.tsv` | Animation source alternatives plus optional markers. At least one source shape is required; events/notifies are absent when not authored. |
 | `.pdsfx` | `sample.ogg`, `sample.flac` | Optional alternate standard audio source alongside authoritative `sample.wav`. Absence uses WAV. |
@@ -132,6 +132,12 @@ pads.tsv
 volumes.tsv
 spawns.tsv
 navigation.ini
+navigation/waypoints.tsv
+navigation/waygroups.tsv
+navigation/covers.tsv
+objects.tsv
+setup.fields.tsv
+objectives.tsv
 mission.graph.json     # optional, or owned by .pdmission when campaign-specific
 level.graph.json       # triggers, global settings, scenario-local behavior hooks
 _meta/
@@ -148,11 +154,13 @@ _meta/
 
 Runtime should read `scene.glb`/`scene.gltf` through the catalog/provider asset pipeline, then derive private renderer, room/portal, collision fallback, and navigation cache from source hashes. Those generated products are speed aids and diagnostics, not the authored files that make the archive loadable.
 
+2026-05-28 implementation note: generated base `scene.glb` files carry `_PD_ROOM` vertex metadata so the runtime can preserve room ownership while deriving the legacy-compatible tile cache directly from the public scene source. Author-created scenes may supply equivalent room tags through `_PD_ROOM` or a future documented scene-node/tag mapping; raw public `tiles.tsv` or `rooms.obj` remains invalid as an authored requirement.
+
 `collision.glb` or `collision.obj` is optional. If present, the game uses it as the collision authority after validation. If absent, collision is generated deterministically from `scene.glb` using explicit import rules recorded in `scenario.ini` and `_meta/generated-collision.json`. Collision generation must preserve room/portal/floor metadata through named sidecars or scene node tags rather than requiring a second user-edited mesh by default.
 
-Bot navigation is generated, not authored as opaque legacy waypoint dumps. The generation input is the scene/collision mesh plus pads, volumes, gameplay tags, and bot-profile capability rules. The generated nav data must support normal walkable surfaces, jump links, drop links, wall traversal, and ceiling traversal for bot profiles that opt into those movement abilities.
+Bot navigation is generated, not authored as opaque legacy waypoint dumps. Every scenario carries decoded public `navigation/waypoints.tsv`, `navigation/waygroups.tsv`, and `navigation/covers.tsv` tables so OG waypoint, group, and cover behavior can round-trip exactly through user-editable source files; these are source tables, not raw preprocessed words. Empty navigation tables mean the generation input is the scene/collision mesh plus pads, volumes, gameplay tags, and bot-profile capability rules. The generated nav data must support normal walkable surfaces, jump links, drop links, wall traversal, and ceiling traversal for bot profiles that opt into those movement abilities.
 
-Raw preprocessed setup dumps are not acceptable public payloads. The extractor no longer writes public `setup.tsv`, `mpsetup.tsv`, or `visual_segments.tsv`; c3841 replaced them with decoded named `objects.tsv` and `objectives.tsv` content using catalog IDs for asset refs, plus `level.graph.json` for scene/collision/navigation/setup table linkage. Campaign-specific flow lives in `.pdmission` through `mission.graph.json`; reusable level-local triggers and global settings live in `.pdscenario`.
+Raw preprocessed setup dumps are not acceptable public payloads. The extractor no longer writes public `setup.tsv`, `mpsetup.tsv`, or `visual_segments.tsv`; c3841 replaced them with decoded named `objects.tsv` and `objectives.tsv` content using catalog IDs for asset refs, and c3844 adds `setup.fields.tsv` as the named per-command setup field source that removes the prior summary-only gap without exposing raw words. `level.graph.json` links scene/collision/navigation/setup tables. Campaign-specific flow lives in `.pdmission` through `mission.graph.json`; reusable level-local triggers and global settings live in `.pdscenario`.
 | `.pdmesh` | `mesh.ini`, geometry, UVs, hierarchy, sockets, LODs, skinning, collision proxy | Material/texture typed deps, rig binding, model and collision loader metadata. |
 | `.pdanim` | `animation.ini`, timeline/channels/events/notifies, target metadata | Retargeting, weapon/body binding, optional legacy opcode listings, event refs. |
 | `.pdsfx` | `sound.ini`, editable source audio | Loop points, attenuation, mixer/category tags, import/codec intent. |

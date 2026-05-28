@@ -34,6 +34,7 @@
 #include "bodydata_authored.h"
 #include "assetcatalog.h"
 #include "assetprovider_internal.h"
+#include "catalog_readable_ids.h"
 #include "modelcatalog.h"
 #include "net/sessioncatalog.h"
 #include "net/netbuf.h"
@@ -487,9 +488,27 @@ const char *catalogMpHeadId(s32 mp_idx)
 
 const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index)
 {
+    const char *match = NULL;
+    s32 i;
+
     if ((s32)type < 0 || (s32)type >= ASSET_TYPE_COUNT) return NULL;
     if (runtime_index < 0 || runtime_index >= RT_CACHE_SIZE) return NULL;
-    return s_RuntimeCache[(s32)type][runtime_index];
+    if (s_RuntimeCache[(s32)type][runtime_index]) {
+        return s_RuntimeCache[(s32)type][runtime_index];
+    }
+
+    /* Extractors run before catalogBuildRuntimeCaches() during boot.  Fall
+     * back to the registered catalog pool so public archives still serialize
+     * stable catalog IDs instead of blank runtime-index placeholders. */
+    for (i = 0; i < assetCatalogGetPoolSize(); i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        if (!e || !e->occupied) continue;
+        if (e->type != type) continue;
+        if (e->runtime_index != runtime_index) continue;
+        match = e->id;
+    }
+
+    return match;
 }
 
 const char *catalogStageIdByStageTableIndex(s32 stage_table_index)
@@ -626,6 +645,7 @@ asset_data_handle_t catalogHandleBySourceFilenum(asset_type_e type, s32 source_f
 {
 	s32 i;
 	asset_data_handle_t null_handle = ASSET_HANDLE_NULL_INIT;
+	asset_data_handle_t fallback_handle = ASSET_HANDLE_NULL_INIT;
 
 	if (source_filenum <= 0) {
 		return null_handle;
@@ -633,15 +653,40 @@ asset_data_handle_t catalogHandleBySourceFilenum(asset_type_e type, s32 source_f
 
 	for (i = 0; i < assetCatalogGetPoolSize(); i++) {
 		const asset_entry_t *e = assetCatalogGetByIndex(i);
+		asset_data_handle_t handle;
 
 		if (!e) continue;
 		if (e->type != type) continue;
 		if (e->source_filenum != source_filenum) continue;
 
-		return catalogEffectiveHandle(e);
+		handle = catalogEffectiveHandle(e);
+		if (assetHandleIsNull(handle)) continue;
+		if (handle.provider == fileProvider()) {
+			return handle;
+		}
+		if (assetHandleIsNull(fallback_handle)) {
+			fallback_handle = handle;
+		}
 	}
 
-	return null_handle;
+	if (type == ASSET_MODEL) {
+		char model_id[CATALOG_ID_LEN];
+		const asset_entry_t *model_entry;
+
+		catalogReadableModelIdForFile(source_filenum, NULL, "unlabeled",
+			model_id, sizeof(model_id));
+		model_entry = assetCatalogResolve(model_id);
+
+		if (model_entry) {
+			asset_data_handle_t handle = catalogEffectiveHandle(model_entry);
+			if (!assetHandleIsNull(handle)
+					&& handle.provider == fileProvider()) {
+				return handle;
+			}
+		}
+	}
+
+	return fallback_handle;
 }
 
 asset_data_handle_t catalogHandleByModelSourceFilenum(asset_type_e preferred_type, s32 source_filenum)

@@ -19,6 +19,7 @@
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "fs.h"
 #include "loader_pool.h"
 #include "loader_walker.h"
 #include "loader_walker_common.h"
@@ -27,17 +28,35 @@ static s32 s_register(const char *manifest, size_t manifest_len,
                       const char *pd_kind, const char *id,
                       const char *file_path)
 {
-    (void)pd_kind; (void)file_path;
+    (void)pd_kind;
 
     s64 frame_count = 0;
+    s64 source_index = -1;
     loaderWalkerEnvelopeInt(manifest, manifest_len, "frame_count", &frame_count);
+    loaderWalkerEnvelopeInt(manifest, manifest_len, "source_index", &source_index);
 
     char category[32];
     char target_body[64];
+    char source_member[128];
+    char source_path[FS_MAXPATH + 1];
     loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "category",
                                  category, sizeof(category));
     loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "target_body",
                                  target_body, sizeof(target_body));
+    if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "animation",
+                                     source_member, sizeof(source_member))) {
+        if (strcmp(category, "weapon_animation") == 0) {
+            if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "opcodes",
+                                             source_member, sizeof(source_member))) {
+                strncpy(source_member, "opcodes.json", sizeof(source_member) - 1);
+                source_member[sizeof(source_member) - 1] = '\0';
+            }
+        } else if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "frames",
+                                                source_member, sizeof(source_member))) {
+            strncpy(source_member, "frames.tsv", sizeof(source_member) - 1);
+            source_member[sizeof(source_member) - 1] = '\0';
+        }
+    }
 
     /* Catalog row: only register if absent (preserves existing
      * registrations from in-binary baseline). */
@@ -56,6 +75,18 @@ static s32 s_register(const char *manifest, size_t manifest_len,
          * triggered a realloc). */
         if (category[0]) {
             assetCatalogSetCategoryById(id, category);
+        }
+    }
+    e = assetCatalogGetMutable(id);
+    if (e) {
+        loaderWalkerMarkBaseArchiveEntry(e);
+        if (source_index >= 0) {
+            e->ext.anim.anim_id = (s32)source_index;
+            e->runtime_index = (s32)source_index;
+        }
+        if (loaderWalkerArchiveMemberPath(file_path, source_member,
+                                          source_path, sizeof(source_path))) {
+            catalogSetPrimaryFile(e, source_path);
         }
     }
 

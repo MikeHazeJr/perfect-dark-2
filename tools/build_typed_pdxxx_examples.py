@@ -87,6 +87,36 @@ def update_scenario() -> bytes:
         "_meta/generated-collision.json": read_entry(rel, "_meta/generated-collision.json"),
         "_meta/generated-navmesh.json": read_entry(rel, "_meta/generated-navmesh.json"),
     }
+    navigation_ini = (
+        "[navigation]\n"
+        "source = scene.glb\n"
+        "collision_source = scene.glb\n"
+        "generator = deterministic.surface_graph.v1\n"
+        "supports_walk = true\n"
+        "supports_jump = true\n"
+        "supports_wall = true\n"
+        "supports_ceiling = true\n"
+        "pads_file = pads.tsv\n"
+        "spawns_file = spawns.tsv\n"
+        "volumes_file = volumes.tsv\n"
+        "waypoints_file = navigation/waypoints.tsv\n"
+        "waygroups_file = navigation/waygroups.tsv\n"
+        "covers_file = navigation/covers.tsv\n"
+        "generated_cache = _meta/generated-navmesh.json\n"
+    )
+    waypoints_tsv = "waypoint_id\tpad_ref\tgroup_ref\tstep\tneighbours\n"
+    waygroups_tsv = "waygroup_id\tstep\twaypoints\tneighbours\n"
+    covers_tsv = "cover_id\tflags\tpos_x\tpos_y\tpos_z\tlook_x\tlook_y\tlook_z\n"
+    setup_fields_tsv = (
+        "record_id\tkind\tfield\ttype\tvalue\tcatalog_id\tref_record_id\n"
+        "setup_0000\tprop\tcommand.order\ts32\t0\t\t\n"
+        "setup_0000\tprop\tbase.pad\tpad_ref\tpad_0000\t\t\n"
+        "setup_0000\tprop\tbase.flags\tu32_hex\t0x00000000\t\t\n"
+    )
+    objectives_tsv = (
+        "objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\toperand_kind\ttarget_ref\ttarget_record_ref\tpad_ref\tstate_ref\tmatch_value\tinitial_status\n"
+        "objective_0000\tobjective\tobjective_text_primary\tall\tlevel.objective.0000\tobjective\t\t\t\t\t\t\n"
+    )
     scenario_ini = (
         "; tri_scenario.pdscenario - source-first scenario asset\n"
         "[scenario]\n"
@@ -101,7 +131,11 @@ def update_scenario() -> bytes:
         "pads_file = pads.tsv\n"
         "spawns_file = spawns.tsv\n"
         "volumes_file = volumes.tsv\n"
+        "waypoints_file = navigation/waypoints.tsv\n"
+        "waygroups_file = navigation/waygroups.tsv\n"
+        "covers_file = navigation/covers.tsv\n"
         "objects_file = objects.tsv\n"
+        "setup_fields_file = setup.fields.tsv\n"
         "objectives_file = objectives.tsv\n"
         "navigation_file = navigation.ini\n"
         "level_graph_file = level.graph.json\n"
@@ -123,7 +157,11 @@ def update_scenario() -> bytes:
         "  \"pads\": \"pads.tsv\",\n"
         "  \"spawns\": \"spawns.tsv\",\n"
         "  \"volumes\": \"volumes.tsv\",\n"
+        "  \"waypoints\": \"navigation/waypoints.tsv\",\n"
+        "  \"waygroups\": \"navigation/waygroups.tsv\",\n"
+        "  \"covers\": \"navigation/covers.tsv\",\n"
         "  \"objects\": \"objects.tsv\",\n"
+        "  \"setup_fields\": \"setup.fields.tsv\",\n"
         "  \"objectives\": \"objectives.tsv\"\n"
         "}\n"
     )
@@ -133,9 +171,13 @@ def update_scenario() -> bytes:
         ("pads.tsv", kept["pads.tsv"]),
         ("spawns.tsv", kept["spawns.tsv"]),
         ("volumes.tsv", kept["volumes.tsv"]),
+        ("navigation/waypoints.tsv", waypoints_tsv),
+        ("navigation/waygroups.tsv", waygroups_tsv),
+        ("navigation/covers.tsv", covers_tsv),
         ("objects.tsv", kept["objects.tsv"]),
-        ("objectives.tsv", kept["objectives.tsv"]),
-        ("navigation.ini", kept["navigation.ini"]),
+        ("setup.fields.tsv", setup_fields_tsv),
+        ("objectives.tsv", objectives_tsv),
+        ("navigation.ini", navigation_ini),
         ("level.graph.json", kept["level.graph.json"]),
         ("_meta/generated-collision.json", kept["_meta/generated-collision.json"]),
         ("_meta/generated-navmesh.json", kept["_meta/generated-navmesh.json"]),
@@ -331,12 +373,81 @@ def update_botprofile() -> None:
         ("botprofile.ini",
          "[bot_profile]\n"
          "catalog_id = example:tri_botprofile\n"
-         "type = general\n"
-         "difficulty = normal\n"
+         "type_key = general\n"
+         "difficulty_key = normal\n"
          "target_body = example:tri_body\n"
          "profile_file = profile.json\n"),
         ("profile.json", profile),
         ("_meta/manifest.json", manifest("botprofile", "example:tri_botprofile")),
+    ])
+
+
+def update_effect() -> None:
+    graph = read_entry("effects/tri_effect.pdeffect", "effect.graph.json")
+    write_archive("effects/tri_effect.pdeffect", [
+        ("effect.ini",
+         "[effect]\n"
+         "catalog_id = example:tri_effect\n"
+         "name = Triangle Glow\n"
+         "effect_key = glow\n"
+         "target_key = weapon\n"
+         "effect_file = effect.graph.json\n"
+         "shader_id = example_glow\n"
+         "intensity = 0.75\n"),
+        ("effect.graph.json", graph),
+        ("_meta/manifest.json", manifest("effect", "example:tri_effect")),
+    ])
+
+
+def update_prop() -> None:
+    model = read_entry("props/tri_prop.pdprop", "model.gltf")
+    behavior = read_entry("props/tri_prop.pdprop", "behavior.graph.json")
+    write_archive("props/tri_prop.pdprop", [
+        ("prop.ini",
+         "[prop]\n"
+         "catalog_id = example:tri_prop\n"
+         "name = Triangle Prop\n"
+         "prop_key = object\n"
+         "model_file = model.gltf\n"
+         "health = 100\n"
+         "behavior_graph = behavior.graph.json\n"),
+        ("model.gltf", model),
+        ("behavior.graph.json", behavior),
+        ("_meta/manifest.json", manifest("prop", "example:tri_prop")),
+    ])
+
+
+def update_gamemode() -> None:
+    rules = read_entry("gamemodes/tri_gamemode.pdgamemode", "rules.json")
+    write_archive("gamemodes/tri_gamemode.pdgamemode", [
+        ("gamemode.ini",
+         "[gamemode]\n"
+         "catalog_id = example:tri_gamemode\n"
+         "name = Triangle Rules\n"
+         "mode_key = custom\n"
+         "min_players = 2\n"
+         "max_players = 8\n"
+         "team_based = 0\n"
+         "rules_file = rules.json\n"),
+        ("rules.json", rules),
+        ("_meta/manifest.json", manifest("gamemode", "example:tri_gamemode")),
+    ])
+
+
+def update_hud() -> None:
+    layout = read_entry("hud/tri_hud.pdhud", "layout.json")
+    texture = read_entry("hud/tri_hud.pdhud", "texture.png")
+    write_archive("hud/tri_hud.pdhud", [
+        ("hud.ini",
+         "[hud]\n"
+         "catalog_id = example:tri_hud\n"
+         "name = Triangle HUD\n"
+         "hud_key = ammo\n"
+         "texture_file = texture.png\n"
+         "layout_file = layout.json\n"),
+        ("layout.json", layout),
+        ("texture.png", texture),
+        ("_meta/manifest.json", manifest("hud", "example:tri_hud")),
     ])
 
 
@@ -367,6 +478,10 @@ def main() -> int:
     update_character(head_bytes, body_bytes)
     update_arena(scenario_bytes)
     update_botprofile()
+    update_effect()
+    update_prop()
+    update_gamemode()
+    update_hud()
 
     rewrite_without_directory_entries("skins/tri_skin.pdskin")
     rewrite_without_directory_entries("themes/tri_theme.pdtheme")
@@ -376,6 +491,33 @@ def main() -> int:
     with zipfile.ZipFile(archive("missions/tri_mission.pdmission"), "r") as zf:
         mission_entries = [(name, zf.read(name)) for name in zf.namelist()
                            if name != "dependencies/assets/scenario/tri_scenario.pdscenario"]
+    mission_graph = (
+        "{\n"
+        "  \"schema\": \"pd2.mission.graph.v1\",\n"
+        "  \"catalog_id\": \"example:tri_mission\",\n"
+        "  \"scenario_ref\": \"example:tri_scenario\",\n"
+        "  \"nodes\": [\n"
+        "    { \"id\": \"mission.load\", \"kind\": \"event.mission.load\", \"scenario\": \"example:tri_scenario\" },\n"
+        "    { \"id\": \"mission.objectives\", \"kind\": \"mission.objectives.source\", \"file\": \"objectives.tsv\", \"scenario_table\": \"dependencies/assets/scenario/tri_scenario.pdscenario::objectives.tsv\" },\n"
+        "    { \"id\": \"mission.objective.0000\", \"kind\": \"mission.objective.source\", \"source_row\": \"objective_0000\", \"scenario_node\": \"level.objective.0000\", \"text_token\": \"objective_text_primary\", \"difficulty_mask\": \"all\", \"criteria\": \"objective\", \"operand_kind\": \"objective\", \"target_ref\": \"\", \"target_record_ref\": \"\", \"pad_ref\": \"\", \"state_ref\": \"\", \"match_value\": \"\", \"initial_status\": \"\" },\n"
+        "    { \"id\": \"mission.parity_backend\", \"kind\": \"mission.behavior.parity_backend\", \"module\": \"og.mission.example\" }\n"
+        "  ],\n"
+        "  \"edges\": [\n"
+        "    { \"from\": \"mission.load\", \"to\": \"mission.objectives\" },\n"
+        "    { \"from\": \"mission.objectives\", \"to\": \"mission.objective.0000\" },\n"
+        "    { \"from\": \"mission.objectives\", \"to\": \"mission.parity_backend\" }\n"
+        "  ]\n"
+        "}\n"
+    ).encode("utf-8")
+    mission_objectives = (
+        "objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\tscenario_source\toperand_kind\ttarget_ref\ttarget_record_ref\tpad_ref\tstate_ref\tmatch_value\tinitial_status\n"
+        "objective_0000\tobjective\tobjective_text_primary\tall\tmission.objective.0000\tdependencies/assets/scenario/tri_scenario.pdscenario::objectives.tsv#objective_0000\tobjective\t\t\t\t\t\t\n"
+    ).encode("utf-8")
+    mission_entries = [
+        (name, mission_graph if name == "mission.graph.json"
+         else mission_objectives if name == "objectives.tsv" else data)
+        for name, data in mission_entries
+    ]
     mission_entries.insert(4, (
         "dependencies/assets/scenario/tri_scenario.pdscenario",
         scenario_bytes,

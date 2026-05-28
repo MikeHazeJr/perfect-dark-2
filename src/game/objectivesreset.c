@@ -3,6 +3,7 @@
 #include "game/inv.h"
 #include "bss.h"
 #include "lib/main.h"
+#include "scenario_source_runtime.h"
 #include "data.h"
 #include "types.h"
 
@@ -49,6 +50,7 @@ void briefingInsert(struct briefingobj *briefing)
 void objectiveInsert(struct objective *objective)
 {
 	g_Objectives[objective->index] = objective;
+	scenarioSourceObjectiveGraphRecordInsert(objective);
 
 	if (g_ObjectiveLastIndex < objective->index) {
 		g_ObjectiveLastIndex = objective->index;

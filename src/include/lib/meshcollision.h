@@ -29,6 +29,7 @@ struct meshtri {
 	struct coord v2;
 	struct coord normal;   /* precomputed face normal */
 	u16 flags;             /* GEOFLAG_* for floor/wall/ceiling classification */
+	RoomNum roomnum;       /* source room tag, or 0 when unknown/global */
 };
 
 /* ---- Per-object collision mesh ---- */
