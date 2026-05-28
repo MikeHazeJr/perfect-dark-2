@@ -1,0 +1,13 @@
+{
+  "Name": "scenario_pads_source_gate_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 31.3106082,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 31,
+  "AssertionsMet": 31,
+  "Failures": []
+}

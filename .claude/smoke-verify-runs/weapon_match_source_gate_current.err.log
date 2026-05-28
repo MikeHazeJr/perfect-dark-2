@@ -1,0 +1,211 @@
+UPDATER: Checking for pending update at: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\smoke-verify-install\pd.update.zip
+UPDATER: Current exe path: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\smoke-verify-install\PerfectDark.exe
+UPDATER: No pending update found (file does not exist)
+[00:00.00] WARNING: Maximum number of configuration entries exceeded: 512
+[00:00.02] WARNING: IDENTITY: could not write C:/Users/mikeh/AppData/Roaming/perfectdark/pd-identity.dat
+[00:00.03] WARNING: IDENTITY: could not write C:/Users/mikeh/AppData/Roaming/perfectdark/pd-identity.dat
+[00:00.18] WARNING: GL: using core profile or ES, watch out for errors
+[00:02.65] ERROR: romdataFileGetSize: could not load file num 2014
+[00:02.67] ERROR: romdataFileGetSize: could not load file num 2015
+[00:02.68] ERROR: romdataFileGetSize: could not load file num 2016
+[00:02.69] ERROR: romdataFileGetSize: could not load file num 2017
+[00:02.69] ERROR: romdataFileGetSize: could not load file num 2018
+[00:02.70] ERROR: romdataFileGetSize: could not load file num 2019
+[00:02.70] ERROR: romdataFileGetSize: could not load file num 2020
+[00:02.71] ERROR: romdataFileGetSize: could not load file num 2021
+[00:02.71] ERROR: romdataFileGetSize: could not load file num 2022
+[00:02.72] ERROR: romdataFileGetSize: could not load file num 2023
+[00:02.72] ERROR: romdataFileGetSize: could not load file num 2024
+[00:02.73] ERROR: romdataFileGetSize: could not load file num 2025
+[00:02.73] ERROR: romdataFileGetSize: could not load file num 2026
+[00:02.74] ERROR: romdataFileGetSize: could not load file num 2027
+[00:02.74] ERROR: romdataFileGetSize: could not load file num 2028
+[00:02.75] ERROR: romdataFileGetSize: could not load file num 2029
+[00:02.75] ERROR: romdataFileGetSize: could not load file num 2030
+[00:02.76] ERROR: romdataFileGetSize: could not load file num 2031
+[00:02.76] ERROR: romdataFileGetSize: could not load file num 2032
+[00:02.77] ERROR: romdataFileGetSize: could not load file num 2033
+[00:02.78] ERROR: romdataFileGetSize: could not load file num 2034
+[00:02.78] ERROR: romdataFileGetSize: could not load file num 2035
+[00:02.79] ERROR: romdataFileGetSize: could not load file num 2036
+[00:02.79] ERROR: romdataFileGetSize: could not load file num 2037
+[00:02.80] ERROR: romdataFileGetSize: could not load file num 2038
+[00:02.80] ERROR: romdataFileGetSize: could not load file num 2039
+[00:02.81] ERROR: romdataFileGetSize: could not load file num 2040
+[00:02.81] ERROR: romdataFileGetSize: could not load file num 2041
+[00:02.82] ERROR: romdataFileGetSize: could not load file num 2042
+[00:02.82] ERROR: romdataFileGetSize: could not load file num 2043
+[00:02.83] ERROR: romdataFileGetSize: could not load file num 2044
+[00:02.83] ERROR: romdataFileGetSize: could not load file num 2045
+[00:02.83] ERROR: romdataFileGetSize: could not load file num 2046
+[00:02.84] ERROR: romdataFileGetSize: could not load file num 2047
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2014
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2028
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2016
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2017
+[00:02.93] ERROR: romdataFileGetSize: could not load file num 2031
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2019
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2020
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2021
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2022
+[00:02.95] ERROR: romdataFileGetSize: could not load file num 2036
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2024
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2025
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2026
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2027
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2015
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2029
+[00:02.93] ERROR: romdataFileGetSize: could not load file num 2030
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2018
+[00:02.93] ERROR: romdataFileGetSize: could not load file num 2032
+[00:02.94] ERROR: romdataFileGetSize: could not load file num 2033
+[00:03.01] ERROR: romdataFileGetSize: could not load file num 2047
+[00:02.95] ERROR: romdataFileGetSize: could not load file num 2035
+[00:02.92] ERROR: romdataFileGetSize: could not load file num 2023
+[00:02.96] ERROR: romdataFileGetSize: could not load file num 2037
+[00:02.96] ERROR: romdataFileGetSize: could not load file num 2038
+[00:02.96] ERROR: romdataFileGetSize: could not load file num 2039
+[00:02.97] ERROR: romdataFileGetSize: could not load file num 2040
+[00:02.98] ERROR: romdataFileGetSize: could not load file num 2041
+[00:02.98] ERROR: romdataFileGetSize: could not load file num 2042
+[00:02.99] ERROR: romdataFileGetSize: could not load file num 2043
+[00:02.99] ERROR: romdataFileGetSize: could not load file num 2044
+[00:03.00] ERROR: romdataFileGetSize: could not load file num 2045
+[00:03.00] ERROR: romdataFileGetSize: could not load file num 2046
+[00:02.94] ERROR: romdataFileGetSize: could not load file num 2034
+[00:08.59] WARNING: STAGE: stageGetIndex(0x02) not found in stage table!
+[00:08.60] WARNING: STAGE: stageGetIndex(0x03) not found in stage table!
+[00:08.60] WARNING: STAGE: stageGetIndex(0x02) not found in stage table!
+[00:08.61] WARNING: STAGE: stageGetIndex(0x03) not found in stage table!
+[00:11.78] WARNING: convertRoomGfxData: ptr_vertices yields endpos=-251671764 outside src_size=32 — clamping (roomblock loop cut)
+[00:11.78] WARNING: convertRoomGfxData: ptr_colours yields vtx_end=18446744073457879852 outside src_size=32 — clamping (vertex loop cut)
+[00:12.10] WARNING: convertRoomGfxData: ptr_vertices yields endpos=-251681816 outside src_size=32 — clamping (roomblock loop cut)
+[00:12.11] WARNING: convertRoomGfxData: ptr_colours yields vtx_end=18446744073457869800 outside src_size=32 — clamping (vertex loop cut)
+[00:12.11] WARNING: convertRoomGfxData: ptr_vertices yields endpos=-251681836 outside src_size=32 — clamping (roomblock loop cut)
+[00:12.12] WARNING: convertRoomGfxData: ptr_colours yields vtx_end=18446744073457869780 outside src_size=32 — clamping (vertex loop cut)
+[00:14.18] WARNING: convertRoomGfxData: ptr_vertices yields endpos=-251892544 outside src_size=32 — clamping (roomblock loop cut)
+[00:14.18] WARNING: convertRoomGfxData: ptr_colours yields vtx_end=18446744073457659072 outside src_size=32 — clamping (vertex loop cut)
+[00:15.40] WARNING: STAGE: stageGetIndex(0x02) not found in stage table!
+[00:15.41] WARNING: STAGE: stageGetIndex(0x02) not found in stage table!
+[00:15.41] WARNING: STAGE: stageGetIndex(0x03) not found in stage table!
+[00:15.42] WARNING: STAGE: stageGetIndex(0x03) not found in stage table!
+[00:20.53] WARNING: LOADER.POOL.WEAPON.RESOLVE_FAIL: weaponfunc.shootsound name="SFX_0000"
+[00:20.81] WARNING: SETUP: door modelnum 404 has no bbox node — using identity scale
+[00:20.82] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=404 model=0000021af09127d0 flags=0x84 doortype=0 (count=1)
+[00:20.83] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=404 model=0000021af09127d0 flags=0x84 doortype=0 (count=2)
+[00:20.84] WARNING: SETUP: door modelnum 404 has no bbox node — using identity scale
+[00:20.84] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=404 model=0000021af0912818 flags=0x84 doortype=0 (count=3)
+[00:20.85] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=404 model=0000021af0912818 flags=0x84 doortype=0 (count=4)
+[00:20.86] WARNING: SETUP: door modelnum 404 has no bbox node — using identity scale
+[00:20.87] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=404 model=0000021af0912860 flags=0x84 doortype=0 (count=5)
+[00:20.88] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=404 model=0000021af0912860 flags=0x84 doortype=0 (count=6)
+[00:20.88] WARNING: SETUP: door modelnum 404 has no bbox node — using identity scale
+[00:20.89] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=404 model=0000021af09128a8 flags=0x84 doortype=0 (count=7)
+[00:20.91] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=404 model=0000021af09128a8 flags=0x84 doortype=0 (count=8)
+[00:20.93] WARNING: SETUP: door modelnum 380 has no bbox node — using identity scale
+[00:20.93] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=380 model=0000021af09128f0 flags=0x84 doortype=0 (count=9)
+[00:20.94] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=380 model=0000021af09128f0 flags=0x84 doortype=0 (count=10)
+[00:20.95] WARNING: SETUP: door modelnum 380 has no bbox node — using identity scale
+[00:20.96] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=380 model=0000021af0912938 flags=0x84 doortype=0 (count=11)
+[00:20.96] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=380 model=0000021af0912938 flags=0x84 doortype=0 (count=12)
+[00:20.97] WARNING: SETUP: door modelnum 380 has no bbox node — using identity scale
+[00:20.98] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=380 model=0000021af0912980 flags=0x84 doortype=0 (count=13)
+[00:20.98] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=380 model=0000021af0912980 flags=0x84 doortype=0 (count=14)
+[00:20.99] WARNING: SETUP: door modelnum 380 has no bbox node — using identity scale
+[00:21.00] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=380 model=0000021af09129c8 flags=0x84 doortype=0 (count=15)
+[00:21.00] WARNING: DOOR.DIAG: doorGetBbox — no bbox for modelnum=380 model=0000021af09129c8 flags=0x84 doortype=0 (count=16)
+[00:21.01] WARNING: SETUP: door modelnum 380 has no bbox node — using identity scale
+[00:21.01] WARNING: SETUP: door modelnum 380 has no bbox node — using identity scale
+[00:21.02] WARNING: SETUP: door modelnum 380 has no bbox node — using identity scale
+[00:21.02] WARNING: SETUP: door modelnum 380 has no bbox node — using identity scale
+[00:21.03] WARNING: SETUP: door modelnum 68 has no bbox node — using identity scale
+[00:21.06] WARNING: SETUP: door modelnum 68 has no bbox node — using identity scale
+[00:21.07] WARNING: SETUP: door modelnum 68 has no bbox node — using identity scale
+[00:21.07] WARNING: SETUP: door modelnum 68 has no bbox node — using identity scale
+[00:21.08] WARNING: SETUP: door modelnum 68 has no bbox node — using identity scale
+[00:21.08] WARNING: SETUP: door modelnum 68 has no bbox node — using identity scale
+[00:21.09] WARNING: SETUP: door modelnum 68 has no bbox node — using identity scale
+[00:21.09] WARNING: SETUP: door modelnum 68 has no bbox node — using identity scale
+[00:21.10] WARNING: SETUP: door modelnum 68 has no bbox node — using identity scale
+[00:21.26] WARNING: SETUP: door modelnum 179 has no bbox node — using identity scale
+[00:21.28] WARNING: SETUP: door modelnum 333 has no bbox node — using identity scale
+[00:21.28] WARNING: SETUP: door modelnum 179 has no bbox node — using identity scale
+[00:21.29] WARNING: SETUP: door modelnum 334 has no bbox node — using identity scale
+[00:21.30] WARNING: SETUP: door modelnum 156 has no bbox node — using identity scale
+[00:21.30] WARNING: SETUP: door modelnum 156 has no bbox node — using identity scale
+[00:21.31] WARNING: SETUP: door modelnum 179 has no bbox node — using identity scale
+[00:21.32] WARNING: SETUP: door modelnum 421 has no bbox node — using identity scale
+[00:21.35] WARNING: SETUP: door modelnum 174 has no bbox node — using identity scale
+[00:21.36] WARNING: SETUP: door modelnum 174 has no bbox node — using identity scale
+[00:21.37] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.37] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.38] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.38] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.39] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.39] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.40] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.40] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.40] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.41] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.41] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.42] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.42] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.43] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.43] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.44] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.44] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.45] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.45] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.46] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.46] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.47] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.47] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.48] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.48] WARNING: SETUP: door modelnum 174 has no bbox node — using identity scale
+[00:21.49] WARNING: SETUP: door modelnum 174 has no bbox node — using identity scale
+[00:21.49] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.50] WARNING: SETUP: door modelnum 125 has no bbox node — using identity scale
+[00:21.54] WARNING: SETUP: door modelnum 156 has no bbox node — using identity scale
+[00:21.54] WARNING: SETUP: door modelnum 156 has no bbox node — using identity scale
+[00:21.55] WARNING: SETUP: door modelnum 156 has no bbox node — using identity scale
+[00:21.55] WARNING: SETUP: door modelnum 156 has no bbox node — using identity scale
+[00:21.55] WARNING: SETUP: door modelnum 156 has no bbox node — using identity scale
+[00:21.56] WARNING: SETUP: door modelnum 156 has no bbox node — using identity scale
+[00:21.56] WARNING: SETUP: door modelnum 156 has no bbox node — using identity scale
+[00:21.57] WARNING: SETUP: door modelnum 156 has no bbox node — using identity scale
+[00:21.57] WARNING: SETUP: door modelnum 156 has no bbox node — using identity scale
+[00:21.58] WARNING: SETUP: door modelnum 156 has no bbox node — using identity scale
+[00:21.58] WARNING: SETUP: door modelnum 156 has no bbox node — using identity scale
+[00:21.59] WARNING: SETUP: door modelnum 156 has no bbox node — using identity scale
+[00:21.80] WARNING: MANIFEST-SP: late-add 'base:ciaguy' type=0 runtime=115 -- post-load body modeldef torn: parts=0 root=0000021aeca91fc0 scale=1.000 (root cause class: sp_body_108 parts=0 / S308)
+[00:21.83] WARNING: MANIFEST-SP: late-add 'base:g5_guard' type=0 runtime=127 -- post-load body modeldef torn: parts=0 root=0000021aeca8fcd0 scale=1.000 (root cause class: sp_body_108 parts=0 / S308)
+[00:21.88] WARNING: MANIFEST-SP: late-add 'base:fbiguy' type=0 runtime=114 -- post-load body modeldef torn: parts=0 root=0000021aeca90230 scale=1.000 (root cause class: sp_body_108 parts=0 / S308)
+[00:21.90] WARNING: MANIFEST-SP: late-add 'base:sp_body_118' type=0 runtime=118 -- post-load body modeldef torn: parts=0 root=0000021aeca91250 scale=1.000 (root cause class: sp_body_108 parts=0 / S308)
+[00:21.95] WARNING: SETUP: door modelnum 168 has no bbox node — using identity scale
+[00:21.95] WARNING: SETUP: door modelnum 170 has no bbox node — using identity scale
+[00:21.96] WARNING: SETUP: door modelnum 173 has no bbox node — using identity scale
+[00:21.97] WARNING: SETUP: door modelnum 173 has no bbox node — using identity scale
+[00:21.97] WARNING: SETUP: door modelnum 174 has no bbox node — using identity scale
+[00:21.98] WARNING: SETUP: door modelnum 174 has no bbox node — using identity scale
+[00:21.98] WARNING: SETUP: door modelnum 174 has no bbox node — using identity scale
+[00:21.99] WARNING: SETUP: door modelnum 174 has no bbox node — using identity scale
+[00:21.99] WARNING: SETUP: door modelnum 174 has no bbox node — using identity scale
+[00:22.00] WARNING: SETUP: door modelnum 174 has no bbox node — using identity scale
+[00:22.00] WARNING: SETUP: door modelnum 174 has no bbox node — using identity scale
+[00:22.00] WARNING: SETUP: door modelnum 174 has no bbox node — using identity scale
+[00:22.01] WARNING: SETUP: door modelnum 174 has no bbox node — using identity scale
+[00:22.01] WARNING: SETUP: door modelnum 174 has no bbox node — using identity scale
+[00:22.03] WARNING: SETUP: door modelnum 129 has no bbox node — using identity scale
+[00:22.03] WARNING: SETUP: door modelnum 129 has no bbox node — using identity scale
+[00:22.04] WARNING: SETUP: door modelnum 59 has no bbox node — using identity scale
+[00:22.04] WARNING: SETUP: door modelnum 59 has no bbox node — using identity scale
+[00:22.06] WARNING: SETUP: door modelnum 179 has no bbox node — using identity scale
+[00:22.07] WARNING: SETUP: door modelnum 179 has no bbox node — using identity scale
+[00:22.07] WARNING: SETUP: door modelnum 179 has no bbox node — using identity scale
+[00:22.10] WARNING: SETUP: world pickups 9 below target 14 (markers=0); forcing spawn-with-weapon fallback id='base:dy357'
+[00:22.11] WARNING: SPAWNPOOL: L1 declared pad 125 failed validation (budget=-1, room=7) -- falling through to L2
+[00:22.12] WARNING: SPAWNPOOL: L1 declared pad 88 failed validation (budget=-1, room=58) -- falling through to L2
+[00:22.13] WARNING: SPAWNPOOL: L1 declared pad 136 failed validation (budget=-1, room=7) -- falling through to L2
+[00:22.13] WARNING: SPAWNPOOL: L1 declared pad 127 failed validation (budget=-1, room=7) -- falling through to L2
+[00:22.14] WARNING: SPAWNPOOL: L1 declared pad 98 failed validation (budget=-1, room=103) -- falling through to L2
+[00:22.14] WARNING: SPAWNPOOL: L1 declared pad 74 failed validation (budget=-1, room=90) -- falling through to L2

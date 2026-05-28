@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:drcaroll",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_drcaroll.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 42882,
+  "source_sha256": "bab948817b7ce7d5ef194dbfc0dee6f3cca2f3bf9ae12404114d2eb071dbe74e",
+  "validation": "format=obj vertices=648 triangles=216",
+  "normalized": "$S/mod-cache/base/base_drcaroll/body-v1-bab948817b7ce7d5ef194dbfc0dee6f3cca2f3bf9ae12404114d2eb071dbe74e.pdmodel.json",
+  "vertex_count": 648,
+  "triangle_count": 216,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

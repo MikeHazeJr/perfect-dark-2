@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:dd_guard",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_dd_guard.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 142302,
+  "source_sha256": "15987ba79bf79069438157d3837ff14083e38524d1a2d6029a423c4e348f3b57",
+  "validation": "format=obj vertices=2091 triangles=697",
+  "normalized": "$S/mod-cache/base/base_dd_guard/body-v1-15987ba79bf79069438157d3837ff14083e38524d1a2d6029a423c4e348f3b57.pdmodel.json",
+  "vertex_count": 2091,
+  "triangle_count": 697,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

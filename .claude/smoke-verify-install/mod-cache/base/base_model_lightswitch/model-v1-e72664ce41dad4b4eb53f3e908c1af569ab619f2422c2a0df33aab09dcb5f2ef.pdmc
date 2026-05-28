@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_lightswitch",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_lightswitch.pdmesh::model.obj",
+  "source_size": 1880,
+  "source_sha256": "e72664ce41dad4b4eb53f3e908c1af569ab619f2422c2a0df33aab09dcb5f2ef",
+  "validation": "format=obj vertices=30 triangles=10",
+  "normalized": "$S/mod-cache/base/base_model_lightswitch/model-v1-e72664ce41dad4b4eb53f3e908c1af569ab619f2422c2a0df33aab09dcb5f2ef.pdmodel.json",
+  "vertex_count": 30,
+  "triangle_count": 10,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

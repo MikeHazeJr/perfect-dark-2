@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:head_griffey",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_griffey.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 42519,
+  "source_sha256": "9b3e49bf3347590a0130871089f0896a740582460b2b0d87ef1a7a32bf6e9d69",
+  "validation": "format=obj vertices=651 triangles=217",
+  "normalized": "$S/mod-cache/base/base_head_griffey/head-v1-9b3e49bf3347590a0130871089f0896a740582460b2b0d87ef1a7a32bf6e9d69.pdmodel.json",
+  "vertex_count": 651,
+  "triangle_count": 217,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

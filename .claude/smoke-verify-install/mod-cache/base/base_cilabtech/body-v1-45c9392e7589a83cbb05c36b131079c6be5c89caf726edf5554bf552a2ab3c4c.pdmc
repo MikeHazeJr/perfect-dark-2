@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:cilabtech",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_cilabtech.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 148438,
+  "source_sha256": "45c9392e7589a83cbb05c36b131079c6be5c89caf726edf5554bf552a2ab3c4c",
+  "validation": "format=obj vertices=2175 triangles=725",
+  "normalized": "$S/mod-cache/base/base_cilabtech/body-v1-45c9392e7589a83cbb05c36b131079c6be5c89caf726edf5554bf552a2ab3c4c.pdmodel.json",
+  "vertex_count": 2175,
+  "triangle_count": 725,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

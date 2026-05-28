@@ -1,3 +1,14 @@
 {
-  "solo.distance_units": 763
+  "solo.distance_units": 763,
+  "items.picked_up": 6,
+  "items.weapons_picked_up": 6,
+  "deaths.total": 2,
+  "deaths.mode.combat": 2,
+  "deaths.by_bot": 2,
+  "kills.total": 3,
+  "kills.mode.combat": 3,
+  "kills.vs_bot": 3,
+  "kills.weapon.dy357lx": 3,
+  "solo.mission_failures": 21,
+  "solo.time_played_seconds": 117
 }

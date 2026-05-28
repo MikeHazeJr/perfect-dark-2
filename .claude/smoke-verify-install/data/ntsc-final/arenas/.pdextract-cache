@@ -1,5 +1,5 @@
 schema=pdasset-fast-v1-20260521
-kind=pdarena_clean_public_v3
+kind=pdarena_clean_public_v4
 count=47
-total_bytes=7340126
-latest_mtime=1779933875
+total_bytes=8364498
+latest_mtime=1779997695

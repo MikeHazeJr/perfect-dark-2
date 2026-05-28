@@ -1,0 +1,23 @@
+{
+  "schema": "pd2.modasset.model.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_lasdoor",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_lasdoor.pdmesh::model.obj",
+  "source_sha256": "5cd6d8225f03da8ff975006615661d4566fc72be1f01ea016132e2f251670e9c",
+  "runtime_boundary": "modeldef",
+  "vertex_count": 6,
+  "triangle_count": 2,
+  "vertices": [
+    [1000, -100, 0],
+    [1000, 100, 0],
+    [-1000, 100, 0],
+    [1000, -100, 0],
+    [-1000, 100, 0],
+    [-1000, -100, 0]
+  ],
+  "triangles": [
+    [0, 1, 2],
+    [3, 4, 5]
+  ]
+}

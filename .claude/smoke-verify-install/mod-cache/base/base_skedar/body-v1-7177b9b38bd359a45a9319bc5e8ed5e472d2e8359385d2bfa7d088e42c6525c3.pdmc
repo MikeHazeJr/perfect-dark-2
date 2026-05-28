@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:skedar",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_skedar.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 179274,
+  "source_sha256": "7177b9b38bd359a45a9319bc5e8ed5e472d2e8359385d2bfa7d088e42c6525c3",
+  "validation": "format=obj vertices=2583 triangles=861",
+  "normalized": "$S/mod-cache/base/base_skedar/body-v1-7177b9b38bd359a45a9319bc5e8ed5e472d2e8359385d2bfa7d088e42c6525c3.pdmodel.json",
+  "vertex_count": 2583,
+  "triangle_count": 861,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

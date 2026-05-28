@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:cifemtech",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_cifemtech.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 166005,
+  "source_sha256": "acafb78954b5b1dab3a795762092a0adcda0914c8841fdf83728fa1604f7fff4",
+  "validation": "format=obj vertices=2439 triangles=813",
+  "normalized": "$S/mod-cache/base/base_cifemtech/body-v1-acafb78954b5b1dab3a795762092a0adcda0914c8841fdf83728fa1604f7fff4.pdmodel.json",
+  "vertex_count": 2439,
+  "triangle_count": 813,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

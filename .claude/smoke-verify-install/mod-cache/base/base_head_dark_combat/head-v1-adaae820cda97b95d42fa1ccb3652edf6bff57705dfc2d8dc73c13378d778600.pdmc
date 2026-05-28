@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:head_dark_combat",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_dark_combat.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 62720,
+  "source_sha256": "adaae820cda97b95d42fa1ccb3652edf6bff57705dfc2d8dc73c13378d778600",
+  "validation": "format=obj vertices=966 triangles=322",
+  "normalized": "$S/mod-cache/base/base_head_dark_combat/head-v1-adaae820cda97b95d42fa1ccb3652edf6bff57705dfc2d8dc73c13378d778600.pdmodel.json",
+  "vertex_count": 966,
+  "triangle_count": 322,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:head_wong",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_wong.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 37643,
+  "source_sha256": "ccf1dc931e6d91ce209b7aa4de38d0e49c2d42b886f1cf52e8f5bb1c342b8a35",
+  "validation": "format=obj vertices=573 triangles=191",
+  "normalized": "$S/mod-cache/base/base_head_wong/head-v1-ccf1dc931e6d91ce209b7aa4de38d0e49c2d42b886f1cf52e8f5bb1c342b8a35.pdmodel.json",
+  "vertex_count": 573,
+  "triangle_count": 191,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:head_phelps",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_phelps.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 37556,
+  "source_sha256": "6627814faf1bf8f706e8a92267b73bda7409d48b5618c7b54965fa72a58a6b3d",
+  "validation": "format=obj vertices=573 triangles=191",
+  "normalized": "$S/mod-cache/base/base_head_phelps/head-v1-6627814faf1bf8f706e8a92267b73bda7409d48b5618c7b54965fa72a58a6b3d.pdmodel.json",
+  "vertex_count": 573,
+  "triangle_count": 191,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

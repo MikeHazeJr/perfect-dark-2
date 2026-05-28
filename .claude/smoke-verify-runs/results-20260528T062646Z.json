@@ -1,0 +1,30 @@
+{
+  "Name": "weapon_match_source_gate_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": -1073741819,
+  "ElapsedSeconds": 18.8165358,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 31,
+  "AssertionsMet": 27,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "LOADER\\.POOL\\.WEAPON\\.STORED: weapon_id=8 shortname=19540 name=19468 .*name=19541.*name=19550"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SPAWN\\.WEAPON\\.DIAG: player=0 weapon=8 shortname=19540 name=19468 primary_name=19541 secondary_name=19550"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SPAWN: player 0 spawned with weapon 8 \\(DY357\\)"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SMOKE: result=scripted_exit"
+    }
+  ]
+}

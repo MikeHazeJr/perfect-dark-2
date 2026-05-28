@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:cisoldier",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_cisoldier.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 102442,
+  "source_sha256": "5b9806598ed58e1b2503b35c99e9a33796ce64d9a219cad9b868bc592ae859e2",
+  "validation": "format=obj vertices=1515 triangles=505",
+  "normalized": "$S/mod-cache/base/base_cisoldier/body-v1-5b9806598ed58e1b2503b35c99e9a33796ce64d9a219cad9b868bc592ae859e2.pdmodel.json",
+  "vertex_count": 1515,
+  "triangle_count": 505,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

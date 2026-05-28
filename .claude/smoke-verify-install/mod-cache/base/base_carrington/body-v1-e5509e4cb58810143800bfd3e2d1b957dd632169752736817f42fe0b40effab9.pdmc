@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:carrington",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_carrington.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 166585,
+  "source_sha256": "e5509e4cb58810143800bfd3e2d1b957dd632169752736817f42fe0b40effab9",
+  "validation": "format=obj vertices=2439 triangles=813",
+  "normalized": "$S/mod-cache/base/base_carrington/body-v1-e5509e4cb58810143800bfd3e2d1b957dd632169752736817f42fe0b40effab9.pdmodel.json",
+  "vertex_count": 2439,
+  "triangle_count": 813,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

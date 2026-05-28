@@ -1,0 +1,34 @@
+{
+  "Name": "combat_sim_chicago_match_start",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": -2,
+  "ElapsedSeconds": 240.6381616,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 15,
+  "AssertionsMet": 10,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MATCHSTART\\.DIAG: entry stage_id='base:arena_chicago'"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MATCHSTART\\.DIAG: post-mpStartMatch returned"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "LOAD: lv\\.c entering stage load sequence for stagenum=0x1d"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SETUP: prop iteration done"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SMOKE: result=scripted_exit"
+    }
+  ]
+}

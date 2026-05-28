@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_chrshield_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrshield_lo.pdmesh::model.obj",
+  "source_size": 13062,
+  "source_sha256": "2c0e00a0a1e6ee785c49b5b9d4d612d97a8d79436058eaea7dd26dfe0441edc8",
+  "validation": "format=obj vertices=204 triangles=68",
+  "normalized": "$S/mod-cache/base/base_model_chrshield_lo/model-v1-2c0e00a0a1e6ee785c49b5b9d4d612d97a8d79436058eaea7dd26dfe0441edc8.pdmodel.json",
+  "vertex_count": 204,
+  "triangle_count": 68,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

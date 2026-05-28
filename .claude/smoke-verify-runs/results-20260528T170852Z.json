@@ -1,0 +1,28 @@
+[
+  {
+    "Name": "scenario_pads_source_gate_smoke",
+    "Category": "scenario",
+    "BugId": null,
+    "RegressionFor": null,
+    "Passed": true,
+    "ExitCode": 0,
+    "ElapsedSeconds": 31.2910252,
+    "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal": 33,
+    "AssertionsMet": 33,
+    "Failures": []
+  },
+  {
+    "Name": "weapon_match_source_gate_smoke",
+    "Category": "scenario",
+    "BugId": null,
+    "RegressionFor": null,
+    "Passed": true,
+    "ExitCode": 0,
+    "ElapsedSeconds": 80.5206502,
+    "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal": 35,
+    "AssertionsMet": 35,
+    "Failures": []
+  }
+]

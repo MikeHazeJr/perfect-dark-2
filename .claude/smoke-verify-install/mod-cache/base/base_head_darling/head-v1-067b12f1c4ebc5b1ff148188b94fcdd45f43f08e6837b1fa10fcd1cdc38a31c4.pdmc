@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:head_darling",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_darling.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 39662,
+  "source_sha256": "067b12f1c4ebc5b1ff148188b94fcdd45f43f08e6837b1fa10fcd1cdc38a31c4",
+  "validation": "format=obj vertices=603 triangles=201",
+  "normalized": "$S/mod-cache/base/base_head_darling/head-v1-067b12f1c4ebc5b1ff148188b94fcdd45f43f08e6837b1fa10fcd1cdc38a31c4.pdmodel.json",
+  "vertex_count": 603,
+  "triangle_count": 201,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

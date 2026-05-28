@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_chrdoordecoder_lo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrdoordecoder_lo.pdmesh::model.obj",
+  "source_size": 13831,
+  "source_sha256": "98c9b579a76b718dcfa482c62f3101f29ddf8b9f84da9c3304d1248a7c973355",
+  "validation": "format=obj vertices=216 triangles=72",
+  "normalized": "$S/mod-cache/base/base_model_chrdoordecoder_lo/model-v1-98c9b579a76b718dcfa482c62f3101f29ddf8b9f84da9c3304d1248a7c973355.pdmodel.json",
+  "vertex_count": 216,
+  "triangle_count": 72,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

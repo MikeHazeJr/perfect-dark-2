@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:head_munton",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_munton.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 42004,
+  "source_sha256": "1d27fb3f4cdfb779b624f06983a06bcb32fec7a4af4f5a8cb5fffec59cf07cd5",
+  "validation": "format=obj vertices=639 triangles=213",
+  "normalized": "$S/mod-cache/base/base_head_munton/head-v1-1d27fb3f4cdfb779b624f06983a06bcb32fec7a4af4f5a8cb5fffec59cf07cd5.pdmodel.json",
+  "vertex_count": 639,
+  "triangle_count": 213,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

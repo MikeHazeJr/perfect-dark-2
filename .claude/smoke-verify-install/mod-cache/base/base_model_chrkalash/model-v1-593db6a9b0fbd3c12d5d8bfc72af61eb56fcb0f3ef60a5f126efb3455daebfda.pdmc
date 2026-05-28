@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_chrkalash",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrkalash.pdmesh::model.obj",
+  "source_size": 10467,
+  "source_sha256": "593db6a9b0fbd3c12d5d8bfc72af61eb56fcb0f3ef60a5f126efb3455daebfda",
+  "validation": "format=obj vertices=162 triangles=54",
+  "normalized": "$S/mod-cache/base/base_model_chrkalash/model-v1-593db6a9b0fbd3c12d5d8bfc72af61eb56fcb0f3ef60a5f126efb3455daebfda.pdmodel.json",
+  "vertex_count": 162,
+  "triangle_count": 54,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

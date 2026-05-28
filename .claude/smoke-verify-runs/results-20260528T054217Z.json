@@ -1,0 +1,49 @@
+{
+  "Name": "weapon_match_source_gate_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": -1073741819,
+  "ElapsedSeconds": 16.5755823,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 26,
+  "AssertionsMet": 18,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MATCHSTART\\.DIAG: entry stage_id='base:arena_chicago'"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MATCHSETUP: weapon set 0 applied"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MATCHSETUP: spawn weapon mode=RANDOM"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "manifest: weapon pool enumeration -- added=\\d+ filtered=\\d+ invalid=0"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MANIFEST-SP: load 'base:dy357'"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "LOAD: lv\\.c entering stage load sequence for stagenum=0x1d"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SMOKE: result=scripted_exit"
+    },
+    {
+      "Kind": "required_count_out_of_range",
+      "Pattern": "MANIFEST-SP: load 'base:dy357'",
+      "Count": 0,
+      "Min": 1,
+      "Max": 1
+    }
+  ]
+}

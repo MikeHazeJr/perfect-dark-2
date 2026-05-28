@@ -1,0 +1,129 @@
+[
+  {
+    "Name": "scenario_pads_source_gate_smoke",
+    "Category": "scenario",
+    "BugId": null,
+    "RegressionFor": null,
+    "Passed": false,
+    "ExitCode": 1,
+    "ElapsedSeconds": 19.5748671,
+    "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal": 33,
+    "AssertionsMet": 25,
+    "Failures": [
+      {
+        "Kind": "forbidden_pattern_matched",
+        "Pattern": "FATAL: ",
+        "Line": "[00:19.39] ERROR: FATAL: CATALOG_CRITICAL: modeldef fileid=848 still resolves to RomProvider:filenum=848 (Pchrcmp150Z); public .pdmesh source is required and ROM fallback is refused."
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "MISSION\\.GRAPH: objective criteria evaluated from graph source '.*base_mission_chicago\\.pdmission::objectives\\.tsv' index=\\d+ criteria=\\d+ backend=graph\\.objective\\.operands\\+graph\\.objective\\.state\\+graph\\.objective\\.object_state\\+graph\\.mission\\.flags"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "MISSION\\.GRAPH: objective check routed through graph source '.*base_mission_chicago\\.pdmission::objectives\\.tsv' nodes=\\d+ criteria=\\d+ backend=graph\\.objective\\.operands\\+graph\\.objective\\.state\\+graph\\.objective\\.object_state\\+graph\\.mission\\.flags"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "SETUP: prop iteration done"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "TICK: lvTick enter tick=\\d+ stagenum=0x1d"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "SMOKE: result=scripted_exit"
+      },
+      {
+        "Kind": "required_count_out_of_range",
+        "Pattern": "MISSION\\.GRAPH: objective criteria evaluated from graph source '.*base_mission_chicago\\.pdmission::objectives\\.tsv'",
+        "Count": 0,
+        "Min": 1,
+        "Max": 1
+      },
+      {
+        "Kind": "required_count_out_of_range",
+        "Pattern": "MISSION\\.GRAPH: objective check routed through graph source '.*base_mission_chicago\\.pdmission::objectives\\.tsv'",
+        "Count": 0,
+        "Min": 1,
+        "Max": 1
+      }
+    ]
+  },
+  {
+    "Name": "weapon_match_source_gate_smoke",
+    "Category": "scenario",
+    "BugId": null,
+    "RegressionFor": null,
+    "Passed": false,
+    "ExitCode": 1,
+    "ElapsedSeconds": 18.7779761,
+    "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal": 35,
+    "AssertionsMet": 21,
+    "Failures": [
+      {
+        "Kind": "forbidden_pattern_matched",
+        "Pattern": "FATAL: ",
+        "Line": "[00:18.61] ERROR: FATAL: CATALOG_CRITICAL: modeldef fileid=1879 still resolves to RomProvider:filenum=1879 (PinstfrontdoorZ); public .pdmesh source is required and ROM fallback is refused."
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "MATCHSTART\\.DIAG: entry stage_id='base:arena_chicago'"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "MATCHSETUP: weapon set 0 applied"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "MATCHSETUP: spawn weapon mode=SPECIFIC 'base:dy357'"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "manifest: weapon pool enumeration -- added=\\d+ filtered=\\d+ invalid=0"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "MANIFEST-SP: load 'base:dy357'"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "BONDGUN\\.SOURCE: loaded catalog model source filenum=890 id=base:model_dy357_hi"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "BONDGUN\\.SOURCE: loaded catalog model source filenum=89 id=base:model_cartridge_rifle"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "SPAWN\\.WEAPON: player=0 weapon=8 shortname=19540 name=19468 primary_name=19541 secondary_name=19550"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "SPAWN: player 0 spawned with weapon 8 \\(DY357\\)"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "LOAD: lv\\.c entering stage load sequence for stagenum=0x1d"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "SETUP: prop iteration done"
+      },
+      {
+        "Kind": "required_line_missing",
+        "Pattern": "SMOKE: result=scripted_exit"
+      },
+      {
+        "Kind": "required_count_out_of_range",
+        "Pattern": "MANIFEST-SP: load 'base:dy357'",
+        "Count": 0,
+        "Min": 1,
+        "Max": 1
+      }
+    ]
+  }
+]

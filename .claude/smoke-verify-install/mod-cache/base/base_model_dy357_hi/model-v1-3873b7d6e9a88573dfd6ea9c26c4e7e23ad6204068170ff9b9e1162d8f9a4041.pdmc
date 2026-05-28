@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_dy357_hi",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_dy357_hi.pdmesh::model.obj",
+  "source_size": 78554,
+  "source_sha256": "3873b7d6e9a88573dfd6ea9c26c4e7e23ad6204068170ff9b9e1162d8f9a4041",
+  "validation": "format=obj vertices=1212 triangles=404",
+  "normalized": "$S/mod-cache/base/base_model_dy357_hi/model-v1-3873b7d6e9a88573dfd6ea9c26c4e7e23ad6204068170ff9b9e1162d8f9a4041.pdmodel.json",
+  "vertex_count": 1212,
+  "triangle_count": 404,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}
