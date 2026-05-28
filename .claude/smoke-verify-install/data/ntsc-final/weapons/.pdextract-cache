@@ -1,5 +1,5 @@
 schema=pdasset-fast-v1-20260521
-kind=pdweapon_embedded_v10_clean_public
+kind=pdweapon_embedded_v12_clean_public
 count=86
-total_bytes=3770702
-latest_mtime=1779915315
+total_bytes=5006248
+latest_mtime=1779933870

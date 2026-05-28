@@ -1261,6 +1261,27 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	char idbuf[CATALOG_ID_LEN];
 	snprintf(idbuf, sizeof(idbuf), "%s", explicit_id[0] ? explicit_id : folder);
 
+	s32 preserved_weapon_id = -1;
+	s32 preserved_runtime_index = -1;
+	s16 preserved_mp_index = -1;
+	u8 preserved_weapon_requirefeature = 0;
+	s32 preserved_dual_wieldable = 0;
+	char preserved_weapon_name[64];
+	preserved_weapon_name[0] = '\0';
+	if (type == ASSET_WEAPON) {
+		const asset_entry_t *existing = assetCatalogResolve(idbuf);
+		if (existing && existing->type == ASSET_WEAPON) {
+			preserved_weapon_id = existing->ext.weapon.weapon_id;
+			preserved_runtime_index = existing->runtime_index;
+			preserved_mp_index = existing->mp_index;
+			preserved_weapon_requirefeature = existing->ext.weapon.requirefeature;
+			preserved_dual_wieldable = existing->ext.weapon.dual_wieldable;
+			strncpy(preserved_weapon_name, existing->ext.weapon.name,
+				sizeof(preserved_weapon_name) - 1);
+			preserved_weapon_name[sizeof(preserved_weapon_name) - 1] = '\0';
+		}
+	}
+
 	/* Register the base entry */
 	asset_entry_t *e = assetCatalogRegister(idbuf, type);
 	if (!e) {
@@ -1402,13 +1423,21 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		break;
 
 	case ASSET_WEAPON:
-		e->ext.weapon.weapon_id = iniGetInt(ini, "weapon_id", -1);
+		e->ext.weapon.weapon_id = iniGetInt(ini, "weapon_id", preserved_weapon_id);
 		if (e->ext.weapon.weapon_id >= 0
 				&& e->ext.weapon.weapon_id < NUM_MPWEAPONS) {
 			e->mp_index = (s16)e->ext.weapon.weapon_id;
 			e->runtime_index = catalogGetMpWeaponNum(e->ext.weapon.weapon_id);
+		} else {
+			e->mp_index = preserved_mp_index;
+			e->runtime_index = preserved_runtime_index;
 		}
-		strncpy(e->ext.weapon.name, iniGet(ini, "name", ""), sizeof(e->ext.weapon.name) - 1);
+		{
+			const char *weapon_name = iniGet(ini, "name", "");
+			strncpy(e->ext.weapon.name,
+				weapon_name[0] ? weapon_name : preserved_weapon_name,
+				sizeof(e->ext.weapon.name) - 1);
+		}
 		strncpy(e->ext.weapon.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.weapon.model_file) - 1);
 		if (e->ext.weapon.model_file[0]) {
 			catalogSetPrimaryFile(e, e->ext.weapon.model_file);
@@ -1418,7 +1447,9 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		 * is the single source of truth for those gameplay numbers
 		 * (catalogManagerGetWeaponByIndex(weapon_num)->...). The mod
 		 * INI parser ignores those keys silently if present. */
-		e->ext.weapon.dual_wieldable = iniGetInt(ini, "dual_wieldable", 0);
+		e->ext.weapon.dual_wieldable = iniGetInt(ini, "dual_wieldable",
+			preserved_dual_wieldable);
+		e->ext.weapon.requirefeature = preserved_weapon_requirefeature;
 		break;
 
 	case ASSET_PROJECTILE:

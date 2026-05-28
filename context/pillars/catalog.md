@@ -37,7 +37,7 @@ The full migration path is documented in [designs/catalog/catalog-full-pipeline-
 All asset references use full catalog ID strings in `[namespace]:[asset_type]_[readable_name]` format:
 
 - `base:stage_dark_combat` (a stage)
-- `base:weapon_falcon2` (a weapon)
+- `base:falcon2` (a weapon)
 - `base:body_carrington` (a body)
 - `base:arena_felicity` (an arena)
 - `mod_redmund:skin_my_skin` (a mod-supplied skin)
@@ -47,6 +47,8 @@ The leading namespace is `base` for original Perfect Dark content, or a mod-scop
 Integer indices are NEVER asset references. They must not appear in catalog IDs, authored descriptors, dependency manifests, modding UI dropdowns, generated live file names, wire messages, saves, public APIs, or runtime structs that mean "this asset." Existing numeric fields are migration debt only. The deprecated `net_hash u32` compact form was removed from the wire in v27 and from save format around the same time; do not reintroduce it.
 
 **Generated-ID implementation guard (2026-05-22).** `port/include/catalog_readable_ids.h` owns readable fallback generation for base assets and ROM extractors. Base catalog registration and `.pdanim` / `.pdsfx` / `.pdvoice` / `.pdsong` / `.pdmesh` / `.pdhead` / `.pdbody` / `.pdweapon` dependency generation must call that helper instead of formatting raw slots into IDs. `tests/test_catalog_provider_static.cpp` pins the ban on patterns such as `base:model_%04x`, `base:sfx_%04x`, `base:voice_%04x`, and `base:rom_g_%04x`.
+
+**Actual catalog-name guard (2026-05-27).** `tools/asset_archive_conformance.py` now validates catalog-looking references against the catalog IDs declared by root and nested typed archives. A public payload that names `base:*` or `mod:*` is not accepted merely because the string has the right shape; the referenced catalog ID must exist in the validated archive set or embedded dependency closure. Weapon audio extraction also normalizes high-bit SFX aliases through `g_AudioRussMappings` before graph, binding, dependency, or manifest emission so generated refs point at real `.pdsfx` catalog entries.
 
 ---
 

@@ -37,8 +37,8 @@ The table records current function parameters so the graph conversion can preser
 | `base:ecmmine` | throw model 278, arm60 240, rec60 60, dmg 0, flags 0x00802040 NOAUTOAIM+NOMUZZLEFLASH+CALCULATETRAJECTORY | - | Needs sticky thrown-device .pdprojectile and armed ECM .pdentity behavior audit. |
 | `base:explosives` | - | - | - |
 | `base:falcon2` | single dmg 1, spread 1, rec60 16, dur60 0, pen 1, flags - | melee dmg 0.9, range 60, flags 0x0041a200 MAKEDIZZY+NOMUZZLEFLASH+BLUNTIMPACT+NOSTUN+F00400000 | - |
-| `base:falcon2scope` | single dmg 1, spread 1, rec60 16, dur60 0, pen 1, flags - | melee dmg 0.9, range 60, flags 0x0041a200 MAKEDIZZY+NOMUZZLEFLASH+BLUNTIMPACT+NOSTUN+F00400000 | - |
-| `base:falcon2silencer` | single dmg 1, spread 1, rec60 16, dur60 0, pen 1, flags 0x00002000 NOMUZZLEFLASH | melee dmg 0.9, range 60, flags 0x0041a200 MAKEDIZZY+NOMUZZLEFLASH+BLUNTIMPACT+NOSTUN+F00400000 | - |
+| `base:falcon2_scope` | single dmg 1, spread 1, rec60 16, dur60 0, pen 1, flags - | melee dmg 0.9, range 60, flags 0x0041a200 MAKEDIZZY+NOMUZZLEFLASH+BLUNTIMPACT+NOSTUN+F00400000 | - |
+| `base:falcon2_silencer` | single dmg 1, spread 1, rec60 16, dur60 0, pen 1, flags 0x00002000 NOMUZZLEFLASH | melee dmg 0.9, range 60, flags 0x0041a200 MAKEDIZZY+NOMUZZLEFLASH+BLUNTIMPACT+NOSTUN+F00400000 | - |
 | `base:farsight` | single dmg 100, spread 0, rec60 0, dur60 4, pen 5, flags - | single dmg 100, spread 0, rec60 0, dur60 4, pen 5, flags - | - |
 | `base:flightplans` | - | - | - |
 | `base:grenade` | throw model 274, arm60 240, rec60 60, dmg 0, flags 0x00002040 NOAUTOAIM+NOMUZZLEFLASH | throw model 274, arm60 90, rec60 60, dmg 0, flags 0x00002040 NOAUTOAIM+NOMUZZLEFLASH | Needs timed grenade plus proxy/pinball grenade physicals; held-too-long primary behavior remains graph parameter. |

@@ -16,6 +16,7 @@ import re
 import sys
 import zipfile
 from dataclasses import dataclass, field
+from io import BytesIO
 from pathlib import Path
 
 
@@ -144,6 +145,9 @@ PUBLIC_TEXT_ENTRY_SUFFIXES = (
 
 KEY_VALUE_RE = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*[:=]\s*(.*?)\s*$")
 NUMERIC_LITERAL_RE = re.compile(r"^[+-]?(?:0x[0-9A-Fa-f]+|\d+)$")
+CATALOG_ID_RE = re.compile(
+    r"^[A-Za-z][A-Za-z0-9_.-]*:[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+)
 
 FORBIDDEN_NUMERIC_ASSET_REF_KEYS = {
     "anim",
@@ -205,6 +209,47 @@ FORBIDDEN_NUMERIC_ASSET_REF_KEYS = {
     "weapon_id",
     "weapon_ref",
     "weaponnum",
+}
+
+CATALOG_IDENTITY_KEYS = {
+    "asset_id",
+    "catalog_id",
+}
+
+CATALOG_REFERENCE_KEYS = FORBIDDEN_NUMERIC_ASSET_REF_KEYS | {
+    "base_fallback",
+    "body_catalog_id",
+    "character_ref",
+    "clip_ref",
+    "detonator_ref",
+    "effect_ref",
+    "fallback_id",
+    "hud_ref",
+    "impact_effect_ref",
+    "material_catalog_id",
+    "model_catalog_id",
+    "payload_ref",
+    "projectile_model_catalog_id",
+    "projectile_sound_catalog_id",
+    "skin_ref",
+    "sound_catalog_id",
+    "special_sound_catalog_id",
+    "stage_id",
+    "template",
+    "texture_catalog_id",
+    "theme_ref",
+    "transfer_payload",
+    "ui_ref",
+    "vehicle_ref",
+}
+
+NON_ASSET_ID_KEYS = {
+    "graph_id",
+    "mode_id",
+    "node_id",
+    "slot_id",
+    "source_id",
+    "subgraph_id",
 }
 
 LEGACY_ASSET_SYMBOL_PREFIXES = (
@@ -1066,6 +1111,10 @@ def clean_value(value: object) -> str:
     return text
 
 
+def is_catalog_id_value(value: object) -> bool:
+    return CATALOG_ID_RE.match(clean_value(value)) is not None
+
+
 def is_forbidden_asset_ref_value(value: object) -> bool:
     text = clean_value(value)
     if NUMERIC_LITERAL_RE.match(text):
@@ -1073,8 +1122,42 @@ def is_forbidden_asset_ref_value(value: object) -> bool:
     return any(text.startswith(prefix) for prefix in LEGACY_ASSET_SYMBOL_PREFIXES)
 
 
+def is_catalog_ref_key(key: str, path: str = "") -> bool:
+    normalized = normalize_key(key)
+    if normalized in CATALOG_IDENTITY_KEYS:
+        return False
+    if normalized == "id":
+        return path.endswith(".fallback.id") or ".fallback." in path
+    if normalized in NON_ASSET_ID_KEYS:
+        return False
+    if normalized in CATALOG_REFERENCE_KEYS:
+        return True
+    return (
+        normalized.endswith("_catalog_id")
+        or normalized.endswith("_asset_ref")
+        or normalized.endswith("_asset_id")
+        or normalized.endswith("_ref")
+    )
+
+
+def validate_catalog_id_reference(value: object, known_catalog_ids: set[str] | None,
+                                  label: str, entry_name: str, path: str,
+                                  errors: list[str]) -> None:
+    if known_catalog_ids is None:
+        return
+    text = clean_value(value)
+    if not CATALOG_ID_RE.match(text):
+        return
+    if text not in known_catalog_ids:
+        errors.append(
+            f"{label} contains unknown catalog ID reference "
+            f"{entry_name}:{path}={text}; use an actual declared catalog ID"
+        )
+
+
 def scan_json_asset_refs(value: object, path: str, errors: list[str],
-                         label: str, entry_name: str) -> None:
+                         label: str, entry_name: str,
+                         known_catalog_ids: set[str] | None = None) -> None:
     if isinstance(value, dict):
         for key, child in value.items():
             next_path = f"{path}.{key}" if path else str(key)
@@ -1086,14 +1169,21 @@ def scan_json_asset_refs(value: object, path: str, errors: list[str],
                     f"{label} contains numeric/legacy asset reference "
                     f"{entry_name}:{next_path}={clean_value(child)}; use a catalog ID"
                 )
-            scan_json_asset_refs(child, next_path, errors, label, entry_name)
+            if (not isinstance(child, (dict, list)) and
+                    is_catalog_ref_key(str(key), next_path)):
+                validate_catalog_id_reference(
+                    child, known_catalog_ids, label, entry_name, next_path, errors
+                )
+            scan_json_asset_refs(child, next_path, errors, label, entry_name,
+                                 known_catalog_ids)
     elif isinstance(value, list):
         for index, child in enumerate(value):
             scan_json_asset_refs(child, f"{path}[{index}]", errors, label,
-                                 entry_name)
+                                 entry_name, known_catalog_ids)
 
 
-def scan_text_asset_refs(label: str, entry_name: str, text: str) -> list[str]:
+def scan_text_asset_refs(label: str, entry_name: str, text: str,
+                         known_catalog_ids: set[str] | None = None) -> list[str]:
     errors: list[str] = []
     if entry_name.lower().endswith(".json"):
         try:
@@ -1101,7 +1191,8 @@ def scan_text_asset_refs(label: str, entry_name: str, text: str) -> list[str]:
         except json.JSONDecodeError:
             parsed = None
         if parsed is not None:
-            scan_json_asset_refs(parsed, "", errors, label, entry_name)
+            scan_json_asset_refs(parsed, "", errors, label, entry_name,
+                                 known_catalog_ids)
             return errors
 
     for line_num, line in enumerate(text.splitlines(), 1):
@@ -1112,14 +1203,17 @@ def scan_text_asset_refs(label: str, entry_name: str, text: str) -> list[str]:
         if not match:
             continue
         key = normalize_key(match.group(1))
-        if key not in FORBIDDEN_NUMERIC_ASSET_REF_KEYS:
-            continue
         value = match.group(2).split("#", 1)[0].split(";", 1)[0].strip()
-        if is_forbidden_asset_ref_value(value):
+        if key in FORBIDDEN_NUMERIC_ASSET_REF_KEYS and is_forbidden_asset_ref_value(value):
             errors.append(
                 f"{label} contains numeric/legacy asset reference "
                 f"{entry_name}:{line_num} {match.group(1)}={clean_value(value)}; "
                 "use a catalog ID"
+            )
+        if is_catalog_ref_key(match.group(1), match.group(1)):
+            validate_catalog_id_reference(
+                value, known_catalog_ids, label, entry_name,
+                f"{line_num} {match.group(1)}", errors
             )
     return errors
 
@@ -1138,8 +1232,112 @@ def descriptor_value(text: str, key_name: str) -> str:
     return ""
 
 
+def collect_ini_catalog_ids(text: str) -> set[str]:
+    ids: set[str] = set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("#", ";", "//")):
+            continue
+        match = KEY_VALUE_RE.match(line)
+        if not match:
+            continue
+        key = normalize_key(match.group(1))
+        if key not in CATALOG_IDENTITY_KEYS:
+            continue
+        value = clean_value(match.group(2).split("#", 1)[0].split(";", 1)[0])
+        if CATALOG_ID_RE.match(value):
+            ids.add(value)
+    return ids
+
+
+def collect_json_catalog_ids(value: object, entry_name: str = "") -> set[str]:
+    ids: set[str] = set()
+    if not isinstance(value, dict):
+        return ids
+
+    for key in ("catalog_id", "asset_id"):
+        child = value.get(key)
+        if isinstance(child, str) and CATALOG_ID_RE.match(child.strip()):
+            ids.add(child.strip())
+
+    manifest_id = value.get("id")
+    if (entry_name == "_meta/manifest.json" and isinstance(manifest_id, str)
+            and CATALOG_ID_RE.match(manifest_id.strip())):
+        ids.add(manifest_id.strip())
+    return ids
+
+
+def collect_archive_catalog_ids(data: bytes, ext: str,
+                                recurse: bool = True) -> set[str]:
+    ids: set[str] = set()
+    try:
+        with zipfile.ZipFile(BytesIO(data)) as zf:
+            names = [normalize_name(n) for n in zf.namelist()]
+            for name in names:
+                if name.endswith("/") or not name.lower().endswith(PUBLIC_TEXT_ENTRY_SUFFIXES):
+                    continue
+                try:
+                    text = zf.read(name).decode("utf-8", errors="replace")
+                except KeyError:
+                    continue
+                if name.lower().endswith(".json"):
+                    try:
+                        ids.update(collect_json_catalog_ids(json.loads(text), name))
+                    except json.JSONDecodeError:
+                        pass
+                else:
+                    ids.update(collect_ini_catalog_ids(text))
+
+            if recurse:
+                for name in public_names(names):
+                    nested_ext = Path(name).suffix.lower()
+                    if nested_ext in TYPED_DESCRIPTORS:
+                        try:
+                            ids.update(collect_archive_catalog_ids(
+                                zf.read(name), nested_ext, recurse=True
+                            ))
+                        except KeyError:
+                            continue
+    except zipfile.BadZipFile:
+        return ids
+    return ids
+
+
+def validate_manifest_dependency_refs(label: str, text: str,
+                                      known_catalog_ids: set[str] | None,
+                                      errors: list[str]) -> None:
+    if known_catalog_ids is None:
+        return
+    try:
+        manifest = json.loads(text)
+    except json.JSONDecodeError:
+        return
+    dependencies = manifest.get("dependencies")
+    if not isinstance(dependencies, list):
+        return
+    for index, dep in enumerate(dependencies):
+        if not isinstance(dep, dict):
+            continue
+        dep_id = dep.get("id")
+        if isinstance(dep_id, str) and CATALOG_ID_RE.match(dep_id.strip()):
+            validate_catalog_id_reference(
+                dep_id, known_catalog_ids, label, "_meta/manifest.json",
+                f"dependencies[{index}].id", errors
+            )
+        fallback = dep.get("fallback")
+        if isinstance(fallback, dict):
+            fallback_id = fallback.get("id")
+            if isinstance(fallback_id, str) and fallback_id.strip():
+                validate_catalog_id_reference(
+                    fallback_id, known_catalog_ids, label,
+                    "_meta/manifest.json",
+                    f"dependencies[{index}].fallback.id", errors
+                )
+
+
 def validate_archive_bytes(data: bytes, label: str, ext: str,
-                           recurse: bool = True) -> ConformanceResult:
+                           recurse: bool = True,
+                           known_catalog_ids: set[str] | None = None) -> ConformanceResult:
     result = ConformanceResult()
     ext = ext.lower()
     descriptor = TYPED_DESCRIPTORS.get(ext)
@@ -1152,12 +1350,15 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
     result.families.add(ext)
 
     try:
-        from io import BytesIO
         with zipfile.ZipFile(BytesIO(data)) as zf:
             names = [normalize_name(n) for n in zf.namelist()]
             name_set = set(names)
             public = [n for n in public_names(names) if not n.endswith("/")]
             public_set = set(public)
+            local_catalog_ids = collect_archive_catalog_ids(
+                data, ext, recurse=True
+            )
+            active_catalog_ids = known_catalog_ids or local_catalog_ids
 
             for name in names:
                 if name.endswith("/"):
@@ -1233,7 +1434,17 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         text = zf.read(name).decode("utf-8", errors="replace")
                     except KeyError:
                         continue
-                    result.errors.extend(scan_text_asset_refs(label, name, text))
+                    result.errors.extend(scan_text_asset_refs(
+                        label, name, text, active_catalog_ids
+                    ))
+
+            if "_meta/manifest.json" in name_set:
+                manifest_text = zf.read("_meta/manifest.json").decode(
+                    "utf-8", errors="replace"
+                )
+                validate_manifest_dependency_refs(
+                    label, manifest_text, active_catalog_ids, result.errors
+                )
 
             if ext == ".pdscenario" and descriptor in name_set:
                 text = zf.read(descriptor).decode("utf-8", errors="replace")
@@ -1314,7 +1525,8 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                     if nested_ext in TYPED_DESCRIPTORS:
                         nested = zf.read(name)
                         nested_result = validate_archive_bytes(
-                            nested, f"{label}::{name}", nested_ext, recurse=True
+                            nested, f"{label}::{name}", nested_ext, recurse=True,
+                            known_catalog_ids=active_catalog_ids
                         )
                         result.extend(nested_result)
     except zipfile.BadZipFile:
@@ -1323,14 +1535,18 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
 
 
 def validate_archive_path(path: Path, root: Path | None = None,
-                          recurse: bool = True) -> ConformanceResult:
+                          recurse: bool = True,
+                          known_catalog_ids: set[str] | None = None) -> ConformanceResult:
     label = path.as_posix()
     if root:
         try:
             label = path.relative_to(root).as_posix()
         except ValueError:
             pass
-    return validate_archive_bytes(path.read_bytes(), label, path.suffix, recurse)
+    return validate_archive_bytes(
+        path.read_bytes(), label, path.suffix, recurse,
+        known_catalog_ids=known_catalog_ids
+    )
 
 
 def validate_root(root: Path, require_all_families: bool = False,
@@ -1347,8 +1563,18 @@ def validate_root(root: Path, require_all_families: bool = False,
         result.errors.append(f"{root} contains no typed asset archives")
         return result
 
+    known_catalog_ids: set[str] = set()
     for archive in sorted(archives):
-        archive_result = validate_archive_path(archive, root, recurse)
+        known_catalog_ids.update(
+            collect_archive_catalog_ids(
+                archive.read_bytes(), archive.suffix, recurse=recurse
+            )
+        )
+
+    for archive in sorted(archives):
+        archive_result = validate_archive_path(
+            archive, root, recurse, known_catalog_ids=known_catalog_ids
+        )
         archive_result.root_archives = 1
         result.extend(archive_result)
 

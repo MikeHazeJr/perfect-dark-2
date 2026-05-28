@@ -4520,7 +4520,7 @@
       "flagged_at": "2026-05-27T00:00:00Z",
       "pending_completion": null,
       "created": "2026-05-27T00:00:00Z",
-      "updated": "2026-05-27T18:00:00Z"
+      "updated": "2026-05-28T02:20:00Z"
     },
     {
       "id": "c3844",
@@ -4530,14 +4530,14 @@
       "column": "active",
       "order": 2425,
       "priority": 1,
-      "notes": "Created 2026-05-27 from Mike's clarification that any ROM fallback after extraction is an asset-chain failure and a break in the asset ecosystem. This card owns the global pass beyond the one-family Debug source gate: inventory remaining RomProvider/fileLoadRom/assetLoadRom fallback sites, convert valid base references to extracted typed archives/catalog provider sources, make unavoidable misses fatal/diagnostic, and add static/runtime coverage so new ROM fallback branches cannot enter.",
+      "notes": "Created 2026-05-27 from Mike's clarification that any ROM fallback after extraction is an asset-chain failure and a break in the asset ecosystem. This card owns the global pass beyond the one-family Debug source gate: inventory remaining RomProvider/fileLoadRom/assetLoadRom fallback sites, convert valid base references to extracted typed archives/catalog provider sources, make unavoidable misses fatal/diagnostic, and add static/runtime coverage so new ROM fallback branches cannot enter. First live finding B-374 is fixed: Weapon source gate failed because mission load requested base:falcon2_silencer while extraction emitted base:falcon2silencer; authored IDs, filenames, stale cleanup, cache stamp, and scanner overlay preservation now bind the extracted .pdweapon source to the requested catalog ID. Second finding B-375 is fixed: strict conformance now validates catalog-looking refs against actual declared/root/nested catalog IDs, and weapon SFX aliases normalize through g_AudioRussMappings before graph/binding/manifest emission so generated .pdweapon archives reference real .pdsfx catalog entries.",
       "subtasks": [
         {
           "id": "c3844-s1",
           "title": "Inventory all runtime ROM/RomProvider fallback sites",
           "status": "active",
           "order": 1000,
-          "notes": "Include assetLoadRomToNew, assetLoadRomToAddr, fileLoadRomToNew, fileLoadRomToAddr, catalogSetPrimaryRomFilenum, catalogBindPrimaryFromDiskOrRom, and raw file/texture/animation/sound fallback gateways. Separate bootstrap extraction reads from runtime fallback reads."
+          "notes": "Include assetLoadRomToNew, assetLoadRomToAddr, fileLoadRomToNew, fileLoadRomToAddr, catalogSetPrimaryRomFilenum, catalogBindPrimaryFromDiskOrRom, and raw file/texture/animation/sound fallback gateways. Separate bootstrap extraction reads from runtime fallback reads. B-374 is fixed as the first source-gate case study, and B-375 adds the actual-catalog-name conformance guard for catalog-looking refs."
         },
         {
           "id": "c3844-s2",
@@ -4572,7 +4572,7 @@
       "flagged_at": "2026-05-27T18:45:00Z",
       "pending_completion": null,
       "created": "2026-05-27T18:45:00Z",
-      "updated": "2026-05-27T18:45:00Z"
+      "updated": "2026-05-28T01:50:00Z"
     }
   ],
   "x_special_notes": {
@@ -5608,19 +5608,19 @@
       },
       "c3844": {
         "card_id": "c3844",
-        "updated": "2026-05-27T18:45:00Z",
+        "updated": "2026-05-28T02:20:00Z",
         "progress_status": "active",
-        "progress_summary": "High-priority card created from Mike's clarification that any runtime ROM/RomProvider fallback after extraction is a break in the asset ecosystem, not resilience.",
-        "context_notes": "ROM is bootstrap/source input only. Runtime load paths must resolve through extracted typed archives, catalog/FileProvider source, or deterministic source-derived cache. Missing chain links should fail loudly and be fixed at the owning asset-family boundary.",
+        "progress_summary": "High-priority card created from Mike's clarification that any runtime ROM/RomProvider fallback after extraction is a break in the asset ecosystem, not resilience. First live playtest finding B-374 is fixed: extracted Falcon 2 Silencer/Scope weapon archives now use the same underscored catalog IDs requested by mission/runtime manifests, stale no-underscore archives are cleaned, and scanner overlays preserve base MP weapon bindings. Follow-up B-375 is fixed: strict conformance now validates catalog-looking refs against actual declared/root/nested catalog IDs, and weapon SFX aliases normalize through g_AudioRussMappings before graph/binding/manifest emission so generated .pdweapon archives reference real .pdsfx catalog entries.",
+        "context_notes": "ROM is bootstrap/source input only. Runtime load paths must resolve through extracted typed archives, catalog/FileProvider source, or deterministic source-derived cache. Missing chain links should fail loudly and be fixed at the owning asset-family boundary. Catalog-looking refs must also resolve to actual declared/root/nested catalog names; syntactically valid base:* strings are not enough.",
         "card_memories": "Do not describe ROM fallback as acceptable or optional. Treat it as an asset-chain failure and track every remaining fallback path to removal or fatal diagnostic coverage.",
         "codex_recommendation": "Start with an inventory separating bootstrap extraction reads from runtime fallback reads, then convert family-owned fallbacks to provider/catalog source and add guard coverage.",
-        "next_action": "Run the c3844-s1 inventory across assetLoadRom/fileLoadRom/RomProvider/catalog fallback gateways and classify each site as bootstrap-only or forbidden runtime fallback.",
+        "next_action": "Continue c3844-s1 inventory across assetLoadRom/fileLoadRom/RomProvider/catalog fallback gateways and classify each site as bootstrap-only or forbidden runtime fallback, with actual-catalog-name validation now guarding generated archive refs.",
         "items": [
           {
             "id": "c3844-s1",
             "title": "Inventory all runtime ROM/RomProvider fallback sites",
             "status": "active",
-            "notes": "Include assetLoadRomToNew, assetLoadRomToAddr, fileLoadRomToNew, fileLoadRomToAddr, catalogSetPrimaryRomFilenum, catalogBindPrimaryFromDiskOrRom, and raw file/texture/animation/sound fallback gateways."
+            "notes": "Include assetLoadRomToNew, assetLoadRomToAddr, fileLoadRomToNew, fileLoadRomToAddr, catalogSetPrimaryRomFilenum, catalogBindPrimaryFromDiskOrRom, and raw file/texture/animation/sound fallback gateways. B-374 source-gate mismatch and B-375 fake SFX alias catalog refs are fixed and should be used as concrete case studies."
           }
         ]
       },

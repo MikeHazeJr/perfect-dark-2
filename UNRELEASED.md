@@ -72,6 +72,7 @@
 - Typed asset archive validation now recursively checks descriptor, GLTF, OBJ/MTL, JSON, and embedded typed-archive references so clean `.pdxxx` packages fail when their authored closure is incomplete.
 - Typed asset archive validation now enforces the full planned family schema, not just the presence of an authorable file; fresh extracted base archives now pass the strict checker.
 - Typed asset archive validation now enforces definitive optional-slot contracts, including documented role/owner/load/absence/status entries for every optional public slot and `_meta/` whitelist entry.
+- Typed asset archive validation now rejects catalog-looking references that do not match actual declared/root/nested catalog IDs, including `_meta/manifest.json` dependency records.
 - Base extracted content now includes all 27 typed asset families as strict on-disk archives, and fresh extraction passes strict conformance with `--require-all-families`.
 - Runtime ROM fallback after extraction is now tracked as an Asset Pipeline failure condition; `c3844` owns removal/fatal hardening of remaining runtime fallback paths.
 - Typed `.pdxxx` examples now cover every frozen family, including projectile, entity, material, texture, and character samples, with `_meta/manifest.json` and the frozen `.pdmesh` `mesh.ini` descriptor.
@@ -86,6 +87,8 @@
 
 ## Fixed
 
+- Fixed base Falcon 2 Silencer/Scope weapon archives so extracted `.pdweapon` files bind to the same catalog IDs requested during mission loads, while preserving base MP weapon runtime bindings.
+- Fixed generated weapon graph/audio references so high-bit SFX aliases resolve to actual leaf `.pdsfx` catalog IDs before graph, binding, dependency, and manifest emission.
 - Fixed Dev Window v2 release commits on Git Bash/MSYS Python by running the Asset Pipeline pre-commit guard through a repository-relative path and removing the automatic hook-bypass retry.
 - Fixed typed asset extraction cleanup so arena/scenario/mesh `.zip` inspection copies do not survive fast-cache skips, and embedded arena scenario folders no longer grow duplicate nested `_meta` sidecar trees.
 - Fixed first-run `.pdtexture` extraction by correcting the `texture.ini` format string so texture metadata generation no longer shifts its arguments and crashes.

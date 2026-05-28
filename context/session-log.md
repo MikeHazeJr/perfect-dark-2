@@ -22,6 +22,14 @@ Mike clarified that any need to load from ROM as a fallback after extraction is 
 
 - Start `c3844-s1`: inventory all runtime ROM/RomProvider fallback sites and separate allowed bootstrap extraction reads from forbidden runtime fallback reads.
 
+### Playtest Follow-up
+
+- Mike enabled the Weapon source gate and started a mission. The latest `Build/logs/game client/pd-client.log` showed the gate was active and extraction wrote 86 `.pdweapon` archives, but mission load requested `base:falcon2_silencer` while the on-disk archive declares `base:falcon2silencer`. The gate refused the requested bundled entry because it had no public FileProvider source, so this did not count as using the extracted weapon source. Filed as `B-374` under `c3844-s1`.
+- Fixed `B-374`: `g_WeaponDataCatalogIds[]` now uses `base:falcon2_silencer` and `base:falcon2_scope`, `.pdweapon` extraction writes the matching underscored archive names, stale no-underscore Falcon 2 archives are removed before cache checks, and the scanner preserves base MP weapon runtime bindings when clean public archives overlay seeded base weapon rows without numeric `weapon_id`.
+- Verification: asset native-source guard PASS; focused `[modding][pdxxx][c3844][weapon][static]` PASS; focused `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS; isolated `b374weapon` all-target build PASS; patched `boot_smoke` PASS with direct archive audit proving new underscored archives exist and old no-underscore archives are absent; patched `mission_intro_flow` PASS with `AssetSourceOnlyType=5`, 86/86 weapon archives registered, and no source-only fallback or missing-asset warnings.
+- Follow-up catalog-name audit fixed `B-375`: strict archive conformance now validates catalog-looking references against actual declared/root/nested catalog IDs instead of accepting any syntactically valid `base:*` string, and weapon extraction normalizes high-bit SFX aliases through `g_AudioRussMappings` before writing graph params, `bindings/audio.tsv`, dependency paths, and `_meta/manifest.json` dependency IDs. Current `.pdweapon` archives are `embedded.v12`.
+- Verification: example strict conformance PASS; asset native-source guard PASS; focused `[modding][pdxxx][c3844][weapon][static]` PASS; broad `[modding][pdxxx][c3844],[modding][pdxxx][c3842]` PASS with 191 assertions / 9 cases; isolated `catrefs` all-target build PASS; patched `boot_smoke` PASS; strict conformance on fresh extracted output PASS with 7,143 root / 8,143 total archives; direct Falcon 2 Silencer audit confirmed behavior graph, audio binding, and manifest refs point at actual embedded `.pdsfx` catalog IDs.
+
 ---
 
 ## Session (`main-checkout-2026-05-27-debug-asset-source-gate`) - 2026-05-27 - Debug asset source gate

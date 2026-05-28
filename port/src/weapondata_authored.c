@@ -5848,8 +5848,8 @@ const char *const g_WeaponDataCatalogIds[] = {
 	"base:nothing",          /* 0x00 */
 	"base:unarmed",          /* 0x01 */
 	"base:falcon2",          /* 0x02 */
-	"base:falcon2silencer",  /* 0x03 */
-	"base:falcon2scope",     /* 0x04 */
+	"base:falcon2_silencer", /* 0x03 */
+	"base:falcon2_scope",    /* 0x04 */
 	"base:magsec",           /* 0x05 */
 	"base:mauler",           /* 0x06 */
 	"base:phoenix",          /* 0x07 */

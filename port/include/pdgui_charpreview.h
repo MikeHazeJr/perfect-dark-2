@@ -54,7 +54,7 @@ void pdguiCharPreviewRequest(const char *head_id, const char *body_id);
 /* Request a preview render for any asset type.
  *
  * CHARACTER: id1 = head catalog id, id2 = body catalog id
- * WEAPON:    id1 = weapon catalog id (e.g. "base:weapon_falcon2"), id2 unused
+ * WEAPON:    id1 = weapon catalog id (e.g. "base:falcon2"), id2 unused
  * VEHICLE:   id1 = vehicle catalog id, id2 unused
  * PROP:      id1 = prop catalog id, id2 unused
  *

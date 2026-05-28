@@ -117,6 +117,14 @@ TEST_CASE("asset native-source guard is tracked by tests and source docs",
 	        std::string::npos);
 	REQUIRE(conformance.find("is_random_selector") != std::string::npos);
 	REQUIRE(conformance.find("rooms.obj") != std::string::npos);
+	REQUIRE(conformance.find("CATALOG_ID_RE") != std::string::npos);
+	REQUIRE(conformance.find("unknown catalog ID reference") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("collect_archive_catalog_ids") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("validate_manifest_dependency_refs") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("known_catalog_ids") != std::string::npos);
 }
 
 TEST_CASE("c3842 source-of-truth docs stay aligned",
@@ -179,6 +187,59 @@ TEST_CASE("runtime ROM fallback is tracked as an asset-chain failure",
 	REQUIRE(kanban.find("Asset Pipeline: make runtime ROM fallback a hard failure") !=
 	        std::string::npos);
 	REQUIRE(kanban.find("\"id\": \"c3844-s1\"") != std::string::npos);
+}
+
+TEST_CASE("base weapon archives use the catalog IDs requested at runtime",
+          "[modding][pdxxx][c3844][weapon][static]") {
+	const std::string authored =
+		readTextFile("port/src/weapondata_authored.c");
+	const std::string base =
+		readTextFile("port/src/assetcatalog_base_extended.c");
+	const std::string extractor =
+		readTextFile("port/src/romextract_pdweapon.c");
+	const std::string scanner =
+		readTextFile("port/src/assetcatalog_scanner.c");
+
+	REQUIRE(base.find("\"falcon2_silencer\"") != std::string::npos);
+	REQUIRE(base.find("\"falcon2_scope\"") != std::string::npos);
+	REQUIRE(authored.find("\"base:falcon2_silencer\"") !=
+	        std::string::npos);
+	REQUIRE(authored.find("\"base:falcon2_scope\"") != std::string::npos);
+	REQUIRE(authored.find("\"base:falcon2silencer\"") ==
+	        std::string::npos);
+	REQUIRE(authored.find("\"base:falcon2scope\"") == std::string::npos);
+
+	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v12_clean_public\"") !=
+	        std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v12\"") !=
+	        std::string::npos);
+	REQUIRE(extractor.find("base_falcon2silencer.pdweapon") !=
+	        std::string::npos);
+	REQUIRE(extractor.find("category = base") != std::string::npos);
+	REQUIRE(extractor.find("bundled = 1") != std::string::npos);
+	REQUIRE(extractor.find("s_normalizeSfxCatalogIndex") !=
+	        std::string::npos);
+	REQUIRE(extractor.find("g_AudioRussMappings[ref.confignum].soundnum") !=
+	        std::string::npos);
+	REQUIRE(extractor.find("sfx_index\\tarchive_entry\\tcatalog_id") !=
+	        std::string::npos);
+
+	REQUIRE(scanner.find("preserved_weapon_id") != std::string::npos);
+	REQUIRE(scanner.find("assetCatalogResolve(idbuf)") !=
+	        std::string::npos);
+	REQUIRE(scanner.find("iniGetInt(ini, \"weapon_id\", preserved_weapon_id)") !=
+	        std::string::npos);
+	REQUIRE(scanner.find("preserved_runtime_index") != std::string::npos);
+
+	const std::string constraints = readTextFile("context/constraints.md");
+	const std::string catalog = readTextFile("context/pillars/catalog.md");
+	const std::string preview = readTextFile("port/include/pdgui_charpreview.h");
+	REQUIRE(constraints.find("base:weapon_falcon2") == std::string::npos);
+	REQUIRE(catalog.find("base:weapon_falcon2") == std::string::npos);
+	REQUIRE(preview.find("base:weapon_falcon2") == std::string::npos);
+	REQUIRE(constraints.find("base:falcon2") != std::string::npos);
+	REQUIRE(catalog.find("base:falcon2") != std::string::npos);
+	REQUIRE(preview.find("base:falcon2") != std::string::npos);
 }
 
 TEST_CASE("Settings Debug can force one asset family to public file source",

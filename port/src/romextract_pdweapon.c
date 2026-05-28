@@ -43,8 +43,8 @@
 #include "weapondata_authored.h"
 #include "animdata_authored.h"
 
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v10"
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v10_clean_public"
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v12"
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v12_clean_public"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -167,6 +167,22 @@ static void s_removeRelpathIfExists(const char *relpath)
 	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
 	if (full && full[0]) {
 		remove(full);
+	}
+}
+
+static void s_cleanupLegacyBaseWeaponSlugArchives(const char *out_dir)
+{
+	static const char *legacy_names[] = {
+		"base_falcon2silencer.pdweapon",
+		"base_falcon2silencer.pdwpn",
+		"base_falcon2scope.pdweapon",
+		"base_falcon2scope.pdwpn",
+	};
+
+	for (s32 i = 0; i < (s32)(sizeof(legacy_names) / sizeof(legacy_names[0])); i++) {
+		char relpath[FS_MAXPATH];
+		snprintf(relpath, sizeof(relpath), "%s/%s", out_dir, legacy_names[i]);
+		s_removeRelpathIfExists(relpath);
 	}
 }
 
@@ -311,9 +327,27 @@ static s32 s_countGuncmdsBounded(const struct guncmd *cmds)
 	return n;
 }
 
+static s32 s_normalizeSfxCatalogIndex(s32 sfx)
+{
+	if (sfx <= 0) return sfx;
+
+	union soundnumhack ref;
+	ref.packed = (s16)sfx;
+
+	if (ref.hasconfig && ref.confignum < (u32)g_NumAudioRussMappings) {
+		union soundnumhack mapped;
+		mapped.packed = g_AudioRussMappings[ref.confignum].soundnum;
+		return (s32)mapped.id;
+	}
+
+	return (s32)ref.id;
+}
+
 static void s_addAudioDep(pdweapon_audio_deps_t *deps, s32 sfx)
 {
 	if (!deps || sfx <= 0) return;
+	sfx = s_normalizeSfxCatalogIndex(sfx);
+	if (sfx <= 0) return;
 	for (s32 i = 0; i < deps->count; i++) {
 		if (deps->sfx[i] == sfx) return;
 	}
@@ -478,7 +512,7 @@ static s32 s_addProjectileModelDependency(asset_archive_writer_t *writer,
 
 static void s_sfxCatalogIdForWeapon(s32 sfx_idx, char *out, size_t out_n)
 {
-	catalogReadableSfxId(sfx_idx, out, out_n);
+	catalogReadableSfxId(s_normalizeSfxCatalogIndex(sfx_idx), out, out_n);
 }
 
 static s32 s_audioRelForSfx(s32 sfx_idx, char *out, size_t out_n,
@@ -487,6 +521,8 @@ static s32 s_audioRelForSfx(s32 sfx_idx, char *out, size_t out_n,
 	if (!out || out_n == 0) return 0;
 	out[0] = '\0';
 	if (out_ext && ext_n) out_ext[0] = '\0';
+	if (sfx_idx <= 0) return 0;
+	sfx_idx = s_normalizeSfxCatalogIndex(sfx_idx);
 	if (sfx_idx <= 0) return 0;
 
 	char catalog_id[128];
@@ -543,7 +579,8 @@ static s32 s_addWeaponAudioDependency(asset_archive_writer_t *writer,
 	char slug[128];
 	s_sfxCatalogIdForWeapon(sfx_idx, id, sizeof(id));
 	if (strcmp(ext, ".pdvoice") == 0) {
-		catalogReadableVoiceId(sfx_idx, id, sizeof(id));
+		catalogReadableVoiceId(s_normalizeSfxCatalogIndex(sfx_idx),
+			id, sizeof(id));
 	}
 	s_idToFilename(id, slug, sizeof(slug));
 	char entry[FS_MAXPATH];
@@ -576,7 +613,7 @@ static s32 s_addDependencyManifests(asset_archive_writer_t *writer,
 	char audio_manifest[8192];
 	len = 0;
 	len += snprintf(audio_manifest + len, sizeof(audio_manifest) - len,
-		"sfx_index\tarchive_entry\n");
+		"sfx_index\tarchive_entry\tcatalog_id\n");
 	for (s32 i = 0; i < audio_deps->count && len < sizeof(audio_manifest); i++) {
 		char src_rel[FS_MAXPATH];
 		char ext[16];
@@ -588,12 +625,14 @@ static s32 s_addDependencyManifests(asset_archive_writer_t *writer,
 		char slug[128];
 		s_sfxCatalogIdForWeapon(audio_deps->sfx[i], id, sizeof(id));
 		if (strcmp(ext, ".pdvoice") == 0) {
-			catalogReadableVoiceId(audio_deps->sfx[i], id, sizeof(id));
+			catalogReadableVoiceId(
+				s_normalizeSfxCatalogIndex(audio_deps->sfx[i]),
+				id, sizeof(id));
 		}
 		s_idToFilename(id, slug, sizeof(slug));
 		len += snprintf(audio_manifest + len, sizeof(audio_manifest) - len,
-			"%d\t%s/%s%s\n", audio_deps->sfx[i],
-			PDWEAPON_DEP_AUDIO, slug, ext);
+			"%d\t%s/%s%s\t%s\n", audio_deps->sfx[i],
+			PDWEAPON_DEP_AUDIO, slug, ext, id);
 	}
 	if (len >= sizeof(audio_manifest) ||
 			assetArchiveWriterAddPublicMem(writer,
@@ -1473,7 +1512,9 @@ static void s_emitWeaponManifestDependencies(jw_t *w,
 		char slug[128];
 		s_sfxCatalogIdForWeapon(audio_deps->sfx[i], id, sizeof(id));
 		if (strcmp(ext, ".pdvoice") == 0) {
-			catalogReadableVoiceId(audio_deps->sfx[i], id, sizeof(id));
+			catalogReadableVoiceId(
+				s_normalizeSfxCatalogIndex(audio_deps->sfx[i]),
+				id, sizeof(id));
 		}
 		s_idToFilename(id, slug, sizeof(slug));
 		char archive[FS_MAXPATH];
@@ -2278,6 +2319,8 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 	int weapon_ini_len = snprintf(weapon_ini, sizeof(weapon_ini),
 		"[weapon]\n"
 		"schema = pd.weapon.v1\n"
+		"category = base\n"
+		"bundled = 1\n"
 		"dependency_closure = " PDWEAPON_DEPENDENCY_CLOSURE_MARKER "\n"
 		"catalog_id = %s\n"
 		"manifest = _meta/manifest.json\n"
@@ -2677,6 +2720,8 @@ s32 romExtractAllPdweapon(s32 force_rewrite)
 			"fsCreateDir(\"%s\") failed", weapons_dir);
 		return -1;
 	}
+
+	s_cleanupLegacyBaseWeaponSlugArchives(weapons_dir);
 
 	if (romExtractPdFastCacheCanSkip(PDWEAPON_FAST_CACHE_KIND, weapons_dir,
 			".pdweapon", force_rewrite)) {
