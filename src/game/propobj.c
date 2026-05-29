@@ -76,6 +76,7 @@
 #include "lib/collision.h"
 #include "lib/lib_17ce0.h"
 #include "lib/lib_317f0.h"
+#include "model_rodata_guard.h"
 #include "data.h"
 #include "textures.h"
 #include "types.h"
@@ -8111,10 +8112,34 @@ struct escastepkeyframe g_EscaStepKeyframesZ[] = {
 
 const char var7f1a9fe8[] = "************** RWI : Door Stuck Mate -> Sort it out\n";
 
+static union modelrwdata *doorGetWindowedDoorToggleRwData(struct model *model,
+		const char *site)
+{
+	struct modelnode *node;
+
+	if (!model || !model->definition) {
+		modelRodataLogMiss(site, model, NULL, NULL,
+				sizeof(struct modelrodata_toggle), "missing-model");
+		return NULL;
+	}
+
+	node = modelGetPart(model->definition, MODELPART_WINDOWEDDOOR_0001);
+
+	if (!node || !modelRodataIsReadable(node->rodata,
+			sizeof(struct modelrodata_toggle))) {
+		modelRodataLogMiss(site, model, node, node ? node->rodata : NULL,
+				sizeof(struct modelrodata_toggle),
+				!node ? "missing-node" :
+				(node->rodata == NULL ? "NULL" : "page-unmapped"));
+		return NULL;
+	}
+
+	return modelGetNodeRwData(model, node);
+}
+
 void doorUpdatePortalIfWindowed(struct prop *doorprop, s32 playercount)
 {
 	struct doorobj *doorobj = doorprop->door;
-	struct modelnode *node;
 	bool canhide = true;
 	struct model *model = doorprop->obj->model;
 	union modelrwdata *rwdata;
@@ -8126,11 +8151,12 @@ void doorUpdatePortalIfWindowed(struct prop *doorprop, s32 playercount)
 			canhide = false;
 		}
 
-		if (model->definition->skel == &g_SkelWindowedDoor) {
-			node = modelGetPart(model->definition, MODELPART_WINDOWEDDOOR_0001);
-			rwdata = modelGetNodeRwData(model, node);
+		if (model && model->definition
+				&& model->definition->skel == &g_SkelWindowedDoor) {
+			rwdata = doorGetWindowedDoorToggleRwData(model,
+					"WindowedDoor.portal-toggle");
 
-			if (!rwdata->toggle.visible) {
+			if (!rwdata || !rwdata->toggle.visible) {
 				canhide = false;
 			}
 		}
@@ -15646,7 +15672,6 @@ void glassDestroy(struct defaultobj *obj)
 
 void doorDestroyGlass(struct doorobj *door)
 {
-	struct modelnode *node;
 	bool closed;
 	struct prop *prop = door->base.prop;
 	struct model *model = door->base.model;
@@ -15679,9 +15704,11 @@ void doorDestroyGlass(struct doorobj *door)
 			SHARDTYPE_GLASS, prop);
 	wallhitsFreeByProp(prop, 1);
 
-	node = modelGetPart(model->definition, MODELPART_WINDOWEDDOOR_0001);
-	rwdata = modelGetNodeRwData(model, node);
-	rwdata->toggle.visible = false;
+	rwdata = doorGetWindowedDoorToggleRwData(model,
+			"WindowedDoor.destroy-toggle");
+	if (rwdata) {
+		rwdata->toggle.visible = false;
+	}
 }
 
 void cctvHandleLensShot(struct defaultobj *obj)

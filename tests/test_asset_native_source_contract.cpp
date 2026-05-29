@@ -1108,6 +1108,26 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(lang.find("e->ext.lang.strings_file") != std::string::npos);
 }
 
+TEST_CASE("source-generated windowed doors guard missing legacy toggle nodes",
+          "[modding][pdxxx][c3844][source][static][b389]") {
+	const std::string propobj = readTextFile("src/game/propobj.c");
+
+	REQUIRE(propobj.find("#include \"model_rodata_guard.h\"") !=
+	        std::string::npos);
+	REQUIRE(propobj.find("doorGetWindowedDoorToggleRwData") !=
+	        std::string::npos);
+	REQUIRE(propobj.find("modelGetPart(model->definition, MODELPART_WINDOWEDDOOR_0001)") !=
+	        std::string::npos);
+	REQUIRE(propobj.find("modelRodataIsReadable(node->rodata") !=
+	        std::string::npos);
+	REQUIRE(propobj.find("WindowedDoor.portal-toggle") !=
+	        std::string::npos);
+	REQUIRE(propobj.find("WindowedDoor.destroy-toggle") !=
+	        std::string::npos);
+	REQUIRE(propobj.find("if (!rwdata || !rwdata->toggle.visible)") !=
+	        std::string::npos);
+}
+
 TEST_CASE("language runtime loads public pdlang strings source",
           "[modding][pdxxx][c3844][lang][static]") {
 	const std::string lang_manifest = readTextFile("port/src/langmanifest.c");

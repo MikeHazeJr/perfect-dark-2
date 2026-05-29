@@ -5666,6 +5666,7 @@ Design doc at `context/designs/daily-flow-orchestrator.md` (~456 lines) is the d
 End-to-end smoke test from project root:
 
 ```
+
 python -m tools.daily_flow.orchestrator --no-merge --no-push --force
 ```
 
@@ -13464,3 +13465,10 @@ Implement the next real slice: definitive public .pdscenario AI-list / AI action
 
 After AI-list source works, continue module-by-module graph execution parity for broader trigger behavior, any remaining global/phase behavior replacement, and AI action modules. Keep rejecting raw setup.tsv/mpsetup/word dumps, public .bin payloads, fake source handles, numeric asset refs, catalog-looking refs that do not resolve to real catalog entries, and ROM/RomProvider runtime fallback. Every slice must update context/Kanban, run python tools/asset_native_source_guard.py, focused c3844 tests, scenario and weapon smokes, strict generated archive conformance with --require-all-families, and an isolated all-target build before claiming completion.
 ```
+
+## 2026-05-28 - B-389 Crash Site windowed-door source-model guard
+
+- Checked the newest build client log after Mike reported an exception. The crash was an access violation at `PC +0x45cd36`, symbolized to `modelGetNodeRwData()` called by `doorUpdatePortalIfWindowed()` during Crash Site first render (`stage=0x26`).
+- Root cause shape: source-generated or partially imported windowed-door modeldefs can carry `g_SkelWindowedDoor` without the legacy `MODELPART_WINDOWEDDOOR_0001` toggle node/rodata that this OG door caller assumes.
+- Fix: windowed-door portal and glass-destroy paths now use a guarded helper before touching toggle rwdata, log `MODEL.RODATA.MISS` for missing/unreadable source nodes, and keep the portal active instead of dereferencing a missing toggle.
+- Verification: scoped diff check PASS; focused `[modding][pdxxx][c3844][source][static][b389]` PASS (8 assertions / 1 case); isolated `b389door` all-target build PASS; `python tools/asset_native_source_guard.py` PASS. A temporary Crash Site smoke using the patched binary produced no access violation, but did not reach scripted exit because a clean smoke install hit pre-existing source-model private-cache directory failures before first tick, so manual Crash Site retest remains the closure gate.

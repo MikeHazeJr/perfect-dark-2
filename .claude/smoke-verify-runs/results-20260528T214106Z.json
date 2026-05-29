@@ -1,0 +1,26 @@
+{
+  "Name": "crash_site_first_tick",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": -1073741819,
+  "ElapsedSeconds": 69.9582322,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 10,
+  "AssertionsMet": 7,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SETUP: setupLoadStage complete"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "TICK: lvTick enter tick=\\d+ stagenum=0x26"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SMOKE: result=scripted_exit"
+    }
+  ]
+}

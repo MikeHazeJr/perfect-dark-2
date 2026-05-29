@@ -1498,40 +1498,6 @@
       "updated": "2026-05-21T11:55:00-04:00"
     },
     {
-      "id": "c3820",
-      "title": "B-360: Combat Sim Chicago match-start exception",
-      "description": "Mike reported an exception starting a match and pointed to the build-folder log. The current crash log was Build/logs/game client/pd-client.log; symbolication resolved PC=...+0x16f305 to setupCreateProps() during MATCHSTART into base:arena_chicago with 1 player and 12 bots. Root cause: the SP-in-MP lift/door overlay trusted an invalid auxiliary SP setup props pointer and walked outside the loaded setup blob.",
-      "pillar": "engine",
-      "column": "active",
-      "order": 11000,
-      "priority": 2,
-      "notes": "Fixed in code 2026-05-21. setup.c now validates auxiliary setup props against the loaded blob, bounds the SP overlay command walk, restores the MP props pointer on all paths, and skips the overlay with a warning when invalid. Added combat_sim_chicago_match_start smoke; --launch-mp-room plus --debug-auto-start-match now defers direct matchStart until CI setup is live so the smoke uses the initialized MP path.",
-      "flag": "watch",
-      "flagged_at": "2026-05-21T14:05:00-04:00",
-      "pending_completion": {
-        "marked_at": "2026-05-21T14:05:00-04:00",
-        "marked_by": "codex-b360-chicago",
-        "summary": "Guarded the SP-in-MP setup overlay against invalid auxiliary props data and added an exact Chicago 12-bot match-start smoke.",
-        "verify_notes": "Verified 2026-05-21 in isolated session b359setup: focused [setup][combat-sim][static] passed, queued all-target build passed, exact combat_sim_chicago_match_start smoke passed with MATCHSTART into base:arena_chicago and no access violation. Manual closure should still start the same Combat Simulator match from the UI.",
-        "evidence_refs": [
-          "src/game/setup.c",
-          "port/src/main.c",
-          "port/src/pdmain.c",
-          "tests/test_catalog_provider_static.cpp",
-          "tools/smoke-verify/tests/combat_sim_chicago_match_start.json",
-          "context/bugs.md",
-          "context/session-log.md"
-        ],
-        "expected_artifacts": [
-          "Combat Simulator Chicago match start with 12 bots no longer throws an access violation in setupCreateProps.",
-          "Invalid auxiliary SP setup props are skipped with a SETUP.LIFT warning instead of being dereferenced.",
-          "The exact UI start path remains the manual playtest gate."
-        ]
-      },
-      "created": "2026-05-21T14:05:00-04:00",
-      "updated": "2026-05-21T14:05:00-04:00"
-    },
-    {
       "id": "c3821",
       "title": "Main Menu waits for CI camera before input",
       "description": "When loading into the Main Menu on the Carrington Institute map, the CI camera animation should finish before the actual menu opens and accepts input. This must cover cold file-select boot, --main-menu / post-mission returns via g_PostExitMainMenuView, and Combat Simulator match-end returns via var80087260.",
@@ -4553,12 +4519,12 @@
           "order": 1600,
           "notes": "Done 2026-05-28. Source-compiled setup behavior links validate against the active .pdscenario::level.graph.json plus setup.fields.tsv source chain before live registration, covering linked guns, lift-door links, safe-item/padlock links, conditional scenery, and blocked paths. Source-only/debug validation emits ASSET.SOURCE_ONLY if a live setup behavior link cannot bind to public graph/setup source. Verification: native-source guard PASS; scoped diff check PASS; focused Scenario source-gate static test PASS 211 assertions / 1 case; isolated c3844graph all-target build PASS; scenario_pads_source_gate_smoke PASS 33/33; weapon_match_source_gate_smoke PASS 35/35; strict generated-output conformance PASS 7,572 root / 8,573 checked archives; focused [modding][pdxxx][c3844] PASS 541 assertions / 5 cases."
         },
-          {
-            "id": "c3844-s1-trigger-volume-objectives",
-            "title": "Route objective room triggers through level graph volume source",
-            "status": "done",
-            "order": 1700,
-            "notes": "Done 2026-05-28. Enter Room and Throw In Room objective criteria now query graph-owned volumes.tsv rows when a level graph is active and use the legacy pad-room lookup only as the inactive-graph fallback. Missing pad rows fail loudly in Scenario source-only mode. Verification: source guard PASS; focused Scenario source-gate static test PASS 222 assertions / 1 case; isolated c3844trig all-target build PASS; scenario_pads_source_gate_smoke PASS 35/35; focused [modding][pdxxx][c3844] PASS 552 assertions / 5 cases; weapon_match_source_gate_smoke PASS 35/35; strict generated-output conformance PASS across 7,572 root / 8,573 checked archives. Broader trigger/global/phase behavior and AI action modules remain open."
+        {
+          "id": "c3844-s1-trigger-volume-objectives",
+          "title": "Route objective room triggers through level graph volume source",
+          "status": "done",
+          "order": 1700,
+          "notes": "Done 2026-05-28. Enter Room and Throw In Room objective criteria now query graph-owned volumes.tsv rows when a level graph is active and use the legacy pad-room lookup only as the inactive-graph fallback. Missing pad rows fail loudly in Scenario source-only mode. Verification: source guard PASS; focused Scenario source-gate static test PASS 222 assertions / 1 case; isolated c3844trig all-target build PASS; scenario_pads_source_gate_smoke PASS 35/35; focused [modding][pdxxx][c3844] PASS 552 assertions / 5 cases; weapon_match_source_gate_smoke PASS 35/35; strict generated-output conformance PASS across 7,572 root / 8,573 checked archives. Broader trigger/global/phase behavior and AI action modules remain open."
         },
         {
           "id": "c3844-s1-mission-phase-graph",
@@ -5126,7 +5092,7 @@
       },
       {
         "status": "approved",
-        "mike_decision": "I\u2019m fine with this format that you described, but We need a way to export them with all files accessible easily for modders, then import them back in properly, constructing the files as an actual asset.",
+        "mike_decision": "I’m fine with this format that you described, but We need a way to export them with all files accessible easily for modders, then import them back in properly, constructing the files as an actual asset.",
         "notes": "",
         "id": "closure-raw-sidecars",
         "group": "Containment Fixes",
@@ -5171,7 +5137,7 @@
   "x_card_task_context": {
     "version": 1,
     "updated": "2026-05-28T14:30:00Z",
-    "active_card_id": "c3844",
+    "active_card_id": "c3823",
     "cards": {
       "c3824": {
         "card_id": "c3824",
@@ -5552,7 +5518,7 @@
             "prompt": "Confirm release-format .pdhead, .pdbody, .pdmesh, .pdarena, and .pdweapon samples should migrate away from loose cross-family sidecars.",
             "recommendation": "Allow raw editable source files only when they are owned by that family. Cross-family resources should be intact embedded typed archives under dependencies/assets.\n\nAdditional info: Raw editable source files are fine when they are owned by that archive family. Examples: .pdtexture owns image sources; .pdmesh owns mesh source geometry; .pdsfx owns WAV/source audio; .pdscenario owns map OBJ/TSV/setup source. But cross-family resources should not be loose sidecars inside another family.\n\nRecommendation: Release-format archives embed cross-family resources as intact typed archives under dependencies/assets. Example: .pdhead embeds mesh.pdmesh and material/texture dependencies, not loose GLTF/PNG files. .pdweapon embeds .pdmesh/.pdsfx/.pdprojectile/.pdentity dependencies, not loose model/audio files at root.\n\nAnswer needed: Approve this raw-owned-files versus typed-dependency rule?",
             "status": "approved",
-            "mike_decision": "I\u2019m fine with this format that you described, but We need a way to export them with all files accessible easily for modders, then import them back in properly, constructing the files as an actual asset.",
+            "mike_decision": "I’m fine with this format that you described, but We need a way to export them with all files accessible easily for modders, then import them back in properly, constructing the files as an actual asset.",
             "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
             "source": "legacy_asset_archive_decisions",
             "updated": "2026-05-24T22:24:00Z"
@@ -5697,6 +5663,28 @@
         "card_memories": "Keep this separate from C-3814 closure. Do not reopen C-3814 just because OG routines remain as the backend; C-3840 owns future routine extraction and retirement.",
         "codex_recommendation": "Treat this as high-priority backlog behind the completed migration: plan and retire routines family-by-family, never as a broad rewrite.",
         "next_action": "When picked up, start with an audit of projectile/deployed-entity behavior routine boundaries and parity evidence requirements.",
+        "items": []
+      },
+      "c3820": {
+        "card_id": "c3820",
+        "updated": null,
+        "progress_status": "not_started",
+        "progress_summary": "",
+        "context_notes": "",
+        "card_memories": "",
+        "codex_recommendation": "",
+        "next_action": "",
+        "items": []
+      },
+      "c3823": {
+        "card_id": "c3823",
+        "updated": null,
+        "progress_status": "not_started",
+        "progress_summary": "",
+        "context_notes": "",
+        "card_memories": "",
+        "codex_recommendation": "",
+        "next_action": "",
         "items": []
       }
     },
