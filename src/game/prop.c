@@ -3518,11 +3518,27 @@ void propDeregisterRooms(struct prop *prop)
 {
 	RoomNum *rooms = prop->rooms;
 	RoomNum room = *rooms;
+	s32 count = 0;
 
-	while (room != -1) {
+	while (room != -1 && count < (s32)ARRAYCOUNT(prop->rooms)) {
+		if (room < 0 || room >= g_Vars.roomcount) {
+			sysLogPrintf(LOG_WARNING,
+				"PROP.ROOMS: deregister invalid room=%d prop=%p type=%d",
+				(s32)room, (void *)prop, prop ? prop->type : -1);
+			prop->rooms[count] = -1;
+			break;
+		}
 		propDeregisterRoom(prop, room);
 		rooms++;
 		room = *rooms;
+		count++;
+	}
+
+	if (count >= (s32)ARRAYCOUNT(prop->rooms)) {
+		sysLogPrintf(LOG_WARNING,
+			"PROP.ROOMS: deregister room list missing terminator prop=%p type=%d",
+			(void *)prop, prop ? prop->type : -1);
+		prop->rooms[ARRAYCOUNT(prop->rooms) - 1] = -1;
 	}
 }
 
@@ -3535,11 +3551,27 @@ void propRegisterRooms(struct prop *prop)
 {
 	RoomNum *rooms = prop->rooms;
 	RoomNum room = *rooms;
+	s32 count = 0;
 
-	while (room != -1) {
+	while (room != -1 && count < (s32)ARRAYCOUNT(prop->rooms)) {
+		if (room < 0 || room >= g_Vars.roomcount) {
+			sysLogPrintf(LOG_WARNING,
+				"PROP.ROOMS: register invalid room=%d prop=%p type=%d",
+				(s32)room, (void *)prop, prop ? prop->type : -1);
+			prop->rooms[count] = -1;
+			break;
+		}
 		propRegisterRoom(prop, room);
 		rooms++;
 		room = *rooms;
+		count++;
+	}
+
+	if (count >= (s32)ARRAYCOUNT(prop->rooms)) {
+		sysLogPrintf(LOG_WARNING,
+			"PROP.ROOMS: register room list missing terminator prop=%p type=%d",
+			(void *)prop, prop ? prop->type : -1);
+		prop->rooms[ARRAYCOUNT(prop->rooms) - 1] = -1;
 	}
 }
 

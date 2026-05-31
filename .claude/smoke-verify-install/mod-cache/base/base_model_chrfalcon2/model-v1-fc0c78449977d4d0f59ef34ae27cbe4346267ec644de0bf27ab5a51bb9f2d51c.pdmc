@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_chrfalcon2",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrfalcon2.pdmesh::model.obj",
+  "source_size": 8689,
+  "source_sha256": "fc0c78449977d4d0f59ef34ae27cbe4346267ec644de0bf27ab5a51bb9f2d51c",
+  "validation": "format=obj vertices=135 triangles=45",
+  "normalized": "$S/mod-cache/base/base_model_chrfalcon2/model-v1-fc0c78449977d4d0f59ef34ae27cbe4346267ec644de0bf27ab5a51bb9f2d51c.pdmodel.json",
+  "vertex_count": 135,
+  "triangle_count": 45,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

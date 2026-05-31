@@ -159,6 +159,11 @@ SCENARIO_OBJECTIVES_HEADER = [
     "initial_status",
 ]
 
+SCENARIO_SPAWNS_HEADER = (
+    "spawn_id\tpad_ref\troom_ref\tteam\tprofile\tpos_x\tpos_y\tpos_z\t"
+    "look_x\tlook_y\tlook_z"
+)
+
 MISSION_OBJECTIVES_HEADER = [
     "objective_id",
     "kind",
@@ -517,8 +522,10 @@ SCHEMAS: dict[str, Schema] = {
             "navigation/waypoints.tsv",  # decoded waypoint graph source
             "navigation/waygroups.tsv",
             "navigation/covers.tsv",
+            "navigation/paths.tsv",
             "objects.tsv",
             "setup.fields.tsv",
+            "ai/ailists.tsv",
             "objectives.tsv",
             "navigation.ini",
             "level.graph.json",
@@ -536,8 +543,10 @@ SCHEMAS: dict[str, Schema] = {
             "navigation/waypoints.tsv",
             "navigation/waygroups.tsv",
             "navigation/covers.tsv",
+            "navigation/paths.tsv",
             "objects.tsv",
             "setup.fields.tsv",
+            "ai/ailists.tsv",
             "objectives.tsv",
             "navigation.ini",
             "level.graph.json",
@@ -1701,6 +1710,14 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                     result.errors.append(
                         f"{label} scenario.ini must declare setup_fields_file = setup.fields.tsv"
                     )
+                if "ai_lists_file = ai/ailists.tsv" not in text:
+                    result.errors.append(
+                        f"{label} scenario.ini must declare ai_lists_file = ai/ailists.tsv"
+                    )
+                if "paths_file = navigation/paths.tsv" not in text:
+                    result.errors.append(
+                        f"{label} scenario.ini must declare paths_file = navigation/paths.tsv"
+                    )
                 for stale_key in ("setup_file", "mpsetup_file", "rooms_file", "geometry_file", "visual_scene_file"):
                     if stale_key in text:
                         result.errors.append(
@@ -1714,6 +1731,15 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         label, "objectives.tsv", objectives_text,
                         SCENARIO_OBJECTIVES_HEADER
                     ))
+                if "spawns.tsv" in name_set:
+                    spawns_text = zf.read("spawns.tsv").decode(
+                        "utf-8", errors="replace"
+                    )
+                    first_line = spawns_text.splitlines()[0] if spawns_text.splitlines() else ""
+                    if first_line != SCENARIO_SPAWNS_HEADER:
+                        result.errors.append(
+                            f"{label} spawns.tsv must use the definitive spawn source header"
+                        )
                 if "setup.fields.tsv" in name_set:
                     setup_fields_text = zf.read("setup.fields.tsv").decode(
                         "utf-8", errors="replace"
@@ -1721,6 +1747,29 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                     result.errors.extend(validate_setup_fields_objective_schema(
                         label, "setup.fields.tsv", setup_fields_text
                     ))
+                if "ai/ailists.tsv" in name_set:
+                    ai_text = zf.read("ai/ailists.tsv").decode(
+                        "utf-8", errors="replace"
+                    )
+                    required_ai_header = (
+                        "ailist_ref\tlist_id\tgraph_node\tcommand_index\toffset\t"
+                        "opcode\topcode_name\toperands\tmodel_catalog_id\t"
+                        "weapon_catalog_id\tbody_catalog_id\thead_catalog_id"
+                    )
+                    first_line = ai_text.splitlines()[0] if ai_text.splitlines() else ""
+                    if first_line != required_ai_header:
+                        result.errors.append(
+                            f"{label} ai/ailists.tsv must use the definitive AI list source header"
+                        )
+                if "navigation/paths.tsv" in name_set:
+                    paths_text = zf.read("navigation/paths.tsv").decode(
+                        "utf-8", errors="replace"
+                    )
+                    first_line = paths_text.splitlines()[0] if paths_text.splitlines() else ""
+                    if first_line != "path_ref\tflags\tpads":
+                        result.errors.append(
+                            f"{label} navigation/paths.tsv must use the definitive path source header"
+                        )
                 if "level.graph.json" in name_set:
                     graph_text = zf.read("level.graph.json").decode(
                         "utf-8", errors="replace"
@@ -1733,18 +1782,67 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         )
                         graph = {}
                     nodes = graph.get("nodes")
+                    tables = graph.get("tables")
+                    if not isinstance(tables, dict) or tables.get("paths") != "navigation/paths.tsv":
+                        result.errors.append(
+                            f"{label} level.graph.json must bind paths table to navigation/paths.tsv"
+                        )
                     if not isinstance(nodes, list) or not nodes:
                         result.errors.append(
                             f"{label} level.graph.json must contain executable scenario graph nodes"
                         )
-                    elif not any(
-                        isinstance(node, dict)
-                        and str(node.get("kind", "")) == "scenario.global.settings.source"
-                        for node in nodes
-                    ):
-                        result.errors.append(
-                            f"{label} level.graph.json must include global settings graph nodes"
-                        )
+                    elif isinstance(nodes, list):
+                        node_kinds = [
+                            str(node.get("kind", ""))
+                            for node in nodes
+                            if isinstance(node, dict)
+                        ]
+                        for required_kind, description in {
+                            "scenario.global.settings.source": "global settings",
+                            "scenario.pads.source": "pad source",
+                            "scenario.ai.lists.source": "AI list source",
+                            "scenario.navigation.paths.source": "navigation path source",
+                            "scenario.ai.action.jog_to_pad": "AI jog_to_pad action",
+                            "scenario.ai.action.go_to_pad_preset": "AI go_to_pad_preset action",
+                            "scenario.ai.action.walk_to_pad": "AI walk_to_pad action",
+                            "scenario.ai.action.run_to_pad": "AI run_to_pad action",
+                            "scenario.ai.action.set_path": "AI set_path action",
+                            "scenario.ai.action.start_patrol": "AI start_patrol action",
+                        }.items():
+                            if node_kinds.count(required_kind) != 1:
+                                result.errors.append(
+                                    f"{label} level.graph.json must include exactly one {description} graph node"
+                                )
+                        links = graph.get("links")
+                        link_pairs = set()
+                        if isinstance(links, list):
+                            for link in links:
+                                if isinstance(link, dict):
+                                    link_pairs.add(
+                                        (
+                                            str(link.get("from", "")),
+                                            str(link.get("to", "")),
+                                        )
+                                    )
+                        for pair in {
+                            ("scenario.load", "scenario.pads"),
+                            ("scenario.ai.lists", "scenario.ai.action.jog_to_pad"),
+                            ("scenario.ai.lists", "scenario.ai.action.go_to_pad_preset"),
+                            ("scenario.ai.lists", "scenario.ai.action.walk_to_pad"),
+                            ("scenario.ai.lists", "scenario.ai.action.run_to_pad"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_path"),
+                            ("scenario.ai.lists", "scenario.ai.action.start_patrol"),
+                            ("scenario.pads", "scenario.ai.action.jog_to_pad"),
+                            ("scenario.pads", "scenario.ai.action.go_to_pad_preset"),
+                            ("scenario.pads", "scenario.ai.action.walk_to_pad"),
+                            ("scenario.pads", "scenario.ai.action.run_to_pad"),
+                            ("navigation.paths", "scenario.ai.action.set_path"),
+                            ("navigation.paths", "scenario.ai.action.start_patrol"),
+                        }:
+                            if pair not in link_pairs:
+                                result.errors.append(
+                                    f"{label} level.graph.json must link {pair[0]} to {pair[1]}"
+                                )
 
             if ext == ".pdmission":
                 if "mission.graph.json" in name_set:

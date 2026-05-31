@@ -15,7 +15,8 @@
  *
  *   2. data/<romid>/scenarios/<scenario_id>.pdscenario
  *      ZIP compound bundling scene.glb, pads.tsv, spawns.tsv, volumes.tsv,
- *      objects.tsv, setup.fields.tsv, objectives.tsv, navigation.ini, level.graph.json, and
+ *      objects.tsv, setup.fields.tsv, ai/ailists.tsv, objectives.tsv,
+ *      navigation/paths.tsv, navigation.ini, level.graph.json, and
  *      _meta/generated-*.json envelopes. UNIFIED per Q-1 (one file per stage;
  *      modder-friendly atomic distribution).
  *      Schema: universality-pivot-schemas.md Section 2.10.
@@ -67,6 +68,7 @@
 #include "system.h"
 #include "memsizes.h"
 #include "game/stagetable.h"
+#include "game/chrai.h"
 #include "game/texdecompress.h"
 #include "game/tex.h"
 #include "arenadata_authored.h"
@@ -77,11 +79,11 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../external/stb_image_write.h"
 
-#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v2"
+#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v5_rsptexscale_texshift_samplerwrap"
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v4"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v9"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v13_rsptexscale_texshift_samplerwrap"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -471,8 +473,10 @@ static void s_pdscenarioScratchFree(pdscenario_textbuf_t *rooms_obj,
                                     pdscenario_textbuf_t *waypoints_tsv,
                                     pdscenario_textbuf_t *waygroups_tsv,
                                     pdscenario_textbuf_t *covers_tsv,
+                                    pdscenario_textbuf_t *paths_tsv,
                                     pdscenario_textbuf_t *objects_tsv,
                                     pdscenario_textbuf_t *setup_fields_tsv,
+                                    pdscenario_textbuf_t *ai_lists_tsv,
                                     pdscenario_textbuf_t *objectives_tsv,
                                     pdscenario_textbuf_t *navigation_ini,
                                     pdscenario_textbuf_t *level_graph_json,
@@ -489,8 +493,10 @@ static void s_pdscenarioScratchFree(pdscenario_textbuf_t *rooms_obj,
 	s_textbufFree(waypoints_tsv);
 	s_textbufFree(waygroups_tsv);
 	s_textbufFree(covers_tsv);
+	s_textbufFree(paths_tsv);
 	s_textbufFree(objects_tsv);
 	s_textbufFree(setup_fields_tsv);
+	s_textbufFree(ai_lists_tsv);
 	s_textbufFree(objectives_tsv);
 	s_textbufFree(navigation_ini);
 	s_textbufFree(level_graph_json);
@@ -852,6 +858,16 @@ static void s_waygroupRef(s32 waygroup, char *out, size_t out_size)
 	snprintf(out, out_size, "waygroup_%04d", waygroup);
 }
 
+static void s_pathRef(s32 path, char *out, size_t out_size)
+{
+	if (!out || out_size == 0) return;
+	if (path < 0) {
+		out[0] = '\0';
+		return;
+	}
+	snprintf(out, out_size, "path_%04d", path);
+}
+
 static s32 s_offsetRangeValid(u32 size, uintptr_t offset, size_t len)
 {
 	if (offset > (uintptr_t)size) return 0;
@@ -1047,6 +1063,91 @@ static s32 s_buildNavigationTsv(const u8 *data, u32 size,
 	if (out_waypoints) *out_waypoints = waypoint_count;
 	if (out_waygroups) *out_waygroups = waygroup_count;
 	if (out_covers) *out_covers = cover_count;
+	return 0;
+}
+
+static s32 s_buildPathTsv(const u8 *data, u32 size,
+                          pdscenario_textbuf_t *paths_tsv,
+                          u32 *out_paths)
+{
+	const struct stagesetup *setup;
+	const struct path *paths;
+	uintptr_t paths_ofs;
+	u32 path_count = 0;
+
+	if (out_paths) *out_paths = 0;
+	if (!data || size < sizeof(struct stagesetup) || !paths_tsv) {
+		return -1;
+	}
+	if (s_textbufAppend(paths_tsv,
+			"path_ref\tflags\tpads\n") != 0) {
+		return -1;
+	}
+
+	setup = (const struct stagesetup *)data;
+	paths_ofs = (uintptr_t)setup->paths;
+	if (!paths_ofs) {
+		return 0;
+	}
+	if (!s_offsetRangeValid(size, paths_ofs, sizeof(struct path))) {
+		return -1;
+	}
+
+	paths = (const struct path *)(const void *)(data + paths_ofs);
+	for (u32 i = 0; i < 8192u; i++) {
+		uintptr_t pads_ofs;
+		const s32 *pads;
+		char path_ref[32];
+		const char *sep = "";
+
+		if (!s_offsetRangeValid(size,
+				paths_ofs + (uintptr_t)i * sizeof(*paths),
+				sizeof(*paths))) {
+			return -1;
+		}
+		if (!paths[i].pads) {
+			break;
+		}
+		pads_ofs = (uintptr_t)paths[i].pads;
+		if (!s_offsetRangeValid(size, pads_ofs, sizeof(s32))) {
+			return -1;
+		}
+		pads = (const s32 *)(const void *)(data + pads_ofs);
+		s_pathRef((s32)paths[i].id, path_ref, sizeof(path_ref));
+		if (s_textbufAppendf(paths_tsv, "%s\t0x%02x\t",
+				path_ref, (unsigned)paths[i].flags) != 0) {
+			return -1;
+		}
+		for (u32 j = 0; j < 8192u; j++) {
+			char pad_ref[32];
+			if (!s_offsetRangeValid(size,
+					pads_ofs + (uintptr_t)j * sizeof(*pads),
+					sizeof(*pads))) {
+				return -1;
+			}
+			if (pads[j] < 0) {
+				break;
+			}
+			s_padRef(pads[j], pad_ref, sizeof(pad_ref));
+			if (s_textbufAppend(paths_tsv, sep) != 0 ||
+					s_textbufAppend(paths_tsv, pad_ref) != 0) {
+				return -1;
+			}
+			sep = ";";
+			if (j == 8191u) {
+				return -1;
+			}
+		}
+		if (s_textbufAppend(paths_tsv, "\n") != 0) {
+			return -1;
+		}
+		path_count++;
+		if (i == 8191u) {
+			return -1;
+		}
+	}
+
+	if (out_paths) *out_paths = path_count;
 	return 0;
 }
 
@@ -2777,14 +2878,228 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 	return 0;
 }
 
+static s32 s_introCommandWordCount(s32 type)
+{
+	static const u8 sizes[] = {
+		3,  /* INTROCMD_SPAWN */
+		4,  /* INTROCMD_WEAPON */
+		4,  /* INTROCMD_AMMO */
+		8,  /* INTROCMD_3 */
+		2,  /* INTROCMD_4 */
+		2,  /* INTROCMD_OUTFIT */
+		10, /* INTROCMD_6 */
+		3,  /* INTROCMD_WATCHTIME */
+		2,  /* INTROCMD_CREDITOFFSET */
+		3,  /* INTROCMD_CASE */
+		3,  /* INTROCMD_CASERESPAWN */
+		2,  /* INTROCMD_HILL */
+		1,  /* INTROCMD_END */
+	};
+
+	if (type < 0 || type > INTROCMD_END) {
+		return 0;
+	}
+
+	return sizes[type];
+}
+
+static s32 s_buildIntroSpawnsTable(const u8 *data, u32 size,
+	pdscenario_textbuf_t *spawns_tsv, u32 *out_spawns)
+{
+	if (out_spawns) *out_spawns = 0;
+	if (!data || size < sizeof(struct stagesetup) || !spawns_tsv) {
+		return -1;
+	}
+	if (s_textbufAppend(spawns_tsv,
+			"spawn_id\tpad_ref\troom_ref\tteam\tprofile\tpos_x\tpos_y\tpos_z\tlook_x\tlook_y\tlook_z\n") != 0) {
+		return -1;
+	}
+
+	const struct stagesetup *setup = (const struct stagesetup *)data;
+	uintptr_t intro_ofs = (uintptr_t)setup->intro;
+	if (!intro_ofs) {
+		return 0;
+	}
+	if (intro_ofs >= size || size - (u32)intro_ofs < sizeof(s32)) {
+		return -1;
+	}
+
+	const u8 *cursor = data + intro_ofs;
+	const u8 *end = data + size;
+	u32 spawn_count = 0;
+	u32 safety = 0;
+	while (cursor + sizeof(s32) <= end && safety++ < 10000u) {
+		const s32 *cmd = (const s32 *)cursor;
+		s32 type = cmd[0];
+		s32 words = s_introCommandWordCount(type);
+		if (words <= 0 || cursor + (size_t)words * sizeof(s32) > end) {
+			return -1;
+		}
+		if (type == INTROCMD_END) {
+			break;
+		}
+		if (type == INTROCMD_SPAWN) {
+			char pad_ref[32];
+			const char *team = cmd[2] == 0 ? "any" : "";
+			char team_buf[32];
+			s_padRef(cmd[1], pad_ref, sizeof(pad_ref));
+			if (cmd[2] != 0) {
+				snprintf(team_buf, sizeof(team_buf), "team_%d", cmd[2]);
+				team = team_buf;
+			}
+			if (s_textbufAppendf(spawns_tsv,
+					"spawn_%04u\t%s\t\t%s\tintro\t\t\t\t\t\t\n",
+					(unsigned)spawn_count, pad_ref, team) != 0) {
+				return -1;
+			}
+			spawn_count++;
+		}
+		cursor += (size_t)words * sizeof(s32);
+	}
+	if (safety >= 10000u) {
+		return -1;
+	}
+
+	if (out_spawns) *out_spawns = spawn_count;
+	return 0;
+}
+
+static const char *s_aiOpcodeName(u16 opcode)
+{
+	switch (opcode) {
+	case CMD_LABEL:              return "label";
+	case AICMD_END:              return "end";
+	case AICMD_DROPITEM:         return "drop_item";
+	case CMD_PRINT:              return "print";
+	case AICMD_SPAWNCHRATPAD:    return "spawn_chr_at_pad";
+	case AICMD_SPAWNCHRATCHR:    return "spawn_chr_at_chr";
+	case AICMD_EQUIPWEAPON:      return "equip_weapon";
+	case AICMD_EQUIPHAT:         return "equip_hat";
+	default:                     return "command";
+	}
+}
+
+static s32 s_appendAiOperands(pdscenario_textbuf_t *out,
+	const u8 *cmd, u32 len)
+{
+	for (u32 i = 2; i < len; i++) {
+		if (s_textbufAppendf(out, "%s0x%02x",
+				i > 2 ? "," : "", (unsigned)cmd[i]) != 0) {
+			return -1;
+		}
+	}
+	return 0;
+}
+
+static s32 s_buildAiListsTable(const u8 *data, u32 size,
+	pdscenario_textbuf_t *ai_lists_tsv, u32 *out_lists, u32 *out_commands)
+{
+	if (out_lists) *out_lists = 0;
+	if (out_commands) *out_commands = 0;
+	if (!data || size < sizeof(struct stagesetup) || !ai_lists_tsv) {
+		return -1;
+	}
+
+	if (s_textbufAppend(ai_lists_tsv,
+			"ailist_ref\tlist_id\tgraph_node\tcommand_index\toffset\topcode\topcode_name\toperands\tmodel_catalog_id\tweapon_catalog_id\tbody_catalog_id\thead_catalog_id\n") != 0) {
+		return -1;
+	}
+
+	const struct stagesetup *setup = (const struct stagesetup *)data;
+	uintptr_t table_ofs = (uintptr_t)setup->ailists;
+	if (!table_ofs) {
+		return 0;
+	}
+	if (table_ofs >= size || size - (u32)table_ofs < sizeof(struct ailist)) {
+		return -1;
+	}
+
+	const struct ailist *lists = (const struct ailist *)(data + table_ofs);
+	u32 list_cap = (size - (u32)table_ofs) / (u32)sizeof(struct ailist);
+	u32 list_count = 0;
+	u32 command_count = 0;
+
+	for (u32 i = 0; i < list_cap && i < 16384u; i++) {
+		uintptr_t list_ofs = (uintptr_t)lists[i].list;
+		if (!list_ofs) {
+			break;
+		}
+		if (list_ofs >= size) {
+			return -1;
+		}
+
+		const u8 *list = data + list_ofs;
+		u32 max_len = size - (u32)list_ofs;
+		u32 offset = 0;
+		u32 command_index = 0;
+
+		while (offset + 2 <= max_len && command_index < 65536u) {
+			const u8 *cmd = list + offset;
+			u16 opcode = (u16)(((u16)cmd[0] << 8) | cmd[1]);
+			u32 len = chraiGetCommandLength((u8 *)list, offset);
+			if (len < 2 || len > max_len - offset) {
+				return -1;
+			}
+
+			const char *model_id = "";
+			const char *weapon_id = "";
+			const char *body_id = "";
+			const char *head_id = "";
+			char graph_node[64];
+			snprintf(graph_node, sizeof(graph_node),
+				"scenario.ai.ailist_%04u.command.%04u",
+				(unsigned)i, (unsigned)command_index);
+
+			if ((opcode == AICMD_DROPITEM || opcode == AICMD_EQUIPHAT) && len >= 4) {
+				s32 modelnum = ((s32)cmd[2] << 8) | cmd[3];
+				model_id = s_nonnullCatalogId(catalogModelIdByModelnum(modelnum));
+			} else if (opcode == AICMD_EQUIPWEAPON && len >= 5) {
+				s32 modelnum = ((s32)cmd[2] << 8) | cmd[3];
+				model_id = s_nonnullCatalogId(catalogModelIdByModelnum(modelnum));
+				weapon_id = s_nonnullCatalogId(catalogWeaponIdByRuntimeWeaponNum(cmd[4]));
+			} else if ((opcode == AICMD_SPAWNCHRATPAD || opcode == AICMD_SPAWNCHRATCHR) && len >= 4) {
+				body_id = s_nonnullCatalogId(catalogBodyIdByBodynum(cmd[2]));
+				head_id = s_nonnullCatalogId(catalogHeadIdByHeadnum((s8)cmd[3]));
+			}
+
+			if (s_textbufAppendf(ai_lists_tsv,
+					"ailist_%04u\t0x%04x\t%s\t%u\t%u\t0x%04x\t%s\t",
+					(unsigned)i, (unsigned)(u16)lists[i].id,
+					graph_node, (unsigned)command_index,
+					(unsigned)offset, (unsigned)opcode,
+					s_aiOpcodeName(opcode)) != 0 ||
+					s_appendAiOperands(ai_lists_tsv, cmd, len) != 0 ||
+					s_textbufAppendf(ai_lists_tsv,
+					"\t%s\t%s\t%s\t%s\n",
+					model_id, weapon_id, body_id, head_id) != 0) {
+				return -1;
+			}
+
+			command_count++;
+			offset += len;
+			command_index++;
+			if (opcode == AICMD_END) {
+				break;
+			}
+		}
+		list_count++;
+	}
+
+	if (out_lists) *out_lists = list_count;
+	if (out_commands) *out_commands = command_count;
+	return 0;
+}
+
 static s32 s_buildScenarioSourceFiles(const char *scenario_id,
                                       const char *kind,
                                       u32 room_count, u32 tri_count,
                                       u32 pad_count, u32 object_count,
                                       u32 objective_count,
+                                      u32 ai_list_count,
                                       u32 waypoint_count,
                                       u32 waygroup_count,
                                       u32 cover_count,
+                                      u32 path_count,
                                       pdscenario_textbuf_t *navigation_ini,
                                       pdscenario_textbuf_t *level_graph_json,
                                       pdscenario_textbuf_t *collision_meta_json,
@@ -2810,6 +3125,7 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"waypoints_file = navigation/waypoints.tsv\n"
 			"waygroups_file = navigation/waygroups.tsv\n"
 			"covers_file = navigation/covers.tsv\n"
+			"paths_file = navigation/paths.tsv\n"
 			"generated_cache = _meta/generated-navmesh.json\n") != 0) {
 		return -1;
 	}
@@ -2827,18 +3143,31 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"    \"objects\": \"objects.tsv\",\n"
 			"    \"setup_fields\": \"setup.fields.tsv\",\n"
 			"    \"objectives\": \"objectives.tsv\",\n"
+			"    \"ai_lists\": \"ai/ailists.tsv\",\n"
 			"    \"waypoints\": \"navigation/waypoints.tsv\",\n"
 			"    \"waygroups\": \"navigation/waygroups.tsv\",\n"
-			"    \"covers\": \"navigation/covers.tsv\"\n"
+			"    \"covers\": \"navigation/covers.tsv\",\n"
+			"    \"paths\": \"navigation/paths.tsv\"\n"
 			"  },\n"
 			"  \"nodes\": [\n"
 			"    { \"id\": \"scenario.load\", \"kind\": \"event.scenario.load\" },\n"
 			"    { \"id\": \"source.scene\", \"kind\": \"scenario.scene.source\", \"file\": \"scene.glb\" },\n"
 			"    { \"id\": \"collision.generate\", \"kind\": \"scenario.collision.generate\", \"source\": \"scene.glb\", \"cache\": \"_meta/generated-collision.json\" },\n"
 			"    { \"id\": \"navigation.generate\", \"kind\": \"scenario.navigation.generate\", \"source\": \"navigation.ini\", \"cache\": \"_meta/generated-navmesh.json\" },\n"
+			"    { \"id\": \"scenario.pads\", \"kind\": \"scenario.pads.source\", \"source\": \"pads.tsv\", \"pads\": %u },\n"
+			"    { \"id\": \"navigation.paths\", \"kind\": \"scenario.navigation.paths.source\", \"source\": \"navigation/paths.tsv\", \"paths\": %u },\n"
 			"    { \"id\": \"setup.tables\", \"kind\": \"scenario.setup.tables\", \"objects\": \"objects.tsv\", \"fields\": \"setup.fields.tsv\", \"objectives\": \"objectives.tsv\" },\n"
-			"    { \"id\": \"scenario.global.settings\", \"kind\": \"scenario.global.settings.source\", \"scenario\": \"%s\", \"source\": \"scenario.ini\", \"scene\": \"scene.glb\", \"collision\": \"scene.glb\", \"navigation\": \"navigation.ini\", \"pads\": %u, \"volumes\": %u }%s\n",
+			"    { \"id\": \"scenario.ai.lists\", \"kind\": \"scenario.ai.lists.source\", \"source\": \"ai/ailists.tsv\", \"lists\": %u },\n"
+			"    { \"id\": \"scenario.global.settings\", \"kind\": \"scenario.global.settings.source\", \"scenario\": \"%s\", \"source\": \"scenario.ini\", \"scene\": \"scene.glb\", \"collision\": \"scene.glb\", \"navigation\": \"navigation.ini\", \"pads\": %u, \"volumes\": %u },\n"
+			"    { \"id\": \"scenario.ai.action.jog_to_pad\", \"kind\": \"scenario.ai.action.jog_to_pad\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"opcode\": \"0x001d\", \"speed\": \"jog\" },\n"
+			"    { \"id\": \"scenario.ai.action.go_to_pad_preset\", \"kind\": \"scenario.ai.action.go_to_pad_preset\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"opcode\": \"0x001e\", \"pad\": \"chr.padpreset1\" },\n"
+			"    { \"id\": \"scenario.ai.action.walk_to_pad\", \"kind\": \"scenario.ai.action.walk_to_pad\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"opcode\": \"0x001f\", \"speed\": \"walk\" },\n"
+			"    { \"id\": \"scenario.ai.action.run_to_pad\", \"kind\": \"scenario.ai.action.run_to_pad\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"opcode\": \"0x0020\", \"speed\": \"run\" },\n"
+			"    { \"id\": \"scenario.ai.action.set_path\", \"kind\": \"scenario.ai.action.set_path\", \"source\": \"ai/ailists.tsv\", \"paths\": \"navigation/paths.tsv\", \"opcode\": \"0x0021\" },\n"
+			"    { \"id\": \"scenario.ai.action.start_patrol\", \"kind\": \"scenario.ai.action.start_patrol\", \"source\": \"ai/ailists.tsv\", \"paths\": \"navigation/paths.tsv\", \"opcode\": \"0x0022\" }%s\n",
 			scenario_id, kind ? kind : "scenario",
+			(unsigned)pad_count, (unsigned)path_count,
+			(unsigned)ai_list_count,
 			scenario_id, (unsigned)pad_count, (unsigned)pad_count,
 			pad_count > 0 ? "," : "") != 0) {
 		return -1;
@@ -2859,8 +3188,23 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"    { \"from\": \"scenario.load\", \"to\": \"source.scene\" },\n"
 			"    { \"from\": \"source.scene\", \"to\": \"collision.generate\" },\n"
 			"    { \"from\": \"collision.generate\", \"to\": \"navigation.generate\" },\n"
+			"    { \"from\": \"scenario.load\", \"to\": \"scenario.pads\" },\n"
+			"    { \"from\": \"navigation.generate\", \"to\": \"navigation.paths\" },\n"
+			"    { \"from\": \"scenario.load\", \"to\": \"scenario.ai.lists\" },\n"
 			"    { \"from\": \"scenario.load\", \"to\": \"scenario.global.settings\" },\n"
-			"    { \"from\": \"setup.tables\", \"to\": \"scenario.load\" }%s\n",
+			"    { \"from\": \"setup.tables\", \"to\": \"scenario.load\" },\n"
+			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.jog_to_pad\" },\n"
+			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.go_to_pad_preset\" },\n"
+			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.walk_to_pad\" },\n"
+			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.run_to_pad\" },\n"
+			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.set_path\" },\n"
+			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.start_patrol\" },\n"
+			"    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.jog_to_pad\" },\n"
+			"    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.go_to_pad_preset\" },\n"
+			"    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.walk_to_pad\" },\n"
+			"    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.run_to_pad\" },\n"
+			"    { \"from\": \"navigation.paths\", \"to\": \"scenario.ai.action.set_path\" },\n"
+			"    { \"from\": \"navigation.paths\", \"to\": \"scenario.ai.action.start_patrol\" }%s\n",
 			pad_count > 0 ? "," : "") != 0) {
 		return -1;
 	}
@@ -2875,13 +3219,15 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 
 	if (s_textbufAppendf(level_graph_json,
 			"  ],\n"
-			"  \"counts\": { \"rooms\": %u, \"triangles\": %u, \"pads\": %u, \"volumes\": %u, \"objects\": %u, \"objectives\": %u, \"waypoints\": %u, \"waygroups\": %u, \"covers\": %u }\n"
+			"  \"counts\": { \"rooms\": %u, \"triangles\": %u, \"pads\": %u, \"volumes\": %u, \"objects\": %u, \"objectives\": %u, \"ai_lists\": %u, \"waypoints\": %u, \"waygroups\": %u, \"covers\": %u, \"paths\": %u }\n"
 			"}\n",
 			(unsigned)room_count, (unsigned)tri_count,
 			(unsigned)pad_count, (unsigned)pad_count,
 			(unsigned)object_count,
-			(unsigned)objective_count, (unsigned)waypoint_count,
-			(unsigned)waygroup_count, (unsigned)cover_count) != 0) {
+			(unsigned)objective_count, (unsigned)ai_list_count,
+			(unsigned)waypoint_count,
+			(unsigned)waygroup_count, (unsigned)cover_count,
+			(unsigned)path_count) != 0) {
 		return -1;
 	}
 
@@ -2908,7 +3254,7 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"  \"schema\": \"pd2.generated.navmesh.v1\",\n"
 			"  \"scenario\": \"%s\",\n"
 			"  \"derived_from\": \"scene.glb\",\n"
-			"  \"inputs\": [\"navigation.ini\", \"pads.tsv\", \"spawns.tsv\", \"volumes.tsv\", \"navigation/waypoints.tsv\", \"navigation/waygroups.tsv\", \"navigation/covers.tsv\"],\n"
+			"  \"inputs\": [\"navigation.ini\", \"pads.tsv\", \"spawns.tsv\", \"volumes.tsv\", \"navigation/waypoints.tsv\", \"navigation/waygroups.tsv\", \"navigation/covers.tsv\", \"navigation/paths.tsv\"],\n"
 			"  \"generator\": \"deterministic.surface_graph.v1\",\n"
 			"  \"capabilities\": [\"walk\", \"jump\", \"drop\", \"wall\", \"ceiling\"],\n"
 			"  \"cache_only\": true\n"
@@ -3146,7 +3492,8 @@ static s32 s_bgSceneInit(pdscenario_bgscene_t *scene)
 
 static s32 s_bgSceneAddTri(pdscenario_bgscene_t *scene, s32 material_index,
                            const Vtx *a, const Vtx *b, const Vtx *c,
-                           const struct coord *room_pos, u32 roomnum)
+                           const struct coord *room_pos, u32 roomnum,
+                           s32 s0, s32 t0, s32 s1, s32 t1, s32 s2, s32 t2)
 {
 	if (!scene || !a || !b || !c || !room_pos) return -1;
 	if (material_index < 0 || (u32)material_index >= scene->material_count) {
@@ -3169,12 +3516,12 @@ static s32 s_bgSceneAddTri(pdscenario_bgscene_t *scene, s32 material_index,
 	f32 x2 = room_pos->x + (f32)c->x;
 	f32 y2 = room_pos->y + (f32)c->y;
 	f32 z2 = room_pos->z + (f32)c->z;
-	f32 u0 = (f32)a->s / 32.0f;
-	f32 v0 = 1.0f - ((f32)a->t / 32.0f);
-	f32 u1 = (f32)b->s / 32.0f;
-	f32 v1 = 1.0f - ((f32)b->t / 32.0f);
-	f32 u2 = (f32)c->s / 32.0f;
-	f32 v2 = 1.0f - ((f32)c->t / 32.0f);
+	f32 u0 = (f32)s0 / 32.0f;
+	f32 v0 = 1.0f - ((f32)t0 / 32.0f);
+	f32 u1 = (f32)s1 / 32.0f;
+	f32 v1 = 1.0f - ((f32)t1 / 32.0f);
+	f32 u2 = (f32)s2 / 32.0f;
+	f32 v2 = 1.0f - ((f32)t2 / 32.0f);
 	u32 i0 = scene->next_obj_index++;
 	u32 i1 = scene->next_obj_index++;
 	u32 i2 = scene->next_obj_index++;
@@ -3624,6 +3971,7 @@ typedef struct {
 	u32 pos_accessor;
 	u32 uv_accessor;
 	u32 room_accessor;
+	u32 texture_index;
 	f32 min_x, min_y, min_z;
 	f32 max_x, max_y, max_z;
 } pdscenario_gltf_material_t;
@@ -3687,6 +4035,52 @@ static u32 s_bgSceneDecodedTextureCount(const pdscenario_bgscene_t *scene)
 	return count;
 }
 
+static u32 s_bgGltfWrapMode(s32 mode)
+{
+	if (mode & G_TX_CLAMP) return 33071u; /* GL_CLAMP_TO_EDGE */
+	if (mode & G_TX_MIRROR) return 33648u; /* GL_MIRRORED_REPEAT */
+	return 10497u; /* GL_REPEAT */
+}
+
+static void s_bgMaterialUvScaleForGlb(const pdscenario_bgscene_t *scene,
+                                      const pdscenario_bgmaterial_t *m,
+                                      f32 *u_scale, f32 *v_scale)
+{
+	if (u_scale) *u_scale = 1.0f;
+	if (v_scale) *v_scale = 1.0f;
+	if (!scene || !m || !u_scale || !v_scale) return;
+
+	const pdscenario_bgtexture_t *tex = s_bgSceneTextureByNum(scene, m->texnum);
+	if (!tex || !tex->decoded || tex->width == 0 || tex->height == 0) return;
+
+	f32 s_shift_scale = 1.0f;
+	f32 t_shift_scale = 1.0f;
+	if (m->shifts != 0) {
+		if (m->shifts <= 10) {
+			s_shift_scale = 1.0f / (f32)(1 << m->shifts);
+		} else {
+			s_shift_scale = (f32)(1 << (16 - m->shifts));
+		}
+	}
+	if (m->shiftt != 0) {
+		if (m->shiftt <= 10) {
+			t_shift_scale = 1.0f / (f32)(1 << m->shiftt);
+		} else {
+			t_shift_scale = (f32)(1 << (16 - m->shiftt));
+		}
+	}
+
+	*u_scale = s_shift_scale / (f32)tex->width;
+	*v_scale = t_shift_scale / (f32)tex->height;
+}
+
+static void s_bgMaterialGlbUv(f32 raw_u, f32 raw_v, f32 u_scale, f32 v_scale,
+                              f32 *out_u, f32 *out_v)
+{
+	if (out_u) *out_u = raw_u * u_scale;
+	if (out_v) *out_v = 1.0f - ((1.0f - raw_v) * v_scale);
+}
+
 static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 {
 	if (!scene || scene->tri_count == 0 || scene->material_count == 0) return -1;
@@ -3705,6 +4099,7 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 		mr[i].pos_view = mr[i].uv_view = mr[i].room_view = 0xffffffffu;
 		mr[i].pos_accessor = mr[i].uv_accessor = mr[i].room_accessor =
 			0xffffffffu;
+		mr[i].texture_index = 0xffffffffu;
 	}
 	for (u32 i = 0; i < scene->texture_count; i++) {
 		texture_views[i] = 0xffffffffu;
@@ -3729,9 +4124,16 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 		if (s_binbufPad4(&bin) != 0) goto fail;
 		mr[i].uv_view = view_count++;
 		mr[i].uv_accessor = accessor_count++;
+		f32 u_scale = 1.0f;
+		f32 v_scale = 1.0f;
+		s_bgMaterialUvScaleForGlb(scene, m, &u_scale, &v_scale);
 		for (u32 v = 0; v < m->vertex_count; v++) {
-			if (s_binbufAppendF32(&bin, m->vertices[v].u) != 0 ||
-			    s_binbufAppendF32(&bin, m->vertices[v].v) != 0) goto fail;
+			f32 u = 0.0f;
+			f32 vt = 0.0f;
+			s_bgMaterialGlbUv(m->vertices[v].u, m->vertices[v].v,
+				u_scale, v_scale, &u, &vt);
+			if (s_binbufAppendF32(&bin, u) != 0 ||
+			    s_binbufAppendF32(&bin, vt) != 0) goto fail;
 		}
 		if (s_binbufPad4(&bin) != 0) goto fail;
 		mr[i].room_view = view_count++;
@@ -3751,6 +4153,14 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 		if (s_binbufAppend(&bin, tex->png, tex->png_size) != 0) goto fail;
 	}
 	if (s_binbufPad4(&bin) != 0) goto fail;
+
+	u32 material_texture_count = 0;
+	for (u32 i = 0; i < scene->material_count; i++) {
+		if (s_bgSceneDecodedTextureIndex(scene,
+				scene->materials[i].texnum) >= 0) {
+			mr[i].texture_index = material_texture_count++;
+		}
+	}
 
 	pdscenario_textbuf_t json = { 0 };
 	if (s_textbufAppend(&json,
@@ -3780,14 +4190,13 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 
 	for (u32 i = 0; i < scene->material_count; i++) {
 		const pdscenario_bgmaterial_t *m = &scene->materials[i];
-		s32 texture_index = s_bgSceneDecodedTextureIndex(scene, m->texnum);
 		if (i && s_textbufAppend(&json, ",") != 0) goto fail_json;
-		if (texture_index >= 0) {
+		if (mr[i].texture_index != 0xffffffffu) {
 			if (s_textbufAppendf(&json,
 					"{\"name\":\"%s\","
 					"\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":%d},"
 					"\"metallicFactor\":0.0,\"roughnessFactor\":1.0}}",
-					m->name, texture_index) != 0) goto fail_json;
+					m->name, (s32)mr[i].texture_index) != 0) goto fail_json;
 		} else {
 			if (s_textbufAppendf(&json,
 					"{\"name\":\"%s\","
@@ -3799,11 +4208,14 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 
 	u32 decoded_texture_count = s_bgSceneDecodedTextureCount(scene);
 	if (s_textbufAppend(&json, "],\"textures\":[") != 0) goto fail_json;
-	for (u32 i = 0, idx = 0; i < scene->texture_count; i++) {
-		const pdscenario_bgtexture_t *tex = &scene->textures[i];
-		if (!tex->decoded || !tex->png || tex->png_size == 0) continue;
+	for (u32 i = 0, idx = 0; i < scene->material_count; i++) {
+		const pdscenario_bgmaterial_t *m = &scene->materials[i];
+		s32 image_index = s_bgSceneDecodedTextureIndex(scene, m->texnum);
+		if (mr[i].texture_index == 0xffffffffu || image_index < 0) continue;
 		if (idx && s_textbufAppend(&json, ",") != 0) goto fail_json;
-		if (s_textbufAppendf(&json, "{\"source\":%u}", (unsigned)idx) != 0) {
+		if (s_textbufAppendf(&json,
+				"{\"sampler\":%u,\"source\":%d}",
+				(unsigned)idx, image_index) != 0) {
 			goto fail_json;
 		}
 		idx++;
@@ -3817,6 +4229,21 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				"{\"name\":\"tex_%04x\",\"mimeType\":\"image/png\","
 				"\"bufferView\":%u}",
 				(unsigned)tex->texnum, (unsigned)texture_views[i]) != 0) {
+			goto fail_json;
+		}
+		idx++;
+	}
+
+	if (s_textbufAppend(&json, "],\"samplers\":[") != 0) goto fail_json;
+	for (u32 i = 0, idx = 0; i < scene->material_count; i++) {
+		const pdscenario_bgmaterial_t *m = &scene->materials[i];
+		if (mr[i].texture_index == 0xffffffffu) continue;
+		if (idx && s_textbufAppend(&json, ",") != 0) goto fail_json;
+		if (s_textbufAppendf(&json,
+				"{\"magFilter\":9729,\"minFilter\":9987,"
+				"\"wrapS\":%u,\"wrapT\":%u}",
+				(unsigned)s_bgGltfWrapMode(m->smode),
+				(unsigned)s_bgGltfWrapMode(m->tmode)) != 0) {
 			goto fail_json;
 		}
 		idx++;
@@ -4006,6 +4433,8 @@ static s32 s_bgGdlCommand(const Gfx *cmd)
 static s32 s_exportBgTriByIndices(pdscenario_bgscene_t *scene,
                                   s32 material_index,
                                   const Vtx loaded[16],
+                                  const s32 loaded_s[16],
+                                  const s32 loaded_t[16],
                                   const u8 valid[16],
                                   u32 a, u32 b, u32 c,
                                   const struct coord *room_pos,
@@ -4015,7 +4444,9 @@ static s32 s_exportBgTriByIndices(pdscenario_bgscene_t *scene,
 	if (!valid[a] || !valid[b] || !valid[c]) return 0;
 	if (a == b && b == c) return 0;
 	return s_bgSceneAddTri(scene, material_index,
-		&loaded[a], &loaded[b], &loaded[c], room_pos, roomnum);
+		&loaded[a], &loaded[b], &loaded[c], room_pos, roomnum,
+		loaded_s[a], loaded_t[a], loaded_s[b], loaded_t[b],
+		loaded_s[c], loaded_t[c]);
 }
 
 static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
@@ -4027,10 +4458,16 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 	if (!gdl || !vertices || !room_pos) return 0;
 	if (!s_rangeInBuffer(room_base, room_size, gdl, (u32)sizeof(Gfx))) return 0;
 	Vtx loaded[16];
+	s32 loaded_s[16];
+	s32 loaded_t[16];
 	u8 valid[16];
 	memset(loaded, 0, sizeof(loaded));
+	memset(loaded_s, 0, sizeof(loaded_s));
+	memset(loaded_t, 0, sizeof(loaded_t));
 	memset(valid, 0, sizeof(valid));
 	s32 material_index = 0;
+	u16 texture_scale_s = 0xffffu;
+	u16 texture_scale_t = 0xffffu;
 	u32 max_cmds = room_size / (u32)sizeof(Gfx);
 	if (max_cmds > 20000u) max_cmds = 20000u;
 
@@ -4054,6 +4491,10 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 					subcmd, w0, w1);
 				if (next_mat >= 0) material_index = next_mat;
 			}
+		} else if (op == (u8)G_TEXTURE) {
+			u32 w1 = (u32)cmd->words.w1;
+			texture_scale_s = (u16)((w1 >> 16) & 0xffffu);
+			texture_scale_t = (u16)(w1 & 0xffffu);
 		} else if (op == G_VTX) {
 			u32 w0 = (u32)cmd->words.w0;
 			u32 count = (w0 & 0xffffu) / (u32)sizeof(Vtx);
@@ -4067,6 +4508,10 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			const Vtx *src = (const Vtx *)((const u8 *)vertices + off);
 			for (u32 v = 0; v < count; v++) {
 				loaded[dest + v] = src[v];
+				loaded_s[dest + v] =
+					((s32)src[v].s * (s32)texture_scale_s) >> 16;
+				loaded_t[dest + v] =
+					((s32)src[v].t * (s32)texture_scale_t) >> 16;
 				valid[dest + v] = 1;
 			}
 		} else if (op == (u8)G_TRI1) {
@@ -4075,7 +4520,8 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			u32 b = ((w1 >> 8) & 0xffu) / 10u;
 			u32 c = (w1 & 0xffu) / 10u;
 			if (s_exportBgTriByIndices(scene, material_index, loaded,
-					valid, a, b, c, room_pos, roomnum) != 0) {
+					loaded_s, loaded_t, valid, a, b, c,
+					room_pos, roomnum) != 0) {
 				return -1;
 			}
 		} else if (op == (u8)G_TRI4) {
@@ -4086,13 +4532,17 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			u32 x3 = (w1 >> 16) & 0x0fu, y3 = (w1 >> 20) & 0x0fu, z3 = (w0 >> 8) & 0x0fu;
 			u32 x4 = (w1 >> 24) & 0x0fu, y4 = (w1 >> 28) & 0x0fu, z4 = (w0 >> 12) & 0x0fu;
 			if (s_exportBgTriByIndices(scene, material_index, loaded,
-					valid, x1, y1, z1, room_pos, roomnum) != 0 ||
+					loaded_s, loaded_t, valid, x1, y1, z1,
+					room_pos, roomnum) != 0 ||
 			    s_exportBgTriByIndices(scene, material_index, loaded,
-					valid, x2, y2, z2, room_pos, roomnum) != 0 ||
+					loaded_s, loaded_t, valid, x2, y2, z2,
+					room_pos, roomnum) != 0 ||
 			    s_exportBgTriByIndices(scene, material_index, loaded,
-					valid, x3, y3, z3, room_pos, roomnum) != 0 ||
+					loaded_s, loaded_t, valid, x3, y3, z3,
+					room_pos, roomnum) != 0 ||
 			    s_exportBgTriByIndices(scene, material_index, loaded,
-					valid, x4, y4, z4, room_pos, roomnum) != 0) {
+					loaded_s, loaded_t, valid, x4, y4, z4,
+					room_pos, roomnum) != 0) {
 				return -1;
 			}
 		}
@@ -4509,8 +4959,10 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 		s_existingArchiveHasEntry(relpath, "navigation/waypoints.tsv") &&
 		s_existingArchiveHasEntry(relpath, "navigation/waygroups.tsv") &&
 		s_existingArchiveHasEntry(relpath, "navigation/covers.tsv") &&
+		s_existingArchiveHasEntry(relpath, "navigation/paths.tsv") &&
 		s_existingArchiveHasEntry(relpath, "objects.tsv") &&
 		s_existingArchiveHasEntry(relpath, "setup.fields.tsv") &&
+		s_existingArchiveHasEntry(relpath, "ai/ailists.tsv") &&
 		s_existingArchiveHasEntry(relpath, "objectives.tsv") &&
 		s_existingArchiveEntryContains(relpath, "objectives.tsv",
 			"operand_kind") &&
@@ -4520,6 +4972,24 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 		s_existingArchiveHasEntry(relpath, "level.graph.json") &&
 		s_existingArchiveEntryContains(relpath, "level.graph.json",
 			"scenario.global.settings.source") &&
+		s_existingArchiveEntryContains(relpath, "level.graph.json",
+			"scenario.pads.source") &&
+		s_existingArchiveEntryContains(relpath, "level.graph.json",
+			"scenario.ai.lists.source") &&
+		s_existingArchiveEntryContains(relpath, "level.graph.json",
+			"scenario.navigation.paths.source") &&
+		s_existingArchiveEntryContains(relpath, "level.graph.json",
+			"scenario.ai.action.jog_to_pad") &&
+		s_existingArchiveEntryContains(relpath, "level.graph.json",
+			"scenario.ai.action.go_to_pad_preset") &&
+		s_existingArchiveEntryContains(relpath, "level.graph.json",
+			"scenario.ai.action.walk_to_pad") &&
+		s_existingArchiveEntryContains(relpath, "level.graph.json",
+			"scenario.ai.action.run_to_pad") &&
+		s_existingArchiveEntryContains(relpath, "level.graph.json",
+			"scenario.ai.action.set_path") &&
+		s_existingArchiveEntryContains(relpath, "level.graph.json",
+			"scenario.ai.action.start_patrol") &&
 		s_existingArchiveHasEntry(relpath, "_meta/generated-collision.json") &&
 		s_existingArchiveHasEntry(relpath, "_meta/generated-navmesh.json");
 }
@@ -4807,8 +5277,10 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	pdscenario_textbuf_t waypoints_tsv = { 0 };
 	pdscenario_textbuf_t waygroups_tsv = { 0 };
 	pdscenario_textbuf_t covers_tsv = { 0 };
+	pdscenario_textbuf_t paths_tsv = { 0 };
 	pdscenario_textbuf_t objects_tsv = { 0 };
 	pdscenario_textbuf_t setup_fields_tsv = { 0 };
+	pdscenario_textbuf_t ai_lists_tsv = { 0 };
 	pdscenario_textbuf_t objectives_tsv = { 0 };
 	pdscenario_textbuf_t navigation_ini = { 0 };
 	pdscenario_textbuf_t level_graph_json = { 0 };
@@ -4825,8 +5297,12 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	u32 waypoint_count = 0;
 	u32 waygroup_count = 0;
 	u32 cover_count = 0;
+	u32 path_count = 0;
 	u32 object_count = 0;
 	u32 objective_count = 0;
+	u32 spawn_count = 0;
+	u32 ai_list_count = 0;
+	u32 ai_command_count = 0;
 	s32 has_visual = 0;
 
 	u8 *tiles_data = NULL;
@@ -4851,7 +5327,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		&pads_data, &pads_size);
 	if (has_pads > 0) {
 		if (s_buildPadsTsv(pads_data, pads_size, &pads_tsv,
-				&spawns_tsv, &volumes_tsv, &pad_count) != 0) {
+				NULL, &volumes_tsv, &pad_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: pads conversion failed for \"%s\"",
 				scenario_id);
@@ -4882,14 +5358,46 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 				scenario_id);
 			has_setup = -1;
 		}
+		if (has_setup > 0 &&
+				s_buildIntroSpawnsTable(setup_data, setup_size,
+					&spawns_tsv, &spawn_count) != 0) {
+			sysLogPrintf(LOG_WARNING,
+				"romextract pdscenario: intro spawn conversion failed for \"%s\"",
+				scenario_id);
+			has_setup = -1;
+		}
+		if (has_setup > 0 &&
+				s_buildAiListsTable(setup_data, setup_size, &ai_lists_tsv,
+					&ai_list_count, &ai_command_count) != 0) {
+			sysLogPrintf(LOG_WARNING,
+				"romextract pdscenario: AI list conversion failed for \"%s\"",
+				scenario_id);
+			has_setup = -1;
+		}
+		if (has_setup > 0 &&
+				s_buildPathTsv(setup_data, setup_size, &paths_tsv,
+					&path_count) != 0) {
+			sysLogPrintf(LOG_WARNING,
+				"romextract pdscenario: path table conversion failed for \"%s\"",
+				scenario_id);
+			has_setup = -1;
+		}
 		sysMemFree(setup_data);
 	} else {
 		if (s_textbufAppend(&objects_tsv,
 				"record_id\tkind\tpad_ref\tmodel_catalog_id\tweapon_catalog_id\tsecondary_weapon_catalog_id\tbody_catalog_id\thead_catalog_id\tailist_ref\tflags\tflags2\tflags3\n") != 0 ||
 		    s_textbufAppend(&setup_fields_tsv,
 				"record_id\tkind\tfield\ttype\tvalue\tcatalog_id\tref_record_id\n") != 0 ||
+		    s_textbufAppend(&spawns_tsv,
+				"spawn_id\tpad_ref\troom_ref\tteam\tprofile\tpos_x\tpos_y\tpos_z\tlook_x\tlook_y\tlook_z\n") != 0 ||
+		    s_textbufAppend(&ai_lists_tsv,
+				"ailist_ref\tlist_id\tgraph_node\tcommand_index\toffset\topcode\topcode_name\toperands\tmodel_catalog_id\tweapon_catalog_id\tbody_catalog_id\thead_catalog_id\n") != 0 ||
 		    s_textbufAppend(&objectives_tsv,
 				"objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\toperand_kind\ttarget_ref\ttarget_record_ref\tpad_ref\tstate_ref\tmatch_value\tinitial_status\n") != 0) {
+			has_setup = -1;
+		}
+		if (s_textbufAppend(&paths_tsv,
+				"path_ref\tflags\tpads\n") != 0) {
 			has_setup = -1;
 		}
 	}
@@ -4917,7 +5425,9 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 
 	if (s_buildScenarioSourceFiles(scenario_id, kind, room_count, tri_count,
 			pad_count, object_count, objective_count,
-			waypoint_count, waygroup_count, cover_count, &navigation_ini,
+			ai_list_count,
+			waypoint_count, waygroup_count, cover_count, path_count,
+			&navigation_ini,
 			&level_graph_json, &collision_meta_json,
 			&navmesh_meta_json) != 0) {
 		sysLogPrintf(LOG_WARNING,
@@ -4929,7 +5439,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	if (has_tiles < 0 || has_pads < 0 || has_setup < 0 || has_bg < 0) {
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
+			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -4943,7 +5453,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 				"scene") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 				&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-				&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
+				&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
 				&navigation_ini, &level_graph_json, &collision_meta_json,
 				&navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -4970,7 +5480,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 				covers_tsv.len, "covers") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 				&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-				&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
+				&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
 				&navigation_ini, &level_graph_json, &collision_meta_json,
 				&navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -4983,6 +5493,10 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 			objects_tsv.data, objects_tsv.len, "objects") != MODARCHIVE_OK ||
 	    assetArchiveWriterAddPublicMem(&asset_writer, "setup.fields.tsv",
 			setup_fields_tsv.data, setup_fields_tsv.len, "setup_fields") != MODARCHIVE_OK ||
+	    assetArchiveWriterAddPublicMem(&asset_writer, "ai/ailists.tsv",
+			ai_lists_tsv.data, ai_lists_tsv.len, "ai_lists") != MODARCHIVE_OK ||
+	    assetArchiveWriterAddPublicMem(&asset_writer, "navigation/paths.tsv",
+			paths_tsv.data, paths_tsv.len, "paths") != MODARCHIVE_OK ||
 	    assetArchiveWriterAddPublicMem(&asset_writer, "objectives.tsv",
 			objectives_tsv.data, objectives_tsv.len, "objectives") != MODARCHIVE_OK ||
 	    assetArchiveWriterAddPublicMem(&asset_writer, "navigation.ini",
@@ -4995,7 +5509,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 			navmesh_meta_json.data, navmesh_meta_json.len, "generated_navmesh") != MODARCHIVE_OK) {
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
+			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -5024,6 +5538,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		"  \"level_graph\": \"level.graph.json\",\n"
 		"  \"objects\": \"objects.tsv\",\n"
 		"  \"setup_fields\": \"setup.fields.tsv\",\n"
+		"  \"ai_lists\": \"ai/ailists.tsv\",\n"
 		"  \"objectives\": \"objectives.tsv\",\n"
 		"  \"generated_collision\": \"_meta/generated-collision.json\",\n"
 		"  \"generated_navmesh\": \"_meta/generated-navmesh.json\"",
@@ -5056,12 +5571,20 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		",\n  \"waypoints\": \"navigation/waypoints.tsv\""
 		",\n  \"waygroups\": \"navigation/waygroups.tsv\""
 		",\n  \"covers\": \"navigation/covers.tsv\""
+		",\n  \"paths\": \"navigation/paths.tsv\""
 		",\n  \"pad_count\": %u"
+		",\n  \"spawn_count\": %u"
 		",\n  \"waypoint_count\": %u"
 		",\n  \"waygroup_count\": %u"
-		",\n  \"cover_count\": %u",
-		(unsigned)pad_count, (unsigned)waypoint_count,
-		(unsigned)waygroup_count, (unsigned)cover_count);
+		",\n  \"cover_count\": %u"
+		",\n  \"path_count\": %u",
+		(unsigned)pad_count, (unsigned)spawn_count, (unsigned)waypoint_count,
+		(unsigned)waygroup_count, (unsigned)cover_count,
+		(unsigned)path_count);
+	n += snprintf(manifest_buf + n, sizeof(manifest_buf) - n,
+		",\n  \"ai_list_count\": %u"
+		",\n  \"ai_command_count\": %u",
+		(unsigned)ai_list_count, (unsigned)ai_command_count);
 
 	n += snprintf(manifest_buf + n, sizeof(manifest_buf) - n, "\n}\n");
 
@@ -5070,7 +5593,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 			"manifest snprintf truncated for \"%s\"", scenario_id);
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
+			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -5093,6 +5616,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		"level_graph_file = level.graph.json\n"
 		"objects_file = objects.tsv\n"
 		"setup_fields_file = setup.fields.tsv\n"
+		"ai_lists_file = ai/ailists.tsv\n"
 		"objectives_file = objectives.tsv\n",
 		scenario_id, kind, a->slug);
 	if (has_tiles > 0) ini_len += snprintf(ini_buf + ini_len,
@@ -5111,13 +5635,14 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 		"volumes_file = volumes.tsv\n"
 		"waypoints_file = navigation/waypoints.tsv\n"
 		"waygroups_file = navigation/waygroups.tsv\n"
-		"covers_file = navigation/covers.tsv\n");
+		"covers_file = navigation/covers.tsv\n"
+		"paths_file = navigation/paths.tsv\n");
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"scenario.ini snprintf truncated for \"%s\"", scenario_id);
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
+			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -5131,7 +5656,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 			"AddFileMem scenario.ini failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
+			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -5144,7 +5669,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
+			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -5156,7 +5681,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 			"assetArchiveWriterFinishMetadata failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
+			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -5169,7 +5694,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 			"modArchiveFinish failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 			&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-			&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
+			&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -5177,7 +5702,7 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	}
 	s_pdscenarioScratchFree(&rooms_obj, &tiles_tsv, &pads_tsv,
 		&spawns_tsv, &volumes_tsv, &waypoints_tsv, &waygroups_tsv,
-		&covers_tsv, &objects_tsv, &setup_fields_tsv, &objectives_tsv,
+		&covers_tsv, &paths_tsv, &objects_tsv, &setup_fields_tsv, &ai_lists_tsv, &objectives_tsv,
 		&navigation_ini, &level_graph_json, &collision_meta_json,
 		&navmesh_meta_json,
 		&visual_mesh, &bg_scene);

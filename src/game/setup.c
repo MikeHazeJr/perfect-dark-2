@@ -74,6 +74,77 @@ static void setupRequireScenarioSourceHandle(const char *context,
 		handle);
 }
 
+static s32 setupIntroCommandWords(s32 type)
+{
+	static const u8 sizes[] = {
+		3,  /* INTROCMD_SPAWN */
+		4,  /* INTROCMD_WEAPON */
+		4,  /* INTROCMD_AMMO */
+		8,  /* INTROCMD_3 */
+		2,  /* INTROCMD_4 */
+		2,  /* INTROCMD_OUTFIT */
+		10, /* INTROCMD_6 */
+		3,  /* INTROCMD_WATCHTIME */
+		2,  /* INTROCMD_CREDITOFFSET */
+		3,  /* INTROCMD_CASE */
+		3,  /* INTROCMD_CASERESPAWN */
+		2,  /* INTROCMD_HILL */
+		1,  /* INTROCMD_END */
+	};
+
+	if (type < 0 || type > INTROCMD_END) {
+		return 0;
+	}
+
+	return sizes[type];
+}
+
+static bool setupIntroCommandsAreValid(const struct stagesetup *setup,
+	s32 loaded_size, const s32 *intro, const u32 *props)
+{
+	const uintptr_t base = (uintptr_t)setup;
+	const uintptr_t intro_addr = (uintptr_t)intro;
+	const uintptr_t props_addr = (uintptr_t)props;
+	const uintptr_t end_addr = base + (uintptr_t)loaded_size;
+	const s32 *cmd = intro;
+
+	if (!setup || !intro || loaded_size < (s32)sizeof(*setup) ||
+			intro_addr < base || intro_addr + sizeof(s32) > end_addr) {
+		return false;
+	}
+
+	for (s32 safety = 0; safety < 10000; safety++) {
+		s32 type;
+		s32 words;
+		uintptr_t next_addr;
+
+		if ((uintptr_t)cmd + sizeof(s32) > end_addr) {
+			return false;
+		}
+
+		type = cmd[0];
+		words = setupIntroCommandWords(type);
+		if (words <= 0) {
+			return false;
+		}
+
+		next_addr = (uintptr_t)cmd + (uintptr_t)words * sizeof(s32);
+		if (next_addr > end_addr) {
+			return false;
+		}
+		if (props_addr > intro_addr && next_addr > props_addr) {
+			return false;
+		}
+		if (type == INTROCMD_END) {
+			return true;
+		}
+
+		cmd += words;
+	}
+
+	return false;
+}
+
 struct tvscreen var80061a80 = {
 	g_TvCmdlist00, // cmdlist
 	0,           // offset
@@ -1741,14 +1812,14 @@ void setupLoadFiles(s32 stagenum)
 			uintptr_t dist = introAddr > propsAddr ? introAddr - propsAddr : propsAddr - introAddr;
 			s32 firstCmd = *g_StageSetup.intro;
 
-			// Base-game MP setup files use a minimal intro section (just
-			// INTROCMD_END with no spawn entries), so intro and props sit
-			// only a few bytes apart (dist=4 observed on Felicity/0x2b).
-			// The distance heuristic was added for corrupt mod setup files
-			// where the intro pointer aliases into the props block — don't
-			// apply it when loading the official MP setup file.
-			bool isMpSetup = (filenum == (u16)stage.mpsetupfileid);
-			if ((!isMpSetup && dist < 64) || firstCmd < 0 || firstCmd > INTROCMD_END) {
+			// Base-game MP setup files and source-built setup blocks can use
+			// compact intro sections next to props. Reject true aliasing by
+			// walking the intro command stream and proving it terminates before
+			// props instead of using distance alone.
+			if ((dist < 64 && !setupIntroCommandsAreValid(setup,
+						setup_loaded_size, g_StageSetup.intro,
+						g_StageSetup.props)) ||
+					firstCmd < 0 || firstCmd > INTROCMD_END) {
 				sysLogPrintf(LOG_WARNING, "LOAD: invalid intro data (first cmd=%d, intro=%p, props=%p, dist=%llu), nulling intro",
 					firstCmd, (void *)g_StageSetup.intro, (void *)g_StageSetup.props, (unsigned long long)dist);
 				g_StageSetup.intro = NULL;

@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 struct objective;
+struct chrdata;
 
 typedef struct scenario_source_objective_operand {
 	u8 type;
@@ -44,6 +45,13 @@ s32 scenarioSourceObjectiveGraphRecordStageFlags(u32 flags);
 s32 scenarioSourceObjectiveGraphHasStageFlag(u32 flag, s32 *out_has_flag);
 s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
 	const char *reason);
+s32 scenarioSourceAiGraphExecuteJogToPad(struct chrdata *chr, s32 pad);
+s32 scenarioSourceAiGraphExecuteGoToPadPreset(struct chrdata *chr,
+	s32 speed_code);
+s32 scenarioSourceAiGraphExecuteWalkToPad(struct chrdata *chr, s32 pad);
+s32 scenarioSourceAiGraphExecuteRunToPad(struct chrdata *chr, s32 pad);
+s32 scenarioSourceAiGraphExecuteSetPath(struct chrdata *chr, s32 path_id);
+s32 scenarioSourceAiGraphExecuteStartPatrol(struct chrdata *chr);
 s32 scenarioSourceObjectiveGraphGetCriterionCount(s32 index);
 s32 scenarioSourceObjectiveGraphGetCriterionType(s32 index,
 	s32 criterion_index, u8 *out_type);

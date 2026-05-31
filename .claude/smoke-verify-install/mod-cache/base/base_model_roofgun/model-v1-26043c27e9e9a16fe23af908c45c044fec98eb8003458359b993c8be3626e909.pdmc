@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_roofgun",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_roofgun.pdmesh::model.obj",
+  "source_size": 11517,
+  "source_sha256": "26043c27e9e9a16fe23af908c45c044fec98eb8003458359b993c8be3626e909",
+  "validation": "format=obj vertices=171 triangles=57",
+  "normalized": "$S/mod-cache/base/base_model_roofgun/model-v1-26043c27e9e9a16fe23af908c45c044fec98eb8003458359b993c8be3626e909.pdmodel.json",
+  "vertex_count": 171,
+  "triangle_count": 57,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

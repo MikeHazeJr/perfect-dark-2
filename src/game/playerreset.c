@@ -780,6 +780,17 @@ void playerReset(void)
 			&g_Vars.currentplayer->floorroom,
 			0, 0);
 
+	{
+		const f32 GROUNDY_BOUND = 100000.0f;
+		if (groundy < -GROUNDY_BOUND || groundy > GROUNDY_BOUND) {
+			sysLogPrintf(LOG_WARNING,
+				"SPAWN.INIT: cdFindGroundInfoAtCyl sentinel groundy=%g "
+				"at spawn pos=(%.0f,%.0f,%.0f) room=%d; using spawn Y",
+				groundy, pos.x, pos.y, pos.z, rooms[0]);
+			groundy = pos.y;
+		}
+	}
+
 	pos.y = g_Vars.currentplayer->vv_eyeheight + groundy;
 	g_Vars.currentplayer->vv_manground = groundy;
 	g_Vars.currentplayer->vv_ground = groundy;

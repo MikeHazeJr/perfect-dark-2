@@ -6347,6 +6347,10 @@ struct path *pathFindById(u32 path_id)
 {
 	s32 i = 0;
 
+	if (!g_StageSetup.paths) {
+		return NULL;
+	}
+
 	for (i = 0; g_StageSetup.paths[i].pads; i++) {
 		if (path_id == g_StageSetup.paths[i].id) {
 			return &g_StageSetup.paths[i];

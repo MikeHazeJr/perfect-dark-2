@@ -78,6 +78,8 @@
 - Source-only asset checks now reject raw extracted ROM cache paths such as `data/<romid>/files`, `data/<romid>/segments`, and `.bin` payloads instead of treating every FileProvider path as clean public source.
 - Scenario pads now compile from public `.pdscenario` `pads.tsv` during stage load instead of relying on the legacy pad payload when public source is available.
 - Scenario archives now include decoded public waypoint, waygroup, and cover tables, and stage load compiles those tables with public `pads.tsv` instead of disabling navigation.
+- Scenario archives now feed public patrol paths and AI `set_path` / `start_patrol` graph nodes into runtime AI path behavior.
+- Generated scenario GLBs now apply renderer-matched texture scale and per-material sampler wrap modes so Blender/3DS Max imports match the game more closely.
 - Scenario and Mission graph sources now activate during stage load from public archive members, proving `level.graph.json` and `mission.graph.json` are accessible to the runtime before behavior parity cutover.
 - Scenario level graph table refs now select the public setup, pads, objective, and navigation source members consumed by runtime loaders.
 - Mission archives now generate objective source and parity-backend graph nodes instead of empty graph placeholders or `original_perfect_dark_setup` pointers.
@@ -92,9 +94,12 @@
 - Scenario level graphs now emit a required global-settings source node, and stage activation validates it from public `.pdscenario::level.graph.json` before accepting the level graph.
 - Scenario source activation now derives the matching `.pdscenario` catalog row from the active stage catalog ID when no explicit scenario ref is present.
 - Mission graphs now emit required phase source nodes, and runtime records mission `load`/`active`/`complete`/`failed`/`end` transitions through the active `.pdmission` graph source.
+- Scenario archives now include public `navigation/paths.tsv`, and stage setup compiles those patrol paths from the archive source so AI patrol startup does not depend on ROM setup data.
+- Scenario level graphs now emit required AI pad movement action nodes, and runtime routes `jog_to_pad` / `go_to_pad_preset` / `walk_to_pad` / `run_to_pad` through graph-owned public `pads.tsv` source before the parity movement routine runs.
 
 ## Fixed
 
+- Fixed generated scenario `scene.glb` texture scale so Chicago and other extracted maps open in DCC tools with normalized UVs, renderer tile shifts, and sampler modes instead of stale tiny repeated tiling.
 - Fixed `.pdmesh` skeleton metadata export/loading so legacy small skeleton IDs like `SKEL_HEAD` are not treated as pointers, allowing all-model extraction and source-gated weapon matches to complete from public archive sources.
 - Fixed held weapon model loading so modeldefs resolve through catalog/FileProvider `.pdmesh::model.obj` sources and refuse ROM fallback under the asset-source contract.
 - Scenario setup overlays now compile from public `.pdscenario` setup source in source-gated match startup, and base `.pdmesh` extraction now emits every catalog model archive so scenario model references resolve under strict conformance.
@@ -157,3 +162,4 @@
 - Fixed weapon behavior graph editing so template graphs load with connected trigger/action nodes, left/right docked pins, pin-colored wires, inspector link lists, larger exec sockets, and simple node-param controls.
 - Fixed a match-start crash when a saved `.pdweapon` mod was selected in Combat Simulator custom weapon slots.
 - Fixed jump collision follow-through so airborne horizontal movement is clamped against rendered wall, ceiling, and corner geometry before the player can clip into it.
+- Fixed generated scenario GLB texture export so Blender/3DS Max receive renderer-matched texture scaling, tile shifts, and per-material wrap, mirror, and clamp sampler modes.

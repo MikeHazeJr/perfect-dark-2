@@ -82,8 +82,6 @@ def update_scenario() -> bytes:
         "volumes.tsv": read_entry(rel, "volumes.tsv"),
         "objects.tsv": read_entry(rel, "objects.tsv"),
         "objectives.tsv": read_entry(rel, "objectives.tsv"),
-        "navigation.ini": read_entry(rel, "navigation.ini"),
-        "level.graph.json": read_entry(rel, "level.graph.json"),
         "_meta/generated-collision.json": read_entry(rel, "_meta/generated-collision.json"),
         "_meta/generated-navmesh.json": read_entry(rel, "_meta/generated-navmesh.json"),
     }
@@ -102,11 +100,16 @@ def update_scenario() -> bytes:
         "waypoints_file = navigation/waypoints.tsv\n"
         "waygroups_file = navigation/waygroups.tsv\n"
         "covers_file = navigation/covers.tsv\n"
+        "paths_file = navigation/paths.tsv\n"
         "generated_cache = _meta/generated-navmesh.json\n"
     )
     waypoints_tsv = "waypoint_id\tpad_ref\tgroup_ref\tstep\tneighbours\n"
     waygroups_tsv = "waygroup_id\tstep\twaypoints\tneighbours\n"
     covers_tsv = "cover_id\tflags\tpos_x\tpos_y\tpos_z\tlook_x\tlook_y\tlook_z\n"
+    paths_tsv = (
+        "path_ref\tflags\tpads\n"
+        "path_0000\t0x00\tpad_0000\n"
+    )
     setup_fields_tsv = (
         "record_id\tkind\tfield\ttype\tvalue\tcatalog_id\tref_record_id\n"
         "setup_0000\tprop\tcommand.order\ts32\t0\t\t\n"
@@ -116,6 +119,67 @@ def update_scenario() -> bytes:
     objectives_tsv = (
         "objective_id\tkind\ttext_token\tdifficulty_mask\tgraph_node\toperand_kind\ttarget_ref\ttarget_record_ref\tpad_ref\tstate_ref\tmatch_value\tinitial_status\n"
         "objective_0000\tobjective\tobjective_text_primary\tall\tlevel.objective.0000\tobjective\t\t\t\t\t\t\n"
+    )
+    ai_lists_tsv = (
+        "ailist_ref\tlist_id\tgraph_node\tcommand_index\toffset\topcode\topcode_name\toperands\tmodel_catalog_id\tweapon_catalog_id\tbody_catalog_id\thead_catalog_id\n"
+        "ailist_0000\t0x0000\tscenario.ai.ailist_0000.command.0000\t0\t0\t0x0004\tend\t\t\t\t\t\n"
+    )
+    level_graph_json = (
+        "{\n"
+        "  \"schema\": \"pd2.level.graph.v1\",\n"
+        "  \"scenario\": \"example:tri_scenario\",\n"
+        "  \"source\": \"scene.glb\",\n"
+        "  \"kind\": \"mp\",\n"
+        "  \"tables\": {\n"
+        "    \"pads\": \"pads.tsv\",\n"
+        "    \"spawns\": \"spawns.tsv\",\n"
+        "    \"volumes\": \"volumes.tsv\",\n"
+        "    \"objects\": \"objects.tsv\",\n"
+        "    \"setup_fields\": \"setup.fields.tsv\",\n"
+        "    \"ai_lists\": \"ai/ailists.tsv\",\n"
+        "    \"objectives\": \"objectives.tsv\",\n"
+        "    \"waypoints\": \"navigation/waypoints.tsv\",\n"
+        "    \"waygroups\": \"navigation/waygroups.tsv\",\n"
+        "    \"covers\": \"navigation/covers.tsv\",\n"
+        "    \"paths\": \"navigation/paths.tsv\"\n"
+        "  },\n"
+        "  \"nodes\": [\n"
+        "    { \"id\": \"scenario.load\", \"kind\": \"event.scenario.load\" },\n"
+        "    { \"id\": \"source.scene\", \"kind\": \"scenario.scene.source\", \"file\": \"scene.glb\" },\n"
+        "    { \"id\": \"scenario.pads\", \"kind\": \"scenario.pads.source\", \"source\": \"pads.tsv\", \"pads\": 1 },\n"
+        "    { \"id\": \"navigation.paths\", \"kind\": \"scenario.navigation.paths.source\", \"source\": \"navigation/paths.tsv\", \"paths\": 1 },\n"
+        "    { \"id\": \"scenario.ai.lists\", \"kind\": \"scenario.ai.lists.source\", \"source\": \"ai/ailists.tsv\", \"lists\": 1 },\n"
+        "    { \"id\": \"scenario.global.settings\", \"kind\": \"scenario.global.settings.source\", \"scenario\": \"example:tri_scenario\", \"source\": \"scenario.ini\", \"scene\": \"scene.glb\", \"collision\": \"scene.glb\", \"navigation\": \"navigation.ini\", \"pads\": 1, \"volumes\": 1 },\n"
+        "    { \"id\": \"scenario.ai.action.jog_to_pad\", \"kind\": \"scenario.ai.action.jog_to_pad\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"opcode\": \"0x001d\", \"speed\": \"jog\" },\n"
+        "    { \"id\": \"scenario.ai.action.go_to_pad_preset\", \"kind\": \"scenario.ai.action.go_to_pad_preset\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"opcode\": \"0x001e\", \"pad\": \"chr.padpreset1\" },\n"
+        "    { \"id\": \"scenario.ai.action.walk_to_pad\", \"kind\": \"scenario.ai.action.walk_to_pad\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"opcode\": \"0x001f\", \"speed\": \"walk\" },\n"
+        "    { \"id\": \"scenario.ai.action.run_to_pad\", \"kind\": \"scenario.ai.action.run_to_pad\", \"source\": \"ai/ailists.tsv\", \"pads\": \"pads.tsv\", \"opcode\": \"0x0020\", \"speed\": \"run\" },\n"
+        "    { \"id\": \"scenario.ai.action.set_path\", \"kind\": \"scenario.ai.action.set_path\", \"source\": \"ai/ailists.tsv\", \"paths\": \"navigation/paths.tsv\", \"opcode\": \"0x0021\" },\n"
+        "    { \"id\": \"scenario.ai.action.start_patrol\", \"kind\": \"scenario.ai.action.start_patrol\", \"source\": \"ai/ailists.tsv\", \"paths\": \"navigation/paths.tsv\", \"opcode\": \"0x0022\" },\n"
+        "    { \"id\": \"trigger.volume.0000\", \"kind\": \"scenario.trigger.volume.source\", \"table\": \"volumes.tsv\", \"volume\": \"volume_pad_0000\", \"pad\": \"pad_0000\" }\n"
+        "  ],\n"
+        "  \"links\": [\n"
+        "    { \"from\": \"scenario.load\", \"to\": \"source.scene\" },\n"
+        "    { \"from\": \"scenario.load\", \"to\": \"scenario.pads\" },\n"
+        "    { \"from\": \"source.scene\", \"to\": \"navigation.paths\" },\n"
+        "    { \"from\": \"scenario.load\", \"to\": \"scenario.ai.lists\" },\n"
+        "    { \"from\": \"scenario.load\", \"to\": \"scenario.global.settings\" },\n"
+        "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.jog_to_pad\" },\n"
+        "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.go_to_pad_preset\" },\n"
+        "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.walk_to_pad\" },\n"
+        "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.run_to_pad\" },\n"
+        "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.set_path\" },\n"
+        "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.start_patrol\" },\n"
+        "    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.jog_to_pad\" },\n"
+        "    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.go_to_pad_preset\" },\n"
+        "    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.walk_to_pad\" },\n"
+        "    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.run_to_pad\" },\n"
+        "    { \"from\": \"navigation.paths\", \"to\": \"scenario.ai.action.set_path\" },\n"
+        "    { \"from\": \"navigation.paths\", \"to\": \"scenario.ai.action.start_patrol\" },\n"
+        "    { \"from\": \"scenario.load\", \"to\": \"trigger.volume.0000\" }\n"
+        "  ],\n"
+        "  \"counts\": { \"rooms\": 1, \"triangles\": 1, \"pads\": 1, \"volumes\": 1, \"objects\": 1, \"objectives\": 1, \"ai_lists\": 1, \"waypoints\": 0, \"waygroups\": 0, \"covers\": 0, \"paths\": 1 }\n"
+        "}\n"
     )
     scenario_ini = (
         "; tri_scenario.pdscenario - source-first scenario asset\n"
@@ -134,8 +198,10 @@ def update_scenario() -> bytes:
         "waypoints_file = navigation/waypoints.tsv\n"
         "waygroups_file = navigation/waygroups.tsv\n"
         "covers_file = navigation/covers.tsv\n"
+        "paths_file = navigation/paths.tsv\n"
         "objects_file = objects.tsv\n"
         "setup_fields_file = setup.fields.tsv\n"
+        "ai_lists_file = ai/ailists.tsv\n"
         "objectives_file = objectives.tsv\n"
         "navigation_file = navigation.ini\n"
         "level_graph_file = level.graph.json\n"
@@ -160,8 +226,10 @@ def update_scenario() -> bytes:
         "  \"waypoints\": \"navigation/waypoints.tsv\",\n"
         "  \"waygroups\": \"navigation/waygroups.tsv\",\n"
         "  \"covers\": \"navigation/covers.tsv\",\n"
+        "  \"paths\": \"navigation/paths.tsv\",\n"
         "  \"objects\": \"objects.tsv\",\n"
         "  \"setup_fields\": \"setup.fields.tsv\",\n"
+        "  \"ai_lists\": \"ai/ailists.tsv\",\n"
         "  \"objectives\": \"objectives.tsv\"\n"
         "}\n"
     )
@@ -174,11 +242,13 @@ def update_scenario() -> bytes:
         ("navigation/waypoints.tsv", waypoints_tsv),
         ("navigation/waygroups.tsv", waygroups_tsv),
         ("navigation/covers.tsv", covers_tsv),
+        ("navigation/paths.tsv", paths_tsv),
         ("objects.tsv", kept["objects.tsv"]),
         ("setup.fields.tsv", setup_fields_tsv),
+        ("ai/ailists.tsv", ai_lists_tsv),
         ("objectives.tsv", objectives_tsv),
         ("navigation.ini", navigation_ini),
-        ("level.graph.json", kept["level.graph.json"]),
+        ("level.graph.json", level_graph_json),
         ("_meta/generated-collision.json", kept["_meta/generated-collision.json"]),
         ("_meta/generated-navmesh.json", kept["_meta/generated-navmesh.json"]),
         ("_meta/manifest.json", scenario_manifest),
@@ -500,6 +570,11 @@ def main() -> int:
         "    { \"id\": \"mission.load\", \"kind\": \"event.mission.load\", \"scenario\": \"example:tri_scenario\" },\n"
         "    { \"id\": \"mission.objectives\", \"kind\": \"mission.objectives.source\", \"file\": \"objectives.tsv\", \"scenario_table\": \"dependencies/assets/scenario/tri_scenario.pdscenario::objectives.tsv\" },\n"
         "    { \"id\": \"mission.objective.0000\", \"kind\": \"mission.objective.source\", \"source_row\": \"objective_0000\", \"scenario_node\": \"level.objective.0000\", \"text_token\": \"objective_text_primary\", \"difficulty_mask\": \"all\", \"criteria\": \"objective\", \"operand_kind\": \"objective\", \"target_ref\": \"\", \"target_record_ref\": \"\", \"pad_ref\": \"\", \"state_ref\": \"\", \"match_value\": \"\", \"initial_status\": \"\" },\n"
+        "    { \"id\": \"mission.phase.load\", \"kind\": \"mission.phase.source\", \"phase\": \"load\" },\n"
+        "    { \"id\": \"mission.phase.active\", \"kind\": \"mission.phase.source\", \"phase\": \"active\" },\n"
+        "    { \"id\": \"mission.phase.complete\", \"kind\": \"mission.phase.source\", \"phase\": \"complete\" },\n"
+        "    { \"id\": \"mission.phase.failed\", \"kind\": \"mission.phase.source\", \"phase\": \"failed\" },\n"
+        "    { \"id\": \"mission.phase.end\", \"kind\": \"mission.phase.source\", \"phase\": \"end\" },\n"
         "    { \"id\": \"mission.parity_backend\", \"kind\": \"mission.behavior.parity_backend\", \"module\": \"og.mission.example\" }\n"
         "  ],\n"
         "  \"edges\": [\n"

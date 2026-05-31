@@ -3537,7 +3537,10 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			"scenarios/tri_scenario.pdscenario",
 			{ "scenario.ini", "scene.glb",
 			  "pads.tsv", "spawns.tsv", "volumes.tsv", "objects.tsv",
-			  "setup.fields.tsv", "objectives.tsv", "navigation.ini", "level.graph.json",
+			  "setup.fields.tsv", "ai/ailists.tsv", "objectives.tsv",
+			  "navigation/waypoints.tsv", "navigation/waygroups.tsv",
+			  "navigation/covers.tsv", "navigation/paths.tsv",
+			  "navigation.ini", "level.graph.json",
 			  "_meta/generated-collision.json", "_meta/generated-navmesh.json",
 			  "_meta/manifest.json" },
 		},
@@ -4324,7 +4327,14 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("texInflateNonZlib") != std::string::npos);
 	REQUIRE(arena.find("scene.glb") != std::string::npos);
 	REQUIRE(arena.find("stbi_write_png_to_mem") != std::string::npos);
-	REQUIRE(arena.find("bg_visual_scene_glb_v2") != std::string::npos);
+	REQUIRE(arena.find("bg_visual_scene_glb_v5_rsptexscale_texshift_samplerwrap") != std::string::npos);
+	REQUIRE(arena.find("s_bgMaterialUvScaleForGlb") != std::string::npos);
+	REQUIRE(arena.find("s_bgMaterialGlbUv") != std::string::npos);
+	REQUIRE(arena.find("s_bgGltfWrapMode") != std::string::npos);
+	REQUIRE(arena.find("op == (u8)G_TEXTURE") != std::string::npos);
+	REQUIRE(arena.find("m->shifts <= 10") != std::string::npos);
+	REQUIRE(arena.find("m->shiftt <= 10") != std::string::npos);
+	REQUIRE(arena.find("\"sampler\":%u,\"source\":%d") != std::string::npos);
 	REQUIRE(arena.find("mat_%03u_tex_%04x") != std::string::npos);
 	REQUIRE(arena.find("texture_inventory_%04x") != std::string::npos);
 	REQUIRE(arena.find("strncmp(mtl_texture_path, \"visual/\", 7)") !=
@@ -4341,6 +4351,19 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("spawns.tsv") != std::string::npos);
 	REQUIRE(arena.find("volumes.tsv") != std::string::npos);
 	REQUIRE(arena.find("objects.tsv") != std::string::npos);
+	REQUIRE(arena.find("ai/ailists.tsv") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.lists.source") != std::string::npos);
+	REQUIRE(arena.find("scenario.pads.source") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.jog_to_pad") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.go_to_pad_preset") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.walk_to_pad") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.run_to_pad") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_path") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.start_patrol") != std::string::npos);
+	REQUIRE(arena.find("ai_lists_file = ai/ailists.tsv") != std::string::npos);
+	REQUIRE(arena.find("navigation/paths.tsv") != std::string::npos);
+	REQUIRE(arena.find("scenario.navigation.paths.source") != std::string::npos);
+	REQUIRE(arena.find("paths_file = navigation/paths.tsv") != std::string::npos);
 	REQUIRE(arena.find("objectives.tsv") != std::string::npos);
 	REQUIRE(arena.find("navigation.ini") != std::string::npos);
 	REQUIRE(arena.find("level.graph.json") != std::string::npos);

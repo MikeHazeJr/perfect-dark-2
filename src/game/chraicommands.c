@@ -38,6 +38,7 @@
 #include "game/options.h"
 #include "game/propobj.h"
 #include "game/mpstats.h"
+#include "scenario_source_runtime.h"
 #include "bss.h"
 #include "lib/main.h"
 #include "lib/model.h"
@@ -1146,7 +1147,9 @@ bool aiJogToPad(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 pad = cmd[3] | (cmd[2] << 8);
 
-	chrGoToPad(g_Vars.chrdata, pad, GOPOSFLAG_JOG);
+	if (!scenarioSourceAiGraphExecuteJogToPad(g_Vars.chrdata, pad)) {
+		chrGoToPad(g_Vars.chrdata, pad, GOPOSFLAG_JOG);
+	}
 	g_Vars.aioffset += 4;
 
 	return false;
@@ -1159,16 +1162,18 @@ bool aiGoToPadPreset(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	switch (cmd[2]) {
-	case 0:
-		chrGoToPad(g_Vars.chrdata, g_Vars.chrdata->padpreset1, GOPOSFLAG_WALK);
-		break;
-	case 1:
-		chrGoToPad(g_Vars.chrdata, g_Vars.chrdata->padpreset1, GOPOSFLAG_JOG);
-		break;
-	default:
-		chrGoToPad(g_Vars.chrdata, g_Vars.chrdata->padpreset1, GOPOSFLAG_RUN);
-		break;
+	if (!scenarioSourceAiGraphExecuteGoToPadPreset(g_Vars.chrdata, cmd[2])) {
+		switch (cmd[2]) {
+		case 0:
+			chrGoToPad(g_Vars.chrdata, g_Vars.chrdata->padpreset1, GOPOSFLAG_WALK);
+			break;
+		case 1:
+			chrGoToPad(g_Vars.chrdata, g_Vars.chrdata->padpreset1, GOPOSFLAG_JOG);
+			break;
+		default:
+			chrGoToPad(g_Vars.chrdata, g_Vars.chrdata->padpreset1, GOPOSFLAG_RUN);
+			break;
+		}
 	}
 
 	g_Vars.aioffset += 3;
@@ -1184,7 +1189,9 @@ bool aiWalkToPad(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 pad = cmd[3] | (cmd[2] << 8);
 
-	chrGoToPad(g_Vars.chrdata, pad, GOPOSFLAG_WALK);
+	if (!scenarioSourceAiGraphExecuteWalkToPad(g_Vars.chrdata, pad)) {
+		chrGoToPad(g_Vars.chrdata, pad, GOPOSFLAG_WALK);
+	}
 	g_Vars.aioffset += 4;
 
 	return false;
@@ -1198,7 +1205,9 @@ bool aiRunToPad(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 pad = cmd[3] | (cmd[2] << 8);
 
-	chrGoToPad(g_Vars.chrdata, pad, GOPOSFLAG_RUN);
+	if (!scenarioSourceAiGraphExecuteRunToPad(g_Vars.chrdata, pad)) {
+		chrGoToPad(g_Vars.chrdata, pad, GOPOSFLAG_RUN);
+	}
 	g_Vars.aioffset += 4;
 
 	return false;
@@ -1211,7 +1220,9 @@ bool aiSetPath(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	chrSetPath(g_Vars.chrdata, cmd[2]);
+	if (!scenarioSourceAiGraphExecuteSetPath(g_Vars.chrdata, cmd[2])) {
+		chrSetPath(g_Vars.chrdata, cmd[2]);
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -1222,7 +1233,9 @@ bool aiSetPath(void)
  */
 bool aiStartPatrol(void)
 {
-	chrTryStartPatrol(g_Vars.chrdata);
+	if (!scenarioSourceAiGraphExecuteStartPatrol(g_Vars.chrdata)) {
+		chrTryStartPatrol(g_Vars.chrdata);
+	}
 	g_Vars.aioffset += 2;
 
 	return false;

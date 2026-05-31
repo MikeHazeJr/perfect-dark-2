@@ -1505,17 +1505,34 @@ s32 objGetAverageBrightnessInRooms(RoomNum *rooms, s32 brightnesstype)
 {
 	s32 brightness = 0;
 	s32 i;
+	s32 count = 0;
 
-	for (i = 0; rooms[i] != -1; i++) {
-		if (brightnesstype == 0) {
-			brightness += roomGetSettledRegionalBrightnessForPlayer(rooms[i]);
-		} else if (brightnesstype == 1) {
-			brightness += roomGetFlashBrightness(rooms[i]);
-		}
+	if (!rooms || !g_Rooms || g_Vars.roomcount <= 0) {
+		return 0;
 	}
 
-	if (i) {
-		s32 average = brightness / i;
+	for (i = 0; i < 8 && rooms[i] != -1; i++) {
+		if (rooms[i] < 0 || rooms[i] >= g_Vars.roomcount) {
+			sysLogPrintf(LOG_WARNING,
+				"PROP.ROOMS: skipping invalid brightness room %d at index %d",
+				(s32)rooms[i], i);
+			continue;
+		}
+		if (brightnesstype == 0) {
+			brightness += roomGetSettledRegionalBrightnessForPlayer(rooms[i]);
+			count++;
+		} else if (brightnesstype == 1) {
+			brightness += roomGetFlashBrightness(rooms[i]);
+			count++;
+		}
+	}
+	if (i == 8) {
+		sysLogPrintf(LOG_WARNING,
+			"PROP.ROOMS: brightness room list missing terminator; bounded scan to 8");
+	}
+
+	if (count) {
+		s32 average = brightness / count;
 
 		if (average > 255) {
 			average = 255;

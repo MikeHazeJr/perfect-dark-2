@@ -6284,16 +6284,39 @@ void bgFindEnteredRooms(struct coord *bbmin, struct coord *bbmax, RoomNum *rooms
 
 	i = 0;
 
-	for (len = 0; rooms[len] != -1; len++);
+	if (!rooms || maxlen <= 0 || !g_Rooms || !g_RoomPortals || !g_BgPortals) {
+		return;
+	}
+
+	for (len = 0; len < maxlen && rooms[len] != -1; len++);
+	if (len >= maxlen) {
+		sysLogPrintf(LOG_WARNING,
+			"BG.ROOMS: entered room list missing terminator maxlen=%d first=%d",
+			maxlen, (s32)rooms[0]);
+		rooms[maxlen] = -1;
+		len = maxlen;
+	}
 
 	while (true) {
 		origlen = len;
 
 		for (; i < origlen; i++) {
 			room = rooms[i];
+			if (room < 0 || room >= g_Vars.roomcount) {
+				sysLogPrintf(LOG_WARNING,
+					"BG.ROOMS: skipping invalid entered room=%d roomcount=%d",
+					(s32)room, g_Vars.roomcount);
+				continue;
+			}
 
 			for (j = 0; j < g_Rooms[room].numportals; j++) {
 				portalnum = g_RoomPortals[g_Rooms[room].roomportallistoffset + j];
+				if (portalnum < 0 || portalnum >= g_BgNumPortalCameraCacheItems) {
+					sysLogPrintf(LOG_WARNING,
+						"BG.ROOMS: skipping invalid portal=%d room=%d portals=%d",
+						portalnum, (s32)room, g_BgNumPortalCameraCacheItems);
+					continue;
+				}
 
 				if (arg4 && PORTAL_IS_CLOSED(portalnum)) {
 					continue;
@@ -6306,6 +6329,12 @@ void bgFindEnteredRooms(struct coord *bbmin, struct coord *bbmax, RoomNum *rooms
 						otherroom = g_BgPortals[portalnum].roomnum2;
 					} else {
 						otherroom = g_BgPortals[portalnum].roomnum1;
+					}
+					if (otherroom < 0 || otherroom >= g_Vars.roomcount) {
+						sysLogPrintf(LOG_WARNING,
+							"BG.ROOMS: skipping invalid portal room=%d via portal=%d from room=%d",
+							(s32)otherroom, portalnum, (s32)room);
+						continue;
 					}
 
 					for (k = 0; k < len; k++) {
@@ -6355,4 +6384,3 @@ void bgCalculateGlaresForVisibleRooms(void)
 		}
 	}
 }
-

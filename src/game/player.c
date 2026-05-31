@@ -7069,7 +7069,20 @@ s32 playerTickThirdPerson(struct prop *prop)
 					|| (player->bdeltapos.y > 0.5f)
 					|| player->isfalling;
 
-				if (!airborne) {
+				bool chrgroundvalid = chr->ground > -1000000.0f &&
+					chr->ground < 1000000.0f;
+				if (chrgroundvalid && player->prop) {
+					f32 modelrootdelta = chr->ground - player->prop->pos.y;
+					f32 playergrounddelta = chr->ground - player->vv_ground;
+					if (modelrootdelta < 0.0f) modelrootdelta = -modelrootdelta;
+					if (playergrounddelta < 0.0f) playergrounddelta = -playergrounddelta;
+					if ((modelrootdelta < 2.0f && playergrounddelta > 8.0f) ||
+							playergrounddelta > 96.0f) {
+						chrgroundvalid = false;
+					}
+				}
+
+				if (!airborne && chrgroundvalid) {
 					/* Only log when chrground differs significantly (avoid spam) */
 					if (chr->ground != player->vv_manground) {
 						sysLogPrintf(LOG_NOTE,
@@ -7082,6 +7095,25 @@ s32 playerTickThirdPerson(struct prop *prop)
 					}
 					player->vv_ground = chr->ground;
 					player->vv_manground = chr->ground;
+				} else if (!airborne) {
+					f32 safeground = player->vv_ground;
+					if (safeground <= -1000000.0f ||
+							safeground >= 1000000.0f) {
+						safeground = player->vv_manground;
+					}
+					if (safeground <= -1000000.0f ||
+							safeground >= 1000000.0f) {
+						safeground = player->prop->pos.y;
+					}
+					sysLogPrintf(LOG_WARNING,
+						"GROUNDSNAP: ignoring invalid chr->ground=%.1f; "
+						"using player ground=%.1f for stage=0x%02x room=%d",
+						chr->ground, safeground, g_Vars.stagenum,
+						(s32)player->prop->rooms[0]);
+					chr->ground = safeground;
+					chr->manground = safeground;
+					player->vv_ground = safeground;
+					player->vv_manground = safeground;
 				} else {
 					sysLogPrintf(LOG_NOTE,
 						"GROUNDSNAP: AIRBORNE pushing chr to player "

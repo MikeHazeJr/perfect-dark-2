@@ -1,0 +1,40 @@
+{
+  "Name": "scenario_pads_source_gate_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": -2,
+  "ElapsedSeconds": 360.6841238,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 47,
+  "AssertionsMet": 42,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MISSION\\.GRAPH: objective criteria evaluated from graph source '.*base_mission_chicago\\.pdmission::objectives\\.tsv' index=\\d+ criteria=\\d+ backend=graph\\.objective\\.operands\\+graph\\.objective\\.state\\+graph\\.objective\\.object_state\\+graph\\.mission\\.flags"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MISSION\\.GRAPH: objective check routed through graph source '.*base_mission_chicago\\.pdmission::objectives\\.tsv' nodes=\\d+ criteria=\\d+ backend=graph\\.objective\\.operands\\+graph\\.objective\\.state\\+graph\\.objective\\.object_state\\+graph\\.mission\\.flags"
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SMOKE: result=scripted_exit"
+    },
+    {
+      "Kind": "required_count_out_of_range",
+      "Pattern": "MISSION\\.GRAPH: objective criteria evaluated from graph source '.*base_mission_chicago\\.pdmission::objectives\\.tsv'",
+      "Count": 0,
+      "Min": 1,
+      "Max": 1
+    },
+    {
+      "Kind": "required_count_out_of_range",
+      "Pattern": "MISSION\\.GRAPH: objective check routed through graph source '.*base_mission_chicago\\.pdmission::objectives\\.tsv'",
+      "Count": 0,
+      "Min": 1,
+      "Max": 1
+    }
+  ]
+}

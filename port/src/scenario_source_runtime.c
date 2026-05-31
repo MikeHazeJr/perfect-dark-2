@@ -13,6 +13,7 @@
 #include "asset_source_debug.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "game/chraction.h"
 #include "lib/meshcollision.h"
 #include "lib/memp.h"
 #include "scenario_source_runtime.h"
@@ -51,6 +52,20 @@ typedef struct scenario_source_cover_row {
 	u32 flags;
 } scenario_source_cover_row_t;
 
+typedef struct scenario_source_path_row {
+	s32 id;
+	u32 flags;
+	s32 *pads;
+	s32 pad_count;
+} scenario_source_path_row_t;
+
+typedef struct scenario_source_path_table {
+	scenario_source_path_row_t *rows;
+	s32 count;
+	s32 capacity;
+	char error[192];
+} scenario_source_path_table_t;
+
 typedef struct scenario_source_volume_row {
 	char id[32];
 	char kind[32];
@@ -85,6 +100,41 @@ typedef struct scenario_source_setup_table {
 	s32 capacity;
 	char error[192];
 } scenario_source_setup_table_t;
+
+typedef struct scenario_source_ai_command {
+	u16 opcode;
+	u8 *operands;
+	u32 operand_count;
+} scenario_source_ai_command_t;
+
+typedef struct scenario_source_ai_list {
+	char ref[32];
+	s32 id;
+	scenario_source_ai_command_t *commands;
+	s32 count;
+	s32 capacity;
+	u32 byte_count;
+} scenario_source_ai_list_t;
+
+typedef struct scenario_source_ai_table {
+	scenario_source_ai_list_t *lists;
+	s32 count;
+	s32 capacity;
+	u32 byte_count;
+	char error[192];
+} scenario_source_ai_table_t;
+
+typedef struct scenario_source_spawn_row {
+	s32 padnum;
+	s32 team;
+} scenario_source_spawn_row_t;
+
+typedef struct scenario_source_spawn_table {
+	scenario_source_spawn_row_t *rows;
+	s32 count;
+	s32 capacity;
+	char error[192];
+} scenario_source_spawn_table_t;
 
 typedef struct scenario_source_objective_node {
 	char objective_id[32];
@@ -149,13 +199,16 @@ typedef struct scenario_source_graph_state {
 	char mission_graph_path[FS_MAXPATH + 1];
 	char mission_objectives_path[FS_MAXPATH + 1];
 	char pads_path[FS_MAXPATH + 1];
+	char spawns_path[FS_MAXPATH + 1];
 	char objects_path[FS_MAXPATH + 1];
 	char setup_fields_path[FS_MAXPATH + 1];
+	char ai_lists_path[FS_MAXPATH + 1];
 	char volumes_path[FS_MAXPATH + 1];
 	char objectives_path[FS_MAXPATH + 1];
 	char waypoints_path[FS_MAXPATH + 1];
 	char waygroups_path[FS_MAXPATH + 1];
 	char covers_path[FS_MAXPATH + 1];
+	char paths_path[FS_MAXPATH + 1];
 	u32 level_graph_size;
 	u32 mission_graph_size;
 	scenario_source_setup_link_t *setup_links;
@@ -163,7 +216,16 @@ typedef struct scenario_source_graph_state {
 	scenario_source_volume_row_t *level_volumes;
 	s32 level_volume_count;
 	s32 level_volume_node_count;
+	s32 level_pad_node_count;
 	s32 level_global_settings_node_count;
+	s32 level_ai_list_node_count;
+	s32 level_path_node_count;
+	s32 level_ai_jog_to_pad_node_count;
+	s32 level_ai_goto_pad_preset_node_count;
+	s32 level_ai_walk_to_pad_node_count;
+	s32 level_ai_run_to_pad_node_count;
+	s32 level_ai_set_path_node_count;
+	s32 level_ai_start_patrol_node_count;
 	char level_global_settings_scenario[CATALOG_ID_LEN];
 	char level_global_settings_kind[32];
 	scenario_source_objective_node_t *mission_objectives;
@@ -179,6 +241,12 @@ typedef struct scenario_source_graph_state {
 	s32 mission_objective_state_logged;
 	s32 mission_objective_object_state_logged;
 	s32 setup_link_logged;
+	s32 ai_action_jog_to_pad_logged;
+	s32 ai_action_goto_pad_preset_logged;
+	s32 ai_action_walk_to_pad_logged;
+	s32 ai_action_run_to_pad_logged;
+	s32 ai_action_set_path_logged;
+	s32 ai_action_start_patrol_logged;
 	s32 level_volume_eval_logged;
 	s32 level_volume_missing_logged;
 	u32 mission_stage_flags;
@@ -651,6 +719,50 @@ static void s_setupFreeTable(scenario_source_setup_table_t *table)
 		}
 	}
 	free(table->records);
+	memset(table, 0, sizeof(*table));
+}
+
+static void s_aiTableSetError(scenario_source_ai_table_t *table,
+	const char *fmt, const char *a, const char *b)
+{
+	if (!table || table->error[0]) {
+		return;
+	}
+	snprintf(table->error, sizeof(table->error), fmt,
+		a ? a : "", b ? b : "");
+}
+
+static void s_aiFreeTable(scenario_source_ai_table_t *table)
+{
+	if (!table) {
+		return;
+	}
+	for (s32 i = 0; i < table->count; i++) {
+		for (s32 j = 0; j < table->lists[i].count; j++) {
+			free(table->lists[i].commands[j].operands);
+		}
+		free(table->lists[i].commands);
+	}
+	free(table->lists);
+	memset(table, 0, sizeof(*table));
+}
+
+static void s_spawnTableSetError(scenario_source_spawn_table_t *table,
+	const char *fmt, const char *a, const char *b)
+{
+	if (!table || table->error[0]) {
+		return;
+	}
+	snprintf(table->error, sizeof(table->error), fmt,
+		a ? a : "", b ? b : "");
+}
+
+static void s_spawnFreeTable(scenario_source_spawn_table_t *table)
+{
+	if (!table) {
+		return;
+	}
+	free(table->rows);
 	memset(table, 0, sizeof(*table));
 }
 
@@ -1142,6 +1254,349 @@ static s32 s_setupResolveHeadNum(const char *catalog_id, s32 *out)
 
 	*out = result.entry->runtime_index;
 	return 1;
+}
+
+static scenario_source_ai_list_t *s_aiFindOrAddList(
+	scenario_source_ai_table_t *table, const char *ref, s32 id)
+{
+	if (!table) {
+		return NULL;
+	}
+	if (!ref || !ref[0]) {
+		s_aiTableSetError(table, "missing AI list ref '%s'", "", "");
+		return NULL;
+	}
+	for (s32 i = 0; i < table->count; i++) {
+		if (strcmp(table->lists[i].ref, ref) == 0) {
+			if (table->lists[i].id != id) {
+				s_aiTableSetError(table,
+					"AI list ref '%s' changed id", ref, "");
+				return NULL;
+			}
+			return &table->lists[i];
+		}
+	}
+	if (table->count >= table->capacity) {
+		s32 new_capacity = table->capacity ? table->capacity * 2 : 16;
+		scenario_source_ai_list_t *new_lists =
+			(scenario_source_ai_list_t *)realloc(table->lists,
+				(size_t)new_capacity * sizeof(*table->lists));
+		if (!new_lists) {
+			s_aiTableSetError(table, "out of memory adding AI list '%s'",
+				"", "");
+			return NULL;
+		}
+		memset(new_lists + table->capacity, 0,
+			(size_t)(new_capacity - table->capacity) * sizeof(*new_lists));
+		table->lists = new_lists;
+		table->capacity = new_capacity;
+	}
+	scenario_source_ai_list_t *list = &table->lists[table->count++];
+	memset(list, 0, sizeof(*list));
+	snprintf(list->ref, sizeof(list->ref), "%s", ref);
+	list->id = id;
+	return list;
+}
+
+static s32 s_aiParseOperands(char *value, u8 **out_bytes, u32 *out_count)
+{
+	u8 *bytes;
+	u32 count = 0;
+	u32 capacity = 0;
+
+	if (out_bytes) *out_bytes = NULL;
+	if (out_count) *out_count = 0;
+	if (!value || !out_bytes || !out_count || !value[0]) {
+		return 1;
+	}
+
+	char *cursor = value;
+	while (cursor && *cursor) {
+		char *token = cursor;
+		char *comma = strchr(cursor, ',');
+		u32 parsed;
+		if (comma) {
+			*comma = '\0';
+			cursor = comma + 1;
+		} else {
+			cursor = NULL;
+		}
+		while (*token && isspace((unsigned char)*token)) token++;
+		if (!*token) {
+			continue;
+		}
+		if (!s_parseU32Value(token, &parsed) || parsed > 0xffu) {
+			free(*out_bytes);
+			*out_bytes = NULL;
+			*out_count = 0;
+			return 0;
+		}
+		if (count >= capacity) {
+			u32 new_capacity = capacity ? capacity * 2u : 16u;
+			bytes = (u8 *)realloc(*out_bytes, new_capacity);
+			if (!bytes) {
+				free(*out_bytes);
+				*out_bytes = NULL;
+				*out_count = 0;
+				return 0;
+			}
+			*out_bytes = bytes;
+			capacity = new_capacity;
+		}
+		(*out_bytes)[count++] = (u8)parsed;
+	}
+	*out_count = count;
+	return 1;
+}
+
+static s32 s_aiApplyCatalogOperands(scenario_source_ai_table_t *table,
+	scenario_source_ai_command_t *cmd, const char *model_id,
+	const char *weapon_id, const char *body_id, const char *head_id)
+{
+	s32 value;
+
+	if (!cmd) {
+		return 0;
+	}
+
+	if ((cmd->opcode == AICMD_DROPITEM || cmd->opcode == AICMD_EQUIPHAT) &&
+			model_id && model_id[0]) {
+		if (cmd->operand_count < 2 ||
+				!s_setupResolveModelnum(model_id, &value)) {
+			s_aiTableSetError(table, "bad AI model catalog id '%s'",
+				model_id, "");
+			return 0;
+		}
+		cmd->operands[0] = (u8)((value >> 8) & 0xff);
+		cmd->operands[1] = (u8)(value & 0xff);
+	}
+
+	if (cmd->opcode == AICMD_EQUIPWEAPON) {
+		if (model_id && model_id[0]) {
+			if (cmd->operand_count < 2 ||
+					!s_setupResolveModelnum(model_id, &value)) {
+				s_aiTableSetError(table, "bad AI weapon model catalog id '%s'",
+					model_id, "");
+				return 0;
+			}
+			cmd->operands[0] = (u8)((value >> 8) & 0xff);
+			cmd->operands[1] = (u8)(value & 0xff);
+		}
+		if (weapon_id && weapon_id[0]) {
+			if (cmd->operand_count < 3 ||
+					!s_setupResolveWeaponnum(weapon_id, &value)) {
+				s_aiTableSetError(table, "bad AI weapon catalog id '%s'",
+					weapon_id, "");
+				return 0;
+			}
+			cmd->operands[2] = (u8)value;
+		}
+	}
+
+	if ((cmd->opcode == AICMD_SPAWNCHRATPAD ||
+			cmd->opcode == AICMD_SPAWNCHRATCHR)) {
+		if (body_id && body_id[0]) {
+			if (cmd->operand_count < 1 ||
+					!s_setupResolveBodyNum(body_id, &value)) {
+				s_aiTableSetError(table, "bad AI body catalog id '%s'",
+					body_id, "");
+				return 0;
+			}
+			cmd->operands[0] = (u8)value;
+		}
+		if (head_id && head_id[0]) {
+			if (cmd->operand_count < 2 ||
+					!s_setupResolveHeadNum(head_id, &value)) {
+				s_aiTableSetError(table, "bad AI head catalog id '%s'",
+					head_id, "");
+				return 0;
+			}
+			cmd->operands[1] = (u8)value;
+		}
+	}
+
+	return 1;
+}
+
+static s32 s_aiAppendCommand(scenario_source_ai_table_t *table,
+	scenario_source_ai_list_t *list, scenario_source_ai_command_t *cmd)
+{
+	if (!table || !list || !cmd) {
+		return 0;
+	}
+	if (list->count >= list->capacity) {
+		s32 new_capacity = list->capacity ? list->capacity * 2 : 16;
+		scenario_source_ai_command_t *commands =
+			(scenario_source_ai_command_t *)realloc(list->commands,
+				(size_t)new_capacity * sizeof(*list->commands));
+		if (!commands) {
+			s_aiTableSetError(table, "out of memory adding AI command '%s'",
+				"", "");
+			return 0;
+		}
+		memset(commands + list->capacity, 0,
+			(size_t)(new_capacity - list->capacity) * sizeof(*commands));
+		list->commands = commands;
+		list->capacity = new_capacity;
+	}
+	list->commands[list->count++] = *cmd;
+	list->byte_count += 2u + cmd->operand_count;
+	table->byte_count += 2u + cmd->operand_count;
+	memset(cmd, 0, sizeof(*cmd));
+	return 1;
+}
+
+static s32 s_loadAiListSourceRows(char *text,
+	scenario_source_ai_table_t *table)
+{
+	char *cursor;
+	char *line;
+
+	if (!text || !table) {
+		return 0;
+	}
+
+	cursor = text;
+	while ((line = s_nextLine(&cursor)) != NULL) {
+		char *line_cursor = line;
+		char *ailist_ref = s_nextField(&line_cursor);
+		char *list_id = s_nextField(&line_cursor);
+		char *graph_node = s_nextField(&line_cursor);
+		char *command_index = s_nextField(&line_cursor);
+		char *offset = s_nextField(&line_cursor);
+		char *opcode = s_nextField(&line_cursor);
+		char *opcode_name = s_nextField(&line_cursor);
+		char *operands = s_nextField(&line_cursor);
+		char *model_id = s_nextField(&line_cursor);
+		char *weapon_id = s_nextField(&line_cursor);
+		char *body_id = s_nextField(&line_cursor);
+		char *head_id = s_nextField(&line_cursor);
+		u32 parsed;
+		u32 parsed_opcode;
+		scenario_source_ai_list_t *list;
+		scenario_source_ai_command_t cmd;
+
+		(void)graph_node;
+		(void)command_index;
+		(void)offset;
+		(void)opcode_name;
+
+		if (!ailist_ref || !list_id || !opcode) {
+			continue;
+		}
+		if (strcmp(ailist_ref, "ailist_ref") == 0) {
+			continue;
+		}
+		if (!s_parseU32Value(list_id, &parsed) ||
+				!s_parseU32Value(opcode, &parsed_opcode) ||
+				parsed_opcode > 0xffffu) {
+			s_aiTableSetError(table, "bad AI row '%s'", ailist_ref, "");
+			return 0;
+		}
+
+		list = s_aiFindOrAddList(table, ailist_ref, (s32)parsed);
+		if (!list) {
+			return 0;
+		}
+
+		memset(&cmd, 0, sizeof(cmd));
+		cmd.opcode = (u16)parsed_opcode;
+		if (!s_aiParseOperands(operands, &cmd.operands,
+				&cmd.operand_count) ||
+				!s_aiApplyCatalogOperands(table, &cmd, model_id,
+				weapon_id, body_id, head_id) ||
+				!s_aiAppendCommand(table, list, &cmd)) {
+			free(cmd.operands);
+			return 0;
+		}
+	}
+
+	return table->error[0] == '\0';
+}
+
+static s32 s_parseSpawnTeam(const char *value)
+{
+	if (!value || !value[0] || strcmp(value, "any") == 0 ||
+			strcmp(value, "default") == 0) {
+		return 0;
+	}
+
+	return s_parseIndexedRef(value);
+}
+
+static s32 s_spawnAppendRow(scenario_source_spawn_table_t *table,
+	s32 padnum, s32 team)
+{
+	scenario_source_spawn_row_t *rows;
+	s32 new_capacity;
+
+	if (!table || padnum < 0 || padnum > 0x7fff) {
+		return 0;
+	}
+	if (table->count >= table->capacity) {
+		new_capacity = table->capacity ? table->capacity * 2 : 32;
+		rows = (scenario_source_spawn_row_t *)realloc(table->rows,
+			(size_t)new_capacity * sizeof(*table->rows));
+		if (!rows) {
+			s_spawnTableSetError(table,
+				"out of memory adding spawn '%s'", "", "");
+			return 0;
+		}
+		table->rows = rows;
+		table->capacity = new_capacity;
+	}
+	table->rows[table->count].padnum = padnum;
+	table->rows[table->count].team = team >= 0 ? team : 0;
+	table->count++;
+	return 1;
+}
+
+static s32 s_loadSpawnSourceRows(char *text,
+	scenario_source_spawn_table_t *table)
+{
+	char *cursor;
+	char *line;
+
+	if (!text || !table) {
+		return 0;
+	}
+
+	cursor = text;
+	while ((line = s_nextLine(&cursor)) != NULL) {
+		char *line_cursor = line;
+		char *spawn_id = s_nextField(&line_cursor);
+		char *pad_ref = s_nextField(&line_cursor);
+		char *room_ref = s_nextField(&line_cursor);
+		char *team = s_nextField(&line_cursor);
+		char *profile = s_nextField(&line_cursor);
+		s32 padnum;
+		s32 teamnum;
+
+		(void)room_ref;
+		(void)profile;
+
+		if (!spawn_id || !pad_ref || !team) {
+			continue;
+		}
+		if (strcmp(spawn_id, "spawn_id") == 0) {
+			continue;
+		}
+
+		padnum = s_parseIndexedRef(pad_ref);
+		teamnum = s_parseSpawnTeam(team);
+		if (padnum < 0 || padnum > 0x7fff || teamnum < 0) {
+			s_spawnTableSetError(table, "bad spawn row '%s'",
+				spawn_id, "");
+			return 0;
+		}
+		if (!s_spawnAppendRow(table, padnum, teamnum)) {
+			s_spawnTableSetError(table, "bad spawn row '%s'",
+				spawn_id, "");
+			return 0;
+		}
+	}
+
+	return table->error[0] == '\0';
 }
 
 static s32 s_setupApplyDefaultField(scenario_source_setup_record_t *record,
@@ -2787,18 +3242,31 @@ static int s_setupCompareRecords(const void *a, const void *b)
 }
 
 static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
+	scenario_source_spawn_table_t *spawn_table,
+	scenario_source_ai_table_t *ai_table,
+	scenario_source_path_table_t *path_table,
 	const char *scenario_id, s32 *out_size)
 {
 	u32 intro_offset = (u32)sizeof(struct stagesetup);
-	u32 intro_size = (u32)sizeof(s32);
+	u32 spawn_count = spawn_table ? (u32)spawn_table->count : 0;
+	u32 intro_size = spawn_count * 3u * (u32)sizeof(s32) + (u32)sizeof(s32);
 	u32 props_offset = (intro_offset + intro_size + 3u) & ~3u;
 	u32 props_size = (u32)sizeof(u32);
+	u32 path_count = path_table ? (u32)path_table->count : 0;
+	u32 path_words = 0;
+	u32 paths_offset;
+	u32 paths_size;
+	u32 path_pads_offset;
+	u32 path_pads_size;
+	u32 ailists_offset;
+	u32 ailists_size;
+	u32 ailist_bytes_offset;
 	u32 total_size;
 	u8 *data;
 	struct stagesetup *setup;
-	s32 intro_end = INTROCMD_END;
 	u32 prop_end = PD_BE32((u32)OBJTYPE_END);
 	u32 cursor;
+	u32 align_mask = (u32)sizeof(uintptr_t) - 1u;
 
 	if (!table || table->count < 0) {
 		return NULL;
@@ -2807,8 +3275,23 @@ static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
 	for (s32 i = 0; i < table->count; i++) {
 		props_size += table->records[i].len;
 	}
+	if (path_table) {
+		for (s32 i = 0; i < path_table->count; i++) {
+			path_words += (u32)path_table->rows[i].pad_count + 1u;
+		}
+	}
 
-	total_size = props_offset + props_size;
+	paths_offset = (props_offset + props_size + align_mask) & ~align_mask;
+	paths_size = path_count ? (path_count + 1u) *
+		(u32)sizeof(struct path) : 0u;
+	path_pads_offset = (paths_offset + paths_size + 3u) & ~3u;
+	path_pads_size = path_words * (u32)sizeof(s32);
+	ailists_offset = (path_pads_offset + path_pads_size +
+		align_mask) & ~align_mask;
+	ailists_size = (u32)(((ai_table ? ai_table->count : 0) + 1) *
+		(s32)sizeof(struct ailist));
+	ailist_bytes_offset = (ailists_offset + ailists_size + 3u) & ~3u;
+	total_size = ailist_bytes_offset + (ai_table ? ai_table->byte_count : 0);
 	data = mempAlloc(total_size, MEMPOOL_STAGE);
 	if (!data) {
 		sysLogPrintf(LOG_ERROR,
@@ -2821,10 +3304,24 @@ static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
 	setup = (struct stagesetup *)data;
 	setup->intro = (s32 *)(uintptr_t)intro_offset;
 	setup->props = (u32 *)(uintptr_t)props_offset;
-	setup->paths = NULL;
-	setup->ailists = NULL;
+	setup->paths = path_count ? (struct path *)(uintptr_t)paths_offset : NULL;
+	setup->ailists = (struct ailist *)(uintptr_t)ailists_offset;
 
-	memcpy(data + intro_offset, &intro_end, sizeof(intro_end));
+	cursor = intro_offset;
+	if (spawn_table) {
+		for (s32 i = 0; i < spawn_table->count; i++) {
+			s32 cmd[3];
+			cmd[0] = INTROCMD_SPAWN;
+			cmd[1] = spawn_table->rows[i].padnum;
+			cmd[2] = spawn_table->rows[i].team;
+			memcpy(data + cursor, cmd, sizeof(cmd));
+			cursor += sizeof(cmd);
+		}
+	}
+	{
+		s32 intro_end = INTROCMD_END;
+		memcpy(data + cursor, &intro_end, sizeof(intro_end));
+	}
 	cursor = props_offset;
 	for (s32 i = 0; i < table->count; i++) {
 		memcpy(data + cursor, table->records[i].bytes,
@@ -2834,8 +3331,47 @@ static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
 	memcpy(data + cursor, &prop_end, sizeof(prop_end));
 	cursor += sizeof(prop_end);
 
+	if (path_count) {
+		struct path *runtime_paths = (struct path *)(data + paths_offset);
+		u32 path_cursor = path_pads_offset;
+		for (s32 i = 0; i < path_table->count; i++) {
+			scenario_source_path_row_t *row = &path_table->rows[i];
+			s32 *runtime_pads = (s32 *)(data + path_cursor);
+			runtime_paths[i].pads = (s32 *)(uintptr_t)path_cursor;
+			runtime_paths[i].id = (u8)row->id;
+			runtime_paths[i].flags = (u8)row->flags;
+			runtime_paths[i].len = (u16)row->pad_count;
+			for (s32 j = 0; j < row->pad_count; j++) {
+				runtime_pads[j] = row->pads[j];
+			}
+			runtime_pads[row->pad_count] = -1;
+			path_cursor += (u32)(row->pad_count + 1) *
+				(u32)sizeof(s32);
+		}
+	}
+
+	struct ailist *runtime_ailists = (struct ailist *)(data + ailists_offset);
+	u32 list_cursor = ailist_bytes_offset;
+	if (ai_table) {
+		for (s32 i = 0; i < ai_table->count; i++) {
+			runtime_ailists[i].id = ai_table->lists[i].id;
+			runtime_ailists[i].list = (u8 *)(uintptr_t)list_cursor;
+			for (s32 j = 0; j < ai_table->lists[i].count; j++) {
+				scenario_source_ai_command_t *cmd =
+					&ai_table->lists[i].commands[j];
+				data[list_cursor++] = (u8)((cmd->opcode >> 8) & 0xff);
+				data[list_cursor++] = (u8)(cmd->opcode & 0xff);
+				if (cmd->operand_count) {
+					memcpy(data + list_cursor, cmd->operands,
+						cmd->operand_count);
+					list_cursor += cmd->operand_count;
+				}
+			}
+		}
+	}
+
 	if (out_size) {
-		*out_size = (s32)cursor;
+		*out_size = (s32)list_cursor;
 	}
 	return data;
 }
@@ -3171,6 +3707,181 @@ static s32 s_parseSegmentList(char *field, const char *prefix,
 	}
 
 	return 1;
+}
+
+static void s_pathTableSetError(scenario_source_path_table_t *table,
+	const char *fmt, const char *a)
+{
+	if (!table || table->error[0]) {
+		return;
+	}
+	snprintf(table->error, sizeof(table->error), fmt,
+		a ? a : "");
+}
+
+static void s_freePathTable(scenario_source_path_table_t *table)
+{
+	if (!table) {
+		return;
+	}
+	if (table->rows) {
+		for (s32 i = 0; i < table->count; i++) {
+			free(table->rows[i].pads);
+		}
+		free(table->rows);
+	}
+	memset(table, 0, sizeof(*table));
+}
+
+static s32 s_parsePathPadList(char *field, s32 **out_pads,
+	s32 *out_count)
+{
+	s32 capacity;
+	s32 count;
+	s32 *pads;
+	char *cursor;
+
+	if (!out_pads || !out_count) {
+		return 0;
+	}
+	*out_pads = NULL;
+	*out_count = 0;
+
+	if (!field || !field[0]) {
+		return 0;
+	}
+
+	capacity = 8;
+	count = 0;
+	pads = (s32 *)malloc((size_t)capacity * sizeof(*pads));
+	if (!pads) {
+		return 0;
+	}
+
+	cursor = field;
+	while (cursor && *cursor) {
+		char *token = cursor;
+		char *end = cursor;
+		s32 padnum;
+
+		while (*end && *end != ';' && *end != ',') {
+			end++;
+		}
+		if (*end) {
+			*end++ = '\0';
+		}
+		cursor = end;
+
+		while (*token && isspace((unsigned char)*token)) {
+			token++;
+		}
+		if (!token[0]) {
+			continue;
+		}
+		padnum = s_parseIndexedRef(token);
+		if (padnum < 0 || !s_startsWith(token, "pad_")) {
+			free(pads);
+			return 0;
+		}
+		if (count >= capacity) {
+			s32 *grown;
+			capacity *= 2;
+			grown = (s32 *)realloc(pads,
+				(size_t)capacity * sizeof(*pads));
+			if (!grown) {
+				free(pads);
+				return 0;
+			}
+			pads = grown;
+		}
+		pads[count++] = padnum;
+	}
+
+	if (count <= 0) {
+		free(pads);
+		return 0;
+	}
+
+	*out_pads = pads;
+	*out_count = count;
+	return 1;
+}
+
+static s32 s_pathAppendRow(scenario_source_path_table_t *table,
+	scenario_source_path_row_t *row)
+{
+	scenario_source_path_row_t *rows;
+	s32 new_capacity;
+
+	if (!table || !row || row->id < 0 || row->id > 0xff ||
+			row->flags > 0xffu || !row->pads || row->pad_count <= 0) {
+		return 0;
+	}
+
+	if (table->count >= table->capacity) {
+		new_capacity = table->capacity ? table->capacity * 2 : 16;
+		rows = (scenario_source_path_row_t *)realloc(table->rows,
+			(size_t)new_capacity * sizeof(*rows));
+		if (!rows) {
+			s_pathTableSetError(table,
+				"out of memory adding path '%s'", "");
+			return 0;
+		}
+		table->rows = rows;
+		table->capacity = new_capacity;
+	}
+	table->rows[table->count++] = *row;
+	memset(row, 0, sizeof(*row));
+	return 1;
+}
+
+static s32 s_loadPathSourceRows(char *text,
+	scenario_source_path_table_t *table)
+{
+	char *cursor;
+	char *line;
+
+	if (!text || !table) {
+		return 0;
+	}
+
+	cursor = text;
+	while ((line = s_nextLine(&cursor)) != NULL) {
+		char *line_cursor = line;
+		char *path_ref = s_nextField(&line_cursor);
+		char *flags = s_nextField(&line_cursor);
+		char *pads = s_nextField(&line_cursor);
+		u32 parsed_flags;
+		scenario_source_path_row_t row;
+
+		if (!path_ref || !flags || !pads) {
+			continue;
+		}
+		if (strcmp(path_ref, "path_ref") == 0) {
+			continue;
+		}
+
+		memset(&row, 0, sizeof(row));
+		row.id = s_parseIndexedRef(path_ref);
+		if (row.id < 0 || row.id > 0xff ||
+				!s_startsWith(path_ref, "path_") ||
+				!s_parseU32Value(flags, &parsed_flags) ||
+				parsed_flags > 0xffu ||
+				!s_parsePathPadList(pads, &row.pads,
+				&row.pad_count)) {
+			free(row.pads);
+			s_pathTableSetError(table, "bad path row '%s'", path_ref);
+			return 0;
+		}
+		row.flags = parsed_flags;
+
+		if (!s_pathAppendRow(table, &row)) {
+			free(row.pads);
+			return 0;
+		}
+	}
+
+	return table->error[0] == '\0';
 }
 
 static s32 s_parsePadRow(char *line, scenario_source_pad_row_t *out)
@@ -4905,7 +5616,16 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	s32 mission_phase_node_count;
 	s32 level_volume_count;
 	s32 level_volume_node_count;
+	s32 level_pad_node_count;
 	s32 level_global_settings_node_count;
+	s32 level_ai_list_node_count;
+	s32 level_path_node_count;
+	s32 level_ai_jog_to_pad_node_count;
+	s32 level_ai_goto_pad_preset_node_count;
+	s32 level_ai_walk_to_pad_node_count;
+	s32 level_ai_run_to_pad_node_count;
+	s32 level_ai_set_path_node_count;
+	s32 level_ai_start_patrol_node_count;
 	scenario_source_volume_row_t *level_volume_rows;
 	scenario_source_objective_node_t *mission_objective_rows;
 	scenario_source_objective_criteria_t *mission_criteria_rows;
@@ -4956,11 +5676,63 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	}
 	level_volume_node_count = s_countTextOccurrences(text,
 		"\"kind\": \"scenario.trigger.volume.source\"");
+	level_pad_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.pads.source\"");
 	level_global_settings_node_count = s_countTextOccurrences(text,
 		"\"kind\": \"scenario.global.settings.source\"");
+	level_ai_list_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.ai.lists.source\"");
+	level_path_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.navigation.paths.source\"");
+	level_ai_jog_to_pad_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.ai.action.jog_to_pad\"");
+	level_ai_goto_pad_preset_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.ai.action.go_to_pad_preset\"");
+	level_ai_walk_to_pad_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.ai.action.walk_to_pad\"");
+	level_ai_run_to_pad_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.ai.action.run_to_pad\"");
+	level_ai_set_path_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.ai.action.set_path\"");
+	level_ai_start_patrol_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.ai.action.start_patrol\"");
 	if (level_global_settings_node_count != 1) {
 		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
 			"missing executable global settings source node");
+		free(text);
+		return 0;
+	}
+	if (level_ai_list_node_count != 1) {
+		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
+			"missing executable AI list source node");
+		free(text);
+		return 0;
+	}
+	if (level_pad_node_count != 1) {
+		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
+			"missing executable pad source node");
+		free(text);
+		return 0;
+	}
+	if (level_path_node_count != 1) {
+		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
+			"missing executable navigation path source node");
+		free(text);
+		return 0;
+	}
+	if (level_ai_jog_to_pad_node_count != 1 ||
+			level_ai_goto_pad_preset_node_count != 1 ||
+			level_ai_walk_to_pad_node_count != 1 ||
+			level_ai_run_to_pad_node_count != 1) {
+		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
+			"missing executable AI pad action source nodes");
+		free(text);
+		return 0;
+	}
+	if (level_ai_set_path_node_count != 1 ||
+			level_ai_start_patrol_node_count != 1) {
+		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
+			"missing executable AI path action source nodes");
 		free(text);
 		return 0;
 	}
@@ -4985,12 +5757,18 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	if (!s_bindLevelGraphTablePath(scenario, text, graph_path, "pads",
 			s_ActiveScenarioGraphs.pads_path,
 			sizeof(s_ActiveScenarioGraphs.pads_path)) ||
+			!s_bindLevelGraphTablePath(scenario, text, graph_path, "spawns",
+			s_ActiveScenarioGraphs.spawns_path,
+			sizeof(s_ActiveScenarioGraphs.spawns_path)) ||
 			!s_bindLevelGraphTablePath(scenario, text, graph_path, "objects",
 			s_ActiveScenarioGraphs.objects_path,
 			sizeof(s_ActiveScenarioGraphs.objects_path)) ||
 			!s_bindLevelGraphTablePath(scenario, text, graph_path, "setup_fields",
 			s_ActiveScenarioGraphs.setup_fields_path,
 			sizeof(s_ActiveScenarioGraphs.setup_fields_path)) ||
+			!s_bindLevelGraphTablePath(scenario, text, graph_path, "ai_lists",
+			s_ActiveScenarioGraphs.ai_lists_path,
+			sizeof(s_ActiveScenarioGraphs.ai_lists_path)) ||
 			!s_bindLevelGraphTablePath(scenario, text, graph_path, "volumes",
 			s_ActiveScenarioGraphs.volumes_path,
 			sizeof(s_ActiveScenarioGraphs.volumes_path)) ||
@@ -5005,7 +5783,10 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 			sizeof(s_ActiveScenarioGraphs.waygroups_path)) ||
 			!s_bindLevelGraphTablePath(scenario, text, graph_path, "covers",
 			s_ActiveScenarioGraphs.covers_path,
-			sizeof(s_ActiveScenarioGraphs.covers_path))) {
+			sizeof(s_ActiveScenarioGraphs.covers_path)) ||
+			!s_bindLevelGraphTablePath(scenario, text, graph_path, "paths",
+			s_ActiveScenarioGraphs.paths_path,
+			sizeof(s_ActiveScenarioGraphs.paths_path))) {
 		s_resetActiveScenarioGraphs();
 		free(text);
 		return 0;
@@ -5033,8 +5814,26 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	s_ActiveScenarioGraphs.level_volume_count = level_volume_count;
 	s_ActiveScenarioGraphs.level_volume_node_count =
 		level_volume_node_count;
+	s_ActiveScenarioGraphs.level_pad_node_count =
+		level_pad_node_count;
 	s_ActiveScenarioGraphs.level_global_settings_node_count =
 		level_global_settings_node_count;
+	s_ActiveScenarioGraphs.level_ai_list_node_count =
+		level_ai_list_node_count;
+	s_ActiveScenarioGraphs.level_path_node_count =
+		level_path_node_count;
+	s_ActiveScenarioGraphs.level_ai_jog_to_pad_node_count =
+		level_ai_jog_to_pad_node_count;
+	s_ActiveScenarioGraphs.level_ai_goto_pad_preset_node_count =
+		level_ai_goto_pad_preset_node_count;
+	s_ActiveScenarioGraphs.level_ai_walk_to_pad_node_count =
+		level_ai_walk_to_pad_node_count;
+	s_ActiveScenarioGraphs.level_ai_run_to_pad_node_count =
+		level_ai_run_to_pad_node_count;
+	s_ActiveScenarioGraphs.level_ai_set_path_node_count =
+		level_ai_set_path_node_count;
+	s_ActiveScenarioGraphs.level_ai_start_patrol_node_count =
+		level_ai_start_patrol_node_count;
 	s_ActiveScenarioGraphs.level_graph_active = 1;
 
 	stageid = stage && stage->entry && stage->entry->id[0]
@@ -5043,16 +5842,19 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		"SCENARIO.GRAPH: activated level graph '%s' path=%s bytes=%u stage='%s'",
 		scenario->id, graph_path, (unsigned)text_size, stageid);
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: table refs '%s' pads=%s setup=%s objects=%s volumes=%s objectives=%s waypoints=%s waygroups=%s covers=%s",
+		"SCENARIO.GRAPH: table refs '%s' pads=%s spawns=%s setup=%s ai=%s objects=%s volumes=%s objectives=%s waypoints=%s waygroups=%s covers=%s paths=%s",
 		scenario->id,
 		s_ActiveScenarioGraphs.pads_path,
+		s_ActiveScenarioGraphs.spawns_path,
 		s_ActiveScenarioGraphs.setup_fields_path,
+		s_ActiveScenarioGraphs.ai_lists_path,
 		s_ActiveScenarioGraphs.objects_path,
 		s_ActiveScenarioGraphs.volumes_path,
 		s_ActiveScenarioGraphs.objectives_path,
 		s_ActiveScenarioGraphs.waypoints_path,
 		s_ActiveScenarioGraphs.waygroups_path,
-		s_ActiveScenarioGraphs.covers_path);
+		s_ActiveScenarioGraphs.covers_path,
+		s_ActiveScenarioGraphs.paths_path);
 	sysLogPrintf(LOG_NOTE,
 		"SCENARIO.GRAPH: global settings source '%s' nodes=%d scenario='%s' kind='%s' backend=graph.global.settings+level.graph.nodes",
 		s_ActiveScenarioGraphs.level_graph_path,
@@ -5065,10 +5867,37 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.volumes_path,
 		s_ActiveScenarioGraphs.level_volume_count);
 	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: pad source '%s' nodes=%d backend=graph.pads+pads.tsv",
+		s_ActiveScenarioGraphs.pads_path,
+		s_ActiveScenarioGraphs.level_pad_node_count);
+	sysLogPrintf(LOG_NOTE,
 		"SCENARIO.GRAPH: trigger volume nodes '%s' nodes=%d rows=%d backend=graph.trigger.volumes+level.graph.nodes+volumes.tsv",
 		s_ActiveScenarioGraphs.level_graph_path,
 		s_ActiveScenarioGraphs.level_volume_node_count,
 		s_ActiveScenarioGraphs.level_volume_count);
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: AI list source '%s' nodes=%d backend=graph.ai.lists+ai/ailists.tsv",
+		s_ActiveScenarioGraphs.ai_lists_path,
+		s_ActiveScenarioGraphs.level_ai_list_node_count);
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: path source '%s' nodes=%d backend=graph.navigation.paths+navigation/paths.tsv",
+		s_ActiveScenarioGraphs.paths_path,
+		s_ActiveScenarioGraphs.level_path_node_count);
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: AI pad actions '%s' walk_to_pad=%d run_to_pad=%d backend=graph.ai.action.pad+pads.tsv",
+		s_ActiveScenarioGraphs.level_graph_path,
+		s_ActiveScenarioGraphs.level_ai_walk_to_pad_node_count,
+		s_ActiveScenarioGraphs.level_ai_run_to_pad_node_count);
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: AI pad movement actions '%s' jog_to_pad=%d go_to_pad_preset=%d backend=graph.ai.action.pad+pads.tsv",
+		s_ActiveScenarioGraphs.level_graph_path,
+		s_ActiveScenarioGraphs.level_ai_jog_to_pad_node_count,
+		s_ActiveScenarioGraphs.level_ai_goto_pad_preset_node_count);
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: AI path actions '%s' set_path=%d start_patrol=%d backend=graph.ai.action.path+navigation/paths.tsv",
+		s_ActiveScenarioGraphs.level_graph_path,
+		s_ActiveScenarioGraphs.level_ai_set_path_node_count,
+		s_ActiveScenarioGraphs.level_ai_start_patrol_node_count);
 	free(text);
 	active = 1;
 
@@ -5181,6 +6010,175 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 s32 scenarioSourceObjectiveGraphIsActive(void)
 {
 	return s_ActiveScenarioGraphs.mission_objective_runtime_active;
+}
+
+static s32 s_aiGraphRuntimeFailure(const char *action, const char *reason)
+{
+	if (assetSourceDebugIsEnabledFor(ASSET_SCENARIO)) {
+		sysFatalError("ASSET.SOURCE_ONLY: scenario graph '%s' cannot %s "
+			"AI action from public source (%s); refusing legacy-only AI behavior.",
+			s_ActiveScenarioGraphs.scenario_id[0]
+				? s_ActiveScenarioGraphs.scenario_id : "?",
+			action && action[0] ? action : "execute",
+			reason && reason[0] ? reason : "graph mismatch");
+	}
+
+	sysLogPrintf(LOG_WARNING,
+		"SCENARIO.GRAPH: cannot %s AI action for '%s' (%s)",
+		action && action[0] ? action : "execute",
+		s_ActiveScenarioGraphs.scenario_id[0]
+			? s_ActiveScenarioGraphs.scenario_id : "?",
+		reason && reason[0] ? reason : "graph mismatch");
+	return 1;
+}
+
+static s32 s_aiGraphExecuteGoToPad(struct chrdata *chr, s32 pad,
+	u32 goposflags, const char *action, const char *backend, s32 *logged)
+{
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	if (!chr) {
+		return s_aiGraphRuntimeFailure(action, "missing chr");
+	}
+	if (!s_ActiveScenarioGraphs.pads_path[0]) {
+		return s_aiGraphRuntimeFailure(action, "missing pads.tsv source");
+	}
+	chrGoToPad(chr, pad, goposflags);
+	if (logged && !*logged) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI action %s pad=%d source=%s %s",
+			action, pad, s_ActiveScenarioGraphs.pads_path, backend);
+		*logged = 1;
+	}
+	return 1;
+}
+
+s32 scenarioSourceAiGraphExecuteJogToPad(struct chrdata *chr, s32 pad)
+{
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.level_ai_jog_to_pad_node_count != 1) {
+		return s_aiGraphRuntimeFailure("jog_to_pad",
+			"missing scenario.ai.action.jog_to_pad node");
+	}
+	return s_aiGraphExecuteGoToPad(chr, pad, GOPOSFLAG_JOG,
+		"jog_to_pad", "backend=graph.ai.action.jog_to_pad+pads.tsv",
+		&s_ActiveScenarioGraphs.ai_action_jog_to_pad_logged);
+}
+
+s32 scenarioSourceAiGraphExecuteGoToPadPreset(struct chrdata *chr, s32 speed_code)
+{
+	u32 goposflags;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.level_ai_goto_pad_preset_node_count != 1) {
+		return s_aiGraphRuntimeFailure("go_to_pad_preset",
+			"missing scenario.ai.action.go_to_pad_preset node");
+	}
+	if (!chr) {
+		return s_aiGraphRuntimeFailure("go_to_pad_preset", "missing chr");
+	}
+
+	switch (speed_code) {
+	case 0:
+		goposflags = GOPOSFLAG_WALK;
+		break;
+	case 1:
+		goposflags = GOPOSFLAG_JOG;
+		break;
+	default:
+		goposflags = GOPOSFLAG_RUN;
+		break;
+	}
+
+	return s_aiGraphExecuteGoToPad(chr, chr->padpreset1, goposflags,
+		"go_to_pad_preset",
+		"backend=graph.ai.action.go_to_pad_preset+pads.tsv",
+		&s_ActiveScenarioGraphs.ai_action_goto_pad_preset_logged);
+}
+
+s32 scenarioSourceAiGraphExecuteWalkToPad(struct chrdata *chr, s32 pad)
+{
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.level_ai_walk_to_pad_node_count != 1) {
+		return s_aiGraphRuntimeFailure("walk_to_pad",
+			"missing scenario.ai.action.walk_to_pad node");
+	}
+	return s_aiGraphExecuteGoToPad(chr, pad, GOPOSFLAG_WALK,
+		"walk_to_pad", "backend=graph.ai.action.walk_to_pad+pads.tsv",
+		&s_ActiveScenarioGraphs.ai_action_walk_to_pad_logged);
+}
+
+s32 scenarioSourceAiGraphExecuteRunToPad(struct chrdata *chr, s32 pad)
+{
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.level_ai_run_to_pad_node_count != 1) {
+		return s_aiGraphRuntimeFailure("run_to_pad",
+			"missing scenario.ai.action.run_to_pad node");
+	}
+	return s_aiGraphExecuteGoToPad(chr, pad, GOPOSFLAG_RUN,
+		"run_to_pad", "backend=graph.ai.action.run_to_pad+pads.tsv",
+		&s_ActiveScenarioGraphs.ai_action_run_to_pad_logged);
+}
+
+s32 scenarioSourceAiGraphExecuteSetPath(struct chrdata *chr, s32 path_id)
+{
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.level_ai_set_path_node_count != 1) {
+		return s_aiGraphRuntimeFailure("set_path",
+			"missing scenario.ai.action.set_path node");
+	}
+	if (!chr) {
+		return s_aiGraphRuntimeFailure("set_path", "missing chr");
+	}
+	if (!s_ActiveScenarioGraphs.paths_path[0]) {
+		return s_aiGraphRuntimeFailure("set_path",
+			"missing navigation/paths.tsv source");
+	}
+	chrSetPath(chr, (u32)path_id);
+	if (!s_ActiveScenarioGraphs.ai_action_set_path_logged) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI action set_path path=%d source=%s backend=graph.ai.action.set_path+navigation/paths.tsv",
+			path_id, s_ActiveScenarioGraphs.paths_path);
+		s_ActiveScenarioGraphs.ai_action_set_path_logged = 1;
+	}
+	return 1;
+}
+
+s32 scenarioSourceAiGraphExecuteStartPatrol(struct chrdata *chr)
+{
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.level_ai_start_patrol_node_count != 1) {
+		return s_aiGraphRuntimeFailure("start_patrol",
+			"missing scenario.ai.action.start_patrol node");
+	}
+	if (!chr) {
+		return s_aiGraphRuntimeFailure("start_patrol", "missing chr");
+	}
+	if (!s_ActiveScenarioGraphs.paths_path[0]) {
+		return s_aiGraphRuntimeFailure("start_patrol",
+			"missing navigation/paths.tsv source");
+	}
+	chrTryStartPatrol(chr);
+	if (!s_ActiveScenarioGraphs.ai_action_start_patrol_logged) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI action start_patrol path=%u source=%s backend=graph.ai.action.start_patrol+navigation/paths.tsv",
+			(unsigned)chr->path, s_ActiveScenarioGraphs.paths_path);
+		s_ActiveScenarioGraphs.ai_action_start_patrol_logged = 1;
+	}
+	return 1;
 }
 
 static s32 s_missionObjectiveGraphRuntimeFailure(const char *action,
@@ -5964,16 +6962,80 @@ static s32 s_scenarioObjectsPath(const asset_entry_t *scenario,
 	return s_scenarioMemberPath(scenario, "objects.tsv", out, out_n);
 }
 
+static s32 s_scenarioSpawnsPath(const asset_entry_t *scenario,
+	char *out, size_t out_n)
+{
+	if (!scenario || !out || out_n == 0) {
+		return 0;
+	}
+
+	out[0] = '\0';
+	if (s_activeGraphPathForScenario(scenario,
+			s_ActiveScenarioGraphs.spawns_path, out, out_n)) {
+		return 1;
+	}
+
+	if (scenario->ext.scenario.spawns_file[0]) {
+		strncpy(out, scenario->ext.scenario.spawns_file, out_n - 1);
+		out[out_n - 1] = '\0';
+		return out[0] != '\0';
+	}
+
+	return s_scenarioMemberPath(scenario, "spawns.tsv", out, out_n);
+}
+
+static s32 s_scenarioAiListsPath(const asset_entry_t *scenario,
+	char *out, size_t out_n)
+{
+	if (!scenario || !out || out_n == 0) {
+		return 0;
+	}
+
+	out[0] = '\0';
+	if (s_activeGraphPathForScenario(scenario,
+			s_ActiveScenarioGraphs.ai_lists_path, out, out_n)) {
+		return 1;
+	}
+
+	return s_scenarioMemberPath(scenario, "ai/ailists.tsv", out, out_n);
+}
+
+static s32 s_scenarioPathsPath(const asset_entry_t *scenario,
+	char *out, size_t out_n)
+{
+	if (!scenario || !out || out_n == 0) {
+		return 0;
+	}
+
+	out[0] = '\0';
+	if (s_activeGraphPathForScenario(scenario,
+			s_ActiveScenarioGraphs.paths_path, out, out_n)) {
+		return 1;
+	}
+
+	return s_scenarioMemberPath(scenario, "navigation/paths.tsv",
+		out, out_n);
+}
+
 u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp, s32 *out_size)
 {
 	const asset_entry_t *scenario;
 	char setup_path[FS_MAXPATH + 1];
 	char objects_path[FS_MAXPATH + 1];
+	char spawns_path[FS_MAXPATH + 1];
+	char ai_lists_path[FS_MAXPATH + 1];
+	char paths_path[FS_MAXPATH + 1];
 	u32 text_size;
 	char *setup_text;
 	char *objects_text;
+	char *spawns_text;
+	char *ai_text;
+	char *paths_text;
 	scenario_source_setup_table_t table;
+	scenario_source_spawn_table_t spawn_table;
+	scenario_source_ai_table_t ai_table;
+	scenario_source_path_table_t path_table;
 	u8 *setup_data;
 	const char *stageid;
 
@@ -5999,6 +7061,9 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	}
 
 	memset(&table, 0, sizeof(table));
+	memset(&spawn_table, 0, sizeof(spawn_table));
+	memset(&ai_table, 0, sizeof(ai_table));
+	memset(&path_table, 0, sizeof(path_table));
 	if (!s_setupParseFieldsTsv(setup_text, &table)) {
 		sysLogPrintf(LOG_ERROR,
 			"SCENARIO.SOURCE: invalid public setup.fields.tsv for '%s': %s",
@@ -6020,10 +7085,94 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 				scenario->id, table.error[0] ? table.error : "parse failed");
 			free(objects_text);
 			s_setupFreeTable(&table);
+			s_freePathTable(&path_table);
+			s_aiFreeTable(&ai_table);
 			return NULL;
 		}
 		free(objects_text);
 	}
+
+	spawns_text = NULL;
+	if (s_scenarioSpawnsPath(scenario, spawns_path, sizeof(spawns_path))) {
+		spawns_text = s_loadOptionalText(spawns_path, &text_size);
+	}
+	if (!spawns_text) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: missing public spawns.tsv for '%s'",
+			scenario->id);
+		s_setupFreeTable(&table);
+		s_spawnFreeTable(&spawn_table);
+		s_freePathTable(&path_table);
+		s_aiFreeTable(&ai_table);
+		return NULL;
+	}
+	if (!s_loadSpawnSourceRows(spawns_text, &spawn_table)) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: invalid public spawns.tsv for '%s': %s",
+			scenario->id, spawn_table.error[0] ? spawn_table.error : "parse failed");
+		free(spawns_text);
+		s_setupFreeTable(&table);
+		s_spawnFreeTable(&spawn_table);
+		s_freePathTable(&path_table);
+		s_aiFreeTable(&ai_table);
+		return NULL;
+	}
+	free(spawns_text);
+
+	paths_text = NULL;
+	if (s_scenarioPathsPath(scenario, paths_path, sizeof(paths_path))) {
+		paths_text = s_loadOptionalText(paths_path, &text_size);
+	}
+	if (!paths_text) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: missing public navigation/paths.tsv for '%s'",
+			scenario->id);
+		s_setupFreeTable(&table);
+		s_spawnFreeTable(&spawn_table);
+		s_freePathTable(&path_table);
+		s_aiFreeTable(&ai_table);
+		return NULL;
+	}
+	if (!s_loadPathSourceRows(paths_text, &path_table)) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: invalid public navigation/paths.tsv for '%s': %s",
+			scenario->id, path_table.error[0]
+				? path_table.error : "parse failed");
+		free(paths_text);
+		s_setupFreeTable(&table);
+		s_spawnFreeTable(&spawn_table);
+		s_freePathTable(&path_table);
+		s_aiFreeTable(&ai_table);
+		return NULL;
+	}
+	free(paths_text);
+
+	ai_text = NULL;
+	if (s_scenarioAiListsPath(scenario, ai_lists_path, sizeof(ai_lists_path))) {
+		ai_text = s_loadOptionalText(ai_lists_path, &text_size);
+	}
+	if (!ai_text) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: missing public ai/ailists.tsv for '%s'",
+			scenario->id);
+		s_setupFreeTable(&table);
+		s_spawnFreeTable(&spawn_table);
+		s_freePathTable(&path_table);
+		s_aiFreeTable(&ai_table);
+		return NULL;
+	}
+	if (!s_loadAiListSourceRows(ai_text, &ai_table)) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: invalid public ai/ailists.tsv for '%s': %s",
+			scenario->id, ai_table.error[0] ? ai_table.error : "parse failed");
+		free(ai_text);
+		s_setupFreeTable(&table);
+		s_spawnFreeTable(&spawn_table);
+		s_freePathTable(&path_table);
+		s_aiFreeTable(&ai_table);
+		return NULL;
+	}
+	free(ai_text);
 
 	if (table.count > 1) {
 		qsort(table.records, (size_t)table.count, sizeof(table.records[0]),
@@ -6031,20 +7180,28 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	}
 	if (!s_setupCollectBehaviorLinkSource(scenario, setup_path, &table)) {
 		s_setupFreeTable(&table);
+		s_spawnFreeTable(&spawn_table);
+		s_freePathTable(&path_table);
+		s_aiFreeTable(&ai_table);
 		return NULL;
 	}
 
-	setup_data = s_setupBuildStageBlock(&table, scenario->id, out_size);
+	setup_data = s_setupBuildStageBlock(&table, &spawn_table, &ai_table,
+		&path_table, scenario->id, out_size);
 	stageid = (stage && stage->entry && stage->entry->id[0])
 		? stage->entry->id : "?";
 	if (setup_data) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.SOURCE: compiled setup.fields.tsv '%s' for stage '%s' as %d setup records (%d bytes)",
-			setup_path, stageid, table.count,
+			"SCENARIO.SOURCE: compiled setup.fields.tsv '%s', spawns.tsv '%s', navigation/paths.tsv '%s', and ai/ailists.tsv '%s' for stage '%s' as %d setup records, %d spawns, %d paths, %d AI lists (%d bytes)",
+			setup_path, spawns_path, paths_path, ai_lists_path, stageid,
+			table.count, spawn_table.count, path_table.count, ai_table.count,
 			out_size ? *out_size : 0);
 	}
 
 	s_setupFreeTable(&table);
+	s_spawnFreeTable(&spawn_table);
+	s_freePathTable(&path_table);
+	s_aiFreeTable(&ai_table);
 	return setup_data;
 }
 
