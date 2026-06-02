@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_barrel",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_barrel.pdmesh::model.obj",
+  "source_size": 6003,
+  "source_sha256": "f75ca84c89b78f949941484c57fd4ba1836f25de0a84ed8120dced7ddb57ac81",
+  "validation": "format=obj vertices=96 triangles=32",
+  "normalized": "$S/mod-cache/base/base_model_barrel/model-v1-f75ca84c89b78f949941484c57fd4ba1836f25de0a84ed8120dced7ddb57ac81.pdmodel.json",
+  "vertex_count": 96,
+  "triangle_count": 32,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

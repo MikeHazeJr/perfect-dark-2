@@ -123,6 +123,10 @@ bool aiSetList(void)
 
 	struct chrdata *chr = g_Vars.chrdata;
 
+	if (scenarioSourceAiGraphExecuteSetList(cmd[2], ailistid & 0xffff)) {
+		return false;
+	}
+
 	if ((cmd[2] & 0xff) == CHR_SELF) {
 		g_Vars.ailist = ailist;
 		g_Vars.aioffset = 0;
@@ -149,6 +153,10 @@ bool aiSetReturnList(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 ailistid = cmd[4] | (cmd[3] << 8);
 	struct chrdata *chr;
+
+	if (scenarioSourceAiGraphExecuteSetReturnList(cmd[2], ailistid)) {
+		return false;
+	}
 
 	if (g_Vars.chrdata) {
 		if (cmd[2] == CHR_SELF) {
@@ -180,6 +188,10 @@ bool aiSetShotList(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 ailistid = cmd[3] | (cmd[2] << 8);
+
+	if (scenarioSourceAiGraphExecuteSetShotList(ailistid)) {
+		return false;
+	}
 
 	if (g_Vars.chrdata) {
 		g_Vars.chrdata->aishotlist = ailistid;
@@ -265,6 +277,10 @@ bool aiSetPunchDodgeList(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 ailistid = cmd[3] | (cmd[2] << 8);
 
+	if (scenarioSourceAiGraphExecuteSetPunchDodgeList(ailistid)) {
+		return false;
+	}
+
 	if (g_Vars.chrdata) {
 		g_Vars.chrdata->aipunchdodgelist = ailistid;
 	}
@@ -281,6 +297,10 @@ bool aiSetShootingAtMeList(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 ailistid = cmd[3] | (cmd[2] << 8);
+
+	if (scenarioSourceAiGraphExecuteSetShootingAtMeList(ailistid)) {
+		return false;
+	}
 
 	if (g_Vars.chrdata) {
 		g_Vars.chrdata->aishootingatmelist = ailistid;
@@ -299,6 +319,10 @@ bool aiSetDarkRoomList(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 ailistid = cmd[3] | (cmd[2] << 8);
 
+	if (scenarioSourceAiGraphExecuteSetDarkRoomList(ailistid)) {
+		return false;
+	}
+
 	if (g_Vars.chrdata) {
 		g_Vars.chrdata->aidarkroomlist = ailistid;
 	}
@@ -316,6 +340,10 @@ bool aiSetPlayerDeadList(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 ailistid = cmd[3] | (cmd[2] << 8);
 
+	if (scenarioSourceAiGraphExecuteSetPlayerDeadList(ailistid)) {
+		return false;
+	}
+
 	if (g_Vars.chrdata) {
 		g_Vars.chrdata->aiplayerdeadlist = ailistid;
 	}
@@ -331,6 +359,10 @@ bool aiSetPlayerDeadList(void)
 bool aiReturn(void)
 {
 	u8 *ailist = NULL;
+
+	if (scenarioSourceAiGraphExecuteReturnList()) {
+		return false;
+	}
 
 	if (g_Vars.chrdata) {
 		ailist = ailistFindById(g_Vars.chrdata->aireturnlist);
@@ -353,10 +385,6 @@ bool aiReturn(void)
  */
 bool aiEndList(void)
 {
-	s32 ailistid;
-	bool is_global;
-	ailistid = chraiGetListIdByList(g_Vars.ailist, &is_global);
-
 	return true;
 }
 
@@ -365,6 +393,10 @@ bool aiEndList(void)
  */
 bool aiStop(void)
 {
+	if (scenarioSourceAiGraphExecuteStop(g_Vars.chrdata, g_Vars.hovercar)) {
+		return false;
+	}
+
 	if (g_Vars.chrdata) {
 		chrTryStop(g_Vars.chrdata);
 	} else if (g_Vars.hovercar) {
@@ -381,6 +413,10 @@ bool aiStop(void)
  */
 bool aiKneel(void)
 {
+	if (scenarioSourceAiGraphExecuteKneel(g_Vars.chrdata)) {
+		return false;
+	}
+
 	chrTryKneel(g_Vars.chrdata);
 	g_Vars.aioffset += 2;
 
@@ -402,6 +438,12 @@ bool aiChrDoAnimation(void)
 
 	if (g_Vars.chrdata) {
 		chr = chrFindById(g_Vars.chrdata, cmd[10]);
+	}
+
+	if (scenarioSourceAiGraphExecuteChrDoAnimation(g_Vars.chrdata,
+			anim_id & 0xffff, startframe, endframe, cmd[8], cmd[9],
+			cmd[10], cmd[11])) {
+		return false;
 	}
 
 	if (startframe == 0xffff) {
@@ -457,11 +499,14 @@ bool aiChrDoAnimation(void)
  */
 bool aiIfIdle(void)
 {
-	if (g_Vars.chrdata->actiontype == ACT_ANIM) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
-	} else {
-		g_Vars.aioffset += 3;
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (!scenarioSourceAiGraphExecuteIfIdle(g_Vars.chrdata, cmd[2])) {
+		if (g_Vars.chrdata->actiontype == ACT_ANIM) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+		} else {
+			g_Vars.aioffset += 3;
+		}
 	}
 
 	return false;
@@ -477,6 +522,10 @@ bool func0f04e418(void)
  */
 bool aiBeSurprisedOneHand(void)
 {
+	if (scenarioSourceAiGraphExecuteBeSurprisedOneHand(g_Vars.chrdata)) {
+		return false;
+	}
+
 	chrTrySurprisedOneHand(g_Vars.chrdata);
 	g_Vars.aioffset += 2;
 
@@ -488,6 +537,10 @@ bool aiBeSurprisedOneHand(void)
  */
 bool aiBeSurprisedLookAround(void)
 {
+	if (scenarioSourceAiGraphExecuteBeSurprisedLookAround(g_Vars.chrdata)) {
+		return false;
+	}
+
 	chrTrySurprisedLookAround(g_Vars.chrdata);
 	g_Vars.aioffset += 2;
 
@@ -499,11 +552,14 @@ bool aiBeSurprisedLookAround(void)
  */
 bool aiIfStopped(void)
 {
-	if (chrIsStopped(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
-	} else {
-		g_Vars.aioffset += 3;
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (!scenarioSourceAiGraphExecuteIfStopped(g_Vars.chrdata, cmd[2])) {
+		if (chrIsStopped(g_Vars.chrdata)) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+		} else {
+			g_Vars.aioffset += 3;
+		}
 	}
 
 	return false;
@@ -517,10 +573,13 @@ bool aiIfChrDead(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if ((!chr || !chr->prop || chr->prop->type != PROPTYPE_PLAYER) && (!chr || !chr->model || chrIsDead(chr))) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfChrDead(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		if ((!chr || !chr->prop || chr->prop->type != PROPTYPE_PLAYER) && (!chr || !chr->model || chrIsDead(chr))) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -535,21 +594,24 @@ bool aiIfChrDeathAnimationFinished(void)
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 	bool pass;
 
-	if (!chr || !chr->prop) {
-		pass = true;
-	} else {
-		if (chr->prop->type == PROPTYPE_PLAYER) {
-			u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
-			pass = g_Vars.players[playernum]->isdead;
+	if (!scenarioSourceAiGraphExecuteIfChrDeathAnimationFinished(
+			g_Vars.chrdata, cmd[2], cmd[3])) {
+		if (!chr || !chr->prop) {
+			pass = true;
 		} else {
-			pass = (chr->actiontype == ACT_DEAD);
+			if (chr->prop->type == PROPTYPE_PLAYER) {
+				u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+				pass = g_Vars.players[playernum]->isdead;
+			} else {
+				pass = (chr->actiontype == ACT_DEAD);
+			}
 		}
-	}
 
-	if (pass) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+		if (pass) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -563,11 +625,14 @@ bool aiIfChrKnockedOut(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if ((!chr || !chr->prop || chr->prop->type != PROPTYPE_PLAYER) &&
-			(!chr || !chr->model || chr->actiontype == ACT_DRUGGEDKO || chr->actiontype == ACT_DRUGGEDDROP || chr->actiontype == ACT_DRUGGEDCOMINGUP)) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfChrKnockedOut(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		if ((!chr || !chr->prop || chr->prop->type != PROPTYPE_PLAYER) &&
+				(!chr || !chr->model || chr->actiontype == ACT_DRUGGEDKO || chr->actiontype == ACT_DRUGGEDDROP || chr->actiontype == ACT_DRUGGEDCOMINGUP)) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -578,11 +643,15 @@ bool aiIfChrKnockedOut(void)
  */
 bool aiIfCanSeeTarget(void)
 {
-	if (chrCheckCanSeeTarget(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
-	} else {
-		g_Vars.aioffset += 3;
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (!scenarioSourceAiGraphExecuteIfCanSeeTarget(g_Vars.chrdata,
+			cmd[2])) {
+		if (chrCheckCanSeeTarget(g_Vars.chrdata)) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+		} else {
+			g_Vars.aioffset += 3;
+		}
 	}
 
 	return false;
@@ -593,8 +662,13 @@ bool aiIfCanSeeTarget(void)
  */
 bool aiTrySidestep(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteTrySidestep(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
+
 	if (chrTrySidestep(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -608,8 +682,13 @@ bool aiTrySidestep(void)
  */
 bool aiTryJumpOut(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteTryJumpOut(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
+
 	if (chrTryJumpOut(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -623,8 +702,13 @@ bool aiTryJumpOut(void)
  */
 bool aiTryRunSideways(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteTryRunSideways(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
+
 	if (chrTryRunSideways(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -638,8 +722,13 @@ bool aiTryRunSideways(void)
  */
 bool aiTryAttackWalk(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteTryAttackWalk(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
+
 	if (chrTryAttackWalk(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -653,8 +742,13 @@ bool aiTryAttackWalk(void)
  */
 bool aiTryAttackRun(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteTryAttackRun(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
+
 	if (chrTryAttackRun(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -668,8 +762,13 @@ bool aiTryAttackRun(void)
  */
 bool aiTryAttackRoll(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteTryAttackRoll(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
+
 	if (chrTryAttackRoll(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -686,6 +785,11 @@ bool aiTryAttackStand(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 thingid = cmd[5] | (cmd[4] << 8);
 	u32 thingtype = cmd[3] | (cmd[2] << 8);
+
+	if (scenarioSourceAiGraphExecuteTryAttackStand(g_Vars.chrdata,
+			thingtype, thingid, cmd[6])) {
+		return false;
+	}
 
 	if (chrTryAttackStand(g_Vars.chrdata, thingtype, thingid)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
@@ -705,6 +809,11 @@ bool aiTryAttackKneel(void)
 	u32 thingid = cmd[5] | (cmd[4] << 8);
 	u32 thingtype = cmd[3] | (cmd[2] << 8);
 
+	if (scenarioSourceAiGraphExecuteTryAttackKneel(g_Vars.chrdata,
+			thingtype, thingid, cmd[6])) {
+		return false;
+	}
+
 	if (chrTryAttackKneel(g_Vars.chrdata, thingtype, thingid)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
 	} else {
@@ -723,6 +832,11 @@ bool aiTryAttackLie(void)
 	u32 thingid = cmd[5] | (cmd[4] << 8);
 	u32 thingtype = cmd[3] | (cmd[2] << 8);
 
+	if (scenarioSourceAiGraphExecuteTryAttackLie(g_Vars.chrdata,
+			thingtype, thingid, cmd[6])) {
+		return false;
+	}
+
 	if (chrTryAttackLie(g_Vars.chrdata, thingtype, thingid)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
 	} else {
@@ -738,6 +852,10 @@ bool aiTryAttackLie(void)
 bool ai00f0(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfAttackLocked(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
 
 	if (g_Vars.chrdata->actiontype == ACT_ATTACK &&
 			!g_Vars.chrdata->act_attack.reaim &&
@@ -757,6 +875,10 @@ bool aiIfAttacking(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
+	if (scenarioSourceAiGraphExecuteIfAttacking(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
+
 	if (g_Vars.chrdata->actiontype == ACT_ATTACK) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
@@ -774,6 +896,11 @@ bool aiTryModifyAttack(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 thingid = cmd[5] | (cmd[4] << 8);
 	u32 thingtype = cmd[3] | (cmd[2] << 8);
+
+	if (scenarioSourceAiGraphExecuteTryModifyAttack(g_Vars.chrdata,
+			g_Vars.hovercar, thingtype, thingid, cmd[6])) {
+		return false;
+	}
 
 	if ((g_Vars.chrdata && chrTryModifyAttack(g_Vars.chrdata, thingtype, thingid)) ||
 			(g_Vars.hovercar && chopperAttack(g_Vars.hovercar))) {
@@ -794,6 +921,11 @@ bool aiFaceEntity(void)
 	u32 thingid = cmd[5] | (cmd[4] << 8);
 	u32 thingtype = cmd[3] | (cmd[2] << 8);
 
+	if (scenarioSourceAiGraphExecuteFaceEntity(g_Vars.chrdata,
+			thingtype, thingid, cmd[6])) {
+		return false;
+	}
+
 	if (chrFaceEntity(g_Vars.chrdata, thingtype, thingid)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
 	} else {
@@ -811,6 +943,11 @@ bool ai0019(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 	struct coord pos = {0, 0, 0};
+
+	if (scenarioSourceAiGraphExecuteApplyGsetDamage(g_Vars.chrdata,
+			cmd[2], cmd[3], (struct gset *)&cmd[4])) {
+		return false;
+	}
 
 	if (chr && chr->prop) {
 		f32 damage = gsetGetDamage((struct gset *)&cmd[4]);
@@ -830,6 +967,11 @@ bool aiChrDamageChr(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr1 = chrFindById(g_Vars.chrdata, cmd[2]);
 	struct chrdata *chr2 = chrFindById(g_Vars.chrdata, cmd[3]);
+
+	if (scenarioSourceAiGraphExecuteChrDamageChr(g_Vars.chrdata,
+			cmd[2], cmd[3], cmd[4])) {
+		return false;
+	}
 
 	if (chr1 && chr2 && chr1->prop && chr2->prop) {
 		struct prop *prop = chrGetHeldUsableProp(chr1, HAND_RIGHT);
@@ -866,6 +1008,11 @@ bool aiConsiderGrenadeThrow(void)
 	u32 value2 = cmd[5] | (cmd[4] << 8);
 	u32 value1 = cmd[3] | (cmd[2] << 8);
 
+	if (scenarioSourceAiGraphExecuteConsiderGrenadeThrow(g_Vars.chrdata,
+			value1, value2, cmd[6])) {
+		return false;
+	}
+
 	if (chrConsiderGrenadeThrow(g_Vars.chrdata, value1, value2)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
 	} else {
@@ -883,6 +1030,11 @@ bool aiDropItem(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 modelnum = cmd[3] | (cmd[2] << 8);
 
+	if (scenarioSourceAiGraphExecuteDropItem(g_Vars.chrdata,
+			modelnum & 0xffff, cmd[4] & 0xff, cmd[5])) {
+		return false;
+	}
+
 	if (chrDropItem(g_Vars.chrdata, modelnum & 0xffff, cmd[4] & 0xff)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
 	} else {
@@ -897,6 +1049,10 @@ bool aiDropItem(void)
  */
 bool aiSurrender(void)
 {
+	if (scenarioSourceAiGraphExecuteSurrender(g_Vars.chrdata)) {
+		return false;
+	}
+
 	chrTrySurrender(g_Vars.chrdata);
 	g_Vars.aioffset += 2;
 
@@ -908,6 +1064,10 @@ bool aiSurrender(void)
  */
 bool aiFadeOut(void)
 {
+	if (scenarioSourceAiGraphExecuteFadeOut(g_Vars.chrdata)) {
+		return false;
+	}
+
 	chrFadeOut(g_Vars.chrdata);
 	g_Vars.aioffset += 2;
 
@@ -920,6 +1080,10 @@ bool aiFadeOut(void)
 bool aiRemoveChr(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteRemoveChr(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
 
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
@@ -940,6 +1104,11 @@ bool aiTryStartAlarm(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 pad_id = cmd[3] | (cmd[2] << 8);
 
+	if (scenarioSourceAiGraphExecuteTryStartAlarm(g_Vars.chrdata,
+			pad_id, cmd[4])) {
+		return false;
+	}
+
 	if (chrTryStartAlarm(g_Vars.chrdata, pad_id)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
 	} else {
@@ -954,6 +1123,10 @@ bool aiTryStartAlarm(void)
  */
 bool aiActivateAlarm(void)
 {
+	if (scenarioSourceAiGraphExecuteActivateAlarm()) {
+		return false;
+	}
+
 	alarmActivate();
 	g_Vars.aioffset += 2;
 
@@ -965,6 +1138,10 @@ bool aiActivateAlarm(void)
  */
 bool aiDeactivateAlarm(void)
 {
+	if (scenarioSourceAiGraphExecuteDeactivateAlarm()) {
+		return false;
+	}
+
 	alarmDeactivate();
 	g_Vars.aioffset += 2;
 
@@ -976,8 +1153,14 @@ bool aiDeactivateAlarm(void)
  */
 bool aiTryRunFromTarget(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteTryRunFromTarget(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	if (chrTryRunFromTarget(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -991,8 +1174,14 @@ bool aiTryRunFromTarget(void)
  */
 bool aiTryJogToTargetProp(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteTryJogToTargetProp(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	if (chrGoToTarget(g_Vars.chrdata, GOPOSFLAG_JOG)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1006,8 +1195,14 @@ bool aiTryJogToTargetProp(void)
  */
 bool aiTryWalkToTargetProp(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteTryWalkToTargetProp(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	if (chrGoToTarget(g_Vars.chrdata, GOPOSFLAG_WALK)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1021,8 +1216,14 @@ bool aiTryWalkToTargetProp(void)
  */
 bool aiTryRunToTargetProp(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteTryRunToTargetProp(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	if (chrGoToTarget(g_Vars.chrdata, GOPOSFLAG_RUN)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1036,8 +1237,14 @@ bool aiTryRunToTargetProp(void)
  */
 bool aiTryGoToCoverProp(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteTryGoToCoverProp(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	if (chrGoToCoverProp(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1052,6 +1259,11 @@ bool aiTryGoToCoverProp(void)
 bool aiTryJogToChr(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteTryJogToChr(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
 
 	if (chrGoToChr(g_Vars.chrdata, cmd[2], GOPOSFLAG_JOG)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
@@ -1069,6 +1281,11 @@ bool aiTryWalkToChr(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
+	if (scenarioSourceAiGraphExecuteTryWalkToChr(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
 	if (chrGoToChr(g_Vars.chrdata, cmd[2], GOPOSFLAG_WALK)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
 	} else {
@@ -1085,6 +1302,11 @@ bool aiTryRunToChr(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
+	if (scenarioSourceAiGraphExecuteTryRunToChr(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
 	if (chrGoToChr(g_Vars.chrdata, cmd[2], GOPOSFLAG_RUN)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
 	} else {
@@ -1099,6 +1321,10 @@ bool aiTryRunToChr(void)
  */
 bool aiRandom(void)
 {
+	if (scenarioSourceAiGraphExecuteRandom(g_Vars.chrdata)) {
+		return false;
+	}
+
 	g_Vars.chrdata->random = rngRandom() & 0xff;
 	g_Vars.aioffset += 2;
 
@@ -1111,6 +1337,11 @@ bool aiRandom(void)
 bool aiIfRandomLessThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfRandomLessThan(g_Vars.chrdata,
+			g_Vars.hovercar, cmd[2], cmd[3])) {
+		return false;
+	}
 
 	if ((g_Vars.chrdata && g_Vars.chrdata->random < cmd[2]) ||
 			(g_Vars.hovercar && ((u8)rngRandom()) < cmd[2])) {
@@ -1128,6 +1359,11 @@ bool aiIfRandomLessThan(void)
 bool aiIfRandomGreaterThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfRandomGreaterThan(g_Vars.chrdata,
+			g_Vars.hovercar, cmd[2], cmd[3])) {
+		return false;
+	}
 
 	if ((g_Vars.chrdata && g_Vars.chrdata->random > cmd[2]) ||
 			(g_Vars.hovercar && ((u8)rngRandom()) > cmd[2])) {
@@ -1246,8 +1482,14 @@ bool aiStartPatrol(void)
  */
 bool aiIfCanHearAlarm(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfCanHearAlarm(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	if (chrCanHearAlarm(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1262,6 +1504,11 @@ bool aiIfCanHearAlarm(void)
 bool aiIfPatrolling(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfPatrolling(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
 
 	if (g_Vars.chrdata->actiontype == ACT_PATROL
 			|| (g_Vars.chrdata->actiontype == ACT_GOPOS && g_Vars.chrdata->act_gopos.flags & GOPOSFLAG_FORPATHSTART)) {
@@ -1278,8 +1525,13 @@ bool aiIfPatrolling(void)
  */
 bool aiIfAlarmActive(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfAlarmActive(cmd[2])) {
+		return false;
+	}
+
 	if (alarmIsActive()) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1293,8 +1545,13 @@ bool aiIfAlarmActive(void)
  */
 bool aiIfGasActive(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfGasActive(cmd[2])) {
+		return false;
+	}
+
 	if (gasIsActive()) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1308,8 +1565,14 @@ bool aiIfGasActive(void)
  */
 bool aiIfHearsTarget(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfHearsTarget(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	if (chrIsHearingTarget(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1324,6 +1587,11 @@ bool aiIfHearsTarget(void)
 bool aiIfSawInjury(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfSawInjury(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
 
 	if (chrSawInjury(g_Vars.chrdata, cmd[2])) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
@@ -1341,6 +1609,11 @@ bool aiIfSawDeath(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
+	if (scenarioSourceAiGraphExecuteIfSawDeath(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
 	if (chrSawDeath(g_Vars.chrdata, cmd[2])) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
 	} else {
@@ -1355,9 +1628,15 @@ bool aiIfSawDeath(void)
  */
 bool aiIfLosToTarget(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfLosToTarget(g_Vars.chrdata,
+			g_Vars.hovercar, cmd[2])) {
+		return false;
+	}
+
 	if ((g_Vars.chrdata && chrHasLosToTarget(g_Vars.chrdata)) ||
 			(g_Vars.hovercar && chopperCheckTargetInFov(g_Vars.hovercar, 64) && chopperCheckTargetInSight(g_Vars.hovercar))) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1371,9 +1650,15 @@ bool aiIfLosToTarget(void)
  */
 bool aiIfLosToAttackTarget(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfLosToAttackTarget(g_Vars.chrdata,
+			g_Vars.hovercar, cmd[2])) {
+		return false;
+	}
+
 	if ((g_Vars.chrdata && g_Vars.chrdata->prop && chrHasLosToAttackTarget(g_Vars.chrdata, &g_Vars.chrdata->prop->pos, g_Vars.chrdata->prop->rooms, true))
 			|| (g_Vars.hovercar && chopperCheckTargetInFov(g_Vars.hovercar, 64) && chopperCheckTargetInSight(g_Vars.hovercar))) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1389,6 +1674,11 @@ bool aiIfTargetNearlyInSight(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 distance = (cmd[3] << 16) | (cmd[4] << 8) | cmd[5] | (cmd[2] << 24);
+
+	if (scenarioSourceAiGraphExecuteIfTargetNearlyInSight(g_Vars.chrdata,
+			distance, cmd[6])) {
+		return false;
+	}
 
 	if (chrIsTargetNearlyInSight(g_Vars.chrdata, distance)) {
 		cmd = g_Vars.ailist + g_Vars.aioffset;
@@ -1408,6 +1698,11 @@ bool aiIfNearlyInTargetsSight(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 distance = (cmd[3] << 16) | (cmd[4] << 8) | cmd[5] | (cmd[2] << 24);
 
+	if (scenarioSourceAiGraphExecuteIfNearlyInTargetsSight(g_Vars.chrdata,
+			distance, cmd[6])) {
+		return false;
+	}
+
 	if (chrIsNearlyInTargetsSight(g_Vars.chrdata, distance)) {
 		cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
@@ -1423,8 +1718,14 @@ bool aiIfNearlyInTargetsSight(void)
  */
 bool aiSetPadPresetToPadOnRouteToTarget(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteSetPadPresetToPadOnRouteToTarget(
+			g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
+
 	if (chrSetPadPresetToPadOnRouteToTarget(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1438,8 +1739,14 @@ bool aiSetPadPresetToPadOnRouteToTarget(void)
  */
 bool aiIfSawTargetRecently(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfSawTargetRecently(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	if (chrSawTargetRecently(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1453,8 +1760,14 @@ bool aiIfSawTargetRecently(void)
  */
 bool aiIfHeardTargetRecently(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfHeardTargetRecently(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	if (chrHeardTargetRecently(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1471,6 +1784,11 @@ bool aiIfLosToChr(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
+	if (scenarioSourceAiGraphExecuteIfLosToChr(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
 	if (chr && chr->prop && chrHasLosToPos(g_Vars.chrdata, &chr->prop->pos, chr->prop->rooms)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
 	} else {
@@ -1485,8 +1803,14 @@ bool aiIfLosToChr(void)
  */
 bool aiIfNeverBeenOnScreen(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfNeverBeenOnScreen(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	if ((g_Vars.chrdata->chrflags & CHRCFLAG_EVERONSCREEN) == 0) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1500,8 +1824,13 @@ bool aiIfNeverBeenOnScreen(void)
  */
 bool aiIfOnScreen(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfOnScreen(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
+
 	if (g_Vars.chrdata->prop->flags & (PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ONANYSCREENTHISTICK | PROPFLAG_ONANYSCREENPREVTICK)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1519,6 +1848,11 @@ bool aiIfChrInOnScreenRoom(void)
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 	u8 pass = false;
 	s32 i;
+
+	if (scenarioSourceAiGraphExecuteIfChrInOnScreenRoom(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
 
 	if (chr && chr->prop) {
 		for (i = 0; chr->prop->rooms[i] != -1; i++) {
@@ -1547,6 +1881,11 @@ bool aiIfRoomIsOnScreen(void)
 	u16 pad_id = cmd[3] | (cmd[2] << 8);
 	s32 room_id = chrGetPadRoom(g_Vars.chrdata, pad_id);
 
+	if (scenarioSourceAiGraphExecuteIfRoomIsOnScreen(g_Vars.chrdata,
+			pad_id, cmd[4])) {
+		return false;
+	}
+
 	if (room_id >= 0 && bgRoomIsOnscreen(room_id)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
 	} else {
@@ -1561,8 +1900,14 @@ bool aiIfRoomIsOnScreen(void)
  */
 bool aiIfTargetAimingAtMe(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfTargetAimingAtMe(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	if (chrIsTargetAimingAtMe(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1576,8 +1921,13 @@ bool aiIfTargetAimingAtMe(void)
  */
 bool aiIfNearMiss(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfNearMiss(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
+
 	if (chrResetNearMiss(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1597,6 +1947,12 @@ bool aiIfSeesSuspiciousItem(void)
 	struct defaultobj *obj;
 	s16 propnums[256];
 	struct prop *chrprop = g_Vars.chrdata->prop;
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfSeesSuspiciousItem(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
 
 	roomGetProps(chrprop->rooms, &propnums[0], 256);
 
@@ -1625,7 +1981,6 @@ bool aiIfSeesSuspiciousItem(void)
 	}
 
 	if (pass) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -1641,6 +1996,11 @@ bool aiIfCheckFovWithTarget(void)
 {
 	bool pass;
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfCheckFovWithTarget(g_Vars.chrdata,
+			cmd[2], cmd[3], cmd[4], cmd[5])) {
+		return false;
+	}
 
 	if (cmd[4] == 0) {
 		if (cmd[3]) {
@@ -1668,6 +2028,11 @@ bool aiIfTargetInFovLeft(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
+	if (scenarioSourceAiGraphExecuteIfTargetInFovLeft(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
 	if (chrGetAngleToTarget(g_Vars.chrdata) < cmd[2] * M_BADTAU * 0.00390625f) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
 	} else {
@@ -1683,6 +2048,11 @@ bool aiIfTargetInFovLeft(void)
 bool aiIfTargetOutOfFovLeft(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfTargetOutOfFovLeft(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
 
 	if (chrGetAngleToTarget(g_Vars.chrdata) > cmd[2] * M_BADTAU * 0.00390625f) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
@@ -1700,6 +2070,11 @@ bool aiIfTargetInFov(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
+	if (scenarioSourceAiGraphExecuteIfTargetInFov(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
 	if (chrIsTargetInFov(g_Vars.chrdata, cmd[2], 0)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
 	} else {
@@ -1715,6 +2090,11 @@ bool aiIfTargetInFov(void)
 bool aiIfTargetOutOfFov(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfTargetOutOfFov(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
 
 	if (!chrIsTargetInFov(g_Vars.chrdata, cmd[2], 0)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
@@ -1733,6 +2113,11 @@ bool aiIfDistanceToTargetLessThan(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 distance = (cmd[3] | (cmd[2] << 8)) * (f32)10;
 
+	if (scenarioSourceAiGraphExecuteIfDistanceToTargetLessThan(
+			g_Vars.chrdata, distance, cmd[4])) {
+		return false;
+	}
+
 	if (chrGetDistanceToTarget(g_Vars.chrdata) < distance) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
 	} else {
@@ -1749,6 +2134,11 @@ bool aiIfDistanceToTargetGreaterThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 distance = (cmd[3] | (cmd[2] << 8)) * (f32)10;
+
+	if (scenarioSourceAiGraphExecuteIfDistanceToTargetGreaterThan(
+			g_Vars.chrdata, distance, cmd[4])) {
+		return false;
+	}
 
 	if (chrGetDistanceToTarget(g_Vars.chrdata) > distance) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
@@ -1774,6 +2164,11 @@ bool aiIfChrDistanceToPadLessThan(void)
 
 	if (padnum == 9000) {
 		realpadnum = (u16) g_Vars.chrdata->padpreset1;
+	}
+
+	if (scenarioSourceAiGraphExecuteIfChrDistanceToPadLessThan(
+			g_Vars.chrdata, cmd[2], value, realpadnum, cmd[7])) {
+		return false;
 	}
 
 	if (chr && realpadnum < 9000 && chrGetDistanceToPad(chr, realpadnum) < value) {
@@ -1806,21 +2201,25 @@ bool aiIfChrDistanceToPadLessThan(void)
 bool aiIfChrSameFloorDistanceToPadLessThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 	u16 padnum = cmd[6] | (cmd[5] << 8);
 	f32 distance = (cmd[4] | (cmd[3] << 8)) * 10.0f;
-	s32 padnum2;
 
 	if (padnum == 9000) {
 		padnum = g_Vars.chrdata->padpreset1;
 	}
 
-	padnum2 = padnum;
+	if (!scenarioSourceAiGraphExecuteIfChrSameFloorDistanceToPadLessThan(
+			g_Vars.chrdata, cmd[2], distance, padnum, cmd[7])) {
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+		s32 padnum2 = padnum;
 
-	if (chr && chrGetSameFloorDistanceToPad(chr, padnum2 & 0xffffffff) < distance) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[7]);
-	} else {
-		g_Vars.aioffset += 8;
+		if (chr && chrGetSameFloorDistanceToPad(chr,
+				padnum2 & 0xffffffff) < distance) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
+				g_Vars.aioffset, cmd[7]);
+		} else {
+			g_Vars.aioffset += 8;
+		}
 	}
 
 	return false;
@@ -1839,6 +2238,11 @@ bool aiIfChrDistanceToPadGreaterThan(void)
 
 	if (padnum == 9000) {
 		padnum = g_Vars.chrdata->padpreset1;
+	}
+
+	if (scenarioSourceAiGraphExecuteIfChrDistanceToPadGreaterThan(
+			g_Vars.chrdata, cmd[2], distance, padnum, cmd[7])) {
+		return false;
 	}
 
 #if VERSION >= VERSION_NTSC_1_0
@@ -1863,6 +2267,11 @@ bool aiIfDistanceToChrLessThan(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 cutoff = (cmd[3] | (cmd[2] << 8)) * 10.0f;
 
+	if (scenarioSourceAiGraphExecuteIfDistanceToChrLessThan(
+			g_Vars.chrdata, cmd[4], cutoff, cmd[5])) {
+		return false;
+	}
+
 	if (chrGetDistanceToChr(g_Vars.chrdata, cmd[4]) < cutoff) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
 	} else {
@@ -1880,6 +2289,11 @@ bool aiIfDistanceToChrGreaterThan(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 cutoff = (cmd[3] | (cmd[2] << 8)) * 10.0f;
 
+	if (scenarioSourceAiGraphExecuteIfDistanceToChrGreaterThan(
+			g_Vars.chrdata, cmd[4], cutoff, cmd[5])) {
+		return false;
+	}
+
 	if (chrGetDistanceToChr(g_Vars.chrdata, cmd[4]) > cutoff) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
 	} else {
@@ -1896,6 +2310,11 @@ bool ai0058(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 distance = (cmd[3] | (cmd[2] << 8)) * 10.0f;
+
+	if (scenarioSourceAiGraphExecuteIfAnyChrNearSelf(g_Vars.chrdata,
+			distance, cmd[4])) {
+		return false;
+	}
 
 	if (chrSetChrPresetToAnyChrNearSelf(g_Vars.chrdata, distance)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
@@ -1915,6 +2334,11 @@ bool aiIfDistanceFromTargetToPadLessThan(void)
 	u16 pad = cmd[5] | (cmd[4] << 8);
 	f32 value = (cmd[3] | (cmd[2] << 8)) * 10.0f;
 
+	if (scenarioSourceAiGraphExecuteIfDistanceFromTargetToPadLessThan(
+			g_Vars.chrdata, value, pad, cmd[6])) {
+		return false;
+	}
+
 	if (chrGetDistanceFromTargetToPad(g_Vars.chrdata, pad) < value) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
 	} else {
@@ -1932,6 +2356,11 @@ bool aiIfDistanceFromTargetToPadGreaterThan(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 pad = cmd[5] | (cmd[4] << 8);
 	f32 value = (cmd[3] | (cmd[2] << 8)) * 10.0f;
+
+	if (scenarioSourceAiGraphExecuteIfDistanceFromTargetToPadGreaterThan(
+			g_Vars.chrdata, value, pad, cmd[6])) {
+		return false;
+	}
 
 	if (chrGetDistanceFromTargetToPad(g_Vars.chrdata, pad) > value) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
@@ -1951,6 +2380,11 @@ bool aiIfChrInRoom(void)
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 	u16 pad_id = cmd[5] | (cmd[4] << 8);
 	s32 room = chrGetPadRoom(g_Vars.chrdata, pad_id);
+
+	if (scenarioSourceAiGraphExecuteIfChrInRoom(g_Vars.chrdata, cmd[2],
+			cmd[3], pad_id, cmd[6])) {
+		return false;
+	}
 
 	if ((cmd[3] == 0 && room >= 0 && chr && chr->prop && chr->prop->rooms[0] == room)
 			|| (cmd[3] == 1 && chr && chr->prop && chr->prop->rooms[0] == g_Vars.chrdata->roomtosearch)) {
@@ -1999,6 +2433,11 @@ bool aiIfTargetInRoom(void)
 	u16 pad_id = cmd[3] | (cmd[2] << 8);
 	s32 room_id = chrGetPadRoom(g_Vars.chrdata, pad_id);
 
+	if (scenarioSourceAiGraphExecuteIfTargetInRoom(g_Vars.chrdata, pad_id,
+			cmd[4])) {
+		return false;
+	}
+
 	if (room_id >= 0 && prop && room_id == prop->rooms[0]) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
 	} else {
@@ -2017,6 +2456,11 @@ bool aiIfChrHasObject(void)
 	struct defaultobj *obj = objFindByTagId(cmd[3]);
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 	s32 hasprop = false;
+
+	if (scenarioSourceAiGraphExecuteIfChrHasObject(g_Vars.chrdata,
+			cmd[2], cmd[3], cmd[4])) {
+		return false;
+	}
 
 	if (obj && obj->prop && chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		s32 prevplayernum = g_Vars.currentplayernum;
@@ -2041,6 +2485,10 @@ bool aiIfWeaponThrown(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
+	if (scenarioSourceAiGraphExecuteIfWeaponThrown(cmd[2], cmd[3])) {
+		return false;
+	}
+
 	if (weaponFindLanded(cmd[2])) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
 	} else {
@@ -2058,6 +2506,11 @@ bool aiIfWeaponThrownOnObject(void)
 	struct bytelist *cmd = (struct bytelist *)(g_Vars.ailist + g_Vars.aioffset);
 	struct defaultobj *obj = objFindByTagId(cmd->b3);
 	bool pass = false;
+
+	if (scenarioSourceAiGraphExecuteIfWeaponThrownOnObject(cmd->b2,
+			cmd->b3, cmd->b4)) {
+		return false;
+	}
 
 	if (obj && obj->prop) {
 		struct prop *prop = obj->prop->child;
@@ -2093,6 +2546,11 @@ bool aiIfChrHasWeaponEquipped(void)
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 	bool passes = false;
 
+	if (scenarioSourceAiGraphExecuteIfChrHasWeaponEquipped(
+			g_Vars.chrdata, cmd[2], cmd[3], cmd[4])) {
+		return false;
+	}
+
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
@@ -2120,6 +2578,11 @@ bool aiIfChrHasWeaponEquipped(void)
 bool aiIfGunUnclaimed(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfGunUnclaimed(g_Vars.chrdata,
+			cmd[2], cmd[3], cmd[4])) {
+		return false;
+	}
 
 	if (cmd[3] == 0) {
 		struct defaultobj *obj = objFindByTagId(cmd[2]);
@@ -2155,6 +2618,10 @@ bool aiIfObjectHealthy(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
+	if (scenarioSourceAiGraphExecuteIfObjectHealthy(cmd[2], cmd[3])) {
+		return false;
+	}
+
 	if (obj && obj->prop && objIsHealthy(obj)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
 	} else {
@@ -2173,6 +2640,11 @@ bool aiIfChrActivatedObject(void)
 	struct defaultobj *obj = objFindByTagId(cmd[3]);
 	u32 stack[1];
 	bool pass = false;
+
+	if (scenarioSourceAiGraphExecuteIfChrActivatedObject(cmd[2],
+			cmd[3], cmd[4])) {
+		return false;
+	}
 
 	if (obj && obj->prop) {
 		if (cmd[2] == CHR_ANY) {
@@ -2212,7 +2684,8 @@ bool aiObjInteract(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop) {
+	if (!scenarioSourceAiGraphExecuteObjInteract(cmd[2]) &&
+			obj && obj->prop) {
 		if (obj->prop->type == PROPTYPE_DOOR) {
 			doorsActivate(obj->prop, false);
 		} else if (obj->prop->type == PROPTYPE_OBJ || obj->prop->type == PROPTYPE_WEAPON) {
@@ -2233,7 +2706,8 @@ bool aiDestroyObject(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop && objGetDestroyedLevel(obj) == 0) {
+	if (!scenarioSourceAiGraphExecuteDestroyObject(cmd[2]) &&
+			obj && obj->prop && objGetDestroyedLevel(obj) == 0) {
 		struct defaultobj *entity = obj->prop->obj;
 
 		if (entity->modelnum == MODEL_ELVIS_SAUCER) {
@@ -2259,7 +2733,9 @@ bool ai0067(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop && obj->prop->parent && obj->prop->parent->type == PROPTYPE_CHR) {
+	if (!scenarioSourceAiGraphExecuteDropObjectFromChr(cmd[2]) &&
+			obj && obj->prop && obj->prop->parent &&
+			obj->prop->parent->type == PROPTYPE_CHR) {
 		struct chrdata *chr = obj->prop->parent->chr;
 		objSetDropped(obj->prop, DROPTYPE_SURRENDER);
 		chr->hidden |= CHRHFLAG_DROPPINGITEM;
@@ -2278,7 +2754,8 @@ bool aiChrDropItems(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr && chr->prop) {
+	if (!scenarioSourceAiGraphExecuteChrDropItems(g_Vars.chrdata, cmd[2]) &&
+			chr && chr->prop) {
 		chrDropConcealedItems(chr);
 	}
 
@@ -2294,6 +2771,11 @@ bool aiChrDropWeapon(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+	if (scenarioSourceAiGraphExecuteChrDropWeapon(g_Vars.chrdata, cmd[2])) {
+		g_Vars.aioffset += 3;
+		return false;
+	}
 
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 prevplayernum = g_Vars.currentplayernum;
@@ -2330,7 +2812,8 @@ bool aiGiveObjectToChr(void)
 	struct defaultobj *obj = objFindByTagId(cmd[2]);
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[3]);
 
-	if (obj && obj->prop && chr && chr->prop) {
+	if (!scenarioSourceAiGraphExecuteGiveObjectToChr(g_Vars.chrdata,
+			cmd[2], cmd[3]) && obj && obj->prop && chr && chr->prop) {
 		if (chr->prop->type == PROPTYPE_PLAYER) {
 			u32 something;
 			u32 prevplayernum = g_Vars.currentplayernum;
@@ -2383,7 +2866,8 @@ bool aiObjectMoveToPad(void)
 	struct pad pad;
 	RoomNum rooms[2];
 
-	if (obj && obj->prop) {
+	if (!scenarioSourceAiGraphExecuteObjectMoveToPad(cmd[2], padnum) &&
+			obj && obj->prop) {
 		padUnpack(padnum, PADFIELD_POS | PADFIELD_LOOK | PADFIELD_UP | PADFIELD_ROOM, &pad);
 		mtx00016d58(&matrix,
 				0, 0, 0,
@@ -2410,12 +2894,15 @@ bool aiObjectMoveToPad(void)
 bool aiOpenDoor(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop && obj->prop->type == PROPTYPE_DOOR) {
-		if (!doorCallLift(obj->prop, false)) {
-			struct doorobj *door = (struct doorobj *) obj;
-			doorsRequestMode(door, DOORMODE_OPENING);
+	if (!scenarioSourceAiGraphExecuteOpenDoor(cmd[2])) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop && obj->prop->type == PROPTYPE_DOOR) {
+			if (!doorCallLift(obj->prop, false)) {
+				struct doorobj *door = (struct doorobj *) obj;
+				doorsRequestMode(door, DOORMODE_OPENING);
+			}
 		}
 	}
 
@@ -2430,11 +2917,14 @@ bool aiOpenDoor(void)
 bool aiCloseDoor(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop && obj->prop->type == PROPTYPE_DOOR) {
-		struct doorobj *door = (struct doorobj *) obj;
-		doorsRequestMode(door, DOORMODE_CLOSING);
+	if (!scenarioSourceAiGraphExecuteCloseDoor(cmd[2])) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop && obj->prop->type == PROPTYPE_DOOR) {
+			struct doorobj *door = (struct doorobj *) obj;
+			doorsRequestMode(door, DOORMODE_CLOSING);
+		}
 	}
 
 	g_Vars.aioffset += 3;
@@ -2448,29 +2938,33 @@ bool aiCloseDoor(void)
 bool aiIfDoorState(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
-	bool pass = false;
 
-	if (obj && obj->prop && obj->type == OBJTYPE_DOOR) {
-		struct doorobj *door = (struct doorobj *) obj;
+	if (!scenarioSourceAiGraphExecuteIfDoorState(cmd[2], cmd[3],
+			cmd[4])) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+		bool pass = false;
 
-		if (door->mode == DOORMODE_IDLE) {
-			if (door->frac <= 0) {
-				pass = (cmd[3] & DOORSTATE_CLOSED) != 0;
-			} else {
-				pass = (cmd[3] & DOORSTATE_OPEN) != 0;
+		if (obj && obj->prop && obj->type == OBJTYPE_DOOR) {
+			struct doorobj *door = (struct doorobj *) obj;
+
+			if (door->mode == DOORMODE_IDLE) {
+				if (door->frac <= 0) {
+					pass = (cmd[3] & DOORSTATE_CLOSED) != 0;
+				} else {
+					pass = (cmd[3] & DOORSTATE_OPEN) != 0;
+				}
+			} else if (door->mode == DOORMODE_OPENING || door->mode == DOORMODE_WAITING) {
+				pass = (cmd[3] & DOORSTATE_OPENING) != 0;
+			} else if (door->mode == DOORMODE_CLOSING) {
+				pass = (cmd[3] & DOORSTATE_CLOSING) != 0;
 			}
-		} else if (door->mode == DOORMODE_OPENING || door->mode == DOORMODE_WAITING) {
-			pass = (cmd[3] & DOORSTATE_OPENING) != 0;
-		} else if (door->mode == DOORMODE_CLOSING) {
-			pass = (cmd[3] & DOORSTATE_CLOSING) != 0;
 		}
-	}
 
-	if (pass) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
-	} else {
-		g_Vars.aioffset += 5;
+		if (pass) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
+		} else {
+			g_Vars.aioffset += 5;
+		}
 	}
 
 	return false;
@@ -2482,12 +2976,15 @@ bool aiIfDoorState(void)
 bool aiIfObjectIsDoor(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop && obj->type == OBJTYPE_DOOR && (obj->hidden & 0x200)) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfObjectIsDoor(cmd[2], cmd[3])) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop && obj->type == OBJTYPE_DOOR && (obj->hidden & 0x200)) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -2499,12 +2996,15 @@ bool aiIfObjectIsDoor(void)
 bool aiLockDoor(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop && obj->prop->type == PROPTYPE_DOOR) {
-		struct doorobj *door = (struct doorobj *) obj;
-		u8 bits = cmd[3];
-		door->keyflags = door->keyflags | bits;
+	if (!scenarioSourceAiGraphExecuteLockDoor(cmd[2], cmd[3])) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop && obj->prop->type == PROPTYPE_DOOR) {
+			struct doorobj *door = (struct doorobj *) obj;
+			u8 bits = cmd[3];
+			door->keyflags = door->keyflags | bits;
+		}
 	}
 
 	g_Vars.aioffset += 4;
@@ -2518,12 +3018,15 @@ bool aiLockDoor(void)
 bool aiUnlockDoor(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop && obj->prop->type == PROPTYPE_DOOR) {
-		struct doorobj *door = (struct doorobj *) obj;
-		u8 bits = cmd[3];
-		door->keyflags = door->keyflags & ~bits;
+	if (!scenarioSourceAiGraphExecuteUnlockDoor(cmd[2], cmd[3])) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop && obj->prop->type == PROPTYPE_DOOR) {
+			struct doorobj *door = (struct doorobj *) obj;
+			u8 bits = cmd[3];
+			door->keyflags = door->keyflags & ~bits;
+		}
 	}
 
 	g_Vars.aioffset += 4;
@@ -2537,23 +3040,27 @@ bool aiUnlockDoor(void)
 bool aiIfDoorLocked(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
-	bool pass = false;
 
-	if (obj && obj->prop && obj->prop->type == PROPTYPE_DOOR) {
-		struct doorobj *door = (struct doorobj *) obj;
-		u32 bits = cmd[3];
-		u32 keyflags = door->keyflags;
+	if (!scenarioSourceAiGraphExecuteIfDoorLocked(cmd[2], cmd[3],
+			cmd[4])) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+		bool pass = false;
 
-		if ((keyflags & bits) == bits) {
-			pass = true;
+		if (obj && obj->prop && obj->prop->type == PROPTYPE_DOOR) {
+			struct doorobj *door = (struct doorobj *) obj;
+			u32 bits = cmd[3];
+			u32 keyflags = door->keyflags;
+
+			if ((keyflags & bits) == bits) {
+				pass = true;
+			}
 		}
-	}
 
-	if (pass) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
-	} else {
-		g_Vars.aioffset += 5;
+		if (pass) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
+		} else {
+			g_Vars.aioffset += 5;
+		}
 	}
 
 	return false;
@@ -2566,12 +3073,14 @@ bool aiIfObjectiveComplete(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (cmd[2] < objectiveGetCount() &&
-			objectiveCheck(cmd[2]) == OBJECTIVE_COMPLETE &&
-			objectiveGetDifficultyBits(cmd[2]) & (1 << lvGetDifficulty())) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfObjectiveComplete(cmd[2], cmd[3])) {
+		if (cmd[2] < objectiveGetCount() &&
+				objectiveCheck(cmd[2]) == OBJECTIVE_COMPLETE &&
+				objectiveGetDifficultyBits(cmd[2]) & (1 << lvGetDifficulty())) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -2584,12 +3093,14 @@ bool aiIfObjectiveFailed(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (cmd[2] < objectiveGetCount() &&
-			objectiveCheck(cmd[2]) == OBJECTIVE_FAILED &&
-			objectiveGetDifficultyBits(cmd[2]) & (1 << lvGetDifficulty())) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfObjectiveFailed(cmd[2], cmd[3])) {
+		if (cmd[2] < objectiveGetCount() &&
+				objectiveCheck(cmd[2]) == OBJECTIVE_FAILED &&
+				objectiveGetDifficultyBits(cmd[2]) & (1 << lvGetDifficulty())) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -2602,10 +3113,13 @@ bool ai0075(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (func0f04a4ec(g_Vars.chrdata, cmd[2])) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfWaypointWithinQuadrant(
+			g_Vars.chrdata, cmd[2], cmd[3])) {
+		if (func0f04a4ec(g_Vars.chrdata, cmd[2])) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -2618,10 +3132,13 @@ bool aiSetPadPresetToTargetQuadrant(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (chrSetPadPresetToWaypointWithinTargetQuadrant(g_Vars.chrdata, cmd[2])) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteSetPadPresetToTargetQuadrant(
+			g_Vars.chrdata, cmd[2], cmd[3])) {
+		if (chrSetPadPresetToWaypointWithinTargetQuadrant(g_Vars.chrdata, cmd[2])) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -2634,10 +3151,13 @@ bool aiIfNumArghsLessThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (chrGetNumArghs(g_Vars.chrdata) < cmd[2]) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfNumArghsLessThan(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		if (chrGetNumArghs(g_Vars.chrdata) < cmd[2]) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -2650,10 +3170,13 @@ bool aiIfNumArghsGreaterThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (chrGetNumArghs(g_Vars.chrdata) > cmd[2]) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfNumArghsGreaterThan(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		if (chrGetNumArghs(g_Vars.chrdata) > cmd[2]) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -2666,10 +3189,13 @@ bool aiIfNumCloseArghsLessThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (chrGetNumCloseArghs(g_Vars.chrdata) < cmd[2]) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfNumCloseArghsLessThan(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		if (chrGetNumCloseArghs(g_Vars.chrdata) < cmd[2]) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -2682,10 +3208,13 @@ bool aiIfNumCloseArghsGreaterThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (chrGetNumCloseArghs(g_Vars.chrdata) > cmd[2]) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfNumCloseArghsGreaterThan(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		if (chrGetNumCloseArghs(g_Vars.chrdata) > cmd[2]) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -2701,20 +3230,23 @@ bool aiIfChrHealthGreaterThan(void)
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 	u32 pass = false;
 
-	if (chr && chr->prop) {
-		if (chr->prop->type == PROPTYPE_PLAYER) {
-			u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+	if (!scenarioSourceAiGraphExecuteIfChrHealthGreaterThan(g_Vars.chrdata,
+			cmd[2], value, cmd[4])) {
+		if (chr && chr->prop) {
+			if (chr->prop->type == PROPTYPE_PLAYER) {
+				u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
 
-			pass = (value > g_Vars.players[playernum]->bondhealth * 8.0f);
-		} else {
-			pass = (value > chr->maxdamage - chr->damage);
+				pass = (value > g_Vars.players[playernum]->bondhealth * 8.0f);
+			} else {
+				pass = (value > chr->maxdamage - chr->damage);
+			}
 		}
-	}
 
-	if (pass) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
-	} else {
-		g_Vars.aioffset += 5;
+		if (pass) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
+		} else {
+			g_Vars.aioffset += 5;
+		}
 	}
 
 	return false;
@@ -2730,20 +3262,23 @@ bool aiIfChrHealthLessThan(void)
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 	u32 pass = false;
 
-	if (chr && chr->prop) {
-		if (chr->prop->type == PROPTYPE_PLAYER) {
-			u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+	if (!scenarioSourceAiGraphExecuteIfChrHealthLessThan(g_Vars.chrdata,
+			cmd[2], value, cmd[4])) {
+		if (chr && chr->prop) {
+			if (chr->prop->type == PROPTYPE_PLAYER) {
+				u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
 
-			pass = (value < g_Vars.players[playernum]->bondhealth * 8.0f);
-		} else {
-			pass = (value < chr->maxdamage - chr->damage);
+				pass = (value < g_Vars.players[playernum]->bondhealth * 8.0f);
+			} else {
+				pass = (value < chr->maxdamage - chr->damage);
+			}
 		}
-	}
 
-	if (pass) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
-	} else {
-		g_Vars.aioffset += 5;
+		if (pass) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
+		} else {
+			g_Vars.aioffset += 5;
+		}
 	}
 
 	return false;
@@ -2758,10 +3293,13 @@ bool aiIfChrShieldLessThan(void)
 	f32 value = (cmd[4] | (cmd[3] << 8)) * 0.1f;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata,cmd[2]);
 
-	if (chr && chrGetShield(chr) < value) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
-	} else {
-		g_Vars.aioffset = g_Vars.aioffset + 6;
+	if (!scenarioSourceAiGraphExecuteIfChrShieldLessThan(g_Vars.chrdata,
+			cmd[2], value, cmd[5])) {
+		if (chr && chrGetShield(chr) < value) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
+		} else {
+			g_Vars.aioffset = g_Vars.aioffset + 6;
+		}
 	}
 
 	return false;
@@ -2776,10 +3314,13 @@ bool aiIfChrShieldGreaterThan(void)
 	f32 value = (cmd[4] | (cmd[3] << 8)) * 0.1f;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata,cmd[2]);
 
-	if (chr && chrGetShield(chr) > value) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
-	} else {
-		g_Vars.aioffset = g_Vars.aioffset + 6;
+	if (!scenarioSourceAiGraphExecuteIfChrShieldGreaterThan(g_Vars.chrdata,
+			cmd[2], value, cmd[5])) {
+		if (chr && chrGetShield(chr) > value) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
+		} else {
+			g_Vars.aioffset = g_Vars.aioffset + 6;
+		}
 	}
 
 	return false;
@@ -2793,11 +3334,14 @@ bool aiIfInjured(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr && (chr->chrflags & CHRCFLAG_JUST_INJURED)) {
-		chr->chrflags &= ~CHRCFLAG_JUST_INJURED;
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset = g_Vars.aioffset + 4;
+	if (!scenarioSourceAiGraphExecuteIfInjured(g_Vars.chrdata, cmd[2],
+			cmd[3])) {
+		if (chr && (chr->chrflags & CHRCFLAG_JUST_INJURED)) {
+			chr->chrflags &= ~CHRCFLAG_JUST_INJURED;
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset = g_Vars.aioffset + 4;
+		}
 	}
 
 	return false;
@@ -2811,11 +3355,14 @@ bool aiIfShieldDamaged(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr && (chr->chrflags & CHRCFLAG_SHIELDDAMAGED)) {
-		chr->chrflags &= ~CHRCFLAG_SHIELDDAMAGED;
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset = g_Vars.aioffset + 4;
+	if (!scenarioSourceAiGraphExecuteIfShieldDamaged(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		if (chr && (chr->chrflags & CHRCFLAG_SHIELDDAMAGED)) {
+			chr->chrflags &= ~CHRCFLAG_SHIELDDAMAGED;
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset = g_Vars.aioffset + 4;
+		}
 	}
 
 	return false;
@@ -2828,10 +3375,12 @@ bool aiIfDifficultyLessThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (lvGetDifficulty() < cmd[2]) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfDifficultyLessThan(cmd[2], cmd[3])) {
+		if (lvGetDifficulty() < cmd[2]) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -2844,10 +3393,12 @@ bool aiIfDifficultyGreaterThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (lvGetDifficulty() > cmd[2]) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfDifficultyGreaterThan(cmd[2], cmd[3])) {
+		if (lvGetDifficulty() > cmd[2]) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -2862,10 +3413,12 @@ bool aiIfStageTimerLessThan(void)
 	f32 target = (f32)(cmd[3] | (cmd[2] << 8));
 	f32 time = lvGetStageTimeInSeconds();
 
-	if (time < target) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
-	} else {
-		g_Vars.aioffset += 5;
+	if (!scenarioSourceAiGraphExecuteIfStageTimerLessThan(target, cmd[4])) {
+		if (time < target) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
+		} else {
+			g_Vars.aioffset += 5;
+		}
 	}
 
 	return false;
@@ -2880,10 +3433,12 @@ bool aiIfStageTimerGreaterThan(void)
 	f32 target = (f32)(cmd[3] | (cmd[2] << 8));
 	f32 time = lvGetStageTimeInSeconds();
 
-	if (time > target) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
-	} else {
-		g_Vars.aioffset += 5;
+	if (!scenarioSourceAiGraphExecuteIfStageTimerGreaterThan(target, cmd[4])) {
+		if (time > target) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
+		} else {
+			g_Vars.aioffset += 5;
+		}
 	}
 
 	return false;
@@ -2896,10 +3451,12 @@ bool aiIfStageIdLessThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (cmd[2] > mainGetStageNum()) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfStageIdLessThan(cmd[2], cmd[3])) {
+		if (cmd[2] > mainGetStageNum()) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -2912,10 +3469,12 @@ bool aiIfStageIdGreaterThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (mainGetStageNum() > cmd[2]) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfStageIdGreaterThan(cmd[2], cmd[3])) {
+		if (mainGetStageNum() > cmd[2]) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -2927,7 +3486,9 @@ bool aiIfStageIdGreaterThan(void)
 bool aiSetMorale(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	g_Vars.chrdata->morale = cmd[2];
+	if (!scenarioSourceAiGraphExecuteSetMorale(g_Vars.chrdata, cmd[2])) {
+		g_Vars.chrdata->morale = cmd[2];
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -2939,7 +3500,9 @@ bool aiSetMorale(void)
 bool aiAddMorale(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	incrementByte(&g_Vars.chrdata->morale, cmd[2]);
+	if (!scenarioSourceAiGraphExecuteAddMorale(g_Vars.chrdata, cmd[2])) {
+		incrementByte(&g_Vars.chrdata->morale, cmd[2]);
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -2951,8 +3514,11 @@ bool aiAddMorale(void)
 bool aiChrAddMorale(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[3]);
-	incrementByte(&chr->morale, cmd[2]);
+	if (!scenarioSourceAiGraphExecuteChrAddMorale(g_Vars.chrdata, cmd[2],
+			cmd[3])) {
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[3]);
+		incrementByte(&chr->morale, cmd[2]);
+	}
 	g_Vars.aioffset += 4;
 
 	return false;
@@ -2964,7 +3530,9 @@ bool aiChrAddMorale(void)
 bool aiSubtractMorale(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	decrementByte(&g_Vars.chrdata->morale, cmd[2]);
+	if (!scenarioSourceAiGraphExecuteSubtractMorale(g_Vars.chrdata, cmd[2])) {
+		decrementByte(&g_Vars.chrdata->morale, cmd[2]);
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -2977,10 +3545,13 @@ bool aiIfMoraleLessThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (g_Vars.chrdata->morale < cmd[2]) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfMoraleLessThan(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		if (g_Vars.chrdata->morale < cmd[2]) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -2993,10 +3564,13 @@ bool aiIfMoraleLessThanRandom(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (g_Vars.chrdata->morale < g_Vars.chrdata->random) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
-	} else {
-		g_Vars.aioffset += 3;
+	if (!scenarioSourceAiGraphExecuteIfMoraleLessThanRandom(g_Vars.chrdata,
+			cmd[2])) {
+		if (g_Vars.chrdata->morale < g_Vars.chrdata->random) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+		} else {
+			g_Vars.aioffset += 3;
+		}
 	}
 
 	return false;
@@ -3008,7 +3582,9 @@ bool aiIfMoraleLessThanRandom(void)
 bool aiSetAlertness(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	g_Vars.chrdata->alertness = cmd[2];
+	if (!scenarioSourceAiGraphExecuteSetAlertness(g_Vars.chrdata, cmd[2])) {
+		g_Vars.chrdata->alertness = cmd[2];
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -3020,7 +3596,9 @@ bool aiSetAlertness(void)
 bool aiAddAlertness(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	incrementByte(&g_Vars.chrdata->alertness, cmd[2]);
+	if (!scenarioSourceAiGraphExecuteAddAlertness(g_Vars.chrdata, cmd[2])) {
+		incrementByte(&g_Vars.chrdata->alertness, cmd[2]);
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -3032,10 +3610,14 @@ bool aiAddAlertness(void)
 bool aiChrAddAlertness(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[3]);
 
-	if (chr && chr->prop) {
-		incrementByte(&chr->alertness, cmd[2]);
+	if (!scenarioSourceAiGraphExecuteChrAddAlertness(g_Vars.chrdata, cmd[2],
+			cmd[3])) {
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[3]);
+
+		if (chr && chr->prop) {
+			incrementByte(&chr->alertness, cmd[2]);
+		}
 	}
 
 	g_Vars.aioffset += 4;
@@ -3049,7 +3631,9 @@ bool aiChrAddAlertness(void)
 bool aiSubtractAlertness(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	decrementByte(&g_Vars.chrdata->alertness, cmd[2]);
+	if (!scenarioSourceAiGraphExecuteSubtractAlertness(g_Vars.chrdata, cmd[2])) {
+		decrementByte(&g_Vars.chrdata->alertness, cmd[2]);
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -3062,11 +3646,14 @@ bool aiIfAlertness(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if ((g_Vars.chrdata->alertness < cmd[2] && cmd[3] == 0) ||
-			(cmd[2] < g_Vars.chrdata->alertness && cmd[3] == 1)) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
-	} else {
-		g_Vars.aioffset += 5;
+	if (!scenarioSourceAiGraphExecuteIfAlertness(g_Vars.chrdata, cmd[2],
+			cmd[3], cmd[4])) {
+		if ((g_Vars.chrdata->alertness < cmd[2] && cmd[3] == 0) ||
+				(cmd[2] < g_Vars.chrdata->alertness && cmd[3] == 1)) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
+		} else {
+			g_Vars.aioffset += 5;
+		}
 	}
 
 	return false;
@@ -3080,10 +3667,13 @@ bool aiIfChrAlertnessLessThan(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[3]);
 
-	if (chr && chr->alertness < cmd[2]) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
-	} else {
-		g_Vars.aioffset += 5;
+	if (!scenarioSourceAiGraphExecuteIfChrAlertnessLessThan(g_Vars.chrdata,
+			cmd[2], cmd[3], cmd[4])) {
+		if (chr && chr->alertness < cmd[2]) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
+		} else {
+			g_Vars.aioffset += 5;
+		}
 	}
 
 	return false;
@@ -3096,10 +3686,13 @@ bool aiIfAlertnessLessThanRandom(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (g_Vars.chrdata->alertness < g_Vars.chrdata->random) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
-	} else {
-		g_Vars.aioffset += 3;
+	if (!scenarioSourceAiGraphExecuteIfAlertnessLessThanRandom(
+			g_Vars.chrdata, cmd[2])) {
+		if (g_Vars.chrdata->alertness < g_Vars.chrdata->random) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+		} else {
+			g_Vars.aioffset += 3;
+		}
 	}
 
 	return false;
@@ -3112,7 +3705,10 @@ bool aiSetHearDistance(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 distance = (cmd[3] | (cmd[2] << 8)) / 1000.0f;
-	g_Vars.chrdata->hearingscale = distance;
+	if (!scenarioSourceAiGraphExecuteSetHearDistance(g_Vars.chrdata,
+			distance)) {
+		g_Vars.chrdata->hearingscale = distance;
+	}
 
 	g_Vars.aioffset += 4;
 
@@ -3126,8 +3722,11 @@ bool aiSetViewDistance(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (!cheatIsActive(CHEAT_PERFECTDARKNESS)) {
-		g_Vars.chrdata->visionrange = cmd[2];
+	if (!scenarioSourceAiGraphExecuteSetViewDistance(g_Vars.chrdata,
+			cmd[2])) {
+		if (!cheatIsActive(CHEAT_PERFECTDARKNESS)) {
+			g_Vars.chrdata->visionrange = cmd[2];
+		}
 	}
 
 	g_Vars.aioffset += 3;
@@ -3141,7 +3740,10 @@ bool aiSetViewDistance(void)
 bool aiSetGrenadeProbability(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	g_Vars.chrdata->grenadeprob = cmd[2];
+	if (!scenarioSourceAiGraphExecuteSetGrenadeProbability(g_Vars.chrdata,
+			cmd[2])) {
+		g_Vars.chrdata->grenadeprob = cmd[2];
+	}
 	g_Vars.aioffset += + 3;
 
 	return false;
@@ -3154,8 +3756,10 @@ bool aiSetChrNum(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	chrSetChrnum(g_Vars.chrdata, cmd[2]);
-	g_Vars.chrdata->chrnum = cmd[2];
+	if (!scenarioSourceAiGraphExecuteSetChrNum(g_Vars.chrdata, cmd[2])) {
+		chrSetChrnum(g_Vars.chrdata, cmd[2]);
+		g_Vars.chrdata->chrnum = cmd[2];
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -3169,18 +3773,21 @@ bool aiSetMaxDamage(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 maxdamage = (cmd[4] | (cmd[3] << 8)) * 0.1f;
 
-	if (g_Vars.hovercar) {
-		chopperSetMaxDamage(g_Vars.hovercar, maxdamage);
-	} else {
-		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+	if (!scenarioSourceAiGraphExecuteSetMaxDamage(g_Vars.chrdata,
+			g_Vars.hovercar, cmd[2], maxdamage)) {
+		if (g_Vars.hovercar) {
+			chopperSetMaxDamage(g_Vars.hovercar, maxdamage);
+		} else {
+			struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-		if (chr && chr->prop && !chrIsDead(chr)
-					&& chr->actiontype != ACT_DEAD
-					&& chr->actiontype != ACT_DIE
-					&& chr->actiontype != ACT_DRUGGEDKO
-					&& chr->actiontype != ACT_DRUGGEDDROP
-					&& chr->actiontype != ACT_DRUGGEDCOMINGUP) {
-			chrSetMaxDamage(chr, maxdamage);
+			if (chr && chr->prop && !chrIsDead(chr)
+						&& chr->actiontype != ACT_DEAD
+						&& chr->actiontype != ACT_DIE
+						&& chr->actiontype != ACT_DRUGGEDKO
+						&& chr->actiontype != ACT_DRUGGEDDROP
+						&& chr->actiontype != ACT_DRUGGEDCOMINGUP) {
+				chrSetMaxDamage(chr, maxdamage);
+			}
 		}
 	}
 
@@ -3197,7 +3804,9 @@ bool aiAddHealth()
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 amount = (cmd[3] | (cmd[2] << 8)) * 0.1f;
 
-	chrAddHealth(g_Vars.chrdata, amount);
+	if (!scenarioSourceAiGraphExecuteAddHealth(g_Vars.chrdata, amount)) {
+		chrAddHealth(g_Vars.chrdata, amount);
+	}
 
 	g_Vars.aioffset += 4;
 
@@ -3212,11 +3821,13 @@ bool aiSetShield(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 amount = (cmd[3] | (cmd[2] << 8)) * 0.1f;
 
-	if (cheatIsActive(CHEAT_ENEMYSHIELDS)) {
-		amount = amount < 8 ? 8 : amount;
-	}
+	if (!scenarioSourceAiGraphExecuteSetShield(g_Vars.chrdata, amount)) {
+		if (cheatIsActive(CHEAT_ENEMYSHIELDS)) {
+			amount = amount < 8 ? 8 : amount;
+		}
 
-	chrSetShield(g_Vars.chrdata, amount);
+		chrSetShield(g_Vars.chrdata, amount);
+	}
 
 	g_Vars.aioffset += 4;
 
@@ -3230,7 +3841,10 @@ bool aiSetReactionSpeed(void)
 {
 	s8 *cmd = (s8 *)g_Vars.ailist + g_Vars.aioffset;
 
-	g_Vars.chrdata->speedrating = cmd[2];
+	if (!scenarioSourceAiGraphExecuteSetReactionSpeed(g_Vars.chrdata,
+			cmd[2])) {
+		g_Vars.chrdata->speedrating = cmd[2];
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -3243,7 +3857,10 @@ bool aiSetRecoverySpeed(void)
 {
 	s8 *cmd = (s8 *)g_Vars.ailist + g_Vars.aioffset;
 
-	g_Vars.chrdata->arghrating = cmd[2];
+	if (!scenarioSourceAiGraphExecuteSetRecoverySpeed(g_Vars.chrdata,
+			cmd[2])) {
+		g_Vars.chrdata->arghrating = cmd[2];
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -3256,7 +3873,9 @@ bool aiSetAccuracy(void)
 {
 	s8 *cmd = (s8 *)g_Vars.ailist + g_Vars.aioffset;
 
-	g_Vars.chrdata->accuracyrating = cmd[2];
+	if (!scenarioSourceAiGraphExecuteSetAccuracy(g_Vars.chrdata, cmd[2])) {
+		g_Vars.chrdata->accuracyrating = cmd[2];
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -3269,13 +3888,16 @@ bool aiSetDodgeRating(void)
 {
 	s8 *cmd = (s8 *)g_Vars.ailist + g_Vars.aioffset;
 
-	if (cmd[2] == 0) {
-		g_Vars.chrdata->dodgerating = cmd[3];
-	} else if (cmd[2] == 1) {
-		g_Vars.chrdata->maxdodgerating = cmd[3];
-	} else {
-		g_Vars.chrdata->dodgerating = cmd[3];
-		g_Vars.chrdata->maxdodgerating = cmd[3];
+	if (!scenarioSourceAiGraphExecuteSetDodgeRating(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		if (cmd[2] == 0) {
+			g_Vars.chrdata->dodgerating = cmd[3];
+		} else if (cmd[2] == 1) {
+			g_Vars.chrdata->maxdodgerating = cmd[3];
+		} else {
+			g_Vars.chrdata->dodgerating = cmd[3];
+			g_Vars.chrdata->maxdodgerating = cmd[3];
+		}
 	}
 
 	g_Vars.aioffset += 4;
@@ -3290,7 +3912,10 @@ bool aiSetUnarmedDodgeRating(void)
 {
 	s8 *cmd = (s8 *)g_Vars.ailist + g_Vars.aioffset;
 
-	g_Vars.chrdata->unarmeddodgerating = cmd[2];
+	if (!scenarioSourceAiGraphExecuteSetUnarmedDodgeRating(g_Vars.chrdata,
+			cmd[2])) {
+		g_Vars.chrdata->unarmeddodgerating = cmd[2];
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -3303,7 +3928,10 @@ bool aiSetFlag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[3] << 16) | (cmd[4] << 8) | cmd[5] | (cmd[2] << 24);
-	chrSetFlags(g_Vars.chrdata, flags, cmd[6]);
+	if (!scenarioSourceAiGraphExecuteSetFlag(g_Vars.chrdata,
+			flags, cmd[6])) {
+		chrSetFlags(g_Vars.chrdata, flags, cmd[6]);
+	}
 
 	g_Vars.aioffset += 7;
 
@@ -3317,7 +3945,10 @@ bool aiUnsetFlag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[3] << 16) | (cmd[4] << 8) | cmd[5] | (cmd[2] << 24);
-	chrUnsetFlags(g_Vars.chrdata, flags, cmd[6]);
+	if (!scenarioSourceAiGraphExecuteUnsetFlag(g_Vars.chrdata,
+			flags, cmd[6])) {
+		chrUnsetFlags(g_Vars.chrdata, flags, cmd[6]);
+	}
 
 	g_Vars.aioffset += 7;
 
@@ -3329,20 +3960,22 @@ bool aiUnsetFlag(void)
  */
 bool aiIfHasFlag(void)
 {
-	bool result;
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[3] << 16) | (cmd[4] << 8) | cmd[5] | (cmd[2] << 24);
 
-	result = chrHasFlag(g_Vars.chrdata, flags, cmd[7]);
+	if (!scenarioSourceAiGraphExecuteIfHasFlag(g_Vars.chrdata,
+			flags, cmd[7], cmd[6] == 0, cmd[8])) {
+		bool result = chrHasFlag(g_Vars.chrdata, flags, cmd[7]);
 
-	if (cmd[6] == 0) {
-		result = !result;
-	}
+		if (cmd[6] == 0) {
+			result = !result;
+		}
 
-	if (result) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[8]);
-	} else {
-		g_Vars.aioffset += 9;
+		if (result) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[8]);
+		} else {
+			g_Vars.aioffset += 9;
+		}
 	}
 
 	return false;
@@ -3355,7 +3988,10 @@ bool aiChrSetFlag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	chrSetFlagsById(g_Vars.chrdata, cmd[2], flags, cmd[7]);
+	if (!scenarioSourceAiGraphExecuteChrSetFlag(g_Vars.chrdata,
+			cmd[2], flags, cmd[7])) {
+		chrSetFlagsById(g_Vars.chrdata, cmd[2], flags, cmd[7]);
+	}
 	g_Vars.aioffset += 8;
 
 	return false;
@@ -3368,7 +4004,10 @@ bool aiChrUnsetFlag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	chrUnsetFlagsById(g_Vars.chrdata, cmd[2], flags, cmd[7]);
+	if (!scenarioSourceAiGraphExecuteChrUnsetFlag(g_Vars.chrdata,
+			cmd[2], flags, cmd[7])) {
+		chrUnsetFlagsById(g_Vars.chrdata, cmd[2], flags, cmd[7]);
+	}
 	g_Vars.aioffset += 8;
 
 	return false;
@@ -3382,10 +4021,13 @@ bool aiIfChrHasFlag(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
 
-	if (chrHasFlagById(g_Vars.chrdata, cmd[2], flags, cmd[7])) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[8]);
-	} else {
-		g_Vars.aioffset += 9;
+	if (!scenarioSourceAiGraphExecuteIfChrHasFlag(g_Vars.chrdata,
+			cmd[2], flags, cmd[7], cmd[8])) {
+		if (chrHasFlagById(g_Vars.chrdata, cmd[2], flags, cmd[7])) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[8]);
+		} else {
+			g_Vars.aioffset += 9;
+		}
 	}
 
 	return false;
@@ -3398,7 +4040,9 @@ bool aiSetStageFlag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[3] << 16) | (cmd[4] << 8) | cmd[5] | (cmd[2] << 24);
-	chrSetStageFlag(g_Vars.chrdata, flags);
+	if (!scenarioSourceAiGraphExecuteSetStageFlag(flags)) {
+		chrSetStageFlag(g_Vars.chrdata, flags);
+	}
 	g_Vars.aioffset += 6;
 
 	return false;
@@ -3411,7 +4055,9 @@ bool aiUnsetStageFlag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[3] << 16) | (cmd[4] << 8) | cmd[5] | (cmd[2] << 24);
-	chrUnsetStageFlag(g_Vars.chrdata, flags);
+	if (!scenarioSourceAiGraphExecuteUnsetStageFlag(flags)) {
+		chrUnsetStageFlag(g_Vars.chrdata, flags);
+	}
 	g_Vars.aioffset += 6;
 
 	return false;
@@ -3425,11 +4071,14 @@ bool aiIfStageFlagEq(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[3] << 16) | (cmd[4] << 8) | cmd[5] | (cmd[2] << 24);
 
-	if ((chrHasStageFlag(g_Vars.chrdata, flags) && cmd[6] == 1) ||
-			(!chrHasStageFlag(g_Vars.chrdata, flags) && cmd[6] == 0)) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[7]);
-	} else {
-		g_Vars.aioffset += 8;
+	if (!scenarioSourceAiGraphExecuteIfStageFlagEq(flags, cmd[6],
+			cmd[7])) {
+		if ((chrHasStageFlag(g_Vars.chrdata, flags) && cmd[6] == 1) ||
+				(!chrHasStageFlag(g_Vars.chrdata, flags) && cmd[6] == 0)) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[7]);
+		} else {
+			g_Vars.aioffset += 8;
+		}
 	}
 
 	return false;
@@ -3443,7 +4092,9 @@ bool aiSetChrflag(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[3] << 16) | (cmd[4] << 8) | cmd[5] | (cmd[2] << 24);
 
-	g_Vars.chrdata->chrflags |= flags;
+	if (!scenarioSourceAiGraphExecuteSetChrflag(g_Vars.chrdata, flags)) {
+		g_Vars.chrdata->chrflags |= flags;
+	}
 	g_Vars.aioffset += 6;
 
 	return false;
@@ -3457,7 +4108,9 @@ bool aiUnsetChrflag(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[3] << 16) | (cmd[4] << 8) | cmd[5] | (cmd[2] << 24);
 
-	g_Vars.chrdata->chrflags &= ~flags;
+	if (!scenarioSourceAiGraphExecuteUnsetChrflag(g_Vars.chrdata, flags)) {
+		g_Vars.chrdata->chrflags &= ~flags;
+	}
 	g_Vars.aioffset += 6;
 
 	return false;
@@ -3471,10 +4124,13 @@ bool aiIfHasChrflag(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[3] << 16) | (cmd[4] << 8) | cmd[5] | (cmd[2] << 24);
 
-	if ((g_Vars.chrdata->chrflags & flags) == flags) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
-	} else {
-		g_Vars.aioffset += 7;
+	if (!scenarioSourceAiGraphExecuteIfHasChrflag(g_Vars.chrdata,
+			flags, cmd[6])) {
+		if ((g_Vars.chrdata->chrflags & flags) == flags) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
+		} else {
+			g_Vars.aioffset += 7;
+		}
 	}
 
 	return false;
@@ -3487,10 +4143,14 @@ bool aiChrSetChrflag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr) {
-		chr->chrflags |= flags;
+	if (!scenarioSourceAiGraphExecuteChrSetChrflag(g_Vars.chrdata,
+			cmd[2], flags)) {
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+		if (chr) {
+			chr->chrflags |= flags;
+		}
 	}
 
 	g_Vars.aioffset += 7;
@@ -3505,10 +4165,14 @@ bool aiChrUnsetChrflag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr) {
-		chr->chrflags &= ~flags;
+	if (!scenarioSourceAiGraphExecuteChrUnsetChrflag(g_Vars.chrdata,
+			cmd[2], flags)) {
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+		if (chr) {
+			chr->chrflags &= ~flags;
+		}
 	}
 
 	g_Vars.aioffset += 7;
@@ -3523,12 +4187,16 @@ bool aiIfChrHasChrflag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr && (chr->chrflags & flags) == flags) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[7]);
-	} else {
-		g_Vars.aioffset += 8;
+	if (!scenarioSourceAiGraphExecuteIfChrHasChrflag(g_Vars.chrdata,
+			cmd[2], flags, cmd[7])) {
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+		if (chr && (chr->chrflags & flags) == flags) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[7]);
+		} else {
+			g_Vars.aioffset += 8;
+		}
 	}
 
 	return false;
@@ -3541,10 +4209,14 @@ bool aiChrSetHiddenFlag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr) {
-		chr->hidden |= flags;
+	if (!scenarioSourceAiGraphExecuteChrSetHiddenFlag(g_Vars.chrdata,
+			cmd[2], flags)) {
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+		if (chr) {
+			chr->hidden |= flags;
+		}
 	}
 
 	g_Vars.aioffset += 7;
@@ -3559,10 +4231,14 @@ bool aiChrUnsetHiddenFlag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr) {
-		chr->hidden &= ~flags;
+	if (!scenarioSourceAiGraphExecuteChrUnsetHiddenFlag(g_Vars.chrdata,
+			cmd[2], flags)) {
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+		if (chr) {
+			chr->hidden &= ~flags;
+		}
 	}
 
 	g_Vars.aioffset += 7;
@@ -3577,12 +4253,16 @@ bool aiIfChrHasHiddenFlag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr && (chr->hidden & flags) == flags) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[7]);
-	} else {
-		g_Vars.aioffset += 8;
+	if (!scenarioSourceAiGraphExecuteIfChrHasHiddenFlag(g_Vars.chrdata,
+			cmd[2], flags, cmd[7])) {
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+		if (chr && (chr->hidden & flags) == flags) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[7]);
+		} else {
+			g_Vars.aioffset += 8;
+		}
 	}
 
 	return false;
@@ -3595,10 +4275,13 @@ bool aiSetObjFlag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop) {
-		obj->flags |= flags;
+	if (!scenarioSourceAiGraphExecuteSetObjFlag(cmd[2], flags, 1)) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop) {
+			obj->flags |= flags;
+		}
 	}
 
 	g_Vars.aioffset += 7;
@@ -3613,10 +4296,13 @@ bool aiUnsetObjFlag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop) {
-		obj->flags &= ~flags;
+	if (!scenarioSourceAiGraphExecuteUnsetObjFlag(cmd[2], flags, 1)) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop) {
+			obj->flags &= ~flags;
+		}
 	}
 
 	g_Vars.aioffset += 7;
@@ -3631,12 +4317,16 @@ bool aiIfObjHasFlag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop && (obj->flags & flags) == flags) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[7]);
-	} else {
-		g_Vars.aioffset += 8;
+	if (!scenarioSourceAiGraphExecuteIfObjHasFlag(cmd[2], flags, 1,
+			cmd[7])) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop && (obj->flags & flags) == flags) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[7]);
+		} else {
+			g_Vars.aioffset += 8;
+		}
 	}
 
 	return false;
@@ -3649,10 +4339,13 @@ bool aiSetObjFlag2(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop) {
-		obj->flags2 |= flags;
+	if (!scenarioSourceAiGraphExecuteSetObjFlag(cmd[2], flags, 2)) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop) {
+			obj->flags2 |= flags;
+		}
 	}
 
 	g_Vars.aioffset += 7;
@@ -3667,10 +4360,13 @@ bool aiUnsetObjFlag2(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop) {
-		obj->flags2 &= ~flags;
+	if (!scenarioSourceAiGraphExecuteUnsetObjFlag(cmd[2], flags, 2)) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop) {
+			obj->flags2 &= ~flags;
+		}
 	}
 
 	g_Vars.aioffset += 7;
@@ -3685,12 +4381,16 @@ bool aiIfObjHasFlag2(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop && (obj->flags2 & flags) == flags) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[7]);
-	} else {
-		g_Vars.aioffset += 8;
+	if (!scenarioSourceAiGraphExecuteIfObjHasFlag(cmd[2], flags, 2,
+			cmd[7])) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop && (obj->flags2 & flags) == flags) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[7]);
+		} else {
+			g_Vars.aioffset += 8;
+		}
 	}
 
 	return false;
@@ -3703,10 +4403,13 @@ bool aiSetObjFlag3(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop) {
-		obj->flags3 |= flags;
+	if (!scenarioSourceAiGraphExecuteSetObjFlag(cmd[2], flags, 3)) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop) {
+			obj->flags3 |= flags;
+		}
 	}
 
 	g_Vars.aioffset += 7;
@@ -3721,10 +4424,13 @@ bool aiUnsetObjFlag3(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop) {
-		obj->flags3 &= ~flags;
+	if (!scenarioSourceAiGraphExecuteUnsetObjFlag(cmd[2], flags, 3)) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop) {
+			obj->flags3 &= ~flags;
+		}
 	}
 
 	g_Vars.aioffset += 7;
@@ -3739,12 +4445,16 @@ bool aiIfObjHasFlag3(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 flags = (cmd[4] << 16) | (cmd[5] << 8) | cmd[6] | (cmd[3] << 24);
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop && (obj->flags3 & flags) == flags) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[7]);
-	} else {
-		g_Vars.aioffset += 8;
+	if (!scenarioSourceAiGraphExecuteIfObjHasFlag(cmd[2], flags, 3,
+			cmd[7])) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop && (obj->flags3 & flags) == flags) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[7]);
+		} else {
+			g_Vars.aioffset += 8;
+		}
 	}
 
 	return false;
@@ -3756,7 +4466,9 @@ bool aiIfObjHasFlag3(void)
 bool aiSetChrPreset(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	chrSetChrPreset(g_Vars.chrdata, cmd[2]);
+	if (!scenarioSourceAiGraphExecuteSetChrPreset(g_Vars.chrdata, cmd[2])) {
+		chrSetChrPreset(g_Vars.chrdata, cmd[2]);
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -3768,7 +4480,10 @@ bool aiSetChrPreset(void)
 bool aiSetChrTarget(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	chrSetChrPresetByChrnum(g_Vars.chrdata, cmd[2], cmd[3]);
+	if (!scenarioSourceAiGraphExecuteSetChrTarget(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		chrSetChrPresetByChrnum(g_Vars.chrdata, cmd[2], cmd[3]);
+	}
 	g_Vars.aioffset += 4;
 
 	return false;
@@ -3783,7 +4498,10 @@ bool aiSetPadPreset(void)
 	u16 pad_id = cmd[3] | (cmd[2] << 8);
 
 	if (g_Vars.chrdata) {
-		chrSetPadPreset(g_Vars.chrdata, pad_id);
+		if (!scenarioSourceAiGraphExecuteSetPadPreset(g_Vars.chrdata,
+				pad_id)) {
+			chrSetPadPreset(g_Vars.chrdata, pad_id);
+		}
 	} else if (g_Vars.heli) {
 		g_Vars.heli->base.pad = pad_id;
 	}
@@ -3801,7 +4519,10 @@ bool aiChrSetPadPreset(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 pad_id = cmd[4] | (cmd[3] << 8);
 
-	chrSetPadPresetByChrnum(g_Vars.chrdata, cmd[2], pad_id);
+	if (!scenarioSourceAiGraphExecuteChrSetPadPreset(g_Vars.chrdata,
+			cmd[2], pad_id)) {
+		chrSetPadPresetByChrnum(g_Vars.chrdata, cmd[2], pad_id);
+	}
 
 	g_Vars.aioffset += 5;
 
@@ -3814,10 +4535,13 @@ bool aiChrSetPadPreset(void)
 bool aiChrCopyPadPreset(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct chrdata *chrsrc = chrFindById(g_Vars.chrdata, cmd[2]);
-	struct chrdata *chrdst = chrFindById(g_Vars.chrdata, cmd[3]);
 
-	chrdst->padpreset1 = chrsrc->padpreset1;
+	if (!scenarioSourceAiGraphExecuteChrCopyPadPreset(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		struct chrdata *chrsrc = chrFindById(g_Vars.chrdata, cmd[2]);
+		struct chrdata *chrdst = chrFindById(g_Vars.chrdata, cmd[3]);
+		chrdst->padpreset1 = chrsrc->padpreset1;
+	}
 	g_Vars.aioffset += 4;
 
 	return false;
@@ -3832,7 +4556,13 @@ bool aiChrCopyPadPreset(void)
 bool aiPrint(void)
 {
 	u32 len;
-	u32 result = dprint();
+	u32 result;
+
+	if (scenarioSourceAiGraphExecutePrint()) {
+		return false;
+	}
+
+	result = dprint();
 
 	if (result) {
 		result = 2;
@@ -3854,6 +4584,10 @@ bool aiPrint(void)
  */
 bool aiNoOp0091(void)
 {
+	if (scenarioSourceAiGraphExecuteNoOp("0091", 2)) {
+		return false;
+	}
+
 	g_Vars.aioffset += 2;
 	return false;
 }
@@ -3863,6 +4597,11 @@ bool aiNoOp0091(void)
  */
 bool aiRestartTimer(void)
 {
+	if (scenarioSourceAiGraphExecuteRestartTimer(g_Vars.chrdata,
+			g_Vars.hovercar)) {
+		return false;
+	}
+
 	if (g_Vars.chrdata) {
 		chrRestartTimer(g_Vars.chrdata);
 	} else if (g_Vars.hovercar) {
@@ -3879,6 +4618,10 @@ bool aiRestartTimer(void)
  */
 bool aiResetTimer(void)
 {
+	if (scenarioSourceAiGraphExecuteResetTimer(g_Vars.chrdata)) {
+		return false;
+	}
+
 	g_Vars.chrdata->timer60 = 0;
 	g_Vars.aioffset += 2;
 
@@ -3890,6 +4633,10 @@ bool aiResetTimer(void)
  */
 bool aiPauseTimer(void)
 {
+	if (scenarioSourceAiGraphExecutePauseTimer(g_Vars.chrdata)) {
+		return false;
+	}
+
 	g_Vars.chrdata->hidden &= ~CHRHFLAG_TIMER_RUNNING;
 	g_Vars.aioffset += 2;
 
@@ -3901,6 +4648,10 @@ bool aiPauseTimer(void)
  */
 bool aiResumeTimer(void)
 {
+	if (scenarioSourceAiGraphExecuteResumeTimer(g_Vars.chrdata)) {
+		return false;
+	}
+
 	g_Vars.chrdata->hidden |= CHRHFLAG_TIMER_RUNNING;
 	g_Vars.aioffset += 2;
 
@@ -3913,6 +4664,11 @@ bool aiResumeTimer(void)
 bool aiIfTimerStopped(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfTimerStopped(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
 
 	if ((g_Vars.chrdata->hidden & CHRHFLAG_TIMER_RUNNING) == 0) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
@@ -3929,7 +4685,14 @@ bool aiIfTimerStopped(void)
 bool aiIfTimerGreaterThanRandom(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	f32 timer = chrGetTimer(g_Vars.chrdata);
+	f32 timer;
+
+	if (scenarioSourceAiGraphExecuteIfTimerGreaterThanRandom(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
+	timer = chrGetTimer(g_Vars.chrdata);
 
 	if (g_Vars.chrdata->random < timer) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
@@ -3948,6 +4711,11 @@ bool aiIfTimerLessThan(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 value = (u32)((cmd[3] << 8) | cmd[4] | (cmd[2] << 16)) / 60.0f;
 
+	if (scenarioSourceAiGraphExecuteIfTimerLessThan(g_Vars.chrdata,
+			g_Vars.hovercar, value, cmd[5])) {
+		return false;
+	}
+
 	if ((g_Vars.chrdata && chrGetTimer(g_Vars.chrdata) < value) ||
 			(g_Vars.hovercar && chopperGetTimer(g_Vars.hovercar) < value)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
@@ -3965,6 +4733,11 @@ bool aiIfTimerGreaterThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 value = (u32)((cmd[3] << 8) | cmd[4] | (cmd[2] << 16)) / 60.0f;
+
+	if (scenarioSourceAiGraphExecuteIfTimerGreaterThan(g_Vars.chrdata,
+			g_Vars.hovercar, value, cmd[5])) {
+		return false;
+	}
 
 	// These two function calls were likely used in a debug print statement
 	if (g_Vars.chrdata) {
@@ -3990,6 +4763,10 @@ bool aiIfTimerGreaterThan(void)
  */
 bool aiShowCountdownTimer(void)
 {
+	if (scenarioSourceAiGraphExecuteShowCountdownTimer()) {
+		return false;
+	}
+
 	countdownTimerSetVisible(COUNTDOWNTIMERREASON_AI, true);
 	g_Vars.aioffset += 2;
 
@@ -4001,6 +4778,10 @@ bool aiShowCountdownTimer(void)
  */
 bool aiHideCountdownTimer(void)
 {
+	if (scenarioSourceAiGraphExecuteHideCountdownTimer()) {
+		return false;
+	}
+
 	countdownTimerSetVisible(COUNTDOWNTIMERREASON_AI, false);
 	g_Vars.aioffset += 2;
 
@@ -4015,6 +4796,10 @@ bool aiSetCountdownTimerValue(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 seconds = cmd[3] | (cmd[2] << 8);
 
+	if (scenarioSourceAiGraphExecuteSetCountdownTimerValue(seconds)) {
+		return false;
+	}
+
 	countdownTimerSetValue60(seconds * 60);
 	g_Vars.aioffset += 4;
 
@@ -4026,6 +4811,10 @@ bool aiSetCountdownTimerValue(void)
  */
 bool aiStopCountdownTimer(void)
 {
+	if (scenarioSourceAiGraphExecuteStopCountdownTimer()) {
+		return false;
+	}
+
 	countdownTimerSetRunning(false);
 	g_Vars.aioffset += 2;
 
@@ -4037,6 +4826,10 @@ bool aiStopCountdownTimer(void)
  */
 bool aiStartCountdownTimer(void)
 {
+	if (scenarioSourceAiGraphExecuteStartCountdownTimer()) {
+		return false;
+	}
+
 	countdownTimerSetRunning(true);
 	g_Vars.aioffset += 2;
 
@@ -4049,6 +4842,10 @@ bool aiStartCountdownTimer(void)
 bool aiIfCountdownTimerStopped(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfCountdownTimerStopped(cmd[2])) {
+		return false;
+	}
 
 	if (!countdownTimerIsRunning()) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
@@ -4067,6 +4864,11 @@ bool aiIfCountdownTimerLessThan(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 value = cmd[3] | (cmd[2] << 8);
 
+	if (scenarioSourceAiGraphExecuteIfCountdownTimerLessThan(value,
+			cmd[4])) {
+		return false;
+	}
+
 	if (countdownTimerGetValue60() < value * 60) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
 	} else {
@@ -4083,6 +4885,11 @@ bool aiIfCountdownTimerGreaterThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 value = cmd[3] | (cmd[2] << 8);
+
+	if (scenarioSourceAiGraphExecuteIfCountdownTimerGreaterThan(value,
+			cmd[4])) {
+		return false;
+	}
 
 	if (countdownTimerGetValue60() > value * 60) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
@@ -4103,6 +4910,12 @@ bool aiSpawnChrAtPad(void)
 	u32 spawnflags = cmd->b8 << 24 | cmd->b9 << 16 | cmd->b10 << 8 | cmd->b11;
 	u16 ailistid = cmd->b6 << 8 | cmd->b7;
 	u8 *ailist = ailistFindById(ailistid);
+
+	if (scenarioSourceAiGraphExecuteSpawnChrAtPad(g_Vars.chrdata,
+			cmd->b2, (s8)cmd->b3, pad, ailistid, spawnflags,
+			cmd->b12)) {
+		return false;
+	}
 
 	if (spawnflags);
 
@@ -4125,6 +4938,12 @@ bool aiSpawnChrAtChr(void)
 	u16 ailistid = cmd[6] | (cmd[5] << 8);
 	u8 *ailist = ailistFindById(ailistid);
 
+	if (scenarioSourceAiGraphExecuteSpawnChrAtChr(g_Vars.chrdata,
+			cmd[2], (s8)cmd[3], cmd[4], ailistid, spawnflags,
+			cmd[11])) {
+		return false;
+	}
+
 	if (chrSpawnAtChr(g_Vars.chrdata, cmd[2], (s8)cmd[3], cmd[4], ailist, spawnflags)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[11]);
 	} else {
@@ -4143,6 +4962,11 @@ bool aiTryEquipWeapon(void)
 	u32 flags = (cmd[6] << 16) | (cmd[7] << 8) | cmd[8] | (cmd[5] << 24);
 	u32 model = cmd[3] | (cmd[2] << 8);
 	struct prop *prop = NULL;
+
+	if (scenarioSourceAiGraphExecuteTryEquipWeapon(model, cmd[4],
+			flags, cmd[9])) {
+		return false;
+	}
 
 	if (g_Vars.chrdata && g_Vars.chrdata->prop && g_Vars.chrdata->model) {
 		// If the Marqis cheat is active, don't give guns to chrs,
@@ -4250,6 +5074,10 @@ bool aiTryEquipHat(void)
 	u32 modelnum = cmd[3] | (cmd[2] << 8);
 	struct prop *prop = NULL;
 
+	if (scenarioSourceAiGraphExecuteTryEquipHat(modelnum, flags, cmd[8])) {
+		return false;
+	}
+
 	if (g_Vars.chrdata && g_Vars.chrdata->prop && g_Vars.chrdata->model) {
 		prop = hatCreateForChr(g_Vars.chrdata, modelnum, flags);
 	}
@@ -4284,6 +5112,11 @@ bool aiDuplicateChr(void)
 	struct weaponobj *cloneweapon1 = NULL;
 	struct weaponobj *cloneweapon0 = NULL;
 	struct prop *cloneweapon1prop = NULL;
+
+	if (scenarioSourceAiGraphExecuteDuplicateChr(g_Vars.chrdata, cmd[2],
+			ailistid, spawnflags, cmd[9])) {
+		return false;
+	}
 
 	if (chr && (chr->chrflags & CHRCFLAG_CLONEABLE)) {
 		cloneprop = chrSpawnAtChr(g_Vars.chrdata, chr->bodynum, -1, chr->chrnum, ailist, spawnflags);
@@ -4366,6 +5199,13 @@ bool aiDuplicateChr(void)
 bool aiShowHudmsg(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	u16 text_id = cmd[4] | (cmd[3] << 8);
+
+	if (scenarioSourceAiGraphExecuteShowHudmsg(g_Vars.chrdata, cmd[2],
+			text_id)) {
+		return false;
+	}
+
 	char *text = langGet(cmd[4] | (cmd[3] << 8));
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
@@ -4391,6 +5231,12 @@ bool aiShowHudmsg(void)
 bool aiShowHudmsgMiddle(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	u16 text_id = cmd[5] | (cmd[4] << 8);
+
+	if (scenarioSourceAiGraphExecuteShowHudmsgMiddle(cmd[2], cmd[3],
+			text_id)) {
+		return false;
+	}
 
 	if (cmd[2] == 0) {
 		u32 text_id = cmd[5] | (cmd[4] << 8);
@@ -4415,6 +5261,13 @@ bool aiShowHudmsgMiddle(void)
 bool aiShowHudmsgTopMiddle(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	u16 text_id = cmd[4] | (cmd[3] << 8);
+
+	if (scenarioSourceAiGraphExecuteShowHudmsgTopMiddle(g_Vars.chrdata,
+			cmd[2], text_id, cmd[5])) {
+		return false;
+	}
+
 	char *text = langGet(cmd[4] | (cmd[3] << 8));
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
@@ -4447,6 +5300,11 @@ bool aiSpeak(void)
 	s32 playernum = prevplayernum;
 	u32 channelnum;
 	char *text = text_id >= 0 ? langGet(cmd[4] | (cmd[3] << 8)) : NULL;
+
+	if (scenarioSourceAiGraphExecuteSpeak(g_Vars.chrdata, cmd[2],
+			text_id, audio_id, (s8)cmd[7], cmd[8])) {
+		return false;
+	}
 
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		playernum = playermgrGetPlayerNumByProp(chr->prop);
@@ -4483,6 +5341,10 @@ bool aiPlaySound(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	s16 audio_id = cmd[3] | (cmd[2] << 8);
 
+	if (scenarioSourceAiGraphExecutePlaySound((s8)cmd[4], audio_id)) {
+		return false;
+	}
+
 	psPlayFromProp((s8)cmd[4], audio_id, 0, NULL, PSTYPE_NONE, 0);
 
 	g_Vars.aioffset += 5;
@@ -4497,6 +5359,10 @@ bool aiAssignSound(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	s16 audio_id = cmd[3] | (cmd[2] << 8);
+
+	if (scenarioSourceAiGraphExecuteAssignSound((s8)cmd[4], audio_id)) {
+		return false;
+	}
 
 	psPlayFromProp((s8)cmd[4], audio_id, -1, NULL, PSTYPE_MARKER, 0);
 
@@ -4513,6 +5379,10 @@ bool aiAudioMuteChannel(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	s8 channel = (s8)cmd[2];
 
+	if (scenarioSourceAiGraphExecuteAudioMuteChannel(channel)) {
+		return false;
+	}
+
 	psMuteChannel(channel);
 	g_Vars.aioffset += 3;
 
@@ -4526,6 +5396,10 @@ bool aiIfChannelFree(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	s8 channel = (s8) cmd[2];
+
+	if (scenarioSourceAiGraphExecuteIfChannelFree(channel, cmd[3])) {
+		return false;
+	}
 
 	if (psIsChannelFree(channel)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
@@ -4545,6 +5419,11 @@ bool aiSetObjectSoundVolume(void)
 	s16 volume = cmd[4] | (cmd[3] << 8);
 	u16 volchangetimer60 = cmd[6] | (cmd[5] << 8);
 
+	if (scenarioSourceAiGraphExecuteSetObjectSoundVolume((s8)cmd[2],
+			volume, volchangetimer60)) {
+		return false;
+	}
+
 	psModify((s8)cmd[2], volume, -1, NULL, volchangetimer60, 2500, 3000, 0);
 
 	g_Vars.aioffset += 7;
@@ -4562,6 +5441,11 @@ bool aiSetObjectSoundVolumeByDistance(void)
 	u16 volchangetimer60 = cmd[6] | (cmd[5] << 8);
 	s32 volume = psCalculateVolumeFromDistance(playerdist, 400, 2500, 3000, AL_VOL_FULL);
 
+	if (scenarioSourceAiGraphExecuteSetObjectSoundVolumeByDistance(
+			(s8)cmd[2], playerdist, volchangetimer60)) {
+		return false;
+	}
+
 	psModify((s8)cmd[2], volume, -1, NULL, volchangetimer60, 2500, 3000, 0);
 
 	g_Vars.aioffset += 7;
@@ -4577,6 +5461,11 @@ bool aiSetObjectSoundPlaying(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct defaultobj *obj = objFindByTagId(cmd[3]);
 	u16 volchangetimer60 = cmd[5] | (cmd[4] << 8);
+
+	if (scenarioSourceAiGraphExecuteSetObjectSoundPlaying((s8)cmd[2],
+			cmd[3], volchangetimer60)) {
+		return false;
+	}
 
 	if (obj && obj->prop) {
 		psModify((s8)cmd[2], -1, -1, obj->prop, volchangetimer60, 2500, 3000, 0);
@@ -4597,6 +5486,11 @@ bool aiPlayRepeatingSoundFromObject(void)
 	u16 thing1 = cmd[5] | (cmd[4] << 8);
 	u16 dist2 = cmd[7] | (cmd[6] << 8);
 	u16 dist3 = cmd[9] | (cmd[8] << 8);
+
+	if (scenarioSourceAiGraphExecutePlayRepeatingSoundFromObject(
+			(s8)cmd[2], cmd[3], thing1, dist2, dist3)) {
+		return false;
+	}
 
 	if (obj && obj->prop) {
 		s32 volchangetimer60;
@@ -4624,6 +5518,11 @@ bool aiPlaySoundFromEntity(void)
 	u16 volchangetimer60 = cmd[5] | (cmd[4] << 8);
 	u16 dist2 = cmd[7] | (cmd[6] << 8);
 	u16 dist3 = cmd[9] | (cmd[8] << 8);
+
+	if (scenarioSourceAiGraphExecutePlaySoundFromEntity((s8)cmd[2],
+			cmd[3], volchangetimer60, dist2, dist3, cmd[10])) {
+		return false;
+	}
 
 	if (cmd[10] == 0) {
 		struct defaultobj *obj = objFindByTagId(cmd[3]);
@@ -4653,6 +5552,11 @@ bool aiPlayRepeatingSoundFromPad(void)
 	s16 padnum = cmd[4] | (cmd[3] << 8);
 	s16 sound = cmd[6] | (cmd[5] << 8);
 
+	if (scenarioSourceAiGraphExecutePlayRepeatingSoundFromPad(padnum,
+			sound)) {
+		return false;
+	}
+
 	psCreate(0, NULL, sound, padnum, -1, PSFLAG_REPEATING, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
 
 	g_Vars.aioffset += 7;
@@ -4667,6 +5571,11 @@ bool aiIfObjectSoundVolumeLessThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	s16 value = cmd[4] | (cmd[3] << 8);
+
+	if (scenarioSourceAiGraphExecuteIfObjectSoundVolumeLessThan((s8)cmd[2],
+			value, cmd[5])) {
+		return false;
+	}
 
 	if (psGetVolume((s8)cmd[2]) < value) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
@@ -4684,6 +5593,10 @@ bool aiHovercarBeginPath(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct path *path = pathFindById(cmd[2]);
+
+	if (scenarioSourceAiGraphExecuteHovercarBeginPath(cmd[2])) {
+		return false;
+	}
 
 	if (g_Vars.truck) {
 		g_Vars.truck->path = path;
@@ -4739,6 +5652,10 @@ bool aiSetVehicleSpeed(void)
 	f32 speedtime = cmd[5] | (cmd[4] << 8);
 	f32 speedaim = (cmd[3] | (cmd[2] << 8)) * 100.0f / 15360.0f;
 
+	if (scenarioSourceAiGraphExecuteSetVehicleSpeed(speedaim, speedtime)) {
+		return false;
+	}
+
 	if (g_Vars.truck) {
 		g_Vars.truck->speedaim = speedaim;
 		g_Vars.truck->speedtime60 = speedtime;
@@ -4763,6 +5680,10 @@ bool aiSetRotorSpeed(void)
 	f32 speedtime = cmd[5] | (cmd[4] << 8);
 	f32 speedaim = (cmd[3] | (cmd[2] << 8)) * M_BADTAU / 3600;
 
+	if (scenarioSourceAiGraphExecuteSetRotorSpeed(speedaim, speedtime)) {
+		return false;
+	}
+
 	if (g_Vars.heli) {
 		g_Vars.heli->rotoryspeedaim = speedaim;
 		g_Vars.heli->rotoryspeedtime = speedtime;
@@ -4778,6 +5699,10 @@ bool aiSetRotorSpeed(void)
  */
 bool aiNoOp00d8(void)
 {
+	if (scenarioSourceAiGraphExecuteNoOp("00d8", 3)) {
+		return false;
+	}
+
 	g_Vars.aioffset += 3;
 	return false;
 }
@@ -4787,6 +5712,10 @@ bool aiNoOp00d8(void)
  */
 bool aiNoOp00d9(void)
 {
+	if (scenarioSourceAiGraphExecuteNoOp("00d9", 3)) {
+		return false;
+	}
+
 	g_Vars.aioffset += 3;
 	return false;
 }
@@ -4798,6 +5727,11 @@ bool aiSetObjImage(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+	if (scenarioSourceAiGraphExecuteSetObjImage(cmd[2], cmd[3],
+			cmd[4])) {
+		return false;
+	}
 
 	if (obj && obj->prop) {
 		if (obj->type == OBJTYPE_SINGLEMONITOR) {
@@ -4823,6 +5757,10 @@ bool aiSetObjImage(void)
  */
 bool aiNoOp00db(void)
 {
+	if (scenarioSourceAiGraphExecuteNoOp("00db", 3)) {
+		return false;
+	}
+
 	g_Vars.aioffset += 3;
 	return false;
 }
@@ -4832,6 +5770,10 @@ bool aiNoOp00db(void)
  */
 bool aiEndLevel(void)
 {
+	if (scenarioSourceAiGraphExecuteEndLevel()) {
+		return false;
+	}
+
 	if (debugAllowEndLevel()) {
 		if (g_Vars.autocutplaying) {
 			g_Vars.autocutfinished = true;
@@ -4850,6 +5792,10 @@ bool aiEndLevel(void)
  */
 bool ai00dd(void)
 {
+	if (scenarioSourceAiGraphExecuteEndCutscene()) {
+		return false;
+	}
+
 	playerEndCutscene();
 	g_Vars.aioffset += 2;
 	return false;
@@ -4862,6 +5808,11 @@ bool aiWarpJoToPad(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 pad_id = cmd[3] | (cmd[2] << 8);
+
+	if (scenarioSourceAiGraphExecuteWarpJoToPad(pad_id)) {
+		return false;
+	}
+
 	playerPrepareWarpType1(pad_id);
 
 	g_Vars.aioffset += 4;
@@ -4874,6 +5825,10 @@ bool aiWarpJoToPad(void)
  */
 bool aiNoOp010d(void)
 {
+	if (scenarioSourceAiGraphExecuteNoOp("010d", 2)) {
+		return false;
+	}
+
 	g_Vars.aioffset += 2;
 	return false;
 }
@@ -4885,6 +5840,12 @@ bool aiSetCameraAnimation(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	s16 anim_id = cmd[3] | (cmd[2] << 8);
+	s32 graph_result;
+
+	graph_result = scenarioSourceAiGraphExecuteSetCameraAnimation(anim_id);
+	if (graph_result) {
+		return graph_result == 2;
+	}
 
 	playerStartCutscene(anim_id);
 
@@ -4905,10 +5866,12 @@ bool aiIfInCutscene(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (playerCurrentCutsceneInProgress()) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
-	} else {
-		g_Vars.aioffset += 3;
+	if (!scenarioSourceAiGraphExecuteIfInCutscene(cmd[2])) {
+		if (playerCurrentCutsceneInProgress()) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+		} else {
+			g_Vars.aioffset += 3;
+		}
 	}
 
 	return false;
@@ -4921,11 +5884,13 @@ bool aiIfCutsceneButtonPressed(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if ((playerAnyCutsceneInProgress() && playerAnyCutsceneSkipRequested()) ||
-			(g_Vars.stagenum == STAGE_CITRAINING && var80087260 > 0)) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
-	} else {
-		g_Vars.aioffset += 3;
+	if (!scenarioSourceAiGraphExecuteIfCutsceneButtonPressed(cmd[2])) {
+		if ((playerAnyCutsceneInProgress() && playerAnyCutsceneSkipRequested()) ||
+				(g_Vars.stagenum == STAGE_CITRAINING && var80087260 > 0)) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+		} else {
+			g_Vars.aioffset += 3;
+		}
 	}
 
 	return false;
@@ -4937,6 +5902,9 @@ bool aiIfCutsceneButtonPressed(void)
 bool ai0175(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	if (scenarioSourceAiGraphExecuteReorientForCutsceneStop(cmd[2])) {
+		return false;
+	}
 	playerReorientForCutsceneStop(cmd[2]);
 	g_Vars.aioffset += 3;
 
@@ -4954,6 +5922,11 @@ bool aiObjectDoAnimation(void)
 	f32 thing;
 	s32 startframe = cmd[7] | (cmd[6] << 8);
 	f32 fstartframe;
+
+	if (scenarioSourceAiGraphExecuteObjectDoAnimation(anim_id, cmd[4],
+			cmd[5], startframe)) {
+		return false;
+	}
 
 	if (startframe == 0xffff) {
 		fstartframe = 0;
@@ -5017,6 +5990,10 @@ bool aiEnableChr(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
+	if (scenarioSourceAiGraphExecuteEnableChr(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
+
 	if (chr && chr->prop && chr->model) {
 		propActivate(chr->prop);
 		propEnable(chr->prop);
@@ -5036,6 +6013,10 @@ bool aiDisableChr(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
+	if (scenarioSourceAiGraphExecuteDisableChr(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
+
 	if (chr && chr->prop && chr->model) {
 		propDeregisterRooms(chr->prop);
 		propDelist(chr->prop);
@@ -5054,6 +6035,10 @@ bool aiEnableObj(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+	if (scenarioSourceAiGraphExecuteEnableObj(cmd[2])) {
+		return false;
+	}
 
 	if (obj && obj->prop && obj->model) {
 		propActivate(obj->prop);
@@ -5080,6 +6065,10 @@ bool aiDisableObj(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+	if (scenarioSourceAiGraphExecuteDisableObj(cmd[2])) {
+		return false;
+	}
 
 	if (obj && obj->prop && obj->model) {
 #if VERSION >= VERSION_PAL_FINAL
@@ -5120,6 +6109,11 @@ bool ai00df(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct tag *tag = tagFindById(cmd[2]);
 
+	if (scenarioSourceAiGraphExecuteWarpJoToTag(cmd[2],
+			cmd[4] | (cmd[3] << 8), cmd[6] | (cmd[5] << 8))) {
+		return false;
+	}
+
 	if (tag) {
 		s32 cmdindex = setupGetCmdIndexByTag(tag);
 
@@ -5141,6 +6135,11 @@ bool aiRevokeControl(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+	if (scenarioSourceAiGraphExecuteRevokeControl(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
 
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 prevplayernum = g_Vars.currentplayernum;
@@ -5174,6 +6173,11 @@ bool aiGrantControl(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
+	if (scenarioSourceAiGraphExecuteGrantControl(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		setCurrentPlayerNum(playermgrGetPlayerNumByProp(chr->prop));
@@ -5205,6 +6209,11 @@ bool aiChrMoveToPad(void)
 	struct pad pad;
 	RoomNum rooms[2];
 	struct chrdata *chr2;
+
+	if (scenarioSourceAiGraphExecuteChrMoveToPad(g_Vars.chrdata, cmd[2],
+			cmd[4] | (cmd[3] << 8), cmd[5], cmd[6])) {
+		return false;
+	}
 
 	if (chr && chr->prop) {
 #if VERSION >= VERSION_NTSC_1_0
@@ -5257,6 +6266,11 @@ bool ai00e3(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
+	if (scenarioSourceAiGraphExecutePlayerFadeIn(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
@@ -5283,6 +6297,10 @@ bool ai00e4(void)
 	s32 playernum;
 	u32 prevplayernum = g_Vars.currentplayernum;
 
+	if (scenarioSourceAiGraphExecutePlayersFadeOut()) {
+		return false;
+	}
+
 	for (playernum = 0; playernum < PLAYERCOUNT(); playernum++) {
 		setCurrentPlayerNum(playernum);
 
@@ -5306,6 +6324,11 @@ bool aiIfColourFadeComplete(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	bool pass = false;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+	if (scenarioSourceAiGraphExecuteIfColourFadeComplete(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
 
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
@@ -5332,6 +6355,10 @@ bool aiSetDoorOpen(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
+	if (scenarioSourceAiGraphExecuteSetDoorOpen(cmd[2])) {
+		return false;
+	}
+
 	if (obj && obj->prop) {
 		struct doorobj *door = (struct doorobj *) obj;
 		door->frac = door->maxfrac;
@@ -5354,6 +6381,12 @@ bool aiSetDoorOpen(void)
 bool ai00e9(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteChrDeleteWeapon(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
 	if (chr) {
@@ -5372,10 +6405,13 @@ bool aiIfNumPlayersLessThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if ((s8)cmd[2] > PLAYERCOUNT()) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfNumPlayersLessThan((s8)cmd[2],
+			cmd[3])) {
+		if ((s8)cmd[2] > PLAYERCOUNT()) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -5387,6 +6423,13 @@ bool aiIfNumPlayersLessThan(void)
 bool aiIfChrAmmoQuantityLessThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfChrAmmoQuantityLessThan(
+			g_Vars.chrdata, cmd[2], (s8)cmd[3], (s8)cmd[4],
+			cmd[5])) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 	bool passes = false;
 
@@ -5417,6 +6460,12 @@ bool aiIfChrAmmoQuantityLessThan(void)
 bool aiChrDrawWeapon(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteChrDrawWeapon(g_Vars.chrdata, cmd[2],
+			cmd[3])) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
@@ -5439,6 +6488,12 @@ bool aiChrDrawWeapon(void)
 bool aiChrDrawWeaponInCutscene(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteChrDrawWeaponInCutscene(
+			g_Vars.chrdata, cmd[2], cmd[3])) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
@@ -5460,6 +6515,12 @@ bool aiChrDrawWeaponInCutscene(void)
 bool ai00ee(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteSetPlayerForceSpeed(g_Vars.chrdata,
+			cmd[2], cmd[3], cmd[4])) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
@@ -5485,8 +6546,14 @@ bool ai00ee(void)
 bool aiIfObjInRoom(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 	u16 room_id = cmd[4] | (cmd[3] << 8);
+
+	if (scenarioSourceAiGraphExecuteIfObjInRoom(g_Vars.chrdata, cmd[2],
+			room_id, cmd[5])) {
+		return false;
+	}
+
+	struct defaultobj *obj = objFindByTagId(cmd[2]);
 	s32 room_something = chrGetPadRoom(g_Vars.chrdata, room_id);
 
 	if (room_something >= 0 && obj && obj->prop && room_something == obj->prop->rooms[0]) {
@@ -5503,7 +6570,9 @@ bool aiIfObjInRoom(void)
  */
 bool aiSwitchToAltSky(void)
 {
-	envApplyTransitionFrac(1);
+	if (!scenarioSourceAiGraphExecuteSwitchToAltSky()) {
+		envApplyTransitionFrac(1);
+	}
 	g_Vars.aioffset += 2;
 
 	return false;
@@ -5515,6 +6584,12 @@ bool aiSwitchToAltSky(void)
 bool aiChrSetInvincible(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteChrSetInvincible(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
@@ -5544,6 +6619,11 @@ bool ai00f4(void)
 	s16 height2 = cmd[11] | (cmd[10] << 8);
 	s32 posangle = cmd[13] | (cmd[12] << 8);
 
+	if (scenarioSourceAiGraphExecutePrepareWarpOrbit(range, height1,
+			rotangle, padnum, height2, posangle)) {
+		return false;
+	}
+
 	playerPrepareWarpType3(posangle * M_BADTAU / 65536, rotangle * M_BADTAU / 65536, range, height1, height2, padnum);
 
 	g_Vars.aioffset += 14;
@@ -5556,6 +6636,10 @@ bool ai00f4(void)
  */
 bool ai00f5(void)
 {
+	if (scenarioSourceAiGraphExecuteBeginWarpLatch()) {
+		return false;
+	}
+
 	var8007073c = 1;
 	g_Vars.aioffset += 2;
 
@@ -5569,10 +6653,12 @@ bool ai00f6(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (var8007073c == 2) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
-	} else {
-		g_Vars.aioffset += 3;
+	if (!scenarioSourceAiGraphExecuteIfWarpLatchComplete(cmd[2])) {
+		if (var8007073c == 2) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+		} else {
+			g_Vars.aioffset += 3;
+		}
 	}
 
 	return false;
@@ -5585,10 +6671,12 @@ bool aiIfAllObjectivesComplete(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (objectiveIsAllComplete()) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
-	} else {
-		g_Vars.aioffset = g_Vars.aioffset + 3;
+	if (!scenarioSourceAiGraphExecuteIfAllObjectivesComplete(cmd[2])) {
+		if (objectiveIsAllComplete()) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+		} else {
+			g_Vars.aioffset = g_Vars.aioffset + 3;
+		}
 	}
 
 	return false;
@@ -5600,6 +6688,12 @@ bool aiIfAllObjectivesComplete(void)
 bool aiIfPlayerIsInvincible(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfPlayerIsInvincible(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
 	bool pass = false;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
@@ -5626,8 +6720,11 @@ bool aiIfPlayerIsInvincible(void)
 bool aiPlayXTrack(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	g_Vars.aioffset += 5;
-	musicSetXReason((s8)cmd[2], cmd[3], cmd[4]);
+	if (!scenarioSourceAiGraphExecutePlayXTrack((s8)cmd[2], cmd[3],
+			cmd[4])) {
+		g_Vars.aioffset += 5;
+		musicSetXReason((s8)cmd[2], cmd[3], cmd[4]);
+	}
 
 	return false;
 }
@@ -5638,8 +6735,10 @@ bool aiPlayXTrack(void)
 bool aiStopXTrack(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	g_Vars.aioffset += 3;
-	musicUnsetXReason((s8)cmd[2]);
+	if (!scenarioSourceAiGraphExecuteStopXTrack((s8)cmd[2])) {
+		g_Vars.aioffset += 3;
+		musicUnsetXReason((s8)cmd[2]);
+	}
 
 	return false;
 }
@@ -5651,15 +6750,17 @@ bool aiPlayTrackIsolated(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (cmd[2] == MUSIC_CI_TRAINING) {
-		u16 volume = optionsGetMusicVolume();
-		musicPlayTrackIsolated(cmd[2]);
-		optionsSetMusicVolume(volume);
-	} else {
-		musicPlayTrackIsolated(cmd[2]);
-	}
+	if (!scenarioSourceAiGraphExecutePlayTrackIsolated(cmd[2])) {
+		if (cmd[2] == MUSIC_CI_TRAINING) {
+			u16 volume = optionsGetMusicVolume();
+			musicPlayTrackIsolated(cmd[2]);
+			optionsSetMusicVolume(volume);
+		} else {
+			musicPlayTrackIsolated(cmd[2]);
+		}
 
-	g_Vars.aioffset += 3;
+		g_Vars.aioffset += 3;
+	}
 
 	return false;
 }
@@ -5669,8 +6770,10 @@ bool aiPlayTrackIsolated(void)
  */
 bool aiPlayDefaultTracks(void)
 {
-	g_Vars.aioffset += 2;
-	musicPlayDefaultTracks();
+	if (!scenarioSourceAiGraphExecutePlayDefaultTracks()) {
+		g_Vars.aioffset += 2;
+		musicPlayDefaultTracks();
+	}
 
 	return false;
 }
@@ -5681,8 +6784,10 @@ bool aiPlayDefaultTracks(void)
 bool aiPlayCutsceneTrack(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	musicStartCutscene(cmd[2]);
-	g_Vars.aioffset += 3;
+	if (!scenarioSourceAiGraphExecutePlayCutsceneTrack(cmd[2])) {
+		musicStartCutscene(cmd[2]);
+		g_Vars.aioffset += 3;
+	}
 
 	return false;
 }
@@ -5692,8 +6797,10 @@ bool aiPlayCutsceneTrack(void)
  */
 bool aiStopCutsceneTrack(void)
 {
-	g_Vars.aioffset += 2;
-	musicEndCutscene();
+	if (!scenarioSourceAiGraphExecuteStopCutsceneTrack()) {
+		g_Vars.aioffset += 2;
+		musicEndCutscene();
+	}
 
 	return false;
 }
@@ -5704,8 +6811,10 @@ bool aiStopCutsceneTrack(void)
 bool aiPlayTemporaryTrack(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	musicStartTemporaryAmbient(cmd[2]);
-	g_Vars.aioffset += 3;
+	if (!scenarioSourceAiGraphExecutePlayTemporaryTrack(cmd[2])) {
+		musicStartTemporaryAmbient(cmd[2]);
+		g_Vars.aioffset += 3;
+	}
 
 	return false;
 }
@@ -5715,8 +6824,10 @@ bool aiPlayTemporaryTrack(void)
  */
 bool aiStopAmbientTrack(void)
 {
-	g_Vars.aioffset += 2;
-	musicEndTemporaryAmbient();
+	if (!scenarioSourceAiGraphExecuteStopAmbientTrack()) {
+		g_Vars.aioffset += 2;
+		musicEndTemporaryAmbient();
+	}
 
 	return false;
 }
@@ -5728,6 +6839,10 @@ bool aiChrExplosions(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+	if (scenarioSourceAiGraphExecuteChrExplosions(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
 
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 prevplayernum = g_Vars.currentplayernum;
@@ -5749,10 +6864,13 @@ bool aiIfKillCountGreaterThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (g_Vars.killcount > cmd[2]) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfKillCountGreaterThan(cmd[2],
+			cmd[3])) {
+		if (g_Vars.killcount > cmd[2]) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -5765,12 +6883,15 @@ bool aiIfNumKnockedOutChrs(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (cmd[2] < mpstatsGetTotalKnockoutCount() && cmd[3] == 0) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
-	} else if (mpstatsGetTotalKnockoutCount() < cmd[2] && cmd[3] == 1) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
-	} else {
-		g_Vars.aioffset += 5;
+	if (!scenarioSourceAiGraphExecuteIfNumKnockedOutChrs(cmd[2], cmd[3],
+			cmd[4])) {
+		if (cmd[2] < mpstatsGetTotalKnockoutCount() && cmd[3] == 0) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
+		} else if (mpstatsGetTotalKnockoutCount() < cmd[2] && cmd[3] == 1) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
+		} else {
+			g_Vars.aioffset += 5;
+		}
 	}
 
 	return false;
@@ -5782,6 +6903,12 @@ bool aiIfNumKnockedOutChrs(void)
 bool ai00fd(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfTriggerShotList(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
 	if (chr && (chr->chrflags & CHRCFLAG_TRIGGERSHOTLIST)) {
@@ -5799,6 +6926,10 @@ bool ai00fd(void)
  */
 bool aiKillBond(void)
 {
+	if (scenarioSourceAiGraphExecuteKillBond()) {
+		return false;
+	}
+
 	g_Vars.bond->isdead = true;
 	g_Vars.aioffset += 2;
 
@@ -5810,6 +6941,10 @@ bool aiKillBond(void)
  */
 bool aiBeSurprisedSurrender(void)
 {
+	if (scenarioSourceAiGraphExecuteBeSurprisedSurrender(g_Vars.chrdata)) {
+		return false;
+	}
+
 	chrTrySurprisedSurrender(g_Vars.chrdata);
 	g_Vars.aioffset += 2;
 
@@ -5821,6 +6956,10 @@ bool aiBeSurprisedSurrender(void)
  */
 bool aiNoOp0100(void)
 {
+	if (scenarioSourceAiGraphExecuteNoOp("0100", 3)) {
+		return false;
+	}
+
 	g_Vars.aioffset += 3;
 	return false;
 }
@@ -5830,6 +6969,10 @@ bool aiNoOp0100(void)
  */
 bool aiNoOp0101(void)
 {
+	if (scenarioSourceAiGraphExecuteNoOp("0101", 3)) {
+		return false;
+	}
+
 	g_Vars.aioffset += 3;
 	return false;
 }
@@ -5842,6 +6985,12 @@ bool aiSetLights(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 padnum = cmd[3] | (cmd[2] << 8);
 	s32 roomnum = chrGetPadRoom(g_Vars.chrdata, padnum);
+
+	if (scenarioSourceAiGraphExecuteSetLights(g_Vars.chrdata, padnum,
+			cmd[4], cmd[5], cmd[6], cmd[7])) {
+		g_Vars.aioffset += 11;
+		return false;
+	}
 
 	if (roomnum >= 0) {
 		switch (cmd[4]) {
@@ -5867,8 +7016,14 @@ bool aiSetLights(void)
  */
 bool aiIfPropPresetIsBlockingSightToTarget(void)
 {
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfPropPresetIsBlockingSightToTarget(
+			g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
+
 	if (chrIsPropPresetBlockingSightToTarget(g_Vars.chrdata)) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -5882,7 +7037,8 @@ bool aiIfPropPresetIsBlockingSightToTarget(void)
  */
 bool aiRemoveObjectAtPropPreset(void)
 {
-	if (g_Vars.chrdata->proppreset1 >= 0) {
+	if (!scenarioSourceAiGraphExecuteRemoveObjectAtPropPreset(g_Vars.chrdata) &&
+			g_Vars.chrdata->proppreset1 >= 0) {
 		struct defaultobj *obj = (g_Vars.props + g_Vars.chrdata->proppreset1)->obj;
 		obj->hidden &= ~OBJHFLAG_OCCUPIEDCHAIR;
 	}
@@ -5905,6 +7061,11 @@ bool aiIfPropPresetHeightLessThan(void)
 	f32 ymin;
 	f32 radius;
 
+	if (scenarioSourceAiGraphExecuteIfPropPresetHeightLessThan(
+			g_Vars.chrdata, value, cmd[4])) {
+		return false;
+	}
+
 	propGetBbox(prop, &radius, &ymax, &ymin);
 
 	if (ymax - ymin < value) {
@@ -5923,7 +7084,9 @@ bool aiSetTarget(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (g_Vars.chrdata) {
+	if (!scenarioSourceAiGraphExecuteSetTarget(g_Vars.chrdata,
+			g_Vars.hovercar, cmd[2], cmd[3], cmd[4]) &&
+			g_Vars.chrdata) {
 		s16 newtarget;
 
 		if (!cmd[3] && !cmd[4]) {
@@ -5948,7 +7111,7 @@ bool aiSetTarget(void)
 
 			g_Vars.chrdata->target = newtarget;
 		}
-	} else if (g_Vars.hovercar) {
+	} else if (!g_Vars.chrdata && g_Vars.hovercar) {
 		chopperSetTarget(g_Vars.hovercar, cmd[2]);
 	}
 
@@ -5964,6 +7127,11 @@ bool aiIfPresetsTargetIsNotMyTarget(void)
 {
 	s32 mypresetchrstarget = -1;
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfPresetsTargetIsNotMyTarget(
+			g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
 
 	if (g_Vars.chrdata->chrpreset1 != -1) {
 		mypresetchrstarget = propGetIndexByChrId(g_Vars.chrdata, g_Vars.chrdata->chrpreset1);
@@ -5984,6 +7152,12 @@ bool aiIfPresetsTargetIsNotMyTarget(void)
 bool aiIfChrTarget(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfChrTarget(g_Vars.chrdata, cmd[2],
+			cmd[3], cmd[4], cmd[5])) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 	bool pass = false;
 
@@ -6020,6 +7194,11 @@ bool aiSetChrPresetToChrNearSelf(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 distance = (cmd[4] | (cmd[3] << 8)) * 10.0f;
 
+	if (scenarioSourceAiGraphExecuteSetChrPresetToChrNearSelf(
+			g_Vars.chrdata, cmd[2], distance, cmd[5])) {
+		return false;
+	}
+
 	if (chrSetChrPresetToChrNearSelf(cmd[2], g_Vars.chrdata, distance)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
 	} else {
@@ -6038,6 +7217,11 @@ bool aiSetChrPresetToChrNearPad(void)
 	f32 distance = (cmd[4] | (cmd[3] << 8)) * 10.0f;
 	u16 padnum = cmd[6] | (cmd[5] << 8);
 
+	if (scenarioSourceAiGraphExecuteSetChrPresetToChrNearPad(
+			g_Vars.chrdata, cmd[2], distance, padnum, cmd[7])) {
+		return false;
+	}
+
 	if (chrSetChrPresetToChrNearPad(cmd[2], g_Vars.chrdata, distance, padnum)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[7]);
 	} else {
@@ -6054,6 +7238,12 @@ bool aiChrSetTeam(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 playernum;
+
+	if (scenarioSourceAiGraphExecuteChrSetTeam(g_Vars.chrdata, cmd[2],
+			cmd[3])) {
+		return false;
+	}
+
 	if (cmd[2] == CHR_ANTI && g_Vars.antiplayernum >= 0) {
 		// There can be multiple counter-op players, so set this for all.
 		for (playernum = 0; playernum < PLAYERCOUNT(); playernum++) {
@@ -6086,6 +7276,12 @@ bool aiChrSetTeam(void)
 bool aiIfCompareChrPresetsTeam(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfCompareChrPresetsTeam(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, CHR_PRESET);
 
 	if (!chr || (!chr->model && chr->prop->type != PROPTYPE_PLAYER)) {
@@ -6108,6 +7304,12 @@ bool aiIfCompareChrPresetsTeam(void)
 bool aiIfHuman(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfHuman(g_Vars.chrdata, cmd[2],
+			cmd[3])) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
 	if (chr && chr->prop && CHRRACE(chr) == RACE_HUMAN) {
@@ -6125,6 +7327,12 @@ bool aiIfHuman(void)
 bool aiIfSkedar(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfSkedar(g_Vars.chrdata, cmd[2],
+			cmd[3])) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
 	if (chr && chr->prop && CHRRACE(chr) == RACE_SKEDAR) {
@@ -6144,7 +7352,14 @@ bool aiIfSafety2LessThan(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u8 score;
 	u8 numnearby;
-	s16 *chrnums = teamGetChrIds(g_Vars.chrdata->team);
+	s16 *chrnums;
+
+	if (scenarioSourceAiGraphExecuteIfSafety2LessThan(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
+	chrnums = teamGetChrIds(g_Vars.chrdata->team);
 
 	score = 6;
 	numnearby = 0;
@@ -6231,8 +7446,17 @@ bool aiFindCover(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 criteria = cmd[3] | (cmd[2] << 8);
+	s32 assigned = 0;
 
-	if (g_Vars.chrdata && g_Vars.chrdata->prop && chrAssignCoverByCriteria(g_Vars.chrdata, criteria, 0) != -1) {
+	if (scenarioSourceAiGraphExecuteFindCover(g_Vars.chrdata, criteria,
+			&assigned)) {
+		if (assigned) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
+				g_Vars.aioffset, cmd[4]);
+		} else {
+			g_Vars.aioffset += 5;
+		}
+	} else if (g_Vars.chrdata && g_Vars.chrdata->prop && chrAssignCoverByCriteria(g_Vars.chrdata, criteria, 0) != -1) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
 	} else {
 		g_Vars.aioffset += 5;
@@ -6249,8 +7473,17 @@ bool aiFindCoverWithinDist(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 criteria = cmd[3] | (cmd[2] << 8);
 	u32 flags = (cmd[5] << 16) | (cmd[6] << 8) | cmd[7] | (cmd[4] << 24);
+	s32 assigned = 0;
 
-	if (g_Vars.chrdata && g_Vars.chrdata->prop && chrAssignCoverByCriteria(g_Vars.chrdata, criteria, flags) != -1) {
+	if (scenarioSourceAiGraphExecuteFindCoverWithinDist(g_Vars.chrdata,
+			criteria, flags, &assigned)) {
+		if (assigned) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
+				g_Vars.aioffset, cmd[8]);
+		} else {
+			g_Vars.aioffset += 9;
+		}
+	} else if (g_Vars.chrdata && g_Vars.chrdata->prop && chrAssignCoverByCriteria(g_Vars.chrdata, criteria, flags) != -1) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[8]);
 	} else {
 		g_Vars.aioffset += 9;
@@ -6267,8 +7500,17 @@ bool aiFindCoverOutsideDist(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 criteria = cmd[3] | (cmd[2] << 8);
 	u32 flags = (cmd[5] << 16) | (cmd[6] << 8) | cmd[7] | (cmd[4] << 24);
+	s32 assigned = 0;
 
-	if (g_Vars.chrdata && g_Vars.chrdata->prop && chrAssignCoverByCriteria(g_Vars.chrdata, criteria, -flags) != -1) {
+	if (scenarioSourceAiGraphExecuteFindCoverOutsideDist(g_Vars.chrdata,
+			criteria, flags, &assigned)) {
+		if (assigned) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
+				g_Vars.aioffset, cmd[8]);
+		} else {
+			g_Vars.aioffset += 9;
+		}
+	} else if (g_Vars.chrdata && g_Vars.chrdata->prop && chrAssignCoverByCriteria(g_Vars.chrdata, criteria, -flags) != -1) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[8]);
 	} else {
 		g_Vars.aioffset += 9;
@@ -6283,7 +7525,9 @@ bool aiFindCoverOutsideDist(void)
 bool aiGoToCover(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	chrGoToCover(g_Vars.chrdata, cmd[2]);
+	if (!scenarioSourceAiGraphExecuteGoToCover(g_Vars.chrdata, cmd[2])) {
+		chrGoToCover(g_Vars.chrdata, cmd[2]);
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -6295,8 +7539,17 @@ bool aiGoToCover(void)
 bool aiCheckCoverOutOfSight(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	s32 out_of_sight = 0;
 
-	if (chrCheckCoverOutOfSight(g_Vars.chrdata, g_Vars.chrdata->cover, false)) {
+	if (scenarioSourceAiGraphExecuteCheckCoverOutOfSight(g_Vars.chrdata,
+			&out_of_sight)) {
+		if (out_of_sight) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
+				g_Vars.aioffset, cmd[2]);
+		} else {
+			g_Vars.aioffset += 3;
+		}
+	} else if (chrCheckCoverOutOfSight(g_Vars.chrdata, g_Vars.chrdata->cover, false)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -6312,6 +7565,10 @@ bool aiIfPlayerUsingCmpOrAr34(void)
 {
 	u32 hand = HAND_RIGHT;
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfPlayerUsingCmpOrAr34(cmd[2])) {
+		return false;
+	}
 
 	switch (bgunGetWeaponNum(hand)) {
 		case WEAPON_CMP150:
@@ -6341,6 +7598,11 @@ bool aiDetectEnemyOnSameFloor(void)
 	s16 *chrnums = teamGetChrIds(1);
 	struct chrdata *chr;
 	s16 newtarget = -1;
+
+	if (scenarioSourceAiGraphExecuteDetectEnemyOnSameFloor(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
 
 	if (g_Vars.chrdata->teamscandist == 0) {
 		scandist = 1500;
@@ -6414,6 +7676,11 @@ bool aiDetectEnemy(void)
 	f32 closestdist = 10000000;
 	f32 maxdist = (s32)cmd[2] * 10.0f;
 	s16 closesttarg = -1;
+
+	if (scenarioSourceAiGraphExecuteDetectEnemy(g_Vars.chrdata, cmd[2],
+			cmd[3])) {
+		return false;
+	}
 
 	chrnums = teamGetChrIds(1);
 
@@ -6506,9 +7773,16 @@ bool aiDetectEnemy(void)
 bool aiIfSafetyLessThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	s16 *chrnums = teamGetChrIds(g_Vars.chrdata->team);
+	s16 *chrnums;
 	u8 safety = 6;
 	u8 numnearby = 0;
+
+	if (scenarioSourceAiGraphExecuteIfSafetyLessThan(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
+	chrnums = teamGetChrIds(g_Vars.chrdata->team);
 
 	if (chrGetNumArghs(g_Vars.chrdata) > 0) {
 		safety--;
@@ -6552,6 +7826,11 @@ bool aiIfTargetMovingSlowly(void)
 	s32 absdelta;
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
+	if (scenarioSourceAiGraphExecuteIfTargetMovingSlowly(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
 	if (cmd[2] == 0) {
 		delta = chrGetDistanceLostToTargetInLastSecond(g_Vars.chrdata);
 	} else {
@@ -6577,6 +7856,11 @@ bool aiIfTargetMovingCloser(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
+	if (scenarioSourceAiGraphExecuteIfTargetMovingCloser(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	if (chrGetDistanceLostToTargetInLastSecond(g_Vars.chrdata) < -50) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
@@ -6593,6 +7877,11 @@ bool aiIfTargetMovingAway(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
+	if (scenarioSourceAiGraphExecuteIfTargetMovingAway(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
+
 	if (chrGetDistanceLostToTargetInLastSecond(g_Vars.chrdata) > 50) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
@@ -6607,6 +7896,10 @@ bool aiIfTargetMovingAway(void)
  */
 bool ai012f(void)
 {
+	if (scenarioSourceAiGraphExecuteReleaseCover(g_Vars.chrdata)) {
+		return false;
+	}
+
 	if (g_Vars.chrdata->cover >= 0) {
 		coverSetInUse(g_Vars.chrdata->cover, 0);
 	}
@@ -6920,6 +8213,12 @@ bool aiSayQuip(void)
 #endif
 	struct chrdata *loopchr;
 
+	if (scenarioSourceAiGraphExecuteSayQuip(g_Vars.chrdata,
+			cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7], cmd[8],
+			cmd[9])) {
+		return false;
+	}
+
 	// Choose bank
 	if (CHRRACE(g_Vars.chrdata) == RACE_SKEDAR) {
 		bank = (s16 *) g_SkedarQuipBank;
@@ -7142,6 +8441,11 @@ void propDecrementSoundCount(struct prop *prop)
 bool aiIfChrNotTalking(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfChrNotTalking(cmd[2], cmd[3])) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindByLiteralId(cmd[2]);
 
 	if (chr && chr->propsoundcount == 0) {
@@ -7159,19 +8463,23 @@ bool aiIfChrNotTalking(void)
 bool aiIncreaseSquadronAlertness(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	s16 *chrnums = teamGetChrIds(g_Vars.chrdata->team);
 
-	for (; *chrnums != -2; chrnums++) {
-		struct chrdata *chr = chrFindByLiteralId(*chrnums);
+	if (!scenarioSourceAiGraphExecuteIncreaseSquadronAlertness(g_Vars.chrdata,
+			cmd[2])) {
+		s16 *chrnums = teamGetChrIds(g_Vars.chrdata->team);
 
-		if (chr &&
-				chr->model &&
-				!chrIsDead(chr) &&
-				chr->actiontype != ACT_DEAD &&
-				(g_Vars.chrdata->squadron == chr->squadron || g_Vars.chrdata->squadron == 255) &&
-				g_Vars.chrdata->chrnum != chr->chrnum &&
-				(chrGetDistanceToChr(g_Vars.chrdata, chr->chrnum) < 1000 || chrHasFlag(g_Vars.chrdata, CHRFLAG0_SQUADALERTANYDIST, BANK_0))) {
-			incrementByte(&chr->alertness, cmd[2]);
+		for (; *chrnums != -2; chrnums++) {
+			struct chrdata *chr = chrFindByLiteralId(*chrnums);
+
+			if (chr &&
+					chr->model &&
+					!chrIsDead(chr) &&
+					chr->actiontype != ACT_DEAD &&
+					(g_Vars.chrdata->squadron == chr->squadron || g_Vars.chrdata->squadron == 255) &&
+					g_Vars.chrdata->chrnum != chr->chrnum &&
+					(chrGetDistanceToChr(g_Vars.chrdata, chr->chrnum) < 1000 || chrHasFlag(g_Vars.chrdata, CHRFLAG0_SQUADALERTANYDIST, BANK_0))) {
+				incrementByte(&chr->alertness, cmd[2]);
+			}
 		}
 	}
 
@@ -7186,10 +8494,14 @@ bool aiIncreaseSquadronAlertness(void)
 bool aiSetAction(void)
 {
 	struct bytelist *cmd = (struct bytelist *)(g_Vars.ailist + g_Vars.aioffset);
-	g_Vars.chrdata->myaction = cmd->b2;
 
-	if (cmd->b3 == 0) {
-		g_Vars.chrdata->orders = 0;
+	if (!scenarioSourceAiGraphExecuteSetAction(g_Vars.chrdata,
+			cmd->b2, cmd->b3 == 0)) {
+		g_Vars.chrdata->myaction = cmd->b2;
+
+		if (cmd->b3 == 0) {
+			g_Vars.chrdata->orders = 0;
+		}
 	}
 
 	g_Vars.aioffset += 4;
@@ -7209,6 +8521,19 @@ bool aiSetTeamOrders(void)
 	s32 num;
 	u32 stack;
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	s32 follow_label = 0;
+
+	if (scenarioSourceAiGraphExecuteSetTeamOrders(g_Vars.chrdata,
+			&follow_label)) {
+		if (follow_label) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
+				g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
+
+		return false;
+	}
 
 	// Get list of chrs in the current chr's squadron
 	chrnums = squadronGetChrIds(g_Vars.chrdata->squadron);
@@ -7349,6 +8674,11 @@ bool aiIfOrders(void)
 {
 	struct bytelist *cmd = (struct bytelist *)(g_Vars.ailist + g_Vars.aioffset);
 
+	if (scenarioSourceAiGraphExecuteIfOrders(g_Vars.chrdata, cmd->b3,
+			cmd->b4)) {
+		return false;
+	}
+
 	if (g_Vars.chrdata->orders == cmd->b3) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd->b4);
 
@@ -7369,6 +8699,10 @@ bool aiIfHasOrders(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
+	if (scenarioSourceAiGraphExecuteIfHasOrders(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
+
 	if (g_Vars.chrdata->orders) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
@@ -7385,18 +8719,21 @@ bool aiRetreat(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (cmd[3] == 0) {
-		chrRunFromPos(g_Vars.chrdata, cmd[2], (cmd[2] & 0x10) ? 400.0f : 10000.0f, &g_Vars.chrdata->runfrompos);
-	} else if (cmd[3] == 1) {
-		struct prop *target = chrGetTargetProp(g_Vars.chrdata);
-		chrRunFromPos(g_Vars.chrdata, cmd[2], 10000, &target->pos);
-	} else {
-		chrAssignCoverByCriteria(g_Vars.chrdata,
-				COVERCRITERIA_FURTHEREST
-				| COVERCRITERIA_DISTTOTARGET
-				| COVERCRITERIA_ONLYNEIGHBOURINGROOMS
-				| COVERCRITERIA_ROOMSFROMME, 0);
-		chrGoToCover(g_Vars.chrdata, cmd[2]);
+	if (!scenarioSourceAiGraphExecuteRetreat(g_Vars.chrdata, cmd[2],
+			cmd[3])) {
+		if (cmd[3] == 0) {
+			chrRunFromPos(g_Vars.chrdata, cmd[2], (cmd[2] & 0x10) ? 400.0f : 10000.0f, &g_Vars.chrdata->runfrompos);
+		} else if (cmd[3] == 1) {
+			struct prop *target = chrGetTargetProp(g_Vars.chrdata);
+			chrRunFromPos(g_Vars.chrdata, cmd[2], 10000, &target->pos);
+		} else {
+			chrAssignCoverByCriteria(g_Vars.chrdata,
+					COVERCRITERIA_FURTHEREST
+					| COVERCRITERIA_DISTTOTARGET
+					| COVERCRITERIA_ONLYNEIGHBOURINGROOMS
+					| COVERCRITERIA_ROOMSFROMME, 0);
+			chrGoToCover(g_Vars.chrdata, cmd[2]);
+		}
 	}
 
 	g_Vars.aioffset += 4;
@@ -7412,6 +8749,12 @@ bool aiIfChrInSquadronDoingAction(void)
 	s32 ret;
 	s16 *chrnums = squadronGetChrIds(g_Vars.chrdata->squadron);
 	struct bytelist *cmd = (struct bytelist *)(g_Vars.ailist + g_Vars.aioffset);
+
+	if (scenarioSourceAiGraphExecuteIfChrInSquadronDoingAction(
+			g_Vars.chrdata, cmd->b2, cmd->b3)) {
+		return false;
+	}
+
 	ret = 1;
 
 	if (chrnums) {
@@ -7446,9 +8789,13 @@ bool ai0139(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 angle = (cmd[3] << 16) | (cmd[4] << 8) | cmd[5] | (cmd[2] << 24);
-	struct coord pos;
 
-	chr0f04c874(g_Vars.chrdata, angle, &pos, cmd[7], cmd[6]);
+	if (!scenarioSourceAiGraphExecuteOrbitTarget(
+			g_Vars.chrdata, angle, cmd[7], cmd[6])) {
+		struct coord pos;
+
+		chr0f04c874(g_Vars.chrdata, angle, &pos, cmd[7], cmd[6]);
+	}
 
 	g_Vars.aioffset += 8;
 
@@ -7460,10 +8807,22 @@ bool ai0139(void)
  */
 bool aiSetChrPresetToUnalertedTeammate(void)
 {
+	s32 follow_label = 0;
 	f32 closest_distance = 30999.9;
 	s16 candidate_chrnum = -1;
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	s16 *chrnums = teamGetChrIds(g_Vars.chrdata->team);
+
+	if (scenarioSourceAiGraphExecuteSetChrPresetToUnalertedTeammate(
+			g_Vars.chrdata, cmd[2], cmd[3], &follow_label)) {
+		if (follow_label) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
+				g_Vars.aioffset, cmd[4]);
+		} else {
+			g_Vars.aioffset += 5;
+		}
+		return false;
+	}
 
 	if (g_Vars.chrdata->talktimer > TICKS(480) && g_Vars.chrdata->listening) {
 		g_Vars.chrdata->listening = 0;
@@ -7515,7 +8874,9 @@ bool aiSetChrPresetToUnalertedTeammate(void)
 bool aiSetSquadron(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	g_Vars.chrdata->squadron = cmd[2];
+	if (!scenarioSourceAiGraphExecuteSetSquadron(g_Vars.chrdata, cmd[2])) {
+		g_Vars.chrdata->squadron = cmd[2];
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -7527,6 +8888,17 @@ bool aiSetSquadron(void)
 bool aiFaceCover(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	s32 faced = 0;
+
+	if (scenarioSourceAiGraphExecuteFaceCover(g_Vars.chrdata, &faced)) {
+		if (faced) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
+				g_Vars.aioffset, cmd[2]);
+		} else {
+			g_Vars.aioffset += 3;
+		}
+		return false;
+	}
 
 	if (chrFaceCover(g_Vars.chrdata)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
@@ -7544,6 +8916,11 @@ bool aiIfDangerousObjectNearby(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
+	if (scenarioSourceAiGraphExecuteIfDangerousObjectNearby(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
 	if (chrDetectDangerousObject(g_Vars.chrdata, cmd[2])) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
 	} else {
@@ -7558,8 +8935,10 @@ bool aiIfDangerousObjectNearby(void)
  */
 bool ai013e(void)
 {
-	if (func0f03aca0(g_Vars.chrdata, 400, true) == 0 && chrAssignCoverAwayFromDanger(g_Vars.chrdata, 1000, 12000) != -1) {
-		chrGoToCover(g_Vars.chrdata, GOPOSFLAG_RUN);
+	if (!scenarioSourceAiGraphExecuteDangerCover(g_Vars.chrdata)) {
+		if (func0f03aca0(g_Vars.chrdata, 400, true) == 0 && chrAssignCoverAwayFromDanger(g_Vars.chrdata, 1000, 12000) != -1) {
+			chrGoToCover(g_Vars.chrdata, GOPOSFLAG_RUN);
+		}
 	}
 
 	g_Vars.aioffset += 2;
@@ -7573,6 +8952,11 @@ bool ai013e(void)
 bool aiIfHeliWeaponsArmed(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfHeliWeaponsArmed(g_Vars.hovercar,
+			cmd[2])) {
+		return false;
+	}
 
 	if (g_Vars.hovercar) {
 		if (g_Vars.hovercar->weaponsarmed) {
@@ -7593,6 +8977,11 @@ bool aiIfHeliWeaponsArmed(void)
 bool aiIfHoverbotNextStep(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfHoverbotNextStep(g_Vars.hovercar,
+			cmd[2], cmd[3], cmd[4])) {
+		return false;
+	}
 
 	if (g_Vars.hovercar) {
 		if ((g_Vars.hovercar->nextstep > cmd[3] && cmd[2] == 1) ||
@@ -7627,6 +9016,12 @@ bool aiShuffleInvestigationTerminals(void)
 	struct tag *goodtag = tagFindById(cmd[2]);
 	struct tag *badtag = tagFindById(cmd[3]);
 	struct tag *pc;
+
+	if (scenarioSourceAiGraphExecuteShuffleInvestigationTerminals(
+			cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7],
+			cmd[8])) {
+		return false;
+	}
 
 	/**
 	 * @bug: These should be using modulus 4. Because it's 1 short, the final
@@ -7725,6 +9120,13 @@ bool aiSetPadPresetToInvestigationTerminal(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
+	if (scenarioSourceAiGraphExecuteSetPadPresetToInvestigationTerminal(
+			g_Vars.chrdata, cmd[2], g_InvestigationPadMap,
+			sizeof(g_InvestigationPadMap) /
+			sizeof(g_InvestigationPadMap[0]))) {
+		return false;
+	}
+
 	if (obj) {
 		s16 objpad = obj->pad;
 		s32 i;
@@ -7746,6 +9148,11 @@ bool aiSetPadPresetToInvestigationTerminal(void)
  */
 bool aiHeliArmWeapons(void)
 {
+	if (scenarioSourceAiGraphExecuteHeliSetWeaponsArmed(g_Vars.hovercar,
+			true)) {
+		return false;
+	}
+
 	if (g_Vars.hovercar) {
 		chopperSetArmed(g_Vars.hovercar, true);
 	}
@@ -7760,6 +9167,11 @@ bool aiHeliArmWeapons(void)
  */
 bool aiHeliUnarmWeapons(void)
 {
+	if (scenarioSourceAiGraphExecuteHeliSetWeaponsArmed(g_Vars.hovercar,
+			false)) {
+		return false;
+	}
+
 	if (g_Vars.hovercar) {
 		chopperSetArmed(g_Vars.hovercar, false);
 	}
@@ -7774,7 +9186,9 @@ bool aiHeliUnarmWeapons(void)
  */
 bool aiRebuildTeams(void)
 {
-	rebuildTeams();
+	if (!scenarioSourceAiGraphExecuteRebuildTeams()) {
+		rebuildTeams();
+	}
 	g_Vars.aioffset += 2;
 
 	return false;
@@ -7785,7 +9199,9 @@ bool aiRebuildTeams(void)
  */
 bool aiRebuildSquadrons(void)
 {
-	rebuildSquadrons();
+	if (!scenarioSourceAiGraphExecuteRebuildSquadrons()) {
+		rebuildSquadrons();
+	}
 	g_Vars.aioffset += 2;
 
 	return false;
@@ -7804,6 +9220,10 @@ bool aiIfSquadronIsDead(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	bool anyalive = true;
 	s16 *chrnums = squadronGetChrIds(cmd[2]);
+
+	if (scenarioSourceAiGraphExecuteIfSquadronIsDead(cmd[2], cmd[3])) {
+		return false;
+	}
 
 	if (chrnums) {
 		while (*chrnums != -2) {
@@ -7836,10 +9256,14 @@ bool aiIfSquadronIsDead(void)
 bool aiChrSetListening(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr && chr->listening == 0) {
-		chr->listening = cmd[3];
+	if (!scenarioSourceAiGraphExecuteChrSetListening(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+		if (chr && chr->listening == 0) {
+			chr->listening = cmd[3];
+		}
 	}
 
 	g_Vars.aioffset += 4;
@@ -7853,6 +9277,12 @@ bool aiChrSetListening(void)
 bool aiIfChrListening(void)
 {
 	struct bytelist *cmd = (struct bytelist *)(g_Vars.ailist + g_Vars.aioffset);
+
+	if (scenarioSourceAiGraphExecuteIfChrListening(g_Vars.chrdata, cmd->b2,
+			cmd->b3, cmd->b4, cmd->b5)) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd->b2);
 
 	if (cmd->b4 == 0) {
@@ -7878,7 +9308,10 @@ bool aiIfChrListening(void)
 bool aiIfTrue(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
+
+	if (!scenarioSourceAiGraphExecuteIfTrue(cmd[5])) {
+		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
+	}
 
 	return false;
 }
@@ -7889,6 +9322,10 @@ bool aiIfTrue(void)
 bool aiIfNotListening(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfNotListening(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
 
 	if (g_Vars.chrdata->listening == 0) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
@@ -7905,6 +9342,9 @@ bool aiIfNotListening(void)
 bool aiSetTintedGlassEnabled(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	if (scenarioSourceAiGraphExecuteSetTintedGlassEnabled(cmd[2])) {
+		return false;
+	}
 	g_TintedGlassEnabled = cmd[2];
 	g_Vars.aioffset += 3;
 
@@ -7919,6 +9359,11 @@ bool aiIfNumChrsInSquadronGreaterThan(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	s32 count = 0;
 	s16 *chrnums = squadronGetChrIds(cmd[3]);
+
+	if (scenarioSourceAiGraphExecuteIfNumChrsInSquadronGreaterThan(
+			cmd[2], cmd[3], cmd[4])) {
+		return false;
+	}
 
 	if (chrnums) {
 		while (*chrnums != -2) {
@@ -7951,6 +9396,12 @@ bool aiIfNumChrsInSquadronGreaterThan(void)
 bool aiIfChrInjured(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfChrInjuredTarget(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
 	if (chr && (chr->chrflags & CHRCFLAG_INJUREDTARGET)) {
@@ -7970,6 +9421,11 @@ bool aiIfAction(void)
 {
 	struct bytelist *cmd = (struct bytelist *)(g_Vars.ailist + g_Vars.aioffset);
 
+	if (scenarioSourceAiGraphExecuteIfAction(g_Vars.chrdata, cmd->b2,
+			cmd->b3)) {
+		return false;
+	}
+
 	if (g_Vars.chrdata->myaction == cmd->b2) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd->b3);
 	} else {
@@ -7985,6 +9441,9 @@ bool aiIfAction(void)
 bool aiHovercopterFireRocket(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	if (scenarioSourceAiGraphExecuteHovercopterFireRocket(cmd[2])) {
+		return false;
+	}
 	chopperFireRocket(g_Vars.hovercar, cmd[2]);
 	g_Vars.aioffset += 3;
 
@@ -7998,10 +9457,13 @@ bool aiIfNaturalAnim(void)
 {
 	struct bytelist *cmd = (struct bytelist *)(g_Vars.ailist + g_Vars.aioffset);
 
-	if (g_Vars.chrdata->naturalanim == cmd->b2) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd->b3);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfNaturalAnim(g_Vars.chrdata,
+			cmd->b2, cmd->b3)) {
+		if (g_Vars.chrdata->naturalanim == cmd->b2) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd->b3);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -8015,6 +9477,11 @@ bool aiIfY(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = NULL;
 	f32 cutoff_y = ((cmd[4] | (cmd[3] << 8)) << 16) >> 16;
+
+	if (scenarioSourceAiGraphExecuteIfY(g_Vars.chrdata, cmd[2],
+			(s32)cutoff_y, cmd[5], cmd[6])) {
+		return false;
+	}
 
 	if (cmd[2] == CHR_TARGET && g_Vars.hovercar) {
 		struct chopperobj *chopper = chopperFromHovercar(g_Vars.hovercar);
@@ -8046,6 +9513,10 @@ bool aiIfY(void)
  */
 bool aiNoOp016c(void)
 {
+	if (scenarioSourceAiGraphExecuteNoOp("016c", 2)) {
+		return false;
+	}
+
 	g_Vars.aioffset += 2;
 	return false;
 }
@@ -8057,6 +9528,11 @@ bool aiChrAdjustMotionBlur(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+	if (scenarioSourceAiGraphExecuteChrAdjustMotionBlur(g_Vars.chrdata,
+			cmd[2], cmd[3], cmd[4])) {
+		return false;
+	}
 
 	if (chr) {
 		if (cmd[4] == 0) {
@@ -8080,6 +9556,11 @@ bool aiDamageChrByAmount(void)
 	struct coord coord = {0, 0, 0};
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
+	if (scenarioSourceAiGraphExecuteDamageChrByAmount(g_Vars.chrdata,
+			cmd[2], cmd[3], cmd[4])) {
+		return false;
+	}
+
 	if (chr && chr->prop) {
 		if (cmd[4] == 2) {
 			struct gset gset = {WEAPON_COMBATKNIFE, 0, 0, FUNC_POISON};
@@ -8102,6 +9583,12 @@ bool aiDamageChrByAmount(void)
 bool aiIfChrHasGun(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfChrHasNoGun(g_Vars.chrdata, cmd[2],
+			cmd[4])) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
 	if (chr && chr->model && chr->gunprop == NULL) {
@@ -8119,6 +9606,12 @@ bool aiIfChrHasGun(void)
 bool aiDoGunCommand(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteDoGunCommand(g_Vars.chrdata, cmd[2],
+			cmd[3])) {
+		return false;
+	}
+
 	struct weaponobj *weapon = g_Vars.chrdata->gunprop->weapon;
 
 	if (cmd[2] == 0 || ((weapon->base.hidden & OBJHFLAG_PROJECTILE) == 0 && cmd[2] == 1)) {
@@ -8141,6 +9634,12 @@ bool aiIfDistanceToGunLessThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 distance = (cmd[3] | (cmd[2] << 8)) * 10.0f;
+
+	if (scenarioSourceAiGraphExecuteIfDistanceToGunLessThan(
+			g_Vars.chrdata, distance, cmd[4])) {
+		return false;
+	}
+
 	f32 xdiff = 0;
 	f32 ydiff = 0;
 	f32 zdiff = 0;
@@ -8168,6 +9667,11 @@ bool aiIfDistanceToGunLessThan(void)
 bool aiRecoverGun(void)
 { \
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteRecoverGun(g_Vars.chrdata, cmd[3])) {
+		return false;
+	}
+
 	struct prop *prop = g_Vars.chrdata->gunprop;
 	g_Vars.chrdata->gunprop = NULL;
 
@@ -8192,6 +9696,11 @@ bool aiChrCopyProperties(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+	if (scenarioSourceAiGraphExecuteChrCopyProperties(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
 
 	if (chr && chr->model) {
 		g_Vars.chrdata->hearingscale = chr->hearingscale;
@@ -8229,6 +9738,11 @@ bool aiPlayerAutoWalk(void)
 	s16 pad_id = cmd[4] | (cmd[3] << 8);
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
+	if (scenarioSourceAiGraphExecutePlayerAutoWalk(g_Vars.chrdata, cmd[2],
+			pad_id, cmd[5], cmd[6], cmd[7], cmd[8])) {
+		return false;
+	}
+
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
@@ -8250,6 +9764,11 @@ bool aiIfPlayerAutoWalkFinished(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	bool walking = false;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+	if (scenarioSourceAiGraphExecuteIfPlayerAutoWalkFinished(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
 
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 prevplayernum = g_Vars.currentplayernum;
@@ -8278,26 +9797,30 @@ bool aiIfPlayerAutoWalkFinished(void)
 bool aiIfPlayerLookingAtObject(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct defaultobj *obj = objFindByTagId(cmd[3]);
-	bool pass = false;
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
-		u32 prevplayernum = g_Vars.currentplayernum;
-		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
-		setCurrentPlayerNum(playernum);
+	if (!scenarioSourceAiGraphExecuteIfPlayerLookingAtObject(
+			g_Vars.chrdata, cmd[2], cmd[3], cmd[4])) {
+		struct defaultobj *obj = objFindByTagId(cmd[3]);
+		bool pass = false;
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-		if (g_Vars.currentplayer->lookingatprop.prop == obj->prop) {
-			pass = true;
+		if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
+			u32 prevplayernum = g_Vars.currentplayernum;
+			u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
+			setCurrentPlayerNum(playernum);
+
+			if (g_Vars.currentplayer->lookingatprop.prop == obj->prop) {
+				pass = true;
+			}
+
+			setCurrentPlayerNum(prevplayernum);
 		}
 
-		setCurrentPlayerNum(prevplayernum);
-	}
-
-	if (pass) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
-	} else {
-		g_Vars.aioffset += 5;
+		if (pass) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
+		} else {
+			g_Vars.aioffset += 5;
+		}
 	}
 
 	return false;
@@ -8309,6 +9832,11 @@ bool aiIfPlayerLookingAtObject(void)
 bool aiPunchOrKick(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecutePunchOrKick(g_Vars.chrdata, cmd[2],
+			cmd[3])) {
+		return false;
+	}
 
 	if (g_Vars.chrdata && chrTryPunch(g_Vars.chrdata, cmd[2])) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
@@ -8325,12 +9853,15 @@ bool aiPunchOrKick(void)
 bool aiIfTargetIsPlayer(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct prop *target = chrGetTargetProp(g_Vars.chrdata);
 
-	if (target->type == PROPTYPE_EYESPY || target->type == PROPTYPE_PLAYER) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
-	} else {
-		g_Vars.aioffset += 3;
+	if (!scenarioSourceAiGraphExecuteIfTargetIsPlayer(g_Vars.chrdata, cmd[2])) {
+		struct prop *target = chrGetTargetProp(g_Vars.chrdata);
+
+		if (target->type == PROPTYPE_EYESPY || target->type == PROPTYPE_PLAYER) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+		} else {
+			g_Vars.aioffset += 3;
+		}
 	}
 
 	return false;
@@ -8342,6 +9873,12 @@ bool aiIfTargetIsPlayer(void)
 bool ai0184(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteTryAttackAmount(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
 	chrTryAttackAmount(g_Vars.chrdata, 512, 0, cmd[2], cmd[3]);
 	g_Vars.aioffset += 4;
 
@@ -8356,11 +9893,14 @@ bool aiIfSoundTimer(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	s32 value = TICKS(cmd[3] | (cmd[2] << 8));
 
-	if ((g_Vars.chrdata->soundtimer > value && cmd[4] == 0) ||
-			(g_Vars.chrdata->soundtimer < value && cmd[4] == 1)) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
-	} else {
-		g_Vars.aioffset += 6;
+	if (!scenarioSourceAiGraphExecuteIfSoundTimer(g_Vars.chrdata,
+			value, cmd[4], cmd[5])) {
+		if ((g_Vars.chrdata->soundtimer > value && cmd[4] == 0) ||
+				(g_Vars.chrdata->soundtimer < value && cmd[4] == 1)) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
+		} else {
+			g_Vars.aioffset += 6;
+		}
 	}
 
 	return false;
@@ -8374,6 +9914,11 @@ bool aiSetTargetToEyespyIfInSight(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	s16 prevtarget = g_Vars.chrdata->target;
 	struct eyespy *eyespy = g_Vars.players[g_Vars.chrdata->p1p2]->eyespy;
+
+	if (scenarioSourceAiGraphExecuteSetTargetToEyespyIfInSight(
+			g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
 
 	if (eyespy) {
 		struct chrdata *chr = eyespy->prop->chr;
@@ -8398,21 +9943,24 @@ bool aiSetTargetToEyespyIfInSight(void)
 bool aiIfLiftStationary(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
-	bool pass = false;
 
-	if (obj && obj->prop && obj->type == OBJTYPE_LIFT) {
-		struct liftobj *lift = (struct liftobj *)obj;
+	if (!scenarioSourceAiGraphExecuteIfLiftStationary(cmd[2], cmd[3])) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+		bool pass = false;
 
-		if ((obj->flags & OBJFLAG_DEACTIVATED) || lift->dist == 0) {
-			pass = true;
+		if (obj && obj->prop && obj->type == OBJTYPE_LIFT) {
+			struct liftobj *lift = (struct liftobj *)obj;
+
+			if ((obj->flags & OBJFLAG_DEACTIVATED) || lift->dist == 0) {
+				pass = true;
+			}
 		}
-	}
 
-	if (pass) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+		if (pass) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -8424,11 +9972,14 @@ bool aiIfLiftStationary(void)
 bool aiLiftGoToStop(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop && obj->type == OBJTYPE_LIFT) {
-		struct liftobj *lift = (struct liftobj *)obj;
-		liftGoToStop(lift, cmd[3]);
+	if (!scenarioSourceAiGraphExecuteLiftGoToStop(cmd[2], cmd[3])) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop && obj->type == OBJTYPE_LIFT) {
+			struct liftobj *lift = (struct liftobj *)obj;
+			liftGoToStop(lift, cmd[3]);
+		}
 	}
 
 	g_Vars.aioffset += 4;
@@ -8442,21 +9993,25 @@ bool aiLiftGoToStop(void)
 bool aiIfLiftAtStop(void)
 {
 	struct bytelist *cmd = (struct bytelist *)(g_Vars.ailist + g_Vars.aioffset);
-	struct defaultobj *obj = objFindByTagId(cmd->b2);
-	bool pass = false;
 
-	if (obj && obj->prop && obj->type == OBJTYPE_LIFT) {
-		struct liftobj *lift = (struct liftobj *)obj;
+	if (!scenarioSourceAiGraphExecuteIfLiftAtStop(cmd->b2, cmd->b3,
+			cmd->b4)) {
+		struct defaultobj *obj = objFindByTagId(cmd->b2);
+		bool pass = false;
 
-		if (lift->levelcur == cmd->b3 && lift->dist == 0) {
-			pass = true;
+		if (obj && obj->prop && obj->type == OBJTYPE_LIFT) {
+			struct liftobj *lift = (struct liftobj *)obj;
+
+			if (lift->levelcur == cmd->b3 && lift->dist == 0) {
+				pass = true;
+			}
 		}
-	}
 
-	if (pass) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd->b4);
-	} else {
-		g_Vars.aioffset += 5;
+		if (pass) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd->b4);
+		} else {
+			g_Vars.aioffset += 5;
+		}
 	}
 
 	return false;
@@ -8468,7 +10023,11 @@ bool aiIfLiftAtStop(void)
 bool aiConfigureRain(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	weatherConfigureRain(cmd[2]);
+
+	if (!scenarioSourceAiGraphExecuteConfigureRain(cmd[2])) {
+		weatherConfigureRain(cmd[2]);
+	}
+
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -8480,7 +10039,11 @@ bool aiConfigureRain(void)
 bool aiConfigureSnow(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	weatherConfigureSnow(cmd[2]);
+
+	if (!scenarioSourceAiGraphExecuteConfigureSnow(cmd[2])) {
+		weatherConfigureSnow(cmd[2]);
+	}
+
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -8492,10 +10055,14 @@ bool aiConfigureSnow(void)
 bool aiChrToggleModelPart(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr) {
-		chrToggleModelPart(chr, cmd[3]);
+	if (!scenarioSourceAiGraphExecuteChrToggleModelPart(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+		if (chr) {
+			chrToggleModelPart(chr, cmd[3]);
+		}
 	}
 
 	g_Vars.aioffset += 4;
@@ -8509,10 +10076,13 @@ bool aiChrToggleModelPart(void)
 bool aiActivateLift(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct defaultobj *obj = objFindByTagId(cmd[3]);
 
-	if (obj && obj->prop) {
-		liftActivate(obj->prop, cmd[2]);
+	if (!scenarioSourceAiGraphExecuteActivateLift(cmd[2], cmd[3])) {
+		struct defaultobj *obj = objFindByTagId(cmd[3]);
+
+		if (obj && obj->prop) {
+			liftActivate(obj->prop, cmd[2]);
+		}
 	}
 
 	g_Vars.aioffset += 4;
@@ -8527,6 +10097,11 @@ bool aiMiniSkedarTryPounce(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u16 thing = cmd[4] | (cmd[3] << 8);
+
+	if (scenarioSourceAiGraphExecuteMiniSkedarTryPounce(g_Vars.chrdata,
+			cmd[2], thing, cmd[5], cmd[6])) {
+		return false;
+	}
 
 	if (chrTrySkJump(g_Vars.chrdata, g_Vars.chrdata->pouncebits, cmd[2], thing, cmd[5])) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
@@ -8556,6 +10131,11 @@ bool aiIfObjectDistanceToPadLessThan(void)
 	struct defaultobj *obj = objFindByTagId(cmd[2]);
 	struct pad pad;
 	bool pass = false;
+
+	if (scenarioSourceAiGraphExecuteIfObjectDistanceToPadLessThan(
+			g_Vars.chrdata, cmd[2], distance, pad_id, cmd[7])) {
+		return false;
+	}
 
 	if (obj && obj->prop) {
 		pad_id = chrResolvePadId(g_Vars.chrdata, pad_id);
@@ -8592,7 +10172,9 @@ bool aiIfObjectDistanceToPadLessThan(void)
 bool aiSetSavefileFlag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	gamefileSetFlag(cmd[2]);
+	if (!scenarioSourceAiGraphExecuteSetSavefileFlag(cmd[2])) {
+		gamefileSetFlag(cmd[2]);
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -8604,7 +10186,9 @@ bool aiSetSavefileFlag(void)
 bool aiUnsetSavefileFlag(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	gamefileUnsetFlag(cmd[2]);
+	if (!scenarioSourceAiGraphExecuteUnsetSavefileFlag(cmd[2])) {
+		gamefileUnsetFlag(cmd[2]);
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -8617,10 +10201,12 @@ bool aiIfSavefileFlagIsSet(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (gamefileHasFlag(cmd[2])) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfSavefileFlagIsSet(cmd[2], cmd[3])) {
+		if (gamefileHasFlag(cmd[2])) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -8633,10 +10219,12 @@ bool aiIfSavefileFlagIsUnset(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (!gamefileHasFlag(cmd[2])) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-	} else {
-		g_Vars.aioffset += 4;
+	if (!scenarioSourceAiGraphExecuteIfSavefileFlagIsUnset(cmd[2], cmd[3])) {
+		if (!gamefileHasFlag(cmd[2])) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+		} else {
+			g_Vars.aioffset += 4;
+		}
 	}
 
 	return false;
@@ -8649,18 +10237,21 @@ bool aiIfObjHealthLessThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	s32 damage = cmd[4] | (cmd[3] << 8);
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	bool condition_passes = false;
+	if (!scenarioSourceAiGraphExecuteIfObjHealthLessThan(cmd[2],
+			damage, cmd[5])) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+		bool condition_passes = false;
 
-	if (obj && obj->prop && obj->damage < damage) {
-		condition_passes = true;
-	}
+		if (obj && obj->prop && obj->damage < damage) {
+			condition_passes = true;
+		}
 
-	if (condition_passes) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
-	} else {
-		g_Vars.aioffset += 6;
+		if (condition_passes) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[5]);
+		} else {
+			g_Vars.aioffset += 6;
+		}
 	}
 
 	return false;
@@ -8673,10 +10264,13 @@ bool aiSetObjHealth(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	s32 damage = cmd[4] | (cmd[3] << 8);
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop) {
-		obj->damage = damage;
+	if (!scenarioSourceAiGraphExecuteSetObjHealth(cmd[2], damage)) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop) {
+			obj->damage = damage;
+		}
 	}
 
 	g_Vars.aioffset += 5;
@@ -8690,10 +10284,14 @@ bool aiSetObjHealth(void)
 bool aiSetChrSpecialDeathAnimation(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr) {
-		chr->specialdie = cmd[3];
+	if (!scenarioSourceAiGraphExecuteSetChrSpecialDeathAnimation(
+			g_Vars.chrdata, cmd[2], cmd[3])) {
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+		if (chr) {
+			chr->specialdie = cmd[3];
+		}
 	}
 
 	g_Vars.aioffset += 4;
@@ -8708,8 +10306,10 @@ bool aiSetRoomToSearch(void)
 {
 	struct chrdata *target = chrFindById(g_Vars.chrdata, CHR_TARGET);
 
-	if (target && target->prop) {
-		g_Vars.chrdata->roomtosearch = target->prop->rooms[0];
+	if (!scenarioSourceAiGraphExecuteSetRoomToSearch(g_Vars.chrdata)) {
+		if (target && target->prop) {
+			g_Vars.chrdata->roomtosearch = target->prop->rooms[0];
+		}
 	}
 
 	g_Vars.aioffset += 2;
@@ -8773,6 +10373,11 @@ bool aiSayCiStaffQuip(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	s16 quip;
 
+	if (scenarioSourceAiGraphExecuteSayCiStaffQuip(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
 	if (cmd[2] == CIQUIP_GREETING) {
 		quip = g_CiGreetingQuips[g_Vars.chrdata->morale][rngRandom() % 3];
 		psPlayFromProp((s8)cmd[3], quip, 0, g_Vars.chrdata->prop, PSTYPE_CHRTALK, 0);
@@ -8804,6 +10409,11 @@ bool aiSayCiStaffQuip(void)
 bool aiDoPresetAnimation(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteDoPresetAnimation(g_Vars.chrdata,
+			cmd[2])) {
+		return false;
+	}
 
 	// These all appear to be talking animations
 	u16 anims[] = {
@@ -8853,10 +10463,12 @@ bool aiIfUsingLift(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (chrIsUsingLift(g_Vars.chrdata)) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
-	} else {
-		g_Vars.aioffset += 3;
+	if (!scenarioSourceAiGraphExecuteIfUsingLift(g_Vars.chrdata, cmd[2])) {
+		if (chrIsUsingLift(g_Vars.chrdata)) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+		} else {
+			g_Vars.aioffset += 3;
+		}
 	}
 
 	return false;
@@ -8868,8 +10480,16 @@ bool aiIfUsingLift(void)
 bool aiIfTargetYDifferenceLessThan(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct prop *prop = chrGetTargetProp(g_Vars.chrdata);
-	f32 diff = prop->pos.y - g_Vars.chrdata->prop->pos.y;
+	struct prop *prop;
+	f32 diff;
+
+	if (scenarioSourceAiGraphExecuteIfTargetYDifferenceLessThan(
+			g_Vars.chrdata, cmd[2], cmd[3])) {
+		return false;
+	}
+
+	prop = chrGetTargetProp(g_Vars.chrdata);
+	diff = prop->pos.y - g_Vars.chrdata->prop->pos.y;
 
 	if (diff < 0) {
 		diff = 0 - diff;
@@ -8891,6 +10511,11 @@ bool ai01aa(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 a = 3000;
+
+	if (scenarioSourceAiGraphExecuteIfPlayerChrPortalDistanceLessThan(
+			g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
 
 	func0f0056f4(
 			g_Vars.currentplayer->prop->rooms[0],
@@ -8917,6 +10542,10 @@ bool aiClearInventory(void)
 	u32 prevplayernum = g_Vars.currentplayernum;
 	s32 playernum;
 
+	if (scenarioSourceAiGraphExecuteClearInventory()) {
+		return false;
+	}
+
 	for (playernum = 0; playernum < PLAYERCOUNT(); playernum++) {
 		setCurrentPlayerNum(playernum);
 
@@ -8941,6 +10570,10 @@ bool aiClearInventory(void)
  */
 bool aiReleaseObject(void)
 {
+	if (scenarioSourceAiGraphExecuteReleaseObject()) {
+		return false;
+	}
+
 	bmoveSetModeForAllPlayers(MOVEMODE_WALK);
 	g_Vars.aioffset += 3;
 
@@ -8953,8 +10586,16 @@ bool aiReleaseObject(void)
 bool aiChrGrabObject(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct defaultobj *obj = objFindByTagId(cmd[3]);
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+	struct defaultobj *obj;
+	struct chrdata *chr;
+
+	if (scenarioSourceAiGraphExecuteChrGrabObject(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		return false;
+	}
+
+	obj = objFindByTagId(cmd[3]);
+	chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER && obj && obj->prop) {
 		u32 prevplayernum = g_Vars.currentplayernum;
@@ -8981,6 +10622,11 @@ bool aiChrGrabObject(void)
 bool aiShuffleRuinsPillars(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteShuffleRuinsPillars(cmd)) {
+		return false;
+	}
+
 	struct tag *ptr1 = tagFindById(cmd[2]);
 	struct tag *ptr2 = tagFindById(cmd[3]);
 	struct tag *ptr3 = tagFindById(cmd[4]);
@@ -9051,7 +10697,9 @@ bool aiSetWindSpeed(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	g_SkyWindSpeed = 0.1f * (s32)cmd[2];
+	if (!scenarioSourceAiGraphExecuteSetWindSpeed(cmd[2])) {
+		g_SkyWindSpeed = 0.1f * (s32)cmd[2];
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -9063,6 +10711,10 @@ bool aiSetWindSpeed(void)
 bool aiToggleP1P2(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteToggleP1P2(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
 
 	if (g_Vars.coopplayernum >= 0) {
 		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
@@ -9087,6 +10739,11 @@ bool aiToggleP1P2(void)
 bool aiChrSetP1P2(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteChrSetP1P2(g_Vars.chrdata, cmd[2],
+			cmd[3])) {
+		return false;
+	}
 
 	if (g_Vars.coopplayernum >= 0) {
 		struct chrdata *chr1 = chrFindById(g_Vars.chrdata, cmd[2]);
@@ -9116,6 +10773,12 @@ bool aiChrSetP1P2(void)
 bool aiChrSetCloaked(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteChrSetCloaked(g_Vars.chrdata, cmd[2],
+			cmd[3], cmd[4])) {
+		return false;
+	}
+
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
 	if (chr && chr->prop) {
@@ -9139,6 +10802,11 @@ bool aiChrSetCloaked(void)
 bool aiSetAutogunTargetTeam(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteSetAutogunTargetTeam(cmd[2], cmd[3])) {
+		return false;
+	}
+
 	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
 	if (obj && obj->prop && obj->type == OBJTYPE_AUTOGUN) {
@@ -9157,6 +10825,10 @@ bool aiSetAutogunTargetTeam(void)
  */
 bool aiShufflePelagicSwitches(void)
 {
+	if (scenarioSourceAiGraphExecuteShufflePelagicSwitches()) {
+		return false;
+	}
+
 	u8 buttonsdone[] = {0, 0, 0, 0, 0, 0, 0, 0};
 	u8 i;
 	u8 j;
@@ -9195,6 +10867,10 @@ bool aiShufflePelagicSwitches(void)
  */
 bool aiNoOp01bb(void)
 {
+	if (scenarioSourceAiGraphExecuteNoOp("01bb", 4)) {
+		return false;
+	}
+
 	g_Vars.aioffset += 4;
 	return false;
 }
@@ -9205,6 +10881,11 @@ bool aiNoOp01bb(void)
 bool ai01bc(void)
 {
 	struct bytelist *cmd = (struct bytelist *)(g_Vars.ailist + g_Vars.aioffset);
+
+	if (scenarioSourceAiGraphExecuteIfPouncebitsEq(g_Vars.chrdata,
+			cmd->b2, cmd->b3)) {
+		return false;
+	}
 
 	if (g_Vars.chrdata->pouncebits == cmd->b2) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd->b3);
@@ -9222,6 +10903,10 @@ bool aiIfTrainingPcHolographed(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct trainingdata *data = dtGetData();
+
+	if (scenarioSourceAiGraphExecuteIfTrainingPcHolographed(cmd[2])) {
+		return false;
+	}
 
 	if (data->holographedpc) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
@@ -9241,6 +10926,11 @@ bool aiIfPlayerUsingDevice(void)
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 	struct prop *prop = chr ? chr->prop : NULL;
 	u8 active = false;
+
+	if (scenarioSourceAiGraphExecuteIfPlayerUsingDevice(g_Vars.chrdata,
+			cmd[2], cmd[3], cmd[4])) {
+		return false;
+	}
 
 	if (prop && prop->type == PROPTYPE_PLAYER) {
 		u32 playernum = playermgrGetPlayerNumByProp(prop);
@@ -9281,6 +10971,12 @@ bool aiChrBeginOrEndTeleport(void)
 	s32 audiopri;
 #endif
 	struct sndstate *handle;
+
+	if (scenarioSourceAiGraphExecuteChrBeginOrEndTeleport(
+			g_Vars.chrdata, cmd[4], pad_id)) {
+		return false;
+	}
+
 	fvalue = 0.4;
 	chr = chrFindById(g_Vars.chrdata, cmd[4]);
 	prevplayernum = g_Vars.currentplayernum;
@@ -9340,6 +11036,11 @@ bool aiIfChrTeleportFullWhite(void)
 #endif
 	struct sndstate *handle;
 
+	if (scenarioSourceAiGraphExecuteIfChrTeleportFullWhite(
+			g_Vars.chrdata, cmd[3], cmd[2])) {
+		return false;
+	}
+
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
 		setCurrentPlayerNum(playernum);
@@ -9380,6 +11081,9 @@ bool aiIfChrTeleportFullWhite(void)
  */
 bool aiAvoid(void)
 {
+	if (scenarioSourceAiGraphExecuteAvoid(g_Vars.chrdata)) {
+		return false;
+	}
 	chrAvoid(g_Vars.chrdata);
 	g_Vars.aioffset += 2;
 
@@ -9392,6 +11096,9 @@ bool aiAvoid(void)
 bool aiTitleInitMode(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	if (scenarioSourceAiGraphExecuteTitleInitMode(cmd[2])) {
+		return false;
+	}
 	g_Vars.aioffset += 3;
 	titleInitFromAiCmd(cmd[2]);
 
@@ -9404,6 +11111,10 @@ bool aiTitleInitMode(void)
 bool aiTryExitTitle(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteTryExitTitle(cmd[2])) {
+		return false;
+	}
 
 	if (titleIsChangingMode()) {
 		titleExit();
@@ -9424,6 +11135,11 @@ bool aiChrSetCutsceneWeapon(void)
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 	s32 model_id = playermgrGetModelOfWeapon(cmd[3]);
 	s32 fallback_model_id = playermgrGetModelOfWeapon(cmd[4]);
+
+	if (scenarioSourceAiGraphExecuteChrSetCutsceneWeapon(
+			g_Vars.chrdata, cmd[2], cmd[3], cmd[4])) {
+		return false;
+	}
 
 	if (chr) {
 		if (cmd[3] == 0xff) {
@@ -9482,7 +11198,10 @@ bool aiFadeScreen(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 color = (cmd[3] << 16) | (cmd[4] << 8) | cmd[5] | (cmd[2] << 24);
 	s16 num_frames = (cmd[7] | (cmd[6] << 8));
-	lvConfigureFade(color, num_frames);
+
+	if (!scenarioSourceAiGraphExecuteFadeScreen(color, num_frames)) {
+		lvConfigureFade(color, num_frames);
+	}
 	g_Vars.aioffset += 8;
 
 	return false;
@@ -9494,6 +11213,10 @@ bool aiFadeScreen(void)
 bool aiIfFadeComplete(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (scenarioSourceAiGraphExecuteIfFadeComplete(cmd[2])) {
+		return false;
+	}
 
 	if (lvIsFadeActive() == false) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
@@ -9510,10 +11233,14 @@ bool aiIfFadeComplete(void)
 bool aiSetChrHudpieceVisible(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr && chr->prop && chr->model) {
-		chrSetHudpieceVisible(chr, cmd[3]);
+	if (!scenarioSourceAiGraphExecuteSetChrHudpieceVisible(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+		if (chr && chr->prop && chr->model) {
+			chrSetHudpieceVisible(chr, cmd[3]);
+		}
 	}
 
 	g_Vars.aioffset += 4;
@@ -9527,7 +11254,10 @@ bool aiSetChrHudpieceVisible(void)
 bool aiSetPassiveMode(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	bgunSetPassiveMode(cmd[2]);
+
+	if (!scenarioSourceAiGraphExecuteSetPassiveMode(cmd[2])) {
+		bgunSetPassiveMode(cmd[2]);
+	}
 	g_Vars.aioffset += 3;
 
 	return false;
@@ -9539,16 +11269,20 @@ bool aiSetPassiveMode(void)
 bool aiChrSetFiringInCutscene(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
-	struct coord from = {0, 0, 0};
-	struct coord to = {0, 0, 0};
 
-	if (chr && chr->weapons_held[HAND_RIGHT]) {
-		if (cmd[3]) {
-			chrSetFiring(chr, HAND_RIGHT, true);
-			chrUpdateFireslot(chr, HAND_RIGHT, true, false, &from, &to);
-		} else {
-			chrSetFiring(chr, HAND_RIGHT, false);
+	if (!scenarioSourceAiGraphExecuteChrSetFiringInCutscene(g_Vars.chrdata,
+			cmd[2], cmd[3])) {
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+		struct coord from = {0, 0, 0};
+		struct coord to = {0, 0, 0};
+
+		if (chr && chr->weapons_held[HAND_RIGHT]) {
+			if (cmd[3]) {
+				chrSetFiring(chr, HAND_RIGHT, true);
+				chrUpdateFireslot(chr, HAND_RIGHT, true, false, &from, &to);
+			} else {
+				chrSetFiring(chr, HAND_RIGHT, false);
+			}
 		}
 	}
 
@@ -9565,7 +11299,9 @@ bool aiSetPortalFlag(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	s16 portalnum = cmd[3] | (cmd[2] << 8);
 
-	g_BgPortals[portalnum].flags |= cmd[4];
+	if (!scenarioSourceAiGraphExecuteSetPortalFlag(portalnum, cmd[4])) {
+		g_BgPortals[portalnum].flags |= cmd[4];
+	}
 	g_Vars.aioffset += 5;
 
 	return false;
@@ -9577,10 +11313,14 @@ bool aiSetPortalFlag(void)
 bool aiObjSetModelPartVisible(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct defaultobj *obj = objFindByTagId(cmd[2]);
 
-	if (obj && obj->prop) {
-		objSetModelPartVisible(obj, cmd[3], cmd[4]);
+	if (!scenarioSourceAiGraphExecuteObjSetModelPartVisible(cmd[2],
+			cmd[3], cmd[4])) {
+		struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+		if (obj && obj->prop) {
+			objSetModelPartVisible(obj, cmd[3], cmd[4]);
+		}
 	}
 
 	g_Vars.aioffset += 5;
@@ -9595,6 +11335,10 @@ bool aiChrEmitSparks(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+	if (scenarioSourceAiGraphExecuteChrEmitSparks(g_Vars.chrdata, cmd[2])) {
+		return false;
+	}
 
 	if (chr) {
 		chrDrCarollEmitSparks(chr);
@@ -9612,6 +11356,11 @@ bool aiSetDrCarollImages(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *drcaroll = chrFindById(g_Vars.chrdata, cmd[2]);
+
+	if (scenarioSourceAiGraphExecuteSetDrCarollImages(g_Vars.chrdata,
+			cmd[2], cmd[3], cmd[4])) {
+		return false;
+	}
 
 	if (drcaroll) {
 		if (cmd[4] == 7) {
@@ -9649,7 +11398,9 @@ bool aiSetRoomFlag(void)
 	RoomNum roomnum = cmd[3] | cmd[2] << 8;
 	s16 flag = cmd[5] | cmd[4] << 8;
 
-	g_Rooms[roomnum].flags |= flag;
+	if (!scenarioSourceAiGraphExecuteSetRoomFlag(roomnum, flag)) {
+		g_Rooms[roomnum].flags |= flag;
+	}
 
 	g_Vars.aioffset += 6;
 
@@ -9665,19 +11416,21 @@ bool aiShowCutsceneChrs(void)
 	bool show = cmd[2];
 	s32 i;
 
-	if (show) {
-		for (i = chrsGetNumSlots() - 1; i >= 0; i--) {
-			if (g_ChrSlots[i].chrnum >= 0 && g_ChrSlots[i].prop && (g_ChrSlots[i].hidden2 & CHRH2FLAG_HIDDENFORCUTSCENE)) {
-				g_ChrSlots[i].hidden2 &= ~CHRH2FLAG_HIDDENFORCUTSCENE;
-				g_ChrSlots[i].chrflags &= ~CHRCFLAG_HIDDEN;
+	if (!scenarioSourceAiGraphExecuteShowCutsceneChrs(show)) {
+		if (show) {
+			for (i = chrsGetNumSlots() - 1; i >= 0; i--) {
+				if (g_ChrSlots[i].chrnum >= 0 && g_ChrSlots[i].prop && (g_ChrSlots[i].hidden2 & CHRH2FLAG_HIDDENFORCUTSCENE)) {
+					g_ChrSlots[i].hidden2 &= ~CHRH2FLAG_HIDDENFORCUTSCENE;
+					g_ChrSlots[i].chrflags &= ~CHRCFLAG_HIDDEN;
+				}
 			}
-		}
-	} else {
-		for (i = chrsGetNumSlots() - 1; i >= 0; i--) {
-			if (g_ChrSlots[i].chrnum >= 0 && g_ChrSlots[i].prop &&
-					(g_ChrSlots[i].chrflags & (CHRCFLAG_UNPLAYABLE | CHRCFLAG_HIDDEN)) == 0) {
-				g_ChrSlots[i].hidden2 |= CHRH2FLAG_HIDDENFORCUTSCENE;
-				g_ChrSlots[i].chrflags |= CHRCFLAG_HIDDEN;
+		} else {
+			for (i = chrsGetNumSlots() - 1; i >= 0; i--) {
+				if (g_ChrSlots[i].chrnum >= 0 && g_ChrSlots[i].prop &&
+						(g_ChrSlots[i].chrflags & (CHRCFLAG_UNPLAYABLE | CHRCFLAG_HIDDEN)) == 0) {
+					g_ChrSlots[i].hidden2 |= CHRH2FLAG_HIDDENFORCUTSCENE;
+					g_ChrSlots[i].chrflags |= CHRCFLAG_HIDDEN;
+				}
 			}
 		}
 	}
@@ -9697,67 +11450,70 @@ bool aiConfigureEnvironment(void)
 	s32 value = cmd[5];
 	s32 i;
 
-	switch (cmd[4]) {
-	case AIENVCMD_00:
-		var8006ae18 = value;
-		break;
-	case AIENVCMD_01:
-		var8006ae1c = value;
-		break;
-	case AIENVCMD_02:
-		var8006ae20 = value;
-		break;
-	case AIENVCMD_03:
-		var8006ae24 = value;
-		break;
-	case AIENVCMD_04:
-		var8006ae28 = value;
-		break;
-	case AIENVCMD_ROOM_SETAMBIENT:
-		g_Rooms[room_id].flags &= ~ROOMFLAG_PLAYAMBIENTTRACK;
-		if (value) {
-			g_Rooms[room_id].flags |= ROOMFLAG_PLAYAMBIENTTRACK;
-		}
-		break;
-	case AIENVCMD_ROOM_SETOUTDOORS:
-		g_Rooms[room_id].flags &= ~ROOMFLAG_OUTDOORS;
-		if (value) {
-			g_Rooms[room_id].flags |= ROOMFLAG_OUTDOORS;
-		}
-		break;
-	case AIENVCMD_07:
-		g_Rooms[room_id].unk4e_04 = value;
-		break;
-	case AIENVCMD_08:
-		g_Rooms[room_id].unk4d = value;
-		break;
-	case AIENVCMD_SETAMBIENT:
-		for (i = 1; i < g_Vars.roomcount; i++) {
+	if (!scenarioSourceAiGraphExecuteConfigureEnvironment(room_id,
+			cmd[4], value)) {
+		switch (cmd[4]) {
+		case AIENVCMD_00:
+			var8006ae18 = value;
+			break;
+		case AIENVCMD_01:
+			var8006ae1c = value;
+			break;
+		case AIENVCMD_02:
+			var8006ae20 = value;
+			break;
+		case AIENVCMD_03:
+			var8006ae24 = value;
+			break;
+		case AIENVCMD_04:
+			var8006ae28 = value;
+			break;
+		case AIENVCMD_ROOM_SETAMBIENT:
+			g_Rooms[room_id].flags &= ~ROOMFLAG_PLAYAMBIENTTRACK;
 			if (value) {
-				g_Rooms[i].flags |= ROOMFLAG_PLAYAMBIENTTRACK;
-			} else {
-				g_Rooms[i].flags &= ~ROOMFLAG_PLAYAMBIENTTRACK;
+				g_Rooms[room_id].flags |= ROOMFLAG_PLAYAMBIENTTRACK;
 			}
+			break;
+		case AIENVCMD_ROOM_SETOUTDOORS:
+			g_Rooms[room_id].flags &= ~ROOMFLAG_OUTDOORS;
+			if (value) {
+				g_Rooms[room_id].flags |= ROOMFLAG_OUTDOORS;
+			}
+			break;
+		case AIENVCMD_07:
+			g_Rooms[room_id].unk4e_04 = value;
+			break;
+		case AIENVCMD_08:
+			g_Rooms[room_id].unk4d = value;
+			break;
+		case AIENVCMD_SETAMBIENT:
+			for (i = 1; i < g_Vars.roomcount; i++) {
+				if (value) {
+					g_Rooms[i].flags |= ROOMFLAG_PLAYAMBIENTTRACK;
+				} else {
+					g_Rooms[i].flags &= ~ROOMFLAG_PLAYAMBIENTTRACK;
+				}
+			}
+			break;
+		case AIENVCMD_PLAYNOSEDIVE:
+			sndPlayNosedive(value);
+			break;
+		case AIENVCMD_TICKMUSICQUEUE:
+			musicTickEvents();
+			break;
+		case AIENVCMD_ROOM_SETFAULTYLIGHTS:
+			roomSetLightsFaulty(room_id, value);
+			break;
+		case AIENVCMD_STOPNOSEDIVE:
+			sndStopNosedive();
+			break;
+		case AIENVCMD_PLAYUFOHUM:
+			sndPlayUfo(value);
+			break;
+		case AIENVCMD_STOPUFOHUM:
+			sndStopUfo();
+			break;
 		}
-		break;
-	case AIENVCMD_PLAYNOSEDIVE:
-		sndPlayNosedive(value);
-		break;
-	case AIENVCMD_TICKMUSICQUEUE:
-		musicTickEvents();
-		break;
-	case AIENVCMD_ROOM_SETFAULTYLIGHTS:
-		roomSetLightsFaulty(room_id, value);
-		break;
-	case AIENVCMD_STOPNOSEDIVE:
-		sndStopNosedive();
-		break;
-	case AIENVCMD_PLAYUFOHUM:
-		sndPlayUfo(value);
-		break;
-	case AIENVCMD_STOPUFOHUM:
-		sndStopUfo();
-		break;
 	}
 
 	g_Vars.aioffset += 6;
@@ -9773,10 +11529,14 @@ bool aiIfDistanceToTarget2LessThan(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 distance = (cmd[3] | (cmd[2] << 8)) * 10.0f;
 
-	if (chrGetDistanceToTarget2(g_Vars.chrdata) < distance) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
-	} else {
-		g_Vars.aioffset += 5;
+	if (!scenarioSourceAiGraphExecuteIfDistanceToTarget2(g_Vars.chrdata,
+			distance, false, cmd[4])) {
+		if (chrGetDistanceToTarget2(g_Vars.chrdata) < distance) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
+				g_Vars.aioffset, cmd[4]);
+		} else {
+			g_Vars.aioffset += 5;
+		}
 	}
 
 	return false;
@@ -9790,10 +11550,14 @@ bool aiIfDistanceToTarget2GreaterThan(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	f32 distance = (cmd[3] | (cmd[2] << 8)) * 10.0f;
 
-	if (chrGetDistanceToTarget2(g_Vars.chrdata) > distance) {
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
-	} else {
-		g_Vars.aioffset += 5;
+	if (!scenarioSourceAiGraphExecuteIfDistanceToTarget2(g_Vars.chrdata,
+			distance, true, cmd[4])) {
+		if (chrGetDistanceToTarget2(g_Vars.chrdata) > distance) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
+				g_Vars.aioffset, cmd[4]);
+		} else {
+			g_Vars.aioffset += 5;
+		}
 	}
 
 	return false;
@@ -9812,7 +11576,10 @@ bool aiPlaySoundFromProp(void)
 	s16 type = cmd[8];
 	struct defaultobj *obj = objFindByTagId(cmd[3]);
 
-	psPlayFromProp(channel, audio_id, volume, obj->prop, type, flags);
+	if (!scenarioSourceAiGraphExecutePlaySoundFromProp(channel, audio_id,
+			volume, cmd[3], type, flags)) {
+		psPlayFromProp(channel, audio_id, volume, obj->prop, type, flags);
+	}
 
 	g_Vars.aioffset += 11;
 
@@ -9825,8 +11592,10 @@ bool aiPlaySoundFromProp(void)
 bool aiPlayTemporaryPrimaryTrack(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	musicStartTemporaryPrimary(cmd[2]);
-	g_Vars.aioffset += 3;
+	if (!scenarioSourceAiGraphExecutePlayTemporaryPrimaryTrack(cmd[2])) {
+		musicStartTemporaryPrimary(cmd[2]);
+		g_Vars.aioffset += 3;
+	}
 
 	return false;
 }
@@ -9837,20 +11606,22 @@ bool aiPlayTemporaryPrimaryTrack(void)
 bool aiChrKill(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+	if (!scenarioSourceAiGraphExecuteChrKill(g_Vars.chrdata, cmd[2])) {
+		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr) {
-		chr->actiontype = ACT_DEAD;
-		chr->act_dead.fadetimer60 = -1;
-		chr->act_dead.fadenow = false;
-		chr->act_dead.fadewheninvis = false;
-		chr->act_dead.invistimer60 = 0;
-		chr->act_dead.notifychrindex = 0;
-		chr->sleep = 0;
-		chr->chrflags |= CHRCFLAG_KEEPCORPSEKO | CHRCFLAG_PERIMDISABLEDTMP;
+		if (chr) {
+			chr->actiontype = ACT_DEAD;
+			chr->act_dead.fadetimer60 = -1;
+			chr->act_dead.fadenow = false;
+			chr->act_dead.fadewheninvis = false;
+			chr->act_dead.invistimer60 = 0;
+			chr->act_dead.notifychrindex = 0;
+			chr->sleep = 0;
+			chr->chrflags |= CHRCFLAG_KEEPCORPSEKO | CHRCFLAG_PERIMDISABLEDTMP;
+		}
+
+		g_Vars.aioffset += 3;
 	}
-
-	g_Vars.aioffset += 3;
 
 	return false;
 }
@@ -9861,8 +11632,10 @@ bool aiChrKill(void)
 bool aiRemoveWeaponFromInventory(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	invRemoveItemByNum(cmd[2]);
-	g_Vars.aioffset += 3;
+	if (!scenarioSourceAiGraphExecuteRemoveWeaponFromInventory(cmd[2])) {
+		invRemoveItemByNum(cmd[2]);
+		g_Vars.aioffset += 3;
+	}
 
 	return false;
 }
@@ -9872,17 +11645,20 @@ bool aiRemoveWeaponFromInventory(void)
  */
 bool aiIfMusicEventQueueIsEmpty(void)
 {
-	f32 value = (u64)osGetCount() * 64 / 3000;
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	if (!scenarioSourceAiGraphExecuteIfMusicEventQueueIsEmpty(cmd[3])) {
+		f32 value = (u64)osGetCount() * 64 / 3000;
 
-	// HACK: will wait 1 frame and get on with it
-	static bool waited = false;
-	if (g_MusicEventQueueLength && !waited) {
-		waited = true;
-		g_Vars.aioffset += 4;
-	} else {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
-		waited = false;
+		// HACK: will wait 1 frame and get on with it
+		static bool waited = false;
+		if (g_MusicEventQueueLength && !waited) {
+			waited = true;
+			g_Vars.aioffset += 4;
+		} else {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
+				g_Vars.aioffset, cmd[3]);
+			waited = false;
+		}
 	}
 
 	return false;
@@ -9893,11 +11669,14 @@ bool aiIfMusicEventQueueIsEmpty(void)
  */
 bool aiIfCoopMode(void)
 {
-	if (g_Vars.normmplayerisrunning == false && g_MissionConfig.iscoop) {
-		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
-	} else {
-		g_Vars.aioffset += 3;
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	if (!scenarioSourceAiGraphExecuteIfCoopMode(cmd[2])) {
+		if (g_Vars.normmplayerisrunning == false && g_MissionConfig.iscoop) {
+			g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
+				g_Vars.aioffset, cmd[2]);
+		} else {
+			g_Vars.aioffset += 3;
+		}
 	}
 
 	return false;
@@ -9909,12 +11688,14 @@ bool aiIfCoopMode(void)
  */
 bool aiRemoveReferencesToChr(void)
 {
-	if (g_Vars.chrdata && g_Vars.chrdata->prop) {
-		u32 index = g_Vars.chrdata->prop - g_Vars.props;
-		chrClearReferences(index);
-	}
+	if (!scenarioSourceAiGraphExecuteRemoveReferencesToChr(g_Vars.chrdata)) {
+		if (g_Vars.chrdata && g_Vars.chrdata->prop) {
+			u32 index = g_Vars.chrdata->prop - g_Vars.props;
+			chrClearReferences(index);
+		}
 
-	g_Vars.aioffset += 2;
+		g_Vars.aioffset += 2;
+	}
 
 	return false;
 }
@@ -9926,6 +11707,11 @@ bool aiRemoveReferencesToChr(void)
  */
 bool ai01b4(void)
 {
+	if (scenarioSourceAiGraphExecuteIfChrRepositionValid(g_Vars.chrdata,
+			(g_Vars.ailist + g_Vars.aioffset)[2])) {
+		return false;
+	}
+
 	if (g_Vars.chrdata && g_Vars.chrdata->prop &&
 			chr0f01f264(g_Vars.chrdata, &g_Vars.chrdata->prop->pos, g_Vars.chrdata->prop->rooms, 0, false)) {
 		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_comhub",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_comhub.pdmesh::model.obj",
+  "source_size": 33341,
+  "source_sha256": "ead708e749936025752d89b0eeab932b1251b63e0635e27f260be670d0628c75",
+  "validation": "format=obj vertices=528 triangles=176",
+  "normalized": "$S/mod-cache/base/base_model_comhub/model-v1-ead708e749936025752d89b0eeab932b1251b63e0635e27f260be670d0628c75.pdmodel.json",
+  "vertex_count": 528,
+  "triangle_count": 176,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

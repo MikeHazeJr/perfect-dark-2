@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_chrcloaker",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrcloaker.pdmesh::model.obj",
+  "source_size": 36435,
+  "source_sha256": "35f37409d8e0238a0cae31a0a0f9d48ccac4b9f7ec6b565547919944d0cde5af",
+  "validation": "format=obj vertices=588 triangles=196",
+  "normalized": "$S/mod-cache/base/base_model_chrcloaker/model-v1-35f37409d8e0238a0cae31a0a0f9d48ccac4b9f7ec6b565547919944d0cde5af.pdmodel.json",
+  "vertex_count": 588,
+  "triangle_count": 196,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

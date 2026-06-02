@@ -1,0 +1,10 @@
+{
+  "schema": "pd2.asset.validation.v1",
+  "status": "writer_checked",
+  "release_contract": true,
+  "descriptor": "scenario.ini",
+  "manifest": "_meta/manifest.json",
+  "public_entry_count": 17,
+  "dependency_archive_count": 0,
+  "dependency_schema_fields": ["role", "type", "id", "archive", "required", "version", "sha256", "fallback.id", "fallback.reason"]
+}

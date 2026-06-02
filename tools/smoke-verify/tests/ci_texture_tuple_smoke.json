@@ -1,0 +1,42 @@
+{
+  "scenario_name": "ci_texture_tuple_smoke",
+  "description": "B-412: boot directly into Carrington Institute and dwell through the first rendered font/menu frame that previously hit the fast3d RGBA4 palette texture fatal after source-model loading.",
+  "tags": ["boot", "rendering", "texture", "stability"],
+  "paths_of_interest": [
+    "port/fast3d/gfx_pc.cpp",
+    "src/game/game_1531a0.c",
+    "tools/smoke-verify/tests/ci_texture_tuple_smoke.json"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--skip-intro"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "boot to Carrington Institute and allow first gameplay/menu rendering." },
+    { "at_ms": 45000, "type": "exit", "comment": "the prior fatal occurred shortly after the first CI tick and font draw." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=ci_texture_tuple_smoke",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "LOAD: lv\\.c entering stage load sequence for stagenum=0x26",
+      "TICK: lvTick enter tick=0 stagenum=0x26",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "ACCESS_VIOLATION",
+      "EXCEPTION:",
+      "FATAL: ",
+      "Bad size for RGBA texture",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable"
+    ],
+    "required_counts": []
+  }
+}

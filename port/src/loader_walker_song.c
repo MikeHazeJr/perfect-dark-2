@@ -52,7 +52,10 @@ void loaderWalkerScanSongs(const char *tier_dir,
                             loader_walker_kind_result_t *out)
 {
     static const loader_walker_kind_desc_t desc = {
-        "song", "audio/music", ".pdsong",
+        .kind_str = "song",
+        .subdir = "audio/music",
+        .extension = ".pdsong",
+        .always_invoke = 1,
     };
     loaderWalkerScanKind(tier_dir, &desc, s_register, out);
 }

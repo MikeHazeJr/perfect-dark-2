@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_g5_laser_switch",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_g5_laser_switch.pdmesh::model.obj",
+  "source_size": 10748,
+  "source_sha256": "c5420bf9041c1b222a82b662a1b4c1fccefd1bfe29cdd8d1ec98f827f2ad2ded",
+  "validation": "format=obj vertices=162 triangles=54",
+  "normalized": "$S/mod-cache/base/base_model_g5_laser_switch/model-v1-c5420bf9041c1b222a82b662a1b4c1fccefd1bfe29cdd8d1ec98f827f2ad2ded.pdmodel.json",
+  "vertex_count": 162,
+  "triangle_count": 54,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

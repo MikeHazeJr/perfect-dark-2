@@ -117,6 +117,35 @@ TEST_CASE("Public Mods install path refreshes manifest digests and registry",
 	REQUIRE(distrib.find("refreshed mod registry after installing") != std::string::npos);
 }
 
+TEST_CASE("missing mods-enabled json is treated as clean no-mods state",
+          "[social][public_mods][static][c3844]")
+{
+	const std::string modmgr = readTextFile("port/src/modmgr.c");
+	const size_t loader = modmgr.find("static bool modmgrLoadModsEnabledJson(void)");
+	REQUIRE(loader != std::string::npos);
+
+	const size_t stat_gate = modmgr.find("stat(path, &st) != 0 || !S_ISREG(st.st_mode)", loader);
+	const size_t file_load = modmgr.find("fsFileLoad(path, &filesize)", loader);
+	REQUIRE(stat_gate != std::string::npos);
+	REQUIRE(file_load != std::string::npos);
+	REQUIRE(stat_gate < file_load);
+}
+
+TEST_CASE("mod manifest parse logs do not look like asset fallback failures",
+          "[social][public_mods][static][c3844]")
+{
+	const std::string modmgr = readTextFile("port/src/modmgr.c");
+	const size_t log = modmgr.find("modmgr: parsed mod.json");
+	REQUIRE(log != std::string::npos);
+	const size_t log_end = modmgr.find(");", log);
+	REQUIRE(log_end != std::string::npos);
+	const std::string log_block = modmgr.substr(log, log_end - log);
+
+	REQUIRE(log_block.find("base_mod=%s") != std::string::npos);
+	REQUIRE(log_block.find("fallback=%s") == std::string::npos);
+	REQUIRE(log_block.find("mod->base_fallback") != std::string::npos);
+}
+
 TEST_CASE("Public Mods registry writes JSON strings through an escaping helper", "[social][public_mods][static]")
 {
 	const std::string share = readTextFile("port/src/social_share.c");

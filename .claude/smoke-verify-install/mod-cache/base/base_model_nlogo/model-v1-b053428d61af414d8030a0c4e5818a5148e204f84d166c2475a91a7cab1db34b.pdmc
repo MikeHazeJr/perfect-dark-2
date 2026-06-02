@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_nlogo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_nlogo.pdmesh::model.obj",
+  "source_size": 130952,
+  "source_sha256": "b053428d61af414d8030a0c4e5818a5148e204f84d166c2475a91a7cab1db34b",
+  "validation": "format=obj vertices=1920 triangles=640",
+  "normalized": "$S/mod-cache/base/base_model_nlogo/model-v1-b053428d61af414d8030a0c4e5818a5148e204f84d166c2475a91a7cab1db34b.pdmodel.json",
+  "vertex_count": 1920,
+  "triangle_count": 640,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

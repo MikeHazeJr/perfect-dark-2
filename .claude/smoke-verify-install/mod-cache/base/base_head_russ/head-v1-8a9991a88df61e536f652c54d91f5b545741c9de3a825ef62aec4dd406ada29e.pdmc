@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:head_russ",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_russ.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 39601,
+  "source_sha256": "8a9991a88df61e536f652c54d91f5b545741c9de3a825ef62aec4dd406ada29e",
+  "validation": "format=obj vertices=603 triangles=201",
+  "normalized": "$S/mod-cache/base/base_head_russ/head-v1-8a9991a88df61e536f652c54d91f5b545741c9de3a825ef62aec4dd406ada29e.pdmodel.json",
+  "vertex_count": 603,
+  "triangle_count": 201,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

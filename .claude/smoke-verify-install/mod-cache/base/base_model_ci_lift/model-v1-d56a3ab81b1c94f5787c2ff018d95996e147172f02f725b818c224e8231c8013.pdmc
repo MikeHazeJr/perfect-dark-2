@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_ci_lift",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_ci_lift.pdmesh::model.obj",
+  "source_size": 2895,
+  "source_sha256": "d56a3ab81b1c94f5787c2ff018d95996e147172f02f725b818c224e8231c8013",
+  "validation": "format=obj vertices=42 triangles=14",
+  "normalized": "$B/mod-cache/base/base_model_ci_lift/model-v1-d56a3ab81b1c94f5787c2ff018d95996e147172f02f725b818c224e8231c8013.pdmodel.json",
+  "vertex_count": 42,
+  "triangle_count": 14,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

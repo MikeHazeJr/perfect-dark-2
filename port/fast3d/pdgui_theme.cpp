@@ -1984,7 +1984,7 @@ const char *pdguiThemeGetTitleBarStyleName(s32 style)
 struct PduiEntry {
     const char *catalog_id;   /* base:ui_<name> -- catalog row + filename slug */
     const char *file_slug;    /* portion after "base:" -- used in .pdui filename */
-    int         tex_index;    /* g_TexGeneralConfigs[] index for ROM extract */
+    int         tex_index;    /* g_TexGeneralConfigs[] index; -1 = deterministic source */
     const char *proc_name;    /* procedural fallback generator name */
     uint32_t    proc_w;       /* procedural fallback width  (used if extract fails) */
     uint32_t    proc_h;       /* procedural fallback height */
@@ -2005,6 +2005,7 @@ static const struct PduiEntry k_PduiEntries[] = {
     { "base:ui_icon_c",      "ui_icon_c",      36, "solid",    14, 14 },
     { "base:ui_deco",        "ui_deco",        37, "solid",    32, 32 },
     { "base:ui_stars",       "ui_stars",       38, "solid",    16, 16 },
+    { "base:ui_chrome_frame", "ui_chrome_frame", -1, "solid",   64, 64 },
 };
 
 #define K_PDUI_ENTRY_COUNT (sizeof(k_PduiEntries) / sizeof(k_PduiEntries[0]))
@@ -2020,6 +2021,82 @@ static int s_pduiRelPath(const struct PduiEntry *e, char *out, size_t out_size)
                      fsDataDir(dataDirBuf, sizeof(dataDirBuf)),
                      PDUI_OUT_DIR, e->file_slug);
     return (n > 0 && (size_t)n < out_size) ? 1 : 0;
+}
+
+static const struct PduiEntry *s_findPduiEntryByCatalogId(const char *catalog_id)
+{
+    if (!catalog_id) return NULL;
+    for (size_t i = 0; i < K_PDUI_ENTRY_COUNT; i++) {
+        if (strcmp(k_PduiEntries[i].catalog_id, catalog_id) == 0) {
+            return &k_PduiEntries[i];
+        }
+    }
+    return NULL;
+}
+
+static GLuint s_loadPduiTexture(const struct PduiEntry *pe,
+                                uint32_t *out_w, uint32_t *out_h)
+{
+    if (out_w) *out_w = 0;
+    if (out_h) *out_h = 0;
+    if (!pe) return 0;
+
+    char rel_path[FS_MAXPATH];
+    if (!s_pduiRelPath(pe, rel_path, sizeof(rel_path))) {
+        return 0;
+    }
+
+    char fullBuf[FS_MAXPATH + 1];
+    const char *full = (fsFileSize(rel_path) > 0)
+        ? fsFullPath(rel_path, fullBuf, sizeof(fullBuf))
+        : NULL;
+    if (!full || !full[0]) {
+        return 0;
+    }
+
+    GLuint gl_id = 0;
+    mod_archive_t *arc = modArchiveOpen(full);
+    if (arc) {
+        s32 tga_idx = modArchiveFindEntry(arc, "texture.tga");
+        if (tga_idx >= 0) {
+            u32 tga_size = 0;
+            void *tga_buf = modArchiveExtractAlloc(arc, tga_idx, &tga_size);
+            if (tga_buf && tga_size >= 18) {
+                gl_id = s_loadTgaFromMem(
+                    (const uint8_t *)tga_buf, tga_size, out_w, out_h);
+            }
+            if (tga_buf) free(tga_buf);
+        }
+        modArchiveClose(arc);
+    } else {
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI theme: '%s' modArchiveOpen failed (\"%s\")",
+            pe->catalog_id, rel_path);
+    }
+    return gl_id;
+}
+
+static void s_registerLoadedThemeTexture(const char *catalog_id,
+                                         GLuint gl_id,
+                                         uint32_t w,
+                                         uint32_t h)
+{
+    if (!catalog_id || !gl_id) return;
+
+    asset_entry_t *e = assetCatalogRegister(catalog_id, ASSET_UI);
+    if (e) {
+        snprintf(e->category, CATALOG_CATEGORY_LEN, "base");
+        e->bundled = 1;
+        e->enabled = 1;
+        e->load_state = ASSET_STATE_LOADED;
+        e->ref_count = ASSET_REF_BUNDLED;
+        e->source_texnum = -1;
+        e->loaded_data = (void *)(uintptr_t)gl_id;
+        e->data_size_bytes = (u32)(w * h * 4u);
+    }
+
+    s_ThemeTexCache[catalog_id] = gl_id;
+    s_ThemeTexDims[catalog_id] = { w, h };
 }
 
 /**
@@ -2052,55 +2129,15 @@ void pdguiThemeLateInit(void)
     for (size_t i = 0; i < K_PDUI_ENTRY_COUNT; i++) {
         const struct PduiEntry *pe = &k_PduiEntries[i];
 
-        char rel_path[FS_MAXPATH];
-        s_pduiRelPath(pe, rel_path, sizeof(rel_path));
-
-        GLuint gl_id = 0;
         uint32_t w = 0, h = 0;
-
-        /* Open the .pdui ZIP and try to read texture.tga. */
-        char fullBuf[FS_MAXPATH + 1];
-        const char *full = (fsFileSize(rel_path) > 0)
-            ? fsFullPath(rel_path, fullBuf, sizeof(fullBuf))
-            : NULL;
-        if (full && full[0]) {
-            mod_archive_t *arc = modArchiveOpen(full);
-            if (arc) {
-                s32 tga_idx = modArchiveFindEntry(arc, "texture.tga");
-                if (tga_idx >= 0) {
-                    u32 tga_size = 0;
-                    void *tga_buf = modArchiveExtractAlloc(arc, tga_idx, &tga_size);
-                    if (tga_buf && tga_size >= 18) {
-                        gl_id = s_loadTgaFromMem(
-                            (const uint8_t *)tga_buf, tga_size, &w, &h);
-                    }
-                    if (tga_buf) free(tga_buf);
-                }
-                modArchiveClose(arc);
-            } else {
-                sysLogPrintf(LOG_WARNING,
-                    "PDGUI theme: '%s' modArchiveOpen failed (\"%s\")",
-                    pe->catalog_id, rel_path);
-            }
-        }
+        GLuint gl_id = s_loadPduiTexture(pe, &w, &h);
 
         if (gl_id) {
             sysLogPrintf(LOG_NOTE,
                 "PDGUI theme: '%s' <- .pdui (%ux%u)",
                 pe->catalog_id, w, h);
 
-            asset_entry_t *e = assetCatalogRegister(pe->catalog_id, ASSET_UI);
-            if (e) {
-                snprintf(e->category, CATALOG_CATEGORY_LEN, "base");
-                e->bundled = 1; e->enabled = 1;
-                e->load_state = ASSET_STATE_LOADED;
-                e->ref_count = ASSET_REF_BUNDLED;
-                e->source_texnum = -1;
-                e->loaded_data = (void *)(uintptr_t)gl_id;
-                e->data_size_bytes = (u32)(w * h * 4u);
-            }
-            s_ThemeTexCache[pe->catalog_id] = gl_id;
-            s_ThemeTexDims[pe->catalog_id]  = { w, h };
+            s_registerLoadedThemeTexture(pe->catalog_id, gl_id, w, h);
             loaded++;
         } else {
             /* Fallback: generate procedural texture in-memory. The
@@ -2616,6 +2653,8 @@ static bool s_writeTgaToMem(const uint8_t *rgba, uint32_t w, uint32_t h,
  * Per audits/catalog-universality-pivot-plan-2026-05-02.md Step 3b part 2.
  * ========================================================================= */
 
+static void s_generateChromeFrameBgra(uint8_t *out);
+
 /* Decode a single ROM-resident texture into an RGBA32 buffer that the
  * caller owns. Returns NULL if the config is not loaded, the dims are
  * out of range, or the format is unsupported. *out_w / *out_h carry the
@@ -2763,7 +2802,7 @@ static bool s_archiveHasEntry(const char *rel_path, const char *entry)
 }
 
 /* Emit one .pdui ZIP for a single canonical texture entry. Decodes from
- * ROM textureconfig, wraps in manifest + TGA + shared writer metadata,
+ * ROM textureconfig or deterministic source, then wraps in manifest + TGA + shared writer metadata,
  * atomically writes via modArchive. Returns 1 written, 0 skipped (idempotent or
  * texture missing), -1 failure. */
 static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
@@ -2783,19 +2822,37 @@ static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
         return 0;
     }
 
-    /* Decode the ROM texture into an RGBA32 buffer. */
-    if (!g_TexGeneralConfigs) {
-        return 0;  /* texture system not ready; deferred to render-loop trigger */
-    }
-    struct PdTexConfig *cfg = &g_TexGeneralConfigs[e->tex_index];
-    if (!s_isRealPtr(cfg)) {
-        texLoadFromConfig(cfg);
-    }
     uint32_t w = 0, h = 0;
-    uint8_t *rgba = s_decodeUiTexToRgba(cfg, &w, &h);
+    uint8_t *rgba = NULL;
+
+    if (e->tex_index >= 0) {
+        if (!g_TexGeneralConfigs) {
+            return 0;  /* texture system not ready; deferred to render-loop trigger */
+        }
+        struct PdTexConfig *cfg = &g_TexGeneralConfigs[e->tex_index];
+        if (!s_isRealPtr(cfg)) {
+            texLoadFromConfig(cfg);
+        }
+        rgba = s_decodeUiTexToRgba(cfg, &w, &h);
+    } else if (strcmp(e->catalog_id, "base:ui_chrome_frame") == 0) {
+        w = 64;
+        h = 64;
+        uint8_t bgra[64 * 64 * 4];
+        rgba = (uint8_t *)malloc((size_t)w * (size_t)h * 4u);
+        if (rgba) {
+            s_generateChromeFrameBgra(bgra);
+            for (uint32_t i = 0; i < w * h; i++) {
+                rgba[i * 4 + 0] = bgra[i * 4 + 2];
+                rgba[i * 4 + 1] = bgra[i * 4 + 1];
+                rgba[i * 4 + 2] = bgra[i * 4 + 0];
+                rgba[i * 4 + 3] = bgra[i * 4 + 3];
+            }
+        }
+    }
+
     if (!rgba) {
         sysLogPrintf(LOG_WARNING,
-            "PDGUI emit: '%s' (idx=%d) -- ROM decode failed; skipping",
+            "PDGUI emit: '%s' (idx=%d) -- source decode failed; skipping",
             e->catalog_id, e->tex_index);
         return 0;
     }
@@ -2969,8 +3026,8 @@ void pdguiThemeExtractRomTextures(void)
      * the new architecture pdguiThemeLateInit handles procedural fallback
      * in-memory when a .pdui ZIP is missing (no disk write needed). The
      * legacy s_writePng / s_writeNinesliceJson / CRC32 helpers retired
-     * in the Step 5 universality-pivot retirement pass; s_writeTga +
-     * s_writeTgaFile remain for the modern-UI generator CLI flag. */
+     * in the Step 5 universality-pivot retirement pass; s_writeTga remains
+     * for the modern-UI generator CLI flag. */
     if (!g_TexGeneralConfigs) {
         sysLogPrintf(LOG_ERROR,
             "PDGUI extract: g_TexGeneralConfigs is NULL -- texReset() not called");
@@ -3062,7 +3119,7 @@ static void s_generateModernUiTextures(void)
 
 /* Compute the missing .pdui count plus a bitfield mask of which entries
  * are missing (bit i set = entry i missing). max 64 entries tracked --
- * more than enough for the canonical 14. */
+ * more than enough for the canonical UI source set. */
 static unsigned s_countMissingBaseUiPdui(uint64_t *missing_mask)
 {
     uint64_t mask = 0;
@@ -3080,13 +3137,13 @@ static unsigned s_countMissingBaseUiPdui(uint64_t *missing_mask)
 }
 
 /* =========================================================================
- * Base-game UI Chrome template mod (S196)
+ * Base-game UI Chrome .pdui source
  *
- * Generates a hand-authored test chrome mod at mods/base-game/ui-chrome/
- * containing a composite nineslice source texture, a template-flagged
- * mod.json, and a README warning users not to edit.  The test chrome is
- * a 64x64 greyscale+alpha composite with all 9 nineslice regions baked
- * into a single texture:
+ * The base chrome frame is emitted as data/<romid>/ui/ui_chrome_frame.pdui
+ * by the canonical .pdui writer above and loaded back through the same
+ * archive-member reader used by the rest of the UI texture set. The source
+ * image is a 64x64 static frame with all 9 nineslice regions baked into a
+ * single texture:
  *
  *     (0..16, 0..16)   TL quarter-circle arc ring
  *     (48..64, 0..16)  TR quarter-circle arc ring
@@ -3103,47 +3160,16 @@ static unsigned s_countMissingBaseUiPdui(uint64_t *missing_mask)
  * carve the frame into the standard 9 regions.
  *
  * Init flow:
- *   1. mkdir mods/base-game/ui-chrome
- *   2. If .tga missing: generate pixel buffer, write uncompressed 32bpp TGA
- *   3. Always write mod.json (template:true) and README.md (idempotent)
- *   4. Load the texture into the theme cache as "base:ui_chrome_frame"
- *   5. Register the nineslice under the same catalog id
+ *   1. Resolve the canonical .pdui table entry for "base:ui_chrome_frame"
+ *   2. Reuse the cached .pdui texture if late init already loaded it, or load
+ *      texture.tga from the archive directly
+ *   3. Register the nineslice under the same catalog id
  *
  * After init the Settings Video "UI Chrome Style" dropdown can flip
  * pdguiChromeSetEnabled(true) + pdguiSetPanelNineSlice("base:ui_chrome_frame")
  * and pdguiDrawPdDialog will draw the nineslice instead of the procedural
  * body.  Toggle off to return to procedural rendering.
  * ========================================================================= */
-
-/* Write an uncompressed 32-bit top-down TGA file from a BGRA pixel buffer. */
-static bool s_writeTgaFile(const char *path, uint32_t w, uint32_t h,
-                            const uint8_t *bgra)
-{
-    FILE *f = fsFileOpenWrite(path);
-    if (!f) {
-        sysLogPrintf(LOG_WARNING,
-            "UI.CHROME: could not open '%s' for write", path);
-        return false;
-    }
-
-    uint8_t hdr[18] = {0};
-    hdr[2]  = 2;                             /* uncompressed truecolour      */
-    hdr[12] = (uint8_t)(w & 0xff);
-    hdr[13] = (uint8_t)((w >> 8) & 0xff);
-    hdr[14] = (uint8_t)(h & 0xff);
-    hdr[15] = (uint8_t)((h >> 8) & 0xff);
-    hdr[16] = 32;                            /* 32bpp                        */
-    hdr[17] = 0x28;                          /* top-down, 8 bits alpha       */
-
-    fwrite(hdr, 1, 18, f);
-    fwrite(bgra, 1, (size_t)w * (size_t)h * 4u, f);
-    fclose(f);
-
-    sysLogPrintf(LOG_NOTE,
-        "UI.CHROME: wrote %ux%u TGA '%s' (%zu bytes)",
-        w, h, path, (size_t)(18u + (size_t)w * (size_t)h * 4u));
-    return true;
-}
 
 /* Generate the 64x64 composite chrome frame texture as a BGRA buffer.
  *
@@ -3309,15 +3335,11 @@ static void s_generateChromeFrameBgra(uint8_t *out)
 }
 
 /**
- * Initialize the base-game UI chrome template mod.  Creates the directory
- * tree at mods/base-game/ui-chrome/, generates a composite frame TGA
- * programmatically, writes the mod.json manifest + README.md, loads the
- * texture into the theme cache, and registers the nineslice definition.
+ * Initialize the base-game UI chrome. Loads the source texture from
+ * ui_chrome_frame.pdui and registers the nineslice definition.
  *
- * Idempotent: safe to call multiple times.  File generation runs only if
- * the .tga is missing.  mod.json + README always get rewritten so schema
- * drift is impossible and users who tampered with either file see their
- * edits reverted on next launch (the template protection policy).
+ * Idempotent: safe to call multiple times. Extraction runs only if the
+ * canonical .pdui archive is missing during the earlier extraction check.
  */
 void pdguiChromeInitializeBaseMod(void)
 {
@@ -3326,109 +3348,29 @@ void pdguiChromeInitializeBaseMod(void)
 
     s_chromeStylesClear();
 
-    /* Ensure the directory tree exists. */
-    fsCreateDir("mods");
-    fsCreateDir("mods/base-game");
-    fsCreateDir("mods/base-game/ui-chrome");
-
-    /* Generate + write the composite chrome frame TGA.
-     * Always regenerate: the template mod is owned by the game engine and
-     * gets rewritten on launch (template protection policy).  This ensures
-     * users always get the latest procedural chrome even after upgrades. */
-    {
-        sysLogPrintf(LOG_NOTE,
-            "UI.CHROME: base-game chrome missing — generating PD-authentic chrome frame");
-        uint8_t pixels[64 * 64 * 4];
-        s_generateChromeFrameBgra(pixels);
-        s_writeTgaFile("mods/base-game/ui-chrome/ui_chrome_frame.tga",
-                       64, 64, pixels);
-    }
-
-    /* mod.json — always overwrite to enforce the template:true contract. */
-    {
-        static const char k_ChromeModJson[] =
-            "{\n"
-            "    \"id\": \"base.ui-chrome\",\n"
-            "    \"name\": \"Base Game UI Chrome\",\n"
-            "    \"version\": \"1.1.0\",\n"
-            "    \"description\": \"PD-authentic metallic blue chrome frame with beveled borders. Generated procedurally from PD palette colors.\",\n"
-            "    \"author\": \"PD2 Team\",\n"
-            "    \"tags\": [\"base-game\", \"template\", \"chrome\"],\n"
-            "    \"template\": true,\n"
-            "    \"bundled\": true,\n"
-            "    \"enabled\": true,\n"
-            "    \"components\": {\n"
-            "        \"textures\": [\n"
-            "            { \"id\": \"base:ui_chrome_frame\", \"file\": \"ui_chrome_frame.tga\" }\n"
-            "        ],\n"
-            "        \"nineslice\": [\n"
-            "            {\n"
-            "                \"id\": \"base:ui_chrome_frame\",\n"
-            "                \"texture\": \"base:ui_chrome_frame\",\n"
-            "                \"src_inset\": { \"top\": 16, \"bottom\": 16, \"left\": 16, \"right\": 16 },\n"
-            "                \"dst_corner_px\": { \"top\": 16, \"bottom\": 16, \"left\": 16, \"right\": 16 },\n"
-            "                \"top_mode\": \"stretch\",\n"
-            "                \"bottom_mode\": \"stretch\",\n"
-            "                \"left_mode\": \"stretch\",\n"
-            "                \"right_mode\": \"stretch\",\n"
-            "                \"center_mode\": \"tile\"\n"
-            "            }\n"
-            "        ]\n"
-            "    }\n"
-            "}\n";
-        FILE *jf = fsFileOpenWrite("mods/base-game/ui-chrome/mod.json");
-        if (jf) {
-            fwrite(k_ChromeModJson, 1, sizeof(k_ChromeModJson) - 1, jf);
-            fclose(jf);
+    const struct PduiEntry *chrome =
+        s_findPduiEntryByCatalogId("base:ui_chrome_frame");
+    auto cached = s_ThemeTexCache.find("base:ui_chrome_frame");
+    if (cached == s_ThemeTexCache.end() || !cached->second) {
+        uint32_t w = 0, h = 0;
+        GLuint gl_id = s_loadPduiTexture(chrome, &w, &h);
+        if (gl_id) {
+            s_registerLoadedThemeTexture("base:ui_chrome_frame", gl_id, w, h);
             sysLogPrintf(LOG_NOTE,
-                "UI.CHROME: wrote mods/base-game/ui-chrome/mod.json");
+                "UI.CHROME: loaded base chrome from ui_chrome_frame.pdui (%ux%u)",
+                w, h);
         } else {
-            sysLogPrintf(LOG_WARNING,
-                "UI.CHROME: could not write mods/base-game/ui-chrome/mod.json");
+            char rel_path[FS_MAXPATH];
+            if (s_pduiRelPath(chrome, rel_path, sizeof(rel_path))) {
+                sysLoudFailf("UI.CHROME",
+                    "base:ui_chrome_frame archive source unavailable: %s",
+                    rel_path);
+            } else {
+                sysLoudFailf("UI.CHROME",
+                    "base:ui_chrome_frame archive source unavailable");
+            }
         }
     }
-
-    /* README — always overwrite so the template warning stays authoritative. */
-    {
-        static const char k_ChromeReadme[] =
-            "# Base Game UI Chrome -- Base-Game Template Mod\n"
-            "\n"
-            "This is a **base-game template mod**. Its contents are generated by the game\n"
-            "at startup and will be regenerated if the file set is incomplete or missing.\n"
-            "\n"
-            "## Do not edit this mod directly.\n"
-            "\n"
-            "Any changes you make to the files in this directory will be silently\n"
-            "overwritten the next time the game launches and validates its base-game\n"
-            "mod set. This protection exists to keep a stable reference copy that\n"
-            "other mods can build on top of.\n"
-            "\n"
-            "## To customize this mod\n"
-            "\n"
-            "Open the Mod Manager (Main Menu -> Mods -> Modding Hub) and use **Save As**\n"
-            "to create a user mod from this template. Your user mod will live in\n"
-            "`mods/user/<your-name>/` and is yours to edit freely.\n"
-            "\n"
-            "## Why this exists\n"
-            "\n"
-            "The base-game template system lets the game ship a default look and\n"
-            "feel that mods can descend from. The template is the canonical source;\n"
-            "user mods are editable copies. Keeping the two separated prevents\n"
-            "accidental overwrites of the baseline when the extractor runs again.\n";
-        FILE *rf = fsFileOpenWrite("mods/base-game/ui-chrome/README.md");
-        if (rf) {
-            fwrite(k_ChromeReadme, 1, sizeof(k_ChromeReadme) - 1, rf);
-            fclose(rf);
-            sysLogPrintf(LOG_NOTE,
-                "UI.CHROME: wrote mods/base-game/ui-chrome/README.md");
-        }
-    }
-
-    /* Load the chrome texture into the theme cache (registers it in the
-     * asset catalog and s_ThemeTexDims so the chrome render branch can
-     * resolve it by catalog id). */
-    s_registerModTexture("base:ui_chrome_frame",
-                         "mods/base-game/ui-chrome/ui_chrome_frame.tga");
 
     /* Register the nineslice definition under the same catalog id as the
      * texture.  The render path uses this id for both lookups. */
@@ -3452,8 +3394,8 @@ void pdguiChromeInitializeBaseMod(void)
     pdguiNinesliceRegister("base:ui_chrome_frame", &nsdef);
     s_chromeStyleAdd("base:ui_chrome_frame", "Classic (base-game)");
 
-    /* Discover additional chrome mods that follow the extracted template
-     * schema (components.textures + components.nineslice in mod.json). */
+    /* Discover additional chrome mods that follow the chrome component schema
+     * (components.textures + components.nineslice in mod.json). */
     s_scanModChromeStyles();
 
     /* Apply persisted chrome enable state from pd.ini now that the
@@ -3479,12 +3421,12 @@ void pdguiChromeInitializeBaseMod(void)
     }
 
     sysLogPrintf(LOG_NOTE,
-        "UI.CHROME: base-game chrome template mod initialized");
+        "UI.CHROME: base-game chrome initialized from .pdui source");
     s_done = true;
 }
 
 /**
- * Frame check: auto-emit base UI chrome .pdui ZIPs from ROM if they
+ * Frame check: auto-emit base UI .pdui ZIPs from source data if they
  * don't exist, or run extraction/generation when CLI flags are set.
  * Called from pdguiRender() each frame until done.
  *
@@ -3505,7 +3447,7 @@ void pdguiThemeCheckExtract(void)
 
     s_checked = true;
 
-    /* Auto-emit: if ANY base UI chrome .pdui ZIPs are missing, run the
+    /* Auto-emit: if ANY base UI .pdui ZIPs are missing, run the
      * emitter. Handles both first-launch (all missing) and partial
      * extraction (e.g. one texture's .pdui got deleted while others
      * exist). The emitter writes per-texture ZIPs idempotently, then
@@ -3516,8 +3458,8 @@ void pdguiThemeCheckExtract(void)
 
         if (n_missing > 0) {
             sysLogPrintf(LOG_NOTE,
-                "PDGUI theme: %u of %zu base UI chrome .pdui ZIPs missing "
-                "(mask=0x%llx) -- auto-emitting from ROM",
+                "PDGUI theme: %u of %zu base UI .pdui ZIPs missing "
+                "(mask=0x%llx) -- auto-emitting from source data",
                 n_missing, K_PDUI_ENTRY_COUNT,
                 (unsigned long long)missing_mask);
 
@@ -3583,9 +3525,7 @@ void pdguiThemeCheckExtract(void)
         s_generateModernUiTextures();
     }
 
-    /* Initialize the base-game chrome template mod on first frame.  This
-     * generates the test chrome assets, registers the texture + nineslice,
-     * and makes "base:ui_chrome_frame" available for the Settings toggle. */
+    /* Initialize the base-game chrome style from the extracted .pdui source. */
     pdguiChromeInitializeBaseMod();
 }
 

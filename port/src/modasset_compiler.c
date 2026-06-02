@@ -341,7 +341,7 @@ static s32 objMeshGrowTriangles(obj_mesh_t *mesh, s32 needed)
 	return 1;
 }
 
-static s32 objMeshAddVertex(obj_mesh_t *mesh, f32 x, f32 y, f32 z)
+static s32 objMeshAddVertex(obj_mesh_t *mesh, f32 x, f32 y, f32 z, s32 roomnum)
 {
 	obj_vertex_t *v;
 
@@ -353,11 +353,11 @@ static s32 objMeshAddVertex(obj_mesh_t *mesh, f32 x, f32 y, f32 z)
 	v->x = x;
 	v->y = y;
 	v->z = z;
-	v->roomnum = 0;
+	v->roomnum = roomnum > 0 ? roomnum : 0;
 	return 1;
 }
 
-static s32 objMeshAddTriangle(obj_mesh_t *mesh, s32 a, s32 b, s32 c)
+static s32 objMeshAddTriangle(obj_mesh_t *mesh, s32 a, s32 b, s32 c, s32 roomnum)
 {
 	obj_triangle_t *tri;
 
@@ -369,7 +369,7 @@ static s32 objMeshAddTriangle(obj_mesh_t *mesh, s32 a, s32 b, s32 c)
 	tri->a = a;
 	tri->b = b;
 	tri->c = c;
-	tri->roomnum = 0;
+	tri->roomnum = roomnum > 0 ? roomnum : 0;
 	if (a >= 0 && b >= 0 && c >= 0
 			&& a < mesh->vertex_count
 			&& b < mesh->vertex_count
@@ -377,11 +377,37 @@ static s32 objMeshAddTriangle(obj_mesh_t *mesh, s32 a, s32 b, s32 c)
 		s32 ar = mesh->vertices[a].roomnum;
 		s32 br = mesh->vertices[b].roomnum;
 		s32 cr = mesh->vertices[c].roomnum;
-		if (ar == br && br == cr) {
+		if (tri->roomnum <= 0 && ar == br && br == cr) {
 			tri->roomnum = ar;
 		}
 	}
 	return 1;
+}
+
+static char *skipSpaces(char *p);
+
+static s32 parseObjRoomName(char *line)
+{
+	char *p = line;
+
+	if (!p) {
+		return 0;
+	}
+
+	while (*p && !isspace((u8)*p)) {
+		p++;
+	}
+	p = skipSpaces(p);
+	if (strncmp(p, "room_", 5) == 0) {
+		p += 5;
+		while (*p == '0' && isdigit((u8)p[1])) {
+			p++;
+		}
+		if (isdigit((u8)*p)) {
+			return (s32)strtol(p, NULL, 10);
+		}
+	}
+	return 0;
 }
 
 static char *skipSpaces(char *p)
@@ -449,7 +475,8 @@ static s32 parseObjIndexToken(char **cursor, s32 vertex_count, s32 *out_index)
 	return 1;
 }
 
-static s32 parseObjVertexLine(char *line, obj_mesh_t *mesh, s32 line_no)
+static s32 parseObjVertexLine(char *line, obj_mesh_t *mesh, s32 line_no,
+	s32 current_room)
 {
 	f32 x;
 	f32 y;
@@ -463,10 +490,11 @@ static s32 parseObjVertexLine(char *line, obj_mesh_t *mesh, s32 line_no)
 		return 0;
 	}
 
-	return objMeshAddVertex(mesh, x, y, z);
+	return objMeshAddVertex(mesh, x, y, z, current_room);
 }
 
-static s32 parseObjFaceLine(char *line, obj_mesh_t *mesh, s32 line_no)
+static s32 parseObjFaceLine(char *line, obj_mesh_t *mesh, s32 line_no,
+	s32 current_room)
 {
 	char *p = line + 1;
 	s32 indices[128];
@@ -499,7 +527,8 @@ static s32 parseObjFaceLine(char *line, obj_mesh_t *mesh, s32 line_no)
 	}
 
 	for (s32 i = 2; i < count; i++) {
-		if (!objMeshAddTriangle(mesh, indices[0], indices[i - 1], indices[i])) {
+		if (!objMeshAddTriangle(mesh, indices[0], indices[i - 1], indices[i],
+				current_room)) {
 			return 0;
 		}
 	}
@@ -513,6 +542,7 @@ static s32 parseObjSource(const u8 *data, u32 size, obj_mesh_t *mesh)
 	char *line;
 	s32 line_no = 1;
 	s32 ok = 1;
+	s32 current_room = 0;
 
 	if (!data || size == 0 || !mesh) {
 		return 0;
@@ -548,9 +578,11 @@ static s32 parseObjSource(const u8 *data, u32 size, obj_mesh_t *mesh)
 
 		p = skipSpaces(line);
 		if (*p == 'v' && isspace((u8)p[1])) {
-			ok = parseObjVertexLine(p, mesh, line_no);
+			ok = parseObjVertexLine(p, mesh, line_no, current_room);
 		} else if (*p == 'f' && isspace((u8)p[1])) {
-			ok = parseObjFaceLine(p, mesh, line_no);
+			ok = parseObjFaceLine(p, mesh, line_no, current_room);
+		} else if ((*p == 'g' || *p == 'o') && isspace((u8)p[1])) {
+			current_room = parseObjRoomName(p);
 		}
 
 		if (!ok) {
@@ -1388,7 +1420,8 @@ static s32 gltfAppendPositions(const gltf_accessor_t *accessor,
 		if (!objMeshAddVertex(mesh,
 				readLeFloat(p + 0),
 				readLeFloat(p + 4),
-				readLeFloat(p + 8))) {
+				readLeFloat(p + 8),
+				0)) {
 			return 0;
 		}
 	}
@@ -1535,7 +1568,8 @@ static s32 gltfAppendIndexedTriangles(const gltf_accessor_t *accessor,
 		if (!objMeshAddTriangle(mesh,
 				vertex_base + (s32)ia,
 				vertex_base + (s32)ib,
-				vertex_base + (s32)ic)) {
+				vertex_base + (s32)ic,
+				0)) {
 			return 0;
 		}
 	}
@@ -1557,7 +1591,8 @@ static s32 gltfAppendSequentialTriangles(obj_mesh_t *mesh,
 		if (!objMeshAddTriangle(mesh,
 				vertex_base + i,
 				vertex_base + i + 1,
-				vertex_base + i + 2)) {
+				vertex_base + i + 2,
+				0)) {
 			return 0;
 		}
 	}
@@ -2665,20 +2700,21 @@ static void jsonWriteEscaped(FILE *f, const char *text)
 	}
 }
 
-static s32 ensureCacheDirs(const char *mod_part, const char *asset_part)
+static s32 ensureCacheDirs(const char *cache_root,
+                           const char *mod_part, const char *asset_part)
 {
 	char path[FS_MAXPATH];
 
-	if (!fsCreateDir("$S/mod-cache")) {
+	if (!cache_root || !cache_root[0] || !fsCreateDir(cache_root)) {
 		return 0;
 	}
 
-	snprintf(path, sizeof(path), "$S/mod-cache/%s", mod_part);
+	snprintf(path, sizeof(path), "%s/%s", cache_root, mod_part);
 	if (!fsCreateDir(path)) {
 		return 0;
 	}
 
-	snprintf(path, sizeof(path), "$S/mod-cache/%s/%s", mod_part, asset_part);
+	snprintf(path, sizeof(path), "%s/%s/%s", cache_root, mod_part, asset_part);
 	if (!fsCreateDir(path)) {
 		return 0;
 	}
@@ -2948,6 +2984,7 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 	char mod_part[96];
 	char asset_part[96];
 	char kind_part[48];
+	char cache_root[FS_MAXPATH];
 	char cache_rel[FS_MAXPATH];
 	char normalized_rel[FS_MAXPATH];
 	char validation[128];
@@ -2991,7 +3028,12 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 	sanitizePathPart(asset_kind && asset_kind[0] ? asset_kind : "asset",
 		kind_part, sizeof(kind_part));
 
-	if (!ensureCacheDirs(mod_part, asset_part)) {
+	snprintf(cache_root, sizeof(cache_root), "$S/mod-cache");
+	if (!ensureCacheDirs(cache_root, mod_part, asset_part)) {
+		snprintf(cache_root, sizeof(cache_root), "$B/mod-cache");
+	}
+
+	if (!ensureCacheDirs(cache_root, mod_part, asset_part)) {
 		sysLogPrintf(LOG_WARNING,
 			"MODASSET.COMPILER: could not create private cache dirs for '%s'",
 			entry->id);
@@ -3000,33 +3042,39 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 	}
 
 	snprintf(cache_rel, sizeof(cache_rel),
-		"$S/mod-cache/%s/%s/%s-v%d-%s.pdmc",
-		mod_part, asset_part, kind_part, MODASSET_COMPILER_VERSION, digest_hex);
+		"%s/%s/%s/%s-v%d-%s.pdmc",
+		cache_root, mod_part, asset_part, kind_part,
+		MODASSET_COMPILER_VERSION, digest_hex);
 
 	normalized_rel[0] = '\0';
 	source_kind = sourceKindForPath(source_path);
 	if (strcmp(source_kind, "obj") == 0 && assetKindUsesGeneratedModeldef(asset_kind)) {
 		snprintf(normalized_rel, sizeof(normalized_rel),
-			"$S/mod-cache/%s/%s/%s-v%d-%s.pdmodel.json",
-			mod_part, asset_part, kind_part, MODASSET_COMPILER_VERSION, digest_hex);
+			"%s/%s/%s/%s-v%d-%s.pdmodel.json",
+			cache_root, mod_part, asset_part, kind_part,
+			MODASSET_COMPILER_VERSION, digest_hex);
 	} else if (strcmp(source_kind, "obj") == 0) {
 		snprintf(normalized_rel, sizeof(normalized_rel),
-			"$S/mod-cache/%s/%s/%s-v%d-%s.pdmesh.json",
-			mod_part, asset_part, kind_part, MODASSET_COMPILER_VERSION, digest_hex);
+			"%s/%s/%s/%s-v%d-%s.pdmesh.json",
+			cache_root, mod_part, asset_part, kind_part,
+			MODASSET_COMPILER_VERSION, digest_hex);
 	} else if ((strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0)
 			&& assetKindUsesGeneratedModeldef(asset_kind)) {
 		snprintf(normalized_rel, sizeof(normalized_rel),
-			"$S/mod-cache/%s/%s/%s-v%d-%s.pdmodel.json",
-			mod_part, asset_part, kind_part, MODASSET_COMPILER_VERSION, digest_hex);
+			"%s/%s/%s/%s-v%d-%s.pdmodel.json",
+			cache_root, mod_part, asset_part, kind_part,
+			MODASSET_COMPILER_VERSION, digest_hex);
 	} else if ((strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0)
 			&& assetKindUsesGeneratedAnimationClip(asset_kind)) {
 		snprintf(normalized_rel, sizeof(normalized_rel),
-			"$S/mod-cache/%s/%s/%s-v%d-%s.pdanimation.json",
-			mod_part, asset_part, kind_part, MODASSET_COMPILER_VERSION, digest_hex);
+			"%s/%s/%s/%s-v%d-%s.pdanimation.json",
+			cache_root, mod_part, asset_part, kind_part,
+			MODASSET_COMPILER_VERSION, digest_hex);
 	} else if (strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0) {
 		snprintf(normalized_rel, sizeof(normalized_rel),
-			"$S/mod-cache/%s/%s/%s-v%d-%s.pdmesh.json",
-			mod_part, asset_part, kind_part, MODASSET_COMPILER_VERSION, digest_hex);
+			"%s/%s/%s/%s-v%d-%s.pdmesh.json",
+			cache_root, mod_part, asset_part, kind_part,
+			MODASSET_COMPILER_VERSION, digest_hex);
 	}
 
 	if (cachePathExists(cache_rel)
@@ -3218,14 +3266,30 @@ typedef struct generated_modeldef {
 	struct modelnode bbox_node;
 	struct modelnode toggle_node;
 	struct modelnode dl_node;
+	struct modelnode logo_toggle_nodes[2];
+	struct modelnode logo_dl_nodes[8];
 	union modelrodata root_rodata;
 	union modelrodata bbox_rodata;
 	union modelrodata toggle_rodata;
 	union modelrodata dl_rodata;
+	union modelrodata logo_toggle_rodatas[2];
+	union modelrodata logo_dl_rodatas[8];
+	struct {
+		struct modelnode *nodes[16];
+		s16 partnums[17];
+	} part_table;
 	struct {
 		struct modelnode *nodes[4];
 		s16 partnums[5];
-	} part_table;
+	} cctv_part_table;
+	struct {
+		struct modelnode *nodes[3];
+		s16 partnums[4];
+	} windowed_door_part_table;
+	struct {
+		struct modelnode *nodes[4];
+		s16 partnums[5];
+	} logo_part_table;
 	Vtx *vertices;
 	Col *colours;
 	Gfx *gdl;
@@ -3296,6 +3360,28 @@ static void generatedModeldefMeshBounds(const obj_mesh_t *mesh,
 	bbox->zmax = zmax;
 }
 
+static void generatedModeldefConfigureSourceBounds(generated_modeldef_t *owner,
+                                                   const obj_mesh_t *mesh)
+{
+	if (!owner || !mesh || owner->root_node.type == MODELNODETYPE_CHRINFO) {
+		return;
+	}
+
+	owner->bbox_node.type = MODELNODETYPE_BBOX;
+	owner->bbox_node.rodata = &owner->bbox_rodata;
+	owner->bbox_node.parent = &owner->root_node;
+	owner->bbox_node.next = &owner->dl_node;
+	owner->bbox_node.prev = NULL;
+	owner->bbox_node.child = NULL;
+	generatedModeldefMeshBounds(mesh, &owner->bbox_rodata.bbox);
+
+	owner->dl_node.parent = &owner->root_node;
+	owner->dl_node.prev = &owner->bbox_node;
+	owner->dl_node.next = NULL;
+	owner->dl_node.child = NULL;
+	owner->root_node.child = &owner->bbox_node;
+}
+
 static void generatedModeldefConfigureCctvParts(generated_modeldef_t *owner,
                                                 const obj_mesh_t *mesh)
 {
@@ -3307,31 +3393,124 @@ static void generatedModeldefConfigureCctvParts(generated_modeldef_t *owner,
 	owner->bbox_node.rodata = &owner->bbox_rodata;
 	owner->bbox_node.parent = &owner->root_node;
 	owner->bbox_node.next = &owner->toggle_node;
+	owner->bbox_node.prev = NULL;
+	owner->bbox_node.child = NULL;
 	generatedModeldefMeshBounds(mesh, &owner->bbox_rodata.bbox);
 
 	owner->toggle_node.type = MODELNODETYPE_TOGGLE;
 	owner->toggle_node.rodata = &owner->toggle_rodata;
 	owner->toggle_node.parent = &owner->root_node;
 	owner->toggle_node.prev = &owner->bbox_node;
+	owner->toggle_node.next = NULL;
 	owner->toggle_node.child = &owner->dl_node;
 	owner->toggle_rodata.toggle.target = &owner->dl_node;
 
 	owner->dl_node.parent = &owner->toggle_node;
+	owner->dl_node.prev = NULL;
+	owner->dl_node.next = NULL;
+	owner->dl_node.child = NULL;
 	owner->root_node.child = &owner->bbox_node;
 
-	owner->part_table.nodes[0] = &owner->root_node;
-	owner->part_table.nodes[1] = &owner->dl_node;
-	owner->part_table.nodes[2] = &owner->bbox_node;
-	owner->part_table.nodes[3] = &owner->toggle_node;
-	owner->part_table.partnums[0] = MODELPART_CCTV_CASING;
-	owner->part_table.partnums[1] = MODELPART_CCTV_LENS;
-	owner->part_table.partnums[2] = MODELPART_CCTV_0002;
-	owner->part_table.partnums[3] = MODELPART_CCTV_0003;
-	owner->part_table.partnums[4] = 0x7fff;
+	owner->cctv_part_table.nodes[0] = &owner->root_node;
+	owner->cctv_part_table.partnums[0] = MODELPART_CCTV_CASING;
+	owner->cctv_part_table.nodes[1] = &owner->dl_node;
+	owner->cctv_part_table.partnums[1] = MODELPART_CCTV_LENS;
+	owner->cctv_part_table.nodes[2] = &owner->bbox_node;
+	owner->cctv_part_table.partnums[2] = MODELPART_CCTV_0002;
+	owner->cctv_part_table.nodes[3] = &owner->toggle_node;
+	owner->cctv_part_table.partnums[3] = MODELPART_CCTV_0003;
+	owner->cctv_part_table.partnums[4] = 0x7fff;
 
-	owner->def.parts = owner->part_table.nodes;
+	owner->def.parts = owner->cctv_part_table.nodes;
 	owner->def.numparts = 4;
 	owner->def.nummatrices = 2;
+}
+
+static void generatedModeldefConfigureWindowedDoorParts(
+	generated_modeldef_t *owner)
+{
+	if (!owner || owner->def.skel != &g_SkelWindowedDoor) {
+		return;
+	}
+
+	owner->bbox_node.type = MODELNODETYPE_BBOX;
+	owner->bbox_node.rodata = &owner->bbox_rodata;
+	owner->bbox_node.parent = &owner->root_node;
+	owner->bbox_node.prev = NULL;
+	owner->bbox_node.next = &owner->toggle_node;
+	owner->bbox_node.child = NULL;
+
+	owner->toggle_node.type = MODELNODETYPE_TOGGLE;
+	owner->toggle_node.rodata = &owner->toggle_rodata;
+	owner->toggle_node.parent = &owner->root_node;
+	owner->toggle_node.prev = &owner->bbox_node;
+	owner->toggle_node.next = &owner->dl_node;
+	owner->toggle_node.child = NULL;
+	owner->toggle_rodata.toggle.target = NULL;
+
+	owner->dl_node.parent = &owner->root_node;
+	owner->dl_node.prev = &owner->toggle_node;
+	owner->dl_node.next = NULL;
+	owner->dl_node.child = NULL;
+	owner->root_node.child = &owner->bbox_node;
+
+	owner->windowed_door_part_table.nodes[0] = &owner->bbox_node;
+	owner->windowed_door_part_table.partnums[0] = MODELPART_WINDOWEDDOOR_0000;
+	owner->windowed_door_part_table.nodes[1] = &owner->toggle_node;
+	owner->windowed_door_part_table.partnums[1] = MODELPART_WINDOWEDDOOR_0001;
+	owner->windowed_door_part_table.nodes[2] = &owner->bbox_node;
+	owner->windowed_door_part_table.partnums[2] = MODELPART_WINDOWEDDOOR_0002;
+	owner->windowed_door_part_table.partnums[3] = 0x7fff;
+
+	owner->def.parts = owner->windowed_door_part_table.nodes;
+	owner->def.numparts = 3;
+}
+
+static void generatedModeldefConfigureLogoParts(generated_modeldef_t *owner)
+{
+	if (!owner || (owner->def.skel != &g_SkelLogo &&
+			owner->def.skel != &g_SkelPdLogo)) {
+		return;
+	}
+
+	owner->root_node.child = &owner->logo_toggle_nodes[0];
+
+	for (s32 i = 0; i < 2; i++) {
+		struct modelnode *toggle = &owner->logo_toggle_nodes[i];
+
+		toggle->type = MODELNODETYPE_TOGGLE;
+		toggle->rodata = &owner->logo_toggle_rodatas[i];
+		toggle->parent = &owner->root_node;
+		toggle->child = &owner->logo_dl_nodes[i];
+		toggle->prev = i == 0 ? NULL : &owner->logo_toggle_nodes[i - 1];
+		toggle->next = i == 0 ? &owner->logo_toggle_nodes[1] : NULL;
+		owner->logo_toggle_rodatas[i].toggle.target = &owner->logo_dl_nodes[i];
+	}
+
+	for (s32 i = 0; i < 2; i++) {
+		struct modelnode *node = &owner->logo_dl_nodes[i];
+
+		node->type = MODELNODETYPE_DL;
+		node->rodata = &owner->logo_dl_rodatas[i];
+		node->parent = &owner->logo_toggle_nodes[i];
+		node->prev = NULL;
+		node->next = NULL;
+		owner->logo_dl_rodatas[i].dl = owner->dl_rodata.dl;
+	}
+
+	owner->logo_part_table.nodes[0] = &owner->logo_toggle_nodes[0];
+	owner->logo_part_table.partnums[0] = MODELPART_LOGO_0000;
+	owner->logo_part_table.nodes[1] = &owner->logo_toggle_nodes[1];
+	owner->logo_part_table.partnums[1] = MODELPART_LOGO_0001;
+
+	owner->logo_part_table.nodes[2] = &owner->logo_dl_nodes[0];
+	owner->logo_part_table.partnums[2] = MODELPART_LOGO_FRONTSIDE;
+	owner->logo_part_table.nodes[3] = &owner->logo_dl_nodes[1];
+	owner->logo_part_table.partnums[3] = MODELPART_LOGO_0003;
+
+	owner->logo_part_table.partnums[4] = 0x7fff;
+	owner->def.parts = owner->logo_part_table.nodes;
+	owner->def.numparts = 4;
 }
 
 static s32 generatedModeldefMetadataPath(const char *source_path,
@@ -3557,6 +3736,9 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	owner->dl_node.type = MODELNODETYPE_DL;
 	owner->dl_node.rodata = &owner->dl_rodata;
 	owner->dl_node.parent = &owner->root_node;
+	owner->dl_node.prev = NULL;
+	owner->dl_node.next = NULL;
+	owner->dl_node.child = NULL;
 	owner->dl_rodata.dl.opagdl = owner->gdl;
 	owner->dl_rodata.dl.xlugdl = NULL;
 	owner->dl_rodata.dl.colours = owner->colours;
@@ -3574,7 +3756,10 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	owner->def.numtexconfigs = 0;
 	owner->def.texconfigs = NULL;
 	owner->def.rwdatalen = modelCalculateRwDataIndexes(owner->def.rootnode);
+	generatedModeldefConfigureSourceBounds(owner, mesh);
+	generatedModeldefConfigureLogoParts(owner);
 	generatedModeldefConfigureCctvParts(owner, mesh);
+	generatedModeldefConfigureWindowedDoorParts(owner);
 	owner->def.rwdatalen = modelCalculateRwDataIndexes(owner->def.rootnode);
 
 	*out_modeldef = &owner->def;

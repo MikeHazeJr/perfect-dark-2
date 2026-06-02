@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_g5_mainframe",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_g5_mainframe.pdmesh::model.obj",
+  "source_size": 3790,
+  "source_sha256": "a904f1acd7c504ec88a4f4f8473aa6c6eb4ff239e9e80e15a5a5789f3b61c854",
+  "validation": "format=obj vertices=54 triangles=18",
+  "normalized": "$S/mod-cache/base/base_model_g5_mainframe/model-v1-a904f1acd7c504ec88a4f4f8473aa6c6eb4ff239e9e80e15a5a5789f3b61c854.pdmodel.json",
+  "vertex_count": 54,
+  "triangle_count": 18,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

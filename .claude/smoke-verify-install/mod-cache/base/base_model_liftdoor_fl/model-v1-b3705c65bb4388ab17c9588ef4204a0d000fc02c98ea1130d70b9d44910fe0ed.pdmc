@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_liftdoor_fl",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_liftdoor_fl.pdmesh::model.obj",
+  "source_size": 4611,
+  "source_sha256": "b3705c65bb4388ab17c9588ef4204a0d000fc02c98ea1130d70b9d44910fe0ed",
+  "validation": "format=obj vertices=66 triangles=22",
+  "normalized": "$S/mod-cache/base/base_model_liftdoor_fl/model-v1-b3705c65bb4388ab17c9588ef4204a0d000fc02c98ea1130d70b9d44910fe0ed.pdmodel.json",
+  "vertex_count": 66,
+  "triangle_count": 22,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

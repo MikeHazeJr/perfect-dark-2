@@ -468,6 +468,21 @@ std::string readArchiveEntryText(mod_archive_t *archive, const char *entryPath) 
 	return text;
 }
 
+TEST_CASE("bundled pdmod manifests declare explicit stable ids",
+          "[modding][pdmod][static][c3844]") {
+	const std::string baseUi =
+		readArchiveEntryText("mods/base-ui.pdmod", "mod.json");
+	const std::string modernUi =
+		readArchiveEntryText("mods/pd-modern-ui.pdmod", "mod.json");
+	const std::string modernSource =
+		readFile("mods/pd-modern-ui.legacy_backup/mod.json");
+
+	REQUIRE(baseUi.find("\"id\": \"base-ui\"") != std::string::npos);
+	REQUIRE(modernUi.find("\"id\": \"pd-modern-ui\"") != std::string::npos);
+	REQUIRE(modernSource.find("\"id\": \"pd-modern-ui\"") !=
+	        std::string::npos);
+}
+
 TEST_CASE("shared typed archive writer emits c3838 metadata contract",
           "[modding][pdxxx][writer][c3838]") {
 	const auto stamp =
@@ -1152,6 +1167,7 @@ TEST_CASE("legacy pd asset walkers remain registered during external pdmod migra
 		"loaderWalkerScanSfx(data_root, &kr)",
 		"loaderWalkerScanVoices(data_root, &kr)",
 		"loaderWalkerScanSongs(data_root, &kr)",
+		"loaderWalkerScanMetadataFamilies(data_root, &mr)",
 		"loaderWalkerScanUi(data_root, &kr)",
 		"loaderWalkerScanFonts(data_root, &kr)",
 		"loaderWalkerScanLangs(data_root, &kr)",
@@ -1168,9 +1184,9 @@ TEST_CASE("legacy pd asset walkers remain registered during external pdmod migra
 		{ "port/src/loader_walker_arena.c",    "\"arena\", \"arenas\", \".pdarena\"" },
 		{ "port/src/loader_walker_mesh.c",     "\"mesh\", \"meshes\", \".pdmesh\"" },
 		{ "port/src/loader_walker_anim.c",     "\"animation\", \"animations\", \".pdanim\"" },
-		{ "port/src/loader_walker_sfx.c",      "\"sfx\", \"audio/sfx\", \".pdsfx\"" },
-		{ "port/src/loader_walker_voice.c",    "\"voice\", \"audio/voice\", \".pdvoice\"" },
-		{ "port/src/loader_walker_song.c",     "\"song\", \"audio/music\", \".pdsong\"" },
+		{ "port/src/loader_walker_sfx.c",      ".kind_str = \"sfx\"" },
+		{ "port/src/loader_walker_voice.c",    ".kind_str = \"voice\"" },
+		{ "port/src/loader_walker_song.c",     ".kind_str = \"song\"" },
 		{ "port/src/loader_walker_ui.c",       "\"ui\", \"ui\", \".pdui\"" },
 		{ "port/src/loader_walker_font.c",     "\"font\", \"fonts\", \".pdfont\"" },
 		{ "port/src/loader_walker_lang.c",     "\"lang\", \"lang\", \".pdlang\"" },
@@ -1182,6 +1198,25 @@ TEST_CASE("legacy pd asset walkers remain registered during external pdmod migra
 		REQUIRE(src.find(pin.second) != std::string::npos);
 		REQUIRE(src.find("loaderWalkerScanKind(tier_dir, &desc, s_register, out)") != std::string::npos);
 	}
+
+	const std::string metaWalker = readFile("port/src/loader_walker_meta.c");
+	REQUIRE(metaWalker.find(".pdcharacter") != std::string::npos);
+	REQUIRE(metaWalker.find(".pdskin") != std::string::npos);
+	REQUIRE(metaWalker.find(".pdprop") != std::string::npos);
+	REQUIRE(metaWalker.find(".pdvehicle") != std::string::npos);
+	REQUIRE(metaWalker.find(".pdmission") != std::string::npos);
+	REQUIRE(metaWalker.find(".pdgamemode") != std::string::npos);
+	REQUIRE(metaWalker.find(".pdbotprofile") != std::string::npos);
+	REQUIRE(metaWalker.find(".pdhud") != std::string::npos);
+	REQUIRE(metaWalker.find(".pdeffect") != std::string::npos);
+	REQUIRE(metaWalker.find(".pdmaterial") != std::string::npos);
+	REQUIRE(metaWalker.find(".pdtheme") != std::string::npos);
+	REQUIRE(metaWalker.find("desc.always_invoke = 1") != std::string::npos);
+	REQUIRE(metaWalker.find("assetCatalogGetMutable(id)") != std::string::npos);
+	REQUIRE(metaWalker.find("entry->type != type") != std::string::npos);
+	REQUIRE(metaWalker.find("loaderWalkerArchiveMemberPath") != std::string::npos);
+	REQUIRE(metaWalker.find("catalogSetPrimaryFile") != std::string::npos);
+	REQUIRE(metaWalker.find("loaderWalkerMarkBaseArchiveEntry") != std::string::npos);
 }
 
 TEST_CASE("weapon content pipeline accepts pdweapon only",
@@ -1248,9 +1283,9 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	REQUIRE(extractor.find("projectile_model_ref") == std::string::npos);
 	REQUIRE(extractor.find("shoot_sound_catalog_id") != std::string::npos);
 	REQUIRE(extractor.find("special_sound_catalog_id") != std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v10\"") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v13\"") != std::string::npos);
 	REQUIRE(extractor.find("dependency_closure = \" PDWEAPON_DEPENDENCY_CLOSURE_MARKER") != std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v10_clean_public\"") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v13_clean_public\"") != std::string::npos);
 	REQUIRE(extractor.find("PDWEAPON_DEP_MODELS \"dependencies/assets/models\"") != std::string::npos);
 	REQUIRE(extractor.find("/held_hi.pdmesh") != std::string::npos);
 	REQUIRE(extractor.find("/held_lo.pdmesh") != std::string::npos);
@@ -1341,6 +1376,86 @@ TEST_CASE("projectile and entity asset kinds are catalog and manifest visible",
 	std::string modmgr = readFile("port/src/modmgr.c");
 	REQUIRE(modmgr.find(".pdprojectile") != std::string::npos);
 	REQUIRE(modmgr.find(".pdentity") != std::string::npos);
+}
+
+TEST_CASE("base ROM extraction skips empty file slots before size lookup",
+          "[modding][pdxxx][c3844][static]") {
+	const std::string extractor = readFile("port/src/romextract.c");
+	const std::string firstLaunchNeedle =
+		"u8 *data = romdataFileGetData(fileNum);\n"
+		"        if (data == NULL) {\n"
+		"            skippedEmpty++;\n"
+		"            continue;\n"
+		"        }\n"
+		"\n"
+		"        s32 size = romdataFileGetSize(fileNum);";
+	const std::string verifyNeedle =
+		"u8 *romData = romdataFileGetData(fileNum);\n"
+		"    if (romData == NULL) {\n"
+		"        th->skippedEmpty++;\n"
+		"        return;\n"
+		"    }\n"
+		"\n"
+		"    s32 romSize = romdataFileGetSize(fileNum);";
+	REQUIRE(extractor.find(firstLaunchNeedle) != std::string::npos);
+	REQUIRE(extractor.find(verifyNeedle) != std::string::npos);
+}
+
+TEST_CASE("scenario path extraction uses runtime setup pointer resolution",
+          "[modding][pdxxx][c3844][static]") {
+	const std::string arena = readFile("port/src/romextract_pdarena.c");
+
+	REQUIRE(arena.find("static s32 s_resolveSetupPointer") !=
+	        std::string::npos);
+	REQUIRE(arena.find("raw >= base && raw < end") != std::string::npos);
+	REQUIRE(arena.find("raw < (uintptr_t)size") != std::string::npos);
+	REQUIRE(arena.find("s_resolveSetupPointer(data, size, setup->paths") !=
+	        std::string::npos);
+	REQUIRE(arena.find("setup->paths, sizeof(void *)") !=
+	        std::string::npos);
+	REQUIRE(arena.find("sizeof(paths[i].pads)") != std::string::npos);
+	REQUIRE(arena.find("s_resolveSetupPointer(data, size, paths[i].pads") !=
+	        std::string::npos);
+	REQUIRE(arena.find("if (!paths_ofs) {\n\t\treturn 0;\n\t}") !=
+	        std::string::npos);
+}
+
+TEST_CASE("random meta arenas do not resolve through the stage table",
+          "[modding][pdxxx][c3844][static]") {
+	const std::string arena = readFile("port/src/romextract_pdarena.c");
+
+	REQUIRE(arena.find("static s32 s_arenaStageIndexForScenario") !=
+	        std::string::npos);
+	REQUIRE(arena.find("stagenum == STAGE_MP_RANDOM_MULTI") !=
+	        std::string::npos);
+	REQUIRE(arena.find("stagenum == STAGE_MP_RANDOM_SOLO") !=
+	        std::string::npos);
+	REQUIRE(arena.find("return stageGetIndex(stagenum);") !=
+	        std::string::npos);
+	REQUIRE(arena.find("stageGetIndex(a->stagenum)") == std::string::npos);
+	REQUIRE(arena.find("s_arenaStageIndexForScenario(a->stagenum) >= 0") !=
+	        std::string::npos);
+	REQUIRE(arena.find("s32 stage_idx = s_arenaStageIndexForScenario(a->stagenum);") !=
+	        std::string::npos);
+}
+
+TEST_CASE("base UI chrome is emitted and loaded as pdui source",
+          "[modding][pdxxx][c3844][static]") {
+	const std::string theme = readFile("port/fast3d/pdgui_theme.cpp");
+
+	REQUIRE(theme.find("\"base:ui_chrome_frame\"") != std::string::npos);
+	REQUIRE(theme.find("\"ui_chrome_frame\"") != std::string::npos);
+	REQUIRE(theme.find("s_generateChromeFrameBgra(bgra)") !=
+	        std::string::npos);
+	REQUIRE(theme.find("assetArchiveWriterAddPublicMem(&asset_writer, \"texture.tga\"") !=
+	        std::string::npos);
+	REQUIRE(theme.find("s_loadPduiTexture(chrome, &w, &h)") !=
+	        std::string::npos);
+	REQUIRE(theme.find("UI.CHROME: loaded base chrome from ui_chrome_frame.pdui") !=
+	        std::string::npos);
+	REQUIRE(theme.find("mods/base-game/ui-chrome") == std::string::npos);
+	REQUIRE(theme.find("base-game chrome missing") == std::string::npos);
+	REQUIRE(theme.find("ui_chrome_frame.tga") == std::string::npos);
 }
 
 TEST_CASE("weapon graph archive helpers derive IDs and validate graph roots",
@@ -2867,7 +2982,12 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find("validateGlbSource") != std::string::npos);
 	REQUIRE(compiler.find("parseGltfLikeMeshSource") != std::string::npos);
 	REQUIRE(compiler.find("gltf_external_binary_buffers_are_not_allowed") != std::string::npos);
+	REQUIRE(compiler.find("snprintf(cache_root, sizeof(cache_root), \"$S/mod-cache\")") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("snprintf(cache_root, sizeof(cache_root), \"$B/mod-cache\")") !=
+	        std::string::npos);
 	REQUIRE(compiler.find("$S/mod-cache") != std::string::npos);
+	REQUIRE(compiler.find("$B/mod-cache") != std::string::npos);
 	REQUIRE(compiler.find(".pdmc") != std::string::npos);
 	REQUIRE(compiler.find(".pdmesh.json") != std::string::npos);
 	REQUIRE(compiler.find(".pdmodel.json") != std::string::npos);
@@ -3258,7 +3378,8 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	const std::string mission = readArchiveEntryText(missionArchivePath.c_str(), "mission.ini");
 	REQUIRE(mission.find("catalog_id = example:tri_mission") != std::string::npos);
 	REQUIRE(mission.find("mission_graph_file = mission.graph.json") != std::string::npos);
-	REQUIRE(mission.find("scenario_archive = dependencies/assets/scenario/tri_scenario.pdscenario") != std::string::npos);
+	REQUIRE(mission.find("scenario_archive = dependencies/assets/scenarios/tri_scenario.pdscenario") != std::string::npos);
+	REQUIRE(mission.find("scenario_graph_cache = pdscenario_scene_glb_clean_public_v77_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals") != std::string::npos);
 	REQUIRE(mission.find("objectives_file = objectives.tsv") != std::string::npos);
 
 	const std::string gamemode = readArchiveEntryText(gamemodeArchivePath.c_str(), "gamemode.ini");
@@ -3425,7 +3546,7 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			".pdmission",
 			"missions/tri_mission.pdmission",
 			{ "mission.ini", "mission.graph.json", "objectives.tsv", "briefing.tsv",
-			  "dependencies/assets/scenario/tri_scenario.pdscenario",
+			  "dependencies/assets/scenarios/tri_scenario.pdscenario",
 			  "_meta/manifest.json" },
 		},
 		{
@@ -4305,7 +4426,9 @@ TEST_CASE("base arena extractor emits zip-openable pdarena archives",
 TEST_CASE("base scenario extractor emits standard map and text payloads",
           "[modding][pdxxx][base][static][c3812]") {
 	const std::string arena = readFile("port/src/romextract_pdarena.c");
+	const std::string conformance = readFile("tools/asset_archive_conformance.py");
 	REQUIRE(!arena.empty());
+	REQUIRE(!conformance.empty());
 
 	REQUIRE(arena.find("s_buildTilesExports") != std::string::npos);
 	REQUIRE(arena.find("s_buildPadsTsv") != std::string::npos);
@@ -4327,14 +4450,43 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("texInflateNonZlib") != std::string::npos);
 	REQUIRE(arena.find("scene.glb") != std::string::npos);
 	REQUIRE(arena.find("stbi_write_png_to_mem") != std::string::npos);
-	REQUIRE(arena.find("bg_visual_scene_glb_v5_rsptexscale_texshift_samplerwrap") != std::string::npos);
+	REQUIRE(arena.find("bg_visual_scene_glb_v7_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound") != std::string::npos);
+	REQUIRE(arena.find("s_existingArchiveEntryContains(relpath, \"scene.glb\",") !=
+	        std::string::npos);
+	REQUIRE(arena.find("PDSCENARIO_BG_VISUAL_EXPORT_VERSION)") !=
+	        std::string::npos);
+	REQUIRE(arena.find("\\\"texCoord\\\":0") != std::string::npos);
 	REQUIRE(arena.find("s_bgMaterialUvScaleForGlb") != std::string::npos);
+	REQUIRE(arena.find("s_bgMaterialGlbAuthorUv") != std::string::npos);
 	REQUIRE(arena.find("s_bgMaterialGlbUv") != std::string::npos);
+	REQUIRE(arena.find("\\\"TEXCOORD_1\\\":%u") != std::string::npos);
+	REQUIRE(arena.find("\\\"baseColorTexture\\\":{\\\"index\\\":%d,\\\"texCoord\\\":0}") !=
+	        std::string::npos);
 	REQUIRE(arena.find("s_bgGltfWrapMode") != std::string::npos);
 	REQUIRE(arena.find("op == (u8)G_TEXTURE") != std::string::npos);
 	REQUIRE(arena.find("m->shifts <= 10") != std::string::npos);
 	REQUIRE(arena.find("m->shiftt <= 10") != std::string::npos);
-	REQUIRE(arena.find("\"sampler\":%u,\"source\":%d") != std::string::npos);
+	REQUIRE(arena.find("\\\"sampler\\\":%u,\\\"source\\\":%d") != std::string::npos);
+	const std::string filebg = readFile("port/src/preprocess/filebg.c");
+	const auto empty_room_guard =
+		filebg.find("!dst_header->vertices && !dst_header->colours");
+	const auto ptr_vertices_warn = filebg.find("ptr_vertices yields");
+	REQUIRE(empty_room_guard != std::string::npos);
+	REQUIRE(filebg.find("!dst_header->opablocks && !dst_header->xlublocks",
+			empty_room_guard) != std::string::npos);
+	REQUIRE(filebg.find("dst_header->numvertices == 0 && dst_header->numcolours == 0",
+			empty_room_guard) != std::string::npos);
+	REQUIRE(filebg.find("sizeof(struct roomgfxdata) - sizeof(struct roomblock)",
+			empty_room_guard) != std::string::npos);
+	REQUIRE(ptr_vertices_warn != std::string::npos);
+	REQUIRE(empty_room_guard < ptr_vertices_warn);
+	REQUIRE(conformance.find("validate_scene_glb_texture_contract") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("TEXCOORD_0 range") != std::string::npos);
+	REQUIRE(conformance.find("DCC-authoring UV range") != std::string::npos);
+	REQUIRE(conformance.find("TEXCOORD_1 runtime UVs") != std::string::npos);
+	REQUIRE(conformance.find("visible textures to TEXCOORD_0") !=
+	        std::string::npos);
 	REQUIRE(arena.find("mat_%03u_tex_%04x") != std::string::npos);
 	REQUIRE(arena.find("texture_inventory_%04x") != std::string::npos);
 	REQUIRE(arena.find("strncmp(mtl_texture_path, \"visual/\", 7)") !=
@@ -4343,7 +4495,11 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	        std::string::npos);
 	REQUIRE(arena.find("runtime_source_file = scene.glb") !=
 	        std::string::npos);
-	REQUIRE(arena.find("collision_fallback = scene") !=
+	REQUIRE(arena.find("collision_source = collision.obj") !=
+	        std::string::npos);
+	REQUIRE(arena.find("collision_fallback = override") !=
+	        std::string::npos);
+	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"collision.obj\"") !=
 	        std::string::npos);
 	REQUIRE(arena.find("blender_scene_file = scene.glb") !=
 	        std::string::npos);
@@ -4354,12 +4510,303 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("ai/ailists.tsv") != std::string::npos);
 	REQUIRE(arena.find("scenario.ai.lists.source") != std::string::npos);
 	REQUIRE(arena.find("scenario.pads.source") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_list") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_return_list") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_shot_list") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.return_list") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.face_entity") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.apply_gset_damage") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_damage_chr") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.consider_grenade_throw") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.drop_item") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.try_run_from_target") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.try_jog_to_target_prop") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.try_walk_to_target_prop") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.try_run_to_target_prop") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.try_go_to_cover_prop") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.try_jog_to_chr") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.try_walk_to_chr") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.try_run_to_chr") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_punch_dodge_list") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_shooting_at_me_list") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_dark_room_list") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_player_dead_list") != std::string::npos);
 	REQUIRE(arena.find("scenario.ai.action.jog_to_pad") != std::string::npos);
 	REQUIRE(arena.find("scenario.ai.action.go_to_pad_preset") != std::string::npos);
 	REQUIRE(arena.find("scenario.ai.action.walk_to_pad") != std::string::npos);
 	REQUIRE(arena.find("scenario.ai.action.run_to_pad") != std::string::npos);
 	REQUIRE(arena.find("scenario.ai.action.set_path") != std::string::npos);
 	REQUIRE(arena.find("scenario.ai.action.start_patrol") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.try_start_alarm") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.activate_alarm") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.deactivate_alarm") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_morale") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.add_morale") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_add_morale") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.subtract_morale") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_alertness") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.add_alertness") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_add_alertness") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.subtract_alertness") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.increase_squadron_alertness") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_hear_distance") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_view_distance") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_grenade_probability") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_chr_num") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_max_damage") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.add_health") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_shield") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_reaction_speed") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_recovery_speed") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_accuracy") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_dodge_rating") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_unarmed_dodge_rating") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_flag") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.unset_flag") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.if_has_flag") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_set_flag") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_unset_flag") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.if_chr_has_flag") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_stage_flag") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.unset_stage_flag") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.if_stage_flag_eq") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.open_door") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.close_door") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.if_door_state") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.if_object_is_door") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.lock_door") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.unlock_door") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.if_door_locked") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.if_lift_stationary") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.lift_go_to_stop") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.if_lift_at_stop") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.activate_lift") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.if_using_lift") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.configure_rain") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.configure_snow") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.switch_to_alt_sky") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_wind_speed") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_lights") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_room_flag") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.show_cutscene_chrs") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.configure_environment") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_distance_to_target2_less_than") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_distance_to_target2_greater_than") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.play_sound_from_prop") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.play_temporary_primary_track") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.play_x_track") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.stop_ambient_track") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_draw_weapon") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_draw_weapon_in_cutscene") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_player_force_speed") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_set_invincible") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_player_is_invincible") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_chr_has_no_gun") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_delete_weapon") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_trigger_shot_list") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.end_level") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.end_cutscene") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.warp_jo_to_pad") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.warp_jo_to_tag") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.revoke_control") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.grant_control") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.player_fade_in") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.players_fade_out") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_colour_fade_complete") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.prepare_warp_orbit") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.begin_warp_latch") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_warp_latch_complete") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_camera_animation") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_in_cutscene") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_cutscene_button_pressed") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.reorient_for_cutscene_stop") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.spawn_chr_at_pad") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.spawn_chr_at_chr") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.try_equip_weapon") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.try_equip_hat") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_obj_image") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.object_do_animation") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_door_open") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.duplicate_chr") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.enable_chr") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.disable_chr") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.enable_obj") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.disable_obj") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_move_to_pad") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_set_team") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.damage_chr_by_amount") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.do_preset_animation") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_player_chr_portal_distance_less_than") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_chr_reposition_valid") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.do_gun_command") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_distance_to_gun_less_than") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.recover_gun") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_copy_properties") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.player_auto_walk") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_player_auto_walk_finished") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_obj_in_room") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_kill") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.remove_weapon_from_inventory") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_music_event_queue_is_empty") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_coop_mode") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_chr_same_floor_distance_to_pad_less_than") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.remove_references_to_chr") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_toggle_model_part") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.obj_set_model_part_visible") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.if_obj_health_less_than") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_obj_health") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_chr_special_death_animation") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_room_to_search") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_savefile_flag") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.unset_savefile_flag") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.if_savefile_flag_set") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.if_savefile_flag_unset") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.show_hudmsg") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.show_hudmsg_middle") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.show_hudmsg_top_middle") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.hovercar_begin_path") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_vehicle_speed") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_rotor_speed") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_explosions") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_tinted_glass_enabled") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.hovercopter_fire_rocket") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_adjust_motion_blur") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.punch_or_kick") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_target_to_eyespy_if_in_sight") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.mini_skedar_try_pounce") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_object_distance_to_pad_less_than") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.avoid") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.title_init_mode") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.try_exit_title") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_emit_sparks") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_dr_caroll_images") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.say_quip") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.say_ci_staff_quip") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.shuffle_ruins_pillars") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.shuffle_pelagic_switches") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_action") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_team_orders") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.retreat") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.find_cover") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.find_cover_within_dist") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.find_cover_outside_dist") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.go_to_cover") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.check_cover_out_of_sight") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.orbit_target") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_chr_preset_to_unalerted_teammate") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_squadron") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.face_cover") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.danger_cover") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.release_cover") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.rebuild_teams") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.rebuild_squadrons") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_set_listening") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.try_attack_amount") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_chr_preset") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_chr_target") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_pad_preset") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_set_pad_preset") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.chr_copy_pad_preset") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_can_hear_alarm") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_patrolling") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_alarm_active") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_gas_active") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_hears_target") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_saw_injury") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_saw_death") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_los_to_target") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_los_to_attack_target") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_target_nearly_in_sight") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_nearly_in_targets_sight") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.action.set_pad_preset_to_pad_on_route_to_target") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_saw_target_recently") != std::string::npos);
+	REQUIRE(arena.find("scenario.ai.condition.if_heard_target_recently") != std::string::npos);
+	for (const char *kind : {
+		     "scenario.ai.condition.if_los_to_chr",
+		     "scenario.ai.condition.if_never_been_on_screen",
+		     "scenario.ai.condition.if_on_screen",
+		     "scenario.ai.condition.if_chr_in_on_screen_room",
+		     "scenario.ai.condition.if_room_is_on_screen",
+		     "scenario.ai.condition.if_target_aiming_at_me",
+		     "scenario.ai.condition.if_near_miss",
+		     "scenario.ai.condition.if_sees_suspicious_item",
+		     "scenario.ai.condition.if_target_in_fov_left",
+		     "scenario.ai.condition.if_check_fov_with_target",
+		     "scenario.ai.condition.if_target_out_of_fov_left",
+		     "scenario.ai.condition.if_target_in_fov",
+		     "scenario.ai.condition.if_target_out_of_fov",
+		     "scenario.ai.condition.if_distance_to_target_less_than",
+		     "scenario.ai.condition.if_distance_to_target_greater_than",
+		     "scenario.ai.condition.if_chr_distance_to_pad_less_than",
+		     "scenario.ai.condition.if_chr_distance_to_pad_greater_than",
+		     "scenario.ai.condition.if_distance_to_chr_less_than",
+		     "scenario.ai.condition.if_distance_to_chr_greater_than",
+		     "scenario.ai.condition.if_any_chr_near_self",
+		     "scenario.ai.condition.if_distance_from_target_to_pad_less_than",
+		     "scenario.ai.condition.if_distance_from_target_to_pad_greater_than",
+		     "scenario.ai.condition.if_chr_in_room",
+		     "scenario.ai.condition.if_target_in_room",
+		     "scenario.ai.condition.if_chr_has_object",
+		     "scenario.ai.condition.if_weapon_thrown",
+		     "scenario.ai.condition.if_weapon_thrown_on_object",
+		     "scenario.ai.condition.if_chr_has_weapon_equipped",
+		     "scenario.ai.condition.if_gun_unclaimed",
+		     "scenario.ai.condition.if_object_healthy",
+		     "scenario.ai.condition.if_chr_activated_object",
+		     "scenario.ai.action.obj_interact",
+		     "scenario.ai.action.destroy_object",
+		     "scenario.ai.action.drop_object_from_chr",
+		     "scenario.ai.action.chr_drop_items",
+		     "scenario.ai.action.chr_drop_weapon",
+		     "scenario.ai.action.give_object_to_chr",
+		     "scenario.ai.action.object_move_to_pad",
+		     "scenario.ai.condition.if_chr_not_talking",
+		     "scenario.ai.condition.if_orders",
+		     "scenario.ai.condition.if_has_orders",
+		     "scenario.ai.condition.if_chr_in_squadron_doing_action",
+		     "scenario.ai.condition.if_chr_listening",
+		     "scenario.ai.condition.if_not_listening",
+		     "scenario.ai.condition.if_chr_injured_target",
+		     "scenario.ai.condition.if_action",
+		     "scenario.ai.condition.if_chr_ammo_quantity_less_than",
+		     "scenario.ai.condition.if_chr_target",
+		     "scenario.ai.condition.if_compare_chr_presets_team",
+		     "scenario.ai.condition.if_human",
+		     "scenario.ai.condition.if_skedar",
+		     "scenario.ai.condition.if_prop_preset_blocking_sight_to_target",
+		     "scenario.ai.action.remove_object_at_prop_preset",
+		     "scenario.ai.condition.if_prop_preset_height_less_than",
+		     "scenario.ai.action.set_target",
+		     "scenario.ai.condition.if_presets_target_is_not_my_target",
+		     "scenario.ai.action.set_chr_preset_to_chr_near_self",
+		     "scenario.ai.action.set_chr_preset_to_chr_near_pad",
+		     "scenario.ai.condition.if_dangerous_object_nearby",
+		     "scenario.ai.condition.if_heli_weapons_armed",
+		     "scenario.ai.condition.if_hoverbot_next_step",
+		     "scenario.ai.action.shuffle_investigation_terminals",
+		     "scenario.ai.action.set_pad_preset_to_investigation_terminal",
+		     "scenario.ai.action.heli_arm_weapons",
+		     "scenario.ai.action.heli_unarm_weapons",
+		     "scenario.ai.condition.if_safety2_less_than",
+		     "scenario.ai.condition.if_player_using_cmp_or_ar34",
+		     "scenario.ai.condition.detect_enemy_on_same_floor",
+		     "scenario.ai.condition.detect_enemy",
+		     "scenario.ai.condition.if_safety_less_than",
+		     "scenario.ai.condition.if_target_moving_slowly",
+		     "scenario.ai.condition.if_target_moving_closer",
+		     "scenario.ai.condition.if_target_moving_away",
+		     "scenario.ai.condition.if_squadron_is_dead",
+		     "scenario.ai.condition.if_true",
+		     "scenario.ai.condition.if_num_chrs_in_squadron_greater_than",
+		     "scenario.ai.condition.if_natural_anim",
+		     "scenario.ai.condition.if_y",
+		     "scenario.ai.condition.if_sound_timer",
+		     "scenario.ai.condition.if_target_y_difference_less_than",
+		     "scenario.ai.condition.if_waypoint_within_quadrant",
+		     "scenario.ai.action.set_pad_preset_to_target_quadrant",
+	     }) {
+		REQUIRE(arena.find(kind) != std::string::npos);
+	}
 	REQUIRE(arena.find("ai_lists_file = ai/ailists.tsv") != std::string::npos);
 	REQUIRE(arena.find("navigation/paths.tsv") != std::string::npos);
 	REQUIRE(arena.find("scenario.navigation.paths.source") != std::string::npos);
@@ -4736,7 +5183,11 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("s_exportGdlToObj") != std::string::npos);
 	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v9_skeleton\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v10_skeleton_allmodels\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v11_skeleton_allmodels_menuhud\"") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("(u16)FILE_GHUDPIECE, \"menu\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("#include \"preprocess.h\"") != std::string::npos);
 	REQUIRE(mesh.find("#include \"game/modeldef.h\"") != std::string::npos);

@@ -387,7 +387,7 @@ static const char *packerSidecarTemplate(const char *leaf)
 		return
 			"[navigation]\n"
 			"source = scene.glb\n"
-			"collision_source = scene.glb\n"
+			"collision_source = collision.obj\n"
 			"generator = deterministic.surface_graph.v1\n"
 			"supports_walk = true\n"
 			"supports_jump = true\n"

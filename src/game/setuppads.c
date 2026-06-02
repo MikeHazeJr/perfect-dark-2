@@ -12,6 +12,7 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#include "scenario_source_runtime.h"
 #include "system.h"
 
 static s32 s_SetupPadFileDataSize;
@@ -197,7 +198,9 @@ void setupPreparePads(void)
 	struct pad pad;
 	RoomNum inrooms[24];
 	RoomNum aboverooms[22];
-	s32 offset;
+	u32 offset;
+	u32 *wide_offsets;
+	s32 wide_count;
 
 	g_PadsFile = (struct padsfileheader *)g_StageSetup.padfiledata;
 #ifdef PLATFORM_64BIT
@@ -205,11 +208,25 @@ void setupPreparePads(void)
 #else
 	g_PadOffsets = (u16 *)(g_StageSetup.padfiledata + 0x14);
 #endif
+	wide_count = 0;
+	wide_offsets = scenarioSourcePadsGetWideOffsets(
+		(const u8 *)g_StageSetup.padfiledata, &wide_count);
+	if (wide_offsets && wide_count == g_PadsFile->numpads) {
+		padSetWideOffsets(wide_offsets);
+	} else {
+		if (wide_offsets) {
+			sysLogPrintf(LOG_WARNING,
+				"SETUP.PADS: source wide pad offset count mismatch count=%d numpads=%d -- using legacy offsets",
+				wide_count, g_PadsFile->numpads);
+		}
+		padSetWideOffsets(NULL);
+	}
+
 	padnum = 0;
 	numpads = g_PadsFile->numpads;
 
 	for (; padnum < numpads; padnum++) {
-		offset = g_PadOffsets[padnum];
+		offset = padGetPackedOffset(padnum);
 		packedpad = (struct packedpad *) &g_StageSetup.padfiledata[offset];
 		padUnpack(padnum, PADFIELD_POS | PADFIELD_BBOX, &pad);
 

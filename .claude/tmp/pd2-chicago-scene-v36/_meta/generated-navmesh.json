@@ -1,0 +1,9 @@
+{
+  "schema": "pd2.generated.navmesh.v1",
+  "scenario": "base:scenario_chicago",
+  "derived_from": "scene.glb",
+  "inputs": ["navigation.ini", "pads.tsv", "spawns.tsv", "volumes.tsv", "navigation/waypoints.tsv", "navigation/waygroups.tsv", "navigation/covers.tsv", "navigation/paths.tsv"],
+  "generator": "deterministic.surface_graph.v1",
+  "capabilities": ["walk", "jump", "drop", "wall", "ceiling"],
+  "cache_only": true
+}

@@ -418,10 +418,14 @@ s32 romExtractAllFiles(void)
             bootProgressUpdate(fileNum, ROMEXTRACT_MAX_FILES);
         }
 
-        u8  *data = romdataFileGetData(fileNum);
-        s32  size = romdataFileGetSize(fileNum);
+        u8 *data = romdataFileGetData(fileNum);
+        if (data == NULL) {
+            skippedEmpty++;
+            continue;
+        }
 
-        if (data == NULL || size <= 0) {
+        s32 size = romdataFileGetSize(fileNum);
+        if (size <= 0) {
             skippedEmpty++;
             continue;
         }
@@ -623,9 +627,14 @@ static void s_verifyAppendEvent(verify_thread_state_t *th, const char *kind,
  * concurrent workers do not contend on shared writes. */
 static void s_verifyOneFile(s32 fileNum, verify_thread_state_t *th)
 {
-    u8  *romData = romdataFileGetData(fileNum);
-    s32  romSize = romdataFileGetSize(fileNum);
-    if (romData == NULL || romSize <= 0) {
+    u8 *romData = romdataFileGetData(fileNum);
+    if (romData == NULL) {
+        th->skippedEmpty++;
+        return;
+    }
+
+    s32 romSize = romdataFileGetSize(fileNum);
+    if (romSize <= 0) {
         th->skippedEmpty++;
         return;
     }

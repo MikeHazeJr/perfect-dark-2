@@ -82,3 +82,27 @@ TEST_CASE("fast3d fog shader preserves material alpha",
 	REQUIRE(gl.find("if (cc_features.opt_alpha_from_fog)") != std::string::npos);
 	REQUIRE(gl.find("texel = vec4(mix(texel.rgb, vFog.rgb, vFog.a), texel.a);") != std::string::npos);
 }
+
+TEST_CASE("fast3d normalizes legacy palette texture tuples before import",
+          "[rendering][fast3d][texture][static][b412]")
+{
+	const std::string src = readTextFile("port/fast3d/gfx_pc.cpp");
+
+	REQUIRE(src.find("gfx_normalize_legacy_texture_tuple") != std::string::npos);
+	REQUIRE(src.find("*fmt == G_IM_FMT_RGBA && *siz < G_IM_SIZ_16b") !=
+	        std::string::npos);
+	REQUIRE(src.find("*fmt = G_IM_FMT_CI;") != std::string::npos);
+	REQUIRE(src.find("*fmt == G_IM_FMT_IA && *siz == G_IM_SIZ_32b") !=
+	        std::string::npos);
+	REQUIRE(src.find("*fmt = G_IM_FMT_I;") != std::string::npos);
+	REQUIRE(src.find("*siz = G_IM_SIZ_8b;") != std::string::npos);
+	REQUIRE(src.find("gfx_normalize_legacy_texture_tuple(&fmt, &siz);") !=
+	        std::string::npos);
+	REQUIRE(src.find("import_texture_has_valid_dimensions") != std::string::npos);
+	REQUIRE(src.find("FAST3D.TEXTURE: zero-sized texture import skipped") !=
+	        std::string::npos);
+	REQUIRE(src.find("gfx_rapi->upload_texture(tex_upload_buffer, 1, 1);") !=
+	        std::string::npos);
+	REQUIRE(src.find("sysFatalError(\"Bad size for RGBA texture") !=
+	        std::string::npos);
+}

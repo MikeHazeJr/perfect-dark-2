@@ -10,6 +10,7 @@ ROM fallback after extraction is an asset-chain failure.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import re
 import subprocess
@@ -17,7 +18,10 @@ import sys
 import zipfile
 from pathlib import Path
 
-from asset_archive_conformance import validate_root as validate_archive_conformance
+from asset_archive_conformance import (
+    validate_root as validate_archive_conformance,
+    validate_scene_glb_texture_contract,
+)
 
 
 ROOT_MARKERS = ("AGENTS.md", "tools/kanban/state.json")
@@ -74,6 +78,7 @@ PDSCENARIO_FORBIDDEN_PUBLIC_ENTRY_NAMES = {
 
 PDSCENARIO_REQUIRED_PUBLIC_ENTRY_NAMES = {
     "scene.glb",
+    "portals.tsv",
     "pads.tsv",
     "spawns.tsv",
     "volumes.tsv",
@@ -274,6 +279,23 @@ ASSET_EVIDENCE_PREFIXES = (
     ".agents/skills/pd2-large-change-sweep/SKILL.md",
     ".githooks/",
 )
+
+GENERATED_SCENARIO_ROOTS = (
+    "Build/data/ntsc-final/scenarios",
+    "Build/data/ntsc-final/arenas",
+    ".claude/smoke-verify-install/data/ntsc-final/scenarios",
+    ".claude/smoke-verify-install/data/ntsc-final/arenas",
+)
+
+AI_INTERPRETER_ONLY_FUNCTIONS = {
+    "aiEndList",
+    "aiGoToNext",
+    "aiGoToFirst",
+    "aiLabel",
+    "aiYield",
+}
+
+AI_GRAPH_PENDING_FUNCTIONS = set()
 
 
 def repo_root() -> Path:
@@ -489,6 +511,129 @@ def scan_example_archives(root: Path) -> list[str]:
     return result.errors
 
 
+def scan_generated_scenario_texture_contracts(root: Path) -> list[str]:
+    """Fail existing user-facing generated scene.glb archives if stale.
+
+    The extractor is the source of truth, but artists often open the generated
+    archives from Build/data directly. If that local tree exists, keep it under
+    the same DCC-visible UV contract as the fresh smoke output.
+    """
+    errors: list[str] = []
+    for rel_root in GENERATED_SCENARIO_ROOTS:
+        scenario_root = root / rel_root
+        if not scenario_root.exists():
+            continue
+        for archive_path in sorted(scenario_root.glob("*.pdscenario")):
+            label = relpath(archive_path, root)
+            try:
+                with zipfile.ZipFile(archive_path) as archive:
+                    data = archive.read("scene.glb")
+            except (OSError, KeyError, zipfile.BadZipFile) as exc:
+                errors.append(f"{label}: cannot read scene.glb for texture-scale guard: {exc}")
+                continue
+            validate_scene_glb_texture_contract(label, data, errors)
+        for archive_path in sorted(scenario_root.glob("*.pdarena")):
+            label = relpath(archive_path, root)
+            try:
+                with zipfile.ZipFile(archive_path) as archive:
+                    nested = [
+                        name for name in sorted(archive.namelist())
+                        if name.lower().endswith(".pdscenario")
+                    ]
+                    for name in nested:
+                        try:
+                            with zipfile.ZipFile(io.BytesIO(archive.read(name))) as nested_archive:
+                                data = nested_archive.read("scene.glb")
+                        except (OSError, KeyError, zipfile.BadZipFile) as exc:
+                            errors.append(
+                                f"{label}::{name}: cannot read scene.glb "
+                                f"for texture-scale guard: {exc}"
+                            )
+                            continue
+                        validate_scene_glb_texture_contract(
+                            f"{label}::{name}", data, errors
+                        )
+            except (OSError, zipfile.BadZipFile) as exc:
+                errors.append(f"{label}: cannot scan arena for nested scenario GLBs: {exc}")
+    return errors
+
+
+def scan_ui_chrome_source_contract(root: Path) -> list[str]:
+    errors: list[str] = []
+    theme_path = root / "port/fast3d/pdgui_theme.cpp"
+    try:
+        theme = theme_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return [f"could not read {theme_path}: {exc}"]
+
+    forbidden = (
+        "mods/base-game/ui-chrome",
+        "base-game chrome missing",
+        "ui_chrome_frame.tga",
+    )
+    for needle in forbidden:
+        if needle in theme:
+            errors.append(
+                "base UI chrome must load from ui_chrome_frame.pdui, "
+                f"not runtime loose source path/string {needle!r}"
+            )
+
+    required = (
+        '"base:ui_chrome_frame"',
+        '"ui_chrome_frame"',
+        "s_generateChromeFrameBgra(bgra)",
+        "s_loadPduiTexture(chrome, &w, &h)",
+        "UI.CHROME: loaded base chrome from ui_chrome_frame.pdui",
+    )
+    for needle in required:
+        if needle not in theme:
+            errors.append(
+                "base UI chrome .pdui source contract missing source marker "
+                f"{needle!r}"
+            )
+
+    return errors
+
+
+def scan_ai_command_graph_coverage(root: Path) -> list[str]:
+    """Reject gameplay AI commands that bypass public scenario graph source."""
+    path = root / "src/game/chraicommands.c"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [f"cannot read {relpath(path, root)} for AI graph coverage: {exc}"]
+
+    pattern = re.compile(
+        r"(?m)^(?:bool|s32|void|u32|u8)\s+(ai\w+)\s*\([^)]*\)"
+    )
+    matches = list(pattern.finditer(text))
+    untracked: list[str] = []
+
+    for index, match in enumerate(matches):
+        name = match.group(1)
+        start = match.start()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        body = text[start:end]
+        if "scenarioSourceAiGraphExecute" in body:
+            continue
+        if name in AI_INTERPRETER_ONLY_FUNCTIONS:
+            continue
+        if name in AI_GRAPH_PENDING_FUNCTIONS:
+            continue
+        line = text.count("\n", 0, start) + 1
+        untracked.append(f"{name}:{line}")
+
+    if not untracked:
+        return []
+
+    return [
+        "scenario AI command graph coverage has untracked debt; add graph "
+        "runtime coverage or explicitly classify the command in "
+        "AI_GRAPH_PENDING_FUNCTIONS. Missing: "
+        + ", ".join(untracked)
+    ]
+
+
 def staged_files(root: Path) -> list[str]:
     try:
         result = subprocess.run(
@@ -541,6 +686,9 @@ def main(argv: list[str]) -> int:
     errors.extend(require_sentinals(root))
     errors.extend(require_kanban(root))
     errors.extend(scan_example_archives(root))
+    errors.extend(scan_generated_scenario_texture_contracts(root))
+    errors.extend(scan_ui_chrome_source_contract(root))
+    errors.extend(scan_ai_command_graph_coverage(root))
     if args.staged:
         errors.extend(require_staged_evidence(root))
 

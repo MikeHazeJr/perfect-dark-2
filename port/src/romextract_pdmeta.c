@@ -26,7 +26,9 @@
 #include "romextract_pd.h"
 #include "system.h"
 
-#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v6"
+#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v8_pdscenario_v77"
+#define PDMETA_SCENARIO_DEP_CACHE_KIND \
+	"pdscenario_scene_glb_clean_public_v77_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals"
 
 #define PDMETA_MAX_MISSION_OBJECTIVE_ROWS 512
 
@@ -1468,6 +1470,8 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 			"mission.objectives.source") &&
 		s_existingArchiveEntryContains(relpath, "mission.graph.json",
 			"mission.objective.source") &&
+		s_existingArchiveEntryContains(relpath, "mission.ini",
+			"scenario_graph_cache = " PDMETA_SCENARIO_DEP_CACHE_KIND) &&
 		s_existingArchiveEntryContains(relpath, "mission.graph.json",
 			"\"operand_kind\"") &&
 		s_existingArchiveEntryContains(relpath, "objectives.tsv",
@@ -1535,11 +1539,13 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 		"catalog_id = %s\n"
 		"scenario = %s\n"
 		"scenario_archive = dependencies/assets/scenarios/%s.pdscenario\n"
+		"scenario_graph_cache = %s\n"
 		"mission_graph_file = mission.graph.json\n"
 		"objectives_file = objectives.tsv\n"
 		"briefing_file = briefing.tsv\n"
 		"category = %s\n",
-		mission_id, scenario_id, scenario_file, a->category);
+		mission_id, scenario_id, scenario_file,
+		PDMETA_SCENARIO_DEP_CACHE_KIND, a->category);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) return -1;
 
 	pdmeta_textbuf_t graph = { 0 };

@@ -20,6 +20,30 @@ std::string readTextFile(const char *path)
 	return ss.str();
 }
 
+std::string functionBlock(const std::string &text, const std::string &name)
+{
+	const size_t start = text.find(name);
+	if (start == std::string::npos) {
+		return "";
+	}
+	const size_t brace = text.find('{', start);
+	if (brace == std::string::npos) {
+		return "";
+	}
+	int depth = 0;
+	for (size_t i = brace; i < text.size(); i++) {
+		if (text[i] == '{') {
+			depth++;
+		} else if (text[i] == '}') {
+			depth--;
+			if (depth == 0) {
+				return text.substr(start, i - start + 1);
+			}
+		}
+	}
+	return "";
+}
+
 }
 
 TEST_CASE("Codex hook preserves the c3842 native-source preflight",
@@ -101,6 +125,8 @@ TEST_CASE("asset native-source guard is tracked by tests and source docs",
 
 	const std::string conformance =
 		readTextFile("tools/asset_archive_conformance.py");
+	const std::string scene_texture_checker =
+		readTextFile("tools/verify_scene_glb_texture_contract.py");
 	REQUIRE(conformance.find("Strict conformance checks for PD2 typed asset archives") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("require_all_families") != std::string::npos);
@@ -201,9 +227,16 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	const std::string debug = readTextFile("port/src/asset_source_debug.c");
 	const std::string setup = readTextFile("src/game/setup.c");
 	const std::string bg_runtime = readTextFile("src/game/bg.c");
+	const std::string scene_renderer =
+		readTextFile("port/fast3d/scenario_scene_renderer.cpp");
+	const std::string scene_renderer_h =
+		readTextFile("port/include/scenario_scene_renderer.h");
 	const std::string prop_runtime = readTextFile("src/game/prop.c");
 	const std::string tiles = readTextFile("src/game/tilesreset.c");
 	const std::string lv = readTextFile("src/game/lv.c");
+	const std::string pad_runtime = readTextFile("src/game/pad.c");
+	const std::string pad_runtime_h = readTextFile("src/include/game/pad.h");
+	const std::string setup_pads = readTextFile("src/game/setuppads.c");
 	const std::string scenario_runtime =
 		readTextFile("port/src/scenario_source_runtime.c");
 	const std::string scenario_runtime_h =
@@ -267,6 +300,48 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(setup.find("scenarioSourceLoadPadsForStage(&stage") !=
 	        std::string::npos);
+	REQUIRE(bg_runtime.find("#include \"asset_source_debug.h\"") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("#include \"scenario_scene_renderer.h\"") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("#include \"scenario_source_runtime.h\"") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("scenarioSourceValidateBackgroundGeometryForStage(&stage") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("bgTryActivateScenarioSourceBackground(&stage") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("bgBuildScenarioSourceTables(stagenum)") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("scenarioSceneRendererIsActive()") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("g_BgUsingScenarioSource") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("assetSourceDebugFatalHandleFallback(ASSET_SCENARIO, \"background geometry\"") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("stage.bg_handle") != std::string::npos);
+	REQUIRE(scene_renderer_h.find("scenarioSceneRendererActivate") !=
+	        std::string::npos);
+	REQUIRE(scene_renderer_h.find("scenarioSceneRendererRender") !=
+	        std::string::npos);
+	REQUIRE(scene_renderer.find("fsFileLoad(path") != std::string::npos);
+	REQUIRE(scene_renderer.find("findAttr(\"TEXCOORD_1\")") !=
+	        std::string::npos);
+	REQUIRE(scene_renderer.find("findAttr(\"TEXCOORD_0\")") !=
+	        std::string::npos);
+	REQUIRE(scene_renderer.find("SCENARIO.RENDER: activated source scene") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceValidateBackgroundGeometryForStage") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceValidateBackgroundGeometryForStage") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("catalogLoadTypedAsset(ASSET_SCENARIO, scenario->id)") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("catalogGetLoadedColmesh(scenario->id)") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("SCENARIO.SOURCE: validated background scene source") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("native BG renderer still pending") ==
+	        std::string::npos);
 
 	REQUIRE(scenario_walker.find("e->ext.scenario.pads_file") !=
 	        std::string::npos);
@@ -285,6 +360,14 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(scenario_extractor.find("scenario.ai.lists.source") !=
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("scenario.pads.source") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("portals.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.portals.source") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("s_buildBgPortalsTsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("\\\"portal_count\\\": %u") !=
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("navigation/paths.tsv") !=
 	        std::string::npos);
@@ -321,7 +404,40 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("PADFLAG_HASBBOXDATA") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourcePadsGetWideOffsets") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_clearSourceWidePadOffsets()") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("sizeof(u32)") != std::string::npos);
+	REQUIRE(scenario_runtime.find("SCENARIO.SOURCE: pads.tsv runtime uses 32-bit source pad offsets") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("exceeding u16 pad offsets") ==
+	        std::string::npos);
+	REQUIRE(pad_runtime_h.find("padGetPackedOffset") != std::string::npos);
+	REQUIRE(pad_runtime.find("g_PadOffsets32") != std::string::npos);
+	REQUIRE(pad_runtime.find("return g_PadOffsets ? g_PadOffsets[padnum] : 0") !=
+	        std::string::npos);
+	REQUIRE(setup_pads.find("scenarioSourcePadsGetWideOffsets") !=
+	        std::string::npos);
+	REQUIRE(setup_pads.find("padSetWideOffsets(wide_offsets)") !=
+	        std::string::npos);
+	REQUIRE(setup_pads.find("offset = padGetPackedOffset(padnum)") !=
+	        std::string::npos);
+	REQUIRE(setup_pads.find("offset = g_PadOffsets[padnum]") ==
+	        std::string::npos);
 	REQUIRE(scenario_runtime.find("SCENARIO.SOURCE: compiled pads.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceLoadPortalsForStage") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_parsePortalsTsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("SCENARIO.SOURCE: compiled portals.tsv") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("bgBuildScenarioSourcePortalTables") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("scenarioSourceLoadPortalsForStage(stage") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("SCENARIO.SOURCE: built native portal tables") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime_h.find("scenarioSourceLoadSetupForStage") !=
 	        std::string::npos);
@@ -384,6 +500,366 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.lists+ai/ailists.tsv") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("SCENARIO.GRAPH: AI list-control actions") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.list_control+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("SCENARIO.GRAPH: AI alarm actions") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.alarm+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("SCENARIO.GRAPH: AI flag actions") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.flags+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("SCENARIO.GRAPH: AI savefile flag actions") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.savefile_flags+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("SCENARIO.GRAPH: AI timer/countdown actions") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.timer+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("SCENARIO.GRAPH: AI HUD message actions") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.hud+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_list") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_return_list") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_shot_list") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.return_list") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.stop") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.kneel") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.surrender") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.fade_out") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.remove_chr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.try_sidestep") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.try_attack_stand") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_attacking") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.try_modify_attack") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.face_entity") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.apply_gset_damage") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_damage_chr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.consider_grenade_throw") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.drop_item") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.try_run_from_target") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.try_jog_to_target_prop") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.try_walk_to_target_prop") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.try_run_to_target_prop") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.try_go_to_cover_prop") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.try_jog_to_chr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.try_walk_to_chr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.try_run_to_chr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_do_animation") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.be_surprised_one_hand") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.be_surprised_look_around") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.be_surprised_surrender") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.random") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_random_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_random_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.control.random+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.print") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.noop") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecutePrint") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteNoOp") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.debug_noop+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_punch_dodge_list") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_shooting_at_me_list") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_dark_room_list") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_player_dead_list") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetList") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetReturnList") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetShotList") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteReturnList") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteStop") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteKneel") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSurrender") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteFadeOut") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteRemoveChr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.character_lifecycle+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.basic_motion+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.combat+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteFaceEntity") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteApplyGsetDamage") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrDamageChr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteConsiderGrenadeThrow") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteDropItem") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteTryRunFromTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteTryJogToTargetProp") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteTryWalkToTargetProp") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteTryRunToTargetProp") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteTryGoToCoverProp") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteTryJogToChr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteTryWalkToChr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteTryRunToChr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.target_movement+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfCanHearAlarm") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfPatrolling") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfAlarmActive") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfGasActive") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfHearsTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfSawInjury") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfSawDeath") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfLosToTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfLosToAttackTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfTargetNearlyInSight") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfNearlyInTargetsSight") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetPadPresetToPadOnRouteToTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfSawTargetRecently") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfHeardTargetRecently") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.perception_alarm+ai/ailists.tsv") !=
+	        std::string::npos);
+	for (const char *symbol : {
+		     "scenarioSourceAiGraphExecuteIfLosToChr",
+		     "scenarioSourceAiGraphExecuteIfNeverBeenOnScreen",
+		     "scenarioSourceAiGraphExecuteIfOnScreen",
+		     "scenarioSourceAiGraphExecuteIfChrInOnScreenRoom",
+		     "scenarioSourceAiGraphExecuteIfRoomIsOnScreen",
+		     "scenarioSourceAiGraphExecuteIfTargetAimingAtMe",
+		     "scenarioSourceAiGraphExecuteIfNearMiss",
+		     "scenarioSourceAiGraphExecuteIfSeesSuspiciousItem",
+		     "scenarioSourceAiGraphExecuteIfCheckFovWithTarget",
+		     "scenarioSourceAiGraphExecuteIfTargetInFovLeft",
+		     "scenarioSourceAiGraphExecuteIfTargetOutOfFovLeft",
+		     "scenarioSourceAiGraphExecuteIfTargetInFov",
+		     "scenarioSourceAiGraphExecuteIfTargetOutOfFov",
+		     "scenarioSourceAiGraphExecuteIfDistanceToTargetLessThan",
+		     "scenarioSourceAiGraphExecuteIfDistanceToTargetGreaterThan",
+		     "scenarioSourceAiGraphExecuteIfChrDistanceToPadLessThan",
+		     "scenarioSourceAiGraphExecuteIfChrDistanceToPadGreaterThan",
+		     "scenarioSourceAiGraphExecuteIfDistanceToChrLessThan",
+		     "scenarioSourceAiGraphExecuteIfDistanceToChrGreaterThan",
+		     "scenarioSourceAiGraphExecuteIfAnyChrNearSelf",
+		     "scenarioSourceAiGraphExecuteIfDistanceFromTargetToPadLessThan",
+		     "scenarioSourceAiGraphExecuteIfDistanceFromTargetToPadGreaterThan",
+		     "scenarioSourceAiGraphExecuteIfChrInRoom",
+		     "scenarioSourceAiGraphExecuteIfTargetInRoom",
+		     "scenarioSourceAiGraphExecuteIfChrHasObject",
+		     "scenarioSourceAiGraphExecuteIfWeaponThrown",
+		     "scenarioSourceAiGraphExecuteIfWeaponThrownOnObject",
+		     "scenarioSourceAiGraphExecuteIfChrHasWeaponEquipped",
+		     "scenarioSourceAiGraphExecuteIfGunUnclaimed",
+		     "scenarioSourceAiGraphExecuteIfObjectHealthy",
+		     "scenarioSourceAiGraphExecuteIfChrActivatedObject",
+		     "scenarioSourceAiGraphExecuteObjInteract",
+		     "scenarioSourceAiGraphExecuteDestroyObject",
+		     "scenarioSourceAiGraphExecuteDropObjectFromChr",
+		     "scenarioSourceAiGraphExecuteChrDropItems",
+		     "scenarioSourceAiGraphExecuteChrDropWeapon",
+		     "scenarioSourceAiGraphExecuteGiveObjectToChr",
+		     "scenarioSourceAiGraphExecuteObjectMoveToPad",
+		     "scenarioSourceAiGraphExecuteIfWaypointWithinQuadrant",
+		     "scenarioSourceAiGraphExecuteSetPadPresetToTargetQuadrant",
+		     "scenarioSourceAiGraphExecuteChrDeleteWeapon",
+		     "scenarioSourceAiGraphExecuteIfTriggerShotList",
+		     "scenarioSourceAiGraphExecuteEndLevel",
+		     "scenarioSourceAiGraphExecuteEndCutscene",
+		     "scenarioSourceAiGraphExecuteWarpJoToPad",
+		     "scenarioSourceAiGraphExecuteSetCameraAnimation",
+		     "scenarioSourceAiGraphExecuteIfInCutscene",
+		     "scenarioSourceAiGraphExecuteIfCutsceneButtonPressed",
+		     "scenarioSourceAiGraphExecuteReorientForCutsceneStop",
+		     "scenarioSourceAiGraphExecuteWarpJoToTag",
+		     "scenarioSourceAiGraphExecuteRevokeControl",
+		     "scenarioSourceAiGraphExecuteGrantControl",
+		     "scenarioSourceAiGraphExecutePlayerFadeIn",
+		     "scenarioSourceAiGraphExecutePlayersFadeOut",
+		     "scenarioSourceAiGraphExecuteIfColourFadeComplete",
+		     "scenarioSourceAiGraphExecutePrepareWarpOrbit",
+		     "scenarioSourceAiGraphExecuteBeginWarpLatch",
+		     "scenarioSourceAiGraphExecuteIfWarpLatchComplete",
+		     "scenarioSourceAiGraphExecuteSpawnChrAtPad",
+		     "scenarioSourceAiGraphExecuteSpawnChrAtChr",
+		     "scenarioSourceAiGraphExecuteTryEquipWeapon",
+		     "scenarioSourceAiGraphExecuteTryEquipHat",
+		     "scenarioSourceAiGraphExecuteSetObjImage",
+		     "scenarioSourceAiGraphExecuteObjectDoAnimation",
+		     "scenarioSourceAiGraphExecuteSetDoorOpen",
+		     "scenarioSourceAiGraphExecuteDuplicateChr",
+		     "scenarioSourceAiGraphExecuteEnableChr",
+		     "scenarioSourceAiGraphExecuteDisableChr",
+		     "scenarioSourceAiGraphExecuteEnableObj",
+		     "scenarioSourceAiGraphExecuteDisableObj",
+		     "scenarioSourceAiGraphExecuteChrMoveToPad",
+		     "scenarioSourceAiGraphExecuteChrSetTeam",
+		     "scenarioSourceAiGraphExecuteDamageChrByAmount",
+		     "scenarioSourceAiGraphExecuteDoPresetAnimation",
+		     "scenarioSourceAiGraphExecuteIfPlayerChrPortalDistanceLessThan",
+		     "scenarioSourceAiGraphExecuteIfChrRepositionValid",
+		     "scenarioSourceAiGraphExecuteReleaseCover",
+		     "scenarioSourceAiGraphExecuteIfChrNotTalking",
+		     "scenarioSourceAiGraphExecuteIfOrders",
+		     "scenarioSourceAiGraphExecuteIfHasOrders",
+		     "scenarioSourceAiGraphExecuteIfChrInSquadronDoingAction",
+		     "scenarioSourceAiGraphExecuteIfChrListening",
+		     "scenarioSourceAiGraphExecuteIfNotListening",
+		     "scenarioSourceAiGraphExecuteIfChrInjuredTarget",
+		     "scenarioSourceAiGraphExecuteIfAction",
+		     "scenarioSourceAiGraphExecuteIfChrAmmoQuantityLessThan",
+		     "scenarioSourceAiGraphExecuteIfChrTarget",
+		     "scenarioSourceAiGraphExecuteIfCompareChrPresetsTeam",
+		     "scenarioSourceAiGraphExecuteIfHuman",
+		     "scenarioSourceAiGraphExecuteIfSkedar",
+		     "scenarioSourceAiGraphExecuteIfPropPresetIsBlockingSightToTarget",
+		     "scenarioSourceAiGraphExecuteRemoveObjectAtPropPreset",
+		     "scenarioSourceAiGraphExecuteIfPropPresetHeightLessThan",
+		     "scenarioSourceAiGraphExecuteSetTarget",
+		     "scenarioSourceAiGraphExecuteIfPresetsTargetIsNotMyTarget",
+		     "scenarioSourceAiGraphExecuteSetChrPresetToChrNearSelf",
+		     "scenarioSourceAiGraphExecuteSetChrPresetToChrNearPad",
+		     "scenarioSourceAiGraphExecuteIfSafety2LessThan",
+		     "scenarioSourceAiGraphExecuteIfPlayerUsingCmpOrAr34",
+		     "scenarioSourceAiGraphExecuteDetectEnemyOnSameFloor",
+		     "scenarioSourceAiGraphExecuteDetectEnemy",
+		     "scenarioSourceAiGraphExecuteIfSafetyLessThan",
+		     "scenarioSourceAiGraphExecuteIfTargetMovingSlowly",
+		     "scenarioSourceAiGraphExecuteIfTargetMovingCloser",
+		     "scenarioSourceAiGraphExecuteIfTargetMovingAway",
+		     "scenarioSourceAiGraphExecuteIfSquadronIsDead",
+		     "scenarioSourceAiGraphExecuteIfTrue",
+		     "scenarioSourceAiGraphExecuteIfNumChrsInSquadronGreaterThan",
+		     "scenarioSourceAiGraphExecuteIfNaturalAnim",
+		     "scenarioSourceAiGraphExecuteIfY",
+		     "scenarioSourceAiGraphExecuteIfSoundTimer",
+		     "scenarioSourceAiGraphExecuteIfTargetYDifferenceLessThan",
+		     "scenarioSourceAiGraphExecuteChrExplosions",
+		     "scenarioSourceAiGraphExecuteSetTintedGlassEnabled",
+		     "scenarioSourceAiGraphExecuteHovercopterFireRocket",
+		     "scenarioSourceAiGraphExecuteChrAdjustMotionBlur",
+		     "scenarioSourceAiGraphExecutePunchOrKick",
+		     "scenarioSourceAiGraphExecuteSetTargetToEyespyIfInSight",
+		     "scenarioSourceAiGraphExecuteMiniSkedarTryPounce",
+		     "scenarioSourceAiGraphExecuteIfObjectDistanceToPadLessThan",
+		     "scenarioSourceAiGraphExecuteAvoid",
+		     "scenarioSourceAiGraphExecuteTitleInitMode",
+		     "scenarioSourceAiGraphExecuteTryExitTitle",
+		     "scenarioSourceAiGraphExecuteChrEmitSparks",
+		     "scenarioSourceAiGraphExecuteSetDrCarollImages",
+		     "scenarioSourceAiGraphExecuteSayQuip",
+		     "scenarioSourceAiGraphExecuteSayCiStaffQuip",
+		     "scenarioSourceAiGraphExecuteShuffleRuinsPillars",
+		     "scenarioSourceAiGraphExecuteShufflePelagicSwitches",
+		     "scenarioSourceAiGraphExecuteTryAttackAmount",
+	     }) {
+		REQUIRE(scenario_runtime.find(symbol) != std::string::npos);
+	}
+	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.spatial_perception+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.distance_perception+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.room_object_weapon+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.object_interaction+ai/ailists.tsv+objects.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.quadrant_preset+ai/ailists.tsv+pads.tsv+navigation.generate") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.player_weapon_state+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.player_cutscene+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.setup_spawn+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.entity_lifecycle+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.release_cover+navigation/covers.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.orders+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.intent_status+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrDoAnimation") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteBeSurprisedOneHand") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteBeSurprisedLookAround") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteBeSurprisedSurrender") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.animation+ai/ailists.tsv") !=
+	        std::string::npos);
 	REQUIRE(scenario_runtime.find("SCENARIO.GRAPH: pad source") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.pads+pads.tsv") !=
@@ -416,17 +892,1232 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenario.ai.action.start_patrol") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.try_start_alarm") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.activate_alarm") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.deactivate_alarm") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_pad_preset") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_set_pad_preset") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_copy_pad_preset") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_chr_preset") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_chr_target") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_morale") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.add_morale") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_add_morale") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.subtract_morale") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_alertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.add_alertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_add_alertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.subtract_alertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.increase_squadron_alertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_hear_distance") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_view_distance") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_grenade_probability") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_chr_num") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_max_damage") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.add_health") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_shield") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_reaction_speed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_recovery_speed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_accuracy") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_dodge_rating") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_unarmed_dodge_rating") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.unset_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_has_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_set_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_unset_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_chr_has_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_stage_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.unset_stage_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_stage_flag_eq") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_chrflag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.unset_chrflag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_has_chrflag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_set_chrflag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_unset_chrflag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_chr_has_chrflag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_set_hidden_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_unset_hidden_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_chr_has_hidden_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_obj_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.unset_obj_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_obj_has_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.open_door") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.close_door") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_door_state") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_object_is_door") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.lock_door") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.unlock_door") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_door_locked") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_lift_stationary") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.lift_go_to_stop") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_lift_at_stop") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.activate_lift") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_using_lift") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.configure_rain") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.configure_snow") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.switch_to_alt_sky") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_wind_speed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_lights") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_room_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.show_cutscene_chrs") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.configure_environment") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_distance_to_target2_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_distance_to_target2_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.play_sound_from_prop") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.play_temporary_primary_track") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.play_x_track") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.stop_ambient_track") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_draw_weapon") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_draw_weapon_in_cutscene") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_player_force_speed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_set_invincible") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_player_is_invincible") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_chr_has_no_gun") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_delete_weapon") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_trigger_shot_list") !=
+	        std::string::npos);
+	for (const char *node : {
+		     "scenario.ai.action.end_level",
+		     "scenario.ai.action.end_cutscene",
+		     "scenario.ai.action.warp_jo_to_pad",
+		     "scenario.ai.action.warp_jo_to_tag",
+		     "scenario.ai.action.revoke_control",
+		     "scenario.ai.action.grant_control",
+		     "scenario.ai.action.player_fade_in",
+		     "scenario.ai.action.players_fade_out",
+		     "scenario.ai.condition.if_colour_fade_complete",
+		     "scenario.ai.action.prepare_warp_orbit",
+		     "scenario.ai.action.begin_warp_latch",
+		     "scenario.ai.condition.if_warp_latch_complete",
+		     "scenario.ai.action.set_camera_animation",
+		     "scenario.ai.condition.if_in_cutscene",
+		     "scenario.ai.condition.if_cutscene_button_pressed",
+		     "scenario.ai.action.reorient_for_cutscene_stop",
+		     "scenario.ai.action.duplicate_chr",
+		     "scenario.ai.action.enable_chr",
+		     "scenario.ai.action.disable_chr",
+		     "scenario.ai.action.enable_obj",
+		     "scenario.ai.action.disable_obj",
+		     "scenario.ai.action.chr_move_to_pad",
+		     "scenario.ai.action.chr_set_team",
+		     "scenario.ai.action.damage_chr_by_amount",
+		     "scenario.ai.action.do_preset_animation",
+		     "scenario.ai.condition.if_player_chr_portal_distance_less_than",
+		     "scenario.ai.condition.if_chr_reposition_valid",
+	     }) {
+		REQUIRE(scenario_runtime.find(node) != std::string::npos);
+	}
+	REQUIRE(scenario_runtime.find("scenario.ai.action.do_gun_command") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_distance_to_gun_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.recover_gun") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_obj_in_room") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_player_looking_at_object") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_target_is_player") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_kill") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.remove_weapon_from_inventory") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.clear_inventory") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.release_object") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_grab_object") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.toggle_p1p2") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_set_p1p2") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_set_cloaked") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_autogun_target_team") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_objective_complete") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_objective_failed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_all_objectives_complete") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_difficulty_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_difficulty_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_stage_timer_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_stage_timer_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_stage_id_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_stage_id_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_num_players_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_kill_count_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_num_knocked_out_chrs") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.kill_bond") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteKillBond") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.mission_global+ai/ailists.tsv+mission.graph.json") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_num_arghs_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_num_arghs_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_num_close_arghs_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_num_close_arghs_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_chr_health_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_chr_health_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_chr_shield_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_chr_shield_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_injured") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_shield_damaged") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_morale_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_morale_less_than_random") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_alertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_chr_alertness_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_alertness_less_than_random") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.character_state+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_idle") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_stopped") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_chr_dead") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_chr_death_animation_finished") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_chr_knocked_out") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_can_see_target") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.lifecycle+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_pouncebits_eq") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_training_pc_holographed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_player_using_device") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.state_device+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_begin_or_end_teleport") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_chr_teleport_full_white") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_set_cutscene_weapon") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.fade_screen") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_fade_complete") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_chr_hudpiece_visible") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_passive_mode") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_set_firing_in_cutscene") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_portal_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_music_event_queue_is_empty") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_coop_mode") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_chr_same_floor_distance_to_pad_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.remove_references_to_chr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_toggle_model_part") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.obj_set_model_part_visible") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_obj_health_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_obj_health") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_chr_special_death_animation") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_room_to_search") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteShowCutsceneChrs") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.cutscene_visibility+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecutePlayXTrack") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteStopAmbientTrack") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.music_track+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrDrawWeapon") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetPlayerForceSpeed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrSetInvincible") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfPlayerIsInvincible") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfChrHasNoGun") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteDoGunCommand") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfDistanceToGunLessThan") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteRecoverGun") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrCopyProperties") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecutePlayerAutoWalk") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfPlayerAutoWalkFinished") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfObjInRoom") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfPlayerLookingAtObject") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfTargetIsPlayer") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.player_weapon_state+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.gun_interaction+ai/ailists.tsv+objects.tsv+scene.glb") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.character_property+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.player_navigation+ai/ailists.tsv+pads.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.object_room+ai/ailists.tsv+objects.tsv+scene.glb") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.perception+ai/ailists.tsv+objects.tsv+scene.glb") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteConfigureEnvironment") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.environment+ai/ailists.tsv+scenario.ini+scene.glb") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfDistanceToTarget2") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.target_distance+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSpeak") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecutePlaySound") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteAssignSound") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteAudioMuteChannel") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfChannelFree") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetObjectSoundVolume") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetObjectSoundVolumeByDistance") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetObjectSoundPlaying") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecutePlayRepeatingSoundFromObject") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecutePlaySoundFromEntity") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecutePlayRepeatingSoundFromPad") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfObjectSoundVolumeLessThan") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecutePlaySoundFromProp") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecutePlayTemporaryPrimaryTrack") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.audio+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrKill") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteRemoveWeaponFromInventory") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteClearInventory") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteReleaseObject") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrGrabObject") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteToggleP1P2") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrSetP1P2") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrSetCloaked") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetAutogunTargetTeam") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrBeginOrEndTeleport") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfChrTeleportFullWhite") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrSetCutsceneWeapon") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteFadeScreen") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfFadeComplete") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetChrHudpieceVisible") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetPassiveMode") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrSetFiringInCutscene") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetPortalFlag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.character_inventory+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.character_inventory+ai/ailists.tsv+objects.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.player_state+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.player_state+ai/ailists.tsv+objects.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.teleport_cutscene_weapon+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.cutscene_presentation+ai/ailists.tsv+scene.glb") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfMusicEventQueueIsEmpty") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfCoopMode") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.music_mode+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfChrSameFloorDistanceToPadLessThan") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteRemoveReferencesToChr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.pad_reference+ai/ailists.tsv+pads.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteOpenDoor") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfDoorState") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.door+objects.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteLiftGoToStop") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.lift+objects.tsv+pads.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteConfigureRain") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.weather+ai/ailists.tsv+scenario.ini") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSwitchToAltSky") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetWindSpeed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.sky+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetLights") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.lighting+ai/ailists.tsv+pads.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetRoomFlag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.room_flags+ai/ailists.tsv+scene.glb") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrToggleModelPart") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteObjSetModelPartVisible") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.model_part+ai/ailists.tsv+objects.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfObjHealthLessThan") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetObjHealth") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.object_health+ai/ailists.tsv+objects.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetChrSpecialDeathAnimation") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.special_death+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetRoomToSearch") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.room_search+ai/ailists.tsv+scene.glb") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_savefile_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.unset_savefile_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_savefile_flag_set") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_savefile_flag_unset") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.restart_timer") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.reset_timer") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.pause_timer") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.resume_timer") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_timer_stopped") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_timer_greater_than_random") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_timer_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_timer_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.show_countdown_timer") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.hide_countdown_timer") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_countdown_timer") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.stop_countdown_timer") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.start_countdown_timer") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_countdown_timer_stopped") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_countdown_timer_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.if_countdown_timer_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteRestartTimer") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetCountdownTimerValue") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.show_hudmsg") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.show_hudmsg_middle") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.show_hudmsg_top_middle") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.hovercar_begin_path") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_vehicle_speed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_rotor_speed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_explosions") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_object_distance_to_pad_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.misc_effect+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.quip_shuffle+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteHovercarBeginPath") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetVehicleSpeed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetRotorSpeed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("chopperFromHovercar(g_Vars.hovercar)") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("PATHFLAG_INUSE") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("OBJFLAG_CHOPPER_INIT") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteShowHudmsg") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteShowHudmsgMiddle") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteShowHudmsgTopMiddle") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_action") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_team_orders") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.retreat") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.find_cover") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.find_cover_within_dist") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.find_cover_outside_dist") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.go_to_cover") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.check_cover_out_of_sight") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.orbit_target") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_chr_preset_to_unalerted_teammate") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.set_squadron") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.face_cover") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.danger_cover") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.release_cover") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.rebuild_teams") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.rebuild_squadrons") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.chr_set_listening") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.condition.if_dangerous_object_nearby") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenario.ai.action.shuffle_investigation_terminals") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteHeliSetWeaponsArmed") !=
+	        std::string::npos);
+	for (const char *kind : {
+		     "scenario.ai.condition.if_safety2_less_than",
+		     "scenario.ai.condition.if_player_using_cmp_or_ar34",
+		     "scenario.ai.condition.detect_enemy_on_same_floor",
+		     "scenario.ai.condition.detect_enemy",
+		     "scenario.ai.condition.if_safety_less_than",
+		     "scenario.ai.condition.if_target_moving_slowly",
+		     "scenario.ai.condition.if_target_moving_closer",
+		     "scenario.ai.condition.if_target_moving_away",
+		     "scenario.ai.condition.if_squadron_is_dead",
+		     "scenario.ai.condition.if_true",
+		     "scenario.ai.condition.if_num_chrs_in_squadron_greater_than",
+		     "scenario.ai.condition.if_natural_anim",
+		     "scenario.ai.condition.if_y",
+		     "scenario.ai.condition.if_sound_timer",
+		     "scenario.ai.condition.if_target_y_difference_less_than",
+	     }) {
+		REQUIRE(scenario_runtime.find(kind) != std::string::npos);
+	}
+	REQUIRE(scenario_runtime.find("scenario.ai.action.try_attack_amount") !=
+	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetPath") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteStartPatrol") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteTryStartAlarm") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteActivateAlarm") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteDeactivateAlarm") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetPadPreset") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrSetPadPreset") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrCopyPadPreset") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetChrPreset") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetChrTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetMorale") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteAddMorale") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrAddMorale") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSubtractMorale") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetAlertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteAddAlertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrAddAlertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSubtractAlertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIncreaseSquadronAlertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetHearDistance") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetViewDistance") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetGrenadeProbability") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetChrNum") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetMaxDamage") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteAddHealth") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetShield") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetReactionSpeed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetRecoverySpeed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetAccuracy") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetDodgeRating") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetUnarmedDodgeRating") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetAction") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetTeamOrders") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteRetreat") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteFindCover") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteFindCoverWithinDist") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteFindCoverOutsideDist") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteGoToCover") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteCheckCoverOutOfSight") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteOrbitTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetChrPresetToUnalertedTeammate") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetSquadron") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteFaceCover") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteDangerCover") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteRebuildTeams") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteRebuildSquadrons") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrSetListening") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetSavefileFlag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteUnsetSavefileFlag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfSavefileFlagIsSet") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteIfSavefileFlagIsUnset") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetChrflag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteChrSetHiddenFlag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetObjFlag") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_path+navigation/paths.tsv") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.start_patrol+navigation/paths.tsv") !=
 	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_pad_preset+pads.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_set_pad_preset+pads.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_copy_pad_preset+chrstate") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_chr_preset+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_chr_target+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_morale+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.add_morale+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_add_morale+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.subtract_morale+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_alertness+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.add_alertness+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_add_alertness+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.subtract_alertness+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.increase_squadron_alertness+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_hear_distance+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_view_distance+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_grenade_probability+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_chr_num+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_max_damage+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.add_health+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_shield+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_reaction_speed+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_recovery_speed+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_accuracy+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_dodge_rating+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_unarmed_dodge_rating+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_flag+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.unset_flag+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.if_has_flag+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_set_flag+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_unset_flag+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.if_chr_has_flag+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_stage_flag+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.unset_stage_flag+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.if_stage_flag_eq+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_chrflag+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_set_hidden_flag+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_obj_flag+objects.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_object_flags+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_savefile_flag+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.unset_savefile_flag+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.if_savefile_flag_set+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.if_savefile_flag_unset+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_action+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_team_orders+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.retreat+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.find_cover+navigation/covers.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.find_cover_within_dist+navigation/covers.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.find_cover_outside_dist+navigation/covers.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.go_to_cover+navigation/covers.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.check_cover_out_of_sight+navigation/covers.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.orbit_target+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_chr_preset_to_unalerted_teammate+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.set_squadron+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.face_cover+navigation/covers.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.danger_cover+navigation/covers.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.rebuild_teams+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.rebuild_squadrons+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_set_listening+ai/ailists.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetList") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetReturnList") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetShotList") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteReturnList") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteStop") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteKneel") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSurrender") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteFadeOut") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteRemoveChr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteBeSurprisedSurrender") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteKillBond") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteFaceEntity") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteApplyGsetDamage") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteChrDamageChr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteConsiderGrenadeThrow") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteDropItem") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteTryRunFromTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteTryJogToTargetProp") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteTryWalkToTargetProp") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteTryRunToTargetProp") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteTryGoToCoverProp") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteTryJogToChr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteTryWalkToChr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteTryRunToChr") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfCanHearAlarm") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfPatrolling") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfAlarmActive") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfGasActive") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfHearsTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfSawInjury") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfSawDeath") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfLosToTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfLosToAttackTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfTargetNearlyInSight") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfNearlyInTargetsSight") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetPadPresetToPadOnRouteToTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfSawTargetRecently") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfHeardTargetRecently") !=
+	        std::string::npos);
+	for (const char *symbol : {
+		     "scenarioSourceAiGraphExecuteIfLosToChr",
+		     "scenarioSourceAiGraphExecuteIfNeverBeenOnScreen",
+		     "scenarioSourceAiGraphExecuteIfOnScreen",
+		     "scenarioSourceAiGraphExecuteIfChrInOnScreenRoom",
+		     "scenarioSourceAiGraphExecuteIfRoomIsOnScreen",
+		     "scenarioSourceAiGraphExecuteIfTargetAimingAtMe",
+		     "scenarioSourceAiGraphExecuteIfNearMiss",
+		     "scenarioSourceAiGraphExecuteIfSeesSuspiciousItem",
+		     "scenarioSourceAiGraphExecuteIfCheckFovWithTarget",
+		     "scenarioSourceAiGraphExecuteIfTargetInFovLeft",
+		     "scenarioSourceAiGraphExecuteIfTargetOutOfFovLeft",
+		     "scenarioSourceAiGraphExecuteIfTargetInFov",
+		     "scenarioSourceAiGraphExecuteIfTargetOutOfFov",
+		     "scenarioSourceAiGraphExecuteIfDistanceToTargetLessThan",
+		     "scenarioSourceAiGraphExecuteIfDistanceToTargetGreaterThan",
+		     "scenarioSourceAiGraphExecuteIfChrDistanceToPadLessThan",
+		     "scenarioSourceAiGraphExecuteIfChrDistanceToPadGreaterThan",
+		     "scenarioSourceAiGraphExecuteIfDistanceToChrLessThan",
+		     "scenarioSourceAiGraphExecuteIfDistanceToChrGreaterThan",
+		     "scenarioSourceAiGraphExecuteIfAnyChrNearSelf",
+		     "scenarioSourceAiGraphExecuteIfDistanceFromTargetToPadLessThan",
+		     "scenarioSourceAiGraphExecuteIfDistanceFromTargetToPadGreaterThan",
+		     "scenarioSourceAiGraphExecuteIfChrInRoom",
+		     "scenarioSourceAiGraphExecuteIfTargetInRoom",
+		     "scenarioSourceAiGraphExecuteIfChrHasObject",
+		     "scenarioSourceAiGraphExecuteIfWeaponThrown",
+		     "scenarioSourceAiGraphExecuteIfWeaponThrownOnObject",
+		     "scenarioSourceAiGraphExecuteIfChrHasWeaponEquipped",
+		     "scenarioSourceAiGraphExecuteIfGunUnclaimed",
+		     "scenarioSourceAiGraphExecuteIfObjectHealthy",
+		     "scenarioSourceAiGraphExecuteIfWaypointWithinQuadrant",
+		     "scenarioSourceAiGraphExecuteSetPadPresetToTargetQuadrant",
+		     "scenarioSourceAiGraphExecuteChrDeleteWeapon",
+		     "scenarioSourceAiGraphExecuteIfTriggerShotList",
+		     "scenarioSourceAiGraphExecuteEndLevel",
+		     "scenarioSourceAiGraphExecuteEndCutscene",
+		     "scenarioSourceAiGraphExecuteWarpJoToPad",
+		     "scenarioSourceAiGraphExecuteSetCameraAnimation",
+		     "scenarioSourceAiGraphExecuteIfInCutscene",
+		     "scenarioSourceAiGraphExecuteIfCutsceneButtonPressed",
+		     "scenarioSourceAiGraphExecuteReorientForCutsceneStop",
+		     "scenarioSourceAiGraphExecuteWarpJoToTag",
+		     "scenarioSourceAiGraphExecuteRevokeControl",
+		     "scenarioSourceAiGraphExecuteGrantControl",
+		     "scenarioSourceAiGraphExecutePlayerFadeIn",
+		     "scenarioSourceAiGraphExecutePlayersFadeOut",
+		     "scenarioSourceAiGraphExecuteIfColourFadeComplete",
+		     "scenarioSourceAiGraphExecutePrepareWarpOrbit",
+		     "scenarioSourceAiGraphExecuteBeginWarpLatch",
+		     "scenarioSourceAiGraphExecuteIfWarpLatchComplete",
+		     "scenarioSourceAiGraphExecuteDuplicateChr",
+		     "scenarioSourceAiGraphExecuteEnableChr",
+		     "scenarioSourceAiGraphExecuteDisableChr",
+		     "scenarioSourceAiGraphExecuteEnableObj",
+		     "scenarioSourceAiGraphExecuteDisableObj",
+		     "scenarioSourceAiGraphExecuteChrMoveToPad",
+		     "scenarioSourceAiGraphExecuteChrSetTeam",
+		     "scenarioSourceAiGraphExecuteDamageChrByAmount",
+		     "scenarioSourceAiGraphExecuteDoPresetAnimation",
+		     "scenarioSourceAiGraphExecuteIfPlayerChrPortalDistanceLessThan",
+		     "scenarioSourceAiGraphExecuteIfChrRepositionValid",
+		     "scenarioSourceAiGraphExecuteReleaseCover",
+		     "scenarioSourceAiGraphExecuteIfSafety2LessThan",
+		     "scenarioSourceAiGraphExecuteIfPlayerUsingCmpOrAr34",
+		     "scenarioSourceAiGraphExecuteDetectEnemyOnSameFloor",
+		     "scenarioSourceAiGraphExecuteDetectEnemy",
+		     "scenarioSourceAiGraphExecuteIfSafetyLessThan",
+		     "scenarioSourceAiGraphExecuteIfTargetMovingSlowly",
+		     "scenarioSourceAiGraphExecuteIfTargetMovingCloser",
+		     "scenarioSourceAiGraphExecuteIfTargetMovingAway",
+		     "scenarioSourceAiGraphExecuteIfSquadronIsDead",
+		     "scenarioSourceAiGraphExecuteIfTrue",
+		     "scenarioSourceAiGraphExecuteIfNumChrsInSquadronGreaterThan",
+		     "scenarioSourceAiGraphExecuteIfNaturalAnim",
+		     "scenarioSourceAiGraphExecuteIfY",
+		     "scenarioSourceAiGraphExecuteIfSoundTimer",
+		     "scenarioSourceAiGraphExecuteIfTargetYDifferenceLessThan",
+		     "scenarioSourceAiGraphExecuteChrExplosions",
+		     "scenarioSourceAiGraphExecuteSetTintedGlassEnabled",
+		     "scenarioSourceAiGraphExecuteHovercopterFireRocket",
+		     "scenarioSourceAiGraphExecuteChrAdjustMotionBlur",
+		     "scenarioSourceAiGraphExecutePunchOrKick",
+		     "scenarioSourceAiGraphExecuteSetTargetToEyespyIfInSight",
+		     "scenarioSourceAiGraphExecuteMiniSkedarTryPounce",
+		     "scenarioSourceAiGraphExecuteIfObjectDistanceToPadLessThan",
+		     "scenarioSourceAiGraphExecuteAvoid",
+		     "scenarioSourceAiGraphExecuteTitleInitMode",
+		     "scenarioSourceAiGraphExecuteTryExitTitle",
+		     "scenarioSourceAiGraphExecuteChrEmitSparks",
+		     "scenarioSourceAiGraphExecuteSetDrCarollImages",
+		     "scenarioSourceAiGraphExecuteSayQuip",
+		     "scenarioSourceAiGraphExecuteSayCiStaffQuip",
+		     "scenarioSourceAiGraphExecuteShuffleRuinsPillars",
+		     "scenarioSourceAiGraphExecuteShufflePelagicSwitches",
+		     "scenarioSourceAiGraphExecuteTryAttackAmount",
+	     }) {
+		REQUIRE(scenario_runtime_h.find(symbol) != std::string::npos);
+	}
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetPunchDodgeList") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetShootingAtMeList") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetDarkRoomList") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetPlayerDeadList") !=
+	        std::string::npos);
 	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetPath") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteStartPatrol") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteTryStartAlarm") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteActivateAlarm") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteDeactivateAlarm") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetPadPreset") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteChrSetPadPreset") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteChrCopyPadPreset") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetChrPreset") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetChrTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetMorale") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteAddMorale") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteChrAddMorale") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSubtractMorale") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetAlertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteAddAlertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteChrAddAlertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSubtractAlertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIncreaseSquadronAlertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetHearDistance") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetViewDistance") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetGrenadeProbability") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetChrNum") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetMaxDamage") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteAddHealth") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetShield") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetReactionSpeed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetRecoverySpeed") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetAccuracy") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetDodgeRating") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetUnarmedDodgeRating") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetFlag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteUnsetFlag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfHasFlag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteChrSetFlag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteChrUnsetFlag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfChrHasFlag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetStageFlag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteUnsetStageFlag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfStageFlagEq") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetSavefileFlag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteUnsetSavefileFlag") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfSavefileFlagIsSet") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteIfSavefileFlagIsUnset") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetAction") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetTeamOrders") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteRetreat") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteFindCover") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteFindCoverWithinDist") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteFindCoverOutsideDist") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteGoToCover") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteCheckCoverOutOfSight") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteOrbitTarget") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetChrPresetToUnalertedTeammate") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteSetSquadron") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteFaceCover") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteDangerCover") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteRebuildTeams") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteRebuildSquadrons") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteChrSetListening") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteWalkToPad") !=
 	        std::string::npos);
@@ -435,6 +2126,197 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteJogToPad") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime_h.find("scenarioSourceAiGraphExecuteGoToPadPreset") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetList(cmd[2]") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetReturnList(cmd[2]") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetShotList(ailistid)") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteReturnList()") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteStop(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteKneel(g_Vars.chrdata)") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSurrender(g_Vars.chrdata)") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteFadeOut(g_Vars.chrdata)") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteRemoveChr(g_Vars.chrdata, cmd[2])") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteBeSurprisedSurrender(g_Vars.chrdata)") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteKillBond()") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteTrySidestep(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteTryAttackStand(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfAttacking(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteTryModifyAttack(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteFaceEntity(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteApplyGsetDamage(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteChrDamageChr(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteConsiderGrenadeThrow(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteDropItem(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteTryRunFromTarget(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteTryJogToTargetProp(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteTryWalkToTargetProp(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteTryRunToTargetProp(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteTryGoToCoverProp(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteTryJogToChr(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteTryWalkToChr(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteTryRunToChr(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfCanHearAlarm(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfPatrolling(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfAlarmActive(cmd[2])") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfGasActive(cmd[2])") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfHearsTarget(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfSawInjury(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfSawDeath(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfLosToTarget(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfLosToAttackTarget(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfTargetNearlyInSight(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfNearlyInTargetsSight(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetPadPresetToPadOnRouteToTarget(") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfSawTargetRecently(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfHeardTargetRecently(g_Vars.chrdata") !=
+	        std::string::npos);
+	for (const char *call : {
+		     "scenarioSourceAiGraphExecuteIfLosToChr(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfNeverBeenOnScreen(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfOnScreen(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfChrInOnScreenRoom(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfRoomIsOnScreen(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfTargetAimingAtMe(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfNearMiss(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfSeesSuspiciousItem(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfCheckFovWithTarget(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfTargetInFovLeft(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfTargetOutOfFovLeft(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfTargetInFov(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfTargetOutOfFov(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfDistanceToTargetLessThan(",
+		     "scenarioSourceAiGraphExecuteIfDistanceToTargetGreaterThan(",
+		     "scenarioSourceAiGraphExecuteIfChrDistanceToPadLessThan(",
+		     "scenarioSourceAiGraphExecuteIfChrDistanceToPadGreaterThan(",
+		     "scenarioSourceAiGraphExecuteIfDistanceToChrLessThan(",
+		     "scenarioSourceAiGraphExecuteIfDistanceToChrGreaterThan(",
+		     "scenarioSourceAiGraphExecuteIfAnyChrNearSelf(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfDistanceFromTargetToPadLessThan(",
+		     "scenarioSourceAiGraphExecuteIfDistanceFromTargetToPadGreaterThan(",
+		     "scenarioSourceAiGraphExecuteIfChrInRoom(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfTargetInRoom(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfChrHasObject(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfWeaponThrown(cmd[2]",
+		     "scenarioSourceAiGraphExecuteIfWeaponThrownOnObject(cmd->b2",
+		     "scenarioSourceAiGraphExecuteIfChrHasWeaponEquipped(",
+		     "scenarioSourceAiGraphExecuteIfGunUnclaimed(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfObjectHealthy(cmd[2]",
+		     "scenarioSourceAiGraphExecuteIfWaypointWithinQuadrant(",
+		     "scenarioSourceAiGraphExecuteSetPadPresetToTargetQuadrant(",
+		     "scenarioSourceAiGraphExecuteChrDeleteWeapon(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfTriggerShotList(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteEndLevel()",
+		     "scenarioSourceAiGraphExecuteEndCutscene()",
+		     "scenarioSourceAiGraphExecuteWarpJoToPad(pad_id)",
+		     "scenarioSourceAiGraphExecuteSetCameraAnimation(anim_id)",
+		     "scenarioSourceAiGraphExecuteIfInCutscene(cmd[2])",
+		     "scenarioSourceAiGraphExecuteIfCutsceneButtonPressed(cmd[2])",
+		     "scenarioSourceAiGraphExecuteReorientForCutsceneStop(cmd[2])",
+		     "scenarioSourceAiGraphExecuteWarpJoToTag(cmd[2]",
+		     "scenarioSourceAiGraphExecuteRevokeControl(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteGrantControl(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecutePlayerFadeIn(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecutePlayersFadeOut()",
+		     "scenarioSourceAiGraphExecuteIfColourFadeComplete(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecutePrepareWarpOrbit(range",
+		     "scenarioSourceAiGraphExecuteBeginWarpLatch()",
+		     "scenarioSourceAiGraphExecuteIfWarpLatchComplete(cmd[2])",
+		     "scenarioSourceAiGraphExecuteDuplicateChr(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteEnableChr(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteDisableChr(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteEnableObj(cmd[2])",
+		     "scenarioSourceAiGraphExecuteDisableObj(cmd[2])",
+		     "scenarioSourceAiGraphExecuteChrMoveToPad(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteChrSetTeam(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteDamageChrByAmount(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteDoPresetAnimation(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfPlayerChrPortalDistanceLessThan(",
+		     "scenarioSourceAiGraphExecuteIfChrRepositionValid(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteReleaseCover(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteTryAttackAmount(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfSafety2LessThan(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfPlayerUsingCmpOrAr34(cmd[2])",
+		     "scenarioSourceAiGraphExecuteDetectEnemyOnSameFloor(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteDetectEnemy(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfSafetyLessThan(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfTargetMovingSlowly(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfTargetMovingCloser(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfTargetMovingAway(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfSquadronIsDead(cmd[2], cmd[3])",
+		     "scenarioSourceAiGraphExecuteIfTrue(cmd[5])",
+		     "scenarioSourceAiGraphExecuteIfNumChrsInSquadronGreaterThan(",
+		     "scenarioSourceAiGraphExecuteIfNaturalAnim(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfY(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfSoundTimer(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfTargetYDifferenceLessThan(",
+		     "scenarioSourceAiGraphExecuteChrExplosions(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteSetTintedGlassEnabled(cmd[2])",
+		     "scenarioSourceAiGraphExecuteHovercopterFireRocket(cmd[2])",
+		     "scenarioSourceAiGraphExecuteChrAdjustMotionBlur(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecutePunchOrKick(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteSetTargetToEyespyIfInSight(",
+		     "scenarioSourceAiGraphExecuteMiniSkedarTryPounce(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteIfObjectDistanceToPadLessThan(",
+		     "scenarioSourceAiGraphExecuteAvoid(g_Vars.chrdata)",
+		     "scenarioSourceAiGraphExecuteTitleInitMode(cmd[2])",
+		     "scenarioSourceAiGraphExecuteTryExitTitle(cmd[2])",
+		     "scenarioSourceAiGraphExecuteChrEmitSparks(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteSetDrCarollImages(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteSayQuip(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteSayCiStaffQuip(g_Vars.chrdata",
+		     "scenarioSourceAiGraphExecuteShuffleRuinsPillars(cmd)",
+		     "scenarioSourceAiGraphExecuteShufflePelagicSwitches()",
+	     }) {
+		REQUIRE(chraicommands.find(call) != std::string::npos);
+	}
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetPunchDodgeList(ailistid)") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetShootingAtMeList(ailistid)") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetDarkRoomList(ailistid)") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetPlayerDeadList(ailistid)") !=
 	        std::string::npos);
 	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteJogToPad(g_Vars.chrdata, pad)") !=
 	        std::string::npos);
@@ -448,6 +2330,128 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteStartPatrol(g_Vars.chrdata)") !=
 	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteHovercarBeginPath(cmd[2])") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetVehicleSpeed(speedaim, speedtime)") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetRotorSpeed(speedaim, speedtime)") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteTryStartAlarm(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteActivateAlarm()") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteDeactivateAlarm()") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetPadPreset(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteChrSetPadPreset(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteChrCopyPadPreset(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetChrPreset(g_Vars.chrdata, cmd[2])") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetChrTarget(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetMorale(g_Vars.chrdata, cmd[2])") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteAddMorale(g_Vars.chrdata, cmd[2])") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteChrAddMorale(g_Vars.chrdata, cmd[2]") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSubtractMorale(g_Vars.chrdata, cmd[2])") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetAlertness(g_Vars.chrdata, cmd[2])") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteAddAlertness(g_Vars.chrdata, cmd[2])") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteChrAddAlertness(g_Vars.chrdata, cmd[2]") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSubtractAlertness(g_Vars.chrdata, cmd[2])") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIncreaseSquadronAlertness(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetHearDistance(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetViewDistance(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetGrenadeProbability(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetChrNum(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetMaxDamage(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteAddHealth(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetShield(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetReactionSpeed(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetRecoverySpeed(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetAccuracy(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetDodgeRating(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetUnarmedDodgeRating(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetFlag(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteUnsetFlag(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfHasFlag(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteChrSetFlag(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteChrUnsetFlag(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfChrHasFlag(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetStageFlag(flags)") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteUnsetStageFlag(flags)") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfStageFlagEq(flags") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetSavefileFlag(cmd[2])") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteUnsetSavefileFlag(cmd[2])") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfSavefileFlagIsSet(cmd[2], cmd[3])") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteIfSavefileFlagIsUnset(cmd[2], cmd[3])") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetAction(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetTeamOrders(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteRetreat(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteFindCover(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteFindCoverWithinDist(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteFindCoverOutsideDist(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteGoToCover(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteCheckCoverOutOfSight(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteOrbitTarget(") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetChrPresetToUnalertedTeammate(") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteSetSquadron(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteFaceCover(g_Vars.chrdata") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteDangerCover(g_Vars.chrdata)") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteRebuildTeams()") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteRebuildSquadrons()") !=
+	        std::string::npos);
+	REQUIRE(chraicommands.find("scenarioSourceAiGraphExecuteChrSetListening(g_Vars.chrdata") !=
+	        std::string::npos);
 	REQUIRE(scenario_extractor.find("scenario.trigger.volume.source") !=
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("scenario.global.settings.source") !=
@@ -455,6 +2459,84 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(scenario_extractor.find("scenario.pads.source") !=
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("scenario.ai.lists.source") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_list") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_return_list") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_shot_list") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.return_list") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.stop") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.kneel") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.surrender") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.fade_out") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.remove_chr") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.try_sidestep") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.try_attack_stand") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_attacking") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.try_modify_attack") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.face_entity") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.apply_gset_damage") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_damage_chr") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.consider_grenade_throw") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.drop_item") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.try_run_from_target") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.try_jog_to_target_prop") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.try_walk_to_target_prop") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.try_run_to_target_prop") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.try_go_to_cover_prop") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.try_jog_to_chr") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.try_walk_to_chr") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.try_run_to_chr") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_do_animation") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.be_surprised_one_hand") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.be_surprised_look_around") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.be_surprised_surrender") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.random") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_random_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_random_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.print") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.noop") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_punch_dodge_list") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_shooting_at_me_list") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_dark_room_list") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_player_dead_list") !=
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("scenario.ai.action.jog_to_pad") !=
 	        std::string::npos);
@@ -467,6 +2549,516 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(scenario_extractor.find("scenario.ai.action.set_path") !=
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("scenario.ai.action.start_patrol") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.try_start_alarm") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.activate_alarm") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.deactivate_alarm") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_morale") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.add_morale") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_add_morale") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.subtract_morale") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_alertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.add_alertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_add_alertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.subtract_alertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.increase_squadron_alertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_hear_distance") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_view_distance") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_grenade_probability") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_chr_num") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_max_damage") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.add_health") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_shield") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_reaction_speed") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_recovery_speed") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_accuracy") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_dodge_rating") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_unarmed_dodge_rating") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.unset_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_has_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_set_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_unset_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_chr_has_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_stage_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.unset_stage_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_stage_flag_eq") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_chrflag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.unset_chrflag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_has_chrflag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_set_chrflag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_unset_chrflag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_chr_has_chrflag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_set_hidden_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_unset_hidden_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_chr_has_hidden_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_obj_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.unset_obj_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_obj_has_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.open_door") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.close_door") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_door_state") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_object_is_door") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.lock_door") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.unlock_door") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_door_locked") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_lift_stationary") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.lift_go_to_stop") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_lift_at_stop") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.activate_lift") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_using_lift") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.configure_rain") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.configure_snow") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.switch_to_alt_sky") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_wind_speed") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_lights") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_room_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.show_cutscene_chrs") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.configure_environment") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_distance_to_target2_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_distance_to_target2_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.speak") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.play_sound") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.assign_sound") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.audio_mute_channel") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_channel_free") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_object_sound_volume") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_object_sound_volume_by_distance") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_object_sound_playing") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.play_repeating_sound_from_object") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.play_sound_from_entity") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.play_repeating_sound_from_pad") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_object_sound_volume_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.play_sound_from_prop") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.play_temporary_primary_track") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.play_x_track") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.stop_ambient_track") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_draw_weapon") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_draw_weapon_in_cutscene") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_player_force_speed") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_set_invincible") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_player_is_invincible") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_chr_has_no_gun") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_delete_weapon") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_trigger_shot_list") !=
+	        std::string::npos);
+	for (const char *node : {
+		     "scenario.ai.action.end_level",
+		     "scenario.ai.action.end_cutscene",
+		     "scenario.ai.action.warp_jo_to_pad",
+		     "scenario.ai.action.warp_jo_to_tag",
+		     "scenario.ai.action.revoke_control",
+		     "scenario.ai.action.grant_control",
+		     "scenario.ai.action.player_fade_in",
+		     "scenario.ai.action.players_fade_out",
+		     "scenario.ai.condition.if_colour_fade_complete",
+		     "scenario.ai.action.prepare_warp_orbit",
+		     "scenario.ai.action.begin_warp_latch",
+		     "scenario.ai.condition.if_warp_latch_complete",
+		     "scenario.ai.action.set_camera_animation",
+		     "scenario.ai.condition.if_in_cutscene",
+		     "scenario.ai.condition.if_cutscene_button_pressed",
+		     "scenario.ai.action.reorient_for_cutscene_stop",
+	     }) {
+		REQUIRE(scenario_extractor.find(node) != std::string::npos);
+	}
+	REQUIRE(scenario_extractor.find("scenario.ai.action.do_gun_command") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_distance_to_gun_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.recover_gun") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_copy_properties") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.player_auto_walk") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_player_auto_walk_finished") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_obj_in_room") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_player_looking_at_object") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_target_is_player") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_kill") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.remove_weapon_from_inventory") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.clear_inventory") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.release_object") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_grab_object") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.toggle_p1p2") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_set_p1p2") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_set_cloaked") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_autogun_target_team") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_objective_complete") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_objective_failed") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_all_objectives_complete") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_difficulty_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_difficulty_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_stage_timer_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_stage_timer_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_stage_id_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_stage_id_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_num_players_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_kill_count_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_num_knocked_out_chrs") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.kill_bond") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_num_arghs_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_chr_health_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_chr_shield_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_injured") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_morale_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_alertness") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_idle") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_chr_dead") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_can_see_target") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_pouncebits_eq") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_training_pc_holographed") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_player_using_device") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_begin_or_end_teleport") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_chr_teleport_full_white") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_set_cutscene_weapon") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.fade_screen") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_fade_complete") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_chr_hudpiece_visible") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_passive_mode") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_set_firing_in_cutscene") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_portal_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_music_event_queue_is_empty") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_coop_mode") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_chr_same_floor_distance_to_pad_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.remove_references_to_chr") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_toggle_model_part") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.obj_set_model_part_visible") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_obj_health_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_obj_health") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_chr_special_death_animation") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_room_to_search") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_savefile_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.unset_savefile_flag") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_savefile_flag_set") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_savefile_flag_unset") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.restart_timer") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_timer_greater_than_random") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_countdown_timer") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.if_countdown_timer_greater_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.show_hudmsg") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.show_hudmsg_middle") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.show_hudmsg_top_middle") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.hovercar_begin_path") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_vehicle_speed") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_rotor_speed") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_explosions") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_object_distance_to_pad_less_than") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.say_quip") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.say_ci_staff_quip") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.shuffle_ruins_pillars") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.shuffle_pelagic_switches") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_action") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_team_orders") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.retreat") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.find_cover") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.find_cover_within_dist") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.find_cover_outside_dist") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.go_to_cover") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.check_cover_out_of_sight") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.orbit_target") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_chr_preset_to_unalerted_teammate") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_squadron") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.face_cover") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.danger_cover") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.release_cover") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.rebuild_teams") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.rebuild_squadrons") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_set_listening") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_dangerous_object_nearby") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.shuffle_investigation_terminals") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.heli_arm_weapons") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.try_attack_amount") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_can_hear_alarm") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_patrolling") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_alarm_active") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_gas_active") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_hears_target") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_saw_injury") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_saw_death") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_los_to_target") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_los_to_attack_target") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_target_nearly_in_sight") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_nearly_in_targets_sight") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_pad_preset_to_pad_on_route_to_target") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_saw_target_recently") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.condition.if_heard_target_recently") !=
+	        std::string::npos);
+	for (const char *kind : {
+		     "scenario.ai.condition.if_los_to_chr",
+		     "scenario.ai.condition.if_never_been_on_screen",
+		     "scenario.ai.condition.if_on_screen",
+		     "scenario.ai.condition.if_chr_in_on_screen_room",
+		     "scenario.ai.condition.if_room_is_on_screen",
+		     "scenario.ai.condition.if_target_aiming_at_me",
+		     "scenario.ai.condition.if_near_miss",
+		     "scenario.ai.condition.if_sees_suspicious_item",
+		     "scenario.ai.condition.if_target_in_fov_left",
+		     "scenario.ai.condition.if_check_fov_with_target",
+		     "scenario.ai.condition.if_target_out_of_fov_left",
+		     "scenario.ai.condition.if_target_in_fov",
+		     "scenario.ai.condition.if_target_out_of_fov",
+		     "scenario.ai.condition.if_distance_to_target_less_than",
+		     "scenario.ai.condition.if_distance_to_target_greater_than",
+		     "scenario.ai.condition.if_chr_distance_to_pad_less_than",
+		     "scenario.ai.condition.if_chr_distance_to_pad_greater_than",
+		     "scenario.ai.condition.if_distance_to_chr_less_than",
+		     "scenario.ai.condition.if_distance_to_chr_greater_than",
+		     "scenario.ai.condition.if_any_chr_near_self",
+		     "scenario.ai.condition.if_distance_from_target_to_pad_less_than",
+		     "scenario.ai.condition.if_distance_from_target_to_pad_greater_than",
+		     "scenario.ai.condition.if_chr_in_room",
+		     "scenario.ai.condition.if_target_in_room",
+		     "scenario.ai.condition.if_chr_has_object",
+		     "scenario.ai.condition.if_weapon_thrown",
+		     "scenario.ai.condition.if_weapon_thrown_on_object",
+		     "scenario.ai.condition.if_chr_has_weapon_equipped",
+		     "scenario.ai.condition.if_gun_unclaimed",
+		     "scenario.ai.condition.if_object_healthy",
+		     "scenario.ai.condition.if_chr_activated_object",
+		     "scenario.ai.action.obj_interact",
+		     "scenario.ai.action.destroy_object",
+		     "scenario.ai.action.drop_object_from_chr",
+		     "scenario.ai.action.chr_drop_items",
+		     "scenario.ai.action.chr_drop_weapon",
+		     "scenario.ai.action.give_object_to_chr",
+		     "scenario.ai.action.object_move_to_pad",
+		     "scenario.ai.condition.if_chr_not_talking",
+		     "scenario.ai.condition.if_orders",
+		     "scenario.ai.condition.if_has_orders",
+		     "scenario.ai.condition.if_chr_in_squadron_doing_action",
+		     "scenario.ai.condition.if_chr_listening",
+		     "scenario.ai.condition.if_not_listening",
+		     "scenario.ai.condition.if_chr_injured_target",
+		     "scenario.ai.condition.if_action",
+		     "scenario.ai.condition.if_chr_ammo_quantity_less_than",
+		     "scenario.ai.condition.if_chr_target",
+		     "scenario.ai.condition.if_compare_chr_presets_team",
+		     "scenario.ai.condition.if_human",
+		     "scenario.ai.condition.if_skedar",
+		     "scenario.ai.condition.if_prop_preset_blocking_sight_to_target",
+		     "scenario.ai.action.remove_object_at_prop_preset",
+		     "scenario.ai.condition.if_prop_preset_height_less_than",
+		     "scenario.ai.action.set_target",
+		     "scenario.ai.condition.if_presets_target_is_not_my_target",
+		     "scenario.ai.action.set_chr_preset_to_chr_near_self",
+		     "scenario.ai.action.set_chr_preset_to_chr_near_pad",
+		     "scenario.ai.condition.if_waypoint_within_quadrant",
+		     "scenario.ai.action.set_pad_preset_to_target_quadrant",
+	     }) {
+		REQUIRE(scenario_extractor.find(kind) != std::string::npos);
+	}
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_pad_preset") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_set_pad_preset") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.chr_copy_pad_preset") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_chr_preset") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("scenario.ai.action.set_chr_target") !=
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("scenario.global.settings") !=
 	        std::string::npos);
@@ -644,7 +3236,11 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(lv_runtime.find("scenarioSourceMissionGraphRecordPhase(\"active\", \"lvTick.start\")") !=
 	        std::string::npos);
-	REQUIRE(meta_extractor.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v6\"") !=
+	REQUIRE(meta_extractor.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v8_pdscenario_v77\"") !=
+	        std::string::npos);
+	REQUIRE(meta_extractor.find("PDMETA_SCENARIO_DEP_CACHE_KIND") !=
+	        std::string::npos);
+	REQUIRE(meta_extractor.find("scenario_graph_cache = \" PDMETA_SCENARIO_DEP_CACHE_KIND") !=
 	        std::string::npos);
 	REQUIRE(meta_extractor.find("s_existingArchiveEntryContains") !=
 	        std::string::npos);
@@ -689,6 +3285,84 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(conformance.find("\"scenario.navigation.paths.source\": \"navigation path source\"") !=
 	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_list\": \"AI set_list action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_return_list\": \"AI set_return_list action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_shot_list\": \"AI set_shot_list action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.return_list\": \"AI return_list action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.stop\": \"AI stop action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.kneel\": \"AI kneel action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.surrender\": \"AI surrender action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.fade_out\": \"AI fade_out action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.remove_chr\": \"AI remove_chr action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.try_sidestep\": \"AI try_sidestep action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.try_attack_stand\": \"AI try_attack_stand action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_attacking\": \"AI if_attacking condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.try_modify_attack\": \"AI try_modify_attack action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.face_entity\": \"AI face_entity action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.apply_gset_damage\": \"AI apply_gset_damage action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_damage_chr\": \"AI chr_damage_chr action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.consider_grenade_throw\": \"AI consider_grenade_throw condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.drop_item\": \"AI drop_item action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.try_run_from_target\": \"AI try_run_from_target action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.try_jog_to_target_prop\": \"AI try_jog_to_target_prop action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.try_walk_to_target_prop\": \"AI try_walk_to_target_prop action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.try_run_to_target_prop\": \"AI try_run_to_target_prop action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.try_go_to_cover_prop\": \"AI try_go_to_cover_prop action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.try_jog_to_chr\": \"AI try_jog_to_chr action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.try_walk_to_chr\": \"AI try_walk_to_chr action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.try_run_to_chr\": \"AI try_run_to_chr action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_do_animation\": \"AI chr_do_animation action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.be_surprised_one_hand\": \"AI be_surprised_one_hand action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.be_surprised_look_around\": \"AI be_surprised_look_around action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.be_surprised_surrender\": \"AI be_surprised_surrender action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.random\": \"AI random action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_random_less_than\": \"AI if_random_less_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_random_greater_than\": \"AI if_random_greater_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.print\": \"AI print action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.noop\": \"AI no-op action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_punch_dodge_list\": \"AI set_punch_dodge_list action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_shooting_at_me_list\": \"AI set_shooting_at_me_list action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_dark_room_list\": \"AI set_dark_room_list action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_player_dead_list\": \"AI set_player_dead_list action\"") !=
+	        std::string::npos);
 	REQUIRE(conformance.find("\"scenario.ai.action.jog_to_pad\": \"AI jog_to_pad action\"") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("\"scenario.ai.action.go_to_pad_preset\": \"AI go_to_pad_preset action\"") !=
@@ -700,6 +3374,542 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(conformance.find("\"scenario.ai.action.set_path\": \"AI set_path action\"") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("\"scenario.ai.action.start_patrol\": \"AI start_patrol action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.try_start_alarm\": \"AI try_start_alarm action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.activate_alarm\": \"AI activate_alarm action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.deactivate_alarm\": \"AI deactivate_alarm action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_morale\": \"AI set_morale action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.add_morale\": \"AI add_morale action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_add_morale\": \"AI chr_add_morale action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.subtract_morale\": \"AI subtract_morale action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_alertness\": \"AI set_alertness action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.add_alertness\": \"AI add_alertness action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_add_alertness\": \"AI chr_add_alertness action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.subtract_alertness\": \"AI subtract_alertness action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.increase_squadron_alertness\": \"AI increase_squadron_alertness action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_hear_distance\": \"AI set_hear_distance action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_view_distance\": \"AI set_view_distance action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_grenade_probability\": \"AI set_grenade_probability action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_chr_num\": \"AI set_chr_num action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_max_damage\": \"AI set_max_damage action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.add_health\": \"AI add_health action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_shield\": \"AI set_shield action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_reaction_speed\": \"AI set_reaction_speed action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_recovery_speed\": \"AI set_recovery_speed action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_accuracy\": \"AI set_accuracy action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_dodge_rating\": \"AI set_dodge_rating action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_unarmed_dodge_rating\": \"AI set_unarmed_dodge_rating action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_flag\": \"AI set_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.unset_flag\": \"AI unset_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_has_flag\": \"AI if_has_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_set_flag\": \"AI chr_set_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_unset_flag\": \"AI chr_unset_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_chr_has_flag\": \"AI if_chr_has_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_stage_flag\": \"AI set_stage_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.unset_stage_flag\": \"AI unset_stage_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_stage_flag_eq\": \"AI if_stage_flag_eq action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_chrflag\": \"AI set_chrflag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.unset_chrflag\": \"AI unset_chrflag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_has_chrflag\": \"AI if_has_chrflag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_set_chrflag\": \"AI chr_set_chrflag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_unset_chrflag\": \"AI chr_unset_chrflag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_chr_has_chrflag\": \"AI if_chr_has_chrflag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_set_hidden_flag\": \"AI chr_set_hidden_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_unset_hidden_flag\": \"AI chr_unset_hidden_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_chr_has_hidden_flag\": \"AI if_chr_has_hidden_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_obj_flag\": \"AI set_obj_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.unset_obj_flag\": \"AI unset_obj_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_obj_has_flag\": \"AI if_obj_has_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.open_door\": \"AI open_door action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.close_door\": \"AI close_door action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_door_state\": \"AI if_door_state action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_object_is_door\": \"AI if_object_is_door action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.lock_door\": \"AI lock_door action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.unlock_door\": \"AI unlock_door action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_door_locked\": \"AI if_door_locked action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_lift_stationary\": \"AI if_lift_stationary action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.lift_go_to_stop\": \"AI lift_go_to_stop action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_lift_at_stop\": \"AI if_lift_at_stop action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.activate_lift\": \"AI activate_lift action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_using_lift\": \"AI if_using_lift action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.configure_rain\": \"AI configure_rain action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.configure_snow\": \"AI configure_snow action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.switch_to_alt_sky\": \"AI switch_to_alt_sky action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_wind_speed\": \"AI set_wind_speed action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_lights\": \"AI set_lights action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_room_flag\": \"AI set_room_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.show_cutscene_chrs\": \"AI show_cutscene_chrs action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.configure_environment\": \"AI configure_environment action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_distance_to_target2_less_than\": \"AI if_distance_to_target2_less_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_distance_to_target2_greater_than\": \"AI if_distance_to_target2_greater_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.speak\": \"AI speak action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.play_sound\": \"AI play_sound action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.assign_sound\": \"AI assign_sound action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.audio_mute_channel\": \"AI audio_mute_channel action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_channel_free\": \"AI if_channel_free condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_object_sound_volume\": \"AI set_object_sound_volume action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_object_sound_volume_by_distance\": \"AI set_object_sound_volume_by_distance action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_object_sound_playing\": \"AI set_object_sound_playing action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.play_repeating_sound_from_object\": \"AI play_repeating_sound_from_object action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.play_sound_from_entity\": \"AI play_sound_from_entity action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.play_repeating_sound_from_pad\": \"AI play_repeating_sound_from_pad action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_object_sound_volume_less_than\": \"AI if_object_sound_volume_less_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.play_sound_from_prop\": \"AI play_sound_from_prop action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.play_temporary_primary_track\": \"AI play_temporary_primary_track action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.play_x_track\": \"AI play_x_track action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.stop_ambient_track\": \"AI stop_ambient_track action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_draw_weapon\": \"AI chr_draw_weapon action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_draw_weapon_in_cutscene\": \"AI chr_draw_weapon_in_cutscene action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_player_force_speed\": \"AI set_player_force_speed action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_set_invincible\": \"AI chr_set_invincible action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_player_is_invincible\": \"AI if_player_is_invincible condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_chr_has_no_gun\": \"AI if_chr_has_no_gun condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_delete_weapon\": \"AI chr_delete_weapon action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_trigger_shot_list\": \"AI if_trigger_shot_list condition\"") !=
+	        std::string::npos);
+	for (const char *node : {
+		     "\"scenario.ai.action.end_level\": \"AI end_level action\"",
+		     "\"scenario.ai.action.end_cutscene\": \"AI end_cutscene action\"",
+		     "\"scenario.ai.action.warp_jo_to_pad\": \"AI warp_jo_to_pad action\"",
+		     "\"scenario.ai.action.warp_jo_to_tag\": \"AI warp_jo_to_tag action\"",
+		     "\"scenario.ai.action.revoke_control\": \"AI revoke_control action\"",
+		     "\"scenario.ai.action.grant_control\": \"AI grant_control action\"",
+		     "\"scenario.ai.action.player_fade_in\": \"AI player_fade_in action\"",
+		     "\"scenario.ai.action.players_fade_out\": \"AI players_fade_out action\"",
+		     "\"scenario.ai.condition.if_colour_fade_complete\": \"AI if_colour_fade_complete condition\"",
+		     "\"scenario.ai.action.prepare_warp_orbit\": \"AI prepare_warp_orbit action\"",
+		     "\"scenario.ai.action.begin_warp_latch\": \"AI begin_warp_latch action\"",
+		     "\"scenario.ai.condition.if_warp_latch_complete\": \"AI if_warp_latch_complete condition\"",
+		     "\"scenario.ai.action.set_camera_animation\": \"AI set_camera_animation action\"",
+		     "\"scenario.ai.condition.if_in_cutscene\": \"AI if_in_cutscene condition\"",
+		     "\"scenario.ai.condition.if_cutscene_button_pressed\": \"AI if_cutscene_button_pressed condition\"",
+		     "\"scenario.ai.action.reorient_for_cutscene_stop\": \"AI reorient_for_cutscene_stop action\"",
+		     "\"scenario.ai.action.duplicate_chr\": \"AI duplicate_chr action\"",
+		     "\"scenario.ai.action.enable_chr\": \"AI enable_chr action\"",
+		     "\"scenario.ai.action.disable_chr\": \"AI disable_chr action\"",
+		     "\"scenario.ai.action.enable_obj\": \"AI enable_obj action\"",
+		     "\"scenario.ai.action.disable_obj\": \"AI disable_obj action\"",
+		     "\"scenario.ai.action.chr_move_to_pad\": \"AI chr_move_to_pad action\"",
+		     "\"scenario.ai.action.chr_set_team\": \"AI chr_set_team action\"",
+		     "\"scenario.ai.action.damage_chr_by_amount\": \"AI damage_chr_by_amount action\"",
+		     "\"scenario.ai.action.do_preset_animation\": \"AI do_preset_animation action\"",
+		     "\"scenario.ai.condition.if_player_chr_portal_distance_less_than\": \"AI if_player_chr_portal_distance_less_than condition\"",
+		     "\"scenario.ai.condition.if_chr_reposition_valid\": \"AI if_chr_reposition_valid condition\"",
+	     }) {
+		REQUIRE(conformance.find(node) != std::string::npos);
+	}
+	REQUIRE(conformance.find("\"scenario.ai.action.do_gun_command\": \"AI do_gun_command action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_distance_to_gun_less_than\": \"AI if_distance_to_gun_less_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.recover_gun\": \"AI recover_gun action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_copy_properties\": \"AI chr_copy_properties action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.player_auto_walk\": \"AI player_auto_walk action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_player_auto_walk_finished\": \"AI if_player_auto_walk_finished condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_obj_in_room\": \"AI if_obj_in_room condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_player_looking_at_object\": \"AI if_player_looking_at_object condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_target_is_player\": \"AI if_target_is_player condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_kill\": \"AI chr_kill action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.remove_weapon_from_inventory\": \"AI remove_weapon_from_inventory action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.clear_inventory\": \"AI clear_inventory action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.release_object\": \"AI release_object action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_grab_object\": \"AI chr_grab_object action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.toggle_p1p2\": \"AI toggle_p1p2 action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_set_p1p2\": \"AI chr_set_p1p2 action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_set_cloaked\": \"AI chr_set_cloaked action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_autogun_target_team\": \"AI set_autogun_target_team action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_objective_complete\": \"AI if_objective_complete condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_objective_failed\": \"AI if_objective_failed condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_all_objectives_complete\": \"AI if_all_objectives_complete condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_difficulty_less_than\": \"AI if_difficulty_less_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_difficulty_greater_than\": \"AI if_difficulty_greater_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_stage_timer_less_than\": \"AI if_stage_timer_less_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_stage_timer_greater_than\": \"AI if_stage_timer_greater_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_stage_id_less_than\": \"AI if_stage_id_less_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_stage_id_greater_than\": \"AI if_stage_id_greater_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_num_players_less_than\": \"AI if_num_players_less_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_kill_count_greater_than\": \"AI if_kill_count_greater_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_num_knocked_out_chrs\": \"AI if_num_knocked_out_chrs condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.kill_bond\": \"AI kill_bond action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_num_arghs_less_than\": \"AI if_num_arghs_less_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_chr_health_greater_than\": \"AI if_chr_health_greater_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_chr_shield_less_than\": \"AI if_chr_shield_less_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_injured\": \"AI if_injured condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_morale_less_than\": \"AI if_morale_less_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_alertness\": \"AI if_alertness condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_idle\": \"AI if_idle condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_chr_dead\": \"AI if_chr_dead condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_can_see_target\": \"AI if_can_see_target condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_pouncebits_eq\": \"AI if_pouncebits_eq condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_training_pc_holographed\": \"AI if_training_pc_holographed condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_player_using_device\": \"AI if_player_using_device condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_begin_or_end_teleport\": \"AI chr_begin_or_end_teleport action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_chr_teleport_full_white\": \"AI if_chr_teleport_full_white condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_set_cutscene_weapon\": \"AI chr_set_cutscene_weapon action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.fade_screen\": \"AI fade_screen action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_fade_complete\": \"AI if_fade_complete condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_chr_hudpiece_visible\": \"AI set_chr_hudpiece_visible action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_passive_mode\": \"AI set_passive_mode action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_set_firing_in_cutscene\": \"AI chr_set_firing_in_cutscene action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_portal_flag\": \"AI set_portal_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_music_event_queue_is_empty\": \"AI if_music_event_queue_is_empty condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_coop_mode\": \"AI if_coop_mode condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_chr_same_floor_distance_to_pad_less_than\": \"AI if_chr_same_floor_distance_to_pad_less_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.remove_references_to_chr\": \"AI remove_references_to_chr action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_toggle_model_part\": \"AI chr_toggle_model_part action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.obj_set_model_part_visible\": \"AI obj_set_model_part_visible action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_obj_health_less_than\": \"AI if_obj_health_less_than action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_obj_health\": \"AI set_obj_health action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_chr_special_death_animation\": \"AI set_chr_special_death_animation action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_room_to_search\": \"AI set_room_to_search action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_savefile_flag\": \"AI set_savefile_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.unset_savefile_flag\": \"AI unset_savefile_flag action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_savefile_flag_set\": \"AI if_savefile_flag_set action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_savefile_flag_unset\": \"AI if_savefile_flag_unset action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.restart_timer\": \"AI restart_timer action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_timer_greater_than_random\": \"AI if_timer_greater_than_random action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_countdown_timer\": \"AI set_countdown_timer action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.if_countdown_timer_greater_than\": \"AI if_countdown_timer_greater_than action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.show_hudmsg\": \"AI show_hudmsg action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.show_hudmsg_middle\": \"AI show_hudmsg_middle action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.show_hudmsg_top_middle\": \"AI show_hudmsg_top_middle action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.hovercar_begin_path\": \"AI hovercar_begin_path action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_vehicle_speed\": \"AI set_vehicle_speed action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_rotor_speed\": \"AI set_rotor_speed action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_explosions\": \"AI chr_explosions action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_object_distance_to_pad_less_than\": \"AI if_object_distance_to_pad_less_than condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_action\": \"AI set_action action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_team_orders\": \"AI set_team_orders action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.retreat\": \"AI retreat action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.find_cover\": \"AI find_cover action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.find_cover_within_dist\": \"AI find_cover_within_dist action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.find_cover_outside_dist\": \"AI find_cover_outside_dist action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.go_to_cover\": \"AI go_to_cover action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.check_cover_out_of_sight\": \"AI check_cover_out_of_sight action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.orbit_target\": \"AI orbit_target action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_chr_preset_to_unalerted_teammate\": \"AI set_chr_preset_to_unalerted_teammate action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_squadron\": \"AI set_squadron action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.face_cover\": \"AI face_cover action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.danger_cover\": \"AI danger_cover action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.release_cover\": \"AI release_cover action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.rebuild_teams\": \"AI rebuild_teams action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.rebuild_squadrons\": \"AI rebuild_squadrons action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_set_listening\": \"AI chr_set_listening action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.try_attack_amount\": \"AI try_attack_amount action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_pad_preset\": \"AI set_pad_preset action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_set_pad_preset\": \"AI chr_set_pad_preset action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.chr_copy_pad_preset\": \"AI chr_copy_pad_preset action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_can_hear_alarm\": \"AI if_can_hear_alarm condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_patrolling\": \"AI if_patrolling condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_alarm_active\": \"AI if_alarm_active condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_gas_active\": \"AI if_gas_active condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_hears_target\": \"AI if_hears_target condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_saw_injury\": \"AI if_saw_injury condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_saw_death\": \"AI if_saw_death condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_los_to_target\": \"AI if_los_to_target condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_los_to_attack_target\": \"AI if_los_to_attack_target condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_target_nearly_in_sight\": \"AI if_target_nearly_in_sight condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_nearly_in_targets_sight\": \"AI if_nearly_in_targets_sight condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_pad_preset_to_pad_on_route_to_target\": \"AI set_pad_preset_to_pad_on_route_to_target action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_saw_target_recently\": \"AI if_saw_target_recently condition\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.condition.if_heard_target_recently\": \"AI if_heard_target_recently condition\"") !=
+	        std::string::npos);
+	for (const char *entry : {
+		     "\"scenario.ai.condition.if_los_to_chr\": \"AI if_los_to_chr condition\"",
+		     "\"scenario.ai.condition.if_never_been_on_screen\": \"AI if_never_been_on_screen condition\"",
+		     "\"scenario.ai.condition.if_on_screen\": \"AI if_on_screen condition\"",
+		     "\"scenario.ai.condition.if_chr_in_on_screen_room\": \"AI if_chr_in_on_screen_room condition\"",
+		     "\"scenario.ai.condition.if_room_is_on_screen\": \"AI if_room_is_on_screen condition\"",
+		     "\"scenario.ai.condition.if_target_aiming_at_me\": \"AI if_target_aiming_at_me condition\"",
+		     "\"scenario.ai.condition.if_near_miss\": \"AI if_near_miss condition\"",
+		     "\"scenario.ai.condition.if_sees_suspicious_item\": \"AI if_sees_suspicious_item condition\"",
+		     "\"scenario.ai.condition.if_target_in_fov_left\": \"AI if_target_in_fov_left condition\"",
+		     "\"scenario.ai.condition.if_check_fov_with_target\": \"AI if_check_fov_with_target condition\"",
+		     "\"scenario.ai.condition.if_target_out_of_fov_left\": \"AI if_target_out_of_fov_left condition\"",
+		     "\"scenario.ai.condition.if_target_in_fov\": \"AI if_target_in_fov condition\"",
+		     "\"scenario.ai.condition.if_target_out_of_fov\": \"AI if_target_out_of_fov condition\"",
+		     "\"scenario.ai.condition.if_distance_to_target_less_than\": \"AI if_distance_to_target_less_than condition\"",
+		     "\"scenario.ai.condition.if_distance_to_target_greater_than\": \"AI if_distance_to_target_greater_than condition\"",
+		     "\"scenario.ai.condition.if_chr_distance_to_pad_less_than\": \"AI if_chr_distance_to_pad_less_than condition\"",
+		     "\"scenario.ai.condition.if_chr_distance_to_pad_greater_than\": \"AI if_chr_distance_to_pad_greater_than condition\"",
+		     "\"scenario.ai.condition.if_distance_to_chr_less_than\": \"AI if_distance_to_chr_less_than condition\"",
+		     "\"scenario.ai.condition.if_distance_to_chr_greater_than\": \"AI if_distance_to_chr_greater_than condition\"",
+		     "\"scenario.ai.condition.if_any_chr_near_self\": \"AI if_any_chr_near_self condition\"",
+		     "\"scenario.ai.condition.if_distance_from_target_to_pad_less_than\": \"AI if_distance_from_target_to_pad_less_than condition\"",
+		     "\"scenario.ai.condition.if_distance_from_target_to_pad_greater_than\": \"AI if_distance_from_target_to_pad_greater_than condition\"",
+		     "\"scenario.ai.condition.if_chr_in_room\": \"AI if_chr_in_room condition\"",
+		     "\"scenario.ai.condition.if_target_in_room\": \"AI if_target_in_room condition\"",
+		     "\"scenario.ai.condition.if_chr_has_object\": \"AI if_chr_has_object condition\"",
+		     "\"scenario.ai.condition.if_weapon_thrown\": \"AI if_weapon_thrown condition\"",
+		     "\"scenario.ai.condition.if_weapon_thrown_on_object\": \"AI if_weapon_thrown_on_object condition\"",
+		     "\"scenario.ai.condition.if_chr_has_weapon_equipped\": \"AI if_chr_has_weapon_equipped condition\"",
+		     "\"scenario.ai.condition.if_gun_unclaimed\": \"AI if_gun_unclaimed condition\"",
+		     "\"scenario.ai.condition.if_object_healthy\": \"AI if_object_healthy condition\"",
+		     "\"scenario.ai.condition.if_chr_activated_object\": \"AI if_chr_activated_object condition\"",
+		     "\"scenario.ai.action.obj_interact\": \"AI obj_interact action\"",
+		     "\"scenario.ai.action.destroy_object\": \"AI destroy_object action\"",
+		     "\"scenario.ai.action.drop_object_from_chr\": \"AI drop_object_from_chr action\"",
+		     "\"scenario.ai.action.chr_drop_items\": \"AI chr_drop_items action\"",
+		     "\"scenario.ai.action.chr_drop_weapon\": \"AI chr_drop_weapon action\"",
+		     "\"scenario.ai.action.give_object_to_chr\": \"AI give_object_to_chr action\"",
+		     "\"scenario.ai.action.object_move_to_pad\": \"AI object_move_to_pad action\"",
+		     "\"scenario.ai.condition.if_chr_not_talking\": \"AI if_chr_not_talking condition\"",
+		     "\"scenario.ai.condition.if_orders\": \"AI if_orders condition\"",
+		     "\"scenario.ai.condition.if_has_orders\": \"AI if_has_orders condition\"",
+		     "\"scenario.ai.condition.if_chr_in_squadron_doing_action\": \"AI if_chr_in_squadron_doing_action condition\"",
+		     "\"scenario.ai.condition.if_chr_listening\": \"AI if_chr_listening condition\"",
+		     "\"scenario.ai.condition.if_not_listening\": \"AI if_not_listening condition\"",
+		     "\"scenario.ai.condition.if_chr_injured_target\": \"AI if_chr_injured_target condition\"",
+		     "\"scenario.ai.condition.if_action\": \"AI if_action condition\"",
+		     "\"scenario.ai.condition.if_chr_ammo_quantity_less_than\": \"AI if_chr_ammo_quantity_less_than condition\"",
+		     "\"scenario.ai.condition.if_chr_target\": \"AI if_chr_target condition\"",
+		     "\"scenario.ai.condition.if_compare_chr_presets_team\": \"AI if_compare_chr_presets_team condition\"",
+		     "\"scenario.ai.condition.if_human\": \"AI if_human condition\"",
+		     "\"scenario.ai.condition.if_skedar\": \"AI if_skedar condition\"",
+		     "\"scenario.ai.condition.if_prop_preset_blocking_sight_to_target\": \"AI if_prop_preset_blocking_sight_to_target condition\"",
+		     "\"scenario.ai.action.remove_object_at_prop_preset\": \"AI remove_object_at_prop_preset action\"",
+		     "\"scenario.ai.condition.if_prop_preset_height_less_than\": \"AI if_prop_preset_height_less_than condition\"",
+		     "\"scenario.ai.action.set_target\": \"AI set_target action\"",
+		     "\"scenario.ai.condition.if_presets_target_is_not_my_target\": \"AI if_presets_target_is_not_my_target condition\"",
+		     "\"scenario.ai.action.set_chr_preset_to_chr_near_self\": \"AI set_chr_preset_to_chr_near_self action\"",
+		     "\"scenario.ai.action.set_chr_preset_to_chr_near_pad\": \"AI set_chr_preset_to_chr_near_pad action\"",
+		     "\"scenario.ai.condition.if_dangerous_object_nearby\": \"AI if_dangerous_object_nearby condition\"",
+		     "\"scenario.ai.condition.if_heli_weapons_armed\": \"AI if_heli_weapons_armed condition\"",
+		     "\"scenario.ai.condition.if_hoverbot_next_step\": \"AI if_hoverbot_next_step condition\"",
+		     "\"scenario.ai.action.shuffle_investigation_terminals\": \"AI shuffle_investigation_terminals action\"",
+		     "\"scenario.ai.action.set_pad_preset_to_investigation_terminal\": \"AI set_pad_preset_to_investigation_terminal action\"",
+		     "\"scenario.ai.action.heli_arm_weapons\": \"AI heli_arm_weapons action\"",
+		     "\"scenario.ai.action.heli_unarm_weapons\": \"AI heli_unarm_weapons action\"",
+		     "\"scenario.ai.condition.if_squadron_is_dead\": \"AI if_squadron_is_dead condition\"",
+		     "\"scenario.ai.condition.if_true\": \"AI if_true condition\"",
+		     "\"scenario.ai.condition.if_num_chrs_in_squadron_greater_than\": \"AI if_num_chrs_in_squadron_greater_than condition\"",
+		     "\"scenario.ai.condition.if_natural_anim\": \"AI if_natural_anim condition\"",
+		     "\"scenario.ai.condition.if_y\": \"AI if_y condition\"",
+		     "\"scenario.ai.condition.if_sound_timer\": \"AI if_sound_timer condition\"",
+		     "\"scenario.ai.condition.if_target_y_difference_less_than\": \"AI if_target_y_difference_less_than condition\"",
+		     "\"scenario.ai.action.set_tinted_glass_enabled\": \"AI set_tinted_glass_enabled action\"",
+		     "\"scenario.ai.action.hovercopter_fire_rocket\": \"AI hovercopter_fire_rocket action\"",
+		     "\"scenario.ai.action.chr_adjust_motion_blur\": \"AI chr_adjust_motion_blur action\"",
+		     "\"scenario.ai.action.punch_or_kick\": \"AI punch_or_kick action\"",
+		     "\"scenario.ai.action.set_target_to_eyespy_if_in_sight\": \"AI set_target_to_eyespy_if_in_sight action\"",
+		     "\"scenario.ai.action.mini_skedar_try_pounce\": \"AI mini_skedar_try_pounce action\"",
+		     "\"scenario.ai.action.avoid\": \"AI avoid action\"",
+		     "\"scenario.ai.action.title_init_mode\": \"AI title_init_mode action\"",
+		     "\"scenario.ai.action.try_exit_title\": \"AI try_exit_title action\"",
+		     "\"scenario.ai.action.chr_emit_sparks\": \"AI chr_emit_sparks action\"",
+		     "\"scenario.ai.action.set_dr_caroll_images\": \"AI set_dr_caroll_images action\"",
+		     "\"scenario.ai.action.say_quip\": \"AI say_quip action\"",
+		     "\"scenario.ai.action.say_ci_staff_quip\": \"AI say_ci_staff_quip action\"",
+		     "\"scenario.ai.action.shuffle_ruins_pillars\": \"AI shuffle_ruins_pillars action\"",
+		     "\"scenario.ai.action.shuffle_pelagic_switches\": \"AI shuffle_pelagic_switches action\"",
+		     "\"scenario.ai.condition.if_waypoint_within_quadrant\": \"AI if_waypoint_within_quadrant condition\"",
+		     "\"scenario.ai.action.set_pad_preset_to_target_quadrant\": \"AI set_pad_preset_to_target_quadrant action\"",
+	     }) {
+		REQUIRE(conformance.find(entry) != std::string::npos);
+	}
+	REQUIRE(conformance.find("\"scenario.ai.action.set_chr_preset\": \"AI set_chr_preset action\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("\"scenario.ai.action.set_chr_target\": \"AI set_chr_target action\"") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("level.graph.json must link {pair[0]} to {pair[1]}") !=
 	        std::string::npos);
@@ -729,6 +3939,12 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("objects.tsv") != std::string::npos);
 	REQUIRE(scenario_runtime.find("SCENARIO.SOURCE: compiled setup.fields.tsv") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\"autogun.y_zero\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\"autogun.y_max_left\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("\"autogun.max_speed\"") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("spawns.tsv") !=
 	        std::string::npos);
@@ -798,7 +4014,11 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(mesh_walker.find("catalogSetPrimaryFile(e, source_path)") !=
 	        std::string::npos);
-	REQUIRE(mesh_extractor.find("pdmesh_model_obj_mtx_v10_skeleton_allmodels") !=
+	REQUIRE(mesh_extractor.find("pdmesh_model_obj_mtx_v11_skeleton_allmodels_menuhud") !=
+	        std::string::npos);
+	REQUIRE(mesh_extractor.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") !=
+	        std::string::npos);
+	REQUIRE(mesh_extractor.find("(u16)FILE_GHUDPIECE, \"menu\"") !=
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("s_setupFieldHeadRef") !=
 	        std::string::npos);
@@ -816,6 +4036,28 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("SCENARIO.SOURCE: compiled scene tiles") !=
 	        std::string::npos);
+	REQUIRE(scenario_extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"collision.obj\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("collision_source = collision.obj") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("\\\"collision_source\\\": \\\"collision.obj\\\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("\\\"collision\\\": \\\"collision.obj\\\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("s_existingArchiveHasEntry(relpath, \"collision.obj\")") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("s_collectStandaloneStageScenario") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("assetCatalogIterateByType(ASSET_MAP, s_collectStandaloneStageScenario") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("base:scenario_%s") != std::string::npos);
+	REQUIRE(scenario_extractor.find("strcmp(slug, \"citraining\")") ==
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find(":citraining") != std::string::npos);
+	REQUIRE(scenario_extractor.find("return \"firingrange\"") !=
+	        std::string::npos);
+	REQUIRE(scenario_extractor.find("fast-cache blocked by missing/stale standalone stage archive") !=
+	        std::string::npos);
 	REQUIRE(scenario_runtime_h.find("scenarioSourceFindEntryForStage") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("scenarioSourceFindEntryForStage") !=
@@ -825,11 +4067,20 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("assetCatalogResolve(scenario_id)") !=
 	        std::string::npos);
+	REQUIRE(scenario_walker.find("strcmp(kind, \"firingrange\")") !=
+	        std::string::npos);
 	REQUIRE(scenario_extractor.find("_PD_ROOM") != std::string::npos);
 	REQUIRE(scenario_extractor.find("roomnum") != std::string::npos);
 	REQUIRE(modasset_compiler.find("gltfApplyRoomTags") != std::string::npos);
 	REQUIRE(modasset_compiler.find("_PD_ROOM") != std::string::npos);
+	REQUIRE(modasset_compiler.find("parseObjRoomName") != std::string::npos);
+	REQUIRE(modasset_compiler.find("current_room = parseObjRoomName(p)") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("objMeshAddTriangle(mesh, indices[0], indices[i - 1], indices[i],") !=
+	        std::string::npos);
 	REQUIRE(modasset_compiler.find("tri->roomnum") != std::string::npos);
+	REQUIRE(modasset_compiler.find("out_mesh->tris[out_mesh->numtris - 1].roomnum") !=
+	        std::string::npos);
 
 	REQUIRE(tiles.find("asset_source_debug.h") != std::string::npos);
 	REQUIRE(tiles.find("scenarioSourceLoadTilesForStage(&stage") !=
@@ -897,10 +4148,13 @@ TEST_CASE("base weapon archives use the catalog IDs requested at runtime",
 	        std::string::npos);
 	REQUIRE(authored.find("\"base:falcon2scope\"") == std::string::npos);
 
-	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v12_clean_public\"") !=
-	        std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v12\"") !=
-	        std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v13_clean_public\"") !=
+		std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v13\"") !=
+		std::string::npos);
+	REQUIRE(extractor.find("if (val <= 0)") != std::string::npos);
+	REQUIRE(extractor.find("jw_field_sfx_or_int(w, \"shootsound\"") !=
+		std::string::npos);
 	REQUIRE(extractor.find("base_falcon2silencer.pdweapon") !=
 	        std::string::npos);
 	REQUIRE(extractor.find("category = base") != std::string::npos);
@@ -982,6 +4236,90 @@ TEST_CASE("base weapon archives use the catalog IDs requested at runtime",
 	REQUIRE(preview.find("base:falcon2") != std::string::npos);
 }
 
+TEST_CASE("shared smoke install refreshes explicit source binaries",
+          "[modding][pdxxx][c3844][smoke][static]") {
+	const std::string harness =
+		readTextFile("tools/smoke-verify/lib/Install-Harness.ps1");
+	const std::string runner = readTextFile("tools/smoke-verify/run.ps1");
+	REQUIRE(harness.find("Explicit -SourceBinary means \"run this exact build\"") !=
+	        std::string::npos);
+	REQUIRE(harness.find("if ($ExplicitPath) {") != std::string::npos);
+	REQUIRE(harness.find("return $null") != std::string::npos);
+	REQUIRE(harness.find("if (-not $SourceBinary -and (Test-Path -LiteralPath $destBin))") !=
+	        std::string::npos);
+	REQUIRE(harness.find("Copy-Item -LiteralPath $bin -Destination $destBin -Force") !=
+	        std::string::npos);
+	REQUIRE(harness.find("$srcInfo.LastWriteTimeUtc -le $dstInfo.LastWriteTimeUtc") !=
+	        std::string::npos);
+	REQUIRE(runner.find("$all = @(Get-SmokeTests -Dir $TestsDir)") !=
+	        std::string::npos);
+}
+
+TEST_CASE("Scenario source matrix runner keeps stage smokes source-only and sequential",
+          "[modding][pdxxx][c3844][scenario][smoke][static]") {
+	const std::string matrix =
+		readTextFile("tools/smoke-verify/run-scenario-source-matrix.ps1");
+
+	REQUIRE(matrix.find("AssetSourceOnlyType=30") != std::string::npos);
+	REQUIRE(matrix.find("intentionally sequential") != std::string::npos);
+	REQUIRE(matrix.find("Build\\data\\ntsc-final\\scenarios") != std::string::npos);
+	REQUIRE(matrix.find("_meta/manifest.json") != std::string::npos);
+	REQUIRE(matrix.find("stagenum") != std::string::npos);
+	REQUIRE(matrix.find("$stageHexRegex = (\"0x0*{0:x}\"") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("--boot-stage") != std::string::npos);
+	REQUIRE(matrix.find("tools/smoke-verify/run.ps1") != std::string::npos);
+	REQUIRE(matrix.find("-TestsDir") != std::string::npos);
+	REQUIRE(matrix.find("base:scenario_chicago") != std::string::npos);
+	REQUIRE(matrix.find("base:scenario_citraining") != std::string::npos);
+	REQUIRE(matrix.find("base:scenario_airbase") != std::string::npos);
+	REQUIRE(matrix.find("base:scenario_test_ash") != std::string::npos);
+	REQUIRE(matrix.find("base:scenario_extra25") != std::string::npos);
+	REQUIRE(matrix.find("base:scenario_extra26") != std::string::npos);
+	REQUIRE(readTextFile("port/src/main.c").find("g_StageNum > STAGE_EXTRA26") !=
+	        std::string::npos);
+	REQUIRE(readTextFile("port/src/main.c").find("g_StageNum > 0x5d") ==
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.SOURCE: added scene colmesh") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.SOURCE: compiled portals\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.SOURCE: built native portal tables") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: activated level graph") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.GRAPH: table refs") != std::string::npos);
+	REQUIRE(matrix.find("SCENARIO\\.SOURCE: compiled pads\\.tsv") !=
+	        std::string::npos);
+	REQUIRE(matrix.find("ASSET\\.SOURCE_ONLY") != std::string::npos);
+	REQUIRE(matrix.find("RomProvider:filenum") != std::string::npos);
+	REQUIRE(matrix.find("refusing fallback") != std::string::npos);
+	REQUIRE(matrix.find("GROUNDSNAP: ignoring invalid chr->ground") !=
+	        std::string::npos);
+}
+
+TEST_CASE("Scenario source accepts explicit empty public pads and portals",
+          "[modding][pdxxx][c3844][scenario][source_gate][static]") {
+	const std::string runtime =
+		readTextFile("port/src/scenario_source_runtime.c");
+	const std::string bg = readTextFile("src/game/bg.c");
+
+	REQUIRE(runtime.find("s_parsePadsTsv(text, &row_count)") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("s_parsePortalsTsv(text, &row_count)") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("!rows || row_count <= 0") == std::string::npos);
+	REQUIRE(runtime.find("SCENARIO.SOURCE: compiled pads.tsv") !=
+	        std::string::npos);
+	REQUIRE(runtime.find("SCENARIO.SOURCE: compiled portals.tsv") !=
+	        std::string::npos);
+	REQUIRE(bg.find("portals ? portals :") != std::string::npos);
+	REQUIRE(bg.find("portalcount > 0 ? portalcount : 0") !=
+	        std::string::npos);
+	REQUIRE(bg.find("SCENARIO.SOURCE: built native portal tables") !=
+	        std::string::npos);
+}
+
 TEST_CASE("Settings Debug can force one asset family to public file source",
           "[modding][pdxxx][c3842][debug][source_gate][static]") {
 	const std::string header = readTextFile("port/include/asset_source_debug.h");
@@ -1024,9 +4362,62 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	        std::string::npos);
 	REQUIRE(mainmenu.find("assetSourceDebugSetOnlyType(checked ? family.type : ASSET_NONE)") !=
 	        std::string::npos);
-	REQUIRE(mainmenu.find("ASSET_WEAPON") != std::string::npos);
-	REQUIRE(mainmenu.find("ASSET_SCENARIO") != std::string::npos);
-	REQUIRE(mainmenu.find("ASSET_AUDIO") != std::string::npos);
+
+	const std::string family_marker =
+		"static const DebugAssetSourceFamily s_DebugAssetSourceFamilies[]";
+	const std::string family_end_marker = "static void renderSettingsDebug";
+	const size_t family_start = mainmenu.find(family_marker);
+	REQUIRE(family_start != std::string::npos);
+	const size_t family_end = mainmenu.find(family_end_marker, family_start);
+	REQUIRE(family_end != std::string::npos);
+	const std::string families =
+		mainmenu.substr(family_start, family_end - family_start);
+
+	size_t listed_families = 0;
+	size_t listed_pos = 0;
+	while ((listed_pos = families.find("{ ASSET_", listed_pos)) != std::string::npos) {
+		listed_families++;
+		listed_pos += 8;
+	}
+	REQUIRE(listed_families == 25);
+
+	auto requireFamily = [&](const char *type, const char *label) {
+		REQUIRE(families.find(type) != std::string::npos);
+		REQUIRE(families.find(label) != std::string::npos);
+	};
+
+	requireFamily("ASSET_WEAPON", "Weapon (.pdweapon)");
+	requireFamily("ASSET_PROJECTILE", "Projectile (.pdprojectile)");
+	requireFamily("ASSET_ENTITY", "Entity (.pdentity)");
+	requireFamily("ASSET_CHARACTER", "Character (.pdcharacter)");
+	requireFamily("ASSET_HEAD", "Head (.pdhead)");
+	requireFamily("ASSET_BODY", "Body (.pdbody)");
+	requireFamily("ASSET_ARENA", "Arena (.pdarena)");
+	requireFamily("ASSET_SCENARIO", "Scenario (.pdscenario)");
+	requireFamily("ASSET_MISSION", "Mission (.pdmission)");
+	requireFamily("ASSET_MODEL", "Mesh (.pdmesh)");
+	requireFamily("ASSET_ANIMATION", "Animation (.pdanim)");
+	requireFamily("ASSET_TEXTURE", "Texture (.pdtexture)");
+	requireFamily("ASSET_MATERIAL", "Material (.pdmaterial)");
+	requireFamily("ASSET_SKIN", "Skin (.pdskin)");
+	requireFamily("ASSET_EFFECT", "Effect (.pdeffect)");
+	requireFamily("ASSET_PROP", "Prop (.pdprop)");
+	requireFamily("ASSET_VEHICLE", "Vehicle (.pdvehicle)");
+	requireFamily("ASSET_AUDIO", "Audio (.pdsfx/.pdvoice/.pdsong)");
+	requireFamily("ASSET_UI", "UI (.pdui)");
+	requireFamily("ASSET_FONT", "Font (.pdfont)");
+	requireFamily("ASSET_LANG", "Language (.pdlang)");
+	requireFamily("ASSET_GAMEMODE", "Gamemode (.pdgamemode)");
+	requireFamily("ASSET_BOT_PROFILE", "Bot Profile (.pdbotprofile)");
+	requireFamily("ASSET_HUD", "HUD (.pdhud)");
+	requireFamily("ASSET_THEME", "Theme (.pdtheme)");
+
+	REQUIRE(families.find("ASSET_TOOL") == std::string::npos);
+	REQUIRE(families.find("ASSET_MAP") == std::string::npos);
+	REQUIRE(families.find("ASSET_TEXTURES") == std::string::npos);
+	REQUIRE(families.find("ASSET_SFX") == std::string::npos);
+	REQUIRE(families.find("ASSET_MUSIC") == std::string::npos);
+	REQUIRE(families.find("ASSET_BOT_VARIANT") == std::string::npos);
 }
 
 TEST_CASE("universal extracted archive walkers bind public source members",
@@ -1035,6 +4426,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	const std::string common = readTextFile("port/src/loader_walker_common.c");
 	const std::string fs = readTextFile("port/src/fs.c");
 	const std::string load = readTextFile("port/src/assetcatalog_load.c");
+	const std::string meta_walker = readTextFile("port/src/loader_walker_meta.c");
 	const std::string provider = readTextFile("port/src/assetprovider_file.c");
 	const std::string player = readTextFile("src/game/player.c");
 	const std::string body_runtime = readTextFile("src/game/body.c");
@@ -1062,6 +4454,16 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(load.find("s_catalogLoadEntryModelPayload(entry, handle)") !=
 	        std::string::npos);
+	const std::string modelPayloadBlock =
+		functionBlock(load, "static s32 s_catalogTypeUsesModelPayload");
+	const std::string metadataPayloadBlock =
+		functionBlock(load, "static s32 s_catalogTypeUsesMetadataRuntimePayload");
+	REQUIRE(modelPayloadBlock.find("case ASSET_PROP:") == std::string::npos);
+	REQUIRE(load.find("|| type == ASSET_PROP") != std::string::npos);
+	REQUIRE(load.find("s_catalogLoadEntryAudioPayload(entry, handle)") <
+	        load.find("CATALOG: retain bundled"));
+	REQUIRE(load.find("s_catalogLoadEntryTexturePayload(entry, handle)") <
+	        load.find("CATALOG: retain bundled"));
 	REQUIRE(load.find("&& e->source.primary.provider == fileProvider()") !=
 	        std::string::npos);
 	const std::string compiler = readTextFile("port/src/modasset_compiler.c");
@@ -1093,6 +4495,32 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 		        std::string::npos);
 	}
 
+	const char *metadataExts[] = {
+		".pdcharacter", ".pdskin", ".pdprop", ".pdvehicle", ".pdmission",
+		".pdgamemode", ".pdbotprofile", ".pdhud", ".pdeffect", ".pdmaterial",
+		".pdtheme",
+	};
+	for (const char *ext : metadataExts) {
+		INFO(ext);
+		REQUIRE(meta_walker.find(ext) != std::string::npos);
+	}
+	REQUIRE(meta_walker.find("desc.always_invoke = 1") != std::string::npos);
+	REQUIRE(meta_walker.find("assetCatalogGetMutable(id)") != std::string::npos);
+	REQUIRE(meta_walker.find("entry->type != type") != std::string::npos);
+	REQUIRE(meta_walker.find("loaderWalkerArchiveMemberPath") != std::string::npos);
+	REQUIRE(meta_walker.find("catalogSetPrimaryFile(entry, source_path)") !=
+	        std::string::npos);
+	REQUIRE(meta_walker.find("loaderWalkerMarkBaseArchiveEntry(entry)") !=
+	        std::string::npos);
+	REQUIRE(meta_walker.find("\"body_archive\"") != std::string::npos);
+	REQUIRE(meta_walker.find("\"head_archive\"") != std::string::npos);
+	REQUIRE(meta_walker.find("\"skin_file\"") != std::string::npos);
+	REQUIRE(meta_walker.find("\"prop_file\"") != std::string::npos);
+	REQUIRE(meta_walker.find("\"physics_file\"") != std::string::npos);
+	REQUIRE(meta_walker.find("\"behavior_graph\"") != std::string::npos);
+	REQUIRE(meta_walker.find("\"mission_graph_file\"") != std::string::npos);
+	REQUIRE(meta_walker.find("\"theme_file\"") != std::string::npos);
+
 	const std::string scenario = readTextFile("port/src/loader_walker_scenario.c");
 	REQUIRE(scenario.find("\"runtime_source\"") != std::string::npos);
 	REQUIRE(scenario.find("\"scene\"") != std::string::npos);
@@ -1115,6 +4543,8 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(pdmesh_extract.find("g_CartFileNums") != std::string::npos);
 	REQUIRE(pdmesh_extract.find("base:model_cartridge_rifle") !=
+	        std::string::npos);
+	REQUIRE(pdmesh_extract.find("FILE_GHUDPIECE") !=
 	        std::string::npos);
 
 	const std::string body = readTextFile("port/src/loader_walker_body.c");
@@ -1238,6 +4668,16 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("entry->type == ASSET_BODY") !=
 	        std::string::npos);
+	REQUIRE(modasset_compiler.find("generatedModeldefConfigureSourceBounds") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->root_node.type == MODELNODETYPE_CHRINFO") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->bbox_node.type = MODELNODETYPE_BBOX") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("generatedModeldefMeshBounds(mesh, &owner->bbox_rodata.bbox)") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->root_node.child = &owner->bbox_node") !=
+	        std::string::npos);
 	REQUIRE(modasset_compiler.find("generatedModeldefConfigureCctvParts") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("owner->def.skel != &g_SkelCctv") !=
@@ -1250,7 +4690,41 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("MODELPART_CCTV_0003") !=
 	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->def.parts = owner->cctv_part_table.nodes") !=
+	        std::string::npos);
 	REQUIRE(modasset_compiler.find("owner->def.nummatrices = 2") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("generatedModeldefConfigureWindowedDoorParts") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->def.skel != &g_SkelWindowedDoor") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("MODELPART_WINDOWEDDOOR_0000") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("MODELPART_WINDOWEDDOOR_0001") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("MODELPART_WINDOWEDDOOR_0002") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->toggle_rodata.toggle.target = NULL") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->def.parts = owner->windowed_door_part_table.nodes") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->def.numparts = 3") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("generatedModeldefConfigureLogoParts") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->def.skel != &g_SkelLogo") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->def.skel != &g_SkelPdLogo") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("MODELPART_LOGO_FRONTSIDE") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("MODELPART_LOGO_0003") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("struct modelnode *nodes[4]") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->def.parts = owner->logo_part_table.nodes") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->def.numparts = 4") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("vertex_colour_bytes") !=
 	        std::string::npos);
@@ -1277,10 +4751,13 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	const std::string voice = readTextFile("port/src/loader_walker_voice.c");
 	const std::string song = readTextFile("port/src/loader_walker_song.c");
 	REQUIRE(sfx.find("\"sample.wav\"") != std::string::npos);
+	REQUIRE(sfx.find("always_invoke = 1") != std::string::npos);
 	REQUIRE(sfx.find("e->source_soundnum") != std::string::npos);
 	REQUIRE(voice.find("\"sample.wav\"") != std::string::npos);
+	REQUIRE(voice.find("always_invoke = 1") != std::string::npos);
 	REQUIRE(voice.find("e->source_soundnum") != std::string::npos);
 	REQUIRE(song.find("\"sequence.mid\"") != std::string::npos);
+	REQUIRE(song.find("always_invoke = 1") != std::string::npos);
 
 	const std::string lang = readTextFile("port/src/loader_walker_lang.c");
 	REQUIRE(lang.find("\"source_bank\"") != std::string::npos);
@@ -1396,6 +4873,8 @@ TEST_CASE("c3841 scenario archives are source-first and runtime-native",
 	REQUIRE(guard.find("\"scene.glb\"") != std::string::npos);
 	REQUIRE(guard.find("\"level.graph.json\"") != std::string::npos);
 	const std::string conformance = readTextFile("tools/asset_archive_conformance.py");
+	const std::string scene_texture_checker =
+		readTextFile("tools/verify_scene_glb_texture_contract.py");
 	REQUIRE(conformance.find("runtime_source_file = scene.glb") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("setup_fields_file = setup.fields.tsv") !=
@@ -1433,6 +4912,12 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 		readTextFile("port/src/assetcatalog_base_extended.c");
 	const std::string meta = readTextFile("port/src/romextract_pdmeta.c");
 	const std::string arena = readTextFile("port/src/romextract_pdarena.c");
+	const std::string conformance =
+		readTextFile("tools/asset_archive_conformance.py");
+	const std::string guard =
+		readTextFile("tools/asset_native_source_guard.py");
+	const std::string scene_texture_checker =
+		readTextFile("tools/verify_scene_glb_texture_contract.py");
 	const std::string header = readTextFile("port/include/romextract_pd.h");
 	const std::string theme =
 		readTextFile("port/fast3d/pdgui_theme_loader.cpp");
@@ -1493,7 +4978,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(meta.find("s_emitEffect") != std::string::npos);
 	REQUIRE(meta.find("s_emitProp") != std::string::npos);
 	REQUIRE(meta.find("s_emitVehicle") != std::string::npos);
-	REQUIRE(meta.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v6\"") !=
+	REQUIRE(meta.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v8_pdscenario_v77\"") !=
 	        std::string::npos);
 	REQUIRE(meta.find("texture.png") != std::string::npos);
 	REQUIRE(meta.find("material.json") != std::string::npos);
@@ -1521,22 +5006,246 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(meta.find("\"element_type = %d") == std::string::npos);
 	REQUIRE(meta.find("\"effect_type = %d") == std::string::npos);
 	REQUIRE(meta.find("\"prop_type = %d") == std::string::npos);
-	REQUIRE(arena.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v4\"") !=
+	REQUIRE(arena.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v6_pdscenario_v77\"") !=
 	        std::string::npos);
-	REQUIRE(arena.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND \"pdscenario_scene_glb_clean_public_v13_rsptexscale_texshift_samplerwrap\"") !=
+	REQUIRE(arena.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND \"pdscenario_scene_glb_clean_public_v77_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals\"") !=
 	        std::string::npos);
-	REQUIRE(arena.find("PDSCENARIO_BG_VISUAL_EXPORT_VERSION \"bg_visual_scene_glb_v5_rsptexscale_texshift_samplerwrap\"") !=
+	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"portals.tsv\"") !=
 	        std::string::npos);
+	REQUIRE(arena.find("s_existingArchiveHasEntry(relpath, \"portals.tsv\")") !=
+	        std::string::npos);
+	REQUIRE(arena.find("\"scenario.portals.source\"") !=
+	        std::string::npos);
+	REQUIRE(arena.find("\\\"portals\\\": \\\"portals.tsv\\\"") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("SCENARIO_PORTALS_HEADER") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("scenario.ini must declare portals_file = portals.tsv") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("level.graph.json must bind portals table to portals.tsv") !=
+	        std::string::npos);
+	REQUIRE(arena.find("PDSCENARIO_BG_VISUAL_EXPORT_VERSION \"bg_visual_scene_glb_v7_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound\"") !=
+	        std::string::npos);
+	REQUIRE(arena.find("s_existingArchiveEntryContains(relpath, \"scene.glb\",") !=
+	        std::string::npos);
+	REQUIRE(arena.find("PDSCENARIO_BG_VISUAL_EXPORT_VERSION)") !=
+	        std::string::npos);
+	REQUIRE(arena.find("scenario_graph_cache = %s") != std::string::npos);
+	REQUIRE(arena.find("scenario_graph_cache = \" ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("SCENARIO_GRAPH_CACHE_KIND") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("arena.ini must declare scenario_graph_cache") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("mission.ini must declare scenario_graph_cache") !=
+	        std::string::npos);
+	REQUIRE(arena.find("\\\"texCoord\\\":0") != std::string::npos);
 	REQUIRE(arena.find("s_bgMaterialUvScaleForGlb") != std::string::npos);
+	REQUIRE(arena.find("s_bgMaterialGlbAuthorUv") != std::string::npos);
+	REQUIRE(arena.find("\\\"TEXCOORD_1\\\":%u") != std::string::npos);
+	REQUIRE(arena.find("\\\"baseColorTexture\\\":{\\\"index\\\":%d,\\\"texCoord\\\":0}") !=
+	        std::string::npos);
 	REQUIRE(arena.find("s_bgGltfWrapMode") != std::string::npos);
 	REQUIRE(arena.find("texture_scale_s") != std::string::npos);
 	REQUIRE(arena.find("op == (u8)G_TEXTURE") != std::string::npos);
-	REQUIRE(arena.find("\"wrapS\":%u,\"wrapT\":%u") != std::string::npos);
+	REQUIRE(arena.find("\\\"wrapS\\\":%u,\\\"wrapT\\\":%u") != std::string::npos);
 	REQUIRE(arena.find("m->shifts <= 10") != std::string::npos);
 	REQUIRE(arena.find("m->shiftt <= 10") != std::string::npos);
 	REQUIRE(arena.find("s_shift_scale / (f32)tex->width") != std::string::npos);
 	REQUIRE(arena.find("t_shift_scale / (f32)tex->height") != std::string::npos);
 	REQUIRE(arena.find("s_bgMaterialGlbUv(m->vertices[v].u, m->vertices[v].v") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("validate_scene_glb_texture_contract") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("TEXCOORD_0 range") != std::string::npos);
+	REQUIRE(conformance.find("bg_visual_scene_glb_v7_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("TEXCOORD_1 runtime UVs") != std::string::npos);
+	REQUIRE(conformance.find("DCC-authoring UV range") != std::string::npos);
+	REQUIRE(conformance.find("visible textures to TEXCOORD_0") !=
+	        std::string::npos);
+	REQUIRE(scene_texture_checker.find("validate_scene_glb_texture_contract") !=
+	        std::string::npos);
+	REQUIRE(scene_texture_checker.find(".pdscenario") != std::string::npos);
+	REQUIRE(scene_texture_checker.find(".pdarena") != std::string::npos);
+	REQUIRE(scene_texture_checker.find("path.is_dir()") != std::string::npos);
+	REQUIRE(scene_texture_checker.find("path.rglob(\"*\")") !=
+	        std::string::npos);
+	REQUIRE(scene_texture_checker.find("scene.glb texture contract failed") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_generated_scenario_texture_contracts") !=
+	        std::string::npos);
+	REQUIRE(guard.find("scan_ai_command_graph_coverage") !=
+	        std::string::npos);
+	REQUIRE(guard.find("AI_INTERPRETER_ONLY_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("AI_GRAPH_PENDING_FUNCTIONS") !=
+	        std::string::npos);
+	REQUIRE(guard.find("AI_GRAPH_PENDING_FUNCTIONS = set()") !=
+	        std::string::npos);
+	REQUIRE(guard.find("\"aiStop\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiKneel\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiSurrender\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiFadeOut\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiRemoveChr\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiChrDoAnimation\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiBeSurprisedOneHand\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiBeSurprisedLookAround\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiBeSurprisedSurrender\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiKillBond\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiFaceEntity\"") == std::string::npos);
+	REQUIRE(guard.find("\"ai0019\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiChrDamageChr\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiConsiderGrenadeThrow\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiDropItem\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiTryRunFromTarget\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiTryJogToTargetProp\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiTryWalkToTargetProp\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiTryRunToTargetProp\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiTryGoToCoverProp\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiTryJogToChr\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiTryWalkToChr\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiTryRunToChr\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiIfCanHearAlarm\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiIfPatrolling\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiIfAlarmActive\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiIfGasActive\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiIfHearsTarget\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiIfSawInjury\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiIfSawDeath\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiIfLosToTarget\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiIfLosToAttackTarget\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiIfTargetNearlyInSight\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiIfNearlyInTargetsSight\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiSetPadPresetToPadOnRouteToTarget\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiIfSawTargetRecently\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiIfHeardTargetRecently\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiSayQuip\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiSayCiStaffQuip\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiShuffleRuinsPillars\"") == std::string::npos);
+	REQUIRE(guard.find("\"aiShufflePelagicSwitches\"") == std::string::npos);
+	for (const char *name : {
+		     "\"aiIfLosToChr\"",
+		     "\"aiIfNeverBeenOnScreen\"",
+		     "\"aiIfOnScreen\"",
+		     "\"aiIfChrInOnScreenRoom\"",
+		     "\"aiIfRoomIsOnScreen\"",
+		     "\"aiIfTargetAimingAtMe\"",
+		     "\"aiIfNearMiss\"",
+		     "\"aiIfSeesSuspiciousItem\"",
+		     "\"aiIfCheckFovWithTarget\"",
+		     "\"aiIfTargetInFovLeft\"",
+		     "\"aiIfTargetOutOfFovLeft\"",
+		     "\"aiIfTargetInFov\"",
+		     "\"aiIfTargetOutOfFov\"",
+		     "\"aiIfDistanceToTargetLessThan\"",
+		     "\"aiIfDistanceToTargetGreaterThan\"",
+		     "\"aiIfChrDistanceToPadLessThan\"",
+		     "\"aiIfChrDistanceToPadGreaterThan\"",
+		     "\"aiIfDistanceToChrLessThan\"",
+		     "\"aiIfDistanceToChrGreaterThan\"",
+		     "\"ai0058\"",
+		     "\"aiIfDistanceFromTargetToPadLessThan\"",
+		     "\"aiIfDistanceFromTargetToPadGreaterThan\"",
+		     "\"aiIfChrInRoom\"",
+		     "\"aiIfTargetInRoom\"",
+		     "\"aiIfChrHasObject\"",
+		     "\"aiIfWeaponThrown\"",
+		     "\"aiIfWeaponThrownOnObject\"",
+		     "\"aiIfChrHasWeaponEquipped\"",
+		     "\"aiIfGunUnclaimed\"",
+		     "\"aiIfObjectHealthy\"",
+		     "\"ai0075\"",
+		     "\"aiSetPadPresetToTargetQuadrant\"",
+		     "\"ai00e9\"",
+		     "\"ai00fd\"",
+		     "\"ai012f\"",
+		     "\"ai0184\"",
+		     "\"aiEndLevel\"",
+		     "\"ai00dd\"",
+		     "\"aiWarpJoToPad\"",
+		     "\"aiSetCameraAnimation\"",
+		     "\"aiIfInCutscene\"",
+		     "\"aiIfCutsceneButtonPressed\"",
+		     "\"ai0175\"",
+		     "\"ai00df\"",
+		     "\"aiRevokeControl\"",
+		     "\"aiGrantControl\"",
+		     "\"ai00e3\"",
+		     "\"ai00e4\"",
+		     "\"aiIfColourFadeComplete\"",
+		     "\"ai00f4\"",
+		     "\"ai00f5\"",
+		     "\"ai00f6\"",
+		     "\"aiSpawnChrAtPad\"",
+		     "\"aiSpawnChrAtChr\"",
+		     "\"aiTryEquipWeapon\"",
+		     "\"aiTryEquipHat\"",
+		     "\"aiSetObjImage\"",
+		     "\"aiObjectDoAnimation\"",
+		     "\"aiSetDoorOpen\"",
+		     "\"aiDuplicateChr\"",
+		     "\"aiEnableChr\"",
+		     "\"aiDisableChr\"",
+		     "\"aiEnableObj\"",
+		     "\"aiDisableObj\"",
+		     "\"aiChrMoveToPad\"",
+		     "\"aiChrSetTeam\"",
+		     "\"aiDamageChrByAmount\"",
+		     "\"aiDoPresetAnimation\"",
+		     "\"ai01aa\"",
+		     "\"ai01b4\"",
+		     "\"aiIfChrNotTalking\"",
+		     "\"aiIfOrders\"",
+		     "\"aiIfHasOrders\"",
+		     "\"aiIfChrInSquadronDoingAction\"",
+		     "\"aiIfChrListening\"",
+		     "\"aiIfNotListening\"",
+		     "\"aiIfChrInjured\"",
+		     "\"aiIfAction\"",
+		     "\"aiIfChrAmmoQuantityLessThan\"",
+		     "\"aiIfChrTarget\"",
+		     "\"aiIfCompareChrPresetsTeam\"",
+		     "\"aiIfHuman\"",
+		     "\"aiIfSkedar\"",
+		     "\"aiIfPropPresetIsBlockingSightToTarget\"",
+		     "\"aiRemoveObjectAtPropPreset\"",
+		     "\"aiIfPropPresetHeightLessThan\"",
+		     "\"aiSetTarget\"",
+		     "\"aiIfPresetsTargetIsNotMyTarget\"",
+		     "\"aiSetChrPresetToChrNearSelf\"",
+		     "\"aiSetChrPresetToChrNearPad\"",
+		     "\"aiIfDangerousObjectNearby\"",
+		     "\"aiIfHeliWeaponsArmed\"",
+		     "\"aiIfHoverbotNextStep\"",
+		     "\"aiShuffleInvestigationTerminals\"",
+		     "\"aiSetPadPresetToInvestigationTerminal\"",
+		     "\"aiHeliArmWeapons\"",
+		     "\"aiHeliUnarmWeapons\"",
+		     "\"aiIfSafety2LessThan\"",
+		     "\"aiIfPlayerUsingCmpOrAr34\"",
+		     "\"aiDetectEnemyOnSameFloor\"",
+		     "\"aiDetectEnemy\"",
+		     "\"aiIfSafetyLessThan\"",
+		     "\"aiIfTargetMovingSlowly\"",
+		     "\"aiIfTargetMovingCloser\"",
+		     "\"aiIfTargetMovingAway\"",
+		     "\"aiIfSquadronIsDead\"",
+		     "\"aiIfTrue\"",
+		     "\"aiIfNumChrsInSquadronGreaterThan\"",
+		     "\"aiIfNaturalAnim\"",
+		     "\"aiIfY\"",
+		     "\"aiIfSoundTimer\"",
+		     "\"aiIfTargetYDifferenceLessThan\"",
+	     }) {
+		REQUIRE(guard.find(name) == std::string::npos);
+	}
+	REQUIRE(guard.find("untracked debt") != std::string::npos);
+	REQUIRE(guard.find("Build/data/ntsc-final/scenarios") !=
+	        std::string::npos);
+	REQUIRE(guard.find("Build/data/ntsc-final/arenas") != std::string::npos);
+	REQUIRE(guard.find(".pdarena") != std::string::npos);
+	REQUIRE(guard.find("validate_scene_glb_texture_contract") !=
 	        std::string::npos);
 	REQUIRE(arena.find("\"stagenum = %d\\n\"") == std::string::npos);
 	REQUIRE(scanner.find("parseModeKeyValue") != std::string::npos);
@@ -1553,6 +5262,100 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(examples.find("mode_key = custom") != std::string::npos);
 	REQUIRE(examples.find("hud_key = ammo") != std::string::npos);
 	REQUIRE(examples.find("prop_key = object") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.stop") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.kneel") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.surrender") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.fade_out") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.remove_chr") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.try_sidestep") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.try_attack_stand") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_attacking") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.try_modify_attack") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.face_entity") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.apply_gset_damage") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.chr_damage_chr") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.consider_grenade_throw") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.drop_item") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.try_run_from_target") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.try_jog_to_target_prop") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.try_walk_to_target_prop") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.try_run_to_target_prop") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.try_go_to_cover_prop") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.try_jog_to_chr") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.try_walk_to_chr") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.try_run_to_chr") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_can_hear_alarm") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_patrolling") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_alarm_active") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_gas_active") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_hears_target") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_saw_injury") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_saw_death") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_los_to_target") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_los_to_attack_target") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_target_nearly_in_sight") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_nearly_in_targets_sight") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.set_pad_preset_to_pad_on_route_to_target") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_saw_target_recently") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_heard_target_recently") != std::string::npos);
+	for (const char *kind : {
+		     "scenario.ai.condition.if_los_to_chr",
+		     "scenario.ai.condition.if_never_been_on_screen",
+		     "scenario.ai.condition.if_on_screen",
+		     "scenario.ai.condition.if_chr_in_on_screen_room",
+		     "scenario.ai.condition.if_room_is_on_screen",
+		     "scenario.ai.condition.if_target_aiming_at_me",
+		     "scenario.ai.condition.if_near_miss",
+		     "scenario.ai.condition.if_sees_suspicious_item",
+		     "scenario.ai.condition.if_target_in_fov_left",
+		     "scenario.ai.condition.if_check_fov_with_target",
+		     "scenario.ai.condition.if_target_out_of_fov_left",
+		     "scenario.ai.condition.if_target_in_fov",
+		     "scenario.ai.condition.if_target_out_of_fov",
+		     "scenario.ai.condition.if_distance_to_target_less_than",
+		     "scenario.ai.condition.if_distance_to_target_greater_than",
+		     "scenario.ai.condition.if_chr_distance_to_pad_less_than",
+		     "scenario.ai.condition.if_chr_distance_to_pad_greater_than",
+		     "scenario.ai.condition.if_distance_to_chr_less_than",
+		     "scenario.ai.condition.if_distance_to_chr_greater_than",
+		     "scenario.ai.condition.if_any_chr_near_self",
+		     "scenario.ai.condition.if_distance_from_target_to_pad_less_than",
+		     "scenario.ai.condition.if_distance_from_target_to_pad_greater_than",
+		     "scenario.ai.condition.if_chr_in_room",
+		     "scenario.ai.condition.if_target_in_room",
+		     "scenario.ai.condition.if_chr_has_object",
+		     "scenario.ai.condition.if_weapon_thrown",
+		     "scenario.ai.condition.if_weapon_thrown_on_object",
+		     "scenario.ai.condition.if_chr_has_weapon_equipped",
+		     "scenario.ai.condition.if_gun_unclaimed",
+		     "scenario.ai.condition.if_object_healthy",
+		     "scenario.ai.condition.if_chr_activated_object",
+		     "scenario.ai.action.obj_interact",
+		     "scenario.ai.action.destroy_object",
+		     "scenario.ai.action.drop_object_from_chr",
+		     "scenario.ai.action.chr_drop_items",
+		     "scenario.ai.action.chr_drop_weapon",
+		     "scenario.ai.action.give_object_to_chr",
+		     "scenario.ai.action.object_move_to_pad",
+		     "scenario.ai.action.say_quip",
+		     "scenario.ai.action.say_ci_staff_quip",
+		     "scenario.ai.action.shuffle_ruins_pillars",
+		     "scenario.ai.action.shuffle_pelagic_switches",
+		     "scenario.ai.condition.if_waypoint_within_quadrant",
+		     "scenario.ai.action.set_pad_preset_to_target_quadrant",
+	     }) {
+		REQUIRE(examples.find(kind) != std::string::npos);
+	}
+	REQUIRE(examples.find("scenario.ai.action.chr_do_animation") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.be_surprised_one_hand") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.be_surprised_look_around") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.be_surprised_surrender") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.random") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.kill_bond") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_random_less_than") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.condition.if_random_greater_than") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.print") != std::string::npos);
+	REQUIRE(examples.find("scenario.ai.action.noop") != std::string::npos);
 	REQUIRE(meta.find("\"empty_rom_slot = %s\\n\"\n"
 	                  "\t\t\"texture_file = texture.png\\n\",") !=
 	        std::string::npos);

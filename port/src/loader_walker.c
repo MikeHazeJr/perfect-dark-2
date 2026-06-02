@@ -9,7 +9,8 @@
  *   3. weapons       (refer to meshes + animations; refs resolve at consume-time)
  *   4. heads + bodies + arenas + scenarios   (refer to meshes / scenarios)
  *   5. audio (sfx/voice/song)
- *   6. ui + fonts + lang
+ *   6. metadata families added after the original 13-kind walker
+ *   7. ui + fonts + lang
  *
  * Cross-references between catalog IDs do NOT need to resolve at scan
  * time; consumers (e.g. catalog managers, weapon spawn paths) resolve
@@ -50,7 +51,7 @@ s32 loaderWalkerLoadAll(loader_walker_result_t *out)
     }
 
     sysLogPrintf(LOG_NOTE,
-        "LOADER.UNIVERSAL.OK: walking %s/<kind>/*.pd<ext> for 13 universality kinds",
+        "LOADER.UNIVERSAL.OK: walking %s/<kind>/*.pd<ext> for public typed archive kinds",
         data_root);
 
     /* Step 5: clear loader_pool before re-scanning so re-runs (or
@@ -125,6 +126,13 @@ s32 loaderWalkerLoadAll(loader_walker_result_t *out)
     local.total_envelope_failures += kr.envelope_failures;
     local.total_register_failures += kr.register_failures;
 
+    loader_walker_metadata_result_t mr;
+    loaderWalkerScanMetadataFamilies(data_root, &mr);
+    local.metadata_registered    += mr.entries_registered;
+    local.total_files_scanned    += mr.entries_scanned;
+    local.total_envelope_failures += mr.envelope_failures;
+    local.total_register_failures += mr.register_failures;
+
     /* Dependency tier 4: UI / fonts / lang. */
     loaderWalkerScanUi(data_root, &kr);
     local.uis_registered        += kr.entries_registered;
@@ -150,7 +158,7 @@ s32 loaderWalkerLoadAll(loader_walker_result_t *out)
                         + local.sfx_registered + local.voices_registered
                         + local.songs_registered + local.scenarios_registered
                         + local.uis_registered + local.fonts_registered
-                        + local.langs_registered;
+                        + local.langs_registered + local.metadata_registered;
 
     if (total_registered > 0) {
         s_walkerActive = 1;
@@ -170,13 +178,14 @@ s32 loaderWalkerLoadAll(loader_walker_result_t *out)
     sysLogPrintf(LOG_NOTE,
         "LOADER.UNIVERSAL.SUMMARY: per-kind weapons=%d heads=%d bodies=%d "
         "arenas=%d meshes=%d anims=%d sfx=%d voices=%d songs=%d "
-        "scenarios=%d ui=%d fonts=%d lang=%d",
+        "scenarios=%d metadata=%d ui=%d fonts=%d lang=%d",
         local.weapons_registered, local.heads_registered,
         local.bodies_registered, local.arenas_registered,
         local.meshes_registered, local.animations_registered,
         local.sfx_registered, local.voices_registered,
         local.songs_registered, local.scenarios_registered,
-        local.uis_registered, local.fonts_registered, local.langs_registered);
+        local.metadata_registered, local.uis_registered,
+        local.fonts_registered, local.langs_registered);
 
     if (out) *out = local;
     return 0;

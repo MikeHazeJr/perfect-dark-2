@@ -474,13 +474,19 @@ TEST_CASE("typed catalog model lifecycle activates model payloads", "[catalog][p
 	REQUIRE(catalogLoad.find("modeldefLoadToNewFromHandle") != std::string::npos);
 	REQUIRE(catalogLoad.find("model payload has no provider handle") != std::string::npos);
 	const std::string modelPayloadBlock =
-		functionBlock(catalogLoad, "s_catalogTypeUsesModelPayload");
+		functionBlock(catalogLoad, "static s32 s_catalogTypeUsesModelPayload");
 	const std::string metadataPayloadBlock =
-		functionBlock(catalogLoad, "s_catalogTypeUsesMetadataRuntimePayload");
+		functionBlock(catalogLoad, "static s32 s_catalogTypeUsesMetadataRuntimePayload");
 	REQUIRE(!modelPayloadBlock.empty());
 	REQUIRE(!metadataPayloadBlock.empty());
 	REQUIRE(modelPayloadBlock.find("case ASSET_WEAPON:") == std::string::npos);
+	REQUIRE(modelPayloadBlock.find("case ASSET_PROP:") == std::string::npos);
+	REQUIRE(catalogLoad.find("|| type == ASSET_PROP") != std::string::npos);
 	REQUIRE(catalogLoad.find("|| type == ASSET_WEAPON") != std::string::npos);
+	REQUIRE(catalogLoad.find("s_catalogLoadEntryAudioPayload(entry, handle)") <
+	        catalogLoad.find("CATALOG: retain bundled"));
+	REQUIRE(catalogLoad.find("s_catalogLoadEntryTexturePayload(entry, handle)") <
+	        catalogLoad.find("CATALOG: retain bundled"));
 	REQUIRE(catalogLoad.find("catalogGetLoadedModeldef") != std::string::npos);
 	REQUIRE(api.find("catalogGetLoadedModeldef") != std::string::npos);
 }
@@ -520,6 +526,7 @@ TEST_CASE("base first-person hand model files populate provider handles", "[cata
 TEST_CASE("base menu hudpiece model has a catalog provider handle", "[catalog][provider][static]")
 {
 	const std::string baseExtended = readTextFile("port/src/assetcatalog_base_extended.c");
+	const std::string meshExtractor = readTextFile("port/src/romextract_pdmesh.c");
 	const std::string menu = readTextFile("src/game/menu.c");
 
 	REQUIRE(baseExtended.find("#include \"files.h\"") != std::string::npos);
@@ -528,6 +535,9 @@ TEST_CASE("base menu hudpiece model has a catalog provider handle", "[catalog][p
 	REQUIRE(baseExtended.find("e->source_filenum = fnum") != std::string::npos);
 	REQUIRE(baseExtended.find("catalogBindPrimaryFromDiskOrRom(e, e->source_filenum)") != std::string::npos);
 	REQUIRE(baseExtended.find("weapon/menu-pipeline model files") != std::string::npos);
+	REQUIRE(meshExtractor.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") != std::string::npos);
+	REQUIRE(meshExtractor.find("(u16)FILE_GHUDPIECE, \"menu\"") != std::string::npos);
+	REQUIRE(meshExtractor.find("pdmesh_model_obj_mtx_v11_skeleton_allmodels_menuhud") != std::string::npos);
 	REQUIRE(menu.find("MENUMODELPARAMS_SET_FILENUM(FILE_GHUDPIECE)") != std::string::npos);
 }
 
@@ -843,6 +853,7 @@ TEST_CASE("typed catalog metadata lifecycle uses runtime activation", "[catalog]
 	REQUIRE(catalogLoad.find("type == ASSET_MUSIC") != std::string::npos);
 	REQUIRE(catalogLoad.find("type == ASSET_UI") != std::string::npos);
 	REQUIRE(catalogLoad.find("type == ASSET_TOOL") != std::string::npos);
+	REQUIRE(catalogLoad.find("type == ASSET_PROP") != std::string::npos);
 	REQUIRE(catalogLoad.find("type == ASSET_VEHICLE") != std::string::npos);
 	REQUIRE(catalogLoad.find("type == ASSET_MISSION") != std::string::npos);
 	REQUIRE(catalogLoad.find("type == ASSET_HUD") != std::string::npos);

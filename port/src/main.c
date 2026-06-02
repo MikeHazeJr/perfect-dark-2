@@ -60,6 +60,7 @@
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_cache.h"
+#include "asset_source_debug.h"
 #include "loader_pool.h"
 #include "loader_walker.h"
 #include "catalog_mgr_heads.h"
@@ -1073,7 +1074,10 @@ static const char *bootDebugAssetTypeName(asset_type_e type)
 	case ASSET_MAP:       return "map";
 	case ASSET_ARENA:     return "arena";
 	case ASSET_CHARACTER: return "character";
+	case ASSET_SKIN:      return "skin";
 	case ASSET_PROP:      return "prop";
+	case ASSET_VEHICLE:   return "vehicle";
+	case ASSET_MISSION:   return "mission";
 	case ASSET_ANIMATION: return "animation";
 	case ASSET_TEXTURE:   return "texture";
 	case ASSET_EFFECT:    return "effect";
@@ -1105,7 +1109,10 @@ static asset_type_e bootDebugParseAssetType(const char *s)
 	if (strcmp(s, "map") == 0) return ASSET_MAP;
 	if (strcmp(s, "arena") == 0) return ASSET_ARENA;
 	if (strcmp(s, "character") == 0) return ASSET_CHARACTER;
+	if (strcmp(s, "skin") == 0) return ASSET_SKIN;
 	if (strcmp(s, "prop") == 0) return ASSET_PROP;
+	if (strcmp(s, "vehicle") == 0) return ASSET_VEHICLE;
+	if (strcmp(s, "mission") == 0) return ASSET_MISSION;
 	if (strcmp(s, "animation") == 0 || strcmp(s, "anim") == 0) return ASSET_ANIMATION;
 	if (strcmp(s, "texture") == 0) return ASSET_TEXTURE;
 	if (strcmp(s, "effect") == 0) return ASSET_EFFECT;
@@ -1169,7 +1176,7 @@ static void bootDebugLogTypedPayload(asset_type_e type, const char *asset_id, s3
 	}
 }
 
-static void bootApplyDebugLoadCatalogAssets(const char *arg)
+static void bootApplyDebugLoadCatalogAssets(const char *arg, s32 force_source_only)
 {
 	char buf[2048];
 	char *cursor;
@@ -1195,6 +1202,7 @@ static void bootApplyDebugLoadCatalogAssets(const char *arg)
 		char *type_name;
 		char *asset_id;
 		asset_type_e type;
+		asset_type_e prior_source_only;
 		s32 loaded;
 
 		if (next) {
@@ -1230,9 +1238,16 @@ static void bootApplyDebugLoadCatalogAssets(const char *arg)
 		}
 
 		sysLogPrintf(LOG_NOTE,
-			"BOOT: --debug-load-catalog-assets request type=%s id='%s'",
-			bootDebugAssetTypeName(type), asset_id);
+			"BOOT: --debug-load-catalog-assets request type=%s id='%s' source_only=%d",
+			bootDebugAssetTypeName(type), asset_id, force_source_only ? 1 : 0);
+		prior_source_only = assetSourceDebugOnlyType();
+		if (force_source_only) {
+			assetSourceDebugSetOnlyType(type);
+		}
 		loaded = catalogLoadTypedAsset(type, asset_id);
+		if (force_source_only) {
+			assetSourceDebugSetOnlyType(prior_source_only);
+		}
 		bootDebugLogTypedPayload(type, asset_id, loaded);
 
 		cursor = next;
@@ -1254,7 +1269,8 @@ static void bootApplyCliFastPaths(void)
 	bootApplyListenBind(sysArgGetString("--listen-bind"));
 	bootApplyConnectHost(sysArgGetString("--connect-host"));
 	bootApplyDumpSwarmState(sysArgGetString("--dump-swarm-state"));
-	bootApplyDebugLoadCatalogAssets(sysArgGetString("--debug-load-catalog-assets"));
+	bootApplyDebugLoadCatalogAssets(sysArgGetString("--debug-load-catalog-assets"),
+		sysArgCheck("--debug-load-catalog-assets-source-only"));
 }
 
 /* Called once per frame from pdmain.c's mainTick when the
@@ -1913,7 +1929,7 @@ int main(int argc, const char **argv)
 	if (g_StageNum == STAGE_TITLE && (sysArgCheck("--skip-intro") || g_SkipIntro)) {
 		// shorthand for --boot-stage 0x26
 		g_StageNum = STAGE_CITRAINING;
-	} else if (g_StageNum < 0x01 || g_StageNum > 0x5d) {
+	} else if (g_StageNum < 0x01 || g_StageNum > STAGE_EXTRA26) {
 		// stage num out of range
 		g_StageNum = STAGE_TITLE;
 	}

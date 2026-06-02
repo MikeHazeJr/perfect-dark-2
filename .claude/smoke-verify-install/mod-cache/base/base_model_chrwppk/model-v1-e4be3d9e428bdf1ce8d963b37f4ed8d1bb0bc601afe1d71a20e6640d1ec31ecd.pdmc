@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_chrwppk",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrwppk.pdmesh::model.obj",
+  "source_size": 6390,
+  "source_sha256": "e4be3d9e428bdf1ce8d963b37f4ed8d1bb0bc601afe1d71a20e6640d1ec31ecd",
+  "validation": "format=obj vertices=102 triangles=34",
+  "normalized": "$S/mod-cache/base/base_model_chrwppk/model-v1-e4be3d9e428bdf1ce8d963b37f4ed8d1bb0bc601afe1d71a20e6640d1ec31ecd.pdmodel.json",
+  "vertex_count": 102,
+  "triangle_count": 34,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

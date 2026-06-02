@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_dumpster",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_dumpster.pdmesh::model.obj",
+  "source_size": 5159,
+  "source_sha256": "3e4d3674d4783274b9204ccb3a9185d2d1b4da4ad5ae6b6e608358d269f9f018",
+  "validation": "format=obj vertices=78 triangles=26",
+  "normalized": "$S/mod-cache/base/base_model_dumpster/model-v1-3e4d3674d4783274b9204ccb3a9185d2d1b4da4ad5ae6b6e608358d269f9f018.pdmodel.json",
+  "vertex_count": 78,
+  "triangle_count": 26,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

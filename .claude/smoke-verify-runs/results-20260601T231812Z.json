@@ -1,0 +1,23 @@
+{
+  "Name": "boot_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": 1,
+  "ElapsedSeconds": 41.7221504,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\Build",
+  "AssertionsTotal": 14,
+  "AssertionsMet": 12,
+  "Failures": [
+    {
+      "Kind": "forbidden_pattern_matched",
+      "Pattern": "FATAL: ",
+      "Line": "[00:40.17] ERROR: FATAL: ASSET.SOURCE_ONLY: Scenario 'base:citraining' setup still uses RomProvider:filenum=307 (UsetupdishZ); refusing ROM/static fallback."
+    },
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "SMOKE: result=scripted_exit"
+    }
+  ]
+}

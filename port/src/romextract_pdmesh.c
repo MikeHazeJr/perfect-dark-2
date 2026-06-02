@@ -65,7 +65,7 @@
 #define ROMEXTRACT_PDMESH_NODE_DEPTH_CAP 2048
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v9_skeleton"
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "\n"
-#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v10_skeleton_allmodels"
+#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v11_skeleton_allmodels_menuhud"
 extern u16 g_CartFileNums[];
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
@@ -1689,6 +1689,14 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 				ROMEXTRACT_PDMESH_SEEN_CAP, g_CartFileNums[i],
 				"cart", cart_ids[i]);
 		}
+	}
+	{
+		char menu_hudpiece_id[CATALOG_ID_LEN];
+		catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, "menu", "menu",
+			menu_hudpiece_id, sizeof(menu_hudpiece_id));
+		s_pdmeshAddWorkWithId(jobs, &job_count,
+			ROMEXTRACT_PDMESH_SEEN_CAP, (u16)FILE_GHUDPIECE, "menu",
+			menu_hudpiece_id);
 	}
 	for (s32 i = 0; i < g_HeadDataCount; i++) {
 		s_pdmeshAddWork(jobs, &job_count, ROMEXTRACT_PDMESH_SEEN_CAP,

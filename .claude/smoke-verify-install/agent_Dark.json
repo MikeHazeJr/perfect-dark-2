@@ -1,7 +1,7 @@
 {
   "version": 2,
   "name": "Dark",
-  "totaltime": 4,
+  "totaltime": 7,
   "autodifficulty": 0,
   "autostageindex": 0,
   "thumbnail": 0,
@@ -30,5 +30,5 @@
   ],
   "coopcompletions": [0, 0, 0],
   "firingrangescores": [0, 0, 0, 0, 0, 0, 0, 0, 0],
-  "weaponsfound": [18, 0, 0, 0, 0, 0]
+  "weaponsfound": [2, 0, 0, 0, 0, 0]
 }

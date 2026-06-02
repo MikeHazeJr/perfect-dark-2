@@ -1,0 +1,38 @@
+﻿[
+    {
+        "Name":  "scenario_source_matrix_extra1",
+        "Category":  "scenario",
+        "BugId":  null,
+        "RegressionFor":  null,
+        "Passed":  false,
+        "ExitCode":  0,
+        "ElapsedSeconds":  67.3720151,
+        "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+        "AssertionsTotal":  23,
+        "AssertionsMet":  22,
+        "Failures":  [
+                         {
+                             "Kind":  "required_line_missing",
+                             "Pattern":  "SMOKE: result=scripted_exit"
+                         }
+                     ]
+    },
+    {
+        "Name":  "scenario_source_matrix_extra2",
+        "Category":  "scenario",
+        "BugId":  null,
+        "RegressionFor":  null,
+        "Passed":  false,
+        "ExitCode":  0,
+        "ElapsedSeconds":  42.4700772,
+        "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+        "AssertionsTotal":  23,
+        "AssertionsMet":  22,
+        "Failures":  [
+                         {
+                             "Kind":  "required_line_missing",
+                             "Pattern":  "SMOKE: result=scripted_exit"
+                         }
+                     ]
+    }
+]

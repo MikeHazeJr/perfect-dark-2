@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_servicedoor_fv",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_servicedoor_fv.pdmesh::model.obj",
+  "source_size": 3613,
+  "source_sha256": "f9995f7ae6328937ee8d9190f38184879a5f30d4f4984d80b4df5e1f04723fb4",
+  "validation": "format=obj vertices=54 triangles=18",
+  "normalized": "$S/mod-cache/base/base_model_servicedoor_fv/model-v1-f9995f7ae6328937ee8d9190f38184879a5f30d4f4984d80b4df5e1f04723fb4.pdmodel.json",
+  "vertex_count": 54,
+  "triangle_count": 18,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -482,6 +482,110 @@ function Get-ChildProcessPathEnv {
     return $env:PATH
 }
 
+function Ensure-WindowsLoaderErrorModeType {
+    $type = [System.Management.Automation.PSTypeName]'PD2V2.WinErrorMode'
+    if ($type.Type) { return }
+
+    $src = @"
+using System;
+using System.Runtime.InteropServices;
+
+namespace PD2V2
+{
+    public static class WinErrorMode
+    {
+        [DllImport("kernel32.dll")]
+        public static extern uint SetErrorMode(uint uMode);
+    }
+}
+"@
+    Add-Type -TypeDefinition $src
+}
+
+function Set-ChildLaunchNoLoaderDialogs {
+    Ensure-WindowsLoaderErrorModeType
+    $semFailCriticalErrors = 0x0001
+    $semNoGpFaultErrorBox = 0x0002
+    $semNoOpenFileErrorBox = 0x8000
+    $mode = $semFailCriticalErrors -bor $semNoGpFaultErrorBox -bor $semNoOpenFileErrorBox
+    return [PD2V2.WinErrorMode]::SetErrorMode($mode)
+}
+
+function Restore-ChildLaunchErrorMode([uint32]$previousMode) {
+    try {
+        Ensure-WindowsLoaderErrorModeType
+        [void][PD2V2.WinErrorMode]::SetErrorMode($previousMode)
+    } catch {}
+}
+
+function Ensure-ExecutableRuntimeDlls([string]$ExePath, [string]$LogPrefix) {
+    if (-not $ExePath) { return }
+    $targetDir = Split-Path -Parent $ExePath
+    if (-not $targetDir -or -not (Test-Path -LiteralPath $targetDir)) { return }
+
+    if (-not $LogPrefix) { $LogPrefix = "launch" }
+    $mingwBin = "C:\msys64\mingw64\bin"
+    if (-not (Test-Path -LiteralPath $mingwBin)) {
+        Add-LogSessionLine ($LogPrefix + ": MinGW runtime folder not found at " + $mingwBin) "#B81818"
+        return
+    }
+
+    $runtimeDllNames = @(
+        "libwinpthread-1.dll",
+        "libgcc_s_seh-1.dll",
+        "libstdc++-6.dll",
+        "zlib1.dll",
+        "SDL2.dll",
+        "libcurl-4.dll",
+        "libcrypto-3-x64.dll",
+        "libssl-3-x64.dll",
+        "libnghttp2-14.dll",
+        "libssh2-1.dll",
+        "libidn2-0.dll",
+        "libunistring-5.dll",
+        "libzstd.dll",
+        "libbrotlidec.dll",
+        "libbrotlicommon.dll",
+        "libpsl-5.dll",
+        "libiconv-2.dll"
+    )
+
+    $objdump = Join-Path $mingwBin "objdump.exe"
+    if (Test-Path -LiteralPath $objdump) {
+        try {
+            $imports = @{}
+            & $objdump -p $ExePath 2>$null |
+                Select-String -Pattern "DLL Name:\s*(.+)$" |
+                ForEach-Object {
+                    $dllName = $_.Matches[0].Groups[1].Value.Trim().ToLowerInvariant()
+                    if ($dllName) { $imports[$dllName] = $true }
+                }
+            if ($imports.Count -gt 0) {
+                $runtimeDllNames = @($runtimeDllNames | Where-Object { $imports.ContainsKey($_.ToLowerInvariant()) })
+            }
+        } catch {
+            Add-LogSessionLine ($LogPrefix + ": could not inspect runtime DLL imports; copying known MinGW runtime DLLs defensively") "#B36B00"
+        }
+    }
+
+    $copied = 0
+    foreach ($name in $runtimeDllNames) {
+        $sourceDll = Join-Path $mingwBin $name
+        if (-not (Test-Path -LiteralPath $sourceDll)) { continue }
+        $targetDll = Join-Path $targetDir $name
+        try {
+            Copy-Item -LiteralPath $sourceDll -Destination $targetDll -Force
+            $copied++
+        } catch {
+            Add-LogSessionLine ($LogPrefix + ": failed to copy runtime DLL " + $name + ": " + $_.Exception.Message) "#B81818"
+        }
+    }
+
+    if ($copied -gt 0) {
+        Add-LogSessionLine ($LogPrefix + ": ensured " + $copied + " runtime DLL(s) in " + $targetDir) "#44586C"
+    }
+}
+
 function Get-ExePath($name) {
     # Both pd and pd-server land in the unified Build/ directory
     $p = Join-Path $script:BuildDir $name
@@ -4296,6 +4400,7 @@ function Toggle-Game {
     $ui["BtnRunGame"].IsEnabled = $false
     $ui["BtnRunGame"].Content = "STARTING..."
     Add-LogLine (">>> Starting game: " + $exe) "#0078A8"
+    Ensure-ExecutableRuntimeDlls $exe "game"
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $exe
@@ -4304,9 +4409,19 @@ function Toggle-Game {
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true
         $psi.CreateNoWindow = $true
+        $psi.EnvironmentVariables["PATH"]         = Get-ChildProcessPathEnv
+        $psi.EnvironmentVariables["MSYSTEM"]      = "MINGW64"
+        $psi.EnvironmentVariables["MINGW_PREFIX"] = "/mingw64"
+        $psi.EnvironmentVariables["TEMP"]         = $env:TEMP
+        $psi.EnvironmentVariables["TMP"]          = $env:TMP
         $proc = New-Object System.Diagnostics.Process
         $proc.StartInfo = $psi
-        [void]$proc.Start()
+        $previousErrorMode = Set-ChildLaunchNoLoaderDialogs
+        try {
+            [void]$proc.Start()
+        } finally {
+            Restore-ChildLaunchErrorMode $previousErrorMode
+        }
         $script:GameProcess = $proc
         [PD2V2.AsyncLineReader]::StartReading($proc.StandardOutput, $script:GameOutputQueue, "OUT:")
         [PD2V2.AsyncLineReader]::StartReading($proc.StandardError,  $script:GameOutputQueue, "ERR:")
@@ -4500,6 +4615,7 @@ function Run-Tests-Process {
         Stop-RunTests
         return
     }
+    Ensure-ExecutableRuntimeDlls $exe "tests"
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $exe
@@ -4522,7 +4638,12 @@ function Run-Tests-Process {
         $psi.EnvironmentVariables["TMP"]          = $env:TMP
         $proc = New-Object System.Diagnostics.Process
         $proc.StartInfo = $psi
-        [void]$proc.Start()
+        $previousErrorMode = Set-ChildLaunchNoLoaderDialogs
+        try {
+            [void]$proc.Start()
+        } finally {
+            Restore-ChildLaunchErrorMode $previousErrorMode
+        }
         $script:TestsProcess = $proc
         [PD2V2.AsyncLineReader]::StartReading($proc.StandardOutput, $script:TestsOutputQueue, "OUT:")
         [PD2V2.AsyncLineReader]::StartReading($proc.StandardError,  $script:TestsOutputQueue, "ERR:")

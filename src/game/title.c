@@ -2352,19 +2352,24 @@ Gfx *titleRenderRareLogo(Gfx *gdl)
 
 		modelUpdateRelations(g_TitleModel);
 
-		rwdata = modelGetNodeRwData(g_TitleModel, modelGetPart(g_TitleModel->definition, MODELPART_RARELOGO_000B));
+		struct modelnode *toggle_node;
+
+		toggle_node = modelGetPart(g_TitleModel->definition, MODELPART_RARELOGO_000B);
+		rwdata = toggle_node ? modelGetNodeRwData(g_TitleModel, toggle_node) : NULL;
 
 		if (rwdata) {
 			rwdata->visible = false;
 		}
 
-		rwdata = modelGetNodeRwData(g_TitleModel, modelGetPart(g_TitleModel->definition, MODELPART_RARELOGO_000D));
+		toggle_node = modelGetPart(g_TitleModel->definition, MODELPART_RARELOGO_000D);
+		rwdata = toggle_node ? modelGetNodeRwData(g_TitleModel, toggle_node) : NULL;
 
 		if (rwdata) {
 			rwdata->visible = true;
 		}
 
-		rwdata = modelGetNodeRwData(g_TitleModel, modelGetPart(g_TitleModel->definition, MODELPART_RARELOGO_000C));
+		toggle_node = modelGetPart(g_TitleModel->definition, MODELPART_RARELOGO_000C);
+		rwdata = toggle_node ? modelGetNodeRwData(g_TitleModel, toggle_node) : NULL;
 
 		if (rwdata) {
 			rwdata->visible = false;
@@ -2380,19 +2385,22 @@ Gfx *titleRenderRareLogo(Gfx *gdl)
 
 		gdl = renderdata.gdl;
 
-		rwdata = modelGetNodeRwData(g_TitleModel, modelGetPart(g_TitleModel->definition, MODELPART_RARELOGO_000B));
+		toggle_node = modelGetPart(g_TitleModel->definition, MODELPART_RARELOGO_000B);
+		rwdata = toggle_node ? modelGetNodeRwData(g_TitleModel, toggle_node) : NULL;
 
 		if (rwdata) {
 			rwdata->visible = true;
 		}
 
-		rwdata = modelGetNodeRwData(g_TitleModel, modelGetPart(g_TitleModel->definition, MODELPART_RARELOGO_000D));
+		toggle_node = modelGetPart(g_TitleModel->definition, MODELPART_RARELOGO_000D);
+		rwdata = toggle_node ? modelGetNodeRwData(g_TitleModel, toggle_node) : NULL;
 
 		if (rwdata) {
 			rwdata->visible = false;
 		}
 
-		rwdata = modelGetNodeRwData(g_TitleModel, modelGetPart(g_TitleModel->definition, MODELPART_RARELOGO_000C));
+		toggle_node = modelGetPart(g_TitleModel->definition, MODELPART_RARELOGO_000C);
+		rwdata = toggle_node ? modelGetNodeRwData(g_TitleModel, toggle_node) : NULL;
 
 		if (rwdata) {
 			rwdata->visible = true;

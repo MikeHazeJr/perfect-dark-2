@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_modembox",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_modembox.pdmesh::model.obj",
+  "source_size": 6065,
+  "source_sha256": "15dcb75dd680f1f8a3c0387a54626633993a55bbb70ddfb3e0f5a7c64af61046",
+  "validation": "format=obj vertices=90 triangles=30",
+  "normalized": "$S/mod-cache/base/base_model_modembox/model-v1-15dcb75dd680f1f8a3c0387a54626633993a55bbb70ddfb3e0f5a7c64af61046.pdmodel.json",
+  "vertex_count": 90,
+  "triangle_count": 30,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

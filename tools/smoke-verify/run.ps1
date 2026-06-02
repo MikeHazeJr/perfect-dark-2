@@ -107,11 +107,36 @@ $ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 $LibDir = Join-Path $ScriptDir "lib"
 if (-not $TestsDir) { $TestsDir = Join-Path $ScriptDir "tests" }
 
+. (Join-Path $ProjectRoot "devtools\_build-env-prelude.ps1")
+
+$errorModeSource = @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class PdSmokeWinErrorMode
+{
+    [DllImport("kernel32.dll")]
+    public static extern uint SetErrorMode(uint uMode);
+}
+"@
+
+if (-not ([System.Management.Automation.PSTypeName]'PdSmokeWinErrorMode').Type) {
+    Add-Type -TypeDefinition $errorModeSource
+}
+
+$SEM_FAILCRITICALERRORS = 0x0001
+$SEM_NOGPFAULTERRORBOX = 0x0002
+$SEM_NOOPENFILEERRORBOX = 0x8000
+$loaderErrorMode = $SEM_FAILCRITICALERRORS -bor $SEM_NOGPFAULTERRORBOX -bor $SEM_NOOPENFILEERRORBOX
+$previousErrorMode = [PdSmokeWinErrorMode]::SetErrorMode($loaderErrorMode)
+
 $RunRoot = Join-Path $ProjectRoot ".claude\smoke-verify-runs"
 $ResultsFile = ""
 
 . (Join-Path $LibDir "Test-Assertions.ps1")
 . (Join-Path $LibDir "Install-Harness.ps1")
+
+try {
 
 # ----------------------------------------------------------------
 # Resolve install mode (c115, 2026-05-14)
@@ -1055,7 +1080,7 @@ if ($Build) {
 # Discover + select
 # ----------------------------------------------------------------
 
-$all = Get-SmokeTests -Dir $TestsDir
+$all = @(Get-SmokeTests -Dir $TestsDir)
 if ($all.Count -eq 0) {
     throw "No tests found in $TestsDir"
 }
@@ -1137,3 +1162,6 @@ $results | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ResultsFile -Enco
 Write-Info ("Results written to: {0}" -f $ResultsFile)
 
 exit $(if ($failCount -eq 0) { 0 } else { 1 })
+} finally {
+    [void][PdSmokeWinErrorMode]::SetErrorMode($previousErrorMode)
+}

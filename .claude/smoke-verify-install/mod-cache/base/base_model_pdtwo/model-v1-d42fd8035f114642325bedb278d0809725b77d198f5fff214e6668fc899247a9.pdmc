@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_pdtwo",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_pdtwo.pdmesh::model.obj",
+  "source_size": 319788,
+  "source_sha256": "d42fd8035f114642325bedb278d0809725b77d198f5fff214e6668fc899247a9",
+  "validation": "format=obj vertices=4722 triangles=1574",
+  "normalized": "$S/mod-cache/base/base_model_pdtwo/model-v1-d42fd8035f114642325bedb278d0809725b77d198f5fff214e6668fc899247a9.pdmodel.json",
+  "vertex_count": 4722,
+  "triangle_count": 1574,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

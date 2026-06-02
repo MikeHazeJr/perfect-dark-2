@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_secretindoor",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_secretindoor.pdmesh::model.obj",
+  "source_size": 3453,
+  "source_sha256": "cac44e5be1326c9ff369d9cffc52a00de2432ed32d68e2632d7c06b771416ef0",
+  "validation": "format=obj vertices=48 triangles=16",
+  "normalized": "$S/mod-cache/base/base_model_secretindoor/model-v1-cac44e5be1326c9ff369d9cffc52a00de2432ed32d68e2632d7c06b771416ef0.pdmodel.json",
+  "vertex_count": 48,
+  "triangle_count": 16,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

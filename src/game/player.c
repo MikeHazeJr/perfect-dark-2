@@ -7097,19 +7097,25 @@ s32 playerTickThirdPerson(struct prop *prop)
 					player->vv_manground = chr->ground;
 				} else if (!airborne) {
 					f32 safeground = player->vv_ground;
+					bool playergroundvalid = safeground > -1000000.0f &&
+						safeground < 1000000.0f;
 					if (safeground <= -1000000.0f ||
 							safeground >= 1000000.0f) {
 						safeground = player->vv_manground;
+						playergroundvalid = safeground > -1000000.0f &&
+							safeground < 1000000.0f;
 					}
 					if (safeground <= -1000000.0f ||
 							safeground >= 1000000.0f) {
 						safeground = player->prop->pos.y;
 					}
-					sysLogPrintf(LOG_WARNING,
-						"GROUNDSNAP: ignoring invalid chr->ground=%.1f; "
-						"using player ground=%.1f for stage=0x%02x room=%d",
-						chr->ground, safeground, g_Vars.stagenum,
-						(s32)player->prop->rooms[0]);
+					if (!playergroundvalid) {
+						sysLogPrintf(LOG_WARNING,
+							"GROUNDSNAP: ignoring invalid chr->ground=%.1f; "
+							"using player ground=%.1f for stage=0x%02x room=%d",
+							chr->ground, safeground, g_Vars.stagenum,
+							(s32)player->prop->rooms[0]);
+					}
 					chr->ground = safeground;
 					chr->manground = safeground;
 					player->vv_ground = safeground;

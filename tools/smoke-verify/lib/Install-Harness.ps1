@@ -73,8 +73,11 @@ function Find-SourceBinary {
         [string] $Target = "pd"
     )
 
-    if ($ExplicitPath -and (Test-Path -LiteralPath $ExplicitPath)) {
-        return (Resolve-Path -LiteralPath $ExplicitPath).Path
+    if ($ExplicitPath) {
+        if (Test-Path -LiteralPath $ExplicitPath) {
+            return (Resolve-Path -LiteralPath $ExplicitPath).Path
+        }
+        return $null
     }
 
     # c115 server-pillar extension (2026-05-14): pd-server target maps to
@@ -97,6 +100,41 @@ function Find-SourceBinary {
         }
     }
     return $null
+}
+
+function Copy-SmokeRuntimeDlls {
+    [CmdletBinding()] param(
+        [Parameter(Mandatory)] [string] $SourceBinary,
+        [Parameter(Mandatory)] [string] $InstallDir,
+        [string] $ProjectRoot = ""
+    )
+
+    $copied = 0
+    $seen = @{}
+    $sourceDirs = @()
+    $sourceDir = Split-Path -Parent $SourceBinary
+    if ($sourceDir) {
+        $sourceDirs += $sourceDir
+    }
+    if ($ProjectRoot) {
+        $sourceDirs += (Join-Path $ProjectRoot "Build")
+    }
+
+    foreach ($dir in $sourceDirs) {
+        if (-not $dir -or -not (Test-Path -LiteralPath $dir)) {
+            continue
+        }
+        $dlls = @(Get-ChildItem -LiteralPath $dir -Filter "*.dll" -File -ErrorAction SilentlyContinue)
+        foreach ($dll in $dlls) {
+            if ($seen.ContainsKey($dll.Name)) {
+                continue
+            }
+            Copy-Item -LiteralPath $dll.FullName -Destination (Join-Path $InstallDir $dll.Name) -Force
+            $seen[$dll.Name] = $true
+            $copied++
+        }
+    }
+    return $copied
 }
 
 function Find-SourceRom {
@@ -155,6 +193,7 @@ function New-SmokeInstall {
         throw "Cannot find $exeName to seed the smoke install. Build the corresponding target first or pass -SourceBinary."
     }
     Copy-Item -LiteralPath $bin -Destination (Join-Path $installDir $exeName) -Force
+    [void](Copy-SmokeRuntimeDlls -SourceBinary $bin -InstallDir $installDir -ProjectRoot $ProjectRoot)
 
     # c115 server-pillar extension (2026-05-14): dedicated server target has
     # no ROM-load path (CLC_AUTH skips the ROM hash check when g_NetDedicated
@@ -251,9 +290,11 @@ function New-SmokeSharedInstall {
 
     $destBin = Join-Path $installDir $exeName
 
-    # Refresh binary only if source is newer or sizes differ.
+    # Explicit -SourceBinary means "run this exact build". Always refresh it:
+    # a shared smoke install can contain a newer timestamp from an older
+    # session, and skipping the copy would exercise stale extractor code.
     $copyBin = $true
-    if (Test-Path -LiteralPath $destBin) {
+    if (-not $SourceBinary -and (Test-Path -LiteralPath $destBin)) {
         $srcInfo = Get-Item -LiteralPath $bin
         $dstInfo = Get-Item -LiteralPath $destBin
         if ($srcInfo.Length -eq $dstInfo.Length -and $srcInfo.LastWriteTimeUtc -le $dstInfo.LastWriteTimeUtc) {
@@ -263,6 +304,7 @@ function New-SmokeSharedInstall {
     if ($copyBin) {
         Copy-Item -LiteralPath $bin -Destination $destBin -Force
     }
+    [void](Copy-SmokeRuntimeDlls -SourceBinary $bin -InstallDir $installDir -ProjectRoot $ProjectRoot)
 
     # c115 server-pillar extension (2026-05-14): dedicated server has no
     # ROM-load path -- pd-server's CLC_AUTH skips the ROM hash check

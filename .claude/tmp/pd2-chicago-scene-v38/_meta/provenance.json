@@ -1,0 +1,9 @@
+{
+  "schema": "pd2.asset.provenance.v1",
+  "tool": "romextract_pdarena",
+  "family": "scenario",
+  "id": "base:scenario_chicago",
+  "source_path": "stagetable",
+  "source_index": 9,
+  "source_symbol": "chicago"
+}

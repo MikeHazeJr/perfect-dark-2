@@ -469,14 +469,13 @@ static const char *s_catalogPayloadKind(asset_type_e type)
 
 static s32 s_catalogTypeUsesModelPayload(asset_type_e type)
 {
-    switch (type) {
-    case ASSET_MODEL:
-    case ASSET_BODY:
-    case ASSET_HEAD:
-    case ASSET_PROP:
-        return 1;
-    default:
-        return 0;
+	switch (type) {
+	case ASSET_MODEL:
+	case ASSET_BODY:
+	case ASSET_HEAD:
+		return 1;
+	default:
+		return 0;
     }
 }
 
@@ -617,6 +616,7 @@ static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type)
         || type == ASSET_MUSIC
         || type == ASSET_UI
         || type == ASSET_TOOL
+        || type == ASSET_PROP
         || type == ASSET_VEHICLE
         || type == ASSET_MISSION
         || type == ASSET_HUD
@@ -1013,6 +1013,14 @@ static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
         return s_catalogLoadEntryModelPayload(entry, handle);
     }
 
+    if (s_catalogTypeUsesAudioRuntimePayload(entry->type)) {
+        return s_catalogLoadEntryAudioPayload(entry, handle);
+    }
+
+    if (entry->type == ASSET_TEXTURE) {
+        return s_catalogLoadEntryTexturePayload(entry, handle);
+    }
+
     if (entry->bundled || entry->ref_count == ASSET_REF_BUNDLED) {
         sysLogPrintf(LOG_NOTE, "CATALOG: retain bundled '%s'", entry->id);
         return 1;
@@ -1042,10 +1050,6 @@ static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
         return s_catalogLoadEntryLangPayload(entry);
     }
 
-    if (s_catalogTypeUsesAudioRuntimePayload(entry->type)) {
-        return s_catalogLoadEntryAudioPayload(entry, handle);
-    }
-
     if (entry->type == ASSET_ANIMATION) {
         s32 animation_payload = s_catalogLoadEntryAnimationPayload(entry);
         if (animation_payload != 0) {
@@ -1055,10 +1059,6 @@ static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
 
     if (s_catalogTypeUsesMetadataRuntimePayload(entry->type)) {
         return s_catalogLoadEntryMetadataPayload(entry);
-    }
-
-    if (entry->type == ASSET_TEXTURE) {
-        return s_catalogLoadEntryTexturePayload(entry, handle);
     }
 
     if (expected_type != ASSET_NONE) {

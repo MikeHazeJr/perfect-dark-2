@@ -1,0 +1,15 @@
+path_ref	flags	pads
+path_0000	0x00	pad_0211;pad_0212;pad_0217;pad_0214;pad_0215;pad_0054;pad_0215;pad_0214;pad_0217;pad_0212;pad_0211
+path_0001	0x00	pad_0218;pad_0215;pad_0215;pad_0214;pad_0217;pad_0213;pad_0212;pad_0219;pad_0222;pad_0211
+path_0002	0x00	pad_0164;pad_0164;pad_0164;pad_0164;pad_0164
+path_0003	0x00	pad_0227
+path_0004	0x00	pad_0163;pad_0163;pad_0163;pad_0163;pad_0163
+path_0005	0x00	pad_0232
+path_0006	0x00	pad_0234;pad_0234;pad_0234;pad_0232
+path_0007	0x00	pad_0097;pad_0096;pad_0101;pad_0095;pad_0094;pad_0093;pad_0094;pad_0095;pad_0101;pad_0096
+path_0008	0x00	pad_0056;pad_0046;pad_0012;pad_0046;pad_0056;pad_0055
+path_0009	0x00	pad_0051;pad_0053;pad_0052;pad_0045;pad_0040;pad_0042;pad_0029;pad_0042;pad_0040;pad_0045;pad_0052;pad_0053
+path_0010	0x00	pad_0071;pad_0070;pad_0071
+path_0011	0x00	pad_0052;pad_0067;pad_0065;pad_0081;pad_0065;pad_0067;pad_0052
+path_0012	0x00	pad_0097;pad_0096;pad_0102;pad_0098;pad_0099;pad_0100;pad_0099;pad_0098;pad_0102;pad_0096
+path_0013	0x00	pad_0218;pad_0215;pad_0215;pad_0214;pad_0217;pad_0213;pad_0212;pad_0219;pad_0222;pad_0211

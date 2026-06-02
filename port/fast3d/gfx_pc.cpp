@@ -64,6 +64,8 @@ uintptr_t gfxFramebuffer;
 #define C0(pos, width) ((cmd->words.w0 >> (pos)) & ((1U << width) - 1))
 #define C1(pos, width) ((cmd->words.w1 >> (pos)) & ((1U << width) - 1))
 
+static void gfx_normalize_legacy_texture_tuple(uint8_t* fmt, uint8_t* siz);
+
 struct RGBA {
     uint8_t r, g, b, a;
 };
@@ -141,6 +143,7 @@ static struct RSP {
  * Mode 0 = off, 1 = tint rendered geo, 2 = collision mesh only (suppress game rendering) */
 extern "C" int meshDebugGetMode(void);
 extern "C" void meshDebugRenderCollisionMesh(float vp[4][4], int width, int height);
+extern "C" void scenarioSceneRendererRender(float vp[4][4], int width, int height);
 static int s_meshDebugModeCache = 0;
 static float s_vpMatrix[4][4]; /* View-Projection matrix for collision mesh rendering */
 
@@ -924,6 +927,27 @@ static void skinCaptureObserveCandidate(uint32_t texId, int width, int height, i
     c->area = area;
 }
 
+static bool import_texture_has_valid_dimensions(int tile, const LoadedTexture& loaded_texture) {
+    if (loaded_texture.size_bytes != 0 &&
+        loaded_texture.line_size_bytes != 0 &&
+        rdp.texture_tile[tile].line_size_bytes != 0) {
+        return true;
+    }
+
+    sysLogPrintf(LOG_WARNING,
+        "FAST3D.TEXTURE: zero-sized texture import skipped tile=%d fmt=%u siz=%u "
+        "loaded_size=%u loaded_line=%u tile_line=%u",
+        tile,
+        (unsigned)rdp.texture_tile[tile].fmt,
+        (unsigned)rdp.texture_tile[tile].siz,
+        (unsigned)loaded_texture.size_bytes,
+        (unsigned)loaded_texture.line_size_bytes,
+        (unsigned)rdp.texture_tile[tile].line_size_bytes);
+    memset(tex_upload_buffer, 0, 4);
+    gfx_rapi->upload_texture(tex_upload_buffer, 1, 1);
+    return false;
+}
+
 static void import_texture(int i, int tile, bool importReplacement) {
     /* Skin capture check: if capture mode is active during the preview FBO
      * pass, record the first imported texture as the capture source and let
@@ -933,9 +957,10 @@ static void import_texture(int i, int tile, bool importReplacement) {
         /* Ensure texture cache resolves/allocates the GL texture object so we
          * can read it back later even when this import is a cache hit. */
         const LoadedTexture& loaded_texture = rdp.loaded_texture[rdp.texture_tile[tile].tmem];
-        const uint8_t fmt = rdp.texture_tile[tile].fmt;
-        const uint8_t siz = rdp.texture_tile[tile].siz;
+        uint8_t fmt = rdp.texture_tile[tile].fmt;
+        uint8_t siz = rdp.texture_tile[tile].siz;
         const uint8_t palette_index = rdp.texture_tile[tile].palette;
+        gfx_normalize_legacy_texture_tuple(&fmt, &siz);
         const uint8_t* orig_addr = loaded_texture.addr;
         if (orig_addr) {
             TextureCacheKey key;
@@ -973,10 +998,11 @@ static void import_texture(int i, int tile, bool importReplacement) {
     }
 
     LoadedTexture& loaded_texture = rdp.loaded_texture[rdp.texture_tile[tile].tmem];
-    const uint8_t fmt = rdp.texture_tile[tile].fmt;
-    const uint8_t siz = rdp.texture_tile[tile].siz;
+    uint8_t fmt = rdp.texture_tile[tile].fmt;
+    uint8_t siz = rdp.texture_tile[tile].siz;
     const uint32_t tex_flags = loaded_texture.tex_flags;
     const uint8_t palette_index = rdp.texture_tile[tile].palette;
+    gfx_normalize_legacy_texture_tuple(&fmt, &siz);
 
     if ((rdp.tex_lod && tile >= rdp.first_tile_index + rdp.tex_detail) || !loaded_texture.addr) {
         // set up miplevel 0; also acts as a catch-all for when .addr is NULL because my texture loader sucks
@@ -1005,6 +1031,10 @@ static void import_texture(int i, int tile, bool importReplacement) {
     }
 
     if (gfx_texture_cache_lookup(i, key)) {
+        return;
+    }
+
+    if (!import_texture_has_valid_dimensions(tile, loaded_texture)) {
         return;
     }
 
@@ -1961,6 +1991,17 @@ static void gfx_dp_set_texture_image(uint32_t format, uint32_t size, uint32_t wi
     rdp.texture_to_load.tex_flags = tex_flags;
 }
 
+static void gfx_normalize_legacy_texture_tuple(uint8_t* fmt, uint8_t* siz) {
+    if (*fmt == G_IM_FMT_RGBA && *siz < G_IM_SIZ_16b) {
+        // Some display lists declare CI4/CI8 data as RGBA with an RGBA16 palette.
+        *fmt = G_IM_FMT_CI;
+    } else if (*fmt == G_IM_FMT_IA && *siz == G_IM_SIZ_32b) {
+        // Some display lists declare I8 data through this IA32 tuple.
+        *fmt = G_IM_FMT_I;
+        *siz = G_IM_SIZ_8b;
+    }
+}
+
 static void gfx_dp_set_tile(uint8_t fmt, uint32_t siz, uint32_t line, uint32_t tmem, uint8_t tile, uint32_t palette,
                             uint32_t cmt, uint32_t maskt, uint32_t shiftt, uint32_t cms, uint32_t masks,
                             uint32_t shifts) {
@@ -1974,14 +2015,9 @@ static void gfx_dp_set_tile(uint8_t fmt, uint32_t siz, uint32_t line, uint32_t t
         cmt = G_TX_CLAMP;
     }
 
-    if (fmt == G_IM_FMT_RGBA && siz < G_IM_SIZ_16b) {
-        // HACK: sometimes the game will submit G_IM_FMT_RGBA, G_IM_SIZ_8b/4b, intending it to read as CI8/CI4 with RGBA16 palette
-        fmt = G_IM_FMT_CI;
-    } else if (fmt == G_IM_FMT_IA && siz == G_IM_SIZ_32b) {
-        // HACK: ... and sometimes it submits this, apparently intending it to be I8
-        fmt = G_IM_FMT_I;
-        siz = G_IM_SIZ_8b;
-    }
+    uint8_t siz8 = (uint8_t)siz;
+    gfx_normalize_legacy_texture_tuple(&fmt, &siz8);
+    siz = siz8;
 
     rdp.texture_tile[tile].palette = palette; // palette should set upper 4 bits of color index in 4b mode
     rdp.texture_tile[tile].fmt = fmt;
@@ -2964,6 +3000,10 @@ extern "C" void gfx_run(Gfx* commands) {
      * VP = modelview[0] (view matrix) x P_matrix (projection).
      * This transforms world-space coordinates to clip space. */
     gfx_matrix_mul(s_vpMatrix, rsp.modelview_matrix_stack[0], rsp.P_matrix);
+
+    scenarioSceneRendererRender(s_vpMatrix,
+        gfx_current_window_dimensions.width,
+        gfx_current_window_dimensions.height);
 
     gfx_rapi->end_frame();
 

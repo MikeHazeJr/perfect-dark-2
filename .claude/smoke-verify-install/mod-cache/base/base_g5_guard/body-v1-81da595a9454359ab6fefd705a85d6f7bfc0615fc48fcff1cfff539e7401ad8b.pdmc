@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:g5_guard",
+  "mod_id": "base",
+  "kind": "body",
+  "source": "data/ntsc-final/bodies/base_g5_guard.pdbody::mesh.pdmesh::model.obj",
+  "source_size": 144720,
+  "source_sha256": "81da595a9454359ab6fefd705a85d6f7bfc0615fc48fcff1cfff539e7401ad8b",
+  "validation": "format=obj vertices=2124 triangles=708",
+  "normalized": "$S/mod-cache/base/base_g5_guard/body-v1-81da595a9454359ab6fefd705a85d6f7bfc0615fc48fcff1cfff539e7401ad8b.pdmodel.json",
+  "vertex_count": 2124,
+  "triangle_count": 708,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

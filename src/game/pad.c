@@ -8,6 +8,7 @@
 
 struct padsfileheader *g_PadsFile;
 u16 *g_PadOffsets;
+u32 *g_PadOffsets32;
 u32 var800a2358;
 u32 var800a235c;
 u16 *g_CoverFlags;
@@ -16,9 +17,23 @@ struct covercandidate *g_CoverCandidates;
 u16 g_NumSpecialCovers;
 u16 *g_SpecialCoverNums;
 
+void padSetWideOffsets(u32 *offsets)
+{
+	g_PadOffsets32 = offsets;
+}
+
+u32 padGetPackedOffset(s32 padnum)
+{
+	if (g_PadOffsets32) {
+		return g_PadOffsets32[padnum];
+	}
+
+	return g_PadOffsets ? g_PadOffsets[padnum] : 0;
+}
+
 void padUnpack(s32 padnum, u32 fields, struct pad *pad)
 {
-	s32 offset;
+	u32 offset;
 	u32 *header;
 	f32 *fbuffer;
 	u8 *ptr;
@@ -32,7 +47,7 @@ void padUnpack(s32 padnum, u32 fields, struct pad *pad)
 		return;
 	}
 
-	offset = g_PadOffsets[padnum];
+	offset = padGetPackedOffset(padnum);
 	ptr = (u8 *) &g_StageSetup.padfiledata[offset];
 	header = (u32 *) ptr;
 
@@ -155,7 +170,7 @@ void padUnpack(s32 padnum, u32 fields, struct pad *pad)
 
 bool padHasBboxData(s32 padnum)
 {
-	u32 offset = g_PadOffsets[padnum];
+	u32 offset = padGetPackedOffset(padnum);
 	u32 *header = (u32 *)&g_StageSetup.padfiledata[offset];
 
 	return ((*header >> 14) & PADFLAG_HASBBOXDATA) != 0;
@@ -199,9 +214,9 @@ void padRotateForDoor(s32 padnum)
 	struct coord *look;
 	struct coord *up;
 	f32 scale;
-	s32 offset;
+	u32 offset;
 
-	offset = g_PadOffsets[padnum];
+	offset = padGetPackedOffset(padnum);
 	ptr = (u32 *) &g_StageSetup.padfiledata[offset];
 	header = ptr;
 
@@ -240,7 +255,7 @@ void padRotateForDoor(s32 padnum)
 
 void padCopyBboxFromPad(s32 padnum, struct pad *src)
 {
-	u32 offset = g_PadOffsets[padnum];
+	u32 offset = padGetPackedOffset(padnum);
 	f32 *fbuffer = (f32 *)&g_StageSetup.padfiledata[offset];
 	u32 *header = (u32 *)fbuffer;
 
@@ -272,7 +287,7 @@ void padCopyBboxFromPad(s32 padnum, struct pad *src)
 
 void padSetFlag(s32 padnum, u32 flag)
 {
-	u32 offset = g_PadOffsets[padnum];
+	u32 offset = padGetPackedOffset(padnum);
 	u32 *header = (u32 *)&g_StageSetup.padfiledata[offset];
 
 	*header = *header ^ ((*header >> 14) ^ ((*header >> 14) | flag)) << 14;
@@ -280,7 +295,7 @@ void padSetFlag(s32 padnum, u32 flag)
 
 void padUnsetFlag(s32 padnum, u32 flag)
 {
-	u32 offset = g_PadOffsets[padnum];
+	u32 offset = padGetPackedOffset(padnum);
 	u32 *header = (u32 *)&g_StageSetup.padfiledata[offset];
 
 	*header = *header ^ ((*header >> 14) ^ ((*header >> 14) & ~flag)) << 14;

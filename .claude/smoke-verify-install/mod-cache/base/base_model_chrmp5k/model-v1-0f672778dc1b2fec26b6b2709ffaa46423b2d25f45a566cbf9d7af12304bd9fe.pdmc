@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_chrmp5k",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrmp5k.pdmesh::model.obj",
+  "source_size": 9625,
+  "source_sha256": "0f672778dc1b2fec26b6b2709ffaa46423b2d25f45a566cbf9d7af12304bd9fe",
+  "validation": "format=obj vertices=150 triangles=50",
+  "normalized": "$S/mod-cache/base/base_model_chrmp5k/model-v1-0f672778dc1b2fec26b6b2709ffaa46423b2d25f45a566cbf9d7af12304bd9fe.pdmodel.json",
+  "vertex_count": 150,
+  "triangle_count": 50,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

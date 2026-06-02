@@ -43,8 +43,8 @@
 #include "weapondata_authored.h"
 #include "animdata_authored.h"
 
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v12"
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v12_clean_public"
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v13"
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v13_clean_public"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -275,6 +275,11 @@ static void jw_field_lang_or_int(jw_t *w, const char *key, s32 val, s32 last)
 
 static void jw_field_sfx_or_int(jw_t *w, const char *key, s32 val, s32 last)
 {
+	if (val <= 0) {
+		jw_field_int(w, key, 0, last);
+		return;
+	}
+
 	const char *name = loaderEnumNameForSfxEnum(val);
 	if (name) jw_field_str(w, key, name, last);
 	else      jw_field_int(w, key, val, last);
@@ -776,11 +781,7 @@ static void s_emitWeaponFunc(jw_t *w, const void *func_ptr, s32 last)
 		jw_field_f32(w, "slidemax",    sh->slidemax, 0);
 		jw_field_f32(w, "impactforce", sh->impactforce, 0);
 		jw_field_uint(w, "duration60", sh->duration60, 0);
-		/* Q-2 type-tolerance: shootsound accepts any audio kind.
-		 * Step 1 emits SFX_* enum string (matches the source data). */
-		const char *sfx = loaderEnumNameForSfxEnum(sh->shootsound);
-		if (sfx) jw_field_str(w, "shootsound", sfx, 0);
-		else     jw_field_int(w, "shootsound", sh->shootsound, 0);
+		jw_field_sfx_or_int(w, "shootsound", sh->shootsound, 0);
 		jw_field_uint(w, "penetration", sh->penetration, 1);
 		break;
 	}
@@ -801,9 +802,7 @@ static void s_emitWeaponFunc(jw_t *w, const void *func_ptr, s32 last)
 		jw_field_f32(w, "slidemax",    sh->slidemax, 0);
 		jw_field_f32(w, "impactforce", sh->impactforce, 0);
 		jw_field_uint(w, "duration60", sh->duration60, 0);
-		const char *sfx = loaderEnumNameForSfxEnum(sh->shootsound);
-		if (sfx) jw_field_str(w, "shootsound", sfx, 0);
-		else     jw_field_int(w, "shootsound", sh->shootsound, 0);
+		jw_field_sfx_or_int(w, "shootsound", sh->shootsound, 0);
 		jw_field_uint(w, "penetration", sh->penetration, 0);
 		jw_field_f32(w, "initialrpm", sa->initialrpm, 0);
 		jw_field_f32(w, "maxrpm",     sa->maxrpm, 0);
@@ -824,9 +823,7 @@ static void s_emitWeaponFunc(jw_t *w, const void *func_ptr, s32 last)
 		jw_field_f32(w, "slidemax",    sh->slidemax, 0);
 		jw_field_f32(w, "impactforce", sh->impactforce, 0);
 		jw_field_uint(w, "duration60", sh->duration60, 0);
-		const char *sfx = loaderEnumNameForSfxEnum(sh->shootsound);
-		if (sfx) jw_field_str(w, "shootsound", sfx, 0);
-		else     jw_field_int(w, "shootsound", sh->shootsound, 0);
+		jw_field_sfx_or_int(w, "shootsound", sh->shootsound, 0);
 		jw_field_uint(w, "penetration", sh->penetration, 0);
 		jw_field_int(w, "projectilemodelnum", sp->projectilemodelnum, 0);
 		jw_field_f32(w, "scale", sp->scale, 0);

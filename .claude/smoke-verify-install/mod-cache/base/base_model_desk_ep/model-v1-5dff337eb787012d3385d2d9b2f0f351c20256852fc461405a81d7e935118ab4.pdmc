@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_desk_ep",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_desk_ep.pdmesh::model.obj",
+  "source_size": 3989,
+  "source_sha256": "5dff337eb787012d3385d2d9b2f0f351c20256852fc461405a81d7e935118ab4",
+  "validation": "format=obj vertices=60 triangles=20",
+  "normalized": "$B/mod-cache/base/base_model_desk_ep/model-v1-5dff337eb787012d3385d2d9b2f0f351c20256852fc461405a81d7e935118ab4.pdmodel.json",
+  "vertex_count": 60,
+  "triangle_count": 20,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

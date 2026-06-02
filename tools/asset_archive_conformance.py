@@ -14,6 +14,7 @@ import csv
 import fnmatch
 import json
 import re
+import struct
 import sys
 import zipfile
 from dataclasses import dataclass, field
@@ -90,6 +91,10 @@ ROOT_METADATA = {
     "hashes.tsv",
 }
 
+SCENARIO_GRAPH_CACHE_KIND = (
+    "pdscenario_scene_glb_clean_public_v77_standalone_backfill_collision_obj_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_quip_shuffle_graph_portals"
+)
+
 FORBIDDEN_COMMON_EXACT = {
     "data.bin",
     "geometry.bin",
@@ -163,6 +168,7 @@ SCENARIO_SPAWNS_HEADER = (
     "spawn_id\tpad_ref\troom_ref\tteam\tprofile\tpos_x\tpos_y\tpos_z\t"
     "look_x\tlook_y\tlook_z"
 )
+SCENARIO_PORTALS_HEADER = "portal_id\troom_a\troom_b\tflags\tvertices"
 
 MISSION_OBJECTIVES_HEADER = [
     "objective_id",
@@ -516,6 +522,7 @@ SCHEMAS: dict[str, Schema] = {
     ".pdscenario": schema(
         required=[
             "scenario.ini",
+            "portals.tsv",
             "pads.tsv",
             "spawns.tsv",
             "volumes.tsv",
@@ -537,6 +544,7 @@ SCHEMAS: dict[str, Schema] = {
             "scene.gltf",
             "collision.glb",
             "collision.obj",
+            "portals.tsv",
             "pads.tsv",
             "spawns.tsv",
             "volumes.tsv",
@@ -1157,6 +1165,215 @@ def public_entry_has_contract(name: str, ext: str, spec: Schema) -> bool:
     return False
 
 
+def _glb_json_and_bin(data: bytes) -> tuple[dict[str, object], bytes]:
+    if len(data) < 20 or data[:4] != b"glTF":
+        raise ValueError("not a glTF binary")
+    version, total_length = struct.unpack_from("<II", data, 4)
+    if version != 2:
+        raise ValueError(f"unsupported glTF binary version {version}")
+    if total_length != len(data):
+        raise ValueError("glTF binary length header does not match archive entry")
+
+    offset = 12
+    gltf_json: dict[str, object] | None = None
+    bin_chunk = b""
+
+    while offset + 8 <= len(data):
+        chunk_length, chunk_type = struct.unpack_from("<II", data, offset)
+        offset += 8
+        chunk = data[offset:offset + chunk_length]
+        offset += chunk_length
+
+        if chunk_type == 0x4e4f534a:
+            gltf_json = json.loads(chunk.decode("utf-8").rstrip("\0 "))
+        elif chunk_type == 0x004e4942:
+            bin_chunk = chunk
+
+    if gltf_json is None:
+        raise ValueError("missing glTF JSON chunk")
+    return gltf_json, bin_chunk
+
+
+def _gltf_accessor_float2_values(gltf_json: dict[str, object], bin_chunk: bytes,
+                                 accessor_index: int) -> list[tuple[float, float]]:
+    accessors = gltf_json.get("accessors")
+    buffer_views = gltf_json.get("bufferViews")
+    if not isinstance(accessors, list) or not isinstance(buffer_views, list):
+        raise ValueError("missing glTF accessors or bufferViews")
+    if accessor_index < 0 or accessor_index >= len(accessors):
+        raise ValueError(f"TEXCOORD_0 accessor index {accessor_index} out of range")
+
+    accessor = accessors[accessor_index]
+    if not isinstance(accessor, dict):
+        raise ValueError(f"TEXCOORD_0 accessor {accessor_index} is not an object")
+    if accessor.get("componentType") != 5126 or accessor.get("type") != "VEC2":
+        raise ValueError(
+            f"TEXCOORD_0 accessor {accessor_index} must be FLOAT VEC2"
+        )
+
+    view_index = accessor.get("bufferView")
+    if not isinstance(view_index, int) or view_index < 0 or view_index >= len(buffer_views):
+        raise ValueError(f"TEXCOORD_0 accessor {accessor_index} has invalid bufferView")
+    buffer_view = buffer_views[view_index]
+    if not isinstance(buffer_view, dict):
+        raise ValueError(f"TEXCOORD_0 bufferView {view_index} is not an object")
+    if buffer_view.get("buffer", 0) != 0:
+        raise ValueError(f"TEXCOORD_0 bufferView {view_index} must use GLB buffer 0")
+
+    count = accessor.get("count")
+    if not isinstance(count, int) or count < 0:
+        raise ValueError(f"TEXCOORD_0 accessor {accessor_index} has invalid count")
+
+    stride = buffer_view.get("byteStride", 8)
+    if not isinstance(stride, int) or stride < 8:
+        raise ValueError(f"TEXCOORD_0 bufferView {view_index} has invalid stride")
+
+    start = int(buffer_view.get("byteOffset", 0)) + int(accessor.get("byteOffset", 0))
+    values: list[tuple[float, float]] = []
+
+    for i in range(count):
+        pos = start + i * stride
+        if pos + 8 > len(bin_chunk):
+            raise ValueError(f"TEXCOORD_0 accessor {accessor_index} overruns BIN chunk")
+        values.append(struct.unpack_from("<ff", bin_chunk, pos))
+
+    return values
+
+
+def validate_scene_glb_texture_contract(label: str, data: bytes,
+                                        errors: list[str]) -> None:
+    """Catch stale or malformed scene.glb UV exports before DCC visual QA."""
+    try:
+        gltf_json, bin_chunk = _glb_json_and_bin(data)
+    except (ValueError, json.JSONDecodeError, struct.error) as exc:
+        errors.append(f"{label} scene.glb is not a valid glTF 2.0 binary: {exc}")
+        return
+
+    asset = gltf_json.get("asset")
+    generator = asset.get("generator", "") if isinstance(asset, dict) else ""
+    if (isinstance(generator, str)
+            and generator.startswith("Perfect Dark 2 PDSCENARIO scene.glb exporter")
+            and "bg_visual_scene_glb_v7_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound" not in generator):
+        errors.append(
+            f"{label} scene.glb uses stale scenario GLB exporter stamp {generator!r}"
+        )
+    generated_pd_scenario = (
+        isinstance(generator, str)
+        and generator.startswith("Perfect Dark 2 PDSCENARIO scene.glb exporter")
+    )
+
+    texcoord_accessors: set[int] = set()
+    runtime_texcoord_accessors: set[int] = set()
+    meshes = gltf_json.get("meshes", [])
+    if isinstance(meshes, list):
+        for mesh in meshes:
+            if not isinstance(mesh, dict):
+                continue
+            primitives = mesh.get("primitives", [])
+            if not isinstance(primitives, list):
+                continue
+            for primitive in primitives:
+                if not isinstance(primitive, dict):
+                    continue
+                attributes = primitive.get("attributes", {})
+                if not isinstance(attributes, dict):
+                    continue
+                texcoord = attributes.get("TEXCOORD_0")
+                if isinstance(texcoord, int):
+                    texcoord_accessors.add(texcoord)
+                runtime_texcoord = attributes.get("TEXCOORD_1")
+                if isinstance(runtime_texcoord, int):
+                    runtime_texcoord_accessors.add(runtime_texcoord)
+
+    if not texcoord_accessors:
+        return
+
+    min_uv = 0.0
+    max_uv = 0.0
+    max_abs_uv = 0.0
+    saw_uv = False
+    for accessor_index in sorted(texcoord_accessors):
+        try:
+            values = _gltf_accessor_float2_values(gltf_json, bin_chunk, accessor_index)
+        except (ValueError, struct.error) as exc:
+            errors.append(f"{label} scene.glb has invalid TEXCOORD_0 data: {exc}")
+            continue
+        for u, v in values:
+            if not saw_uv:
+                min_uv = min(u, v)
+                max_uv = max(u, v)
+                saw_uv = True
+            else:
+                min_uv = min(min_uv, u, v)
+                max_uv = max(max_uv, u, v)
+            max_abs_uv = max(max_abs_uv, abs(u), abs(v))
+
+    if generated_pd_scenario and not runtime_texcoord_accessors:
+        errors.append(
+            f"{label} scene.glb is missing TEXCOORD_1 runtime UVs for "
+            "renderer-parity texture repeats"
+        )
+
+    if generated_pd_scenario:
+        textures = gltf_json.get("textures", [])
+        materials = gltf_json.get("materials", [])
+        texture_count = len(textures) if isinstance(textures, list) else 0
+        if isinstance(materials, list):
+            for index, material in enumerate(materials):
+                if not isinstance(material, dict):
+                    continue
+                pbr = material.get("pbrMetallicRoughness", {})
+                if not isinstance(pbr, dict):
+                    continue
+                base_color = pbr.get("baseColorTexture")
+                if not isinstance(base_color, dict):
+                    continue
+                texture_index = base_color.get("index")
+                if not isinstance(texture_index, int):
+                    errors.append(
+                        f"{label} scene.glb material {index} baseColorTexture "
+                        "must reference a texture index"
+                    )
+                    continue
+                if texture_index < 0 or texture_index >= texture_count:
+                    errors.append(
+                        f"{label} scene.glb material {index} baseColorTexture "
+                        f"index {texture_index} is out of range"
+                    )
+                texcoord = base_color.get("texCoord", 0)
+                if texcoord != 0:
+                    errors.append(
+                        f"{label} scene.glb material {index} baseColorTexture "
+                        f"uses texCoord {texcoord}; generated DCC previews must "
+                        "bind visible textures to TEXCOORD_0, not runtime repeat UVs"
+                    )
+
+    max_abs_runtime_uv = 0.0
+    for accessor_index in sorted(runtime_texcoord_accessors):
+        try:
+            values = _gltf_accessor_float2_values(gltf_json, bin_chunk, accessor_index)
+        except (ValueError, struct.error) as exc:
+            errors.append(f"{label} scene.glb has invalid TEXCOORD_1 data: {exc}")
+            continue
+        for u, v in values:
+            max_abs_runtime_uv = max(max_abs_runtime_uv, abs(u), abs(v))
+
+    if generated_pd_scenario and (min_uv < -0.01 or max_uv > 1.01):
+        errors.append(
+            f"{label} scene.glb TEXCOORD_0 range {min_uv:.3f}..{max_uv:.3f} "
+            f"(max abs {max_abs_uv:.3f}) exceeds the DCC-authoring UV range; "
+            "Blender/3DS Max would show tiny tiled textures instead of the "
+            "user-editable scene scale"
+        )
+
+    if max_abs_runtime_uv > 256.0:
+        errors.append(
+            f"{label} scene.glb TEXCOORD_1 max abs {max_abs_runtime_uv:.3f} exceeds "
+            "the bounded repeat range; this usually means stale unnormalized N64 "
+            "texture coordinates that appear as tiny tiled textures in Blender/3DS Max"
+        )
+
+
 def meta_entry_allowed(name: str, ext: str, public: set[str]) -> bool:
     if name in COMMON_META_SLOT_CONTRACT:
         return True
@@ -1692,12 +1909,21 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                 manifest_text = zf.read("_meta/manifest.json").decode(
                     "utf-8", errors="replace"
                 )
+                if ext == ".pdweapon" and '"SFX_0000"' in manifest_text:
+                    result.errors.append(
+                        f"{label} _meta/manifest.json contains SFX_0000; "
+                        "serialize zero/no-sound weapon shootsound as 0 or null"
+                    )
                 validate_manifest_dependency_refs(
                     label, manifest_text, active_catalog_ids, result.errors
                 )
 
             if ext == ".pdscenario" and descriptor in name_set:
                 text = zf.read(descriptor).decode("utf-8", errors="replace")
+                if "scene.glb" in name_set:
+                    validate_scene_glb_texture_contract(
+                        label, zf.read("scene.glb"), result.errors
+                    )
                 if "scene_file = scene.glb" not in text and "scene_file = scene.gltf" not in text:
                     result.errors.append(
                         f"{label} scenario.ini must declare scene_file = scene.glb or scene.gltf"
@@ -1718,10 +1944,23 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                     result.errors.append(
                         f"{label} scenario.ini must declare paths_file = navigation/paths.tsv"
                     )
+                if "portals_file = portals.tsv" not in text:
+                    result.errors.append(
+                        f"{label} scenario.ini must declare portals_file = portals.tsv"
+                    )
                 for stale_key in ("setup_file", "mpsetup_file", "rooms_file", "geometry_file", "visual_scene_file"):
                     if stale_key in text:
                         result.errors.append(
                             f"{label} scenario.ini still declares {stale_key}; use scene/native tables/graphs"
+                        )
+                if "portals.tsv" in name_set:
+                    portals_text = zf.read("portals.tsv").decode(
+                        "utf-8", errors="replace"
+                    )
+                    first_line = portals_text.splitlines()[0] if portals_text.splitlines() else ""
+                    if first_line != SCENARIO_PORTALS_HEADER:
+                        result.errors.append(
+                            f"{label} portals.tsv must use the definitive portal source header"
                         )
                 if "objectives.tsv" in name_set:
                     objectives_text = zf.read("objectives.tsv").decode(
@@ -1787,6 +2026,10 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         result.errors.append(
                             f"{label} level.graph.json must bind paths table to navigation/paths.tsv"
                         )
+                    if not isinstance(tables, dict) or tables.get("portals") != "portals.tsv":
+                        result.errors.append(
+                            f"{label} level.graph.json must bind portals table to portals.tsv"
+                        )
                     if not isinstance(nodes, list) or not nodes:
                         result.errors.append(
                             f"{label} level.graph.json must contain executable scenario graph nodes"
@@ -1799,15 +2042,430 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         ]
                         for required_kind, description in {
                             "scenario.global.settings.source": "global settings",
+                            "scenario.portals.source": "portal source",
                             "scenario.pads.source": "pad source",
                             "scenario.ai.lists.source": "AI list source",
                             "scenario.navigation.paths.source": "navigation path source",
+                            "scenario.ai.action.set_list": "AI set_list action",
+                            "scenario.ai.action.set_return_list": "AI set_return_list action",
+                            "scenario.ai.action.set_shot_list": "AI set_shot_list action",
+                            "scenario.ai.action.return_list": "AI return_list action",
+                            "scenario.ai.action.stop": "AI stop action",
+                            "scenario.ai.action.kneel": "AI kneel action",
+                            "scenario.ai.action.surrender": "AI surrender action",
+                            "scenario.ai.action.fade_out": "AI fade_out action",
+                            "scenario.ai.action.remove_chr": "AI remove_chr action",
+                            "scenario.ai.action.try_sidestep": "AI try_sidestep action",
+                            "scenario.ai.action.try_jump_out": "AI try_jump_out action",
+                            "scenario.ai.action.try_run_sideways": "AI try_run_sideways action",
+                            "scenario.ai.action.try_attack_walk": "AI try_attack_walk action",
+                            "scenario.ai.action.try_attack_run": "AI try_attack_run action",
+                            "scenario.ai.action.try_attack_roll": "AI try_attack_roll action",
+                            "scenario.ai.action.try_attack_stand": "AI try_attack_stand action",
+                            "scenario.ai.action.try_attack_kneel": "AI try_attack_kneel action",
+                            "scenario.ai.action.try_attack_lie": "AI try_attack_lie action",
+                            "scenario.ai.condition.if_attack_locked": "AI if_attack_locked condition",
+                            "scenario.ai.condition.if_attacking": "AI if_attacking condition",
+                            "scenario.ai.action.try_modify_attack": "AI try_modify_attack action",
+                            "scenario.ai.action.face_entity": "AI face_entity action",
+                            "scenario.ai.action.apply_gset_damage": "AI apply_gset_damage action",
+                            "scenario.ai.action.chr_damage_chr": "AI chr_damage_chr action",
+                            "scenario.ai.condition.consider_grenade_throw": "AI consider_grenade_throw condition",
+                            "scenario.ai.action.drop_item": "AI drop_item action",
+                            "scenario.ai.action.try_run_from_target": "AI try_run_from_target action",
+                            "scenario.ai.action.try_jog_to_target_prop": "AI try_jog_to_target_prop action",
+                            "scenario.ai.action.try_walk_to_target_prop": "AI try_walk_to_target_prop action",
+                            "scenario.ai.action.try_run_to_target_prop": "AI try_run_to_target_prop action",
+                            "scenario.ai.action.try_go_to_cover_prop": "AI try_go_to_cover_prop action",
+                            "scenario.ai.action.try_jog_to_chr": "AI try_jog_to_chr action",
+                            "scenario.ai.action.try_walk_to_chr": "AI try_walk_to_chr action",
+                            "scenario.ai.action.try_run_to_chr": "AI try_run_to_chr action",
+                            "scenario.ai.condition.if_can_hear_alarm": "AI if_can_hear_alarm condition",
+                            "scenario.ai.condition.if_patrolling": "AI if_patrolling condition",
+                            "scenario.ai.condition.if_alarm_active": "AI if_alarm_active condition",
+                            "scenario.ai.condition.if_gas_active": "AI if_gas_active condition",
+                            "scenario.ai.condition.if_hears_target": "AI if_hears_target condition",
+                            "scenario.ai.condition.if_saw_injury": "AI if_saw_injury condition",
+                            "scenario.ai.condition.if_saw_death": "AI if_saw_death condition",
+                            "scenario.ai.condition.if_los_to_target": "AI if_los_to_target condition",
+                            "scenario.ai.condition.if_los_to_attack_target": "AI if_los_to_attack_target condition",
+                            "scenario.ai.condition.if_target_nearly_in_sight": "AI if_target_nearly_in_sight condition",
+                            "scenario.ai.condition.if_nearly_in_targets_sight": "AI if_nearly_in_targets_sight condition",
+                            "scenario.ai.action.set_pad_preset_to_pad_on_route_to_target": "AI set_pad_preset_to_pad_on_route_to_target action",
+                            "scenario.ai.condition.if_saw_target_recently": "AI if_saw_target_recently condition",
+                            "scenario.ai.condition.if_heard_target_recently": "AI if_heard_target_recently condition",
+                            "scenario.ai.condition.if_los_to_chr": "AI if_los_to_chr condition",
+                            "scenario.ai.condition.if_never_been_on_screen": "AI if_never_been_on_screen condition",
+                            "scenario.ai.condition.if_on_screen": "AI if_on_screen condition",
+                            "scenario.ai.condition.if_chr_in_on_screen_room": "AI if_chr_in_on_screen_room condition",
+                            "scenario.ai.condition.if_room_is_on_screen": "AI if_room_is_on_screen condition",
+                            "scenario.ai.condition.if_target_aiming_at_me": "AI if_target_aiming_at_me condition",
+                            "scenario.ai.condition.if_near_miss": "AI if_near_miss condition",
+                            "scenario.ai.condition.if_sees_suspicious_item": "AI if_sees_suspicious_item condition",
+                            "scenario.ai.condition.if_target_in_fov_left": "AI if_target_in_fov_left condition",
+                            "scenario.ai.condition.if_check_fov_with_target": "AI if_check_fov_with_target condition",
+                            "scenario.ai.condition.if_target_out_of_fov_left": "AI if_target_out_of_fov_left condition",
+                            "scenario.ai.condition.if_target_in_fov": "AI if_target_in_fov condition",
+                            "scenario.ai.condition.if_target_out_of_fov": "AI if_target_out_of_fov condition",
+                            "scenario.ai.condition.if_distance_to_target_less_than": "AI if_distance_to_target_less_than condition",
+                            "scenario.ai.condition.if_distance_to_target_greater_than": "AI if_distance_to_target_greater_than condition",
+                            "scenario.ai.condition.if_chr_distance_to_pad_less_than": "AI if_chr_distance_to_pad_less_than condition",
+                            "scenario.ai.condition.if_chr_distance_to_pad_greater_than": "AI if_chr_distance_to_pad_greater_than condition",
+                            "scenario.ai.condition.if_distance_to_chr_less_than": "AI if_distance_to_chr_less_than condition",
+                            "scenario.ai.condition.if_distance_to_chr_greater_than": "AI if_distance_to_chr_greater_than condition",
+                            "scenario.ai.condition.if_any_chr_near_self": "AI if_any_chr_near_self condition",
+                            "scenario.ai.condition.if_distance_from_target_to_pad_less_than": "AI if_distance_from_target_to_pad_less_than condition",
+                            "scenario.ai.condition.if_distance_from_target_to_pad_greater_than": "AI if_distance_from_target_to_pad_greater_than condition",
+                            "scenario.ai.condition.if_chr_in_room": "AI if_chr_in_room condition",
+                            "scenario.ai.condition.if_target_in_room": "AI if_target_in_room condition",
+                            "scenario.ai.condition.if_chr_has_object": "AI if_chr_has_object condition",
+                            "scenario.ai.condition.if_weapon_thrown": "AI if_weapon_thrown condition",
+                            "scenario.ai.condition.if_weapon_thrown_on_object": "AI if_weapon_thrown_on_object condition",
+                            "scenario.ai.condition.if_chr_has_weapon_equipped": "AI if_chr_has_weapon_equipped condition",
+                            "scenario.ai.condition.if_gun_unclaimed": "AI if_gun_unclaimed condition",
+                            "scenario.ai.condition.if_object_healthy": "AI if_object_healthy condition",
+                            "scenario.ai.condition.if_chr_activated_object": "AI if_chr_activated_object condition",
+                            "scenario.ai.action.obj_interact": "AI obj_interact action",
+                            "scenario.ai.action.destroy_object": "AI destroy_object action",
+                            "scenario.ai.action.drop_object_from_chr": "AI drop_object_from_chr action",
+                            "scenario.ai.action.chr_drop_items": "AI chr_drop_items action",
+                            "scenario.ai.action.chr_drop_weapon": "AI chr_drop_weapon action",
+                            "scenario.ai.action.give_object_to_chr": "AI give_object_to_chr action",
+                            "scenario.ai.action.object_move_to_pad": "AI object_move_to_pad action",
+                            "scenario.ai.condition.if_waypoint_within_quadrant": "AI if_waypoint_within_quadrant condition",
+                            "scenario.ai.action.set_pad_preset_to_target_quadrant": "AI set_pad_preset_to_target_quadrant action",
+                            "scenario.ai.action.chr_do_animation": "AI chr_do_animation action",
+                            "scenario.ai.action.be_surprised_one_hand": "AI be_surprised_one_hand action",
+                            "scenario.ai.action.be_surprised_look_around": "AI be_surprised_look_around action",
+                            "scenario.ai.action.be_surprised_surrender": "AI be_surprised_surrender action",
+                            "scenario.ai.action.random": "AI random action",
+                            "scenario.ai.condition.if_random_less_than": "AI if_random_less_than condition",
+                            "scenario.ai.condition.if_random_greater_than": "AI if_random_greater_than condition",
+                            "scenario.ai.action.print": "AI print action",
+                            "scenario.ai.action.noop": "AI no-op action",
+                            "scenario.ai.action.set_punch_dodge_list": "AI set_punch_dodge_list action",
+                            "scenario.ai.action.set_shooting_at_me_list": "AI set_shooting_at_me_list action",
+                            "scenario.ai.action.set_dark_room_list": "AI set_dark_room_list action",
+                            "scenario.ai.action.set_player_dead_list": "AI set_player_dead_list action",
                             "scenario.ai.action.jog_to_pad": "AI jog_to_pad action",
                             "scenario.ai.action.go_to_pad_preset": "AI go_to_pad_preset action",
                             "scenario.ai.action.walk_to_pad": "AI walk_to_pad action",
                             "scenario.ai.action.run_to_pad": "AI run_to_pad action",
                             "scenario.ai.action.set_path": "AI set_path action",
                             "scenario.ai.action.start_patrol": "AI start_patrol action",
+                            "scenario.ai.action.try_start_alarm": "AI try_start_alarm action",
+                            "scenario.ai.action.activate_alarm": "AI activate_alarm action",
+                            "scenario.ai.action.deactivate_alarm": "AI deactivate_alarm action",
+                            "scenario.ai.action.set_morale": "AI set_morale action",
+                            "scenario.ai.action.add_morale": "AI add_morale action",
+                            "scenario.ai.action.chr_add_morale": "AI chr_add_morale action",
+                            "scenario.ai.action.subtract_morale": "AI subtract_morale action",
+                            "scenario.ai.action.set_alertness": "AI set_alertness action",
+                            "scenario.ai.action.add_alertness": "AI add_alertness action",
+                            "scenario.ai.action.chr_add_alertness": "AI chr_add_alertness action",
+                            "scenario.ai.action.subtract_alertness": "AI subtract_alertness action",
+                            "scenario.ai.action.increase_squadron_alertness": "AI increase_squadron_alertness action",
+                            "scenario.ai.action.set_hear_distance": "AI set_hear_distance action",
+                            "scenario.ai.action.set_view_distance": "AI set_view_distance action",
+                            "scenario.ai.action.set_grenade_probability": "AI set_grenade_probability action",
+                            "scenario.ai.action.set_chr_num": "AI set_chr_num action",
+                            "scenario.ai.action.set_max_damage": "AI set_max_damage action",
+                            "scenario.ai.action.add_health": "AI add_health action",
+                            "scenario.ai.action.set_shield": "AI set_shield action",
+                            "scenario.ai.action.set_reaction_speed": "AI set_reaction_speed action",
+                            "scenario.ai.action.set_recovery_speed": "AI set_recovery_speed action",
+                            "scenario.ai.action.set_accuracy": "AI set_accuracy action",
+                            "scenario.ai.action.set_dodge_rating": "AI set_dodge_rating action",
+                            "scenario.ai.action.set_unarmed_dodge_rating": "AI set_unarmed_dodge_rating action",
+                            "scenario.ai.action.set_flag": "AI set_flag action",
+                            "scenario.ai.action.unset_flag": "AI unset_flag action",
+                            "scenario.ai.action.if_has_flag": "AI if_has_flag action",
+                            "scenario.ai.action.chr_set_flag": "AI chr_set_flag action",
+                            "scenario.ai.action.chr_unset_flag": "AI chr_unset_flag action",
+                            "scenario.ai.action.if_chr_has_flag": "AI if_chr_has_flag action",
+                            "scenario.ai.action.set_stage_flag": "AI set_stage_flag action",
+                            "scenario.ai.action.unset_stage_flag": "AI unset_stage_flag action",
+                            "scenario.ai.action.if_stage_flag_eq": "AI if_stage_flag_eq action",
+                            "scenario.ai.action.set_chrflag": "AI set_chrflag action",
+                            "scenario.ai.action.unset_chrflag": "AI unset_chrflag action",
+                            "scenario.ai.action.if_has_chrflag": "AI if_has_chrflag action",
+                            "scenario.ai.action.chr_set_chrflag": "AI chr_set_chrflag action",
+                            "scenario.ai.action.chr_unset_chrflag": "AI chr_unset_chrflag action",
+                            "scenario.ai.action.if_chr_has_chrflag": "AI if_chr_has_chrflag action",
+                            "scenario.ai.action.chr_set_hidden_flag": "AI chr_set_hidden_flag action",
+                            "scenario.ai.action.chr_unset_hidden_flag": "AI chr_unset_hidden_flag action",
+                            "scenario.ai.action.if_chr_has_hidden_flag": "AI if_chr_has_hidden_flag action",
+                            "scenario.ai.action.set_obj_flag": "AI set_obj_flag action",
+                            "scenario.ai.action.unset_obj_flag": "AI unset_obj_flag action",
+                            "scenario.ai.action.if_obj_has_flag": "AI if_obj_has_flag action",
+                            "scenario.ai.action.open_door": "AI open_door action",
+                            "scenario.ai.action.close_door": "AI close_door action",
+                            "scenario.ai.action.if_door_state": "AI if_door_state action",
+                            "scenario.ai.action.if_object_is_door": "AI if_object_is_door action",
+                            "scenario.ai.action.lock_door": "AI lock_door action",
+                            "scenario.ai.action.unlock_door": "AI unlock_door action",
+                            "scenario.ai.action.if_door_locked": "AI if_door_locked action",
+                            "scenario.ai.action.if_lift_stationary": "AI if_lift_stationary action",
+                            "scenario.ai.action.lift_go_to_stop": "AI lift_go_to_stop action",
+                            "scenario.ai.action.if_lift_at_stop": "AI if_lift_at_stop action",
+                            "scenario.ai.action.activate_lift": "AI activate_lift action",
+                            "scenario.ai.action.if_using_lift": "AI if_using_lift action",
+                            "scenario.ai.action.configure_rain": "AI configure_rain action",
+                            "scenario.ai.action.configure_snow": "AI configure_snow action",
+                            "scenario.ai.action.switch_to_alt_sky": "AI switch_to_alt_sky action",
+                            "scenario.ai.action.set_wind_speed": "AI set_wind_speed action",
+                            "scenario.ai.action.set_lights": "AI set_lights action",
+                            "scenario.ai.action.set_room_flag": "AI set_room_flag action",
+                            "scenario.ai.action.show_cutscene_chrs": "AI show_cutscene_chrs action",
+                            "scenario.ai.action.configure_environment": "AI configure_environment action",
+                            "scenario.ai.condition.if_distance_to_target2_less_than": "AI if_distance_to_target2_less_than condition",
+                            "scenario.ai.condition.if_distance_to_target2_greater_than": "AI if_distance_to_target2_greater_than condition",
+                            "scenario.ai.action.speak": "AI speak action",
+                            "scenario.ai.action.play_sound": "AI play_sound action",
+                            "scenario.ai.action.assign_sound": "AI assign_sound action",
+                            "scenario.ai.action.audio_mute_channel": "AI audio_mute_channel action",
+                            "scenario.ai.condition.if_channel_free": "AI if_channel_free condition",
+                            "scenario.ai.action.set_object_sound_volume": "AI set_object_sound_volume action",
+                            "scenario.ai.action.set_object_sound_volume_by_distance": "AI set_object_sound_volume_by_distance action",
+                            "scenario.ai.action.set_object_sound_playing": "AI set_object_sound_playing action",
+                            "scenario.ai.action.play_repeating_sound_from_object": "AI play_repeating_sound_from_object action",
+                            "scenario.ai.action.play_sound_from_entity": "AI play_sound_from_entity action",
+                            "scenario.ai.action.play_repeating_sound_from_pad": "AI play_repeating_sound_from_pad action",
+                            "scenario.ai.condition.if_object_sound_volume_less_than": "AI if_object_sound_volume_less_than condition",
+                            "scenario.ai.action.play_sound_from_prop": "AI play_sound_from_prop action",
+                            "scenario.ai.action.play_temporary_primary_track": "AI play_temporary_primary_track action",
+                            "scenario.ai.action.play_x_track": "AI play_x_track action",
+                            "scenario.ai.action.stop_x_track": "AI stop_x_track action",
+                            "scenario.ai.action.play_track_isolated": "AI play_track_isolated action",
+                            "scenario.ai.action.play_default_tracks": "AI play_default_tracks action",
+                            "scenario.ai.action.play_cutscene_track": "AI play_cutscene_track action",
+                            "scenario.ai.action.stop_cutscene_track": "AI stop_cutscene_track action",
+                            "scenario.ai.action.play_temporary_track": "AI play_temporary_track action",
+                            "scenario.ai.action.stop_ambient_track": "AI stop_ambient_track action",
+                            "scenario.ai.action.chr_draw_weapon": "AI chr_draw_weapon action",
+                            "scenario.ai.action.chr_draw_weapon_in_cutscene": "AI chr_draw_weapon_in_cutscene action",
+                            "scenario.ai.action.set_player_force_speed": "AI set_player_force_speed action",
+                            "scenario.ai.action.chr_set_invincible": "AI chr_set_invincible action",
+                            "scenario.ai.condition.if_player_is_invincible": "AI if_player_is_invincible condition",
+                            "scenario.ai.condition.if_chr_has_no_gun": "AI if_chr_has_no_gun condition",
+                            "scenario.ai.action.chr_delete_weapon": "AI chr_delete_weapon action",
+                            "scenario.ai.condition.if_trigger_shot_list": "AI if_trigger_shot_list condition",
+                            "scenario.ai.action.end_level": "AI end_level action",
+                            "scenario.ai.action.end_cutscene": "AI end_cutscene action",
+                            "scenario.ai.action.warp_jo_to_pad": "AI warp_jo_to_pad action",
+                            "scenario.ai.action.warp_jo_to_tag": "AI warp_jo_to_tag action",
+                            "scenario.ai.action.revoke_control": "AI revoke_control action",
+                            "scenario.ai.action.grant_control": "AI grant_control action",
+                            "scenario.ai.action.player_fade_in": "AI player_fade_in action",
+                            "scenario.ai.action.players_fade_out": "AI players_fade_out action",
+                            "scenario.ai.condition.if_colour_fade_complete": "AI if_colour_fade_complete condition",
+                            "scenario.ai.action.prepare_warp_orbit": "AI prepare_warp_orbit action",
+                            "scenario.ai.action.begin_warp_latch": "AI begin_warp_latch action",
+                            "scenario.ai.condition.if_warp_latch_complete": "AI if_warp_latch_complete condition",
+                            "scenario.ai.action.set_camera_animation": "AI set_camera_animation action",
+                            "scenario.ai.condition.if_in_cutscene": "AI if_in_cutscene condition",
+                            "scenario.ai.condition.if_cutscene_button_pressed": "AI if_cutscene_button_pressed condition",
+                            "scenario.ai.action.reorient_for_cutscene_stop": "AI reorient_for_cutscene_stop action",
+                            "scenario.ai.action.spawn_chr_at_pad": "AI spawn_chr_at_pad action",
+                            "scenario.ai.action.spawn_chr_at_chr": "AI spawn_chr_at_chr action",
+                            "scenario.ai.action.try_equip_weapon": "AI try_equip_weapon action",
+                            "scenario.ai.action.try_equip_hat": "AI try_equip_hat action",
+                            "scenario.ai.action.set_obj_image": "AI set_obj_image action",
+                            "scenario.ai.action.object_do_animation": "AI object_do_animation action",
+                            "scenario.ai.action.set_door_open": "AI set_door_open action",
+                            "scenario.ai.action.duplicate_chr": "AI duplicate_chr action",
+                            "scenario.ai.action.enable_chr": "AI enable_chr action",
+                            "scenario.ai.action.disable_chr": "AI disable_chr action",
+                            "scenario.ai.action.enable_obj": "AI enable_obj action",
+                            "scenario.ai.action.disable_obj": "AI disable_obj action",
+                            "scenario.ai.action.chr_move_to_pad": "AI chr_move_to_pad action",
+                            "scenario.ai.action.chr_set_team": "AI chr_set_team action",
+                            "scenario.ai.action.damage_chr_by_amount": "AI damage_chr_by_amount action",
+                            "scenario.ai.action.do_preset_animation": "AI do_preset_animation action",
+                            "scenario.ai.condition.if_player_chr_portal_distance_less_than": "AI if_player_chr_portal_distance_less_than condition",
+                            "scenario.ai.condition.if_chr_reposition_valid": "AI if_chr_reposition_valid condition",
+                            "scenario.ai.action.do_gun_command": "AI do_gun_command action",
+                            "scenario.ai.condition.if_distance_to_gun_less_than": "AI if_distance_to_gun_less_than condition",
+                            "scenario.ai.action.recover_gun": "AI recover_gun action",
+                            "scenario.ai.action.chr_copy_properties": "AI chr_copy_properties action",
+                            "scenario.ai.action.player_auto_walk": "AI player_auto_walk action",
+                            "scenario.ai.condition.if_player_auto_walk_finished": "AI if_player_auto_walk_finished condition",
+                            "scenario.ai.condition.if_obj_in_room": "AI if_obj_in_room condition",
+                            "scenario.ai.condition.if_player_looking_at_object": "AI if_player_looking_at_object condition",
+                            "scenario.ai.condition.if_target_is_player": "AI if_target_is_player condition",
+                            "scenario.ai.action.chr_kill": "AI chr_kill action",
+                            "scenario.ai.action.remove_weapon_from_inventory": "AI remove_weapon_from_inventory action",
+                            "scenario.ai.action.clear_inventory": "AI clear_inventory action",
+                            "scenario.ai.action.release_object": "AI release_object action",
+                            "scenario.ai.action.chr_grab_object": "AI chr_grab_object action",
+                            "scenario.ai.action.toggle_p1p2": "AI toggle_p1p2 action",
+                            "scenario.ai.action.chr_set_p1p2": "AI chr_set_p1p2 action",
+                            "scenario.ai.action.chr_set_cloaked": "AI chr_set_cloaked action",
+                            "scenario.ai.action.set_autogun_target_team": "AI set_autogun_target_team action",
+                            "scenario.ai.condition.if_objective_complete": "AI if_objective_complete condition",
+                            "scenario.ai.condition.if_objective_failed": "AI if_objective_failed condition",
+                            "scenario.ai.condition.if_all_objectives_complete": "AI if_all_objectives_complete condition",
+                            "scenario.ai.condition.if_difficulty_less_than": "AI if_difficulty_less_than condition",
+                            "scenario.ai.condition.if_difficulty_greater_than": "AI if_difficulty_greater_than condition",
+                            "scenario.ai.condition.if_stage_timer_less_than": "AI if_stage_timer_less_than condition",
+                            "scenario.ai.condition.if_stage_timer_greater_than": "AI if_stage_timer_greater_than condition",
+                            "scenario.ai.condition.if_stage_id_less_than": "AI if_stage_id_less_than condition",
+                            "scenario.ai.condition.if_stage_id_greater_than": "AI if_stage_id_greater_than condition",
+                            "scenario.ai.condition.if_num_players_less_than": "AI if_num_players_less_than condition",
+                            "scenario.ai.condition.if_kill_count_greater_than": "AI if_kill_count_greater_than condition",
+                            "scenario.ai.condition.if_num_knocked_out_chrs": "AI if_num_knocked_out_chrs condition",
+                            "scenario.ai.action.kill_bond": "AI kill_bond action",
+                            "scenario.ai.condition.if_num_arghs_less_than": "AI if_num_arghs_less_than condition",
+                            "scenario.ai.condition.if_num_arghs_greater_than": "AI if_num_arghs_greater_than condition",
+                            "scenario.ai.condition.if_num_close_arghs_less_than": "AI if_num_close_arghs_less_than condition",
+                            "scenario.ai.condition.if_num_close_arghs_greater_than": "AI if_num_close_arghs_greater_than condition",
+                            "scenario.ai.condition.if_chr_health_greater_than": "AI if_chr_health_greater_than condition",
+                            "scenario.ai.condition.if_chr_health_less_than": "AI if_chr_health_less_than condition",
+                            "scenario.ai.condition.if_chr_shield_less_than": "AI if_chr_shield_less_than condition",
+                            "scenario.ai.condition.if_chr_shield_greater_than": "AI if_chr_shield_greater_than condition",
+                            "scenario.ai.condition.if_injured": "AI if_injured condition",
+                            "scenario.ai.condition.if_shield_damaged": "AI if_shield_damaged condition",
+                            "scenario.ai.condition.if_morale_less_than": "AI if_morale_less_than condition",
+                            "scenario.ai.condition.if_morale_less_than_random": "AI if_morale_less_than_random condition",
+                            "scenario.ai.condition.if_alertness": "AI if_alertness condition",
+                            "scenario.ai.condition.if_chr_alertness_less_than": "AI if_chr_alertness_less_than condition",
+                            "scenario.ai.condition.if_alertness_less_than_random": "AI if_alertness_less_than_random condition",
+                            "scenario.ai.condition.if_idle": "AI if_idle condition",
+                            "scenario.ai.condition.if_stopped": "AI if_stopped condition",
+                            "scenario.ai.condition.if_chr_dead": "AI if_chr_dead condition",
+                            "scenario.ai.condition.if_chr_death_animation_finished": "AI if_chr_death_animation_finished condition",
+                            "scenario.ai.condition.if_chr_knocked_out": "AI if_chr_knocked_out condition",
+                            "scenario.ai.condition.if_can_see_target": "AI if_can_see_target condition",
+                            "scenario.ai.condition.if_pouncebits_eq": "AI if_pouncebits_eq condition",
+                            "scenario.ai.condition.if_training_pc_holographed": "AI if_training_pc_holographed condition",
+                            "scenario.ai.condition.if_player_using_device": "AI if_player_using_device condition",
+                            "scenario.ai.action.chr_begin_or_end_teleport": "AI chr_begin_or_end_teleport action",
+                            "scenario.ai.condition.if_chr_teleport_full_white": "AI if_chr_teleport_full_white condition",
+                            "scenario.ai.action.chr_set_cutscene_weapon": "AI chr_set_cutscene_weapon action",
+                            "scenario.ai.action.fade_screen": "AI fade_screen action",
+                            "scenario.ai.condition.if_fade_complete": "AI if_fade_complete condition",
+                            "scenario.ai.action.set_chr_hudpiece_visible": "AI set_chr_hudpiece_visible action",
+                            "scenario.ai.action.set_passive_mode": "AI set_passive_mode action",
+                            "scenario.ai.action.chr_set_firing_in_cutscene": "AI chr_set_firing_in_cutscene action",
+                            "scenario.ai.action.set_portal_flag": "AI set_portal_flag action",
+                            "scenario.ai.condition.if_music_event_queue_is_empty": "AI if_music_event_queue_is_empty condition",
+                            "scenario.ai.condition.if_coop_mode": "AI if_coop_mode condition",
+                            "scenario.ai.condition.if_chr_same_floor_distance_to_pad_less_than": "AI if_chr_same_floor_distance_to_pad_less_than condition",
+                            "scenario.ai.action.remove_references_to_chr": "AI remove_references_to_chr action",
+                            "scenario.ai.action.chr_toggle_model_part": "AI chr_toggle_model_part action",
+                            "scenario.ai.action.obj_set_model_part_visible": "AI obj_set_model_part_visible action",
+                            "scenario.ai.action.if_obj_health_less_than": "AI if_obj_health_less_than action",
+                            "scenario.ai.action.set_obj_health": "AI set_obj_health action",
+                            "scenario.ai.action.set_chr_special_death_animation": "AI set_chr_special_death_animation action",
+                            "scenario.ai.action.set_room_to_search": "AI set_room_to_search action",
+                            "scenario.ai.action.set_savefile_flag": "AI set_savefile_flag action",
+                            "scenario.ai.action.unset_savefile_flag": "AI unset_savefile_flag action",
+                            "scenario.ai.action.if_savefile_flag_set": "AI if_savefile_flag_set action",
+                            "scenario.ai.action.if_savefile_flag_unset": "AI if_savefile_flag_unset action",
+                            "scenario.ai.action.restart_timer": "AI restart_timer action",
+                            "scenario.ai.action.reset_timer": "AI reset_timer action",
+                            "scenario.ai.action.pause_timer": "AI pause_timer action",
+                            "scenario.ai.action.resume_timer": "AI resume_timer action",
+                            "scenario.ai.action.if_timer_stopped": "AI if_timer_stopped action",
+                            "scenario.ai.action.if_timer_greater_than_random": "AI if_timer_greater_than_random action",
+                            "scenario.ai.action.if_timer_less_than": "AI if_timer_less_than action",
+                            "scenario.ai.action.if_timer_greater_than": "AI if_timer_greater_than action",
+                            "scenario.ai.action.show_countdown_timer": "AI show_countdown_timer action",
+                            "scenario.ai.action.hide_countdown_timer": "AI hide_countdown_timer action",
+                            "scenario.ai.action.set_countdown_timer": "AI set_countdown_timer action",
+                            "scenario.ai.action.stop_countdown_timer": "AI stop_countdown_timer action",
+                            "scenario.ai.action.start_countdown_timer": "AI start_countdown_timer action",
+                            "scenario.ai.action.if_countdown_timer_stopped": "AI if_countdown_timer_stopped action",
+                            "scenario.ai.action.if_countdown_timer_less_than": "AI if_countdown_timer_less_than action",
+                            "scenario.ai.action.if_countdown_timer_greater_than": "AI if_countdown_timer_greater_than action",
+                            "scenario.ai.action.show_hudmsg": "AI show_hudmsg action",
+                            "scenario.ai.action.show_hudmsg_middle": "AI show_hudmsg_middle action",
+                            "scenario.ai.action.show_hudmsg_top_middle": "AI show_hudmsg_top_middle action",
+                            "scenario.ai.action.hovercar_begin_path": "AI hovercar_begin_path action",
+                            "scenario.ai.action.set_vehicle_speed": "AI set_vehicle_speed action",
+                            "scenario.ai.action.set_rotor_speed": "AI set_rotor_speed action",
+                            "scenario.ai.action.chr_explosions": "AI chr_explosions action",
+                            "scenario.ai.action.set_tinted_glass_enabled": "AI set_tinted_glass_enabled action",
+                            "scenario.ai.action.hovercopter_fire_rocket": "AI hovercopter_fire_rocket action",
+                            "scenario.ai.action.chr_adjust_motion_blur": "AI chr_adjust_motion_blur action",
+                            "scenario.ai.action.punch_or_kick": "AI punch_or_kick action",
+                            "scenario.ai.action.set_target_to_eyespy_if_in_sight": "AI set_target_to_eyespy_if_in_sight action",
+                            "scenario.ai.action.mini_skedar_try_pounce": "AI mini_skedar_try_pounce action",
+                            "scenario.ai.condition.if_object_distance_to_pad_less_than": "AI if_object_distance_to_pad_less_than condition",
+                            "scenario.ai.action.avoid": "AI avoid action",
+                            "scenario.ai.action.title_init_mode": "AI title_init_mode action",
+                            "scenario.ai.action.try_exit_title": "AI try_exit_title action",
+                            "scenario.ai.action.chr_emit_sparks": "AI chr_emit_sparks action",
+                            "scenario.ai.action.set_dr_caroll_images": "AI set_dr_caroll_images action",
+                            "scenario.ai.action.say_quip": "AI say_quip action",
+                            "scenario.ai.action.say_ci_staff_quip": "AI say_ci_staff_quip action",
+                            "scenario.ai.action.shuffle_ruins_pillars": "AI shuffle_ruins_pillars action",
+                            "scenario.ai.action.shuffle_pelagic_switches": "AI shuffle_pelagic_switches action",
+                            "scenario.ai.action.set_action": "AI set_action action",
+                            "scenario.ai.action.set_team_orders": "AI set_team_orders action",
+                            "scenario.ai.action.retreat": "AI retreat action",
+                            "scenario.ai.action.find_cover": "AI find_cover action",
+                            "scenario.ai.action.find_cover_within_dist": "AI find_cover_within_dist action",
+                            "scenario.ai.action.find_cover_outside_dist": "AI find_cover_outside_dist action",
+                            "scenario.ai.action.go_to_cover": "AI go_to_cover action",
+                            "scenario.ai.action.check_cover_out_of_sight": "AI check_cover_out_of_sight action",
+                            "scenario.ai.action.orbit_target": "AI orbit_target action",
+                            "scenario.ai.action.set_chr_preset_to_unalerted_teammate": "AI set_chr_preset_to_unalerted_teammate action",
+                            "scenario.ai.action.set_squadron": "AI set_squadron action",
+                            "scenario.ai.action.face_cover": "AI face_cover action",
+                            "scenario.ai.action.danger_cover": "AI danger_cover action",
+                            "scenario.ai.action.release_cover": "AI release_cover action",
+                            "scenario.ai.action.rebuild_teams": "AI rebuild_teams action",
+                            "scenario.ai.action.rebuild_squadrons": "AI rebuild_squadrons action",
+                            "scenario.ai.action.chr_set_listening": "AI chr_set_listening action",
+                            "scenario.ai.condition.if_chr_not_talking": "AI if_chr_not_talking condition",
+                            "scenario.ai.condition.if_orders": "AI if_orders condition",
+                            "scenario.ai.condition.if_has_orders": "AI if_has_orders condition",
+                            "scenario.ai.condition.if_chr_in_squadron_doing_action": "AI if_chr_in_squadron_doing_action condition",
+                            "scenario.ai.condition.if_chr_listening": "AI if_chr_listening condition",
+                            "scenario.ai.condition.if_not_listening": "AI if_not_listening condition",
+                            "scenario.ai.condition.if_chr_injured_target": "AI if_chr_injured_target condition",
+                            "scenario.ai.condition.if_action": "AI if_action condition",
+                            "scenario.ai.condition.if_chr_ammo_quantity_less_than": "AI if_chr_ammo_quantity_less_than condition",
+                            "scenario.ai.condition.if_chr_target": "AI if_chr_target condition",
+                            "scenario.ai.condition.if_compare_chr_presets_team": "AI if_compare_chr_presets_team condition",
+                            "scenario.ai.condition.if_human": "AI if_human condition",
+                            "scenario.ai.condition.if_skedar": "AI if_skedar condition",
+                            "scenario.ai.condition.if_prop_preset_blocking_sight_to_target": "AI if_prop_preset_blocking_sight_to_target condition",
+                            "scenario.ai.action.remove_object_at_prop_preset": "AI remove_object_at_prop_preset action",
+                            "scenario.ai.condition.if_prop_preset_height_less_than": "AI if_prop_preset_height_less_than condition",
+                            "scenario.ai.action.set_target": "AI set_target action",
+                            "scenario.ai.condition.if_presets_target_is_not_my_target": "AI if_presets_target_is_not_my_target condition",
+                            "scenario.ai.action.set_chr_preset_to_chr_near_self": "AI set_chr_preset_to_chr_near_self action",
+                            "scenario.ai.action.set_chr_preset_to_chr_near_pad": "AI set_chr_preset_to_chr_near_pad action",
+                            "scenario.ai.condition.if_dangerous_object_nearby": "AI if_dangerous_object_nearby condition",
+                            "scenario.ai.condition.if_heli_weapons_armed": "AI if_heli_weapons_armed condition",
+                            "scenario.ai.condition.if_hoverbot_next_step": "AI if_hoverbot_next_step condition",
+                            "scenario.ai.action.shuffle_investigation_terminals": "AI shuffle_investigation_terminals action",
+                            "scenario.ai.action.set_pad_preset_to_investigation_terminal": "AI set_pad_preset_to_investigation_terminal action",
+                            "scenario.ai.action.heli_arm_weapons": "AI heli_arm_weapons action",
+                            "scenario.ai.action.heli_unarm_weapons": "AI heli_unarm_weapons action",
+                            "scenario.ai.condition.if_safety2_less_than": "AI if_safety2_less_than condition",
+                            "scenario.ai.condition.if_player_using_cmp_or_ar34": "AI if_player_using_cmp_or_ar34 condition",
+                            "scenario.ai.condition.detect_enemy_on_same_floor": "AI detect_enemy_on_same_floor condition",
+                            "scenario.ai.condition.detect_enemy": "AI detect_enemy condition",
+                            "scenario.ai.condition.if_safety_less_than": "AI if_safety_less_than condition",
+                            "scenario.ai.condition.if_target_moving_slowly": "AI if_target_moving_slowly condition",
+                            "scenario.ai.condition.if_target_moving_closer": "AI if_target_moving_closer condition",
+                            "scenario.ai.condition.if_target_moving_away": "AI if_target_moving_away condition",
+                            "scenario.ai.condition.if_squadron_is_dead": "AI if_squadron_is_dead condition",
+                            "scenario.ai.condition.if_true": "AI if_true condition",
+                            "scenario.ai.condition.if_num_chrs_in_squadron_greater_than": "AI if_num_chrs_in_squadron_greater_than condition",
+                            "scenario.ai.condition.if_natural_anim": "AI if_natural_anim condition",
+                            "scenario.ai.condition.if_y": "AI if_y condition",
+                            "scenario.ai.condition.if_sound_timer": "AI if_sound_timer condition",
+                            "scenario.ai.condition.if_target_y_difference_less_than": "AI if_target_y_difference_less_than condition",
+                            "scenario.ai.action.try_attack_amount": "AI try_attack_amount action",
+                            "scenario.ai.action.set_chr_preset": "AI set_chr_preset action",
+                            "scenario.ai.action.set_chr_target": "AI set_chr_target action",
+                            "scenario.ai.action.set_pad_preset": "AI set_pad_preset action",
+                            "scenario.ai.action.chr_set_pad_preset": "AI chr_set_pad_preset action",
+                            "scenario.ai.action.chr_copy_pad_preset": "AI chr_copy_pad_preset action",
                         }.items():
                             if node_kinds.count(required_kind) != 1:
                                 result.errors.append(
@@ -1826,18 +2484,535 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                                     )
                         for pair in {
                             ("scenario.load", "scenario.pads"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_list"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_return_list"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_shot_list"),
+                            ("scenario.ai.lists", "scenario.ai.action.return_list"),
+                            ("scenario.ai.lists", "scenario.ai.action.stop"),
+                            ("scenario.ai.lists", "scenario.ai.action.kneel"),
+                            ("scenario.ai.lists", "scenario.ai.action.surrender"),
+                            ("scenario.ai.lists", "scenario.ai.action.fade_out"),
+                            ("scenario.ai.lists", "scenario.ai.action.remove_chr"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_sidestep"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_jump_out"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_run_sideways"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_attack_walk"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_attack_run"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_attack_roll"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_attack_stand"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_attack_kneel"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_attack_lie"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_attack_locked"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_attacking"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_modify_attack"),
+                            ("scenario.ai.lists", "scenario.ai.action.face_entity"),
+                            ("scenario.ai.lists", "scenario.ai.action.apply_gset_damage"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_damage_chr"),
+                            ("scenario.ai.lists", "scenario.ai.condition.consider_grenade_throw"),
+                            ("scenario.ai.lists", "scenario.ai.action.drop_item"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_run_from_target"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_jog_to_target_prop"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_walk_to_target_prop"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_run_to_target_prop"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_go_to_cover_prop"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_jog_to_chr"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_walk_to_chr"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_run_to_chr"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_can_hear_alarm"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_patrolling"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_alarm_active"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_gas_active"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_hears_target"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_saw_injury"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_saw_death"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_los_to_target"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_los_to_attack_target"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_target_nearly_in_sight"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_nearly_in_targets_sight"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_pad_preset_to_pad_on_route_to_target"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_saw_target_recently"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_heard_target_recently"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_los_to_chr"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_never_been_on_screen"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_on_screen"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_in_on_screen_room"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_room_is_on_screen"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_target_aiming_at_me"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_near_miss"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_sees_suspicious_item"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_target_in_fov_left"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_check_fov_with_target"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_target_out_of_fov_left"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_target_in_fov"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_target_out_of_fov"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_distance_to_target_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_distance_to_target_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_distance_to_pad_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_distance_to_pad_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_distance_to_chr_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_distance_to_chr_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_any_chr_near_self"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_distance_from_target_to_pad_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_distance_from_target_to_pad_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_in_room"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_target_in_room"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_has_object"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_weapon_thrown"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_weapon_thrown_on_object"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_has_weapon_equipped"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_gun_unclaimed"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_object_healthy"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_activated_object"),
+                            ("scenario.ai.lists", "scenario.ai.action.obj_interact"),
+                            ("scenario.ai.lists", "scenario.ai.action.destroy_object"),
+                            ("scenario.ai.lists", "scenario.ai.action.drop_object_from_chr"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_drop_items"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_drop_weapon"),
+                            ("scenario.ai.lists", "scenario.ai.action.give_object_to_chr"),
+                            ("scenario.ai.lists", "scenario.ai.action.object_move_to_pad"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_waypoint_within_quadrant"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_pad_preset_to_target_quadrant"),
+                            ("scenario.pads", "scenario.ai.condition.if_room_is_on_screen"),
+                            ("scenario.pads", "scenario.ai.condition.if_chr_distance_to_pad_less_than"),
+                            ("scenario.pads", "scenario.ai.condition.if_chr_distance_to_pad_greater_than"),
+                            ("scenario.pads", "scenario.ai.condition.if_distance_from_target_to_pad_less_than"),
+                            ("scenario.pads", "scenario.ai.condition.if_distance_from_target_to_pad_greater_than"),
+                            ("scenario.pads", "scenario.ai.condition.if_chr_in_room"),
+                            ("scenario.pads", "scenario.ai.condition.if_target_in_room"),
+                            ("setup.tables", "scenario.ai.condition.if_sees_suspicious_item"),
+                            ("setup.tables", "scenario.ai.condition.if_chr_has_object"),
+                            ("setup.tables", "scenario.ai.condition.if_weapon_thrown_on_object"),
+                            ("setup.tables", "scenario.ai.condition.if_gun_unclaimed"),
+                            ("setup.tables", "scenario.ai.condition.if_object_healthy"),
+                            ("scenario.pads", "scenario.ai.action.object_move_to_pad"),
+                            ("setup.tables", "scenario.ai.condition.if_chr_activated_object"),
+                            ("setup.tables", "scenario.ai.action.obj_interact"),
+                            ("setup.tables", "scenario.ai.action.destroy_object"),
+                            ("setup.tables", "scenario.ai.action.drop_object_from_chr"),
+                            ("setup.tables", "scenario.ai.action.chr_drop_items"),
+                            ("setup.tables", "scenario.ai.action.chr_drop_weapon"),
+                            ("setup.tables", "scenario.ai.action.give_object_to_chr"),
+                            ("setup.tables", "scenario.ai.action.object_move_to_pad"),
+                            ("scenario.pads", "scenario.ai.condition.if_waypoint_within_quadrant"),
+                            ("scenario.pads", "scenario.ai.action.set_pad_preset_to_target_quadrant"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_do_animation"),
+                            ("scenario.ai.lists", "scenario.ai.action.be_surprised_one_hand"),
+                            ("scenario.ai.lists", "scenario.ai.action.be_surprised_look_around"),
+                            ("scenario.ai.lists", "scenario.ai.action.be_surprised_surrender"),
+                            ("scenario.ai.lists", "scenario.ai.action.random"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_random_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_random_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_punch_dodge_list"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_shooting_at_me_list"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_dark_room_list"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_player_dead_list"),
                             ("scenario.ai.lists", "scenario.ai.action.jog_to_pad"),
                             ("scenario.ai.lists", "scenario.ai.action.go_to_pad_preset"),
                             ("scenario.ai.lists", "scenario.ai.action.walk_to_pad"),
                             ("scenario.ai.lists", "scenario.ai.action.run_to_pad"),
                             ("scenario.ai.lists", "scenario.ai.action.set_path"),
                             ("scenario.ai.lists", "scenario.ai.action.start_patrol"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_start_alarm"),
+                            ("scenario.ai.lists", "scenario.ai.action.activate_alarm"),
+                            ("scenario.ai.lists", "scenario.ai.action.deactivate_alarm"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_morale"),
+                            ("scenario.ai.lists", "scenario.ai.action.add_morale"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_add_morale"),
+                            ("scenario.ai.lists", "scenario.ai.action.subtract_morale"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_alertness"),
+                            ("scenario.ai.lists", "scenario.ai.action.add_alertness"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_add_alertness"),
+                            ("scenario.ai.lists", "scenario.ai.action.subtract_alertness"),
+                            ("scenario.ai.lists", "scenario.ai.action.increase_squadron_alertness"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_hear_distance"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_view_distance"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_grenade_probability"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_chr_num"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_max_damage"),
+                            ("scenario.ai.lists", "scenario.ai.action.add_health"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_shield"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_reaction_speed"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_recovery_speed"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_accuracy"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_dodge_rating"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_unarmed_dodge_rating"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.unset_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_has_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_set_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_unset_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_chr_has_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_stage_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.unset_stage_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_stage_flag_eq"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_chrflag"),
+                            ("scenario.ai.lists", "scenario.ai.action.unset_chrflag"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_has_chrflag"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_set_chrflag"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_unset_chrflag"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_chr_has_chrflag"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_set_hidden_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_unset_hidden_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_chr_has_hidden_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_obj_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.unset_obj_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_obj_has_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.open_door"),
+                            ("scenario.ai.lists", "scenario.ai.action.close_door"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_door_state"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_object_is_door"),
+                            ("scenario.ai.lists", "scenario.ai.action.lock_door"),
+                            ("scenario.ai.lists", "scenario.ai.action.unlock_door"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_door_locked"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_lift_stationary"),
+                            ("scenario.ai.lists", "scenario.ai.action.lift_go_to_stop"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_lift_at_stop"),
+                            ("scenario.ai.lists", "scenario.ai.action.activate_lift"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_using_lift"),
+                            ("scenario.ai.lists", "scenario.ai.action.configure_rain"),
+                            ("scenario.ai.lists", "scenario.ai.action.configure_snow"),
+                            ("scenario.ai.lists", "scenario.ai.action.switch_to_alt_sky"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_wind_speed"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_lights"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_room_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.show_cutscene_chrs"),
+                            ("scenario.ai.lists", "scenario.ai.action.configure_environment"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_distance_to_target2_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_distance_to_target2_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.action.speak"),
+                            ("scenario.ai.lists", "scenario.ai.action.play_sound"),
+                            ("scenario.ai.lists", "scenario.ai.action.assign_sound"),
+                            ("scenario.ai.lists", "scenario.ai.action.audio_mute_channel"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_channel_free"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_object_sound_volume"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_object_sound_volume_by_distance"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_object_sound_playing"),
+                            ("scenario.ai.lists", "scenario.ai.action.play_repeating_sound_from_object"),
+                            ("scenario.ai.lists", "scenario.ai.action.play_sound_from_entity"),
+                            ("scenario.ai.lists", "scenario.ai.action.play_repeating_sound_from_pad"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_object_sound_volume_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.action.play_sound_from_prop"),
+                            ("scenario.ai.lists", "scenario.ai.action.play_temporary_primary_track"),
+                            ("scenario.ai.lists", "scenario.ai.action.play_x_track"),
+                            ("scenario.ai.lists", "scenario.ai.action.stop_x_track"),
+                            ("scenario.ai.lists", "scenario.ai.action.play_track_isolated"),
+                            ("scenario.ai.lists", "scenario.ai.action.play_default_tracks"),
+                            ("scenario.ai.lists", "scenario.ai.action.play_cutscene_track"),
+                            ("scenario.ai.lists", "scenario.ai.action.stop_cutscene_track"),
+                            ("scenario.ai.lists", "scenario.ai.action.play_temporary_track"),
+                            ("scenario.ai.lists", "scenario.ai.action.stop_ambient_track"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_draw_weapon"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_draw_weapon_in_cutscene"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_player_force_speed"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_set_invincible"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_player_is_invincible"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_has_no_gun"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_delete_weapon"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_trigger_shot_list"),
+                            ("scenario.ai.lists", "scenario.ai.action.end_level"),
+                            ("scenario.ai.lists", "scenario.ai.action.end_cutscene"),
+                            ("scenario.ai.lists", "scenario.ai.action.warp_jo_to_pad"),
+                            ("scenario.pads", "scenario.ai.action.warp_jo_to_pad"),
+                            ("scenario.ai.lists", "scenario.ai.action.warp_jo_to_tag"),
+                            ("setup.tables", "scenario.ai.action.warp_jo_to_tag"),
+                            ("scenario.ai.lists", "scenario.ai.action.revoke_control"),
+                            ("scenario.ai.lists", "scenario.ai.action.grant_control"),
+                            ("scenario.ai.lists", "scenario.ai.action.player_fade_in"),
+                            ("scenario.ai.lists", "scenario.ai.action.players_fade_out"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_colour_fade_complete"),
+                            ("scenario.ai.lists", "scenario.ai.action.prepare_warp_orbit"),
+                            ("scenario.pads", "scenario.ai.action.prepare_warp_orbit"),
+                            ("scenario.ai.lists", "scenario.ai.action.begin_warp_latch"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_warp_latch_complete"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_camera_animation"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_in_cutscene"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_cutscene_button_pressed"),
+                            ("scenario.ai.lists", "scenario.ai.action.reorient_for_cutscene_stop"),
+                            ("scenario.ai.lists", "scenario.ai.action.spawn_chr_at_pad"),
+                            ("scenario.pads", "scenario.ai.action.spawn_chr_at_pad"),
+                            ("scenario.ai.lists", "scenario.ai.action.spawn_chr_at_chr"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_equip_weapon"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_equip_hat"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_obj_image"),
+                            ("setup.tables", "scenario.ai.action.set_obj_image"),
+                            ("scenario.ai.lists", "scenario.ai.action.object_do_animation"),
+                            ("setup.tables", "scenario.ai.action.object_do_animation"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_door_open"),
+                            ("setup.tables", "scenario.ai.action.set_door_open"),
+                            ("scenario.ai.lists", "scenario.ai.action.duplicate_chr"),
+                            ("scenario.ai.lists", "scenario.ai.action.enable_chr"),
+                            ("scenario.ai.lists", "scenario.ai.action.disable_chr"),
+                            ("scenario.ai.lists", "scenario.ai.action.enable_obj"),
+                            ("setup.tables", "scenario.ai.action.enable_obj"),
+                            ("scenario.ai.lists", "scenario.ai.action.disable_obj"),
+                            ("setup.tables", "scenario.ai.action.disable_obj"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_move_to_pad"),
+                            ("scenario.pads", "scenario.ai.action.chr_move_to_pad"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_set_team"),
+                            ("scenario.ai.lists", "scenario.ai.action.damage_chr_by_amount"),
+                            ("scenario.ai.lists", "scenario.ai.action.do_preset_animation"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_player_chr_portal_distance_less_than"),
+                            ("source.scene", "scenario.ai.condition.if_player_chr_portal_distance_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_reposition_valid"),
+                            ("source.scene", "scenario.ai.condition.if_chr_reposition_valid"),
+                            ("scenario.ai.lists", "scenario.ai.action.do_gun_command"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_distance_to_gun_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.action.recover_gun"),
+                            ("setup.tables", "scenario.ai.action.do_gun_command"),
+                            ("setup.tables", "scenario.ai.condition.if_distance_to_gun_less_than"),
+                            ("setup.tables", "scenario.ai.action.recover_gun"),
+                            ("source.scene", "scenario.ai.action.do_gun_command"),
+                            ("source.scene", "scenario.ai.condition.if_distance_to_gun_less_than"),
+                            ("source.scene", "scenario.ai.action.recover_gun"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_copy_properties"),
+                            ("scenario.ai.lists", "scenario.ai.action.player_auto_walk"),
+                            ("scenario.pads", "scenario.ai.action.player_auto_walk"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_player_auto_walk_finished"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_obj_in_room"),
+                            ("setup.tables", "scenario.ai.condition.if_obj_in_room"),
+                            ("source.scene", "scenario.ai.condition.if_obj_in_room"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_player_looking_at_object"),
+                            ("setup.tables", "scenario.ai.condition.if_player_looking_at_object"),
+                            ("source.scene", "scenario.ai.condition.if_player_looking_at_object"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_target_is_player"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_kill"),
+                            ("scenario.ai.lists", "scenario.ai.action.remove_weapon_from_inventory"),
+                            ("scenario.ai.lists", "scenario.ai.action.clear_inventory"),
+                            ("scenario.ai.lists", "scenario.ai.action.release_object"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_grab_object"),
+                            ("setup.tables", "scenario.ai.action.chr_grab_object"),
+                            ("source.scene", "scenario.ai.action.chr_grab_object"),
+                            ("scenario.ai.lists", "scenario.ai.action.toggle_p1p2"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_set_p1p2"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_set_cloaked"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_autogun_target_team"),
+                            ("setup.tables", "scenario.ai.action.set_autogun_target_team"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_objective_complete"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_objective_failed"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_all_objectives_complete"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_difficulty_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_difficulty_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_stage_timer_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_stage_timer_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_stage_id_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_stage_id_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_num_players_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_kill_count_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_num_knocked_out_chrs"),
+                            ("scenario.ai.lists", "scenario.ai.action.kill_bond"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_num_arghs_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_num_arghs_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_num_close_arghs_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_num_close_arghs_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_health_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_health_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_shield_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_shield_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_injured"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_shield_damaged"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_morale_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_morale_less_than_random"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_alertness"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_alertness_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_alertness_less_than_random"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_idle"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_stopped"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_dead"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_death_animation_finished"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_knocked_out"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_can_see_target"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_pouncebits_eq"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_training_pc_holographed"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_player_using_device"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_begin_or_end_teleport"),
+                            ("scenario.pads", "scenario.ai.action.chr_begin_or_end_teleport"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_teleport_full_white"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_set_cutscene_weapon"),
+                            ("scenario.ai.lists", "scenario.ai.action.fade_screen"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_fade_complete"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_chr_hudpiece_visible"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_passive_mode"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_set_firing_in_cutscene"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_portal_flag"),
+                            ("source.scene", "scenario.ai.action.set_portal_flag"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_music_event_queue_is_empty"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_coop_mode"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_same_floor_distance_to_pad_less_than"),
+                            ("scenario.pads", "scenario.ai.condition.if_chr_same_floor_distance_to_pad_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.action.remove_references_to_chr"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_toggle_model_part"),
+                            ("scenario.ai.lists", "scenario.ai.action.obj_set_model_part_visible"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_obj_health_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_obj_health"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_chr_special_death_animation"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_room_to_search"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_savefile_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.unset_savefile_flag"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_savefile_flag_set"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_savefile_flag_unset"),
+                            ("scenario.ai.lists", "scenario.ai.action.restart_timer"),
+                            ("scenario.ai.lists", "scenario.ai.action.reset_timer"),
+                            ("scenario.ai.lists", "scenario.ai.action.pause_timer"),
+                            ("scenario.ai.lists", "scenario.ai.action.resume_timer"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_timer_stopped"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_timer_greater_than_random"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_timer_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_timer_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.action.show_countdown_timer"),
+                            ("scenario.ai.lists", "scenario.ai.action.hide_countdown_timer"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_countdown_timer"),
+                            ("scenario.ai.lists", "scenario.ai.action.stop_countdown_timer"),
+                            ("scenario.ai.lists", "scenario.ai.action.start_countdown_timer"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_countdown_timer_stopped"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_countdown_timer_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.action.if_countdown_timer_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.action.show_hudmsg"),
+                            ("scenario.ai.lists", "scenario.ai.action.show_hudmsg_middle"),
+                            ("scenario.ai.lists", "scenario.ai.action.show_hudmsg_top_middle"),
+                            ("scenario.ai.lists", "scenario.ai.action.hovercar_begin_path"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_vehicle_speed"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_rotor_speed"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_explosions"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_tinted_glass_enabled"),
+                            ("scenario.ai.lists", "scenario.ai.action.hovercopter_fire_rocket"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_adjust_motion_blur"),
+                            ("scenario.ai.lists", "scenario.ai.action.punch_or_kick"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_target_to_eyespy_if_in_sight"),
+                            ("scenario.ai.lists", "scenario.ai.action.mini_skedar_try_pounce"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_object_distance_to_pad_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.action.avoid"),
+                            ("scenario.ai.lists", "scenario.ai.action.title_init_mode"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_exit_title"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_emit_sparks"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_dr_caroll_images"),
+                            ("scenario.ai.lists", "scenario.ai.action.say_quip"),
+                            ("scenario.ai.lists", "scenario.ai.action.say_ci_staff_quip"),
+                            ("scenario.ai.lists", "scenario.ai.action.shuffle_ruins_pillars"),
+                            ("scenario.ai.lists", "scenario.ai.action.shuffle_pelagic_switches"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_action"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_team_orders"),
+                            ("scenario.ai.lists", "scenario.ai.action.retreat"),
+                            ("scenario.ai.lists", "scenario.ai.action.find_cover"),
+                            ("scenario.ai.lists", "scenario.ai.action.find_cover_within_dist"),
+                            ("scenario.ai.lists", "scenario.ai.action.find_cover_outside_dist"),
+                            ("scenario.ai.lists", "scenario.ai.action.go_to_cover"),
+                            ("scenario.ai.lists", "scenario.ai.action.check_cover_out_of_sight"),
+                            ("scenario.ai.lists", "scenario.ai.action.orbit_target"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_chr_preset_to_unalerted_teammate"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_squadron"),
+                            ("scenario.ai.lists", "scenario.ai.action.face_cover"),
+                            ("scenario.ai.lists", "scenario.ai.action.danger_cover"),
+                            ("scenario.ai.lists", "scenario.ai.action.release_cover"),
+                            ("scenario.ai.lists", "scenario.ai.action.rebuild_teams"),
+                            ("scenario.ai.lists", "scenario.ai.action.rebuild_squadrons"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_set_listening"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_not_talking"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_orders"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_has_orders"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_in_squadron_doing_action"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_listening"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_not_listening"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_injured_target"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_action"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_ammo_quantity_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_chr_target"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_compare_chr_presets_team"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_human"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_skedar"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_prop_preset_blocking_sight_to_target"),
+                            ("scenario.ai.lists", "scenario.ai.action.remove_object_at_prop_preset"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_prop_preset_height_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_target"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_presets_target_is_not_my_target"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_chr_preset_to_chr_near_self"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_chr_preset_to_chr_near_pad"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_dangerous_object_nearby"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_heli_weapons_armed"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_hoverbot_next_step"),
+                            ("scenario.ai.lists", "scenario.ai.action.shuffle_investigation_terminals"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_pad_preset_to_investigation_terminal"),
+                            ("scenario.ai.lists", "scenario.ai.action.heli_arm_weapons"),
+                            ("scenario.ai.lists", "scenario.ai.action.heli_unarm_weapons"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_safety2_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_player_using_cmp_or_ar34"),
+                            ("scenario.ai.lists", "scenario.ai.condition.detect_enemy_on_same_floor"),
+                            ("scenario.ai.lists", "scenario.ai.condition.detect_enemy"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_safety_less_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_target_moving_slowly"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_target_moving_closer"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_target_moving_away"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_squadron_is_dead"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_true"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_num_chrs_in_squadron_greater_than"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_natural_anim"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_y"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_sound_timer"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_target_y_difference_less_than"),
+                            ("setup.tables", "scenario.ai.condition.if_prop_preset_blocking_sight_to_target"),
+                            ("setup.tables", "scenario.ai.action.remove_object_at_prop_preset"),
+                            ("setup.tables", "scenario.ai.condition.if_prop_preset_height_less_than"),
+                            ("scenario.pads", "scenario.ai.action.set_chr_preset_to_chr_near_pad"),
+                            ("setup.tables", "scenario.ai.condition.if_dangerous_object_nearby"),
+                            ("setup.tables", "scenario.ai.action.shuffle_investigation_terminals"),
+                            ("setup.tables", "scenario.ai.action.set_pad_preset_to_investigation_terminal"),
+                            ("scenario.pads", "scenario.ai.action.set_pad_preset_to_investigation_terminal"),
+                            ("setup.tables", "scenario.ai.action.shuffle_ruins_pillars"),
+                            ("setup.tables", "scenario.ai.action.shuffle_pelagic_switches"),
+                            ("source.scene", "scenario.ai.condition.detect_enemy_on_same_floor"),
+                            ("source.scene", "scenario.ai.condition.detect_enemy"),
+                            ("scenario.ai.lists", "scenario.ai.action.try_attack_amount"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_chr_preset"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_chr_target"),
+                            ("scenario.ai.lists", "scenario.ai.action.set_pad_preset"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_set_pad_preset"),
+                            ("scenario.ai.lists", "scenario.ai.action.chr_copy_pad_preset"),
                             ("scenario.pads", "scenario.ai.action.jog_to_pad"),
                             ("scenario.pads", "scenario.ai.action.go_to_pad_preset"),
                             ("scenario.pads", "scenario.ai.action.walk_to_pad"),
                             ("scenario.pads", "scenario.ai.action.run_to_pad"),
+                            ("scenario.pads", "scenario.ai.action.set_pad_preset_to_pad_on_route_to_target"),
+                            ("scenario.pads", "scenario.ai.action.set_pad_preset"),
+                            ("scenario.pads", "scenario.ai.action.chr_set_pad_preset"),
+                            ("scenario.pads", "scenario.ai.action.try_start_alarm"),
+                            ("scenario.pads", "scenario.ai.action.set_lights"),
+                            ("scenario.pads", "scenario.ai.action.if_lift_stationary"),
+                            ("scenario.pads", "scenario.ai.action.lift_go_to_stop"),
+                            ("scenario.pads", "scenario.ai.action.if_lift_at_stop"),
+                            ("scenario.pads", "scenario.ai.action.activate_lift"),
+                            ("scenario.pads", "scenario.ai.action.if_using_lift"),
+                            ("scenario.global.settings", "scenario.ai.action.configure_rain"),
+                            ("scenario.global.settings", "scenario.ai.action.configure_snow"),
+                            ("scenario.global.settings", "scenario.ai.action.configure_environment"),
+                            ("setup.tables", "scenario.ai.action.chr_toggle_model_part"),
+                            ("setup.tables", "scenario.ai.action.obj_set_model_part_visible"),
+                            ("setup.tables", "scenario.ai.action.if_obj_health_less_than"),
+                            ("setup.tables", "scenario.ai.action.set_obj_health"),
+                            ("source.scene", "scenario.ai.action.set_room_to_search"),
+                            ("source.scene", "scenario.ai.action.set_room_flag"),
+                            ("source.scene", "scenario.ai.action.configure_environment"),
+                            ("setup.tables", "scenario.ai.action.set_obj_flag"),
+                            ("setup.tables", "scenario.ai.action.unset_obj_flag"),
+                            ("setup.tables", "scenario.ai.action.if_obj_has_flag"),
+                            ("setup.tables", "scenario.ai.action.open_door"),
+                            ("setup.tables", "scenario.ai.action.close_door"),
+                            ("setup.tables", "scenario.ai.action.if_door_state"),
+                            ("setup.tables", "scenario.ai.action.if_object_is_door"),
+                            ("setup.tables", "scenario.ai.action.lock_door"),
+                            ("setup.tables", "scenario.ai.action.unlock_door"),
+                            ("setup.tables", "scenario.ai.action.if_door_locked"),
+                            ("setup.tables", "scenario.ai.action.if_lift_stationary"),
+                            ("setup.tables", "scenario.ai.action.lift_go_to_stop"),
+                            ("setup.tables", "scenario.ai.action.if_lift_at_stop"),
+                            ("setup.tables", "scenario.ai.action.activate_lift"),
+                            ("setup.tables", "scenario.ai.action.if_using_lift"),
                             ("navigation.paths", "scenario.ai.action.set_path"),
                             ("navigation.paths", "scenario.ai.action.start_patrol"),
+                            ("navigation.paths", "scenario.ai.action.set_pad_preset_to_pad_on_route_to_target"),
+                            ("navigation.paths", "scenario.ai.action.hovercar_begin_path"),
+                            ("setup.tables", "scenario.ai.condition.if_object_distance_to_pad_less_than"),
+                            ("scenario.pads", "scenario.ai.condition.if_object_distance_to_pad_less_than"),
+                            ("navigation.generate", "scenario.ai.condition.if_waypoint_within_quadrant"),
+                            ("navigation.generate", "scenario.ai.action.set_pad_preset_to_target_quadrant"),
                         }:
                             if pair not in link_pairs:
                                 result.errors.append(
@@ -1845,6 +3020,17 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                                 )
 
             if ext == ".pdmission":
+                if descriptor in name_set:
+                    mission_text = zf.read(descriptor).decode(
+                        "utf-8", errors="replace"
+                    )
+                    scenario_graph_cache = descriptor_value(
+                        mission_text, "scenario_graph_cache"
+                    )
+                    if scenario_graph_cache != SCENARIO_GRAPH_CACHE_KIND:
+                        result.errors.append(
+                            f"{label} mission.ini must declare scenario_graph_cache = {SCENARIO_GRAPH_CACHE_KIND}"
+                        )
                 if "mission.graph.json" in name_set:
                     graph_text = zf.read("mission.graph.json").decode(
                         "utf-8", errors="replace"
@@ -1903,6 +3089,7 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                 slug = descriptor_value(text, "slug").lower()
                 scenario = descriptor_value(text, "scenario")
                 scenario_archive = descriptor_value(text, "scenario_archive")
+                scenario_graph_cache = descriptor_value(text, "scenario_graph_cache")
                 if has_scenario_dep:
                     if not scenario_archive.startswith("dependencies/assets/scenarios/"):
                         result.errors.append(
@@ -1915,6 +3102,10 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                     if scenario.lower() == "null":
                         result.errors.append(
                             f"{label} arena.ini cannot declare scenario = null when a scenario dependency is present"
+                        )
+                    if scenario_graph_cache != SCENARIO_GRAPH_CACHE_KIND:
+                        result.errors.append(
+                            f"{label} arena.ini must declare scenario_graph_cache = {SCENARIO_GRAPH_CACHE_KIND}"
                         )
                 else:
                     is_random_selector = category == "random" and "random" in slug

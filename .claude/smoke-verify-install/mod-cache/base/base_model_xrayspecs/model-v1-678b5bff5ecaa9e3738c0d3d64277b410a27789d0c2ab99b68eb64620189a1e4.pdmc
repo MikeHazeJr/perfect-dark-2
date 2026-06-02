@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_xrayspecs",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_xrayspecs.pdmesh::model.obj",
+  "source_size": 4621,
+  "source_sha256": "678b5bff5ecaa9e3738c0d3d64277b410a27789d0c2ab99b68eb64620189a1e4",
+  "validation": "format=obj vertices=72 triangles=24",
+  "normalized": "$S/mod-cache/base/base_model_xrayspecs/model-v1-678b5bff5ecaa9e3738c0d3d64277b410a27789d0c2ab99b68eb64620189a1e4.pdmodel.json",
+  "vertex_count": 72,
+  "triangle_count": 24,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_sk_ship_door2",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_sk_ship_door2.pdmesh::model.obj",
+  "source_size": 18533,
+  "source_sha256": "8997bbd3d4dc8a65502b6e527fa0d88941069eff8afb7a4d208cdc539dde56e4",
+  "validation": "format=obj vertices=276 triangles=92",
+  "normalized": "$S/mod-cache/base/base_model_sk_ship_door2/model-v1-8997bbd3d4dc8a65502b6e527fa0d88941069eff8afb7a4d208cdc539dde56e4.pdmodel.json",
+  "vertex_count": 276,
+  "triangle_count": 92,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

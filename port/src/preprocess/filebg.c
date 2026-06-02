@@ -265,6 +265,12 @@ static u32 convertRoomGfxData(u8 *dst, u8 *src, u32 src_size, u32 dst_size, u32 
 	dst_header->numvertices = PD_BE16(src_header->numvertices);
 	dst_header->numcolours = PD_BE16(src_header->numcolours);
 
+	if (!dst_header->vertices && !dst_header->colours &&
+			!dst_header->opablocks && !dst_header->xlublocks &&
+			dst_header->numvertices == 0 && dst_header->numcolours == 0) {
+		return (u32)(sizeof(struct roomgfxdata) - sizeof(struct roomblock));
+	}
+
 	intptr_t endpos_raw = (uintptr_t)dst_header->vertices - src_ofs;
 	intptr_t endpos = endpos_raw;
 	// Clamp to src_size so a bogus ptr_vertices can't walk past the inflated

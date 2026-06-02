@@ -16,7 +16,7 @@
   "verbose": 0,
   "timeout_seconds": 120,
   "install_state": "clean",
-  "boot_args": ["--no-update-check", "--no-sound"],
+  "boot_args": ["--no-update-check", "--no-sound", "--portable"],
   "input_sequence": [
     { "at_ms": 0,     "type": "wait", "comment": "let boot run, no scripted input" },
     { "at_ms": 90000, "type": "exit", "comment": "boot smoke is log-based; exit before timeout when boot has settled" }

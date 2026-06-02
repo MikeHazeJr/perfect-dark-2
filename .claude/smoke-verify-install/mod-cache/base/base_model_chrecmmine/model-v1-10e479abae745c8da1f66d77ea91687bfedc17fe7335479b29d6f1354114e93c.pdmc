@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_chrecmmine",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrecmmine.pdmesh::model.obj",
+  "source_size": 56024,
+  "source_sha256": "10e479abae745c8da1f66d77ea91687bfedc17fe7335479b29d6f1354114e93c",
+  "validation": "format=obj vertices=888 triangles=296",
+  "normalized": "$S/mod-cache/base/base_model_chrecmmine/model-v1-10e479abae745c8da1f66d77ea91687bfedc17fe7335479b29d6f1354114e93c.pdmodel.json",
+  "vertex_count": 888,
+  "triangle_count": 296,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

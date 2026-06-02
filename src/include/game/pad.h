@@ -5,6 +5,8 @@
 #include "types.h"
 
 void padUnpack(s32 padnum, u32 fields, struct pad *pad);
+void padSetWideOffsets(u32 *offsets);
+u32 padGetPackedOffset(s32 padnum);
 bool padHasBboxData(s32 padnum);
 void padGetCentre(s32 padnum, struct coord *coord);
 void padRotateForDoor(s32 padnum);

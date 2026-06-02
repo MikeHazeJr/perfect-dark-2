@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_cctv_pd",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cctv_pd.pdmesh::model.obj",
+  "source_size": 12172,
+  "source_sha256": "a7b07b8a48f215c371c6422e239661909f45244842a420ff8430cd3adca34042",
+  "validation": "format=obj vertices=189 triangles=63",
+  "normalized": "$S/mod-cache/base/base_model_cctv_pd/model-v1-a7b07b8a48f215c371c6422e239661909f45244842a420ff8430cd3adca34042.pdmodel.json",
+  "vertex_count": 189,
+  "triangle_count": 63,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

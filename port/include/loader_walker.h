@@ -1,16 +1,19 @@
 /**
  * loader_walker.h -- Catalog universality pivot Step 4 (2026-05-03).
  *
- * Universal directory walker. Replaces the hardcoded the per-asset .pd<ext> envelopes scan
- * (loaderWalkerLoadAll) as the primary catalog row registration path. Walks
- * data/<romid>/<class>/*.pd<ext> for all 13 universality kinds emitted by
- * Steps 1 / 2 / 3a / 3 / 3b and registers a catalog row per file via the
- * existing assetCatalogRegister* API using the human-readable catalog ID
- * carried in each file's envelope.
+ * Universal directory walker. Replaces hardcoded per-asset .pd<ext> envelope
+ * scans as the primary catalog row registration path. Walks
+ * data/<romid>/<class>/*.pd<ext> for the public typed archive families and
+ * registers a catalog row per file via the existing assetCatalogRegister* API
+ * using the human-readable catalog ID carried in each file's envelope.
  *
- * The 13 kinds (matching universality-pivot-schemas.md Section 1.2):
+ * Original universality kinds:
  *   weapon mesh animation head body arena scenario
  *   sfx voice song ui font lang
+ *
+ * c3844 metadata-family extension:
+ *   character skin prop vehicle mission gamemode botprofile hud
+ *   effect material theme
  *
  * Boot order: must run AFTER assetCatalogRegisterBaseGame (so the in-binary
  * catalog rows exist as a baseline) AND AFTER the romextract_pd*.c emitters
@@ -61,14 +64,15 @@ typedef struct {
     s32 uis_registered;
     s32 fonts_registered;
     s32 langs_registered;
+    s32 metadata_registered;
 
     s32 total_files_scanned;
     s32 total_envelope_failures;
     s32 total_register_failures;
 } loader_walker_result_t;
 
-/* Walk every `data/<romid>/<class>/*.pd<ext>` for all 13 universality
- * kinds and register a catalog row per file.  Dependency-ordered so
+/* Walk every `data/<romid>/<class>/*.pd<ext>` for public typed archive
+ * families and register a catalog row per file.  Dependency-ordered so
  * cross-references (e.g. arena -> scenario, weapon -> mesh) resolve
  * cleanly during a single pass.
  *
@@ -100,6 +104,16 @@ void loaderWalkerScanScenarios(const char *tier_dir, loader_walker_kind_result_t
 void loaderWalkerScanUi(const char *tier_dir, loader_walker_kind_result_t *out);
 void loaderWalkerScanFonts(const char *tier_dir, loader_walker_kind_result_t *out);
 void loaderWalkerScanLangs(const char *tier_dir, loader_walker_kind_result_t *out);
+
+typedef struct {
+    s32 entries_scanned;
+    s32 entries_registered;
+    s32 envelope_failures;
+    s32 register_failures;
+} loader_walker_metadata_result_t;
+
+void loaderWalkerScanMetadataFamilies(const char *tier_dir,
+    loader_walker_metadata_result_t *out);
 
 #ifdef __cplusplus
 }

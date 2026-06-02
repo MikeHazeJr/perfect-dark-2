@@ -50,6 +50,11 @@
 #include "video.h"
 #include "platform.h"
 #include "assetcatalog.h"
+#include "assetcatalog_load.h"
+#include "asset_source_debug.h"
+#include "lib/meshcollision.h"
+#include "scenario_scene_renderer.h"
+#include "scenario_source_runtime.h"
 
 #define BGCMD_END                               0x00
 #define BGCMD_PUSH                              0x01
@@ -136,6 +141,9 @@ s32 g_BgMostAttemptedDrawSlots = 0;
 s32 g_BgNumRoomLoadCandidates = 0;
 u16 g_BgFrameCount = 0xfffe;
 s32 g_BgNumPortalCameraCacheItems = 0;
+s32 g_BgUsingScenarioSource = 0;
+static struct colmesh *g_BgScenarioSourceMesh = NULL;
+static char g_BgScenarioSourceId[CATALOG_ID_LEN];
 
 void bgUnpausePropsInRoom(u32 roomnum, bool tintedglassonly)
 {
@@ -973,6 +981,7 @@ Gfx *bgRenderSceneInXray(Gfx *gdl)
 Gfx *bgRenderScene(Gfx *gdl)
 {
 	s32 stagenum = g_Vars.stagenum;
+	s32 sourcebg = scenarioSceneRendererIsActive();
 	s32 firstroomnum = -1;
 	s32 i;
 	s32 roomnum;
@@ -987,7 +996,7 @@ Gfx *bgRenderScene(Gfx *gdl)
 	RoomNum roomnums[60];
 
 
-	if (g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
+	if (!sourcebg && g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
 		gdl = bgRenderSceneInXray(gdl);
 		return gdl;
 	}
@@ -1024,7 +1033,8 @@ Gfx *bgRenderScene(Gfx *gdl)
 
 	// Render special "always on" rooms, such as the Defection moon,
 	// Attack Ship planet, and other sky tricks that are implemented as rooms
-	if (!USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)
+	if (!sourcebg
+			&& !USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)
 			&& (stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
 				|| stagenum == g_Stages[STAGEINDEX_RESCUE].id
 				|| stagenum == g_Stages[STAGEINDEX_ESCAPE].id
@@ -1145,7 +1155,7 @@ Gfx *bgRenderScene(Gfx *gdl)
 		gdl = bgScissorWithinViewportF(gdl, thing->box.xmin, thing->box.ymin, thing->box.xmax, thing->box.ymax);
 		gdl = envStartFog(gdl, false);
 
-		if (debugIsBgRenderingEnabled() && getVar80084040()) {
+		if (!sourcebg && debugIsBgRenderingEnabled() && getVar80084040()) {
 			if (g_StageIndex != STAGEINDEX_TEST_OLD) {
 				gdl = bgRenderRoomOpaque(gdl, thing->roomnum);
 			}
@@ -1191,7 +1201,7 @@ Gfx *bgRenderScene(Gfx *gdl)
 		gdl = bgScissorWithinViewportF(gdl, thing->box.xmin, thing->box.ymin, thing->box.xmax, thing->box.ymax);
 		gdl = envStartFog(gdl, true);
 
-		if (debugIsBgRenderingEnabled() && getVar80084040()) {
+		if (!sourcebg && debugIsBgRenderingEnabled() && getVar80084040()) {
 			gdl = bgRenderRoomXlu(gdl, thing->roomnum);
 		}
 
@@ -1258,6 +1268,9 @@ void bgLoadFile(void *memaddr, u32 offset, u32 len)
 		return;
 	}
 
+	assetSourceDebugFatalHandleFallback(ASSET_SCENARIO, "background geometry",
+		stage.entry ? stage.entry->id : "unknown-stage", stage.bg_handle);
+
 	romsize = 0;
 	src = romdataFileLoad(stage.bgfileid, &romsize);
 	if (src == NULL) {
@@ -1290,6 +1303,322 @@ void bgLoadFile(void *memaddr, u32 offset, u32 len)
 	}
 
 	memcpy(memaddr, src + offset, len);
+}
+
+static s32 bgTryActivateScenarioSourceBackground(const catalog_stage_result_t *stage, s32 prefer_mp)
+{
+	const asset_entry_t *scenario;
+	struct colmesh *mesh;
+	const char *scene_path;
+	const char *stageid;
+
+	g_BgUsingScenarioSource = 0;
+	g_BgScenarioSourceMesh = NULL;
+	g_BgScenarioSourceId[0] = '\0';
+	scenarioSceneRendererDeactivate();
+
+	scenario = scenarioSourceFindEntryForStage(stage, prefer_mp);
+	if (!scenario || !scenario->id[0]) {
+		return 0;
+	}
+
+	if (!catalogLoadTypedAsset(ASSET_SCENARIO, scenario->id)) {
+		return 0;
+	}
+
+	mesh = catalogGetLoadedColmesh(scenario->id);
+	if (!mesh || mesh->numtris <= 0) {
+		return 0;
+	}
+
+	scene_path = scenario->ext.scenario.scene_file[0]
+		? scenario->ext.scenario.scene_file : NULL;
+	if (!scene_path || !scene_path[0]) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: background renderer cannot activate '%s': missing scene.glb source",
+			scenario->id);
+		return 0;
+	}
+
+	if (!scenarioSceneRendererActivate(scenario->id, scene_path)) {
+		return 0;
+	}
+
+	stageid = (stage && stage->entry && stage->entry->id[0])
+		? stage->entry->id : "?";
+	g_BgUsingScenarioSource = 1;
+	g_BgScenarioSourceMesh = mesh;
+	strncpy(g_BgScenarioSourceId, scenario->id, sizeof(g_BgScenarioSourceId) - 1);
+	g_BgScenarioSourceId[sizeof(g_BgScenarioSourceId) - 1] = '\0';
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.SOURCE: background renderer using native scene source '%s' for stage '%s' source=%s tris=%d",
+		scenario->id, stageid, scene_path, mesh->numtris);
+	return 1;
+}
+
+static void bgBuildScenarioSourcePortalTables(const catalog_stage_result_t *stage)
+{
+	s32 portalcount = 0;
+	s32 totalrefs = 0;
+	s32 index = 0;
+	struct bgportal *portals = scenarioSourceLoadPortalsForStage(stage,
+		g_Vars.normmplayerisrunning, &portalcount);
+
+	if (!portals || portalcount <= 0) {
+		g_BgPortals = portals ? portals :
+			mempAlloc(ALIGN16(sizeof(struct bgportal)), MEMPOOL_STAGE);
+		g_RoomPortals = mempAlloc(ALIGN16(sizeof(s16)), MEMPOOL_STAGE);
+		g_BgPortalAlphas = mempAlloc(ALIGN16(1), MEMPOOL_STAGE);
+		g_PortalMetrics = mempAlloc(ALIGN16(sizeof(struct portalmetric)), MEMPOOL_STAGE);
+		g_PortalCameraCache = mempAlloc(ALIGN16(sizeof(struct portalcamcacheitem)), MEMPOOL_STAGE);
+		memset(g_BgPortals, 0, sizeof(struct bgportal));
+		memset(g_RoomPortals, 0, sizeof(s16));
+		memset(g_BgPortalAlphas, 0, 1);
+		memset(g_PortalMetrics, 0, sizeof(struct portalmetric));
+		memset(g_PortalCameraCache, 0, sizeof(struct portalcamcacheitem));
+		portal0f0b65a8(0);
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.SOURCE: built native portal tables '%s' portals=%d room_refs=0 source=portals.tsv",
+			g_BgScenarioSourceId[0] ? g_BgScenarioSourceId : "?",
+			portalcount > 0 ? portalcount : 0);
+		return;
+	}
+
+	g_BgPortals = portals;
+	g_BgNumPortalCameraCacheItems = portalcount;
+	g_PortalCameraCache = mempAlloc(ALIGN16(portalcount * sizeof(struct portalcamcacheitem)), MEMPOOL_STAGE);
+	g_BgPortalAlphas = mempAlloc(ALIGN16(portalcount), MEMPOOL_STAGE);
+	g_PortalMetrics = mempAlloc(ALIGN16(portalcount * sizeof(struct portalmetric)), MEMPOOL_STAGE);
+	memset(g_PortalCameraCache, 0, portalcount * sizeof(struct portalcamcacheitem));
+
+	for (s32 i = 0; i < portalcount; i++) {
+		if (g_BgPortals[i].roomnum1 >= 0 && g_BgPortals[i].roomnum1 < g_Vars.roomcount) {
+			totalrefs++;
+		}
+		if (g_BgPortals[i].roomnum2 >= 0 && g_BgPortals[i].roomnum2 < g_Vars.roomcount) {
+			totalrefs++;
+		}
+	}
+
+	g_RoomPortals = mempAlloc(ALIGN16((totalrefs > 0 ? totalrefs : 1) * sizeof(s16)), MEMPOOL_STAGE);
+	memset(g_RoomPortals, 0, (totalrefs > 0 ? totalrefs : 1) * sizeof(s16));
+
+	for (s32 i = 0; i < g_Vars.roomcount; i++) {
+		s32 count = 0;
+		g_Rooms[i].roomportallistoffset = index;
+		for (s32 j = 0; j < portalcount; j++) {
+			if (g_BgPortals[j].roomnum1 == i || g_BgPortals[j].roomnum2 == i) {
+				if (count < 127) {
+					g_RoomPortals[index++] = (s16)j;
+					count++;
+				}
+			}
+		}
+		g_Rooms[i].numportals = (s8)count;
+		if (count > g_Vars.roomportalrecursionlimit) {
+			g_Vars.roomportalrecursionlimit = count;
+		}
+	}
+
+	for (s32 i = 0; i < portalcount; i++) {
+		struct portalvertices *pvertices =
+			(struct portalvertices *)((uintptr_t)g_BgPortals + g_BgPortals[i].verticesoffset);
+		struct portalmetric tmp;
+		f32 divisor;
+
+		tmp.normal.x = 0.0f;
+		tmp.normal.y = 0.0f;
+		tmp.normal.z = 0.0f;
+
+		for (s32 j = 0; j < pvertices->count; j++) {
+			struct coord *next = &pvertices->vertices[(j + 1) % pvertices->count];
+			tmp.normal.x += (pvertices->vertices[j].y - next->y) * (pvertices->vertices[j].z + next->z);
+			tmp.normal.y += (pvertices->vertices[j].z - next->z) * (pvertices->vertices[j].x + next->x);
+			tmp.normal.z += (pvertices->vertices[j].x - next->x) * (pvertices->vertices[j].y + next->y);
+		}
+
+		divisor = -sqrtf(tmp.normal.f[0] * tmp.normal.f[0] + tmp.normal.f[1] * tmp.normal.f[1] + tmp.normal.f[2] * tmp.normal.f[2]);
+		if (divisor == 0.0f) {
+			divisor = -1.0f;
+		}
+		tmp.normal.x /= divisor;
+		tmp.normal.y /= divisor;
+		tmp.normal.z /= divisor;
+		tmp.min = MAXFLOAT;
+		tmp.max = MINFLOAT;
+
+		for (s32 j = 0; j < pvertices->count; j++) {
+			f32 value = pvertices->vertices[j].f[0] * tmp.normal.f[0]
+				+ pvertices->vertices[j].f[1] * tmp.normal.f[1]
+				+ pvertices->vertices[j].f[2] * tmp.normal.f[2];
+			if (value < tmp.min) {
+				tmp.min = value;
+			}
+			if (value > tmp.max) {
+				tmp.max = value;
+			}
+		}
+
+		g_PortalMetrics[i] = tmp;
+		g_BgPortalAlphas[i] = bgCalculatePortalAlpha(i);
+	}
+
+	portal0f0b65a8(portalcount);
+	for (s32 i = 0; i < portalcount; i++) {
+		bgInitPortal(i);
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.SOURCE: built native portal tables '%s' portals=%d room_refs=%d source=portals.tsv",
+		g_BgScenarioSourceId[0] ? g_BgScenarioSourceId : "?",
+		portalcount, totalrefs);
+}
+
+static void bgBuildScenarioSourceTables(s32 stagenum)
+{
+	struct colmesh *mesh = g_BgScenarioSourceMesh;
+	s32 i;
+	s32 maxroom = 0;
+	s32 roomcount;
+	u8 *roomseen;
+	catalog_stage_result_t stage;
+
+	if (!mesh || mesh->numtris <= 0) {
+		return;
+	}
+
+	for (i = 0; i < mesh->numtris; i++) {
+		if (mesh->tris[i].roomnum > maxroom) {
+			maxroom = mesh->tris[i].roomnum;
+		}
+	}
+
+	roomcount = maxroom + 1;
+	if (roomcount < 2) {
+		roomcount = 2;
+	}
+	catalogGetStageResultByIndex(g_StageIndex, &stage);
+
+	g_Vars.roomcount = roomcount;
+	g_Rooms = mempAlloc(ALIGN16(g_Vars.roomcount * sizeof(struct room)), MEMPOOL_STAGE);
+	g_BgDrawSlotsByRoom = mempAlloc(ALIGN16(g_Vars.roomcount * sizeof(struct drawslotpointer)), MEMPOOL_STAGE);
+	g_BgRooms = mempAlloc(ALIGN16((g_Vars.roomcount + 1) * sizeof(struct bgroom)), MEMPOOL_STAGE);
+	roomseen = mempAlloc(ALIGN16(g_Vars.roomcount), MEMPOOL_STAGE);
+
+	memset(g_Rooms, 0, g_Vars.roomcount * sizeof(struct room));
+	memset(g_BgDrawSlotsByRoom, 0, g_Vars.roomcount * sizeof(struct drawslotpointer));
+	memset(g_BgRooms, 0, (g_Vars.roomcount + 1) * sizeof(struct bgroom));
+	memset(roomseen, 0, g_Vars.roomcount);
+
+	g_BgCommands = NULL;
+	g_BgLightsFileData = NULL;
+	g_BgStanThings = NULL;
+	g_BgNumPortalCameraCacheItems = 0;
+	g_Vars.roomportalrecursionlimit = 0;
+	g_BgPortals = NULL;
+	g_RoomPortals = NULL;
+	g_BgPortalAlphas = NULL;
+	g_PortalMetrics = NULL;
+	g_PortalCameraCache = NULL;
+
+	for (i = 0; i < g_Vars.roomcount; i++) {
+		g_BgDrawSlotsByRoom[i].updatedframe = 0xffff;
+		g_BgDrawSlotsByRoom[i].slotnum = 0;
+		g_Rooms[i].flags = 0;
+		g_Rooms[i].snakecount = 0;
+		g_Rooms[i].unk07 = 1;
+		g_Rooms[i].loaded240 = 1;
+		g_Rooms[i].gfxdata = NULL;
+		g_Rooms[i].gfxdatalen = 0;
+		g_Rooms[i].opawallhits = NULL;
+		g_Rooms[i].xluwallhits = NULL;
+		g_Rooms[i].vtxbatches = NULL;
+		g_Rooms[i].numvtxbatches = 0;
+		g_Rooms[i].numlights = 0;
+		g_Rooms[i].lightindex = -1;
+		g_Rooms[i].numportals = 0;
+		g_Rooms[i].roomportallistoffset = 0;
+		g_Rooms[i].bbmin[0] = MAXFLOAT;
+		g_Rooms[i].bbmin[1] = MAXFLOAT;
+		g_Rooms[i].bbmin[2] = MAXFLOAT;
+		g_Rooms[i].bbmax[0] = MINFLOAT;
+		g_Rooms[i].bbmax[1] = MINFLOAT;
+		g_Rooms[i].bbmax[2] = MINFLOAT;
+		g_BgRooms[i].br_light_min = 0xff;
+		g_BgRooms[i].br_light_max = 0xff;
+	}
+
+	for (i = 0; i < mesh->numtris; i++) {
+		const struct meshtri *tri = &mesh->tris[i];
+		s32 room = tri->roomnum;
+		const struct coord *verts[3];
+		s32 j;
+
+		if (room <= 0 || room >= g_Vars.roomcount) {
+			continue;
+		}
+
+		verts[0] = &tri->v0;
+		verts[1] = &tri->v1;
+		verts[2] = &tri->v2;
+		roomseen[room] = 1;
+
+		for (j = 0; j < 3; j++) {
+			if (verts[j]->x < g_Rooms[room].bbmin[0]) g_Rooms[room].bbmin[0] = verts[j]->x;
+			if (verts[j]->y < g_Rooms[room].bbmin[1]) g_Rooms[room].bbmin[1] = verts[j]->y;
+			if (verts[j]->z < g_Rooms[room].bbmin[2]) g_Rooms[room].bbmin[2] = verts[j]->z;
+			if (verts[j]->x > g_Rooms[room].bbmax[0]) g_Rooms[room].bbmax[0] = verts[j]->x;
+			if (verts[j]->y > g_Rooms[room].bbmax[1]) g_Rooms[room].bbmax[1] = verts[j]->y;
+			if (verts[j]->z > g_Rooms[room].bbmax[2]) g_Rooms[room].bbmax[2] = verts[j]->z;
+		}
+	}
+
+	for (i = 0; i < g_Vars.roomcount; i++) {
+		if (!roomseen[i]) {
+			g_Rooms[i].bbmin[0] = 0.0f;
+			g_Rooms[i].bbmin[1] = 0.0f;
+			g_Rooms[i].bbmin[2] = 0.0f;
+			g_Rooms[i].bbmax[0] = 0.0f;
+			g_Rooms[i].bbmax[1] = 0.0f;
+			g_Rooms[i].bbmax[2] = 0.0f;
+		}
+
+		g_Rooms[i].centre.x = (g_Rooms[i].bbmin[0] + g_Rooms[i].bbmax[0]) / 2.0f;
+		g_Rooms[i].centre.y = (g_Rooms[i].bbmin[1] + g_Rooms[i].bbmax[1]) / 2.0f;
+		g_Rooms[i].centre.z = (g_Rooms[i].bbmin[2] + g_Rooms[i].bbmax[2]) / 2.0f;
+		g_Rooms[i].radius = sqrtf(
+			(g_Rooms[i].bbmin[0] - g_Rooms[i].bbmax[0]) * (g_Rooms[i].bbmin[0] - g_Rooms[i].bbmax[0])
+			+ (g_Rooms[i].bbmin[1] - g_Rooms[i].bbmax[1]) * (g_Rooms[i].bbmin[1] - g_Rooms[i].bbmax[1])
+			+ (g_Rooms[i].bbmin[2] - g_Rooms[i].bbmax[2]) * (g_Rooms[i].bbmin[2] - g_Rooms[i].bbmax[2])) / 2.0f;
+	}
+
+	if (g_Vars.mplayerisrunning) {
+		g_MpRoomVisibility = mempAlloc(ALIGN16(g_Vars.roomcount), MEMPOOL_STAGE);
+		memset(g_MpRoomVisibility, 0, g_Vars.roomcount);
+	}
+
+	bgSetStageTranslationThing(g_Stages[g_StageIndex].unk14);
+	chr0f028490(g_Stages[g_StageIndex].unk14);
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		g_Vars.playerstats[i].scale_bg2gfx = g_Stages[g_StageIndex].unk18;
+	}
+
+	mtx00016748(1);
+	bgBuildScenarioSourcePortalTables(&stage);
+	roomsReset();
+	dyntexReset();
+	var800a41a0 = NULL;
+
+	envSetStageNum(stagenum);
+	var8007fc10 = 200;
+	wallhitReset();
+	func0f002a98();
+	func0f001c0c();
+
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.SOURCE: built native background room tables '%s' rooms=%d tris=%d source=scene.glb",
+		g_BgScenarioSourceId[0] ? g_BgScenarioSourceId : "?",
+		g_Vars.roomcount, mesh->numtris);
 }
 
 s32 bgGetStageIndex(s32 stagenum)
@@ -1527,6 +1856,12 @@ void bgReset(s32 stagenum)
 		stage.bgfileid, stage.tilefileid,
 		stage.padsfileid, stage.setupfileid,
 		stage.mpsetupfileid);
+	scenarioSourceValidateBackgroundGeometryForStage(&stage,
+		g_Vars.normmplayerisrunning);
+	if (bgTryActivateScenarioSourceBackground(&stage,
+			g_Vars.normmplayerisrunning)) {
+		return;
+	}
 
 	// Copy section 1 header to stack and parse into variables
 	header = (u8 *)ALIGN16((uintptr_t)headerbuffer);
@@ -1699,6 +2034,11 @@ void bgBuildTables(s32 stagenum)
 	u8 *section3;
 	u16 *datalenptr;
 	u8 *numlightsptr;
+
+	if (g_BgUsingScenarioSource && g_BgScenarioSourceMesh) {
+		bgBuildScenarioSourceTables(stagenum);
+		return;
+	}
 
 	g_Rooms = mempAlloc(ALIGN16(g_Vars.roomcount * sizeof(struct room)), MEMPOOL_STAGE);
 	g_BgDrawSlotsByRoom = mempAlloc(ALIGN16(g_Vars.roomcount * sizeof(struct drawslotpointer)), MEMPOOL_STAGE);
@@ -2086,6 +2426,10 @@ void bgBuildTables(s32 stagenum)
 void bgStop(void)
 {
 	bgUnloadAllRooms();
+	g_BgUsingScenarioSource = 0;
+	g_BgScenarioSourceMesh = NULL;
+	g_BgScenarioSourceId[0] = '\0';
+	scenarioSceneRendererDeactivate();
 	mtx00016748(1);
 }
 
@@ -2808,6 +3152,13 @@ void bgLoadRoom(s32 roomnum)
 #if VERSION < VERSION_NTSC_1_0
 	bgVerifyLightSums("bg.c", 7076);
 #endif
+
+	if (g_BgUsingScenarioSource) {
+		if (roomnum > 0 && roomnum < g_Vars.roomcount) {
+			g_Rooms[roomnum].loaded240 = 1;
+		}
+		return;
+	}
 
 	if (roomnum == 0 || roomnum >= g_Vars.roomcount) {
 		return;

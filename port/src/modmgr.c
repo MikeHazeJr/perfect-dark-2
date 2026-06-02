@@ -501,7 +501,7 @@ static bool modmgrParseModJsonBuf(modinfo_t *mod, const char *src, u32 size,
 	}
 
 	if (mod->valid) {
-		sysLogPrintf(LOG_NOTE, "modmgr: parsed mod.json for '%s' (%s v%s by %s) — %d bodies, %d heads, %d arenas, fallback=%s, template=%s, tags=%d, archive=%s, requires_restart=%s",
+		sysLogPrintf(LOG_NOTE, "modmgr: parsed mod.json for '%s' (%s v%s by %s) — %d bodies, %d heads, %d arenas, base_mod=%s, template=%s, tags=%d, archive=%s, requires_restart=%s",
 			mod->id, mod->name, mod->version, mod->author,
 			mod->num_bodies, mod->num_heads, mod->num_arenas, mod->base_fallback,
 			mod->is_template ? "yes" : "no", mod->num_tags,
@@ -1805,6 +1805,11 @@ static bool modmgrLoadModsEnabledJson(void)
 	char pathBuf[FS_MAXPATH + 1];
 	const char *path = fsFullPath(MODS_ENABLED_JSON_PATH, pathBuf, sizeof(pathBuf));
 	if (!path) return false;
+
+	struct stat st;
+	if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+		return false;
+	}
 
 	u32 filesize = 0;
 	char *data = (char *)fsFileLoad(path, &filesize);

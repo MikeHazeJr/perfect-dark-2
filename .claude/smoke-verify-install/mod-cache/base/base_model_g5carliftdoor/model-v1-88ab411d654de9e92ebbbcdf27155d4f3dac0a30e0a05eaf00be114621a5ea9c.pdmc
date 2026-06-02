@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 1,
+  "asset_id": "base:model_g5carliftdoor",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_g5carliftdoor.pdmesh::model.obj",
+  "source_size": 24780,
+  "source_sha256": "88ab411d654de9e92ebbbcdf27155d4f3dac0a30e0a05eaf00be114621a5ea9c",
+  "validation": "format=obj vertices=348 triangles=116",
+  "normalized": "$S/mod-cache/base/base_model_g5carliftdoor/model-v1-88ab411d654de9e92ebbbcdf27155d4f3dac0a30e0a05eaf00be114621a5ea9c.pdmodel.json",
+  "vertex_count": 348,
+  "triangle_count": 116,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

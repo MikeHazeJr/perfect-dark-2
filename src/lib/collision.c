@@ -10,6 +10,7 @@
 #include "lib/lib_17ce0.h"
 #include "lib/anim.h"
 #include "lib/collision.h"
+#include "lib/meshcollision.h"
 #include "lib/lib_2f490.h"
 #include "lib/libc/ll.h"
 #include "data.h"
@@ -2203,6 +2204,13 @@ f32 cdFindGroundInfoAtCyl(struct coord *pos, f32 radius, RoomNum *rooms, u16 *fl
 
 	if (sp72) {
 		geo = sp72->geo;
+	} else {
+		f32 normaly = 1.0f;
+		f32 meshground = meshFindFloor(pos, radius, &normaly);
+
+		if (meshground > -30000.0f) {
+			ground = meshground;
+		}
 	}
 
 	if (floorcol) {
@@ -2213,8 +2221,12 @@ f32 cdFindGroundInfoAtCyl(struct coord *pos, f32 radius, RoomNum *rooms, u16 *fl
 		cdGetFloorType(geo, floortype);
 	}
 
-	if (floorflags && geo) {
-		*floorflags = geo->flags;
+	if (floorflags) {
+		if (geo) {
+			*floorflags = geo->flags;
+		} else if (ground > -30000.0f) {
+			*floorflags = GEOFLAG_FLOOR1;
+		}
 	}
 
 	if (floorroom) {

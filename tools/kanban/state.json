@@ -4496,14 +4496,28 @@
       "column": "active",
       "order": 2425,
       "priority": 1,
-      "notes": "Created 2026-05-27 from Mike's clarification that any ROM fallback after extraction is an asset-chain failure and a break in the asset ecosystem. B-390/B-395 fixed and verified the Chicago scene.glb exporter path through v5 renderer-matched texture dimensions, RSP texture scale, tile shifts, and sampler modes pending manual DCC visual retest. B-391/B-392/B-393/B-394 are fixed/verified: public patrol paths compile from navigation/paths.tsv and AI jog_to_pad/go_to_pad_preset/walk_to_pad/run_to_pad/set_path/start_patrol route through graph-owned public pad/path source. Remaining c3844 work is broader trigger behavior, any remaining global/phase behavior, and remaining non-pad/non-path AI action modules before closing c3844-s1.",
+      "notes": "B-506 recorded after B-505: broad standalone Scenario backfill still emits 87 .pdscenario archives, non-Scenario top-level families still pass source-only runtime load gating, Scenario portal source emits public portals.tsv that compiles into native runtime portal tables, Chicago source-ground/body sync runs clean, and the sequential Scenario source matrix validates stages from extracted .pdscenario manifests. Latest matrix proof: Chicago, CI Training, Airbase, and Test Ash each PASS 23/23; Extra1 through Extra26 and Maians SOS each PASS 22/22. Maians SOS proves large public pads.tsv tables compile through source-owned 32-bit pad offsets instead of failing and trying ROM pad fallback. Extra25/Extra26 prove the boot-stage boundary now accepts stages through STAGE_EXTRA26 instead of rejecting values above the stale 0x5d cap and falling through to CI Training. All passing entries prove public scene, collision, portal, pad, and graph source evidence. Test Ash proves explicit empty public pads.tsv/portals.tsv compile as authoritative empty source instead of ROM fallback. Verification also passed asset_native_source_guard, focused scenario source-gate/static matrix coverage, isolated all-target build, isolated and shared Build Extra25 + Extra26 matrix 44/44, and normal build-headless. AssetSourceOnlyType=0 in normal Build remains the usable-client baseline; normal Build boot exited code 0 but missed the scripted-exit marker, so that is tracked as a harness/fixture note rather than a boot-smoke pass. c3844 remains active for exhaustive fallback closure plus broader Scenario nav behavior completeness, the full -All matrix, and full source-only/parity validation.",
       "subtasks": [
         {
           "id": "c3844-s1",
           "title": "Inventory all runtime ROM/RomProvider fallback sites",
           "status": "active",
           "order": 1000,
-          "notes": "Include assetLoadRomToNew, assetLoadRomToAddr, fileLoadRomToNew, fileLoadRomToAddr, catalogSetPrimaryRomFilenum, catalogBindPrimaryFromDiskOrRom, and raw file/texture/animation/sound fallback gateways. Separate bootstrap extraction reads from runtime fallback reads. B-374 through B-384 plus B-386 through B-388 are fixed and verified. B-390/B-395 GLB texture scale is fixed through v5 renderer-matched texture dimensions, RSP texture scale, tile shifts, and sampler modes pending manual Blender/3DS Max retest. B-391/B-392/B-393/B-394 are fixed and verified: public patrol paths compile from navigation/paths.tsv, AI set_path/start_patrol route through graph-owned path source, and AI jog_to_pad/go_to_pad_preset/walk_to_pad/run_to_pad route through graph-owned pad source. B-385 remains open only for mission/level graph behavior runtime parity across broader trigger behavior, any remaining global/phase behavior replacement, and remaining non-pad/non-path AI action modules before closing c3844-s1."
+          "notes": "B-456 fixed and verified: expanded AI audio opcodes now route through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Coverage includes speech, play_sound, assign_sound, channel mute/free, object sound volume/play state, object/entity/pad playback, object-volume branch behavior, plus the existing prop-sound and temporary primary music nodes. AI_GRAPH_PENDING_FUNCTIONS debt is now 182 functions. Verification PASS: Python compile, strict examples, native-source guard, focused c3844 1,699 assertions / 7 cases, c3844audio all-target build, exact SourceBinary scenario_pads_source_gate_smoke, runtime proof for backend=graph.ai.action.audio+ai/ailists.tsv, full generated conformance across Build/data and smoke install, and texture verifier across 64 generated/nested scene.glb files."
+        },
+        {
+          "id": "c3844-s1-scenario-glb-uv-guard",
+          "title": "Guard scenario scene.glb texture scale in strict conformance",
+          "status": "done",
+          "order": 1490,
+          "notes": "Done 2026-05-31. B-390/B-395/B-405 now have strict GLB texture-scale guard coverage: generated .pdscenario::scene.glb writes DCC-authoring TEXCOORD_0 plus runtime-parity TEXCOORD_1, asset_archive_conformance.py requires the v6 exporter stamp, caps generated TEXCOORD_0 to the DCC-authoring range, and requires TEXCOORD_1. Verification: strict example conformance PASS across 28 root / 52 checked archives; native-source guard PASS; isolated c3844cov2 all-target build PASS; focused [modding][pdxxx][c3844] PASS 890 assertions / 6 cases; scenario_pads_source_gate_smoke PASS; full extracted-output conformance PASS 7,513 root / 8,484 checked archives; Chicago scene.glb v6 stamp with TEXCOORD_0 max abs 1.0 and TEXCOORD_1 max abs 32.748047."
+        },
+        {
+          "id": "c3844-s1-scenario-glb-dcc-uvs",
+          "title": "Export scenario scene.glb DCC UVs with runtime parity UVs",
+          "status": "done",
+          "order": 1491,
+          "notes": "Done 2026-05-31. B-405 splits generated scene.glb UVs so TEXCOORD_0 is normalized for Blender/3DS Max authoring and TEXCOORD_1 preserves renderer/repeat parity UVs. Verification: native-source guard PASS; strict example conformance PASS; c3844cov2 all-target build PASS; focused c3844 PASS 890 assertions / 6 cases; scenario_pads_source_gate_smoke PASS; full extracted-output conformance PASS; Chicago v6 GLB reports TEXCOORD_0 max abs 1.0 and TEXCOORD_1 max abs 32.748047."
         },
         {
           "id": "c3844-s1-model-source",
@@ -4555,6 +4569,104 @@
           "notes": "Done 2026-05-30. B-394 adds required scenario.ai.action.jog_to_pad and scenario.ai.action.go_to_pad_preset nodes to generated .pdscenario level.graph.json, links them to public ai/ailists.tsv and pads.tsv, validates them during stage graph activation, and routes AI opcodes 0x001d/0x001e through scenarioSourceAiGraphExecuteJogToPad/scenarioSourceAiGraphExecuteGoToPadPreset when a level graph is active. Verification: strict example conformance PASS across 28 root / 52 checked archives; native-source guard PASS; isolated c3844ai2 client build PASS; focused [modding][pdxxx][c3844] PASS 680 assertions / 6 cases; scenario_pads_source_gate_smoke PASS with backend=graph.ai.action.pad+pads.tsv and go_to_pad_preset executing from public pads.tsv."
         },
         {
+          "id": "c3844-s1-ai-pad-preset-actions",
+          "title": "Route AI pad-preset actions through level graph source",
+          "status": "done",
+          "order": 1980,
+          "notes": "Done 2026-05-30. B-396 adds required scenario.ai.action.set_pad_preset, scenario.ai.action.chr_set_pad_preset, and scenario.ai.action.chr_copy_pad_preset nodes to generated .pdscenario level.graph.json, links them to public ai/ailists.tsv and pads.tsv where the command consumes authored pad source, validates them during stage graph activation, and routes AI opcodes 0x00b2/0x00b3/0x00b4 through scenarioSourceAiGraphExecuteSetPadPreset/scenarioSourceAiGraphExecuteChrSetPadPreset/scenarioSourceAiGraphExecuteChrCopyPadPreset when a level graph is active. Verification: strict example conformance PASS across 28 root / 52 checked archives; native-source guard PASS; isolated c3844ai3 client build PASS; focused [modding][pdxxx][c3844] PASS 701 assertions / 6 cases; scenario_pads_source_gate_smoke PASS with backend=graph.ai.action.pad_preset+pads.tsv and set_pad_preset executing from public pads.tsv."
+        },
+        {
+          "id": "c3844-s1-ai-chr-preset-actions",
+          "title": "Route AI chr-preset actions through level graph source",
+          "status": "done",
+          "order": 1990,
+          "notes": "Done 2026-05-30. B-397 adds required scenario.ai.action.set_chr_preset and scenario.ai.action.set_chr_target nodes to generated .pdscenario level.graph.json, links them to public ai/ailists.tsv, validates them during stage graph activation, and routes AI opcodes 0x00b0/0x00b1 through scenarioSourceAiGraphExecuteSetChrPreset/scenarioSourceAiGraphExecuteSetChrTarget when a level graph is active. Verification: strict example conformance PASS across 28 root / 52 checked archives; native-source guard PASS; isolated c3844ai4 all-target build PASS; focused [modding][pdxxx][c3844] PASS 715 assertions / 6 cases; scenario_pads_source_gate_smoke PASS with backend=graph.ai.action.chr_preset+ai/ailists.tsv and set_chr_preset executing from public ai/ailists.tsv."
+        },
+        {
+          "id": "c3844-s1-ai-morale-alertness-actions",
+          "title": "Route AI morale and alertness actions through level graph source",
+          "status": "done",
+          "order": 1995,
+          "notes": "Done 2026-05-31. B-398 adds required scenario.ai.action.set_morale, add_morale, subtract_morale, set_alertness, add_alertness, and subtract_alertness nodes to generated .pdscenario level.graph.json, links them to public ai/ailists.tsv, validates them during stage graph activation, and routes AI opcodes 0x0084/0x0085/0x0087 and 0x008a/0x008b/0x008d through scenarioSourceAiGraphExecute*Morale/scenarioSourceAiGraphExecute*Alertness when a level graph is active. Verification: strict example conformance PASS across 28 root / 52 checked archives; native-source guard PASS; isolated c3844ai5 all-target build PASS; focused [modding][pdxxx][c3844] PASS 757 assertions / 6 cases; scenario_pads_source_gate_smoke PASS with backend=graph.ai.action.state+ai/ailists.tsv and set_alertness executing from public ai/ailists.tsv."
+        },
+        {
+          "id": "c3844-s1-ai-cross-state-actions",
+          "title": "Route cross-character morale and alertness actions through level graph source",
+          "status": "done",
+          "order": 1996,
+          "notes": "Done 2026-05-31. B-399 adds required scenario.ai.action.chr_add_morale and scenario.ai.action.chr_add_alertness nodes to generated .pdscenario level.graph.json, links them to public ai/ailists.tsv, validates them during stage graph activation, and routes AI opcodes 0x0086/0x008c through scenarioSourceAiGraphExecuteChrAddMorale/scenarioSourceAiGraphExecuteChrAddAlertness when a level graph is active. Verification: strict example conformance PASS across 28 root / 52 checked archives; native-source guard PASS; isolated c3844ai6 all-target build PASS; focused [modding][pdxxx][c3844] PASS 771 assertions / 6 cases; scenario_pads_source_gate_smoke PASS with backend=graph.ai.action.state+ai/ailists.tsv and chr_add_morale=1 / chr_add_alertness=1."
+        },
+        {
+          "id": "c3844-s1-ai-squadron-alertness-actions",
+          "title": "Route squadron alertness action through level graph source",
+          "status": "done",
+          "order": 1997,
+          "notes": "Done 2026-05-31. B-400 adds required scenario.ai.action.increase_squadron_alertness node to generated .pdscenario level.graph.json, links it to public ai/ailists.tsv, validates it during stage graph activation, and routes AI opcode 0x0131 through scenarioSourceAiGraphExecuteIncreaseSquadronAlertness when a level graph is active. Verification: strict example conformance PASS across 28 root / 52 checked archives; native-source guard PASS; isolated c3844ai7 client/all-target build PASS; focused [modding][pdxxx][c3844] PASS 778 assertions / 6 cases; scenario_pads_source_gate_smoke PASS 61/61 with backend=graph.ai.action.state+ai/ailists.tsv and increase_squadron_alertness=1."
+        },
+        {
+          "id": "c3844-s1-ai-action-order-actions",
+          "title": "Route AI action/order state through level graph source",
+          "status": "done",
+          "order": 1998,
+          "notes": "Done 2026-05-31. B-401 adds required scenario.ai.action.set_action, set_team_orders, retreat, set_squadron, and chr_set_listening nodes to generated .pdscenario level.graph.json, links them to public ai/ailists.tsv, validates them during stage graph activation, and routes AI opcodes 0x0132/0x0133/0x0136/0x013b/0x0148 through scenarioSourceAiGraphExecuteSetAction/scenarioSourceAiGraphExecuteSetTeamOrders/scenarioSourceAiGraphExecuteRetreat/scenarioSourceAiGraphExecuteSetSquadron/scenarioSourceAiGraphExecuteChrSetListening when a level graph is active. Verification: strict example conformance PASS across 28 root / 52 checked archives; native-source guard PASS; isolated c3844orders all-target build PASS; focused [modding][pdxxx][c3844] PASS 813 assertions / 6 cases; scenario_pads_source_gate_smoke PASS with backend=graph.ai.action.orders+ai/ailists.tsv and all five action/order nodes present."
+        },
+        {
+          "id": "c3844-s1-ai-team-maintenance-actions",
+          "title": "Route AI team maintenance through level graph source",
+          "status": "done",
+          "order": 1999,
+          "notes": "Done 2026-05-31. B-402 adds required scenario.ai.action.set_chr_preset_to_unalerted_teammate, rebuild_teams, and rebuild_squadrons nodes to generated .pdscenario level.graph.json, links them to public ai/ailists.tsv, validates them during stage graph activation, and routes AI opcodes 0x013a/0x0145/0x0146 through scenarioSourceAiGraphExecuteSetChrPresetToUnalertedTeammate/scenarioSourceAiGraphExecuteRebuildTeams/scenarioSourceAiGraphExecuteRebuildSquadrons when a level graph is active. Verification: strict example conformance PASS across 28 root / 52 checked archives; native-source guard PASS; isolated c3844team all-target build PASS; focused [modding][pdxxx][c3844] PASS 834 assertions / 6 cases; scenario_pads_source_gate_smoke PASS with backend=graph.ai.action.team+ai/ailists.tsv and all three team-maintenance nodes present."
+        },
+        {
+          "id": "c3844-s1-ai-cover-danger-actions",
+          "title": "Route AI cover and danger actions through level graph source",
+          "status": "done",
+          "order": 1999.5,
+          "notes": "Done 2026-05-31. B-403 adds required scenario.ai.action.orbit_target, face_cover, and danger_cover nodes to generated .pdscenario level.graph.json, links them to public ai/ailists.tsv, ties cover actions to navigation/covers.tsv, validates them during stage graph activation, and routes AI opcodes 0x0139/0x013c/0x013e through scenarioSourceAiGraphExecuteOrbitTarget/scenarioSourceAiGraphExecuteFaceCover/scenarioSourceAiGraphExecuteDangerCover when a level graph is active. Verification: strict example conformance PASS across 28 root / 52 checked archives; native-source guard PASS; isolated c3844cover all-target build PASS with binary/log checks; focused [modding][pdxxx][c3844] PASS 855 assertions / 6 cases; scenario_pads_source_gate_smoke PASS 67/67 with backend=graph.ai.action.cover+navigation/covers.tsv; full extracted-output conformance PASS across 7,513 root / 8,484 checked archives; Chicago scene.glb v5 texture stamp with max abs UV 32.748."
+        },
+        {
+          "id": "c3844-s1-ai-cover-search-actions",
+          "title": "Route AI cover-search actions through level graph source",
+          "status": "done",
+          "order": 1999.6,
+          "notes": "Done 2026-05-31. B-404 adds required scenario.ai.action.find_cover, find_cover_within_dist, find_cover_outside_dist, go_to_cover, and check_cover_out_of_sight nodes to generated .pdscenario level.graph.json, links them to public ai/ailists.tsv and navigation/covers.tsv, validates them during stage graph activation, and routes AI opcodes 0x0121-0x0125 through graph runtime functions when a level graph is active. Verification: strict example conformance PASS; native-source guard PASS; isolated c3844cov2 all-target build PASS; focused [modding][pdxxx][c3844] PASS 890 assertions / 6 cases; scenario_pads_source_gate_smoke PASS with all cover-search nodes; full extracted-output conformance PASS 7,513 root / 8,484 checked archives."
+        },
+        {
+          "id": "c3844-s1-ai-tuning-stat-actions",
+          "title": "Route AI tuning and stat actions through level graph source",
+          "status": "done",
+          "order": 1999.7,
+          "notes": "Done 2026-05-31. B-406 routes hearing/view distance, grenade probability, chr number, max damage, health, shield, reaction speed, recovery speed, accuracy, dodge rating, and unarmed dodge rating commands through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verified with strict example conformance, native-source guard, c3844tune all-target build, focused c3844 974 assertions / 6 cases, scenario_pads_source_gate_smoke logging graph.ai.action.tuning+ai/ailists.tsv, full extracted-output conformance, and Chicago scene.glb v6 DCC UV inspection."
+        },
+        {
+          "id": "c3844-s1-ai-list-control-actions",
+          "title": "Route AI list-control actions through level graph source",
+          "status": "done",
+          "order": 1999.8,
+          "notes": "Done 2026-05-31. B-407 routes set_list, set_return_list, set_shot_list, return_list, set_punch_dodge_list, set_shooting_at_me_list, set_dark_room_list, and set_player_dead_list through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Also tightens scenario scene.glb fast-cache reuse to require the v6 DCC/runtime-UV stamp and TEXCOORD_1 marker. Verification: strict example conformance PASS; native-source guard PASS; focused c3844 PASS 1,020 assertions / 6 cases; c3844list all-target build PASS; scenario_pads_source_gate_smoke PASS; full extracted conformance PASS 7,513 root / 8,484 checked; fresh Chicago scene.glb material texCoord 0, TEXCOORD_0 max abs 1.0, TEXCOORD_1 max abs 32.748047."
+        },
+        {
+          "id": "c3844-s1-ai-alarm-actions",
+          "title": "Route AI alarm actions through level graph source",
+          "status": "done",
+          "order": 1999.9,
+          "notes": "Done 2026-05-31. B-408 routes try_start_alarm, activate_alarm, and deactivate_alarm through required .pdscenario level graph nodes backed by public ai/ailists.tsv, with try_start_alarm also linked to pads.tsv. Verification: strict example conformance PASS; native-source guard PASS; focused c3844 PASS 1,040 assertions / 6 cases; c3844alarm all-target build PASS; scenario_pads_source_gate_smoke PASS logging graph.ai.action.alarm+ai/ailists.tsv; full extracted conformance PASS 7,513 root / 8,484 checked; fresh Chicago scene.glb v6 kept TEXCOORD_0/TEXCOORD_1, 92 samplers, and 98 images."
+        },
+        {
+          "id": "c3844-s1-ai-flag-actions",
+          "title": "Route AI flag actions through level graph source",
+          "status": "done",
+          "order": 1999.95,
+          "notes": "Done 2026-05-31. B-410 routes set_flag, unset_flag, if_has_flag, chr_set_flag, chr_unset_flag, if_chr_has_flag, set_stage_flag, unset_stage_flag, and if_stage_flag_eq through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused [modding][pdxxx][c3844] PASS 1,103 assertions / 7 cases."
+        },
+        {
+          "id": "c3844-s1-ai-savefile-flag-actions",
+          "title": "Route AI savefile flag actions through level graph source",
+          "status": "done",
+          "order": 1999.96,
+          "notes": "Done 2026-05-31. B-411 routes set_savefile_flag, unset_savefile_flag, if_savefile_flag_set, and if_savefile_flag_unset through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused [modding][pdxxx][c3844] PASS 1,133 assertions / 7 cases; c3844saveflag all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; full extracted-output conformance PASS 7,513 root / 8,484 checked archives; Chicago scene.glb v6 TEXCOORD_0 max abs 1.0 and TEXCOORD_1 max abs 32.748047."
+        },
+        {
           "id": "c3844-s2",
           "title": "Classify bootstrap ROM extraction versus forbidden runtime fallback",
           "status": "backlog",
@@ -4562,11 +4674,403 @@
           "notes": "ROM may seed extraction/verification. After extraction, runtime load paths must use extracted typed archives, on-disk provider sources, or deterministic source-derived cache."
         },
         {
+          "id": "c3844-s1-ai-vehicle-motion-actions",
+          "title": "Route AI vehicle motion actions through level graph source",
+          "status": "done",
+          "order": 2000.01,
+          "notes": "Done 2026-05-31. B-417 routes hovercar_begin_path, set_vehicle_speed, and set_rotor_speed through required .pdscenario level graph nodes backed by public ai/ailists.tsv and navigation/paths.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,239 assertions / 7 cases; c3844veh all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; full extracted conformance PASS 7,514 root / 8,485 checked; fresh scene.glb texture verifier PASS across 16 scenarios. Shared Build Chicago intentionally fails as stale v5 tiny-tiled DCC UV output."
+        },
+        {
+          "id": "c3844-s1-ai-door-object-actions",
+          "title": "Route AI door and object-control actions through level graph source",
+          "status": "done",
+          "order": 2000.02,
+          "notes": "Done 2026-05-31. B-418 routes open_door, close_door, if_door_state, if_object_is_door, lock_door, unlock_door, and if_door_locked through required .pdscenario level graph nodes backed by public ai/ailists.tsv and objects.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; scoped diff check PASS; focused c3844 PASS 1,263 assertions / 7 cases; c3844door all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS 83/83; full extracted conformance PASS 7,514 root / 8,485 checked; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-lift-actions",
+          "title": "Route AI lift actions through level graph source",
+          "status": "done",
+          "order": 2000.03,
+          "notes": "Done 2026-05-31. B-419 routes if_lift_stationary, lift_go_to_stop, if_lift_at_stop, activate_lift, and if_using_lift through required .pdscenario level graph nodes backed by public ai/ailists.tsv, objects.tsv, and pads.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; scoped diff check PASS; focused c3844 PASS 1,280 assertions / 7 cases; c3844lift all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS 85/85; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.lift+objects.tsv+pads.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-weather-actions",
+          "title": "Route AI weather actions through level graph source",
+          "status": "done",
+          "order": 2000.04,
+          "notes": "Done 2026-05-31. B-420 routes configure_rain and configure_snow through required .pdscenario level graph nodes backed by public ai/ailists.tsv and scenario.ini global settings source. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,288 assertions / 7 cases; c3844weather all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS 87/87; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.weather+ai/ailists.tsv+scenario.ini; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-model-part-actions",
+          "title": "Route AI model-part visibility actions through level graph source",
+          "status": "done",
+          "order": 2000.05,
+          "notes": "Done 2026-05-31. B-421 routes chr_toggle_model_part and obj_set_model_part_visible through required .pdscenario level graph nodes backed by public ai/ailists.tsv and objects.tsv setup/model source. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,297 assertions / 7 cases; c3844modelpart all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS 89/89; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.model_part+ai/ailists.tsv+objects.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-object-health-actions",
+          "title": "Route AI object-health actions through level graph source",
+          "status": "done",
+          "order": 2000.06,
+          "notes": "Done 2026-05-31. B-422 routes if_obj_health_less_than and set_obj_health through required .pdscenario level graph nodes backed by public ai/ailists.tsv and objects.tsv setup/object source. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,306 assertions / 7 cases; c3844objhealth all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS 91/91; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.object_health+ai/ailists.tsv+objects.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-room-search-action",
+          "title": "Route AI room-search action through level graph source",
+          "status": "done",
+          "order": 2000.07,
+          "notes": "Done 2026-05-31. B-423 routes set_room_to_search through a required .pdscenario level graph node backed by public ai/ailists.tsv and source.scene/scene.glb room source. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,311 assertions / 7 cases; c3844room all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS 93/93; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.room_search+ai/ailists.tsv+scene.glb; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-special-death-action",
+          "title": "Route AI special-death action through level graph source",
+          "status": "done",
+          "order": 2000.08,
+          "notes": "Done 2026-05-31. B-424 routes set_chr_special_death_animation through a required .pdscenario level graph node backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,316 assertions / 7 cases; c3844death all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS 95/95; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.special_death+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-sky-wind-actions",
+          "title": "Route AI sky/wind actions through level graph source",
+          "status": "done",
+          "order": 2000.09,
+          "notes": "Done 2026-05-31. B-425 routes switch_to_alt_sky and set_wind_speed through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,325 assertions / 7 cases; c3844sky all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 97/97; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.sky+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-lighting-action",
+          "title": "Route AI room-lighting action through level graph source",
+          "status": "done",
+          "order": 2000.1,
+          "notes": "Done 2026-05-31. B-426 routes set_lights through a required .pdscenario level graph node backed by public ai/ailists.tsv plus pads.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,330 assertions / 7 cases; c3844light all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 99/99; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.lighting+ai/ailists.tsv+pads.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-room-flag-action",
+          "title": "Route AI room-flag action through level graph source",
+          "status": "done",
+          "order": 2000.11,
+          "notes": "Done 2026-05-31. B-427 routes set_room_flag through a required .pdscenario level graph node backed by public ai/ailists.tsv plus source.scene/scene.glb room source. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,335 assertions / 7 cases; c3844roomflag all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 101/101; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.room_flags+ai/ailists.tsv+scene.glb; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-cutscene-visibility-action",
+          "title": "Route AI cutscene visibility action through level graph source",
+          "status": "done",
+          "order": 2000.12,
+          "notes": "Done 2026-05-31. B-428 routes show_cutscene_chrs through a required .pdscenario level graph node backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,340 assertions / 7 cases; c3844cutscene all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 103/103; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.cutscene_visibility+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-environment-action",
+          "title": "Route AI environment action through level graph source",
+          "status": "done",
+          "order": 2000.13,
+          "notes": "Done 2026-05-31. B-429 routes configure_environment through a required .pdscenario level graph node backed by public ai/ailists.tsv, scenario.ini, and source.scene/scene.glb room source. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,345 assertions / 7 cases; c3844env all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 105/105; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.environment+ai/ailists.tsv+scenario.ini+scene.glb and executed configure_environment; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-target-distance-condition",
+          "title": "Route AI target-distance conditions through level graph source",
+          "status": "done",
+          "order": 2000.14,
+          "notes": "Done 2026-05-31. B-430 routes if_distance_to_target2_less_than and if_distance_to_target2_greater_than through required .pdscenario level graph condition nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,353 assertions / 7 cases; c3844dist all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 107/107; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.condition.target_distance+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-audio-actions",
+          "title": "Route expanded AI audio actions through level graph source",
+          "status": "done",
+          "order": 2000.15,
+          "notes": "Done 2026-06-01. B-456 fixed and verified: expanded AI audio opcodes now route through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Coverage includes speech, play_sound, assign_sound, channel mute/free, object sound volume/play state, object/entity/pad playback, object-volume branch behavior, plus the existing prop-sound and temporary primary music nodes. AI_GRAPH_PENDING_FUNCTIONS debt is now 182 functions. Verification PASS: Python compile, strict examples, native-source guard, focused c3844 1,699 assertions / 7 cases, c3844audio all-target build, exact SourceBinary scenario_pads_source_gate_smoke, runtime proof for backend=graph.ai.action.audio+ai/ailists.tsv, full generated conformance across Build/data and smoke install, and texture verifier across 64 generated/nested scene.glb files."
+        },
+        {
+          "id": "c3844-s1-ai-character-inventory-actions",
+          "title": "Route AI character kill and inventory removal through level graph source",
+          "status": "done",
+          "order": 2000.16,
+          "notes": "Done 2026-05-31. B-432 routes chr_kill and remove_weapon_from_inventory through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Extracted ai/ailists.tsv names 0x01dc and fills weapon_catalog_id through catalogWeaponIdByRuntimeWeaponNum() so public command source has catalog-name evidence. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,371 assertions / 7 cases; c3844state all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 111/111; clean smoke-install extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.character_inventory+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus standalone Chicago. Repo Build/data was confirmed stale until regenerated."
+        },
+        {
+          "id": "c3844-s1-ai-music-mode-conditions",
+          "title": "Route AI music queue and co-op mode conditions through level graph source",
+          "status": "done",
+          "order": 2000.17,
+          "notes": "Done 2026-05-31. B-433 routes if_music_event_queue_is_empty and if_coop_mode through required .pdscenario level graph condition nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,380 assertions / 7 cases; c3844mode all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 113/113; clean smoke-install extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.condition.music_mode+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus standalone Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-pad-reference-actions",
+          "title": "Route AI same-floor pad-distance and reference cleanup through level graph source",
+          "status": "done",
+          "order": 2000.18,
+          "notes": "Done 2026-05-31. B-434 routes if_chr_same_floor_distance_to_pad_less_than and remove_references_to_chr through required .pdscenario level graph nodes backed by public ai/ailists.tsv, with the distance condition also linked to pads.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,389 assertions / 7 cases; c3844refs all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 115/115; clean smoke-install extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.pad_reference+ai/ailists.tsv+pads.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus standalone Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-music-track-actions",
+          "title": "Route AI music track playback through level graph source",
+          "status": "done",
+          "order": 2000.19,
+          "notes": "Done 2026-05-31. B-435 routes play_x_track, stop_x_track, play_track_isolated, play_default_tracks, play_cutscene_track, stop_cutscene_track, play_temporary_track, and stop_ambient_track through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,398 assertions / 7 cases; c3844music all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 117/117; clean smoke-install extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.music_track+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus standalone Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-player-weapon-state-actions",
+          "title": "Route AI player weapon-state actions through level graph source",
+          "status": "done",
+          "order": 2000.2,
+          "notes": "Done 2026-05-31. B-436 routes chr_draw_weapon, chr_draw_weapon_in_cutscene, set_player_force_speed, chr_set_invincible, if_player_is_invincible, and if_chr_has_no_gun through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,422 assertions / 7 cases; c3844playerwpn all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS; clean smoke-install extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.player_weapon_state+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus standalone Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-object-room-condition",
+          "title": "Route AI object-room condition through level graph source",
+          "status": "done",
+          "order": 2000.21,
+          "notes": "Done 2026-05-31. B-437 routes if_obj_in_room through a required .pdscenario level graph condition node backed by public ai/ailists.tsv, objects.tsv, and scene.glb room source. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,427 assertions / 7 cases; c3844objroom all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS; clean smoke-install extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.condition.object_room+ai/ailists.tsv+objects.tsv+scene.glb; fresh scene.glb texture verifier PASS across 16 scenarios plus standalone Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-gun-interaction",
+          "title": "Route AI gun interaction actions through level graph source",
+          "status": "done",
+          "order": 2000.22,
+          "notes": "Done 2026-05-31. B-438 routes AI do_gun_command, if_distance_to_gun_less_than, and recover_gun opcodes 0x0170/0x0171/0x0172 through required .pdscenario level graph nodes backed by public ai/ailists.tsv, objects.tsv, and scene.glb. Verified with strict example conformance, native-source guard, focused c3844 1,440 assertions / 7 cases, isolated c3844gunint all-target build, exact-SourceBinary scenario_pads_source_gate_smoke, strict generated-output conformance across 7,514 root / 8,485 checked archives, runtime log proof, and Chicago/all-scenario scene.glb texture-scale verification with tightened TEXCOORD_0 range guard."
+        },
+        {
+          "id": "c3844-s1-ai-character-property-action",
+          "title": "Route AI character property copy through level graph source",
+          "status": "done",
+          "order": 2000.23,
+          "notes": "Done 2026-05-31. B-439 routes chr_copy_properties through a required .pdscenario level graph node backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,444 assertions / 7 cases; c3844chrprop all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS; clean smoke-install extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.character_property+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus standalone Chicago."
+        },
+        {
+          "id": "c3844-s1-ai-player-navigation-actions",
+          "title": "Route AI player autowalk navigation through level graph source",
+          "status": "done",
+          "order": 2000.24,
+          "notes": "Done 2026-05-31. B-440 routes player_auto_walk and if_player_auto_walk_finished through required .pdscenario level graph nodes backed by public ai/ailists.tsv plus pads.tsv for autowalk targets. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,451 assertions / 7 cases; c3844autowalk all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; clean smoke-install extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.player_navigation+ai/ailists.tsv+pads.tsv; fresh scene.glb texture verifier PASS across all 16 scenarios including Chicago."
+        },
+        {
+          "id": "c3844-s1-generated-glb-stale-guard",
+          "title": "Guard generated scenario GLBs against stale DCC texture scale",
+          "status": "done",
+          "order": 2000.25,
+          "notes": "Done 2026-05-31. B-441 adds asset_native_source_guard coverage for generated Build/data and smoke-install scenario archives, and shared Build/data/ntsc-final was refreshed from strict-conforming smoke output. Verified native-source guard PASS, Build/data texture verifier PASS across 16 scenarios, and Build/data strict conformance PASS across 7,514 root / 8,485 checked archives."
+        },
+        {
+          "id": "c3844-s1-ai-perception-conditions",
+          "title": "Route AI perception conditions through level graph source",
+          "status": "done",
+          "order": 2000.26,
+          "notes": "Done 2026-05-31. B-442 routes if_player_looking_at_object and if_target_is_player opcodes 0x0181/0x0183 through required .pdscenario level graph condition nodes backed by public ai/ailists.tsv, objects.tsv, and scene.glb where applicable. Verified Python compile, smoke JSON parse, strict example conformance, native-source guard, focused c3844 1,460 assertions / 7 cases, c3844percept all-target build, scenario_pads_source_gate_smoke 129/129, strict generated conformance in smoke install and Build/data, runtime log proof, and texture verifier PASS across all 16 scenarios in both locations."
+        },
+        {
+          "id": "c3844-s1-ai-character-inventory-carry",
+          "title": "Route AI inventory and object carrying through level graph source",
+          "status": "done",
+          "order": 2000.27,
+          "notes": "Done 2026-05-31. B-443 routes clear_inventory, release_object, and chr_grab_object opcodes 0x01ae/0x01ad/0x01af through required .pdscenario level graph action nodes backed by public ai/ailists.tsv, objects.tsv, and scene.glb where applicable. Verified Python compile, smoke JSON parse, scoped diff check, strict example conformance, native-source guard, focused c3844 1,473 assertions / 7 cases, c3844inv all-target build, scenario_pads_source_gate_smoke 129/129, strict generated conformance in smoke install and Build/data, runtime log proof, and texture verifier PASS across all 16 scenarios in both locations."
+        },
+        {
+          "id": "c3844-s1-ai-cutscene-presentation-actions",
+          "title": "Route AI cutscene presentation actions through level graph source",
+          "status": "done",
+          "order": 2000.28,
+          "notes": "Done 2026-05-31. B-445 routes fade_screen, if_fade_complete, set_chr_hudpiece_visible, set_passive_mode, chr_set_firing_in_cutscene, and set_portal_flag through required .pdscenario level graph nodes backed by public ai/ailists.tsv, with set_portal_flag linked to source.scene/scene.glb. Verification: Python compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,517 assertions / 7 cases; c3844present all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; strict smoke-install and Build/data conformance PASS 7,514 root / 8,485 checked; texture verifier PASS across 64 generated/nested scene GLBs."
+        },
+        {
+          "id": "c3844-s1-ai-teleport-cutscene-weapon-actions",
+          "title": "Route AI teleport and cutscene-weapon actions through level graph source",
+          "status": "done",
+          "order": 2000.29,
+          "notes": "Done 2026-05-31. B-446 routes chr_begin_or_end_teleport, if_chr_teleport_full_white, and chr_set_cutscene_weapon opcodes 0x01bf/0x01c0/0x01ca through required .pdscenario level graph nodes backed by public ai/ailists.tsv, with teleport linked to pads.tsv. Verification: Python compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,530 assertions / 7 cases; c3844telewpn all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; strict smoke-install and Build/data conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.teleport_cutscene_weapon+ai/ailists.tsv; texture verifier PASS across 64 generated/nested scene GLBs."
+        },
+        {
+          "id": "c3844-s1-ai-state-device-conditions",
+          "title": "Route AI state/device conditions through level graph source",
+          "status": "done",
+          "order": 2000.3,
+          "notes": "Done 2026-05-31. B-447 routes if_pouncebits_eq, if_training_pc_holographed, and if_player_using_device through required .pdscenario level graph condition nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,540 assertions / 7 cases; c3844stdev all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; full generated conformance PASS 7,514 root / 8,485 checked in smoke install and Build/data; runtime log shows graph.ai.condition.state_device+ai/ailists.tsv; texture verifier PASS across 64 generated and arena-nested scene GLBs."
+        },
+        {
+          "id": "c3844-s1-ai-mission-global-conditions",
+          "title": "Route AI mission/global branch conditions through level graph source",
+          "status": "done",
+          "order": 2000.31,
+          "notes": "Done 2026-06-01. B-448 routes objective complete/failed/all-complete, difficulty less/greater than, stage timer less/greater than, stage ID less/greater than, player count less than, kill count greater than, and knocked-out chr count opcodes through required .pdscenario level graph condition nodes backed by public ai/ailists.tsv plus mission graph source. Verification: Python tool compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,577 assertions / 7 cases; c3844mission all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; full generated conformance PASS 7,514 root / 8,485 checked in smoke install and Build/data; runtime log shows graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json; texture verifier PASS across 64 generated and arena-nested scene GLBs."
+        },
+        {
+          "id": "c3844-s1-ai-character-state-conditions",
+          "title": "Route AI character state/count conditions through level graph source",
+          "status": "done",
+          "order": 2000.32,
+          "notes": "Done 2026-06-01. B-449 routes argh count, close-argh count, chr health/shield, injured/shield-damaged, morale, and alertness conditions through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,605 assertions / 7 cases; c3844char all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; full generated conformance PASS 7,514 root / 8,485 checked in smoke install and Build/data; runtime log shows graph.ai.condition.character_state+ai/ailists.tsv; texture verifier PASS across 64 generated and arena-nested scene GLBs."
+        },
+        {
+          "id": "c3844-s1-ai-lifecycle-conditions",
+          "title": "Route AI lifecycle/perception conditions through level graph source",
+          "status": "done",
+          "order": 2000.33,
+          "notes": "Done 2026-06-01. B-450 routes idle, stopped, chr dead, chr death-animation-finished, knocked-out, and can-see-target branch conditions through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,618 assertions / 7 cases; c3844life all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; full generated conformance PASS 7,514 root / 8,485 checked in smoke install and Build/data; runtime log shows graph.ai.condition.lifecycle+ai/ailists.tsv; texture verifier PASS across generated scenario and arena-nested scene GLBs. Downloads release/install scenario archives are stale and missing scene.glb."
+        },
+        {
+          "id": "c3844-s1-ai-graph-coverage-guard",
+          "title": "Guard remaining scenario AI graph coverage debt",
+          "status": "done",
+          "order": 2000.34,
+          "notes": "Done 2026-06-01. B-451 adds explicit native-source guard coverage for scenario AI graph parity debt: chraicommands.c is scanned for AI command functions lacking scenarioSourceAiGraphExecute coverage; only aiGoToNext, aiGoToFirst, aiLabel, and aiYield are permanent interpreter exemptions. B-452 reduced current uncovered gameplay command debt to 210 functions in AI_GRAPH_PENDING_FUNCTIONS. New untracked gaps fail the guard. Verified Python compile, native-source guard, focused c3844, c3844guard all-target build, and texture verifier across 64 generated/nested scene GLBs."
+        },
+        {
+          "id": "c3844-s1-ai-basic-motion-actions",
+          "title": "Route AI stop and kneel actions through level graph source",
+          "status": "done",
+          "order": 2000.35,
+          "notes": "Done 2026-06-01. B-452 routes aiStop and aiKneel opcodes 0x0009/0x000a through required .pdscenario level graph action nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,631 assertions / 7 cases; c3844motion all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; full generated conformance PASS 15,028 root / 16,970 checked in smoke install and Build/data; texture verifier PASS across 64 generated/nested scene GLBs."
+        },
+        {
+          "id": "c3844-s1-ai-combat-interaction-actions",
+          "title": "Route AI combat interaction actions through level graph source",
+          "status": "done",
+          "order": 2000.37,
+          "notes": "Done 2026-06-01. B-462 fixed and verified: AI combat/interaction opcodes now route through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Coverage includes face_entity, apply_gset_damage/ai0019, chr_damage_chr, consider_grenade_throw, and drop_item; aiEndList is classified as interpreter-only. AI_GRAPH_PENDING_FUNCTIONS debt is now 159 functions. Verification PASS: Python compile, examples, native-source guard, c3844interaction isolated test build, focused c3844 1,780 assertions / 7 cases, typed example archive tests, normal build-headless, boot_smoke against Build, refreshed shared-install boot_smoke, strict full-family conformance on Build/data and smoke install, and scene.glb texture contract across 64 files."
+        },
+        {
+          "id": "c3844-s1-ai-debug-noop-actions",
+          "title": "Route AI debug/no-op commands through level graph source",
+          "status": "done",
+          "order": 2000.38,
+          "notes": "Done 2026-06-01. B-455 routes aiPrint and nine aiNoOp* routines through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,663 assertions / 7 cases; c3844noop all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; full generated conformance PASS 15,028 root / 16,970 checked in smoke install and Build/data; runtime log shows graph.ai.action.debug_noop+ai/ailists.tsv; texture verifier PASS across 64 generated/nested scene GLBs."
+        },
+        {
+          "id": "c3844-s1-ai-target-movement-actions",
+          "title": "Route AI target movement branches through level graph source",
+          "status": "done",
+          "order": 2000.39,
+          "notes": "Done 2026-06-01. B-463 routes try_run_from_target, target-prop jog/walk/run, try_go_to_cover_prop, and character jog/walk/run opcodes 0x002a-0x0031 through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification PASS: Python compile, examples, native-source guard, c3844targetmove isolated test build, focused guard/example/scenario extractor tests, normal build-headless, boot_smoke against Build and shared install, strict full-family conformance on Build/data and smoke install, and scene.glb texture contract across 64 files."
+        },
+        {
+          "id": "c3844-s1-ai-perception-alarm-actions",
+          "title": "Route AI perception and alarm branches through level graph source",
+          "status": "done",
+          "order": 2000.4,
+          "notes": "Done 2026-06-01. B-464 routes can-hear-alarm, patrolling, alarm/gas active, hears target, saw injury/death, LOS to target/attack target, near-sight checks, set_pad_preset_to_pad_on_route_to_target, and recent target sight/hearing through required .pdscenario level graph nodes backed by public ai/ailists.tsv, pads.tsv, and navigation/paths.tsv where applicable. Verification PASS: Python compile, examples, native-source guard, c3844perception isolated test build, focused guard/example/scenario extractor tests, normal build-headless, boot_smoke against Build and shared install, strict full-family conformance on Build/data and smoke install, and scene.glb texture contract across 64 files."
+        },
+        {
+          "id": "c3844-s1-ai-spatial-perception-conditions",
+          "title": "Route AI spatial perception branches through level graph source",
+          "status": "done",
+          "order": 2000.41,
+          "notes": "Done 2026-06-01. B-465 routes LOS to chr, never/on-screen state, chr-in-onscreen-room, room-is-onscreen, target aiming, near-miss, suspicious-item visibility, FOV checks, and target-distance less/greater opcodes 0x0045-0x0053 through required .pdscenario level graph nodes backed by public ai/ailists.tsv, pads.tsv, and objects.tsv/setup tables where applicable. Verification PASS: Python compile, examples, native-source guard, c3844spatial isolated test build, focused guard/example/scenario extractor tests, normal build-headless, boot_smoke against Build and shared install, strict full-family conformance on Build/data and smoke install, and scene.glb texture contract across 64 files."
+        },
+        {
+          "id": "c3844-s1-ai-distance-perception-conditions",
+          "title": "Route AI distance perception branches through level graph source",
+          "status": "done",
+          "order": 2000.42,
+          "notes": "Done 2026-06-01. B-466 routes chr-distance-to-pad less/greater, distance-to-chr less/greater, any-chr-near-self preset mutation, and target-distance-to-pad less/greater opcodes 0x0054-0x005a through required .pdscenario level graph nodes backed by public ai/ailists.tsv and pads.tsv where applicable. Verification PASS: Python compile, examples, native-source guard, c3844distance isolated test build, focused guard/example/scenario extractor tests, normal build-headless, boot_smoke against Build and shared install, strict full-family conformance on Build/data and smoke install, and scene.glb texture contract across 64 files."
+        },
+        {
+          "id": "c3844-s1-ai-room-object-weapon-conditions",
+          "title": "Route AI room/object/weapon conditions through level graph source",
+          "status": "done",
+          "order": 2000.43,
+          "notes": "Done 2026-06-01. B-467 routes chr-in-room, target-in-room, chr-has-object, weapon-thrown, weapon-thrown-on-object, chr-has-weapon-equipped, gun-unclaimed, and object-healthy opcodes 0x005b-0x0062 through required .pdscenario level graph nodes backed by public ai/ailists.tsv, pads.tsv, and setup tables where applicable. Verification PASS: Python compile, examples, native-source guard, c3844row isolated test build, focused guard/example/scenario extractor tests, normal build-headless, boot_smoke against Build and shared install after one marker-only Build rerun, strict full-family conformance on Build/data and smoke install, and scene.glb texture contract across 64 files."
+        },
+        {
+          "id": "c3844-s1-ai-object-interaction-actions",
+          "title": "Route AI object interaction actions through level graph source",
+          "status": "done",
+          "order": 2000.44,
+          "notes": "Done 2026-06-01. B-468 routes if_chr_activated_object, obj_interact, destroy_object, drop_object_from_chr, chr_drop_items, chr_drop_weapon, give_object_to_chr, and object_move_to_pad opcodes 0x0063 and 0x0065-0x006b through required .pdscenario level graph nodes backed by public ai/ailists.tsv, objects.tsv, and pads.tsv where applicable. Verification PASS: Python compile, examples, native-source guard, converted-name pending-list audit, c3844objact isolated test build, focused guard/example/scenario extractor tests, normal build-headless, boot_smoke against Build and shared install, strict full-family conformance on Build/data and smoke install, and scene.glb texture contract across 64 files."
+        },
+        {
+          "id": "c3844-s1-ai-quadrant-preset-actions",
+          "title": "Route AI quadrant pad-preset behavior through level graph source",
+          "status": "done",
+          "order": 2000.45,
+          "notes": "Done 2026-06-01. B-469 routes if_waypoint_within_quadrant and set_pad_preset_to_target_quadrant opcodes 0x0075 and 0x0076 through required .pdscenario level graph nodes backed by public ai/ailists.tsv, pads.tsv, and navigation/waypoints.tsv. Verification PASS: Python compile, examples, native-source guard, converted-name pending-list audit, c3844quad isolated test build, focused guard/example/scenario extractor tests, normal build-headless, boot_smoke against Build and shared install, strict full-family conformance on Build/data and smoke install, and scene.glb texture contract across 64 files."
+        },
+        {
+          "id": "c3844-s1-ai-player-weapon-cover-state",
+          "title": "AI player weapon/cover state graph runtime",
+          "status": "done",
+          "order": 2000.46,
+          "notes": "Done 2026-06-01. B-470 routes chr_delete_weapon, if_trigger_shot_list, release_cover, and try_attack_amount through required .pdscenario level graph nodes backed by public ai/ailists.tsv plus navigation/covers.tsv for cover release. Verification: Python compile PASS; examples PASS; native-source guard PASS; converted-name audit PASS; c3844weapcover isolated test build PASS; focused guard/example/scenario extractor tests PASS; normal build-headless PASS; install boot_smoke PASS; strict full-family conformance PASS on Build/data and smoke install; scene.glb texture contract PASS across 64 files."
+        },
+        {
+          "id": "c3844-s1-ai-player-cutscene-warp",
+          "title": "AI player cutscene/warp/control/fade graph runtime",
+          "status": "done",
+          "order": 2000.47,
+          "notes": "Done 2026-06-01. B-471 routes end-level/end-cutscene, warp_jo_to_pad, warp_jo_to_tag, set_camera_animation, cutscene branch/skip/reorient, revoke/grant control, player fade in/out/complete, prepare_warp_orbit, begin_warp_latch, and if_warp_latch_complete through required .pdscenario level graph nodes backed by public ai/ailists.tsv, pads.tsv, and setup/object source where operands require them. Verification PASS: Python compile, examples, native-source guard, converted-name pending-list audit, c3844cutwarp isolated test build, focused guard/example/scenario extractor tests, normal build-headless, boot_smoke against Build and shared install, strict full-family conformance on Build/data and smoke install, and scene.glb texture contract across 64 files."
+        },
+        {
+          "id": "c3844-s1-ai-entity-lifecycle-motion",
+          "title": "AI entity lifecycle/motion graph runtime",
+          "status": "done",
+          "order": 2000.48,
+          "notes": "Done 2026-06-01. B-472 converts duplicate chr, enable/disable chr, enable/disable object, chr move-to-pad, team assignment, direct damage, preset animation, player/chr portal-distance branch, and chr reposition branch to the public .pdscenario AI graph runtime. Scenario graph cache is v62; AI graph pending debt is 66 functions. Verification passed build, focused tests, sequential boot smokes, strict conformance, GLB texture contract, native-source guard, and diff check."
+        },
+        {
+          "id": "c3844-s1-ai-setup-spawn-equipment",
+          "title": "AI setup/spawn/equipment graph runtime",
+          "status": "done",
+          "order": 2000.49,
+          "notes": "Done 2026-06-01. B-473 converts spawn-at-pad, spawn-at-chr, try-equip-weapon, try-equip-hat, set-object-image, object-animation, and set-door-open behavior to the public .pdscenario AI graph runtime. Scenario graph cache is v63; AI graph pending debt is 59 functions. Verification passed build, focused tests, sequential boot smokes, strict conformance, GLB texture contract, native-source guard, and diff check."
+        },
+        {
+          "id": "c3844-s1-ai-intent-status-conditions",
+          "title": "AI intent/status condition graph runtime",
+          "status": "done",
+          "order": 2000.5,
+          "notes": "Done 2026-06-01. B-474 converts not-talking, order, has-order, squadron action, chr-listening, not-listening, injured-target latch, and action checks to the public .pdscenario AI graph runtime. Scenario graph cache is v64; AI graph pending debt is 51 functions. Verification passed build, focused tests, boot smokes, strict conformance, GLB texture contract, native-source guard, and diff check."
+        },
+        {
+          "id": "c3844-s1-ai-target-race-conditions",
+          "title": "AI target/race condition graph runtime",
+          "status": "done",
+          "order": 2000.51,
+          "notes": "Done 2026-06-01. B-475 converts player ammo quantity, chr target, chr-preset team, human, and skedar branch checks to public .pdscenario AI graph runtime. Scenario graph cache v65; AI graph pending debt 46. Verification passed Python compile, examples, strict example conformance, native-source guard, c3844targetrace isolated test build, focused guard/example/scenario extractor tests, normal build-headless, boot smokes, strict full-family conformance, GLB texture contract, and diff check."
+        },
+        {
+          "id": "c3844-s1-ai-prop-target-conditions",
+          "title": "AI prop-preset/target graph runtime",
+          "status": "done",
+          "order": 2000.52,
+          "notes": "Done 2026-06-01. B-476 converts prop-preset sight/height checks, occupied-chair clear, target assignment/comparison, and near-character preset selection to public .pdscenario AI graph runtime. Scenario graph cache v66; AI graph pending debt 39. Verification passed Python compile, examples, strict example conformance, native-source guard, c3844proptarget isolated test build, focused guard/example/scenario extractor tests, normal build-headless, boot smokes, strict full-family conformance, GLB texture contract, and diff check."
+        },
+        {
+          "id": "c3844-s1-ai-vehicle-investigation",
+          "title": "AI vehicle/investigation graph runtime",
+          "status": "done",
+          "order": 2000.53,
+          "notes": "Done 2026-06-01. B-477 converts dangerous-object branches, heli weapon armed checks, hoverbot next-step comparisons, Investigation terminal shuffling, Investigation terminal pad mapping, and heli arm/unarm state to public .pdscenario AI graph runtime. Scenario graph cache v67; AI graph pending debt 32. Verification passed Python compile, examples, strict example conformance, native-source guard, c3844vehicle isolated test build, focused guard/example/scenario extractor tests, normal build-headless, boot smokes, strict full-family conformance, GLB texture contract, and diff check."
+        },
+        {
+          "id": "c3844-s1-ai-safety-detection",
+          "title": "AI safety/detection/target-motion graph runtime",
+          "status": "done",
+          "order": 2000.54,
+          "notes": "Done 2026-06-01. B-478 converts safety score branches, CMP/AR34 player-weapon checks, enemy detection, same-floor enemy detection, and target-motion branches to public .pdscenario AI graph runtime. Scenario graph cache v68; AI graph pending debt 24. Verification passed Python compile, examples, strict example conformance, native-source guard, c3844safe isolated test build, focused guard/example/scenario extractor tests, normal build-headless, boot smokes, strict full-family conformance, GLB texture contract, and diff check."
+        },
+        {
+          "id": "c3844-s1-ai-misc-branch-conditions",
+          "title": "AI misc branch-condition graph runtime",
+          "status": "done",
+          "order": 2000.55,
+          "notes": "Done 2026-06-01. B-479 converts squadron dead/count checks, unconditional branch, natural animation, Y-position, sound timer, and target Y-difference checks to public .pdscenario AI graph runtime. Scenario graph cache v69; AI graph pending debt 17. Verification passed Python compile, examples, strict example conformance, native-source guard, c3844misc isolated test build, focused c3844 tests, normal build-headless, boot smokes, strict full-family conformance, and GLB texture contract."
+        },
+        {
+          "id": "c3844-s1-ai-misc-effect-actions",
+          "title": "Route AI misc effect/action commands through level graph source",
+          "status": "done",
+          "order": 2090,
+          "notes": "Done 2026-06-01. B-480 routes character explosions, tinted glass, hovercopter rocket, motion blur, punch/kick, Eyespy targeting, mini-Skedar pounce, object-to-pad distance, avoid, title mode/exit, spark, and Dr. Caroll image state through graph-owned public ai/ailists.tsv source plus setup/pad source where operands require them. Verification passed Python compile, examples, strict conformance, native-source guard, c3844effects isolated test build, focused c3844 tests, build-headless, boot smokes, generated-output conformance, and texture-contract scan."
+        },
+        {
+          "id": "c3844-s1-scenario-empty-path-table",
+          "title": "Accept empty scenario path-table terminators",
+          "status": "done",
+          "order": 2130,
+          "notes": "Done 2026-06-01. B-484 makes .pdscenario extraction resolve setup path pointers through runtime-compatible promoted-pointer/file-offset handling and serialize null first path-row pads pointers as valid empty navigation/paths.tsv tables. This generates MP/test/Skedar Ruins scenario archives and removes arena/mission scenario dependency warnings. Verification passed c3844path isolated test build, focused c3844/c3842 tests with 2,663 assertions / 16 cases, build-headless, Build boot smoke, strict Build/data conformance, texture-contract scan, archive presence checks, and latest Build log zero-match checks."
+        },
+        {
           "id": "c3844-s3",
           "title": "Convert family-owned fallbacks to FileProvider/catalog source",
-          "status": "backlog",
+          "status": "active",
           "order": 3000,
-          "notes": "Move each valid base dependency reference to catalog IDs and extracted typed archive/provider sources at the owning family boundary instead of reading bytes from ROM."
+          "notes": "Active. B-499 closed non-Scenario top-level source gating, B-500/B-501 closed Chicago Scenario portal and source-ground gaps, B-502 adds a reusable Scenario source matrix runner, B-503 fixes explicit empty public Scenario pads/portals tables, B-504 hardens the matrix for padded stage hex plus natural stage completion, B-505 fixes wide public Scenario pad offsets for Maians SOS, and B-506 fixes the stale boot-stage cap for Extra25/Extra26. Chicago, CI Training, Airbase, Test Ash, Extra1 through Extra26, and Maians SOS matrix entries pass from extracted .pdscenario public source. Remaining c3844-s3 work is broader Scenario nav behavior completeness, full -All matrix validation, and any runtime family-owned fallback paths exposed by those broader smokes."
         },
         {
           "id": "c3844-s4",
@@ -4580,14 +5084,155 @@
           "title": "Run family-by-family playtest and conformance closure",
           "status": "backlog",
           "order": 5000,
-          "notes": "Use the Debug asset source gate plus focused tests to close each family after its runtime path no longer depends on ROM fallback."
+          "notes": "Backlog/follow-up. Use tools/smoke-verify/run-scenario-source-matrix.ps1 -All to broaden beyond the current passing set: Chicago, CI Training, Airbase, Test Ash, Extra1 through Extra26, and Maians SOS. Full completion still requires source-derived nav behavior completeness and exhaustive runtime fallback closure."
+        },
+        {
+          "id": "c3844-s1-generated-logo-part-table",
+          "title": "Rebuild generated logo modeldef title parts",
+          "status": "done",
+          "order": 2140,
+          "notes": "Done 2026-06-01. B-485 makes generated SKEL_LOGO .pdmesh modeldefs expose the runtime-required title logo toggles plus front/morph DL parts through the exact legacy modeldef.parts layout. The fix avoids fake side/back/left segmentation for flat OBJ sources. Verification passed c3844logo isolated tests, focused c3844/c3842 tests with 2,671 assertions / 16 cases, build-headless, Build boot smoke, native-source guard, strict Build/data conformance, scene.glb texture contract, and latest Build log zero-match checks for the old PDTWO/FRONTSIDE skip, fatal, and access violation."
+        },
+        {
+          "id": "c3844-s1-generated-door-bounds",
+          "title": "Derive generated door modeldef bounds from public source",
+          "status": "done",
+          "order": 2150
+        },
+        {
+          "id": "c3844-s1-random-meta-stage-tokens",
+          "title": "Treat Random arena stage tokens as arena-only metadata",
+          "status": "done",
+          "order": 2160,
+          "notes": "Done 2026-06-01. B-488 routes .pdarena scenario-stage checks through an arena-aware helper so STAGE_MP_RANDOM_MULTI/STAGE_MP_RANDOM_SOLO emit arena archives but no scenario dependency or .pdscenario, and no longer log false stageGetIndex(0x02/0x03) warnings. Verification passed c3844stageidx isolated tests, focused c3844/c3842/base static tests, build-headless, Build boot smoke, log zero-match scan, native-source guard, strict conformance, and scene.glb texture contract."
+        },
+        {
+          "id": "c3844-s1-pdmodernui-manifest-id",
+          "title": "Require explicit stable ids in bundled pdmod manifests",
+          "status": "done",
+          "order": 2165,
+          "notes": "Done 2026-06-01. B-489 updates pd-modern-ui.pdmod and its source manifest so root mod.json declares id=pd-modern-ui instead of using filename fallback. Static coverage now requires explicit ids in bundled base-ui and pd-modern-ui transport manifests. Verification: c3844pdmodid focused pdmod/c3844 tests PASS, build-headless PASS, Build boot smoke PASS, native-source guard PASS, strict full-family conformance PASS, scene.glb texture contract PASS, and latest Build log has zero missing-id warning matches."
+        },
+        {
+          "id": "c3844-s1-ui-chrome-pdui-source",
+          "title": "Load base UI chrome from pdui source",
+          "status": "done",
+          "order": 2170,
+          "notes": "Done 2026-06-01. B-490 moves base:ui_chrome_frame into the canonical .pdui source table, emits ui_chrome_frame.pdui with public ui.ini + texture.tga, loads chrome startup from that archive source, and guards against the old loose mods/base-game/ui-chrome path. Verification passed focused tests, build-headless, Build boot smoke plus steady-state UI 15/15 scan, native-source guard, strict conformance, scene.glb texture contract, archive content proof, and log zero-match checks."
+        },
+        {
+          "id": "c3844-s1-mods-enabled-clean-install",
+          "title": "Treat missing mods-enabled json as no-mod state",
+          "status": "done",
+          "order": 2175,
+          "notes": "Done 2026-06-01. B-491 adds a regular-file existence gate before modmgr loads optional $S/mods-enabled.json, so clean no-mod installs no longer emit a false fsFileLoad missing-file error. Verification passed c3844modsenabled isolated test build, focused public-mods static test, native-source guard, build-headless, Build boot smoke with Build/mods-enabled.json absent, latest Build log zero-match for mods-enabled.json, strict conformance, and scene.glb texture contract."
+        },
+        {
+          "id": "c3844-s1-source-gate-all-families",
+          "title": "Pin source gate to every public typed family",
+          "status": "done",
+          "order": 2180,
+          "notes": "Done 2026-06-01. B-492 tightens Settings > Debug source-gate static coverage so all 25 current public typed archive families are required, unified ASSET_AUDIO covers .pdsfx/.pdvoice/.pdsong, and deferred/non-public enum aliases stay out of the playtest gate. Verification passed c3844sourcegateall isolated test build, focused source-gate static test with 87 assertions / 1 case, native-source guard, and scoped diff-check with only pre-existing line-ending warnings."
+        },
+        {
+          "id": "c3844-s1-mod-log-base-mod-label",
+          "title": "Remove fallback token from normal mod parse logs",
+          "status": "done",
+          "order": 2185,
+          "notes": "Done 2026-06-01. B-493 renames the normal .pdmod manifest parse log field from fallback=... to base_mod=... so asset-chain fallback scans do not match base-mod inheritance metadata. Verification passed focused public-mod static test, native-source guard, build-headless, Build boot smoke, JSON validation, scoped diff-check, and latest Build log zero-match checks."
+        },
+        {
+          "id": "c3844-s1-scenario-bg-source-guard",
+          "title": "Fail scenario source gate on background geometry ROM reads",
+          "status": "done",
+          "order": 2190,
+          "notes": "Done 2026-06-01. B-494 adds a direct ASSET_SCENARIO source-only guard to bgLoadFile before legacy background geometry reads. This surfaces the remaining native scene/BG loader gap; it is not the final scene.glb runtime replacement. Verification passed focused scenario source-gate static test, native-source guard, build-headless, Build boot smoke, JSON validation, scoped diff-check, and latest Build log zero-match checks."
+        },
+        {
+          "id": "c3844-s1-scenario-bg-source-validation",
+          "title": "Validate scenario scene source at BG boundary",
+          "status": "done",
+          "order": 2195,
+          "notes": "Done 2026-06-01. B-495 first added scenarioSourceValidateBackgroundGeometryForStage at bgReset before legacy bgLoadFile, proving the active .pdscenario catalog row loads from public source and produces a compiled scene colmesh from scene.glb. Verification passed focused scenario source-gate static test with 2,161 assertions / 1 case, native-source guard, build-headless, and Build boot_smoke 14/14. The later c3844-s2 renderer work superseded the temporary source-only BG-boundary failure."
+        },
+        {
+          "id": "c3844-s2-native-scenario-bg-renderer",
+          "title": "Replace legacy Scenario BG renderer with scene.glb source",
+          "status": "done",
+          "order": 2200,
+          "notes": "Done 2026-06-01. B-495 adds a source-native Scenario renderer that consumes public .pdscenario::scene.glb through catalog/provider loading, uploads embedded PNG textures, uses runtime-repeat TEXCOORD_1 while preserving authoring-scale TEXCOORD_0, builds source-derived room tables, bypasses legacy BG room reads/render passes, and preserves prop rendering. Verification passed focused scenario source-gate static test with 2,174 assertions / 1 case, native-source guard, isolated full build, build-headless, scenario_pads_source_gate_smoke, and Build boot_smoke 14/14. Follow-up debt after B-500: source-derived nav/ground completeness remains open."
+        },
+        {
+          "id": "c3844-s3-scenario-collision-obj",
+          "title": "Promote Scenario collision override to public collision.obj source",
+          "status": "done",
+          "order": 2240,
+          "notes": "Done 2026-06-01. B-496 adds public collision.obj to extracted .pdscenario archives, updates descriptors/graph globals/navigation metadata/examples/templates to use collision.obj, and preserves OBJ room_<n> group tags through modasset_compiler so source tile caches retain room ownership. Verification passed native-source guard, strict full-family conformance, texture-contract scan, focused c3844/c3843/c3842 tests, isolated c3844coll all-target build, scenario_pads_source_gate_smoke, and Build boot_smoke after disabling the temporary source-only gate."
+        },
+        {
+          "id": "c3844-s3-global-scenario-source-only",
+          "title": "Close forced global Scenario source-only for every stage",
+          "status": "active",
+          "order": 2250,
+          "notes": "Active. Scenario source-only now has repeatable matrix coverage. Chicago, CI Training, Airbase, Test Ash, Extra1 through Extra26, and Maians SOS pass with public scene/collision/portal/pad/graph source proof. Test Ash specifically proves header-only public pads.tsv/portals.tsv are authoritative empty source, not missing data. Extra1/Extra2 prove the harness handles padded stage hex and natural stage completion. Maians SOS proves large public pads.tsv compiles through source-owned 32-bit pad offsets without ROM fallback. Extra25/Extra26 prove the boot-stage boundary accepts stages through STAGE_EXTRA26 instead of falling through title flow to CI Training. Remaining work: full -All matrix, broader nav/source parity validation, and any family-owned fallback paths exposed outside the covered set."
+        },
+        {
+          "id": "c3844-s3-nonarena-scenario-backfill",
+          "title": "Complete non-arena standalone Scenario archive backfill",
+          "status": "done",
+          "order": 2260,
+          "notes": "Done 2026-06-01. B-498 completes broad non-arena/standalone Scenario archive backfill: extraction emits 87 .pdscenario archives including base_scenario_citraining.pdscenario and base_scenario_test_ash.pdscenario. The test_ash scene.glb TEXCOORD_1 blocker was fixed by bounding UVs only on untextured/unsampled primitives while preserving runtime-repeat UV parity for textured primitives. Verification passed focused c3844/c3842/c3841/c3843/catalog/c3809 tests with 14,803 assertions / 60 cases, build-headless, Build and shared boot_smoke 14/14, strict texture-contract scans across 264 scene GLBs, strict full-family conformance across 7,616 root / 8,617 checked archives and all 27 .pdxxx families, native-source guard, clean log scans, and AssetSourceOnlyType=0."
+        },
+        {
+          "id": "c3844-s3-scenario-portals-tsv",
+          "title": "Compile Scenario portals from public portals.tsv",
+          "status": "done",
+          "order": 2270,
+          "notes": "Done 2026-06-01. B-500 emits public .pdscenario::portals.tsv, binds it through scenario.ini/navigation.ini/manifest/level.graph.json, requires scenario.portals.source in conformance/examples, and compiles it into native bgportal tables before portal metrics, alphas, room refs, and initialization. Verification passed Python compile, typed examples, native-source guard, strict example conformance, focused c3844/c3842/c3841/c3843/catalog/c3809 tests with 14,820 assertions / 60 cases, isolated c3844portals all-target build, build-headless, scenario_pads_source_gate_smoke 147/147, strict Build data conformance, texture-contract scan, and boot_smoke 14/14."
+        },
+        {
+          "id": "c3844-s3-scenario-source-matrix",
+          "title": "Add Scenario source-only stage matrix smoke runner",
+          "status": "done",
+          "order": 2280,
+          "notes": "Done 2026-06-01. B-502 adds tools/smoke-verify/run-scenario-source-matrix.ps1, which reads extracted .pdscenario _meta/manifest.json ids/stagenums, generates sequential source-only stage smokes, and runs them through the shared smoke verifier. The shared runner now wraps Get-SmokeTests in @() so one generated test does not fail strict mode. Verification passed parser checks, asset_native_source_guard, isolated all-target build, isolated test build, focused static coverage 23 assertions, Chicago matrix 23/23, and CI Training matrix 23/23."
+        },
+        {
+          "id": "c3844-s3-scenario-empty-source-tables",
+          "title": "Accept explicit empty Scenario source tables",
+          "status": "done",
+          "order": 2290,
+          "notes": "Done 2026-06-01. B-503 accepts header-only public .pdscenario pads.tsv and portals.tsv as authoritative empty source, compiling empty native padfile/portal runtime structures and avoiding ROM/RomProvider fallback. Verification passed native-source guard, isolated all-target build, focused static tests with 2,237 assertions / 3 cases, Test Ash matrix 23/23, Airbase + Test Ash matrix 46/46, normal build-headless, Build boot_smoke 14/14, and latest Build log zero-match scan."
+        },
+        {
+          "id": "c3844-s3-scenario-matrix-harness-padding",
+          "title": "Harden Scenario matrix for padded stage hex and natural exits",
+          "status": "done",
+          "order": 2295,
+          "notes": "Done 2026-06-01. B-504 lets the Scenario source matrix accept runtime zero-padded stage hex and stages that naturally complete before scripted exit while still requiring public scene/collision/portal/pad/graph source proof and forbidding timeout/fatal/source-fallback patterns. Verified with native-source guard, focused static test 24 assertions, and Extra1 + Extra2 matrix 44/44."
+        },
+        {
+          "id": "c3844-s3-scenario-wide-pad-offsets",
+          "title": "Compile large Scenario pad tables with wide source offsets",
+          "status": "done",
+          "order": 2297,
+          "notes": "Done 2026-06-01. B-505 fixes Maians SOS source-only pad loading by registering u32 source-owned pad offsets when public pads.tsv compiles beyond the legacy u16 offset range. Legacy/small padfiles keep u16 offsets, setup applies the wide table only for the matching active padfile, and pad consumers use padGetPackedOffset. Verification passed native-source guard, focused Scenario source-gate/static matrix tests with 2,253 assertions / 3 cases, isolated c3844-widepads-all all-target build, and Extra5 + Maians SOS matrix 44/44 with Maians SOS compiling 1,384 public pads and no ROM fallback."
+        },
+        {
+          "id": "c3844-s3-scenario-boot-stage-extra25-extra26",
+          "title": "Keep Scenario Extra25/Extra26 bootable",
+          "status": "done",
+          "order": 2298,
+          "notes": "Done 2026-06-01. B-506 fixes the stale --boot-stage clamp that rejected stage ids above 0x5d and caused Extra25/Extra26 source-matrix smokes to fall through title flow and load CI Training instead of the requested public .pdscenario archive. Boot validation now caps at STAGE_EXTRA26, and static coverage requires Extra25/Extra26 matrix entries while rejecting the old g_StageNum > 0x5d clamp. Verification passed native-source guard, scoped diff check, focused Scenario matrix static test with 30 assertions, isolated c3844-bootrange all-target build, isolated Extra25 + Extra26 matrix 44/44, build-headless, shared Build Extra25 + Extra26 matrix 44/44, and a clean Build log scan. Normal Build boot exited code 0 but missed the scripted-exit marker, so that remains a harness/fixture note rather than a boot-smoke pass."
         }
       ],
       "flag": "star",
       "flagged_at": "2026-05-27T18:45:00Z",
       "pending_completion": null,
       "created": "2026-05-27T18:45:00Z",
-      "updated": "2026-05-30T23:25:00Z"
+      "updated": "2026-06-01T22:27:55.3837704-04:00",
+      "updatedAt": "2026-06-01T22:27:55.3837704-04:00",
+      "updated_at": "2026-06-01T22:27:55.3837704-04:00"
     }
   ],
   "x_special_notes": {
@@ -5113,7 +5758,7 @@
       },
       {
         "status": "approved",
-        "mike_decision": "I’m fine with this format that you described, but We need a way to export them with all files accessible easily for modders, then import them back in properly, constructing the files as an actual asset.",
+        "mike_decision": "Iâ€™m fine with this format that you described, but We need a way to export them with all files accessible easily for modders, then import them back in properly, constructing the files as an actual asset.",
         "notes": "",
         "id": "closure-raw-sidecars",
         "group": "Containment Fixes",
@@ -5539,7 +6184,7 @@
             "prompt": "Confirm release-format .pdhead, .pdbody, .pdmesh, .pdarena, and .pdweapon samples should migrate away from loose cross-family sidecars.",
             "recommendation": "Allow raw editable source files only when they are owned by that family. Cross-family resources should be intact embedded typed archives under dependencies/assets.\n\nAdditional info: Raw editable source files are fine when they are owned by that archive family. Examples: .pdtexture owns image sources; .pdmesh owns mesh source geometry; .pdsfx owns WAV/source audio; .pdscenario owns map OBJ/TSV/setup source. But cross-family resources should not be loose sidecars inside another family.\n\nRecommendation: Release-format archives embed cross-family resources as intact typed archives under dependencies/assets. Example: .pdhead embeds mesh.pdmesh and material/texture dependencies, not loose GLTF/PNG files. .pdweapon embeds .pdmesh/.pdsfx/.pdprojectile/.pdentity dependencies, not loose model/audio files at root.\n\nAnswer needed: Approve this raw-owned-files versus typed-dependency rule?",
             "status": "approved",
-            "mike_decision": "I’m fine with this format that you described, but We need a way to export them with all files accessible easily for modders, then import them back in properly, constructing the files as an actual asset.",
+            "mike_decision": "Iâ€™m fine with this format that you described, but We need a way to export them with all files accessible easily for modders, then import them back in properly, constructing the files as an actual asset.",
             "notes": "Approved decision recorded on tracker card c3824\n\nRecorded at 2026-05-24T22:24:00Z",
             "source": "legacy_asset_archive_decisions",
             "updated": "2026-05-24T22:24:00Z"
@@ -5623,55 +6268,20 @@
       },
       "c3844": {
         "card_id": "c3844",
-        "updated": "2026-05-30T23:25:00Z",
+        "updated": "2026-06-01T20:45:00-04:00",
         "progress_status": "active",
-        "progress_summary": "B-390/B-395 fixed/verified Chicago scene.glb texture export through v5 renderer-matched texture dimensions, RSP texture scale, tile shifts, and sampler modes pending manual DCC visual retest. B-394 fixed/verified AI direct pad movement graph runtime: jog_to_pad/go_to_pad_preset nodes are required in level.graph.json, linked to public ai/ailists.tsv and pads.tsv, and opcodes 0x001d/0x001e route through the active level graph. B-391/B-392/B-393 remain verified. Remaining c3844 work is broader trigger behavior, any remaining global/phase behavior, and remaining non-pad/non-path AI action modules.",
-        "context_notes": "ROM fallback remains an asset-chain failure. Public scenario source now covers scene.glb with renderer-matched texture scaling/tile-shift/samplers, pads/navigation/path tables, setup fields, graph table refs, trigger-volume rows/nodes, setup behavior links, mission objective/phase/global state, and AI jog_to_pad/go_to_pad_preset/walk_to_pad/run_to_pad/set_path/start_patrol actions. Do not use raw setup dumps, public .bin payloads, fake source handles, numeric asset refs, unresolved catalog-looking refs, or runtime ROM fallback.",
-        "card_memories": "Do not describe ROM fallback as acceptable or optional. Treat it as an asset-chain failure and track every remaining fallback path to removal or fatal diagnostic coverage.",
-        "codex_recommendation": "Start with an inventory separating bootstrap extraction reads from runtime fallback reads, then convert family-owned fallbacks to provider/catalog source and add guard coverage.",
-        "next_action": "Continue module-by-module graph execution parity for broader trigger behavior, any remaining global/phase behavior replacement, and remaining non-pad/non-path AI action modules. Keep B-394/B-395 proof in scope: scenario_pads_source_gate_smoke, v5 Chicago GLB stamp, and focused c3844 tests 680 assertions / 6 cases.",
+        "progress_summary": "B-500 fixed and verified: Scenario portal source now emits public portals.tsv and compiles it into native runtime portal tables through extracted .pdscenario/FileProvider source.",
+        "context_notes": "C-3844 remains active. B-497 closed CI Training standalone Scenario source, B-498 closed broad standalone Scenario backfill with 87 conforming .pdscenario archives including base_scenario_test_ash.pdscenario, B-499 closed the broad non-Scenario all-family source gate, and B-500 closed the Scenario zero-portal source-room gap by emitting public portals.tsv and compiling it into native bgportal tables. Keep treating any runtime ROM/RomProvider fallback, loader_pool resolve failure, or missing public source after extraction as an asset-chain defect. Remaining visible work is exhaustive fallback closure plus Scenario source-derived nav/ground completeness and full source-only/parity validation.",
+        "card_memories": "Do not describe ROM fallback as acceptable or optional. Treat it as an asset-chain failure and track every remaining fallback path to removal or fatal diagnostic coverage. Generated modeldef metadata may only be derived from public source; do not invent submesh parts a flat OBJ cannot represent.",
+        "codex_recommendation": "Continue exhaustive c3844 fallback closure from current clean logs. Re-run source-only gates and log scans while auditing remaining runtime families; Scenario broad standalone archive backfill and portal source are done, but nav/ground completeness and full Scenario source-only/parity validation remain.",
+        "next_action": "Continue c3844 with exhaustive runtime fallback audit after B-500, then finish Scenario nav/ground completeness and full source-only/parity validation.",
         "items": [
           {
-            "id": "c3844-s1",
-            "title": "Inventory all runtime ROM/RomProvider fallback sites",
-            "status": "active",
-            "notes": "B-374 through B-384 plus B-386 through B-388 are fixed and verified. B-390/B-395, B-391, B-392, B-393, and B-394 are fixed and verified: Chicago scene.glb exports renderer-matched texture scale/tile-shift/samplers with the v5 stamp, public patrol paths compile from navigation/paths.tsv, AI set_path/start_patrol route through graph-owned path source, and AI jog_to_pad/go_to_pad_preset/walk_to_pad/run_to_pad route through graph-owned pad source. B-385 remains open only for mission/level graph behavior runtime parity across broader trigger behavior, any remaining global/phase behavior replacement, and remaining non-pad/non-path AI action modules before closing c3844-s1."
-          },
-          {
-            "id": "c3844-s1-model-source",
-            "title": "Verify held weapon modeldefs load from public archive source",
+            "id": "c3844-s1-scenario-glb-dcc-uvs",
+            "title": "Export scenario scene.glb DCC UVs with runtime parity UVs",
             "status": "done",
-            "notes": "Done 2026-05-28. Current source resolves modeldefLoad* and queued held-gun model loads through catalog/FileProvider source handles and refuses ROM fallback. The latest c3844model verification passed focused c3844/provider tests, native-source guard, strict generated-output conformance, and weapon_match_source_gate_smoke 35/35 with base:dy357 plus dy357/cartridge models loaded from public archive source."
-          },
-          {
-            "id": "c3844-s1-setup-link-graph",
-            "title": "Guard setup behavior links from level graph source",
-            "status": "done",
-            "notes": "Done 2026-05-28. Source-compiled setup behavior links validate against the active .pdscenario::level.graph.json plus setup.fields.tsv source chain before live registration, covering linked guns, lift-door links, safe-item/padlock links, conditional scenery, and blocked paths. Verification passed native-source guard, focused c3844 static coverage, all-target build, scenario smoke, weapon smoke, strict conformance, and broad focused c3844 tests."
-          },
-          {
-            "id": "c3844-s1-level-volume-graph",
-            "title": "Load trigger-volume source rows from level graph",
-            "status": "done",
-            "notes": "Done 2026-05-28. Active level.graph.json table refs now bind public volumes.tsv, and scenario source runtime parses graph-owned trigger-volume source rows during stage activation. Chicago smoke proved 294 rows from base_scenario_chicago.pdscenario::volumes.tsv with backend=graph.trigger.volumes+volumes.tsv. Verification passed native-source guard, focused c3844 static coverage, all-target build, scenario smoke, weapon smoke, strict conformance, and broad focused c3844 tests."
-          },
-          {
-            "id": "c3844-s1-trigger-volume-graph-nodes",
-            "title": "Validate explicit trigger-volume graph nodes",
-            "status": "done",
-            "notes": "Done 2026-05-28. Extraction now emits explicit scenario.trigger.volume.source nodes and scenario.load -> trigger.volume.* links in level.graph.json, one per public volumes.tsv row. Stage activation counts those nodes and rejects node/table drift before trigger-volume source is accepted. Verification passed native-source guard, focused c3844 source-gate static coverage, isolated c3844trig2 all-target build, scenario_pads_source_gate_smoke 37/37, weapon_match_source_gate_smoke 35/35, strict conformance 7,572 root / 8,573 checked archives, and broad focused c3844 tests with 558 assertions / 5 cases."
-          },
-          {
-            "id": "c3844-s1-mission-phase-graph",
-            "title": "Record mission phases through mission graph source",
-            "status": "done",
-            "notes": "Done 2026-05-28. Generated .pdmission mission.graph.json now emits and validates mission.phase.source nodes for load, active, complete, failed, and end. Runtime records load at graph activation, active at first lvTick, complete/failed during objective checks, and end from mainEndStage. Verification passed focused Scenario source-gate static coverage with 245 assertions / 1 case, isolated c3844phase all-target build, scenario_pads_source_gate_smoke 41/41, broad c3844 tests with 575 assertions / 5 cases, weapon_match_source_gate_smoke 35/35, strict conformance 7,572 root / 8,573 checked archives, and native-source guard."
-          },
-          {
-            "id": "c3844-s1-global-settings-graph",
-            "title": "Validate level-global settings through level graph source",
-            "status": "done",
-            "notes": "Done 2026-05-28. Generated .pdscenario level.graph.json now emits one required scenario.global.settings.source node linked from scenario.load. Stage activation validates and logs that node from public .pdscenario::level.graph.json before accepting the level graph, stale scenario archives are rejected when the node is absent, strict conformance enforces it, and examples plus nested arena/mission dependencies carry the updated graph. Verification passed native-source guard, example strict conformance, focused Scenario source-gate static coverage with 251 assertions / 1 case, isolated c3844global all-target build, scenario_pads_source_gate_smoke 43/43, broad c3844 tests with 581 assertions / 5 cases, weapon_match_source_gate_smoke 35/35, and strict conformance 7,572 root / 8,573 checked archives."
+            "order": 1491,
+            "notes": "Done 2026-05-31. B-405 splits generated scene.glb UVs so TEXCOORD_0 is normalized for Blender/3DS Max authoring and TEXCOORD_1 preserves renderer/repeat parity UVs. Verified with native-source guard, strict conformance, c3844cov2 all-target build, focused c3844 890 assertions / 6 cases, scenario smoke, full extracted conformance, and Chicago v6 UV inspection."
           },
           {
             "id": "c3844-s1-ai-pad-actions",
@@ -5686,6 +6296,401 @@
             "status": "done",
             "order": 1970,
             "notes": "Done 2026-05-30. Generated .pdscenario level.graph.json now requires scenario.ai.action.jog_to_pad and scenario.ai.action.go_to_pad_preset nodes linked to public ai/ailists.tsv and pads.tsv. Runtime AI opcodes 0x001d/0x001e execute through the active level graph before calling the existing parity movement routine. Verification passed strict example conformance, native-source guard, isolated c3844ai2 client build, focused c3844 tests with 680 assertions / 6 cases, and scenario_pads_source_gate_smoke with go_to_pad_preset executing from public pads.tsv."
+          },
+          {
+            "id": "c3844-s1-ai-pad-preset-actions",
+            "title": "Route AI pad-preset actions through level graph source",
+            "status": "done",
+            "order": 1980,
+            "notes": "Done 2026-05-30. Generated .pdscenario level.graph.json now requires scenario.ai.action.set_pad_preset, scenario.ai.action.chr_set_pad_preset, and scenario.ai.action.chr_copy_pad_preset nodes. Runtime AI opcodes 0x00b2/0x00b3/0x00b4 execute through the active level graph before calling the existing parity preset routine. Verification passed strict example conformance, native-source guard, isolated c3844ai3 client build, focused c3844 tests with 701 assertions / 6 cases, and scenario_pads_source_gate_smoke with set_pad_preset executing from public pads.tsv."
+          },
+          {
+            "id": "c3844-s1-ai-morale-alertness-actions",
+            "title": "Route AI morale and alertness actions through level graph source",
+            "status": "done",
+            "order": 1995,
+            "notes": "Done 2026-05-31. B-398 routes set_morale/add_morale/subtract_morale/set_alertness/add_alertness/subtract_alertness through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verified with strict example conformance, native-source guard, c3844ai5 all-target build, focused c3844 757 assertions / 6 cases, and scenario_pads_source_gate_smoke logging graph.ai.action.state+ai/ailists.tsv with set_alertness executing from public source."
+          },
+          {
+            "id": "c3844-s1-ai-cross-state-actions",
+            "title": "Route cross-character morale and alertness actions through level graph source",
+            "status": "done",
+            "order": 1996,
+            "notes": "Done 2026-05-31. B-399 routes chr_add_morale and chr_add_alertness through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verified with strict example conformance, native-source guard, c3844ai6 all-target build, focused c3844 771 assertions / 6 cases, and scenario_pads_source_gate_smoke logging graph.ai.action.state+ai/ailists.tsv with chr_add_morale=1 and chr_add_alertness=1."
+          },
+          {
+            "id": "c3844-s1-ai-squadron-alertness-actions",
+            "title": "Route squadron alertness action through level graph source",
+            "status": "done",
+            "order": 1997,
+            "notes": "Done 2026-05-31. B-400 routes increase_squadron_alertness through a required .pdscenario level graph node backed by public ai/ailists.tsv. Runtime AI opcode 0x0131 executes through the active level graph with OG squadron/distance/live-target parity filters. Verified with strict example conformance, native-source guard, c3844ai7 client/all-target build, focused c3844 778 assertions / 6 cases, and scenario_pads_source_gate_smoke 61/61 logging increase_squadron_alertness=1."
+          },
+          {
+            "id": "c3844-s1-ai-action-order-actions",
+            "title": "Route AI action/order state through level graph source",
+            "status": "done",
+            "order": 1998,
+            "notes": "Done 2026-05-31. B-401 routes set_action, set_team_orders, retreat, set_squadron, and chr_set_listening through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verified with strict example conformance, native-source guard, c3844orders all-target build, focused c3844 813 assertions / 6 cases, and scenario_pads_source_gate_smoke logging graph.ai.action.orders+ai/ailists.tsv."
+          },
+          {
+            "id": "c3844-s1-ai-team-maintenance-actions",
+            "title": "Route AI team maintenance through level graph source",
+            "status": "done",
+            "order": 1999,
+            "notes": "Done 2026-05-31. B-402 routes set_chr_preset_to_unalerted_teammate, rebuild_teams, and rebuild_squadrons through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verified with strict example conformance, native-source guard, c3844team all-target build, focused c3844 834 assertions / 6 cases, and scenario_pads_source_gate_smoke logging graph.ai.action.team+ai/ailists.tsv."
+          },
+          {
+            "id": "c3844-s1-ai-cover-danger-actions",
+            "title": "Route AI cover and danger actions through level graph source",
+            "status": "done",
+            "order": 1999.5,
+            "notes": "Done 2026-05-31. B-403 routes orbit_target, face_cover, and danger_cover through required .pdscenario level graph nodes backed by public ai/ailists.tsv and navigation/covers.tsv. Verified with strict example conformance, native-source guard, c3844cover all-target build, focused c3844 855 assertions / 6 cases, scenario_pads_source_gate_smoke 67/67 logging graph.ai.action.cover+navigation/covers.tsv, full extracted-output conformance 7,513 root / 8,484 checked archives, and Chicago scene.glb v5 texture stamp with max abs UV 32.748."
+          },
+          {
+            "id": "c3844-s1-ai-cover-search-actions",
+            "title": "Route AI cover-search actions through level graph source",
+            "status": "done",
+            "order": 1999.6,
+            "notes": "Done 2026-05-31. B-404 routes find_cover, find_cover_within_dist, find_cover_outside_dist, go_to_cover, and check_cover_out_of_sight through required .pdscenario level graph nodes backed by public ai/ailists.tsv and navigation/covers.tsv. Verified with strict example conformance, native-source guard, c3844cov2 all-target build, focused c3844 890 assertions / 6 cases, scenario_pads_source_gate_smoke, and full extracted-output conformance."
+          },
+          {
+            "id": "c3844-s1-ai-tuning-stat-actions",
+            "title": "Route AI tuning and stat actions through level graph source",
+            "status": "done",
+            "order": 1999.7,
+            "notes": "Done 2026-05-31. B-406 routes set_hear_distance, set_view_distance, set_grenade_probability, set_chr_num, set_max_damage, add_health, set_shield, set_reaction_speed, set_recovery_speed, set_accuracy, set_dodge_rating, and set_unarmed_dodge_rating through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verified with strict example conformance, native-source guard, c3844tune all-target build, focused c3844 974 assertions / 6 cases, scenario_pads_source_gate_smoke logging graph.ai.action.tuning+ai/ailists.tsv, full extracted-output conformance, and Chicago scene.glb v6 DCC UV inspection."
+          },
+          {
+            "id": "c3844-s1-ai-list-control-actions",
+            "title": "Route AI list-control actions through level graph source",
+            "status": "done",
+            "order": 1999.8,
+            "notes": "Done 2026-05-31. B-407 routes set_list, set_return_list, set_shot_list, return_list, set_punch_dodge_list, set_shooting_at_me_list, set_dark_room_list, and set_player_dead_list through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Also tightens scenario scene.glb fast-cache reuse to require the v6 DCC/runtime-UV stamp and TEXCOORD_1 marker. Verification: strict example conformance PASS; native-source guard PASS; focused c3844 PASS 1,020 assertions / 6 cases; c3844list all-target build PASS; scenario_pads_source_gate_smoke PASS; full extracted conformance PASS 7,513 root / 8,484 checked; fresh Chicago scene.glb material texCoord 0, TEXCOORD_0 max abs 1.0, TEXCOORD_1 max abs 32.748047."
+          },
+          {
+            "id": "c3844-s1-ai-alarm-actions",
+            "title": "Route AI alarm actions through level graph source",
+            "status": "done",
+            "order": 1999.9,
+            "notes": "Done 2026-05-31. B-408 routes try_start_alarm, activate_alarm, and deactivate_alarm through required .pdscenario level graph nodes backed by public ai/ailists.tsv, with try_start_alarm also linked to pads.tsv. Verification: strict example conformance PASS; native-source guard PASS; focused c3844 PASS 1,040 assertions / 6 cases; c3844alarm all-target build PASS; scenario_pads_source_gate_smoke PASS logging graph.ai.action.alarm+ai/ailists.tsv; full extracted conformance PASS 7,513 root / 8,484 checked; fresh Chicago scene.glb v6 kept TEXCOORD_0/TEXCOORD_1, 92 samplers, and 98 images."
+          },
+          {
+            "id": "c3844-s1-ai-savefile-flag-actions",
+            "title": "Route AI savefile flag actions through level graph source",
+            "status": "done",
+            "order": 1999.96,
+            "notes": "Done 2026-05-31. B-411 routes set_savefile_flag, unset_savefile_flag, if_savefile_flag_set, and if_savefile_flag_unset through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,133 assertions / 7 cases; c3844saveflag all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; full extracted conformance PASS 7,513 root / 8,484 checked; Chicago scene.glb v6 TEXCOORD_0 max abs 1.0 and TEXCOORD_1 max abs 32.748047."
+          },
+          {
+            "id": "c3844-s1-ai-chr-object-flag-actions",
+            "title": "Route AI chr/object flag actions through level graph source",
+            "status": "done",
+            "order": 1999.97,
+            "notes": "Done 2026-05-31. B-414 routes set_chrflag, unset_chrflag, if_has_chrflag, chr_set_chrflag, chr_unset_chrflag, if_chr_has_chrflag, chr_set_hidden_flag, chr_unset_hidden_flag, if_chr_has_hidden_flag, set_obj_flag, unset_obj_flag, and if_obj_has_flag through required .pdscenario level graph nodes backed by public ai/ailists.tsv and objects.tsv. Verification: strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,179 assertions / 7 cases; c3844chrflag all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; full extracted conformance PASS 7,514 root / 8,485 checked; runtime logs show chr/object flag graph backends; Chicago scene.glb v6 TEXCOORD_0 max abs 1.0 and TEXCOORD_1 max abs 32.748047."
+          },
+          {
+            "id": "c3844-s1-ai-timer-countdown-actions",
+            "title": "Route AI timer/countdown actions through level graph source",
+            "status": "done",
+            "order": 1999.98,
+            "notes": "Done 2026-05-31. B-415 routes restart_timer, reset_timer, pause_timer, resume_timer, if_timer_stopped, if_timer_greater_than_random, if_timer_less_than, if_timer_greater_than, show_countdown_timer, hide_countdown_timer, set_countdown_timer, stop_countdown_timer, start_countdown_timer, if_countdown_timer_stopped, if_countdown_timer_less_than, and if_countdown_timer_greater_than through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,207 assertions / 7 cases; c3844timer all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS 77/77; full extracted conformance PASS 7,514 root / 8,485 checked; runtime logs show timer/countdown graph backend; Chicago scene.glb v6 TEXCOORD_0 max abs 1.000000 and TEXCOORD_1 max abs 32.748047."
+          },
+          {
+            "id": "c3844-s1-ai-hud-message-actions",
+            "title": "Route AI HUD message actions through level graph source",
+            "status": "done",
+            "order": 1999.99,
+            "notes": "Done 2026-05-31. B-416 routes show_hudmsg, show_hudmsg_top_middle, and show_hudmsg_middle through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,221 assertions / 7 cases; c3844hud all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.hud+ai/ailists.tsv and live show_hudmsg; Chicago scene.glb v6 material texCoord 0, TEXCOORD_0 max abs 1.000000, TEXCOORD_1 max abs 32.748047."
+          },
+          {
+            "id": "c3844-s1-smoke-exact-source-binary",
+            "title": "Run source-gate smokes with the exact session binary",
+            "status": "done",
+            "order": 2000,
+            "notes": "Done 2026-05-31. B-409 makes explicit -SourceBinary fail closed when absent and always refreshes the shared smoke install binary, preventing stale clients from regenerating or validating stale scenario GLBs. Verification: static c3844 smoke harness coverage, final c3844smoke all-target build with PerfectDark.exe present, scenario_pads_source_gate_smoke PASS using that exact binary, full extracted-output conformance PASS 7,513 root / 8,484 checked archives, and direct Chicago scene.glb v6 proof with TEXCOORD_0 max abs 1.0 plus TEXCOORD_1 max abs 32.748047."
+          },
+          {
+            "id": "c3844-s1-ai-door-object-actions",
+            "title": "Route AI door and object-control actions through level graph source",
+            "status": "done",
+            "order": 2000.02,
+            "notes": "Done 2026-05-31. B-418 routes open_door, close_door, if_door_state, if_object_is_door, lock_door, unlock_door, and if_door_locked through required .pdscenario level graph nodes backed by public ai/ailists.tsv and objects.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; scoped diff check PASS; focused c3844 PASS 1,263 assertions / 7 cases; c3844door all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS 83/83; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.door+objects.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-lift-actions",
+            "title": "Route AI lift actions through level graph source",
+            "status": "done",
+            "order": 2000.03,
+            "notes": "Done 2026-05-31. B-419 routes if_lift_stationary, lift_go_to_stop, if_lift_at_stop, activate_lift, and if_using_lift through required .pdscenario level graph nodes backed by public ai/ailists.tsv, objects.tsv, and pads.tsv. Verified with strict example conformance, native-source guard, focused c3844 1,280 assertions / 7 cases, c3844lift all-target build, exact SourceBinary scenario_pads_source_gate_smoke 85/85, full extracted conformance 7,514 root / 8,485 checked, runtime graph.ai.action.lift log proof, and fresh scene.glb texture verifier across 16 scenarios plus Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-weather-actions",
+            "title": "Route AI weather actions through level graph source",
+            "status": "done",
+            "order": 2000.04,
+            "notes": "Done 2026-05-31. B-420 routes configure_rain and configure_snow through required .pdscenario level graph nodes backed by public ai/ailists.tsv and scenario.ini global settings source. Verified with strict example conformance, native-source guard, focused c3844 1,288 assertions / 7 cases, c3844weather all-target build, exact SourceBinary scenario_pads_source_gate_smoke 87/87, full extracted conformance 7,514 root / 8,485 checked, runtime graph.ai.action.weather log proof, and fresh scene.glb texture verifier across 16 scenarios plus Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-model-part-actions",
+            "title": "Route AI model-part visibility actions through level graph source",
+            "status": "done",
+            "order": 2000.05,
+            "notes": "Done 2026-05-31. B-421 routes chr_toggle_model_part and obj_set_model_part_visible through required .pdscenario level graph nodes backed by public ai/ailists.tsv and objects.tsv setup/model source. Verified with strict example conformance, native-source guard, focused c3844 1,297 assertions / 7 cases, c3844modelpart all-target build, exact SourceBinary scenario_pads_source_gate_smoke 89/89, full extracted conformance 7,514 root / 8,485 checked, runtime graph.ai.action.model_part log proof, and fresh scene.glb texture verifier across 16 scenarios plus Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-special-death-action",
+            "title": "Route AI special-death action through level graph source",
+            "status": "done",
+            "order": 2000.08,
+            "notes": "Done 2026-05-31. B-424 routes set_chr_special_death_animation through a required .pdscenario level graph node backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,316 assertions / 7 cases; c3844death all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS 95/95; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.special_death+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-sky-wind-actions",
+            "title": "Route AI sky/wind actions through level graph source",
+            "status": "done",
+            "order": 2000.09,
+            "notes": "Done 2026-05-31. B-425 routes switch_to_alt_sky and set_wind_speed through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,325 assertions / 7 cases; c3844sky all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 97/97; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.sky+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-lighting-action",
+            "title": "Route AI room-lighting action through level graph source",
+            "status": "done",
+            "order": 2000.1,
+            "notes": "Done 2026-05-31. B-426 routes set_lights through a required .pdscenario level graph node backed by public ai/ailists.tsv plus pads.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,330 assertions / 7 cases; c3844light all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 99/99; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.lighting+ai/ailists.tsv+pads.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-room-flag-action",
+            "title": "Route AI room-flag action through level graph source",
+            "status": "done",
+            "order": 2000.11,
+            "notes": "Done 2026-05-31. B-427 routes set_room_flag through a required .pdscenario level graph node backed by public ai/ailists.tsv plus source.scene/scene.glb room source. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,335 assertions / 7 cases; c3844roomflag all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 101/101; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.room_flags+ai/ailists.tsv+scene.glb; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-cutscene-visibility-action",
+            "title": "Route AI cutscene visibility action through level graph source",
+            "status": "done",
+            "order": 2000.12,
+            "notes": "Done 2026-05-31. B-428 routes show_cutscene_chrs through a required .pdscenario level graph node backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,340 assertions / 7 cases; c3844cutscene all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 103/103; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.cutscene_visibility+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-environment-action",
+            "title": "Route AI environment action through level graph source",
+            "status": "done",
+            "order": 2000.13,
+            "notes": "Done 2026-05-31. B-429 routes configure_environment through a required .pdscenario level graph node backed by public ai/ailists.tsv, scenario.ini, and source.scene/scene.glb room source. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,345 assertions / 7 cases; c3844env all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 105/105; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.environment+ai/ailists.tsv+scenario.ini+scene.glb and executed configure_environment; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-target-distance-condition",
+            "title": "Route AI target-distance conditions through level graph source",
+            "status": "done",
+            "order": 2000.14,
+            "notes": "Done 2026-05-31. B-430 routes if_distance_to_target2_less_than and if_distance_to_target2_greater_than through required .pdscenario level graph condition nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,353 assertions / 7 cases; c3844dist all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 107/107; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.condition.target_distance+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-audio-actions",
+            "title": "Route expanded AI audio actions through level graph source",
+            "status": "done",
+            "order": 2000.15,
+            "notes": "Done 2026-06-01. B-456 fixed and verified: expanded AI audio opcodes now route through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Coverage includes speech, play_sound, assign_sound, channel mute/free, object sound volume/play state, object/entity/pad playback, object-volume branch behavior, plus the existing prop-sound and temporary primary music nodes. AI_GRAPH_PENDING_FUNCTIONS debt is now 182 functions. Verification PASS: Python compile, strict examples, native-source guard, focused c3844 1,699 assertions / 7 cases, c3844audio all-target build, exact SourceBinary scenario_pads_source_gate_smoke, runtime proof for backend=graph.ai.action.audio+ai/ailists.tsv, full generated conformance across Build/data and smoke install, and texture verifier across 64 generated/nested scene.glb files."
+          },
+          {
+            "id": "c3844-s1-ai-character-inventory-actions",
+            "title": "Route AI character kill and inventory removal through level graph source",
+            "status": "done",
+            "order": 2000.16,
+            "notes": "Done 2026-05-31. B-432 routes chr_kill and remove_weapon_from_inventory through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Extracted ai/ailists.tsv names 0x01dc and fills weapon_catalog_id through catalogWeaponIdByRuntimeWeaponNum() so public command source has catalog-name evidence. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,371 assertions / 7 cases; c3844state all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 111/111; clean smoke-install extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.character_inventory+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus standalone Chicago. Repo Build/data was confirmed stale until regenerated."
+          },
+          {
+            "id": "c3844-s1-ai-music-mode-conditions",
+            "title": "Route AI music queue and co-op mode conditions through level graph source",
+            "status": "done",
+            "order": 2000.17,
+            "notes": "Done 2026-05-31. B-433 routes if_music_event_queue_is_empty and if_coop_mode through required .pdscenario level graph condition nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,380 assertions / 7 cases; c3844mode all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 113/113; clean smoke-install extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.condition.music_mode+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus standalone Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-music-track-actions",
+            "title": "Route AI music track playback through level graph source",
+            "status": "done",
+            "order": 2000.19,
+            "notes": "Done 2026-05-31. B-435 routes play_x_track, stop_x_track, play_track_isolated, play_default_tracks, play_cutscene_track, stop_cutscene_track, play_temporary_track, and stop_ambient_track through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,398 assertions / 7 cases; c3844music all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS 117/117; clean smoke-install extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.music_track+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus standalone Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-player-weapon-state-actions",
+            "title": "Route AI player weapon-state actions through level graph source",
+            "status": "done",
+            "order": 2000.2,
+            "notes": "Done 2026-05-31. B-436 routes chr_draw_weapon, chr_draw_weapon_in_cutscene, set_player_force_speed, chr_set_invincible, if_player_is_invincible, and if_chr_has_no_gun through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,422 assertions / 7 cases; c3844playerwpn all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS; clean smoke-install extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.player_weapon_state+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus standalone Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-object-room-condition",
+            "title": "Route AI object-room condition through level graph source",
+            "status": "done",
+            "order": 2000.21,
+            "notes": "Done 2026-05-31. B-437 routes if_obj_in_room through a required .pdscenario level graph condition node backed by public ai/ailists.tsv, objects.tsv, and scene.glb room source. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,427 assertions / 7 cases; c3844objroom all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS; clean smoke-install extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.condition.object_room+ai/ailists.tsv+objects.tsv+scene.glb; fresh scene.glb texture verifier PASS across 16 scenarios plus standalone Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-gun-interaction",
+            "title": "Route AI gun interaction actions through level graph source",
+            "status": "done",
+            "order": 2000.22,
+            "notes": "Done 2026-05-31. B-438 routes AI do_gun_command, if_distance_to_gun_less_than, and recover_gun opcodes 0x0170/0x0171/0x0172 through required .pdscenario level graph nodes backed by public ai/ailists.tsv, objects.tsv, and scene.glb. Verified with strict example conformance, native-source guard, focused c3844 1,440 assertions / 7 cases, isolated c3844gunint all-target build, exact-SourceBinary scenario_pads_source_gate_smoke, strict generated-output conformance across 7,514 root / 8,485 checked archives, runtime log proof, and Chicago/all-scenario scene.glb texture-scale verification with tightened TEXCOORD_0 range guard."
+          },
+          {
+            "id": "c3844-s1",
+            "title": "Inventory all runtime ROM/RomProvider fallback sites",
+            "status": "active",
+            "notes": "B-449 fixed and verified: AI character argh/count, health/shield, injury/shield-damage, morale, and alertness conditions now execute through required .pdscenario level graph source backed by public ai/ailists.tsv. Build/data, smoke-install, generated missions, scenarios, and arena-nested scenarios pass strict conformance, native-source, and texture-scale guards across 64 scene GLBs. Remaining c3844 work: broader trigger/global/phase behavior and any AI action modules outside converted families."
+          },
+          {
+            "id": "c3844-s1-ai-chr-preset-actions",
+            "title": "Route AI chr-preset actions through level graph source",
+            "status": "done",
+            "notes": "Done 2026-05-30. B-397 routes set_chr_preset/set_chr_target through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verified with strict example conformance, native-source guard, c3844ai4 all-target build, focused c3844 715 assertions / 6 cases, and scenario_pads_source_gate_smoke logging graph.ai.action.chr_preset+ai/ailists.tsv."
+          },
+          {
+            "id": "c3844-s1-ai-object-health-actions",
+            "title": "Route AI object-health actions through level graph source",
+            "status": "done",
+            "notes": "Done 2026-05-31. B-422 routes if_obj_health_less_than and set_obj_health through required .pdscenario level graph nodes backed by public ai/ailists.tsv and objects.tsv setup/object source. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,306 assertions / 7 cases; c3844objhealth all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS 91/91; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.object_health+ai/ailists.tsv+objects.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-room-search-action",
+            "title": "Route AI room-search action through level graph source",
+            "status": "done",
+            "notes": "Done 2026-05-31. B-423 routes set_room_to_search through a required .pdscenario level graph node backed by public ai/ailists.tsv and source.scene/scene.glb room source. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,311 assertions / 7 cases; c3844room all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS 93/93; full extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.room_search+ai/ailists.tsv+scene.glb; fresh scene.glb texture verifier PASS across 16 scenarios plus Chicago."
+          },
+          {
+            "id": "c3844-s1-global-settings-graph",
+            "title": "Validate level-global settings through level graph source",
+            "status": "done",
+            "notes": "Done 2026-05-28. Generated .pdscenario level.graph.json now emits one required scenario.global.settings.source node linked from scenario.load. Stage activation validates and logs that node from public .pdscenario::level.graph.json before accepting the level graph, stale scenario archives are rejected when the node is absent, strict conformance enforces it, and examples plus nested arena/mission dependencies carry the updated graph. Verification passed native-source guard, example strict conformance, focused Scenario source-gate static coverage with 251 assertions / 1 case, isolated c3844global all-target build, scenario_pads_source_gate_smoke 43/43, broad c3844 tests with 581 assertions / 5 cases, weapon_match_source_gate_smoke 35/35, and strict conformance 7,572 root / 8,573 checked archives."
+          },
+          {
+            "id": "c3844-s1-level-volume-graph",
+            "title": "Load trigger-volume source rows from level graph",
+            "status": "done",
+            "notes": "Done 2026-05-28. Active level.graph.json table refs now bind public volumes.tsv, and scenario source runtime parses graph-owned trigger-volume source rows during stage activation. Chicago smoke proved 294 rows from base_scenario_chicago.pdscenario::volumes.tsv with backend=graph.trigger.volumes+volumes.tsv. Verification passed native-source guard, focused c3844 static coverage, all-target build, scenario smoke, weapon smoke, strict conformance, and broad focused c3844 tests."
+          },
+          {
+            "id": "c3844-s1-mission-phase-graph",
+            "title": "Record mission phases through mission graph source",
+            "status": "done",
+            "notes": "Done 2026-05-28. Generated .pdmission mission.graph.json now emits and validates mission.phase.source nodes for load, active, complete, failed, and end. Runtime records load at graph activation, active at first lvTick, complete/failed during objective checks, and end from mainEndStage. Verification passed focused Scenario source-gate static coverage with 245 assertions / 1 case, isolated c3844phase all-target build, scenario_pads_source_gate_smoke 41/41, broad c3844 tests with 575 assertions / 5 cases, weapon_match_source_gate_smoke 35/35, strict conformance 7,572 root / 8,573 checked archives, and native-source guard."
+          },
+          {
+            "id": "c3844-s1-model-source",
+            "title": "Verify held weapon modeldefs load from public archive source",
+            "status": "done",
+            "notes": "Done 2026-05-28. Current source resolves modeldefLoad* and queued held-gun model loads through catalog/FileProvider source handles and refuses ROM fallback. The latest c3844model verification passed focused c3844/provider tests, native-source guard, strict generated-output conformance, and weapon_match_source_gate_smoke 35/35 with base:dy357 plus dy357/cartridge models loaded from public archive source."
+          },
+          {
+            "id": "c3844-s1-scenario-glb-uv-guard",
+            "title": "Guard scenario scene.glb texture scale in strict conformance",
+            "status": "done",
+            "notes": "Done 2026-05-31. B-390/B-395/B-405 now have strict GLB texture-scale guard coverage: generated .pdscenario::scene.glb writes DCC-authoring TEXCOORD_0 plus runtime-parity TEXCOORD_1, asset_archive_conformance.py requires the v6 exporter stamp, caps generated TEXCOORD_0, requires TEXCOORD_1, and rejects generated materials whose visible baseColorTexture uses anything other than texCoord 0. Chicago v6 GLB reports 92 visible textured materials using texCoord 0, TEXCOORD_0 max abs 1.0, and TEXCOORD_1 max abs 32.748047."
+          },
+          {
+            "id": "c3844-s1-setup-link-graph",
+            "title": "Guard setup behavior links from level graph source",
+            "status": "done",
+            "notes": "Done 2026-05-28. Source-compiled setup behavior links validate against the active .pdscenario::level.graph.json plus setup.fields.tsv source chain before live registration, covering linked guns, lift-door links, safe-item/padlock links, conditional scenery, and blocked paths. Verification passed native-source guard, focused c3844 static coverage, all-target build, scenario smoke, weapon smoke, strict conformance, and broad focused c3844 tests."
+          },
+          {
+            "id": "c3844-s1-trigger-volume-graph-nodes",
+            "title": "Validate explicit trigger-volume graph nodes",
+            "status": "done",
+            "notes": "Done 2026-05-28. Extraction now emits explicit scenario.trigger.volume.source nodes and scenario.load -> trigger.volume.* links in level.graph.json, one per public volumes.tsv row. Stage activation counts those nodes and rejects node/table drift before trigger-volume source is accepted. Verification passed native-source guard, focused c3844 source-gate static coverage, isolated c3844trig2 all-target build, scenario_pads_source_gate_smoke 37/37, weapon_match_source_gate_smoke 35/35, strict conformance 7,572 root / 8,573 checked archives, and broad focused c3844 tests with 558 assertions / 5 cases."
+          },
+          {
+            "id": "c3844-s1-ai-character-property-action",
+            "title": "Route AI character property copy through level graph source",
+            "status": "done",
+            "order": 2000.23,
+            "notes": "Done 2026-05-31. B-439 routes chr_copy_properties through a required .pdscenario level graph node backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,444 assertions / 7 cases; c3844chrprop all-target build PASS with direct PerfectDark.exe/log proof; exact SourceBinary scenario_pads_source_gate_smoke PASS; clean smoke-install extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.character_property+ai/ailists.tsv; fresh scene.glb texture verifier PASS across 16 scenarios plus standalone Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-player-navigation-actions",
+            "title": "Route AI player autowalk navigation through level graph source",
+            "status": "done",
+            "order": 2000.24,
+            "notes": "Done 2026-05-31. B-440 routes player_auto_walk and if_player_auto_walk_finished through required .pdscenario level graph nodes backed by public ai/ailists.tsv plus pads.tsv for autowalk targets. Verification: Python tool compile PASS; smoke JSON parse PASS; scoped diff check PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,451 assertions / 7 cases; c3844autowalk all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; clean smoke-install extracted conformance PASS 7,514 root / 8,485 checked; runtime log shows graph.ai.action.player_navigation+ai/ailists.tsv+pads.tsv; fresh scene.glb texture verifier PASS across all 16 scenarios including Chicago."
+          },
+          {
+            "id": "c3844-s1-ai-state-device-conditions",
+            "title": "Route AI state/device conditions through level graph source",
+            "status": "done",
+            "order": 2000.3,
+            "notes": "Done 2026-05-31. B-447 routes if_pouncebits_eq, if_training_pc_holographed, and if_player_using_device through required .pdscenario level graph condition nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,540 assertions / 7 cases; c3844stdev all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; full generated conformance PASS 7,514 root / 8,485 checked in smoke install and Build/data; runtime log shows graph.ai.condition.state_device+ai/ailists.tsv; texture verifier PASS across 64 generated and arena-nested scene GLBs."
+          },
+          {
+            "id": "c3844-s1-ai-mission-global-conditions",
+            "title": "Route AI mission/global branch conditions through level graph source",
+            "status": "done",
+            "order": 2000.31,
+            "notes": "Done 2026-06-01. B-448 routes objective complete/failed/all-complete, difficulty less/greater than, stage timer less/greater than, stage ID less/greater than, player count less than, kill count greater than, and knocked-out chr count opcodes through required .pdscenario level graph condition nodes backed by public ai/ailists.tsv plus mission graph source. Verification: Python tool compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,577 assertions / 7 cases; c3844mission all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; full generated conformance PASS 7,514 root / 8,485 checked in smoke install and Build/data; runtime log shows graph.ai.condition.mission_global+ai/ailists.tsv+mission.graph.json; texture verifier PASS across 64 generated and arena-nested scene GLBs."
+          },
+          {
+            "id": "c3844-s1-ai-character-state-conditions",
+            "title": "Route AI character state/count conditions through level graph source",
+            "status": "done",
+            "order": 2000.32,
+            "notes": "Done 2026-06-01. B-449 routes argh count, close-argh count, chr health/shield, injured/shield-damaged, morale, and alertness conditions through required .pdscenario level graph nodes backed by public ai/ailists.tsv. Verification: Python tool compile PASS; smoke JSON parse PASS; strict example conformance PASS 28 root / 52 checked archives; native-source guard PASS; focused c3844 PASS 1,605 assertions / 7 cases; c3844char all-target build PASS; exact SourceBinary scenario_pads_source_gate_smoke PASS; full generated conformance PASS 7,514 root / 8,485 checked in smoke install and Build/data; runtime log shows graph.ai.condition.character_state+ai/ailists.tsv; texture verifier PASS across 64 generated and arena-nested scene GLBs."
+          },
+          {
+            "id": "c3844-s1-ai-misc-effect-actions",
+            "title": "Route AI misc effect/action commands through level graph source",
+            "status": "done",
+            "order": 2090,
+            "notes": "Done 2026-06-01. B-480 routes character explosions, tinted glass, hovercopter rocket, motion blur, punch/kick, Eyespy targeting, mini-Skedar pounce, object-to-pad distance, avoid, title mode/exit, spark, and Dr. Caroll image state through graph-owned public ai/ailists.tsv source plus setup/pad source where operands require them. Verification passed Python compile, examples, strict conformance, native-source guard, c3844effects isolated test build, focused c3844 tests, build-headless, boot smokes, generated-output conformance, and texture-contract scan."
+          },
+          {
+            "id": "c3844-s1-ai-quip-shuffle-actions",
+            "title": "Route final AI quip and shuffle commands through level graph source",
+            "status": "done",
+            "order": 2100,
+            "notes": "Done 2026-06-01. B-481 routes say_quip, say_ci_staff_quip, shuffle_ruins_pillars, and shuffle_pelagic_switches through graph-owned public ai/ailists.tsv source plus setup/object source where mission tag shuffles require authored setup rows. AI_GRAPH_PENDING_FUNCTIONS is empty. Verification passed Python compile, examples, strict conformance, native-source guard, c3844quip isolated test build, focused c3844 tests, build-headless, Build and shared-install boot smokes, generated-output conformance, and texture-contract scan."
+          },
+          {
+            "id": "c3844-s1-weapon-zero-sfx-refs",
+            "title": "Serialize weapon no-sound SFX as no asset, not fake catalog refs",
+            "status": "done",
+            "order": 2110,
+            "notes": "Done 2026-06-01. B-482 makes generated .pdweapon fire shootsound fields emit 0 for intentional no-sound values instead of SFX_0000, bumps .pdweapon cache markers to embedded.v13 / pdweapon_embedded_v13_clean_public, and makes strict conformance reject stale SFX_0000 weapon manifests. Verification passed Python compile, native-source guard, c3844sfx0 isolated test build, focused c3844/c3842 tests with 2,651 assertions / 14 cases, build-headless, Build and shared-install boot smokes, strict generated conformance, texture-contract scan, direct archive scans, and latest client-log zero-match checks."
+          },
+          {
+            "id": "c3844-s1-empty-rom-slot-skip",
+            "title": "Skip intentionally empty ROM slots before size lookup",
+            "status": "done",
+            "order": 2120,
+            "notes": "Done 2026-06-01. B-483 makes first-launch extraction and per-file verify count null romdataFileGetData slots as skipped-empty before calling romdataFileGetSize, eliminating false file-number errors for intentionally absent slots such as 2014-2047. Verification passed Python compile, native-source guard, c3844empty isolated test build, focused c3844/c3842 tests with 2,654 assertions / 15 cases, build-headless, Build boot smoke, strict Build/data conformance, texture-contract scan, and latest Build log zero-match checks for old file-number errors, SFX_0000, weapon resolve fails, fatal, and access violation."
+          },
+          {
+            "id": "c3844-s1-scenario-empty-path-table",
+            "title": "Accept empty scenario path-table terminators",
+            "status": "done",
+            "order": 2130,
+            "notes": "Done 2026-06-01. B-484 makes .pdscenario extraction resolve setup path pointers through runtime-compatible promoted-pointer/file-offset handling and serialize null first path-row pads pointers as valid empty navigation/paths.tsv tables. This generates MP/test/Skedar Ruins scenario archives and removes arena/mission scenario dependency warnings. Verification passed c3844path isolated test build, focused c3844/c3842 tests with 2,663 assertions / 16 cases, build-headless, Build boot smoke, strict Build/data conformance, texture-contract scan, archive presence checks, and latest Build log zero-match checks."
+          },
+          {
+            "id": "c3844-s1-generated-logo-part-table",
+            "title": "Rebuild generated logo modeldef title parts",
+            "status": "done",
+            "order": 2140,
+            "notes": "Done 2026-06-01. B-485 makes generated SKEL_LOGO .pdmesh modeldefs expose the runtime-required title logo toggles plus front/morph DL parts through the exact legacy modeldef.parts layout. The fix avoids fake side/back/left segmentation for flat OBJ sources. Verification passed c3844logo isolated tests, focused c3844/c3842 tests with 2,671 assertions / 16 cases, build-headless, Build boot smoke, native-source guard, strict Build/data conformance, scene.glb texture contract, and latest Build log zero-match checks for the old PDTWO/FRONTSIDE skip, fatal, and access violation."
+          },
+          {
+            "id": "c3844-s1-generated-door-bounds",
+            "title": "Derive generated door modeldef bounds from public source",
+            "status": "done",
+            "order": 2150,
+            "notes": "Done 2026-06-01. B-486 makes generated non-character .pdmesh modeldefs expose source-derived MODELNODETYPE_BBOX nodes from public OBJ mesh bounds, gives SKEL_WINDOWEDDOOR safe bbox/toggle metadata without inventing glass-only DL segmentation, and moves CCTV generated parts to compact legacy-layout tables. Verification passed c3844door isolated tests, focused c3844/c3842 tests with 2,685 assertions / 16 cases, build-headless, Build boot smoke, native-source guard, strict Build/data conformance, scene.glb texture contract, and latest Build log zero-match checks for door bbox warnings, DOOR.DIAG, WindowedDoor rodata misses, title-logo regressions, fatal, and access violation."
+          },
+          {
+            "id": "c3844-s3-scenario-portals-tsv",
+            "title": "Compile Scenario portals from public portals.tsv",
+            "status": "done",
+            "order": 2270,
+            "notes": "Done 2026-06-01. B-500 emits public .pdscenario::portals.tsv and compiles it into native bgportal tables through catalog/provider source. Verification passed native-source guard, strict conformance, focused tests with 14,820 assertions / 60 cases, c3844portals all-target build, build-headless, scenario smoke 147/147, texture-contract scan, and boot_smoke 14/14."
           }
         ]
       },

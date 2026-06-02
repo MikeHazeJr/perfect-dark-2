@@ -27,6 +27,9 @@ static s32 s_kindToMode(const char *kind)
     if (strcmp(kind, "solo") == 0 || strcmp(kind, "campaign") == 0) {
         return MAP_MODE_SOLO;
     }
+    if (strcmp(kind, "firingrange") == 0) {
+        return MAP_MODE_SOLO;
+    }
     if (strcmp(kind, "coop") == 0 || strcmp(kind, "co-op") == 0) {
         return MAP_MODE_COOP;
     }
