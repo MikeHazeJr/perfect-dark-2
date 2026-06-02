@@ -14491,3 +14491,9 @@ After AI-list source works, continue module-by-module graph execution parity for
 - Continued c3844/B-508 high-count validation with exact isolated `c3844mesh` binary at commit `18f29c0c`.
 - Verification: isolated `c3844mesh` all-target build PASS; `run-all-family-source-matrix.ps1 -Family mesh -BatchSize 50` PASS for 733 `.pdmesh` archives in 15 source-only batches out of 7,529 non-Scenario archives. Runtime log version was `dev 18f29c0c`.
 - Remaining c3844 high-count non-Scenario work: `.pdanim`, `.pdsfx`, `.pdtexture`, plus Scenario source-only/parity/nav closure saved for last.
+
+## 2026-06-02 - B-508 animation source matrix slice
+
+- Continued c3844/B-508 high-count validation with exact isolated `c3844anim` binary at commit `284d421d`.
+- Verification: isolated `c3844anim` all-target build PASS; `run-all-family-source-matrix.ps1 -Family animation -BatchSize 50` PASS for 1,060 `.pdanim` archives in 24 source-only batches out of 7,529 non-Scenario archives. Runtime log version was `dev 284d421d`.
+- This converts the earlier 53-batch animation wrapper timeout into a definitive pass; remaining c3844 high-count non-Scenario work is `.pdsfx` and `.pdtexture`, plus Scenario source-only/parity/nav closure saved for last.
