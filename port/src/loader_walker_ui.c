@@ -22,10 +22,16 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 {
     (void)pd_kind;
 
-    asset_entry_t *e = assetCatalogRegister(id, ASSET_UI);
-    loaderWalkerMarkBaseArchiveEntry(e);
     char source_member[128];
     char source_path[FS_MAXPATH + 1];
+    asset_entry_t *e = assetCatalogGetMutable(id);
+    if (e && e->type != ASSET_UI) {
+        return -1;
+    }
+    if (!e) {
+        e = assetCatalogRegister(id, ASSET_UI);
+    }
+    loaderWalkerMarkBaseArchiveEntry(e);
     if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "file",
                                      source_member, sizeof(source_member))) {
         snprintf(source_member, sizeof(source_member), "texture.tga");

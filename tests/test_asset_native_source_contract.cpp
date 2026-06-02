@@ -4330,6 +4330,11 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	const std::string romdata = readTextFile("port/src/romdata.c");
 	const std::string mod = readTextFile("port/src/mod.c");
 	const std::string snd = readTextFile("src/lib/snd.c");
+	const std::string main_c = readTextFile("port/src/main.c");
+	const std::string pdgui_theme = readTextFile("port/fast3d/pdgui_theme.cpp");
+	const std::string loader_ui = readTextFile("port/src/loader_walker_ui.c");
+	const std::string all_family_smoke =
+		readTextFile("tools/smoke-verify/tests/all_family_source_gate_smoke.json");
 
 	REQUIRE(header.find("assetSourceDebugOnlyType") != std::string::npos);
 	REQUIRE(header.find("assetSourceDebugEntryRequiresPublicFileSource") !=
@@ -4355,6 +4360,67 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	REQUIRE(romdata.find("ROM/static fallback.") != std::string::npos);
 	REQUIRE(mod.find("r.source_only_blocked") != std::string::npos);
 	REQUIRE(snd.find("r.source_only_blocked") != std::string::npos);
+	REQUIRE(main_c.find("strcmp(s, \"voice\") == 0") != std::string::npos);
+	REQUIRE(main_c.find("strcmp(s, \"song\") == 0") != std::string::npos);
+	REQUIRE(main_c.find("strcmp(s, \"music\") == 0") != std::string::npos);
+	REQUIRE(main_c.find("bootEnsureUiArchivesReadyForCliSourceLoads") !=
+	        std::string::npos);
+	REQUIRE(main_c.find("(void)romExtractAllPdui(0)") != std::string::npos);
+	REQUIRE(main_c.find("loaderWalkerScanUi(data_root, &kr)") !=
+	        std::string::npos);
+	REQUIRE(loader_ui.find("assetCatalogGetMutable(id)") != std::string::npos);
+	REQUIRE(loader_ui.find("if (!e)") < loader_ui.find("assetCatalogRegister(id, ASSET_UI)"));
+	REQUIRE(loader_ui.find("catalogSetPrimaryFile(e, source_path)") !=
+	        std::string::npos);
+	REQUIRE(main_c.find("bootArmDebugLoadCatalogAssets") != std::string::npos);
+	REQUIRE(main_c.find("g_BootDebugLoadCatalogAssetsPending = 1") !=
+	        std::string::npos);
+	REQUIRE(main_c.find("s32 bootApplyDeferredDebugLoadCatalogAssets(void)") !=
+	        std::string::npos);
+	{
+		const std::string cli_fast_paths = functionBlock(main_c,
+			"static void bootApplyCliFastPaths");
+		REQUIRE(cli_fast_paths.find("bootArmDebugLoadCatalogAssets();") !=
+		        std::string::npos);
+		REQUIRE(cli_fast_paths.find("bootApplyDebugLoadCatalogAssets(") ==
+		        std::string::npos);
+	}
+	{
+		const std::string deferred = functionBlock(main_c,
+			"s32 bootApplyDeferredDebugLoadCatalogAssets");
+		REQUIRE(deferred.find("bootEnsureUiArchivesReadyForCliSourceLoads();") <
+		        deferred.find("bootApplyDebugLoadCatalogAssets("));
+	}
+	{
+		const std::string theme_check = functionBlock(pdgui_theme,
+			"void pdguiThemeCheckExtract");
+		REQUIRE(theme_check.find("pdguiThemeEmitPduiZips(0)") <
+		        theme_check.find("bootApplyDeferredDebugLoadCatalogAssets()"));
+	}
+	{
+		const std::string loaded_ui = functionBlock(pdgui_theme,
+			"static void s_registerLoadedThemeTexture");
+		REQUIRE(loaded_ui.find("s_findPduiEntryByCatalogId(catalog_id)") !=
+		        std::string::npos);
+		REQUIRE(loaded_ui.find("e->load_state = ASSET_STATE_ACTIVE") !=
+		        std::string::npos);
+		REQUIRE(loaded_ui.find("e->payload_kind = ASSET_PAYLOAD_RUNTIME_ACTIVE") !=
+		        std::string::npos);
+		REQUIRE(loaded_ui.find("\"%s::texture.tga\"") != std::string::npos);
+		REQUIRE(loaded_ui.find("catalogSetPrimaryFile(e, member_path)") !=
+		        std::string::npos);
+	}
+	REQUIRE(all_family_smoke.find("audio=base:sfx_alarm_2") != std::string::npos);
+	REQUIRE(all_family_smoke.find("voice=base:voice_cover_me_aiw") !=
+	        std::string::npos);
+	REQUIRE(all_family_smoke.find("song=base:song_sequence_a") !=
+	        std::string::npos);
+	REQUIRE(all_family_smoke.find("id='base:voice_cover_me_aiw' result=OK") !=
+	        std::string::npos);
+	REQUIRE(all_family_smoke.find("id='base:song_sequence_a' result=OK") !=
+	        std::string::npos);
+	REQUIRE(all_family_smoke.find("\"min\": 24, \"max\": 24") !=
+	        std::string::npos);
 
 	REQUIRE(mainmenu.find("Asset Source Gate") != std::string::npos);
 	REQUIRE(mainmenu.find("assetSourceDebugOnlyType()") != std::string::npos);

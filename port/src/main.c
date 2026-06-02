@@ -1116,7 +1116,9 @@ static asset_type_e bootDebugParseAssetType(const char *s)
 	if (strcmp(s, "animation") == 0 || strcmp(s, "anim") == 0) return ASSET_ANIMATION;
 	if (strcmp(s, "texture") == 0) return ASSET_TEXTURE;
 	if (strcmp(s, "effect") == 0) return ASSET_EFFECT;
-	if (strcmp(s, "audio") == 0) return ASSET_AUDIO;
+	if (strcmp(s, "audio") == 0 || strcmp(s, "sfx") == 0
+			|| strcmp(s, "voice") == 0 || strcmp(s, "song") == 0
+			|| strcmp(s, "music") == 0) return ASSET_AUDIO;
 	if (strcmp(s, "lang") == 0 || strcmp(s, "language") == 0) return ASSET_LANG;
 	if (strcmp(s, "ui") == 0) return ASSET_UI;
 	if (strcmp(s, "font") == 0) return ASSET_FONT;
@@ -1175,6 +1177,32 @@ static void bootDebugLogTypedPayload(asset_type_e type, const char *asset_id, s3
 			asset_id, clip, (const void *)anim, clip_size);
 	}
 }
+
+static void bootEnsureUiArchivesReadyForCliSourceLoads(void)
+{
+	char data_root[FS_MAXPATH + 1];
+	loader_walker_kind_result_t kr;
+
+	/* On clean installs, the normal boot emitter may run before
+	 * g_TexGeneralConfigs is populated, so .pdui emission defers to the
+	 * render-loop fallback. CLI source-gate loads run before that fallback;
+	 * emit and re-walk UI here once texture configs are available. */
+	(void)romExtractAllPdui(0);
+	fsDataDir(data_root, sizeof(data_root));
+	if (!data_root[0]) {
+		return;
+	}
+	loaderWalkerScanUi(data_root, &kr);
+	if (kr.entries_scanned > 0 || kr.entries_registered > 0) {
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: UI source archives ready before CLI debug loads scanned=%d registered=%d",
+			kr.entries_scanned, kr.entries_registered);
+	}
+}
+
+static const char *g_BootDebugLoadCatalogAssetsArg = NULL;
+static s32 g_BootDebugLoadCatalogAssetsSourceOnly = 0;
+static s32 g_BootDebugLoadCatalogAssetsPending = 0;
 
 static void bootApplyDebugLoadCatalogAssets(const char *arg, s32 force_source_only)
 {
@@ -1254,6 +1282,33 @@ static void bootApplyDebugLoadCatalogAssets(const char *arg, s32 force_source_on
 	}
 }
 
+static void bootArmDebugLoadCatalogAssets(void)
+{
+	const char *arg = sysArgGetString("--debug-load-catalog-assets");
+
+	if (!arg || !arg[0]) {
+		return;
+	}
+
+	g_BootDebugLoadCatalogAssetsArg = arg;
+	g_BootDebugLoadCatalogAssetsSourceOnly =
+		sysArgCheck("--debug-load-catalog-assets-source-only");
+	g_BootDebugLoadCatalogAssetsPending = 1;
+}
+
+s32 bootApplyDeferredDebugLoadCatalogAssets(void)
+{
+	if (!g_BootDebugLoadCatalogAssetsPending) {
+		return 0;
+	}
+
+	g_BootDebugLoadCatalogAssetsPending = 0;
+	bootEnsureUiArchivesReadyForCliSourceLoads();
+	bootApplyDebugLoadCatalogAssets(g_BootDebugLoadCatalogAssetsArg,
+		g_BootDebugLoadCatalogAssetsSourceOnly);
+	return 1;
+}
+
 /* Dispatcher called once from main() after the catalog is fully
  * initialised. */
 static void bootApplyCliFastPaths(void)
@@ -1269,8 +1324,7 @@ static void bootApplyCliFastPaths(void)
 	bootApplyListenBind(sysArgGetString("--listen-bind"));
 	bootApplyConnectHost(sysArgGetString("--connect-host"));
 	bootApplyDumpSwarmState(sysArgGetString("--dump-swarm-state"));
-	bootApplyDebugLoadCatalogAssets(sysArgGetString("--debug-load-catalog-assets"),
-		sysArgCheck("--debug-load-catalog-assets-source-only"));
+	bootArmDebugLoadCatalogAssets();
 }
 
 /* Called once per frame from pdmain.c's mainTick when the

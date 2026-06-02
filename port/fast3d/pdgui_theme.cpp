@@ -2085,14 +2085,24 @@ static void s_registerLoadedThemeTexture(const char *catalog_id,
 
     asset_entry_t *e = assetCatalogRegister(catalog_id, ASSET_UI);
     if (e) {
+        const struct PduiEntry *pe = s_findPduiEntryByCatalogId(catalog_id);
+        char rel_path[FS_MAXPATH];
+        char member_path[FS_MAXPATH + 16];
+
         snprintf(e->category, CATALOG_CATEGORY_LEN, "base");
         e->bundled = 1;
         e->enabled = 1;
-        e->load_state = ASSET_STATE_LOADED;
+        e->load_state = ASSET_STATE_ACTIVE;
+        e->payload_kind = ASSET_PAYLOAD_RUNTIME_ACTIVE;
         e->ref_count = ASSET_REF_BUNDLED;
         e->source_texnum = -1;
         e->loaded_data = (void *)(uintptr_t)gl_id;
         e->data_size_bytes = (u32)(w * h * 4u);
+        if (s_pduiRelPath(pe, rel_path, sizeof(rel_path))) {
+            snprintf(member_path, sizeof(member_path), "%s::texture.tga", rel_path);
+            member_path[sizeof(member_path) - 1] = '\0';
+            catalogSetPrimaryFile(e, member_path);
+        }
     }
 
     s_ThemeTexCache[catalog_id] = gl_id;
@@ -3527,6 +3537,11 @@ void pdguiThemeCheckExtract(void)
 
     /* Initialize the base-game chrome style from the extracted .pdui source. */
     pdguiChromeInitializeBaseMod();
+
+    {
+        extern s32 bootApplyDeferredDebugLoadCatalogAssets(void);
+        (void)bootApplyDeferredDebugLoadCatalogAssets();
+    }
 }
 
 } /* extern "C" */

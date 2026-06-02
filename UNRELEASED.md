@@ -69,6 +69,7 @@
 
 ## Changed
 
+- The all-family asset source gate now separately proves SFX, voice, song, and first-launch UI archives through public FileProvider source.
 - Fixed Scenario source-only matrix booting for Extra25/Extra26 by removing the stale `--boot-stage` 0x5d cap; both stages now load their public `.pdscenario` sources in source-only validation.
 - Dev Window build, release, and push sync commits now describe the staged files and include live state paths in the commit body.
 - The release script mirrors Codex memory before release commits and warns if the notes file looks stale.

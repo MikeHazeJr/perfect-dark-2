@@ -22,7 +22,7 @@
     "--portable",
     "--debug-load-catalog-assets-source-only",
     "--debug-load-catalog-assets",
-    "weapon=base:dy357,character=base:character_a51airman,head=base:head_a51faceplate,body=base:a51airman,arena=base:arena_airbase,mission=base:mission_airbase,model=base:model_ar34_hi,animation=base:animation_big_sneeze,texture=base:texture_unlabeled_a,material=base:material_default,skin=base:skin_a51airman_default,effect=base:effect_darken,prop=base:prop_chr,vehicle=base:vehicle_hoverbike,audio=base:sfx_alarm_2,ui=base:ui_bg_alt,font=base:font_fontjpnsingle,lang=base:lang_ame_en,gamemode=base:capture_the_case,botprofile=base:bot_coward,hud=base:hud_ammo,theme=base:theme_blackgold"
+    "weapon=base:dy357,character=base:character_a51airman,head=base:head_a51faceplate,body=base:a51airman,arena=base:arena_airbase,mission=base:mission_airbase,model=base:model_ar34_hi,animation=base:animation_big_sneeze,texture=base:texture_unlabeled_a,material=base:material_default,skin=base:skin_a51airman_default,effect=base:effect_darken,prop=base:prop_chr,vehicle=base:vehicle_hoverbike,audio=base:sfx_alarm_2,voice=base:voice_cover_me_aiw,song=base:song_sequence_a,ui=base:ui_bg_alt,font=base:font_fontjpnsingle,lang=base:lang_ame_en,gamemode=base:capture_the_case,botprofile=base:bot_coward,hud=base:hud_ammo,theme=base:theme_blackgold"
   ],
   "input_sequence": [
     { "at_ms": 0, "type": "wait", "comment": "catalog bootstrap extracts and walks base typed archives before source-only typed-load requests fire." },
@@ -47,6 +47,8 @@
       "BOOT: --debug-load-catalog-assets result type=prop id='base:prop_chr' result=OK",
       "BOOT: --debug-load-catalog-assets result type=vehicle id='base:vehicle_hoverbike' result=OK",
       "BOOT: --debug-load-catalog-assets result type=audio id='base:sfx_alarm_2' result=OK",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:voice_cover_me_aiw' result=OK",
+      "BOOT: --debug-load-catalog-assets result type=audio id='base:song_sequence_a' result=OK",
       "BOOT: --debug-load-catalog-assets result type=ui id='base:ui_bg_alt' result=OK",
       "BOOT: --debug-load-catalog-assets result type=font id='base:font_fontjpnsingle' result=OK",
       "BOOT: --debug-load-catalog-assets result type=lang id='base:lang_ame_en' result=OK",
@@ -67,7 +69,7 @@
       "RomProvider:filenum"
     ],
     "required_counts": [
-      { "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK", "min": 22, "max": 22 }
+      { "pattern": "BOOT: --debug-load-catalog-assets result type=.* result=OK", "min": 24, "max": 24 }
     ]
   }
 }
