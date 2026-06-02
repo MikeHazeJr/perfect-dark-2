@@ -13,6 +13,7 @@
 
 ## Added
 
+- Added an exhaustive non-Scenario typed-archive source matrix runner that can generate source-only catalog-load smokes for every extracted public `.pdxxx` archive, with Scenario kept on its separate stage-load matrix.
 - Added a sequential Scenario source-only matrix runner that generates per-stage smokes from extracted `.pdscenario` manifests and proves public scene, collision, portal, pad, and graph source loading.
 - Added a tracked Codex memory mirror at `tools/kanban/memories.md` so GitHub can carry the project's active memory state alongside code and Kanban state.
 - Added shared project-state sync tooling for Dev Window v2 and the release script.

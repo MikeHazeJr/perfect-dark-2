@@ -4335,6 +4335,8 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	const std::string loader_ui = readTextFile("port/src/loader_walker_ui.c");
 	const std::string all_family_smoke =
 		readTextFile("tools/smoke-verify/tests/all_family_source_gate_smoke.json");
+	const std::string all_family_matrix =
+		readTextFile("tools/smoke-verify/run-all-family-source-matrix.ps1");
 
 	REQUIRE(header.find("assetSourceDebugOnlyType") != std::string::npos);
 	REQUIRE(header.find("assetSourceDebugEntryRequiresPublicFileSource") !=
@@ -4421,6 +4423,22 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	        std::string::npos);
 	REQUIRE(all_family_smoke.find("\"min\": 24, \"max\": 24") !=
 	        std::string::npos);
+	REQUIRE(all_family_matrix.find("Runs exhaustive non-Scenario typed-archive source-only catalog smokes") !=
+	        std::string::npos);
+	REQUIRE(all_family_matrix.find(".pdscenario") == std::string::npos);
+	REQUIRE(all_family_matrix.find("\".pdsfx\"") != std::string::npos);
+	REQUIRE(all_family_matrix.find("\".pdvoice\"") != std::string::npos);
+	REQUIRE(all_family_matrix.find("\".pdsong\"") != std::string::npos);
+	REQUIRE(all_family_matrix.find("Request = \"sfx\";") != std::string::npos);
+	REQUIRE(all_family_matrix.find("Request = \"voice\";") != std::string::npos);
+	REQUIRE(all_family_matrix.find("Request = \"song\";") != std::string::npos);
+	REQUIRE(all_family_matrix.find("Result = \"audio\";") != std::string::npos);
+	REQUIRE(all_family_matrix.find("--debug-load-catalog-assets-source-only") !=
+	        std::string::npos);
+	REQUIRE(all_family_matrix.find("BOOT: --debug-load-catalog-assets result type=") !=
+	        std::string::npos);
+	REQUIRE(all_family_matrix.find("RomProvider:filenum") != std::string::npos);
+	REQUIRE(all_family_matrix.find("refusing fallback") != std::string::npos);
 
 	REQUIRE(mainmenu.find("Asset Source Gate") != std::string::npos);
 	REQUIRE(mainmenu.find("assetSourceDebugOnlyType()") != std::string::npos);

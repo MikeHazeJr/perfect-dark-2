@@ -1,5 +1,15 @@
 # Session Log (Active)
 
+## 2026-06-02 - B-508 non-Scenario source matrix runner
+
+Continued `c3844-s3` without moving into remaining Scenario parity first. The current gap was that `all_family_source_gate_smoke` was representative: it proved every non-Scenario public archive family at least once, but not every extracted archive instance.
+
+Added `tools/smoke-verify/run-all-family-source-matrix.ps1`. The runner enumerates extracted public typed archives from `Build\data\ntsc-final`, intentionally excludes `.pdscenario`, maps the public archive extensions to CLI debug-load tokens, batches requests under the `--debug-load-catalog-assets` argument cap, and generates temporary source-only smoke tests that require every selected catalog row to log `result=OK` without source-only, RomProvider, missing, failed, or fallback matches. Scenario stays on `run-scenario-source-matrix.ps1` because it must prove stage-load scene/collision/portal/pad/graph runtime products, not just catalog-row activation.
+
+Verification: `python tools\asset_native_source_guard.py` PASS; PowerShell parser PASS for the new runner; scoped diff check PASS; focused `[modding][pdxxx][c3842][debug][source_gate][static]` PASS with 132 assertions / 1 case; isolated `c3844matrix` all-target build PASS; representative all-family matrix PASS against the exact isolated binary with 24 selected families out of 7,529 non-Scenario archives in 2 source-only batches; deeper metadata/UI subset PASS against the exact isolated binary with 85 archives across 11 low-count families in 5 source-only batches.
+
+Next: keep c3844 open. Use the new runner to run/fix targeted high-count family batches (`weapon`, `head`, `body`, `lang`, `song`, `voice`, then larger `mesh`, `animation`, `sfx`, `texture`) before claiming non-Scenario exhaustive closure. Save remaining Scenario parity work for last unless it blocks another family.
+
 ## 2026-05-31 - B-447 scenario AI state/device condition graph runtime
 
 Continued `c3844-s1` under open `B-385`. AI state/device condition opcodes `0x01bc`, `0x01bd`, and `0x01be` now have required `.pdscenario::level.graph.json` nodes, `scenario.ai.condition.if_pouncebits_eq`, `scenario.ai.condition.if_training_pc_holographed`, and `scenario.ai.condition.if_player_using_device`, linked to public `ai/ailists.tsv`.
