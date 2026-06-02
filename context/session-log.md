@@ -14485,3 +14485,9 @@ After AI-list source works, continue module-by-module graph execution parity for
 - Verification: isolated `c3844audio` all-target build PASS; `run-all-family-source-matrix.ps1 -Family song` PASS for 119 `.pdsong` archives in 6 source-only batches; `-Family voice` PASS for 117 `.pdvoice` archives in 6 batches. Total this slice: 236 archives / 12 batches, all with public FileProvider source and no accepted runtime ROM fallback.
 - Attempted `-Family animation` selected 1,060 `.pdanim` archives in 53 batches and exceeded the command wrapper timeout, so it is not counted as a pass or failure. It needs chunked `-CatalogId` runs or a longer unattended run.
 - Remaining c3844 high-count non-Scenario work: `.pdmesh`, `.pdanim`, `.pdsfx`, `.pdtexture`, plus Scenario source-only/parity/nav closure saved for last.
+
+## 2026-06-02 - B-508 mesh source matrix slice
+
+- Continued c3844/B-508 high-count validation with exact isolated `c3844mesh` binary at commit `18f29c0c`.
+- Verification: isolated `c3844mesh` all-target build PASS; `run-all-family-source-matrix.ps1 -Family mesh -BatchSize 50` PASS for 733 `.pdmesh` archives in 15 source-only batches out of 7,529 non-Scenario archives. Runtime log version was `dev 18f29c0c`.
+- Remaining c3844 high-count non-Scenario work: `.pdanim`, `.pdsfx`, `.pdtexture`, plus Scenario source-only/parity/nav closure saved for last.
