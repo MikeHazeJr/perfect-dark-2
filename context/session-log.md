@@ -14497,3 +14497,9 @@ After AI-list source works, continue module-by-module graph execution parity for
 - Continued c3844/B-508 high-count validation with exact isolated `c3844anim` binary at commit `284d421d`.
 - Verification: isolated `c3844anim` all-target build PASS; `run-all-family-source-matrix.ps1 -Family animation -BatchSize 50` PASS for 1,060 `.pdanim` archives in 24 source-only batches out of 7,529 non-Scenario archives. Runtime log version was `dev 284d421d`.
 - This converts the earlier 53-batch animation wrapper timeout into a definitive pass; remaining c3844 high-count non-Scenario work is `.pdsfx` and `.pdtexture`, plus Scenario source-only/parity/nav closure saved for last.
+
+## 2026-06-02 - B-508 SFX source matrix slice
+
+- Continued c3844/B-508 high-count validation with exact isolated `c3844sfx` binary at commit `be69ea25`.
+- Verification: isolated `c3844sfx` all-target build PASS; `run-all-family-source-matrix.ps1 -Family sfx -BatchSize 50` selected 1,428 `.pdsfx` archives into 29 source-only batches out of 7,529 non-Scenario archives. Batches 1-26, 28, and 29 passed. Batch 027 exited code 0 but missed every generated debug-load request/result assertion for its 50 requested IDs, with no source-only/fallback/fatal failure lines; targeted rerun of those exact 50 catalog IDs passed 113/113 assertions. Runtime log version was `dev be69ea25`.
+- Combined SFX coverage now proves all 1,428 `.pdsfx` archives through public FileProvider source; remaining c3844 high-count non-Scenario work is `.pdtexture`, plus Scenario source-only/parity/nav closure saved for last.
