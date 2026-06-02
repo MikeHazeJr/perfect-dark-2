@@ -486,7 +486,13 @@ function Invoke-SmokeTestMultiProcess {
         # event at timeout_seconds * 1000 ms). The boot_args of the
         # process override binary-level behaviour like --host /
         # --connect-host.
-        $allArgs = @("--smoke", $Test.Path, "--no-crash-handler") + $pBootArgs
+        # Keep default smokes in raw-exit mode, but allow crash-forensic runs
+        # to preserve the in-game crash handler and breadcrumb log.
+        $crashArgs = @("--no-crash-handler")
+        if ($env:PD_SMOKE_KEEP_CRASH_HANDLER -eq "1") {
+            $crashArgs = @()
+        }
+        $allArgs = @("--smoke", $Test.Path) + $crashArgs + $pBootArgs
 
         Write-Info ""
         Write-Info ("  launch[{0}]: {1}" -f $pname, ($allArgs -join ' '))
@@ -847,7 +853,13 @@ function Invoke-SmokeTest {
     # smoke_harness.c (today: pd-server) -- the runner launches with
     # boot_args only and tears down the process after timeout_seconds.
     if ($runtimeStrategy -eq "harness") {
-        $allArgs = @("--smoke", $Test.Path, "--no-crash-handler") + $bootArgs
+        # Keep default smokes in raw-exit mode, but allow crash-forensic runs
+        # to preserve the in-game crash handler and breadcrumb log.
+        $crashArgs = @("--no-crash-handler")
+        if ($env:PD_SMOKE_KEEP_CRASH_HANDLER -eq "1") {
+            $crashArgs = @()
+        }
+        $allArgs = @("--smoke", $Test.Path) + $crashArgs + $bootArgs
     } else {
         $allArgs = @() + $bootArgs
     }

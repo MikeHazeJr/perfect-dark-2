@@ -4257,6 +4257,14 @@ TEST_CASE("shared smoke install refreshes explicit source binaries",
 	        std::string::npos);
 	REQUIRE(runner.find("$all = @(Get-SmokeTests -Dir $TestsDir)") !=
 	        std::string::npos);
+	REQUIRE(runner.find("$crashArgs = @(\"--no-crash-handler\")") !=
+	        std::string::npos);
+	REQUIRE(runner.find("$env:PD_SMOKE_KEEP_CRASH_HANDLER -eq \"1\"") !=
+	        std::string::npos);
+	REQUIRE(runner.find("$allArgs = @(\"--smoke\", $Test.Path) + $crashArgs") !=
+	        std::string::npos);
+	REQUIRE(runner.find("preserve the in-game crash handler and breadcrumb log") !=
+	        std::string::npos);
 }
 
 TEST_CASE("Scenario source matrix runner keeps stage smokes source-only and sequential",

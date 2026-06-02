@@ -14517,3 +14517,9 @@ After AI-list source works, continue module-by-module graph execution parity for
 - Removed temporary `lv.c` reset-probe logging after confirming the old crash occurred in the setup/tag reset window.
 - Verification: `python tools\asset_native_source_guard.py` PASS; focused `[modding][pdxxx][c3844][scenario][source_gate][static]` PASS with 2,231 assertions / 2 cases; isolated `c3844tagfix` all-target build PASS.
 - Follow-up evidence: Air Force One, Defection, and Defense now get past setup reset and meet 22/22 Scenario source assertions, but all still exit `-1073741819` later. A temporary Defense comparison without the Scenario source-only fixture also crashes around 44s after meeting 5/5 assertions, so the remaining issue is tracked separately as B-511 rather than attributed to the setup-order fix.
+
+## 2026-06-02 - B-511 crash-handler diagnostic hook
+
+- Added a smoke-runner diagnostic override: default smoke launches still pass `--no-crash-handler`, but setting `PD_SMOKE_KEEP_CRASH_HANDLER=1` preserves the in-game crash handler so access-violation investigations can capture the PC, stack, and breadcrumb ring in `pd-client.log`.
+- B-511 evidence was tightened: a crash-handler Defense repro logs `FATAL: ACCESS_VIOLATION PC=00007ff60b8f8c24 (+0x148c24)` and the final breadcrumb is `CHR.TICK slot=46 chrnum=5047 action=3 race=0 model=...`. The next root-cause pass should symbol-map the PC and trace `chrnum`/slot initialization in character background ticking, not reopen source-chain assertions.
+- Verification planned this slice: native-source guard, focused c3844 static tests, PowerShell parser check, and isolated all-target build before commit/push.
