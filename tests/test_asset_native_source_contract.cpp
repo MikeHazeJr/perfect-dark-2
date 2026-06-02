@@ -3978,6 +3978,10 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(scenario_runtime.find("\"embedded\"") != std::string::npos);
 	REQUIRE(scenario_runtime.find("weapon_selector") != std::string::npos);
 	REQUIRE(scenario_runtime.find("s_setupRecordRefOffset") != std::string::npos);
+	REQUIRE(scenario_runtime.find("s_setupRecordOrderFromId(record_id, default_order)") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("s_setupRecordOrderFromId(record_id, order)") !=
+	        std::string::npos);
 	REQUIRE(scenario_runtime.find("offsetof(struct tag, cmdoffset)") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("offsetof(struct textoverride, objoffset)") !=

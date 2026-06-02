@@ -1382,6 +1382,13 @@ static s32 s_setupRecordRefOffset(const scenario_source_setup_record_t *record,
 	return 1;
 }
 
+static s32 s_setupRecordOrderFromId(const char *record_id, s32 fallback_order)
+{
+	s32 parsed = s_parseIndexedRef(record_id);
+
+	return parsed >= 0 ? parsed : fallback_order;
+}
+
 static s32 s_parseInteger(const char *value, s32 *out)
 {
 	char *end;
@@ -3975,7 +3982,7 @@ static s32 s_setupParseFieldsTsv(char *text,
 		}
 
 		record = s_setupFindOrAddRecord(table, record_id, kind,
-			default_order);
+			s_setupRecordOrderFromId(record_id, default_order));
 		if (!record) {
 			return 0;
 		}
@@ -4032,7 +4039,8 @@ static s32 s_setupApplyObjectsSummary(char *text,
 			continue;
 		}
 
-		record = s_setupFindOrAddRecord(table, record_id, kind, order);
+		record = s_setupFindOrAddRecord(table, record_id, kind,
+			s_setupRecordOrderFromId(record_id, order));
 		if (!record) {
 			return 0;
 		}
