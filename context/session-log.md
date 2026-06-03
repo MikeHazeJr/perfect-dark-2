@@ -14523,3 +14523,10 @@ After AI-list source works, continue module-by-module graph execution parity for
 - Added a smoke-runner diagnostic override: default smoke launches still pass `--no-crash-handler`, but setting `PD_SMOKE_KEEP_CRASH_HANDLER=1` preserves the in-game crash handler so access-violation investigations can capture the PC, stack, and breadcrumb ring in `pd-client.log`.
 - B-511 evidence was tightened: a crash-handler Defense repro logs `FATAL: ACCESS_VIOLATION PC=00007ff60b8f8c24 (+0x148c24)` and the final breadcrumb is `CHR.TICK slot=46 chrnum=5047 action=3 race=0 model=...`. The next root-cause pass should symbol-map the PC and trace `chrnum`/slot initialization in character background ticking, not reopen source-chain assertions.
 - Verification planned this slice: native-source guard, focused c3844 static tests, PowerShell parser check, and isolated all-target build before commit/push.
+
+## 2026-06-02 - B-511 Defense autogun source modeldef fix
+
+- Fixed the direct boot-stage Defense access violation. Symbol mapping identified the crash in `autogunInitMatrices`, and runtime logs showed public-source `base:model_ci_roofgun` loaded from `.pdmesh::model.obj` with `SKEL_AUTOGUN`.
+- Generated special modeldefs now use ABI-contiguous part tables, source-built `SKEL_AUTOGUN` modeldefs reconstruct `MODELPART_AUTOGUN_0001/0002`, and `MODASSET_COMPILER_VERSION` is bumped to 2 so stale generated model caches are invalidated.
+- Verification: `python tools\asset_native_source_guard.py` PASS; isolated `c3844b511autogun3` all-target build PASS; isolated `c3844b511tests3` test build PASS; focused c3844/runtime/catalog tests PASS; Defense source-only matrix PASS 22/22 against the exact rebuilt client with no access violation.
+- Current state: B-511 is fixed. c3844 remains open for broader Scenario source-only/parity validation, nav behavior completeness, and full Scenario runtime fallback closure; do not call the full Scenario cutover complete yet.

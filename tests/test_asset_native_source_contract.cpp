@@ -4739,6 +4739,9 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(body_runtime.find("modelmgrInstantiateModelWithAnim(bodymodeldef)") !=
 	        std::string::npos);
 	const std::string modasset_compiler = readTextFile("port/src/modasset_compiler.c");
+	const std::string modasset_compiler_h = readTextFile("port/include/modasset_compiler.h");
+	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_VERSION 2") !=
+	        std::string::npos);
 	REQUIRE(modasset_compiler.find("modAssetCompilerSkeletonForSymbol") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("modAssetCompilerSkeletonSymbolForPointer") !=
@@ -4789,6 +4792,26 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(modasset_compiler.find("owner->def.parts = owner->cctv_part_table.nodes") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("owner->def.nummatrices = 2") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("generatedModeldefConfigureAutogunParts") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->def.skel != &g_SkelAutogun") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("MODELPART_AUTOGUN_0001") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("MODELPART_AUTOGUN_0002") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->toggle_node.type = MODELNODETYPE_POSITION") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("autogun_part_table") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("struct modelnode *nodes[2]") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("s16 partnums[2]") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->def.parts = owner->autogun_part_table.nodes") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->def.nummatrices = 3") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("generatedModeldefConfigureWindowedDoorParts") !=
 	        std::string::npos);

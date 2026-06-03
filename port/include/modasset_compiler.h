@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-#define MODASSET_COMPILER_VERSION 1
+#define MODASSET_COMPILER_VERSION 2
 #define MODASSET_SHA256_HEX_LEN 65
 
 struct colmesh;

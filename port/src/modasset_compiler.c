@@ -3275,20 +3275,20 @@ typedef struct generated_modeldef {
 	union modelrodata logo_toggle_rodatas[2];
 	union modelrodata logo_dl_rodatas[8];
 	struct {
-		struct modelnode *nodes[16];
-		s16 partnums[17];
-	} part_table;
-	struct {
 		struct modelnode *nodes[4];
-		s16 partnums[5];
+		s16 partnums[4];
 	} cctv_part_table;
 	struct {
+		struct modelnode *nodes[2];
+		s16 partnums[2];
+	} autogun_part_table;
+	struct {
 		struct modelnode *nodes[3];
-		s16 partnums[4];
+		s16 partnums[3];
 	} windowed_door_part_table;
 	struct {
 		struct modelnode *nodes[4];
-		s16 partnums[5];
+		s16 partnums[4];
 	} logo_part_table;
 	Vtx *vertices;
 	Col *colours;
@@ -3419,11 +3419,46 @@ static void generatedModeldefConfigureCctvParts(generated_modeldef_t *owner,
 	owner->cctv_part_table.partnums[2] = MODELPART_CCTV_0002;
 	owner->cctv_part_table.nodes[3] = &owner->toggle_node;
 	owner->cctv_part_table.partnums[3] = MODELPART_CCTV_0003;
-	owner->cctv_part_table.partnums[4] = 0x7fff;
 
 	owner->def.parts = owner->cctv_part_table.nodes;
 	owner->def.numparts = 4;
 	owner->def.nummatrices = 2;
+}
+
+static void generatedModeldefConfigureAutogunParts(generated_modeldef_t *owner)
+{
+	if (!owner || owner->def.skel != &g_SkelAutogun) {
+		return;
+	}
+
+	owner->bbox_node.next = &owner->toggle_node;
+
+	owner->toggle_node.type = MODELNODETYPE_POSITION;
+	owner->toggle_node.rodata = &owner->toggle_rodata;
+	owner->toggle_node.parent = &owner->root_node;
+	owner->toggle_node.prev = &owner->bbox_node;
+	owner->toggle_node.next = NULL;
+	owner->toggle_node.child = &owner->dl_node;
+	owner->toggle_rodata.position.pos.x = 0.0f;
+	owner->toggle_rodata.position.pos.y = 0.0f;
+	owner->toggle_rodata.position.pos.z = 0.0f;
+	owner->toggle_rodata.position.part = 1;
+	owner->toggle_rodata.position.mtxindex0 = 2;
+	owner->toggle_rodata.position.mtxindex1 = -1;
+	owner->toggle_rodata.position.mtxindex2 = -1;
+	owner->toggle_rodata.position.drawdist = 0.0f;
+
+	owner->dl_node.parent = &owner->toggle_node;
+	owner->dl_node.prev = NULL;
+
+	owner->autogun_part_table.nodes[0] = &owner->root_node;
+	owner->autogun_part_table.partnums[0] = MODELPART_AUTOGUN_0001;
+	owner->autogun_part_table.nodes[1] = &owner->toggle_node;
+	owner->autogun_part_table.partnums[1] = MODELPART_AUTOGUN_0002;
+
+	owner->def.parts = owner->autogun_part_table.nodes;
+	owner->def.numparts = 2;
+	owner->def.nummatrices = 3;
 }
 
 static void generatedModeldefConfigureWindowedDoorParts(
@@ -3460,7 +3495,6 @@ static void generatedModeldefConfigureWindowedDoorParts(
 	owner->windowed_door_part_table.partnums[1] = MODELPART_WINDOWEDDOOR_0001;
 	owner->windowed_door_part_table.nodes[2] = &owner->bbox_node;
 	owner->windowed_door_part_table.partnums[2] = MODELPART_WINDOWEDDOOR_0002;
-	owner->windowed_door_part_table.partnums[3] = 0x7fff;
 
 	owner->def.parts = owner->windowed_door_part_table.nodes;
 	owner->def.numparts = 3;
@@ -3508,7 +3542,6 @@ static void generatedModeldefConfigureLogoParts(generated_modeldef_t *owner)
 	owner->logo_part_table.nodes[3] = &owner->logo_dl_nodes[1];
 	owner->logo_part_table.partnums[3] = MODELPART_LOGO_0003;
 
-	owner->logo_part_table.partnums[4] = 0x7fff;
 	owner->def.parts = owner->logo_part_table.nodes;
 	owner->def.numparts = 4;
 }
@@ -3757,6 +3790,7 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	owner->def.texconfigs = NULL;
 	owner->def.rwdatalen = modelCalculateRwDataIndexes(owner->def.rootnode);
 	generatedModeldefConfigureSourceBounds(owner, mesh);
+	generatedModeldefConfigureAutogunParts(owner);
 	generatedModeldefConfigureLogoParts(owner);
 	generatedModeldefConfigureCctvParts(owner, mesh);
 	generatedModeldefConfigureWindowedDoorParts(owner);
