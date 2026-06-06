@@ -1,0 +1,13 @@
+{
+  "Name": "b769_render_narrow_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": true,
+  "ExitCode": 0,
+  "ElapsedSeconds": 53.3890125,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 13,
+  "AssertionsMet": 13,
+  "Failures": []
+}

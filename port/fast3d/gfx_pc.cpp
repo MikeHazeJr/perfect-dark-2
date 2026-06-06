@@ -18,6 +18,7 @@
 #include <iostream>
 #include <memory>
 #include <limits>
+#include <algorithm>
 
 #ifndef _LANGUAGE_C
 #define _LANGUAGE_C
@@ -143,7 +144,8 @@ static struct RSP {
  * Mode 0 = off, 1 = tint rendered geo, 2 = collision mesh only (suppress game rendering) */
 extern "C" int meshDebugGetMode(void);
 extern "C" void meshDebugRenderCollisionMesh(float vp[4][4], int width, int height);
-extern "C" void scenarioSceneRendererRender(float vp[4][4], int width, int height);
+extern "C" void scenarioSceneRendererRender(int width, int height);
+extern "C" int modAssetCompilerGeneratedModeldefRenderAuditEnabled(void);
 static int s_meshDebugModeCache = 0;
 static float s_vpMatrix[4][4]; /* View-Projection matrix for collision mesh rendering */
 
@@ -1216,6 +1218,175 @@ static void gfx_adjust_width_height_for_scale(uint32_t& width, uint32_t& height)
     if (height == 0) {
         height = 1;
     }
+}
+
+static void gfx_audit_generated_mesh_vertices(uintptr_t raw_addr, size_t n_vertices, size_t dest_index, const Vtx* vertices) {
+    enum {
+        SEG_MODEL_VTX = 4,
+        SEG_MODEL_COL1 = 5,
+    };
+
+    static int s_log_count = 0;
+
+    if (!modAssetCompilerGeneratedModeldefRenderAuditEnabled() ||
+        !(raw_addr & 1) ||
+        !vertices ||
+        s_log_count >= 96) {
+        return;
+    }
+
+    const uintptr_t seg = (raw_addr & 0x0f000000) >> 24;
+    if (seg != SEG_MODEL_VTX && seg != SEG_MODEL_COL1) {
+        return;
+    }
+
+    float min_raw_x = 0.0f, min_raw_y = 0.0f, min_raw_z = 0.0f;
+    float max_raw_x = 0.0f, max_raw_y = 0.0f, max_raw_z = 0.0f;
+    float min_x = 0.0f, min_y = 0.0f, min_z = 0.0f, min_w = 0.0f;
+    float max_x = 0.0f, max_y = 0.0f, max_z = 0.0f, max_w = 0.0f;
+    float min_ndc_x = 0.0f, min_ndc_y = 0.0f, min_ndc_z = 0.0f;
+    float max_ndc_x = 0.0f, max_ndc_y = 0.0f, max_ndc_z = 0.0f;
+    uint8_t common_clip = 0xff;
+    uint8_t any_clip = 0;
+    int finite = 0;
+    int nonfinite = 0;
+
+    for (size_t i = 0; i < n_vertices; i++) {
+        const Vtx* v = &vertices[i];
+        const float raw_x = (float)v->v[0];
+        const float raw_y = (float)v->v[1];
+        const float raw_z = (float)v->v[2];
+        float x = raw_x * rsp.MP_matrix[0][0] + raw_y * rsp.MP_matrix[1][0] + raw_z * rsp.MP_matrix[2][0] + rsp.MP_matrix[3][0];
+        float y = raw_x * rsp.MP_matrix[0][1] + raw_y * rsp.MP_matrix[1][1] + raw_z * rsp.MP_matrix[2][1] + rsp.MP_matrix[3][1];
+        float z = raw_x * rsp.MP_matrix[0][2] + raw_y * rsp.MP_matrix[1][2] + raw_z * rsp.MP_matrix[2][2] + rsp.MP_matrix[3][2];
+        float w = raw_x * rsp.MP_matrix[0][3] + raw_y * rsp.MP_matrix[1][3] + raw_z * rsp.MP_matrix[2][3] + rsp.MP_matrix[3][3];
+        uint8_t clip = 0;
+
+        x = gfx_adjust_x_for_aspect_ratio(x, w);
+
+        if (x < -w) clip |= 1;
+        if (x > w) clip |= 2;
+        if (y < -w) clip |= 4;
+        if (y > w) clip |= 8;
+        if (z > w) clip |= 32;
+        common_clip &= clip;
+        any_clip |= clip;
+
+        if (std::isfinite(x) && std::isfinite(y) && std::isfinite(z) &&
+            std::isfinite(w) && std::isfinite(raw_x) && std::isfinite(raw_y) &&
+            std::isfinite(raw_z) && std::fabs(w) > 0.000001f) {
+            const float ndc_x = x / w;
+            const float ndc_y = y / w;
+            const float ndc_z = z / w;
+
+            if (finite == 0) {
+                min_raw_x = max_raw_x = raw_x;
+                min_raw_y = max_raw_y = raw_y;
+                min_raw_z = max_raw_z = raw_z;
+                min_x = max_x = x;
+                min_y = max_y = y;
+                min_z = max_z = z;
+                min_w = max_w = w;
+                min_ndc_x = max_ndc_x = ndc_x;
+                min_ndc_y = max_ndc_y = ndc_y;
+                min_ndc_z = max_ndc_z = ndc_z;
+            } else {
+                min_raw_x = std::min(min_raw_x, raw_x);
+                max_raw_x = std::max(max_raw_x, raw_x);
+                min_raw_y = std::min(min_raw_y, raw_y);
+                max_raw_y = std::max(max_raw_y, raw_y);
+                min_raw_z = std::min(min_raw_z, raw_z);
+                max_raw_z = std::max(max_raw_z, raw_z);
+                min_x = std::min(min_x, x);
+                max_x = std::max(max_x, x);
+                min_y = std::min(min_y, y);
+                max_y = std::max(max_y, y);
+                min_z = std::min(min_z, z);
+                max_z = std::max(max_z, z);
+                min_w = std::min(min_w, w);
+                max_w = std::max(max_w, w);
+                min_ndc_x = std::min(min_ndc_x, ndc_x);
+                max_ndc_x = std::max(max_ndc_x, ndc_x);
+                min_ndc_y = std::min(min_ndc_y, ndc_y);
+                max_ndc_y = std::max(max_ndc_y, ndc_y);
+                min_ndc_z = std::min(min_ndc_z, ndc_z);
+                max_ndc_z = std::max(max_ndc_z, ndc_z);
+            }
+            finite++;
+        } else {
+            nonfinite++;
+        }
+    }
+
+    const char *cull = "none";
+    if (n_vertices >= 3 && (rsp.geometry_mode & G_CULL_BOTH) != 0) {
+        const Vtx* a = &vertices[0];
+        const Vtx* b = &vertices[1];
+        const Vtx* c = &vertices[2];
+        float ax = (float)a->v[0] * rsp.MP_matrix[0][0] + (float)a->v[1] * rsp.MP_matrix[1][0] + (float)a->v[2] * rsp.MP_matrix[2][0] + rsp.MP_matrix[3][0];
+        float ay = (float)a->v[0] * rsp.MP_matrix[0][1] + (float)a->v[1] * rsp.MP_matrix[1][1] + (float)a->v[2] * rsp.MP_matrix[2][1] + rsp.MP_matrix[3][1];
+        float aw = (float)a->v[0] * rsp.MP_matrix[0][3] + (float)a->v[1] * rsp.MP_matrix[1][3] + (float)a->v[2] * rsp.MP_matrix[2][3] + rsp.MP_matrix[3][3];
+        float bx = (float)b->v[0] * rsp.MP_matrix[0][0] + (float)b->v[1] * rsp.MP_matrix[1][0] + (float)b->v[2] * rsp.MP_matrix[2][0] + rsp.MP_matrix[3][0];
+        float by = (float)b->v[0] * rsp.MP_matrix[0][1] + (float)b->v[1] * rsp.MP_matrix[1][1] + (float)b->v[2] * rsp.MP_matrix[2][1] + rsp.MP_matrix[3][1];
+        float bw = (float)b->v[0] * rsp.MP_matrix[0][3] + (float)b->v[1] * rsp.MP_matrix[1][3] + (float)b->v[2] * rsp.MP_matrix[2][3] + rsp.MP_matrix[3][3];
+        float cx = (float)c->v[0] * rsp.MP_matrix[0][0] + (float)c->v[1] * rsp.MP_matrix[1][0] + (float)c->v[2] * rsp.MP_matrix[2][0] + rsp.MP_matrix[3][0];
+        float cy = (float)c->v[0] * rsp.MP_matrix[0][1] + (float)c->v[1] * rsp.MP_matrix[1][1] + (float)c->v[2] * rsp.MP_matrix[2][1] + rsp.MP_matrix[3][1];
+        float cw = (float)c->v[0] * rsp.MP_matrix[0][3] + (float)c->v[1] * rsp.MP_matrix[1][3] + (float)c->v[2] * rsp.MP_matrix[2][3] + rsp.MP_matrix[3][3];
+
+        ax = gfx_adjust_x_for_aspect_ratio(ax, aw);
+        bx = gfx_adjust_x_for_aspect_ratio(bx, bw);
+        cx = gfx_adjust_x_for_aspect_ratio(cx, cw);
+
+        if (std::fabs(aw) > 0.000001f && std::fabs(bw) > 0.000001f &&
+            std::fabs(cw) > 0.000001f) {
+            float dx1 = ax / aw - bx / bw;
+            float dy1 = ay / aw - by / bw;
+            float dx2 = cx / cw - bx / bw;
+            float dy2 = cy / cw - by / bw;
+            float cross = dx1 * dy2 - dy1 * dx2;
+
+            if ((aw < 0) ^ (bw < 0) ^ (cw < 0)) {
+                cross = -cross;
+            }
+
+            if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_FRONT) {
+                cull = cross <= 0.0f ? "front-reject" : "front-draw";
+            } else if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BACK) {
+                cull = cross >= 0.0f ? "back-reject" : "back-draw";
+            } else {
+                cull = "both-reject";
+            }
+        } else {
+            cull = "bad-w";
+        }
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "FAST3D.GEN.VTX: seg=%u off=0x%06llx n=%llu dst=%llu finite=%d nonfinite=%d "
+        "raw=[%f,%f]/[%f,%f]/[%f,%f] clip_any=0x%02x clip_common=0x%02x "
+        "clip=[%f,%f]/[%f,%f]/[%f,%f] w=[%f,%f] ndc=[%f,%f]/[%f,%f]/[%f,%f] "
+        "geom=0x%08x cull=%s",
+        (unsigned)seg,
+        (unsigned long long)(raw_addr & 0x00fffffe),
+        (unsigned long long)n_vertices,
+        (unsigned long long)dest_index,
+        finite,
+        nonfinite,
+        min_raw_x, max_raw_x,
+        min_raw_y, max_raw_y,
+        min_raw_z, max_raw_z,
+        (unsigned)any_clip,
+        (unsigned)common_clip,
+        min_x, max_x,
+        min_y, max_y,
+        min_z, max_z,
+        min_w, max_w,
+        min_ndc_x, max_ndc_x,
+        min_ndc_y, max_ndc_y,
+        min_ndc_z, max_ndc_z,
+        (unsigned)rsp.geometry_mode,
+        cull);
+    s_log_count++;
 }
 
 static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* vertices) {
@@ -2542,6 +2713,9 @@ static void gfx_run_dl(Gfx* cmd) {
                 gfx_sp_texture(C1(16, 16), C1(0, 16), C0(11, 3), C0(8, 3), C0(0, 8));
                 break;
             case G_VTX:
+                gfx_audit_generated_mesh_vertices(cmd->words.w1,
+                    C0(0, 16) / sizeof(Vtx), C0(16, 4),
+                    (const Vtx*)seg_addr(cmd->words.w1));
                 gfx_sp_vertex(C0(0, 16) / sizeof(Vtx), C0(16, 4), (const Vtx*)seg_addr(cmd->words.w1));
                 break;
             case G_DL:
@@ -2973,6 +3147,8 @@ extern "C" void gfx_run(Gfx* commands) {
     rdp.viewport_or_scissor_changed = true;
     rendering_state.viewport = {};
     rendering_state.scissor = {};
+    scenarioSceneRendererRender(gfx_current_window_dimensions.width,
+        gfx_current_window_dimensions.height);
     gfx_run_dl(commands);
     gfx_flush();
     gfxFramebuffer = 0;
@@ -3000,10 +3176,6 @@ extern "C" void gfx_run(Gfx* commands) {
      * VP = modelview[0] (view matrix) x P_matrix (projection).
      * This transforms world-space coordinates to clip space. */
     gfx_matrix_mul(s_vpMatrix, rsp.modelview_matrix_stack[0], rsp.P_matrix);
-
-    scenarioSceneRendererRender(s_vpMatrix,
-        gfx_current_window_dimensions.width,
-        gfx_current_window_dimensions.height);
 
     gfx_rapi->end_frame();
 

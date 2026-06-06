@@ -1,0 +1,18 @@
+{
+  "Name": "b769_render_narrow_smoke",
+  "Category": "scenario",
+  "BugId": null,
+  "RegressionFor": null,
+  "Passed": false,
+  "ExitCode": 0,
+  "ElapsedSeconds": 53.5161353,
+  "InstallDir": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+  "AssertionsTotal": 13,
+  "AssertionsMet": 12,
+  "Failures": [
+    {
+      "Kind": "required_line_missing",
+      "Pattern": "MODASSET\\.RENDER: generated source modeldef rendered id=base:model_dy357_hi source=.*base_model_dy357_hi\\.pdmesh::model\\.obj.*tris=404"
+    }
+  ]
+}

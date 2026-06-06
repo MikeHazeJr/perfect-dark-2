@@ -1,3 +1,49 @@
+# Task Group: PD2 Mesh and Texture Source Rendering Debugging
+scope: Runtime load/render debugging for source-built meshes and adjacent texture-family loading, plus failure shields for keeping mesh-family audits tightly scoped.
+applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for PD2 `.pdmesh` / `.pdtexture` runtime-debugging or asset-family source-gap audits in this checkout; verify live context/tasks if a prompt appears to reopen already-closed source-gap work.
+
+## Task 1: Fix public texture source loading for source-built meshes, success
+
+### rollout_summary_files
+
+- rollout_summaries/2026-06-06T03-32-05-mPg1-pdmesh_texture_source_loading_fix.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\05\rollout-2026-06-05T23-32-10-019e9afc-e549-7cd2-bfbd-f53eaf97576d.jsonl, updated_at=2026-06-06T06:12:13+00:00, thread_id=019e9afc-e549-7cd2-bfbd-f53eaf97576d, public `.pdtexture` source images now decode into RGBA32 runtime texture data instead of flowing into the legacy compressed texture loader)
+
+### keywords
+
+- pdmesh, pdtexture, texLoad, texdecompress, source_texnum, RGBA32, FileProvider, assetcatalog, catalog-provider-static, weapon_match_source_gate_smoke, all_family_source_gate_smoke, asset_native_source_guard
+
+## Task 2: Narrow a mesh-family source-gap audit before it drifts into unrelated surfaces, uncertain
+
+### rollout_summary_files
+
+- rollout_summaries/2026-06-05T15-24-24-AFOg-c3844_source_audit_scope_correction.md (cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike, rollout_path=C:\Users\mikeh\.codex\sessions\2026\06\05\rollout-2026-06-05T11-24-31-019e9862-af4d-7d81-a16d-73eed68a55e0.jsonl, updated_at=2026-06-06T03:31:42+00:00, thread_id=019e9862-af4d-7d81-a16d-73eed68a55e0, user scope correction for a mesh-family search that drifted into messages/text surfaces)
+
+### keywords
+
+- c3844, meshes*, not messages, asset_native_source_guard, pdlang, sequence.mid, sequence.tsv, modSequenceLoad, catalogResolveMusicSequence, hudmsg, asset family narrowing, smoke-verify-install
+
+## User preferences
+
+- when the user reports a symptom like "assets as extracted into our archive formats are actually loaded / rendered properly" and "meshes don’t seem to render properly in-game" -> trace the actual runtime load/render path, not just extraction output [Task 1]
+- when the user corrects a sweep with "meshes*, not messages" -> immediately re-anchor to the exact asset family they named and stop expanding into unrelated message/text/UI surfaces [Task 2]
+- when a search starts drifting or getting too broad and the user interrupts -> stop and narrow before spending more tools [Task 2]
+
+## Reusable knowledge
+
+- A `.pdmesh` render symptom can be caused by adjacent texture-family loading, not only by model or OBJ/MTL extraction; in this repo, mesh/render debugging should trace the real runtime path through catalog resolution, model loading, and texture load/decode boundaries [Task 1]
+- Public `.pdtexture` rows need `source_texnum`, and `src/game/texdecompress.c::texLoad()` should try the public image source path before any legacy compressed-texture fallback [Task 1]
+- Public image source files such as `.png`, `.tga`, `.jpg`, `.jpeg`, and `.bmp` must not be handed to the legacy compressed texture reader; the source path lives in `port/src/mod_texture_source.c` and the catalog plumbing in `port/src/assetcatalog.c` plus `port/src/assetcatalog_scanner.c` [Task 1]
+- The authoritative fast checks for this lane are `python tools\asset_native_source_guard.py`, focused catalog-provider/static tests, and the relevant smoke proofs such as `weapon_match_source_gate_smoke` and `all_family_source_gate_smoke` [Task 1]
+- If a future prompt appears to reopen `c3844`, first verify the live `context/tasks.md`; this rollout found project memory already recording the c3844 runtime-source closeout as complete, with remaining open work shifted toward Scenario-last parity/nav proof surfaces [Task 2]
+- For PD2 runtime diagnostics, when Mike says the log is "in build", use `C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\Build\logs\game client` first; when he says the release/install directory, use `C:\Users\mikeh\Downloads\Perfect Dark 2.0\logs\game client` first [ad-hoc note]
+
+## Failures and how to do differently
+
+- If a mesh-family audit starts surfacing `pdlang`, `hudmsg`, or other message/text/HUD paths without a direct runtime link to the requested asset family, the search has drifted; narrow back to the requested family immediately [Task 2]
+- No edit, build, or test in the scope-correction rollout validated a fix, so do not promote that audit into solved-state memory; use it only as a scoping/failure-shield reference [Task 2]
+- In large files like `texdecompress.c`, split multi-file edits into smaller exact patches and verify anchors before assuming a combined patch will apply cleanly [Task 1]
+- When the working tree is already heavily dirty, apply the requested fix around existing branch work without reverting unrelated changes just to make the tree look cleaner [Task 1]
+
 # Task Group: PD2 Asset Pipeline Remaining Runtime Closure and Parallel Split
 scope: Read-only completeness checks for the remaining PD2 asset-pipeline work, especially `c3844` runtime-parity/fallback closure and parallel-session decomposition by asset family plus runtime surface.
 applies_to: cwd=C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike; reuse_rule=reuse for read-only asset-pipeline status reviews, `c3844` closure planning, and parallel worker decomposition in this checkout; verify live Kanban counts/files if the board has changed.

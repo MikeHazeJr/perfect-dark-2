@@ -9,7 +9,15 @@ int scenarioSceneRendererActivate(const char *scenario_id,
 	const char *scene_path);
 void scenarioSceneRendererDeactivate(void);
 int scenarioSceneRendererIsActive(void);
-void scenarioSceneRendererRender(float vp[4][4], int width, int height);
+void scenarioSceneRendererSetCameraFrame(
+	const float position[3],
+	const float look[3],
+	const float up[3],
+	float fovy_degrees,
+	float aspect,
+	float znear,
+	float zfar);
+void scenarioSceneRendererRender(int width, int height);
 
 #ifdef __cplusplus
 }

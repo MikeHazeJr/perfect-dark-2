@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 3,
+  "asset_id": "base:head_cook",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_cook.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 47684,
+  "source_sha256": "8dd303f55a20b2002fcdb7a91a810f68a03488c61cb5f21cf2bfb5370dc990b4",
+  "validation": "format=obj vertices=714 triangles=238",
+  "normalized": "$S/mod-cache/base/base_head_cook/head-v3-8dd303f55a20b2002fcdb7a91a810f68a03488c61cb5f21cf2bfb5370dc990b4.pdmodel.json",
+  "vertex_count": 714,
+  "triangle_count": 238,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

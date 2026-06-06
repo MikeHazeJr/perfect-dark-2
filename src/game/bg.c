@@ -995,6 +995,23 @@ Gfx *bgRenderScene(Gfx *gdl)
 	s16 roomorder[60];
 	RoomNum roomnums[60];
 
+	if (sourcebg) {
+		struct zrange zrange;
+
+		viGetZRange(&zrange);
+
+		if (g_Vars.currentplayer) {
+			scenarioSceneRendererSetCameraFrame(
+				g_Vars.currentplayer->cam_pos.f,
+				g_Vars.currentplayer->cam_look.f,
+				g_Vars.currentplayer->cam_up.f,
+				viGetFovY(), viGetAspect(),
+				zrange.near, zrange.far);
+		} else {
+			scenarioSceneRendererSetCameraFrame(NULL, NULL, NULL,
+				0.0f, 0.0f, 0.0f, 0.0f);
+		}
+	}
 
 	if (!sourcebg && g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
 		gdl = bgRenderSceneInXray(gdl);

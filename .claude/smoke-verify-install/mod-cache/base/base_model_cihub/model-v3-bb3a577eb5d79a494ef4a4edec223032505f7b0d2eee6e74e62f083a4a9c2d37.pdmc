@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 3,
+  "asset_id": "base:model_cihub",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cihub.pdmesh::model.obj",
+  "source_size": 15373,
+  "source_sha256": "bb3a577eb5d79a494ef4a4edec223032505f7b0d2eee6e74e62f083a4a9c2d37",
+  "validation": "format=obj vertices=240 triangles=80",
+  "normalized": "$S/mod-cache/base/base_model_cihub/model-v3-bb3a577eb5d79a494ef4a4edec223032505f7b0d2eee6e74e62f083a4a9c2d37.pdmodel.json",
+  "vertex_count": 240,
+  "triangle_count": 80,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

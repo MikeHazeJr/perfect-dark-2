@@ -795,7 +795,7 @@ TEST_CASE("base menu hudpiece model has a catalog provider handle", "[catalog][p
 	REQUIRE(baseExtended.find("weapon/menu-pipeline model files") != std::string::npos);
 	REQUIRE(meshExtractor.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") != std::string::npos);
 	REQUIRE(meshExtractor.find("(u16)FILE_GHUDPIECE, \"menu\"") != std::string::npos);
-	REQUIRE(meshExtractor.find("pdmesh_model_obj_mtx_v12_materials_allmodels_menuhud") != std::string::npos);
+	REQUIRE(meshExtractor.find("pdmesh_model_obj_mtx_v19_materials_hierarchy_parts_scale_faces_relations_raw_mtx_allmodels_menuhud") != std::string::npos);
 	REQUIRE(menu.find("MENUMODELPARAMS_SET_FILENUM(FILE_GHUDPIECE)") != std::string::npos);
 }
 

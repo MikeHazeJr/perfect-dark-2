@@ -884,6 +884,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		readTextFile("port/fast3d/scenario_scene_renderer.cpp");
 	const std::string scene_renderer_h =
 		readTextFile("port/include/scenario_scene_renderer.h");
+	const std::string gfx_pc = readTextFile("port/fast3d/gfx_pc.cpp");
 	const std::string prop_runtime = readTextFile("src/game/prop.c");
 	const std::string tiles = readTextFile("src/game/tilesreset.c");
 	const std::string lv = readTextFile("src/game/lv.c");
@@ -990,12 +991,34 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(bg_runtime.find("stage.bg_handle") != std::string::npos);
 	REQUIRE(scene_renderer_h.find("scenarioSceneRendererActivate") !=
 	        std::string::npos);
+	REQUIRE(scene_renderer_h.find("scenarioSceneRendererSetCameraFrame") !=
+	        std::string::npos);
 	REQUIRE(scene_renderer_h.find("scenarioSceneRendererRender") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("scenarioSceneRendererSetCameraFrame(") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("g_Vars.currentplayer->cam_pos.f") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("g_Vars.currentplayer->cam_look.f") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("g_Vars.currentplayer->cam_up.f") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("viGetFovY(), viGetAspect()") !=
+	        std::string::npos);
+	REQUIRE(gfx_pc.find("scenarioSceneRendererRender(gfx_current_window_dimensions.width") !=
 	        std::string::npos);
 	REQUIRE(scene_renderer.find("fsFileLoad(path") != std::string::npos);
 	REQUIRE(scene_renderer.find("findAttr(\"TEXCOORD_1\")") !=
 	        std::string::npos);
 	REQUIRE(scene_renderer.find("findAttr(\"TEXCOORD_0\")") !=
+	        std::string::npos);
+	REQUIRE(scene_renderer.find("buildViewMatrix(view, position, look, up)") !=
+	        std::string::npos);
+	REQUIRE(scene_renderer.find("buildProjectionMatrix(projection, fovy_degrees, aspect") !=
+	        std::string::npos);
+	REQUIRE(scene_renderer.find("multiplyMatrix(g_scene.view_projection, view, projection)") !=
+	        std::string::npos);
+	REQUIRE(scene_renderer.find("g_scene.view_projection") !=
 	        std::string::npos);
 	REQUIRE(scene_renderer.find("SCENARIO.RENDER: activated source scene") !=
 	        std::string::npos);
@@ -10219,7 +10242,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(mesh_walker.find("catalogSetPrimaryFile(e, source_path)") !=
 	        std::string::npos);
-	REQUIRE(mesh_extractor.find("pdmesh_model_obj_mtx_v12_materials_allmodels_menuhud") !=
+	REQUIRE(mesh_extractor.find("pdmesh_model_obj_mtx_v19_materials_hierarchy_parts_scale_faces_relations_raw_mtx_allmodels_menuhud") !=
 	        std::string::npos);
 	REQUIRE(mesh_extractor.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") !=
 	        std::string::npos);
@@ -10281,7 +10304,9 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(modasset_compiler.find("parseObjRoomName") != std::string::npos);
 	REQUIRE(modasset_compiler.find("current_room = parseObjRoomName(p)") !=
 	        std::string::npos);
-	REQUIRE(modasset_compiler.find("objMeshAddTriangle(mesh, indices[0], indices[i - 1], indices[i],") !=
+	REQUIRE(modasset_compiler.find("objMeshAddTriangleWithTexcoords(mesh,") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("indices[0], indices[i - 1], indices[i],") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("tri->roomnum") != std::string::npos);
 	REQUIRE(modasset_compiler.find("out_mesh->tris[out_mesh->numtris - 1].roomnum") !=
@@ -12141,7 +12166,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	const std::string modasset_compiler = readTextFile("port/src/modasset_compiler.c");
 	const std::string modasset_compiler_h = readTextFile("port/include/modasset_compiler.h");
-	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_VERSION 2") !=
+	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_VERSION 6") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("modAssetCompilerSkeletonForSymbol") !=
 	        std::string::npos);
@@ -12155,9 +12180,44 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("generatedModeldefSkeletonFromMetadata") !=
 	        std::string::npos);
+	REQUIRE(modasset_compiler.find("generatedModeldefReadHierarchy") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("buildGeneratedModeldefFromMeshHierarchy") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("\"model.nodes.tsv\"") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("\"model.parts.tsv\"") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("\"model.faces.tsv\"") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("generatedModeldefReadParts") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("generatedModeldefReadFaces") !=
+	        std::string::npos);
+	REQUIRE(pdmesh_extract.find("distance_near") != std::string::npos);
+	REQUIRE(pdmesh_extract.find("reorder_target_a") != std::string::npos);
+	REQUIRE(modasset_compiler.find("MODELNODETYPE_DISTANCE") != std::string::npos);
+	REQUIRE(modasset_compiler.find("rodata->distance.near = row->distance_near") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("rodata->reorder.unk18") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("if (parts_rc <= 0)") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("tri->matrix_index") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("tri->matrix_index >= 0 ? tri->matrix_index") !=
+	        std::string::npos);
 	REQUIRE(modasset_compiler.find("\"_meta/manifest.json\"") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("\"mesh.ini\"") != std::string::npos);
+	REQUIRE(pdmesh_extract.find("model_scale = %.9g") != std::string::npos);
+	REQUIRE(pdmesh_extract.find("\\\"model_scale\\\": %.9g") != std::string::npos);
+	REQUIRE(pdmesh_extract.find("faces_file = model.faces.tsv") != std::string::npos);
+	REQUIRE(pdmesh_extract.find("\\\"faces\\\": \\\"model.faces.tsv\\\"") != std::string::npos);
+	REQUIRE(modasset_compiler.find("generatedModeldefScaleFromMetadata") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("owner->def.scale = generatedModeldefScaleFromMetadata(source_path)") !=
+	        std::string::npos);
 	REQUIRE(modasset_compiler.find("strstr(sep + 2, \"::\")") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("owner->root_rodata.position.part = skeleton ? 0 : 0xffff") !=

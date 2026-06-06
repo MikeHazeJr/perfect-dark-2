@@ -12,6 +12,8 @@ extern "C" {
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <cfloat>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -75,6 +77,10 @@ struct Scene {
 	bool gpu_ready = false;
 	bool active = false;
 	bool logged_render = false;
+	bool logged_missing_camera = false;
+	bool logged_transform = false;
+	bool has_camera = false;
+	float view_projection[4][4] = {};
 };
 
 Scene g_scene;
@@ -525,6 +531,136 @@ static GLuint compileShader(GLenum type, const char *src)
 	return shader;
 }
 
+static void multiplyMatrix(float out[4][4], const float a[4][4],
+	const float b[4][4])
+{
+	float tmp[4][4];
+	for (int i = 0; i < 4; i++) {
+		for (int j = 0; j < 4; j++) {
+			tmp[i][j] = a[i][0] * b[0][j]
+				+ a[i][1] * b[1][j]
+				+ a[i][2] * b[2][j]
+				+ a[i][3] * b[3][j];
+		}
+	}
+	std::memcpy(out, tmp, sizeof(tmp));
+}
+
+static bool finiteFloat(float value)
+{
+	return std::isfinite(value);
+}
+
+static bool finiteVec3(const float v[3])
+{
+	return v && finiteFloat(v[0]) && finiteFloat(v[1])
+		&& finiteFloat(v[2]);
+}
+
+static bool normalizeVec3(float v[3])
+{
+	float len2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+	if (!finiteFloat(len2) || len2 <= 0.000001f) {
+		return false;
+	}
+
+	float inv = 1.0f / std::sqrt(len2);
+	v[0] *= inv;
+	v[1] *= inv;
+	v[2] *= inv;
+	return finiteVec3(v);
+}
+
+static void loadIdentity(float m[4][4])
+{
+	for (int row = 0; row < 4; row++) {
+		for (int col = 0; col < 4; col++) {
+			m[row][col] = row == col ? 1.0f : 0.0f;
+		}
+	}
+}
+
+static bool buildViewMatrix(float out[4][4], const float position[3],
+	const float look[3], const float up[3])
+{
+	if (!finiteVec3(position) || !finiteVec3(look) || !finiteVec3(up)) {
+		return false;
+	}
+
+	float zaxis[3] = { -look[0], -look[1], -look[2] };
+	if (!normalizeVec3(zaxis)) {
+		return false;
+	}
+
+	float xaxis[3] = {
+		up[1] * zaxis[2] - up[2] * zaxis[1],
+		up[2] * zaxis[0] - up[0] * zaxis[2],
+		up[0] * zaxis[1] - up[1] * zaxis[0],
+	};
+	if (!normalizeVec3(xaxis)) {
+		return false;
+	}
+
+	float yaxis[3] = {
+		zaxis[1] * xaxis[2] - zaxis[2] * xaxis[1],
+		zaxis[2] * xaxis[0] - zaxis[0] * xaxis[2],
+		zaxis[0] * xaxis[1] - zaxis[1] * xaxis[0],
+	};
+	if (!normalizeVec3(yaxis)) {
+		return false;
+	}
+
+	out[0][0] = xaxis[0];
+	out[1][0] = xaxis[1];
+	out[2][0] = xaxis[2];
+	out[3][0] = -(position[0] * xaxis[0] + position[1] * xaxis[1]
+		+ position[2] * xaxis[2]);
+
+	out[0][1] = yaxis[0];
+	out[1][1] = yaxis[1];
+	out[2][1] = yaxis[2];
+	out[3][1] = -(position[0] * yaxis[0] + position[1] * yaxis[1]
+		+ position[2] * yaxis[2]);
+
+	out[0][2] = zaxis[0];
+	out[1][2] = zaxis[1];
+	out[2][2] = zaxis[2];
+	out[3][2] = -(position[0] * zaxis[0] + position[1] * zaxis[1]
+		+ position[2] * zaxis[2]);
+
+	out[0][3] = 0.0f;
+	out[1][3] = 0.0f;
+	out[2][3] = 0.0f;
+	out[3][3] = 1.0f;
+	return true;
+}
+
+static bool buildProjectionMatrix(float out[4][4], float fovy_degrees,
+	float aspect, float znear, float zfar)
+{
+	if (!finiteFloat(fovy_degrees) || !finiteFloat(aspect)
+			|| !finiteFloat(znear) || !finiteFloat(zfar)
+			|| fovy_degrees <= 1.0f || fovy_degrees >= 179.0f
+			|| aspect <= 0.01f || znear <= 0.0f || zfar <= znear) {
+		return false;
+	}
+
+	float fovy = fovy_degrees * 3.14159265358979323846f / 180.0f;
+	float cot = 1.0f / std::tan(fovy * 0.5f);
+	if (!finiteFloat(cot)) {
+		return false;
+	}
+
+	loadIdentity(out);
+	out[0][0] = cot / aspect;
+	out[1][1] = cot;
+	out[2][2] = (znear + zfar) / (znear - zfar);
+	out[2][3] = -1.0f;
+	out[3][2] = (2.0f * znear * zfar) / (znear - zfar);
+	out[3][3] = 0.0f;
+	return true;
+}
+
 static void ensureShader(Scene &scene)
 {
 	if (scene.shader) {
@@ -610,6 +746,7 @@ static void ensureGpu(Scene &scene)
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
 		(void *)(3 * sizeof(float)));
 	glBindVertexArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	scene.gpu_ready = true;
 }
@@ -637,6 +774,82 @@ static void freeScene(Scene &scene)
 		}
 	}
 	scene = Scene();
+}
+
+static void logTransformProbe(Scene &scene)
+{
+	if (scene.logged_transform || scene.vertices.empty()) {
+		return;
+	}
+
+	scene.logged_transform = true;
+
+	uint32_t in_xy = 0;
+	uint32_t in_xyz = 0;
+	uint32_t positive_w = 0;
+	uint32_t finite_xy = 0;
+	uint32_t nonfinite_xy = 0;
+	float min_ndc_x = FLT_MAX;
+	float min_ndc_y = FLT_MAX;
+	float min_ndc_z = FLT_MAX;
+	float max_ndc_x = -FLT_MAX;
+	float max_ndc_y = -FLT_MAX;
+	float max_ndc_z = -FLT_MAX;
+	float min_w = FLT_MAX;
+	float max_w = -FLT_MAX;
+
+	for (const auto &v : scene.vertices) {
+		float x0 = v.x;
+		float y0 = v.y;
+		float z0 = v.z;
+		const float (*m)[4] = scene.view_projection;
+		float x = x0 * m[0][0] + y0 * m[1][0] + z0 * m[2][0] + m[3][0];
+		float y = x0 * m[0][1] + y0 * m[1][1] + z0 * m[2][1] + m[3][1];
+		float z = x0 * m[0][2] + y0 * m[1][2] + z0 * m[2][2] + m[3][2];
+		float w = x0 * m[0][3] + y0 * m[1][3] + z0 * m[2][3] + m[3][3];
+		if (w > 0.0f) {
+			positive_w++;
+		}
+		if (w < min_w) min_w = w;
+		if (w > max_w) max_w = w;
+		if (w != 0.0f) {
+			float inv_w = 1.0f / w;
+			float nx = x * inv_w;
+			float ny = y * inv_w;
+			float nz = z * inv_w;
+			if (!std::isfinite(nx) || !std::isfinite(ny)) {
+				nonfinite_xy++;
+				continue;
+			}
+			finite_xy++;
+			if (nx < min_ndc_x) min_ndc_x = nx;
+			if (ny < min_ndc_y) min_ndc_y = ny;
+			if (nz < min_ndc_z) min_ndc_z = nz;
+			if (nx > max_ndc_x) max_ndc_x = nx;
+			if (ny > max_ndc_y) max_ndc_y = ny;
+			if (nz > max_ndc_z) max_ndc_z = nz;
+			if (nx >= -1.0f && nx <= 1.0f && ny >= -1.0f && ny <= 1.0f) {
+				in_xy++;
+				if (nz >= -1.0f && nz <= 1.0f) {
+					in_xyz++;
+				}
+			}
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.RENDER.PROBE: scene='%s' vertices=%zu in_xy=%u in_xyz=%u finite_xy=%u nonfinite_xy=%u positive_w=%u w=[%.3f,%.3f] ndc_x=[%.3f,%.3f] ndc_y=[%.3f,%.3f] ndc_z=[%.3f,%.3f] vp0=[%.3f,%.3f,%.3f,%.3f] vp1=[%.3f,%.3f,%.3f,%.3f] vp2=[%.3f,%.3f,%.3f,%.3f] vp3=[%.3f,%.3f,%.3f,%.3f]",
+		scene.scenario_id.c_str(), scene.vertices.size(), in_xy, in_xyz,
+		finite_xy, nonfinite_xy, positive_w, min_w, max_w, min_ndc_x, max_ndc_x, min_ndc_y,
+		max_ndc_y, min_ndc_z, max_ndc_z,
+		scene.view_projection[0][0], scene.view_projection[0][1],
+		scene.view_projection[0][2], scene.view_projection[0][3],
+		scene.view_projection[1][0], scene.view_projection[1][1],
+		scene.view_projection[1][2], scene.view_projection[1][3],
+		scene.view_projection[2][0], scene.view_projection[2][1],
+		scene.view_projection[2][2], scene.view_projection[2][3],
+		scene.view_projection[3][0], scene.view_projection[3][1],
+		scene.view_projection[3][2], scene.view_projection[3][3]);
 }
 
 } // namespace
@@ -684,10 +897,43 @@ extern "C" int scenarioSceneRendererIsActive(void)
 	return g_scene.active ? 1 : 0;
 }
 
-extern "C" void scenarioSceneRendererRender(float vp[4][4], int width,
-	int height)
+extern "C" void scenarioSceneRendererSetCameraFrame(
+	const float position[3],
+	const float look[3],
+	const float up[3],
+	float fovy_degrees,
+	float aspect,
+	float znear,
+	float zfar)
+{
+	float view[4][4];
+	float projection[4][4];
+
+	if (!buildViewMatrix(view, position, look, up)
+			|| !buildProjectionMatrix(projection, fovy_degrees, aspect,
+				znear, zfar)) {
+		g_scene.has_camera = false;
+		return;
+	}
+
+	multiplyMatrix(g_scene.view_projection, view, projection);
+	g_scene.has_camera = true;
+	g_scene.logged_missing_camera = false;
+}
+
+extern "C" void scenarioSceneRendererRender(int width, int height)
 {
 	if (!g_scene.active || g_scene.vertices.empty()) {
+		return;
+	}
+
+	if (!g_scene.has_camera) {
+		if (!g_scene.logged_missing_camera) {
+			g_scene.logged_missing_camera = true;
+			sysLogPrintf(LOG_WARNING,
+				"SCENARIO.RENDER: skipping source scene '%s' without camera matrices",
+				g_scene.scenario_id.c_str());
+		}
 		return;
 	}
 
@@ -696,12 +942,26 @@ extern "C" void scenarioSceneRendererRender(float vp[4][4], int width,
 		return;
 	}
 
+	logTransformProbe(g_scene);
+
 	GLint prev_program = 0;
 	GLint prev_texture = 0;
+	GLint prev_vertex_array = 0;
+	GLint prev_depth_func = GL_LESS;
 	GLboolean prev_depth_mask = GL_TRUE;
+	GLboolean prev_depth_test = GL_FALSE;
+	GLboolean prev_cull_face = GL_FALSE;
+	GLboolean prev_blend = GL_FALSE;
+	GLboolean prev_texture_2d = GL_FALSE;
 	glGetIntegerv(GL_CURRENT_PROGRAM, &prev_program);
 	glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_texture);
+	glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prev_vertex_array);
+	glGetIntegerv(GL_DEPTH_FUNC, &prev_depth_func);
 	glGetBooleanv(GL_DEPTH_WRITEMASK, &prev_depth_mask);
+	prev_depth_test = glIsEnabled(GL_DEPTH_TEST);
+	prev_cull_face = glIsEnabled(GL_CULL_FACE);
+	prev_blend = glIsEnabled(GL_BLEND);
+	prev_texture_2d = glIsEnabled(GL_TEXTURE_2D);
 
 	glViewport(0, 0, width, height);
 	glEnable(GL_DEPTH_TEST);
@@ -714,7 +974,8 @@ extern "C" void scenarioSceneRendererRender(float vp[4][4], int width,
 	glUseProgram(g_scene.shader);
 	GLint vp_loc = glGetUniformLocation(g_scene.shader, "u_VP");
 	GLint tex_loc = glGetUniformLocation(g_scene.shader, "u_Tex");
-	glUniformMatrix4fv(vp_loc, 1, GL_FALSE, (const float *)vp);
+	glUniformMatrix4fv(vp_loc, 1, GL_FALSE,
+		(const float *)g_scene.view_projection);
 	glUniform1i(tex_loc, 0);
 
 	glBindVertexArray(g_scene.vao);
@@ -748,6 +1009,28 @@ extern "C" void scenarioSceneRendererRender(float vp[4][4], int width,
 	}
 
 	glBindTexture(GL_TEXTURE_2D, (GLuint)prev_texture);
+	glBindVertexArray((GLuint)prev_vertex_array);
+	if (prev_depth_test) {
+		glEnable(GL_DEPTH_TEST);
+	} else {
+		glDisable(GL_DEPTH_TEST);
+	}
+	glDepthFunc((GLenum)prev_depth_func);
 	glDepthMask(prev_depth_mask);
+	if (prev_cull_face) {
+		glEnable(GL_CULL_FACE);
+	} else {
+		glDisable(GL_CULL_FACE);
+	}
+	if (prev_blend) {
+		glEnable(GL_BLEND);
+	} else {
+		glDisable(GL_BLEND);
+	}
+	if (prev_texture_2d) {
+		glEnable(GL_TEXTURE_2D);
+	} else {
+		glDisable(GL_TEXTURE_2D);
+	}
 	glUseProgram((GLuint)prev_program);
 }

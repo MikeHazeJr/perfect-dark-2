@@ -567,7 +567,17 @@ SCHEMAS: dict[str, Schema] = {
     ".pdmesh": schema(
         required=["mesh.ini"],
         require_any=[["model.gltf", "model.glb", "model.obj"]],
-        allowed=["mesh.ini", "model.gltf", "model.glb", "model.obj", "model.mtl", "export_version.txt"],
+        allowed=[
+            "mesh.ini",
+            "model.gltf",
+            "model.glb",
+            "model.obj",
+            "model.mtl",
+            "model.nodes.tsv",
+            "model.parts.tsv",
+            "model.faces.tsv",
+            "export_version.txt",
+        ],
         allowed_globs=[
             "dependencies/assets/materials/*.pdmaterial",
             "dependencies/assets/textures/*.pdtexture",
@@ -866,6 +876,9 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "model.glb": slot("binary mesh source", "mesh importer", "loads geometry/UV/material declarations as runtime source and cache seed", "model.gltf or model.obj must be present"),
         "model.obj": slot("OBJ mesh source", "mesh importer", "loads geometry/UV/material declarations as runtime source and cache seed", "model.gltf or model.glb must be present"),
         "model.mtl": slot("OBJ material companion", "mesh importer", "loads material names for model.obj import", "OBJ imports use default material values"),
+        "model.nodes.tsv": slot("model hierarchy source", "mesh importer", "loads original node/matrix hierarchy for runtime modeldef reconstruction", "author-authored flat mesh sources may omit hierarchy metadata"),
+        "model.parts.tsv": slot("model part-table source", "mesh importer", "loads original part-to-node lookup table for runtime modeldef reconstruction", "required when hierarchy metadata is present"),
+        "model.faces.tsv": slot("model face-matrix source", "mesh importer", "loads original face-to-matrix bindings for runtime display-list reconstruction", "required when hierarchy metadata is present"),
         "export_version.txt": slot("exporter provenance marker", "mesh extractor", "records source exporter revision for stale-cache detection", "validator treats archive as source-authored without exporter provenance"),
         "dependencies/assets/materials/*.pdmaterial": slot("mesh material dependencies", "mesh importer", DEPENDENCY_LOADER, "mesh uses material declarations inside the model source"),
         "dependencies/assets/textures/*.pdtexture": slot("mesh texture dependencies", "mesh importer", DEPENDENCY_LOADER, "mesh uses embedded/material-declared textures inside the model source"),
@@ -1864,6 +1877,14 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                     result.errors.append(
                         f"{label} missing required alternative: one of {', '.join(group)}"
                     )
+            if ext == ".pdmesh" and "model.nodes.tsv" in name_set and "model.parts.tsv" not in name_set:
+                result.errors.append(
+                    f"{label} has model.nodes.tsv but missing required model.parts.tsv"
+                )
+            if ext == ".pdmesh" and "model.nodes.tsv" in name_set and "model.faces.tsv" not in name_set:
+                result.errors.append(
+                    f"{label} has model.nodes.tsv but missing required model.faces.tsv"
+                )
             for rule in spec.require_one_of:
                 if not any(archive_has_all(name_set, alternative)
                            for alternative in rule):

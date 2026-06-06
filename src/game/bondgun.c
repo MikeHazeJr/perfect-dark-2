@@ -12390,6 +12390,9 @@ void bgunRender(Gfx **gdlptr)
 
 			// Render the gun
 			modelRender(&renderdata, &hand->gunmodel);
+			modAssetCompilerTraceGeneratedModeldefRenderStep(
+				hand->gunmodel.definition, NULL, "bgun-after-gun-render",
+				NULL, NULL, NULL, NULL, 0, 0);
 
 			// Render the hand
 			if (player->gunctrl.handmodeldef && renderhand) {
@@ -12401,6 +12404,9 @@ void bgunRender(Gfx **gdlptr)
 
 				renderdata.envcolour = colour;
 				modelRender(&renderdata, &hand->handmodel);
+				modAssetCompilerTraceGeneratedModeldefRenderStep(
+					hand->handmodel.definition, NULL, "bgun-after-hand-render",
+					NULL, NULL, NULL, NULL, 0, 0);
 				renderdata.envcolour = prevcolour;
 			}
 
@@ -12412,6 +12418,9 @@ void bgunRender(Gfx **gdlptr)
 			}
 
 			mtxF2LBulk(hand->gunmodel.matrices, hand->gunmodel.definition->nummatrices);
+			modAssetCompilerTraceGeneratedModeldefRenderStep(
+				hand->gunmodel.definition, NULL, "bgun-after-mtxF2L",
+				NULL, NULL, NULL, NULL, 0, 0);
 			mtx00016784();
 
 			gSPPerspNormalize(gdl++, viGetPerspScale());

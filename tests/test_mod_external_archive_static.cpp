@@ -3018,12 +3018,18 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find("runtime_boundary\\\": \\\"animtableentry") != std::string::npos);
 	REQUIRE(compiler.find("meshAddTriangle(out_mesh") != std::string::npos);
 	REQUIRE(compiler.find("buildGeneratedModeldefFromMesh") != std::string::npos);
+	REQUIRE(compiler.find("generatedModeldefReadRenderStream") != std::string::npos);
+	REQUIRE(compiler.find("model.render.tsv") != std::string::npos);
+	REQUIRE(compiler.find("GENERATED_RENDER_OP_MTX") != std::string::npos);
+	REQUIRE(compiler.find("GENERATED_RENDER_OP_POP") != std::string::npos);
+	REQUIRE(compiler.find("generatedRenderStreamTriCount") != std::string::npos);
 	REQUIRE(compiler.find("generatedModeldefRegister(owner)") != std::string::npos);
 	REQUIRE(compiler.find("generatedModeldefUnregister(owner)") != std::string::npos);
 	REQUIRE(compiler.find("MODASSET.RENDER: generated source modeldef rendered") != std::string::npos);
 	REQUIRE(compiler.find("MODELNODETYPE_POSITION") != std::string::npos);
 	REQUIRE(compiler.find("MODELNODETYPE_DL") != std::string::npos);
 	REQUIRE(compiler.find("gSPMatrix(gdl++") != std::string::npos);
+	REQUIRE(compiler.find("gSPPopMatrix(gdl++") != std::string::npos);
 	REQUIRE(compiler.find("gSPTexture(gdl++, 0, 0, 0, 0, 0)") != std::string::npos);
 	REQUIRE(compiler.find("dst->s = clampToS16(texcoord->u * 32.0f)") != std::string::npos);
 	REQUIRE(compiler.find("dst->t = clampToS16((1.0f - texcoord->v) * 32.0f)") != std::string::npos);
@@ -5233,9 +5239,9 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 
 	REQUIRE(mesh.find("s_buildModelObj") != std::string::npos);
 	REQUIRE(mesh.find("s_exportGdlToObj") != std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v10_materials\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v18_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_stream\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v12_materials_allmodels_menuhud\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v20_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_stream_allmodels_menuhud\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") !=
 	        std::string::npos);
@@ -5279,6 +5285,11 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("s_objBuildDefaultModelMatrices") != std::string::npos);
 	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_NODE_DEPTH_CAP") != std::string::npos);
 	REQUIRE(mesh.find("s_objMtxTransformPoint") != std::string::npos);
+	REQUIRE(mesh.find("s_objMtxInverseTransformPoint") != std::string::npos);
+	REQUIRE(mesh.find("s_writeNodeHierarchyTsv") != std::string::npos);
+	REQUIRE(mesh.find("s_writePartTableTsv") != std::string::npos);
+	REQUIRE(mesh.find("s_objRegisterNodes(&ctx, modeldef->rootnode, 0)") !=
+	        std::string::npos);
 	REQUIRE(mesh.find("s_objNodeUnderHiddenGunToggle") != std::string::npos);
 	REQUIRE(mesh.find("s_objHiddenGunToggleTargetsNode") != std::string::npos);
 	REQUIRE(mesh.find("s_objStaticGunVertsLookDetachedEffect") != std::string::npos);
@@ -5303,13 +5314,32 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("gdl[cmdidx].tri4") == std::string::npos);
 	REQUIRE(mesh.find("model.obj") != std::string::npos);
 	REQUIRE(mesh.find("model.mtl") != std::string::npos);
+	REQUIRE(mesh.find("model.nodes.tsv") != std::string::npos);
+	REQUIRE(mesh.find("model.parts.tsv") != std::string::npos);
+	REQUIRE(mesh.find("model.faces.tsv") != std::string::npos);
+	REQUIRE(mesh.find("model.render.tsv") != std::string::npos);
+	REQUIRE(mesh.find("s_objAppendRenderRow") != std::string::npos);
+	REQUIRE(mesh.find("\"group\\top\\tface\\tmatrix\\tparams\\tmaterial\\n\"") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("cmd == (u8)G_POPMTX && w1 != 0") == std::string::npos);
+	REQUIRE(mesh.find("distance_near") != std::string::npos);
+	REQUIRE(mesh.find("reorder_target_a") != std::string::npos);
 	REQUIRE(mesh.find("export_version.txt") != std::string::npos);
 	REQUIRE(mesh.find("source_format = PD_MODELDEF") != std::string::npos);
 	REQUIRE(mesh.find("format = OBJ") != std::string::npos);
 	REQUIRE(mesh.find("obj_export_version = %s") != std::string::npos);
 	REQUIRE(mesh.find("geometry_file = model.obj") != std::string::npos);
 	REQUIRE(mesh.find("material_file = model.mtl") != std::string::npos);
+	REQUIRE(mesh.find("hierarchy_file = model.nodes.tsv") != std::string::npos);
+	REQUIRE(mesh.find("parts_file = model.parts.tsv") != std::string::npos);
+	REQUIRE(mesh.find("faces_file = model.faces.tsv") != std::string::npos);
+	REQUIRE(mesh.find("render_stream_file = model.render.tsv") != std::string::npos);
+	REQUIRE(mesh.find("model_scale = %.9g") != std::string::npos);
+	REQUIRE(mesh.find("\\\"model_scale\\\": %.9g") != std::string::npos);
+	REQUIRE(mesh.find("node_count = %u") != std::string::npos);
+	REQUIRE(mesh.find("part_count = %u") != std::string::npos);
 	REQUIRE(mesh.find("model_matrix_reference_count = %u") != std::string::npos);
+	REQUIRE(mesh.find("render_command_count = %u") != std::string::npos);
 	REQUIRE(mesh.find("material_count = %u") != std::string::npos);
 	REQUIRE(mesh.find("\\\"textured_material_count\\\": %u") != std::string::npos);
 	REQUIRE(mesh.find("s_existingArchiveHasEntry(dst_rel, \"model.obj\")") !=
@@ -5321,6 +5351,14 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.obj\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.mtl\"") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.nodes.tsv\"") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.parts.tsv\"") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.faces.tsv\"") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.render.tsv\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("assetArchiveWriterFinishMetadata(&asset_writer)") !=
 	        std::string::npos);

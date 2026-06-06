@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-#define MODASSET_COMPILER_VERSION 2
+#define MODASSET_COMPILER_VERSION 6
 #define MODASSET_SHA256_HEX_LEN 65
 
 struct colmesh;
@@ -102,9 +102,21 @@ s32 modAssetCompilerBuildModeldef(const asset_entry_t *entry,
 void modAssetCompilerFreeModeldef(struct modeldef *modeldef);
 
 void modAssetCompilerSetGeneratedModeldefRenderAudit(s32 enabled);
+s32 modAssetCompilerGeneratedModeldefRenderAuditEnabled(void);
+s32 modAssetCompilerModeldefIsGenerated(const struct modeldef *modeldef);
 void modAssetCompilerTraceGeneratedModeldefRender(
 	const struct modeldef *modeldef,
 	const struct modelnode *node);
+void modAssetCompilerTraceGeneratedModeldefRenderStep(
+	const struct modeldef *modeldef,
+	const struct modelnode *node,
+	const char *stage,
+	const void *rwdata,
+	const void *gdl,
+	const void *vertices,
+	const void *colours,
+	s32 numvertices,
+	s32 mcount);
 
 const char *modAssetCompilerSkeletonSymbolForPointer(
 	const struct skeleton *skeleton);

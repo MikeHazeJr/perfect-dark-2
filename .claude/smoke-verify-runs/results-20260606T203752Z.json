@@ -1,0 +1,38 @@
+﻿{
+    "Name":  "b769_render_narrow_smoke",
+    "Category":  "scenario",
+    "BugId":  null,
+    "RegressionFor":  null,
+    "Passed":  false,
+    "ExitCode":  -2,
+    "ElapsedSeconds":  175.2440253,
+    "InstallDir":  "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\smoke-verify-install",
+    "AssertionsTotal":  13,
+    "AssertionsMet":  7,
+    "Failures":  [
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SMOKE: scenario=b769_render_narrow_smoke"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "MODASSET\\.COMPILER: built hierarchy modeldef \u0027base:model_taxicab\u0027 source=.*base_model_taxicab\\.pdmesh::model\\.obj.*nodes=[1-9]\\d* parts=\\d+ matrices=[1-9]\\d* vertices=[1-9]\\d* tris=262"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "MODASSET\\.COMPILER: built hierarchy modeldef \u0027base:model_dy357_hi\u0027 source=.*base_model_dy357_hi\\.pdmesh::model\\.obj.*nodes=[1-9]\\d* parts=[1-9]\\d* matrices=[1-9]\\d* vertices=[1-9]\\d* tris=404"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "MODASSET\\.RENDER: generated source modeldef rendered id=base:model_dy357_hi source=.*base_model_dy357_hi\\.pdmesh::model\\.obj.*tris=404"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "LOG\\.WPN\\.DIAG: bgunRender enter player=0 .* R\\(wpn=8 visible=1 inuse=1 .* gunctrl_wpn=8 switchto=-1 .* R_gunmodel_def=(?:0x)?0*[1-9a-fA-F][0-9a-fA-F]*"
+                     },
+                     {
+                         "Kind":  "required_line_missing",
+                         "Pattern":  "SMOKE: result=scripted_exit"
+                     }
+                 ]
+}

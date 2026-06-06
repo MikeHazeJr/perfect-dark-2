@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 6,
+  "asset_id": "base:head_laura",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_laura.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 43251,
+  "source_sha256": "bbb7e693587e85aa09470b2523a8995374e63559fe3c74d09ead9691e27177ed",
+  "validation": "format=obj vertices=651 triangles=217",
+  "normalized": "$S/mod-cache/base/base_head_laura/head-v6-bbb7e693587e85aa09470b2523a8995374e63559fe3c74d09ead9691e27177ed.pdmodel.json",
+  "vertex_count": 651,
+  "triangle_count": 217,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

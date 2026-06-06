@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 2,
+  "asset_id": "base:head_eileen_h",
+  "mod_id": "base",
+  "kind": "head",
+  "source": "data/ntsc-final/heads/base_head_eileen_h.pdhead::mesh.pdmesh::model.obj",
+  "source_size": 53014,
+  "source_sha256": "e4e747d182295cb3d2541eed19cf239c02cb5d292a1a1dccd79a50eaddc9fe22",
+  "validation": "format=obj vertices=798 triangles=266",
+  "normalized": "$S/mod-cache/base/base_head_eileen_h/head-v2-e4e747d182295cb3d2541eed19cf239c02cb5d292a1a1dccd79a50eaddc9fe22.pdmodel.json",
+  "vertex_count": 798,
+  "triangle_count": 266,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

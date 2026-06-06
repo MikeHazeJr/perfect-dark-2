@@ -18,6 +18,7 @@
 - Completed the c3844 asset-pipeline runtime source migration sweep, closing the remaining Scenario vehicle path, route-to-target, cover/navigation, optional actor/object/path, MP participant, and setup-record source-proof gaps found by the final matrices.
 - Added source-native `.pdsong` sequence playback by proving public `sequence.mid` plus `sequence.tsv` before compiling the editable sequence source for the legacy sequencer.
 - Added source-native `.pdtexture` image loading so source-built meshes decode public texture archives into runtime RGBA32 texture data instead of falling back to ROM/static compressed texture bytes.
+- Preserved generated mesh relation nodes during extraction so distance, reorder, and headspot model hierarchy rows are no longer flattened into bogus position nodes.
 - Added a catalog-provider guard so body/head model catalog validation uses handle-based source IDs instead of raw source-filenum reverse lookup.
 - Added source-native MP3 speech playback and duration sizing from extracted public source files before ROM/static fallback.
 - Added source-native `.pdsong` track-audio playback for public `track.wav`, `track.ogg`, and `track.mp3` sources before legacy sequence fallback.
@@ -437,6 +438,7 @@
 
 ## Fixed
 
+- Fixed source-built `.pdmesh` rendering by exporting and compiling public `model.render.tsv` streams, preserving matrix-stack, material, and triangle order instead of rebuilding meshes as flat synthetic display lists.
 - Fixed public `.pdmesh` source-built models so extracted OBJ UVs and material/texture catalog bindings reach generated runtime display lists, with smoke verification proving the textured DY357 first-person mesh loads, builds, and renders from public source.
 - Fixed Scenario source matrix validation so padded stage hex and stages that complete naturally before scripted exit do not produce false failures.
 - Fixed Scenario source-only loading for minimal stages with intentionally empty public `pads.tsv` or `portals.tsv`, so those files are treated as authoritative empty source instead of triggering ROM fallback.

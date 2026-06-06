@@ -272,6 +272,10 @@ typedef struct obj_material {
 	s32 flag;
 } obj_material_t;
 
+typedef struct obj_group {
+	char name[64];
+} obj_group_t;
+
 typedef struct obj_triangle {
 	s32 a;
 	s32 b;
@@ -281,6 +285,8 @@ typedef struct obj_triangle {
 	s32 tc;
 	s32 roomnum;
 	s32 material_index;
+	s32 group_index;
+	s32 matrix_index;
 } obj_triangle_t;
 
 typedef struct obj_mesh {
@@ -293,6 +299,9 @@ typedef struct obj_mesh {
 	obj_material_t *materials;
 	s32 material_count;
 	s32 material_capacity;
+	obj_group_t *groups;
+	s32 group_count;
+	s32 group_capacity;
 	obj_triangle_t *triangles;
 	s32 triangle_count;
 	s32 triangle_capacity;
@@ -307,6 +316,7 @@ static void objMeshFree(obj_mesh_t *mesh)
 	free(mesh->vertices);
 	free(mesh->texcoords);
 	free(mesh->materials);
+	free(mesh->groups);
 	free(mesh->triangles);
 	memset(mesh, 0, sizeof(*mesh));
 }
@@ -408,6 +418,36 @@ static s32 objMeshGrowMaterials(obj_mesh_t *mesh, s32 needed)
 	return 1;
 }
 
+static s32 objMeshGrowGroups(obj_mesh_t *mesh, s32 needed)
+{
+	s32 newcap;
+	obj_group_t *newptr;
+
+	if (mesh->group_count + needed <= mesh->group_capacity) {
+		return 1;
+	}
+
+	newcap = mesh->group_capacity * 2;
+	if (newcap < mesh->group_count + needed) {
+		newcap = mesh->group_count + needed;
+	}
+	if (newcap < 8) {
+		newcap = 8;
+	}
+
+	newptr = realloc(mesh->groups, (size_t)newcap * sizeof(*mesh->groups));
+	if (!newptr) {
+		objMeshSetError(mesh, 0, "group_alloc_failed");
+		return 0;
+	}
+
+	memset(newptr + mesh->group_capacity, 0,
+		(size_t)(newcap - mesh->group_capacity) * sizeof(*newptr));
+	mesh->groups = newptr;
+	mesh->group_capacity = newcap;
+	return 1;
+}
+
 static s32 objMeshGrowTriangles(obj_mesh_t *mesh, s32 needed)
 {
 	s32 newcap;
@@ -499,6 +539,39 @@ static s32 objMeshEnsureMaterial(obj_mesh_t *mesh, const char *name)
 	return mesh->material_count - 1;
 }
 
+static s32 objMeshEnsureGroup(obj_mesh_t *mesh, const char *name)
+{
+	char group_name[64];
+
+	if (!mesh) {
+		return -1;
+	}
+
+	copyObjToken(group_name, sizeof(group_name),
+		name && name[0] ? name : "default");
+	if (!group_name[0]) {
+		strncpy(group_name, "default", sizeof(group_name) - 1);
+		group_name[sizeof(group_name) - 1] = '\0';
+	}
+
+	for (s32 i = 0; i < mesh->group_count; i++) {
+		if (strcmp(mesh->groups[i].name, group_name) == 0) {
+			return i;
+		}
+	}
+
+	if (!objMeshGrowGroups(mesh, 1)) {
+		return -1;
+	}
+
+	obj_group_t *group = &mesh->groups[mesh->group_count];
+	memset(group, 0, sizeof(*group));
+	strncpy(group->name, group_name, sizeof(group->name) - 1);
+	group->name[sizeof(group->name) - 1] = '\0';
+	mesh->group_count++;
+	return mesh->group_count - 1;
+}
+
 static s32 objMeshAddVertex(obj_mesh_t *mesh, f32 x, f32 y, f32 z, s32 roomnum)
 {
 	obj_vertex_t *v;
@@ -531,7 +604,7 @@ static s32 objMeshAddTexcoord(obj_mesh_t *mesh, f32 u, f32 v)
 
 static s32 objMeshAddTriangleWithTexcoords(obj_mesh_t *mesh,
 	s32 a, s32 b, s32 c, s32 ta, s32 tb, s32 tc, s32 roomnum,
-	s32 material_index)
+	s32 material_index, s32 group_index)
 {
 	obj_triangle_t *tri;
 
@@ -548,6 +621,8 @@ static s32 objMeshAddTriangleWithTexcoords(obj_mesh_t *mesh,
 	tri->tc = tc;
 	tri->roomnum = roomnum > 0 ? roomnum : 0;
 	tri->material_index = material_index >= 0 ? material_index : -1;
+	tri->group_index = group_index >= 0 ? group_index : -1;
+	tri->matrix_index = -1;
 	if (a >= 0 && b >= 0 && c >= 0
 			&& a < mesh->vertex_count
 			&& b < mesh->vertex_count
@@ -565,7 +640,7 @@ static s32 objMeshAddTriangleWithTexcoords(obj_mesh_t *mesh,
 static s32 objMeshAddTriangle(obj_mesh_t *mesh, s32 a, s32 b, s32 c, s32 roomnum)
 {
 	return objMeshAddTriangleWithTexcoords(mesh, a, b, c, -1, -1, -1,
-		roomnum, -1);
+		roomnum, -1, -1);
 }
 
 static char *skipSpaces(char *p);
@@ -731,7 +806,7 @@ static s32 parseObjTexcoordLine(char *line, obj_mesh_t *mesh, s32 line_no)
 }
 
 static s32 parseObjFaceLine(char *line, obj_mesh_t *mesh, s32 line_no,
-	s32 current_room, s32 current_material)
+	s32 current_room, s32 current_material, s32 current_group)
 {
 	char *p = line + 1;
 	s32 indices[128];
@@ -771,7 +846,7 @@ static s32 parseObjFaceLine(char *line, obj_mesh_t *mesh, s32 line_no,
 		if (!objMeshAddTriangleWithTexcoords(mesh,
 				indices[0], indices[i - 1], indices[i],
 				texcoords[0], texcoords[i - 1], texcoords[i],
-				current_room, current_material)) {
+				current_room, current_material, current_group)) {
 			return 0;
 		}
 	}
@@ -787,6 +862,7 @@ static s32 parseObjSource(const u8 *data, u32 size, obj_mesh_t *mesh)
 	s32 ok = 1;
 	s32 current_room = 0;
 	s32 current_material = -1;
+	s32 current_group = -1;
 
 	if (!data || size == 0 || !mesh) {
 		return 0;
@@ -802,6 +878,7 @@ static s32 parseObjSource(const u8 *data, u32 size, obj_mesh_t *mesh)
 	memcpy(text, data, size);
 	text[size] = '\0';
 	current_material = objMeshEnsureMaterial(mesh, "pd_default");
+	current_group = objMeshEnsureGroup(mesh, "default");
 
 	line = text;
 	while (line && *line) {
@@ -828,9 +905,13 @@ static s32 parseObjSource(const u8 *data, u32 size, obj_mesh_t *mesh)
 			ok = parseObjVertexLine(p, mesh, line_no, current_room);
 		} else if (*p == 'f' && isspace((u8)p[1])) {
 			ok = parseObjFaceLine(p, mesh, line_no, current_room,
-				current_material);
+				current_material, current_group);
 		} else if ((*p == 'g' || *p == 'o') && isspace((u8)p[1])) {
 			current_room = parseObjRoomName(p);
+			current_group = objMeshEnsureGroup(mesh, skipSpaces(p + 1));
+			if (current_group < 0) {
+				ok = 0;
+			}
 		} else if (strncmp(p, "usemtl", 6) == 0 && isspace((u8)p[6])) {
 			char *name = skipSpaces(p + 6);
 			current_material = objMeshEnsureMaterial(mesh, name);
@@ -3581,12 +3662,95 @@ typedef struct generated_modeldef {
 	Vtx *vertices;
 	Col *colours;
 	Gfx *gdl;
+	struct modelnode *dynamic_nodes;
+	union modelrodata *dynamic_rodatas;
+	void *dynamic_parts;
+	struct generated_dl_payload *dynamic_payloads;
+	s32 dynamic_payload_count;
 	s32 triangle_count;
 	s32 vertex_count;
 	s32 render_audit_logged;
 	char catalog_id[CATALOG_ID_LEN];
 	char source_path[FS_MAXPATH + 1];
 } generated_modeldef_t;
+
+typedef struct generated_dl_payload {
+	Vtx *vertices;
+	Col *colours;
+	Gfx *gdl;
+	void *baseaddr;
+	Gfx *seg_gdl;
+	size_t gdl_bytes;
+	size_t vertex_bytes;
+	s32 vertex_count;
+	s32 triangle_count;
+} generated_dl_payload_t;
+
+typedef struct generated_hierarchy_row {
+	s32 id;
+	s32 parent;
+	s32 type;
+	s32 partnum;
+	s32 part;
+	s32 mtx0;
+	s32 mtx1;
+	s32 mtx2;
+	f32 pos_x;
+	f32 pos_y;
+	f32 pos_z;
+	f32 drawdist;
+	s32 target;
+	char group[64];
+	s32 render_mtx;
+	s32 mcount;
+	s32 hitpart;
+	f32 xmin;
+	f32 xmax;
+	f32 ymin;
+	f32 ymax;
+	f32 zmin;
+	f32 zmax;
+	f32 distance_near;
+	f32 distance_far;
+	f32 reorder_x;
+	f32 reorder_y;
+	f32 reorder_z;
+	f32 reorder_axis_x;
+	f32 reorder_axis_y;
+	f32 reorder_axis_z;
+	s32 reorder_target_a;
+	s32 reorder_target_b;
+	s32 reorder_side;
+	s32 payload_index;
+} generated_hierarchy_row_t;
+
+typedef struct generated_hierarchy {
+	generated_hierarchy_row_t *rows;
+	s32 row_count;
+	s32 row_capacity;
+} generated_hierarchy_t;
+
+enum {
+	GENERATED_RENDER_OP_MTX = 1,
+	GENERATED_RENDER_OP_POP,
+	GENERATED_RENDER_OP_MATERIAL,
+	GENERATED_RENDER_OP_TRI,
+};
+
+typedef struct generated_render_row {
+	char group[64];
+	u8 op;
+	s32 face;
+	s32 matrix;
+	u8 params;
+	s32 material;
+} generated_render_row_t;
+
+typedef struct generated_render_stream {
+	generated_render_row_t *rows;
+	s32 row_count;
+	s32 row_capacity;
+} generated_render_stream_t;
 
 static generated_modeldef_t *s_GeneratedModeldefs = NULL;
 static s32 s_GeneratedModeldefRenderAuditEnabled = 0;
@@ -3634,6 +3798,16 @@ void modAssetCompilerSetGeneratedModeldefRenderAudit(s32 enabled)
 	s_GeneratedModeldefRenderAuditEnabled = enabled ? 1 : 0;
 }
 
+s32 modAssetCompilerGeneratedModeldefRenderAuditEnabled(void)
+{
+	return s_GeneratedModeldefRenderAuditEnabled;
+}
+
+s32 modAssetCompilerModeldefIsGenerated(const struct modeldef *modeldef)
+{
+	return generatedModeldefOwner(modeldef) != NULL;
+}
+
 void modAssetCompilerTraceGeneratedModeldefRender(
 	const struct modeldef *modeldef,
 	const struct modelnode *node)
@@ -3660,6 +3834,43 @@ void modAssetCompilerTraceGeneratedModeldefRender(
 		owner->triangle_count,
 		modAssetCompilerSkeletonSymbolForPointer(owner->def.skel) ?
 			modAssetCompilerSkeletonSymbolForPointer(owner->def.skel) : "(none)");
+}
+
+void modAssetCompilerTraceGeneratedModeldefRenderStep(
+	const struct modeldef *modeldef,
+	const struct modelnode *node,
+	const char *stage,
+	const void *rwdata,
+	const void *gdl,
+	const void *vertices,
+	const void *colours,
+	s32 numvertices,
+	s32 mcount)
+{
+	generated_modeldef_t *owner;
+
+	if (!s_GeneratedModeldefRenderAuditEnabled) {
+		return;
+	}
+
+	owner = generatedModeldefOwner(modeldef);
+	if (!owner) {
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"MODASSET.RENDER.STEP: id=%s stage=%s modeldef=%p node=%p rwdata=%p gdl=%p vertices=%p colours=%p numvertices=%d mcount=%d tris=%d",
+		owner->catalog_id[0] ? owner->catalog_id : "(unknown)",
+		stage ? stage : "(unknown)",
+		(void *)&owner->def,
+		(void *)node,
+		rwdata,
+		gdl,
+		vertices,
+		colours,
+		numvertices,
+		mcount,
+		owner->triangle_count);
 }
 
 static s16 clampToS16(f32 value)
@@ -4307,6 +4518,1443 @@ static struct skeleton *generatedModeldefSkeletonFromMetadata(
 	return NULL;
 }
 
+static f32 generatedModeldefScaleFromMetadata(const char *source_path)
+{
+	static const char *members[] = {
+		"mesh.ini",
+		"_meta/manifest.json",
+	};
+	char metadata_path[FS_MAXPATH + 1];
+	char scale_text[64];
+
+	for (s32 i = 0; i < (s32)(sizeof(members) / sizeof(members[0])); i++) {
+		u32 size = 0;
+		char *text;
+
+		if (!generatedModeldefMetadataPath(source_path, members[i],
+				metadata_path, sizeof(metadata_path))) {
+			continue;
+		}
+
+		text = (char *)fsFileLoad(metadata_path, &size);
+		if (!text || size == 0) {
+			if (text) {
+				free(text);
+			}
+			continue;
+		}
+
+		scale_text[0] = '\0';
+		if (generatedModeldefReadStringValue(text, "model_scale",
+				scale_text, sizeof(scale_text))) {
+			char *end = NULL;
+			double scale = strtod(scale_text, &end);
+			free(text);
+			if (end != scale_text && scale > 0.0 &&
+					scale < 1000000000.0) {
+				return (f32)scale;
+			}
+			continue;
+		}
+
+		free(text);
+	}
+
+	return 1.0f;
+}
+
+static s32 objMeshGroupIndexByName(const obj_mesh_t *mesh, const char *name)
+{
+	if (!mesh || !name || !name[0] || strcmp(name, "-") == 0) {
+		return -1;
+	}
+	for (s32 i = 0; i < mesh->group_count; i++) {
+		if (strcmp(mesh->groups[i].name, name) == 0) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+static void generatedHierarchyFree(generated_hierarchy_t *hierarchy)
+{
+	if (!hierarchy) {
+		return;
+	}
+	free(hierarchy->rows);
+	memset(hierarchy, 0, sizeof(*hierarchy));
+}
+
+static s32 generatedHierarchyGrow(generated_hierarchy_t *hierarchy, s32 needed)
+{
+	s32 newcap;
+	generated_hierarchy_row_t *newptr;
+
+	if (hierarchy->row_count + needed <= hierarchy->row_capacity) {
+		return 1;
+	}
+
+	newcap = hierarchy->row_capacity * 2;
+	if (newcap < hierarchy->row_count + needed) {
+		newcap = hierarchy->row_count + needed;
+	}
+	if (newcap < 64) {
+		newcap = 64;
+	}
+
+	newptr = realloc(hierarchy->rows,
+		(size_t)newcap * sizeof(*hierarchy->rows));
+	if (!newptr) {
+		return 0;
+	}
+	memset(newptr + hierarchy->row_capacity, 0,
+		(size_t)(newcap - hierarchy->row_capacity) * sizeof(*newptr));
+	hierarchy->rows = newptr;
+	hierarchy->row_capacity = newcap;
+	return 1;
+}
+
+static void generatedRenderStreamFree(generated_render_stream_t *stream)
+{
+	if (!stream) {
+		return;
+	}
+	free(stream->rows);
+	memset(stream, 0, sizeof(*stream));
+}
+
+static s32 generatedRenderStreamGrow(generated_render_stream_t *stream,
+                                     s32 needed)
+{
+	s32 newcap;
+	generated_render_row_t *newptr;
+
+	if (stream->row_count + needed <= stream->row_capacity) {
+		return 1;
+	}
+
+	newcap = stream->row_capacity * 2;
+	if (newcap < stream->row_count + needed) {
+		newcap = stream->row_count + needed;
+	}
+	if (newcap < 128) {
+		newcap = 128;
+	}
+
+	newptr = realloc(stream->rows, (size_t)newcap * sizeof(*stream->rows));
+	if (!newptr) {
+		return 0;
+	}
+	memset(newptr + stream->row_capacity, 0,
+		(size_t)(newcap - stream->row_capacity) * sizeof(*newptr));
+	stream->rows = newptr;
+	stream->row_capacity = newcap;
+	return 1;
+}
+
+static s32 generatedSplitTabs(char *line, char **cols, s32 max_cols)
+{
+	s32 count = 0;
+	char *p = line;
+
+	if (!line || !cols || max_cols <= 0) {
+		return 0;
+	}
+
+	while (count < max_cols) {
+		char *tab;
+		cols[count++] = p;
+		tab = strchr(p, '\t');
+		if (!tab) {
+			break;
+		}
+		*tab = '\0';
+		p = tab + 1;
+	}
+
+	return count;
+}
+
+static s32 generatedRenderOpFromText(const char *op)
+{
+	if (!op) {
+		return 0;
+	}
+	if (strcmp(op, "mtx") == 0) return GENERATED_RENDER_OP_MTX;
+	if (strcmp(op, "pop") == 0) return GENERATED_RENDER_OP_POP;
+	if (strcmp(op, "material") == 0) return GENERATED_RENDER_OP_MATERIAL;
+	if (strcmp(op, "tri") == 0) return GENERATED_RENDER_OP_TRI;
+	return 0;
+}
+
+static s32 generatedModeldefReadRenderStream(const char *source_path,
+                                             const obj_mesh_t *mesh,
+                                             generated_render_stream_t *stream)
+{
+	char render_path[FS_MAXPATH + 1];
+	u32 size = 0;
+	char *text;
+	char *copy;
+	char *line;
+	s32 parsed_rows = 0;
+
+	if (!source_path || !mesh || !stream) {
+		return 0;
+	}
+	memset(stream, 0, sizeof(*stream));
+	if (!generatedModeldefMetadataPath(source_path, "model.render.tsv",
+			render_path, sizeof(render_path))) {
+		return 0;
+	}
+
+	text = (char *)fsFileLoad(render_path, &size);
+	if (!text || size == 0) {
+		if (text) {
+			free(text);
+		}
+		return 0;
+	}
+
+	copy = malloc((size_t)size + 1);
+	if (!copy) {
+		free(text);
+		return -1;
+	}
+	memcpy(copy, text, size);
+	copy[size] = '\0';
+	free(text);
+
+	line = copy;
+	while (line && *line) {
+		char *end = line;
+		char *next = NULL;
+		char *p;
+
+		while (*end && *end != '\n' && *end != '\r') {
+			end++;
+		}
+		if (*end) {
+			char sep = *end;
+			*end = '\0';
+			next = end + 1;
+			if (sep == '\r' && *next == '\n') {
+				next++;
+			}
+		}
+
+		p = skipSpaces(line);
+		if (*p && *p != '#' && strncmp(p, "group\t", 6) != 0) {
+			char *cols[6];
+			generated_render_row_t row;
+			char *endptr;
+			long face;
+			long matrix;
+			long params;
+			long material;
+			s32 op;
+
+			if (generatedSplitTabs(p, cols, 6) != 6) {
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+			op = generatedRenderOpFromText(cols[1]);
+			if (!op) {
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+			face = strtol(cols[2], &endptr, 10);
+			if (endptr == cols[2]) {
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+			matrix = strtol(cols[3], &endptr, 10);
+			if (endptr == cols[3]) {
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+			params = strtol(cols[4], &endptr, 0);
+			if (endptr == cols[4]) {
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+			material = strtol(cols[5], &endptr, 10);
+			if (endptr == cols[5]) {
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+			if (op == GENERATED_RENDER_OP_TRI &&
+					(face < 0 || face >= mesh->triangle_count)) {
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+			if (!generatedRenderStreamGrow(stream, 1)) {
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+			memset(&row, 0, sizeof(row));
+			strncpy(row.group, cols[0], sizeof(row.group) - 1);
+			row.group[sizeof(row.group) - 1] = '\0';
+			row.op = (u8)op;
+			row.face = (s32)face;
+			row.matrix = (s32)matrix;
+			row.params = (u8)params;
+			row.material = (s32)material;
+			stream->rows[stream->row_count++] = row;
+			parsed_rows++;
+		}
+
+		line = next;
+	}
+
+	free(copy);
+	return parsed_rows > 0 ? 1 : 0;
+}
+
+static s32 generatedModeldefReadHierarchy(const char *source_path,
+                                          generated_hierarchy_t *hierarchy)
+{
+	char hierarchy_path[FS_MAXPATH + 1];
+	u32 size = 0;
+	char *text;
+	char *line;
+	s32 parsed_rows = 0;
+
+	if (!source_path || !hierarchy) {
+		return 0;
+	}
+	memset(hierarchy, 0, sizeof(*hierarchy));
+	if (!generatedModeldefMetadataPath(source_path, "model.nodes.tsv",
+			hierarchy_path, sizeof(hierarchy_path))) {
+		return 0;
+	}
+
+	text = (char *)fsFileLoad(hierarchy_path, &size);
+	if (!text || size == 0) {
+		if (text) {
+			free(text);
+		}
+		return 0;
+	}
+
+	char *copy = malloc((size_t)size + 1);
+	if (!copy) {
+		free(text);
+		return -1;
+	}
+	memcpy(copy, text, size);
+	copy[size] = '\0';
+	free(text);
+
+	line = copy;
+	while (line && *line) {
+		char *end = line;
+		char *next = NULL;
+		char *p;
+
+		while (*end && *end != '\n' && *end != '\r') {
+			end++;
+		}
+		if (*end) {
+			char sep = *end;
+			*end = '\0';
+			next = end + 1;
+			if (sep == '\r' && *next == '\n') {
+				next++;
+			}
+		}
+
+		p = skipSpaces(line);
+		if (*p && *p != '#' && strncmp(p, "id\t", 3) != 0) {
+			generated_hierarchy_row_t row;
+			memset(&row, 0, sizeof(row));
+			row.payload_index = -1;
+			if (sscanf(p,
+					"%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%f\t%f\t%f\t%f\t%d\t%63s\t%d\t%d\t%d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%d\t%d\t%d",
+					&row.id, &row.parent, &row.type,
+					&row.partnum, &row.part, &row.mtx0,
+					&row.mtx1, &row.mtx2, &row.pos_x,
+					&row.pos_y, &row.pos_z, &row.drawdist,
+					&row.target, row.group, &row.render_mtx,
+					&row.mcount, &row.hitpart, &row.xmin,
+					&row.xmax, &row.ymin, &row.ymax,
+					&row.zmin, &row.zmax, &row.distance_near,
+					&row.distance_far, &row.reorder_x,
+					&row.reorder_y, &row.reorder_z,
+					&row.reorder_axis_x, &row.reorder_axis_y,
+					&row.reorder_axis_z, &row.reorder_target_a,
+					&row.reorder_target_b, &row.reorder_side) != 34) {
+				free(copy);
+				generatedHierarchyFree(hierarchy);
+				return -1;
+			}
+			if (!generatedHierarchyGrow(hierarchy, 1)) {
+				free(copy);
+				generatedHierarchyFree(hierarchy);
+				return -1;
+			}
+			hierarchy->rows[hierarchy->row_count++] = row;
+			parsed_rows++;
+		}
+
+		line = next;
+	}
+
+	free(copy);
+	return parsed_rows > 0 ? 1 : 0;
+}
+
+static s32 generatedModeldefTriangleUsesGroup(const obj_triangle_t *tri,
+                                              s32 group_index)
+{
+	return group_index >= 0 && tri && tri->group_index == group_index;
+}
+
+static s32 generatedRenderRowUsesGroup(const generated_render_row_t *row,
+                                       const char *group_name)
+{
+	return row && group_name && group_name[0] &&
+		strcmp(row->group, group_name) == 0;
+}
+
+static s32 generatedRenderStreamTriCount(
+	const generated_render_stream_t *stream,
+	const obj_mesh_t *mesh,
+	const char *group_name,
+	s32 group_index)
+{
+	s32 count = 0;
+
+	if (!stream || !mesh || !group_name || !group_name[0]) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < stream->row_count; i++) {
+		const generated_render_row_t *row = &stream->rows[i];
+		if (row->op != GENERATED_RENDER_OP_TRI ||
+				!generatedRenderRowUsesGroup(row, group_name) ||
+				row->face < 0 ||
+				row->face >= mesh->triangle_count ||
+				!generatedModeldefTriangleUsesGroup(
+					&mesh->triangles[row->face], group_index)) {
+			continue;
+		}
+		count++;
+	}
+
+	return count;
+}
+
+static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
+                                         s32 group_index,
+                                         const char *group_name,
+                                         s32 matrix_index,
+                                         s32 model_segment,
+                                         const generated_render_stream_t *stream,
+                                         generated_dl_payload_t *payload)
+{
+	s32 tri_count = 0;
+	s32 material_switch_count = 0;
+	s32 textured_material_count = 0;
+	s32 vtx_count;
+	s32 source_gdl_count;
+	s32 output_gdl_count;
+	size_t vertex_bytes;
+	size_t vertex_colour_bytes;
+	u32 vertex_segment;
+	u32 colour_segment;
+	Gfx *source_gdl = NULL;
+	Gfx *gdl;
+	s32 emitted = 0;
+	s32 use_render_stream = 0;
+	s32 render_stream_cmd_count = 0;
+
+	if (!mesh || !payload) {
+		return 0;
+	}
+	memset(payload, 0, sizeof(*payload));
+
+	tri_count = generatedRenderStreamTriCount(stream, mesh, group_name,
+		group_index);
+	use_render_stream = tri_count > 0;
+
+	if (use_render_stream) {
+		for (s32 i = 0, last_material = -2; i < stream->row_count; i++) {
+			const generated_render_row_t *row = &stream->rows[i];
+			const obj_triangle_t *tri;
+			if (!generatedRenderRowUsesGroup(row, group_name)) {
+				continue;
+			}
+			render_stream_cmd_count++;
+			if (row->op != GENERATED_RENDER_OP_TRI ||
+					row->face < 0 ||
+					row->face >= mesh->triangle_count) {
+				continue;
+			}
+			tri = &mesh->triangles[row->face];
+			if (!generatedModeldefTriangleUsesGroup(tri, group_index)) {
+				continue;
+			}
+			if (tri->material_index != last_material) {
+				material_switch_count++;
+				last_material = tri->material_index;
+			}
+		}
+	} else {
+		for (s32 i = 0, last_material = -2; i < mesh->triangle_count; i++) {
+			const obj_triangle_t *tri = &mesh->triangles[i];
+			if (!generatedModeldefTriangleUsesGroup(tri, group_index)) {
+				continue;
+			}
+			tri_count++;
+			if (tri->material_index != last_material) {
+				material_switch_count++;
+				last_material = tri->material_index;
+			}
+		}
+	}
+
+	for (s32 m = 0; m < mesh->material_count; m++) {
+		if (!objMaterialHasTexture(&mesh->materials[m])) {
+			continue;
+		}
+		if (use_render_stream) {
+			for (s32 i = 0; i < stream->row_count; i++) {
+				const generated_render_row_t *row = &stream->rows[i];
+				const obj_triangle_t *tri;
+				if (row->op != GENERATED_RENDER_OP_TRI ||
+						!generatedRenderRowUsesGroup(row, group_name) ||
+						row->face < 0 ||
+						row->face >= mesh->triangle_count) {
+					continue;
+				}
+				tri = &mesh->triangles[row->face];
+				if (generatedModeldefTriangleUsesGroup(tri, group_index) &&
+						tri->material_index == m) {
+					textured_material_count++;
+					break;
+				}
+			}
+		} else {
+			for (s32 i = 0; i < mesh->triangle_count; i++) {
+				const obj_triangle_t *tri = &mesh->triangles[i];
+				if (generatedModeldefTriangleUsesGroup(tri, group_index) &&
+						tri->material_index == m) {
+					textured_material_count++;
+					break;
+				}
+			}
+		}
+	}
+
+	vtx_count = tri_count * 3;
+	vertex_bytes = (size_t)(vtx_count > 0 ? vtx_count : 1) *
+		sizeof(*payload->vertices);
+	vertex_colour_bytes = (size_t)ALIGN8(vertex_bytes) +
+		sizeof(*payload->colours);
+	payload->vertices = calloc(1, vertex_colour_bytes);
+	if (!payload->vertices) {
+		return 0;
+	}
+	payload->colours = (Col *)((u8 *)payload->vertices + ALIGN8(vertex_bytes));
+	payload->colours[0].r = 0xff;
+	payload->colours[0].g = 0xff;
+	payload->colours[0].b = 0xff;
+	payload->colours[0].a = 0xff;
+	payload->vertex_bytes = vertex_bytes;
+	payload->vertex_count = vtx_count;
+	payload->triangle_count = tri_count;
+	if (model_segment != SPSEGMENT_MODEL_COL1) {
+		model_segment = SPSEGMENT_MODEL_VTX;
+	}
+	vertex_segment = ((u32)model_segment << 24);
+	colour_segment = model_segment == SPSEGMENT_MODEL_COL1 ?
+		(((u32)SPSEGMENT_MODEL_COL1 << 24) | (u32)ALIGN8(vertex_bytes)) :
+		((u32)SPSEGMENT_MODEL_COL2 << 24);
+
+	if (tri_count == 0) {
+		return 1;
+	}
+
+	source_gdl_count = tri_count * 3 + 7 + material_switch_count * 3 +
+		render_stream_cmd_count * 2;
+	output_gdl_count = source_gdl_count
+		+ material_switch_count * 512
+		+ textured_material_count * 256
+		+ 4096;
+	source_gdl = calloc((size_t)source_gdl_count, sizeof(*source_gdl));
+	payload->gdl = calloc((size_t)output_gdl_count, sizeof(*payload->gdl));
+	if (!source_gdl || !payload->gdl) {
+		free(source_gdl);
+		free(payload->vertices);
+		memset(payload, 0, sizeof(*payload));
+		return 0;
+	}
+
+	if (use_render_stream) {
+		for (s32 i = 0; i < stream->row_count; i++) {
+			const generated_render_row_t *row = &stream->rows[i];
+			const obj_triangle_t *tri;
+			const obj_texcoord_t *ta;
+			const obj_texcoord_t *tb;
+			const obj_texcoord_t *tc;
+			if (row->op != GENERATED_RENDER_OP_TRI ||
+					!generatedRenderRowUsesGroup(row, group_name) ||
+					row->face < 0 ||
+					row->face >= mesh->triangle_count) {
+				continue;
+			}
+			tri = &mesh->triangles[row->face];
+			if (!generatedModeldefTriangleUsesGroup(tri, group_index)) {
+				continue;
+			}
+			ta = objMeshTexcoord(mesh, tri->ta);
+			tb = objMeshTexcoord(mesh, tri->tb);
+			tc = objMeshTexcoord(mesh, tri->tc);
+			fillGeneratedVertex(&payload->vertices[emitted * 3 + 0],
+				&mesh->vertices[tri->a], ta);
+			fillGeneratedVertex(&payload->vertices[emitted * 3 + 1],
+				&mesh->vertices[tri->b], tb);
+			fillGeneratedVertex(&payload->vertices[emitted * 3 + 2],
+				&mesh->vertices[tri->c], tc);
+			emitted++;
+		}
+	} else {
+		for (s32 i = 0; i < mesh->triangle_count; i++) {
+			const obj_triangle_t *tri = &mesh->triangles[i];
+			const obj_texcoord_t *ta;
+			const obj_texcoord_t *tb;
+			const obj_texcoord_t *tc;
+			if (!generatedModeldefTriangleUsesGroup(tri, group_index)) {
+				continue;
+			}
+			ta = objMeshTexcoord(mesh, tri->ta);
+			tb = objMeshTexcoord(mesh, tri->tb);
+			tc = objMeshTexcoord(mesh, tri->tc);
+			fillGeneratedVertex(&payload->vertices[emitted * 3 + 0],
+				&mesh->vertices[tri->a], ta);
+			fillGeneratedVertex(&payload->vertices[emitted * 3 + 1],
+				&mesh->vertices[tri->b], tb);
+			fillGeneratedVertex(&payload->vertices[emitted * 3 + 2],
+				&mesh->vertices[tri->c], tc);
+			emitted++;
+		}
+	}
+
+	gdl = source_gdl;
+	if (matrix_index < 0) {
+		matrix_index = 0;
+	}
+	if (!use_render_stream) {
+		gSPMatrix(gdl++,
+			SEGADDR((SPSEGMENT_MODEL_MTX << 24) |
+				((u32)matrix_index * (u32)sizeof(Mtxf))),
+			G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+	}
+	gSPColor(gdl++, SEGADDR(colour_segment), 1);
+	gSPTexture(gdl++, 0, 0, 0, 0, 0);
+	gSPClearGeometryMode(gdl++,
+		G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH);
+	gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
+	gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+
+	emitted = 0;
+	if (use_render_stream) {
+		for (s32 i = 0, last_material = -2, last_textured = 0,
+				last_matrix = -0x40000000; i < stream->row_count; i++) {
+			const generated_render_row_t *row = &stream->rows[i];
+			const obj_triangle_t *tri;
+			const obj_material_t *material;
+			uintptr_t offset;
+			s32 tri_matrix;
+
+			if (!generatedRenderRowUsesGroup(row, group_name)) {
+				continue;
+			}
+
+			if (row->op == GENERATED_RENDER_OP_MTX) {
+				if (row->matrix >= 0 &&
+						!(row->params & G_MTX_PROJECTION)) {
+					gSPMatrix(gdl++,
+						SEGADDR((SPSEGMENT_MODEL_MTX << 24) |
+							((u32)row->matrix * (u32)sizeof(Mtxf))),
+						row->params);
+					last_matrix = row->matrix;
+				}
+				continue;
+			}
+
+			if (row->op == GENERATED_RENDER_OP_POP) {
+				gSPPopMatrix(gdl++, G_MTX_MODELVIEW);
+				last_matrix = -0x40000000;
+				continue;
+			}
+
+			if (row->op == GENERATED_RENDER_OP_MATERIAL) {
+				if (row->material >= 0 &&
+						row->material < mesh->material_count) {
+					material = &mesh->materials[row->material];
+					if (objMaterialHasTexture(material)) {
+						emitGeneratedTextureMarker(&gdl, material);
+						last_textured = 1;
+					} else if (last_textured) {
+						emitGeneratedUntexturedState(&gdl);
+						last_textured = 0;
+					}
+					last_material = row->material;
+				}
+				continue;
+			}
+
+			if (row->op != GENERATED_RENDER_OP_TRI ||
+					row->face < 0 ||
+					row->face >= mesh->triangle_count) {
+				continue;
+			}
+
+			tri = &mesh->triangles[row->face];
+			if (!generatedModeldefTriangleUsesGroup(tri, group_index)) {
+				continue;
+			}
+
+			material = objMeshTriangleMaterial(mesh, tri);
+			offset = (uintptr_t)(emitted * 3 * (s32)sizeof(Vtx));
+			tri_matrix = row->matrix >= 0 ? row->matrix :
+				(tri->matrix_index >= 0 ? tri->matrix_index :
+					matrix_index);
+			if (tri_matrix != last_matrix) {
+				gSPMatrix(gdl++,
+					SEGADDR((SPSEGMENT_MODEL_MTX << 24) |
+						((u32)tri_matrix * (u32)sizeof(Mtxf))),
+					G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+				last_matrix = tri_matrix;
+			}
+			if (tri->material_index != last_material) {
+				if (objMaterialHasTexture(material)) {
+					emitGeneratedTextureMarker(&gdl, material);
+					last_textured = 1;
+				} else if (last_textured) {
+					emitGeneratedUntexturedState(&gdl);
+					last_textured = 0;
+				}
+				last_material = tri->material_index;
+			}
+			gSPVertex(gdl++, SEGADDR(vertex_segment | offset), 3, 0);
+			gSP1Triangle(gdl++, 0, 1, 2, 0);
+			emitted++;
+		}
+	} else {
+		for (s32 i = 0, last_material = -2, last_textured = 0,
+				last_matrix = matrix_index;
+				i < mesh->triangle_count; i++) {
+			const obj_triangle_t *tri = &mesh->triangles[i];
+			const obj_material_t *material;
+			uintptr_t offset;
+			s32 tri_matrix;
+			if (!generatedModeldefTriangleUsesGroup(tri, group_index)) {
+				continue;
+			}
+			material = objMeshTriangleMaterial(mesh, tri);
+			offset = (uintptr_t)(emitted * 3 * (s32)sizeof(Vtx));
+			tri_matrix = tri->matrix_index >= 0 ?
+				tri->matrix_index : matrix_index;
+			if (tri_matrix != last_matrix) {
+				gSPMatrix(gdl++,
+					SEGADDR((SPSEGMENT_MODEL_MTX << 24) |
+						((u32)tri_matrix * (u32)sizeof(Mtxf))),
+					G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+				last_matrix = tri_matrix;
+			}
+			if (tri->material_index != last_material) {
+				if (objMaterialHasTexture(material)) {
+					emitGeneratedTextureMarker(&gdl, material);
+					last_textured = 1;
+				} else if (last_textured) {
+					emitGeneratedUntexturedState(&gdl);
+					last_textured = 0;
+				}
+				last_material = tri->material_index;
+			}
+			gSPVertex(gdl++, SEGADDR(vertex_segment | offset), 3, 0);
+			gSP1Triangle(gdl++, 0, 1, 2, 0);
+			emitted++;
+		}
+	}
+	gSPEndDisplayList(gdl++);
+
+	{
+		s32 source_bytes = (s32)((uintptr_t)gdl - (uintptr_t)source_gdl);
+		s32 output_bytes = source_bytes;
+		if (textured_material_count > 0) {
+			output_bytes = texLoadFromGdl(source_gdl, source_bytes,
+				payload->gdl, NULL, (u8 *)payload->vertices);
+			if (output_bytes <= 0 ||
+					output_bytes > output_gdl_count * (s32)sizeof(Gfx)) {
+				free(source_gdl);
+				free(payload->vertices);
+				free(payload->gdl);
+				memset(payload, 0, sizeof(*payload));
+				return 0;
+			}
+		} else {
+			memcpy(payload->gdl, source_gdl, (size_t)source_bytes);
+		}
+		payload->gdl_bytes = (size_t)output_bytes;
+		if (model_segment == SPSEGMENT_MODEL_COL1) {
+			size_t colour_offset = ALIGN8(vertex_bytes);
+			size_t gdl_offset = ALIGN8(colour_offset + sizeof(*payload->colours));
+			size_t base_bytes = gdl_offset + payload->gdl_bytes;
+			payload->baseaddr = calloc(1, base_bytes);
+			if (!payload->baseaddr) {
+				free(source_gdl);
+				free(payload->vertices);
+				free(payload->gdl);
+				memset(payload, 0, sizeof(*payload));
+				return 0;
+			}
+			memcpy(payload->baseaddr, payload->vertices, vertex_bytes);
+			memcpy((u8 *)payload->baseaddr + colour_offset,
+				payload->colours, sizeof(*payload->colours));
+			memcpy((u8 *)payload->baseaddr + gdl_offset,
+				payload->gdl, payload->gdl_bytes);
+			payload->seg_gdl = (Gfx *)SEGADDR(
+				((u32)SPSEGMENT_MODEL_COL1 << 24) | (u32)gdl_offset);
+		}
+	}
+	free(source_gdl);
+	return 1;
+}
+
+typedef struct generated_part_entry {
+	s32 partnum;
+	struct modelnode *node;
+} generated_part_entry_t;
+
+static s32 generatedModeldefPartEntriesGrow(generated_part_entry_t **entries,
+                                             s32 *capacity,
+                                             s32 needed)
+{
+	s32 newcap;
+	generated_part_entry_t *newptr;
+
+	if (!entries || !capacity) {
+		return 0;
+	}
+	if (needed <= *capacity) {
+		return 1;
+	}
+
+	newcap = *capacity * 2;
+	if (newcap < needed) {
+		newcap = needed;
+	}
+	if (newcap < 32) {
+		newcap = 32;
+	}
+
+	newptr = realloc(*entries, (size_t)newcap * sizeof(**entries));
+	if (!newptr) {
+		return 0;
+	}
+	memset(newptr + *capacity, 0,
+		(size_t)(newcap - *capacity) * sizeof(*newptr));
+	*entries = newptr;
+	*capacity = newcap;
+	return 1;
+}
+
+static s32 generatedModeldefReadParts(const char *source_path,
+                                      struct modelnode *nodes,
+                                      s32 node_count,
+                                      generated_part_entry_t **out_parts,
+                                      s32 *out_part_count)
+{
+	char parts_path[FS_MAXPATH + 1];
+	u32 size = 0;
+	char *text;
+	char *copy;
+	char *line;
+	generated_part_entry_t *parts = NULL;
+	s32 part_count = 0;
+	s32 part_capacity = 0;
+
+	if (out_parts) {
+		*out_parts = NULL;
+	}
+	if (out_part_count) {
+		*out_part_count = 0;
+	}
+	if (!source_path || !nodes || node_count <= 0 ||
+			!out_parts || !out_part_count) {
+		return 0;
+	}
+	if (!generatedModeldefMetadataPath(source_path, "model.parts.tsv",
+			parts_path, sizeof(parts_path))) {
+		return 0;
+	}
+
+	text = (char *)fsFileLoad(parts_path, &size);
+	if (!text || size == 0) {
+		if (text) {
+			free(text);
+		}
+		return 0;
+	}
+
+	copy = malloc((size_t)size + 1);
+	if (!copy) {
+		free(text);
+		return -1;
+	}
+	memcpy(copy, text, size);
+	copy[size] = '\0';
+	free(text);
+
+	line = copy;
+	while (line && *line) {
+		char *end = line;
+		char *next = NULL;
+		char *p;
+
+		while (*end && *end != '\n' && *end != '\r') {
+			end++;
+		}
+		if (*end) {
+			char sep = *end;
+			*end = '\0';
+			next = end + 1;
+			if (sep == '\r' && *next == '\n') {
+				next++;
+			}
+		}
+
+		p = skipSpaces(line);
+		if (*p && *p != '#' && strncmp(p, "partnum\t", 8) != 0) {
+			s32 partnum;
+			s32 node_id;
+			if (sscanf(p, "%d\t%d", &partnum, &node_id) != 2 ||
+					node_id < 0 || node_id >= node_count) {
+				free(parts);
+				free(copy);
+				return -1;
+			}
+			if (!generatedModeldefPartEntriesGrow(&parts, &part_capacity,
+					part_count + 1)) {
+				free(parts);
+				free(copy);
+				return -1;
+			}
+			parts[part_count].partnum = partnum;
+			parts[part_count].node = &nodes[node_id];
+			part_count++;
+		}
+
+		line = next;
+	}
+
+	free(copy);
+	*out_parts = parts;
+	*out_part_count = part_count;
+	return 1;
+}
+
+static s32 generatedModeldefReadFaces(const char *source_path,
+                                      obj_mesh_t *mesh)
+{
+	char faces_path[FS_MAXPATH + 1];
+	u32 size = 0;
+	char *text;
+	char *copy;
+	char *line;
+	u8 *seen;
+	s32 parsed_rows = 0;
+
+	if (!source_path || !mesh || mesh->triangle_count <= 0) {
+		return 0;
+	}
+	if (!generatedModeldefMetadataPath(source_path, "model.faces.tsv",
+			faces_path, sizeof(faces_path))) {
+		return 0;
+	}
+
+	text = (char *)fsFileLoad(faces_path, &size);
+	if (!text || size == 0) {
+		if (text) {
+			free(text);
+		}
+		return 0;
+	}
+
+	copy = malloc((size_t)size + 1);
+	seen = calloc((size_t)mesh->triangle_count, sizeof(*seen));
+	if (!copy || !seen) {
+		free(text);
+		free(copy);
+		free(seen);
+		return -1;
+	}
+	memcpy(copy, text, size);
+	copy[size] = '\0';
+	free(text);
+
+	for (s32 i = 0; i < mesh->triangle_count; i++) {
+		mesh->triangles[i].matrix_index = -1;
+	}
+
+	line = copy;
+	while (line && *line) {
+		char *end = line;
+		char *next = NULL;
+		char *p;
+
+		while (*end && *end != '\n' && *end != '\r') {
+			end++;
+		}
+		if (*end) {
+			char sep = *end;
+			*end = '\0';
+			next = end + 1;
+			if (sep == '\r' && *next == '\n') {
+				next++;
+			}
+		}
+
+		p = skipSpaces(line);
+		if (*p && *p != '#' && strncmp(p, "face\t", 5) != 0) {
+			s32 face_index;
+			s32 matrix_index;
+			if (sscanf(p, "%d\t%d", &face_index, &matrix_index) != 2 ||
+					face_index < 0 ||
+					face_index >= mesh->triangle_count ||
+					matrix_index < 0 ||
+					seen[face_index]) {
+				free(seen);
+				free(copy);
+				return -1;
+			}
+			mesh->triangles[face_index].matrix_index = matrix_index;
+			seen[face_index] = 1;
+			parsed_rows++;
+		}
+
+		line = next;
+	}
+
+	free(seen);
+	free(copy);
+	return parsed_rows == mesh->triangle_count ? 1 : -1;
+}
+
+static int generatedPartCompare(const void *a, const void *b)
+{
+	const generated_part_entry_t *pa = (const generated_part_entry_t *)a;
+	const generated_part_entry_t *pb = (const generated_part_entry_t *)b;
+	if (pa->partnum < pb->partnum) return -1;
+	if (pa->partnum > pb->partnum) return 1;
+	return 0;
+}
+
+static s32 generatedModeldefTypeIsRender(s32 type)
+{
+	return type == MODELNODETYPE_DL ||
+		type == MODELNODETYPE_GUNDL ||
+		type == MODELNODETYPE_STARGUNFIRE;
+}
+
+static s32 generatedModeldefPreserveGunDlType(struct skeleton *skeleton)
+{
+	if (!skeleton) {
+		return 0;
+	}
+	if (skeleton == &g_SkelHand) {
+		return 1;
+	}
+	switch (skeleton->skel) {
+	case SKEL_CLASSICGUN:
+	case SKEL_UZI:
+	case SKEL_LAPTOPGUN:
+	case SKEL_K7AVENGER:
+	case SKEL_FALCON2:
+	case SKEL_KNIFE:
+	case SKEL_CMP150:
+	case SKEL_DRAGON:
+	case SKEL_SUPERDRAGON:
+	case SKEL_ROCKET:
+	case SKEL_SHOTGUN:
+	case SKEL_FARSIGHT:
+	case SKEL_REAPER:
+	case SKEL_MAULER:
+	case SKEL_DEVASTATOR:
+	case SKEL_PISTOL:
+	case SKEL_AR34:
+	case SKEL_MAGNUM:
+	case SKEL_SLAYERROCKET:
+	case SKEL_CYCLONE:
+	case SKEL_SNIPERRIFLE:
+	case SKEL_TRANQUILIZER:
+	case SKEL_CROSSBOW:
+	case SKEL_TIMEDPROXYMINE:
+	case SKEL_PHOENIX:
+	case SKEL_CALLISTO:
+	case SKEL_RCP120:
+	case SKEL_LASER:
+	case SKEL_GRENADE:
+	case SKEL_ECMMINE:
+	case SKEL_UPLINK:
+	case SKEL_REMOTEMINE:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+static s32 generatedModeldefAppendChild(struct modelnode *parent,
+                                        struct modelnode *child)
+{
+	struct modelnode *cursor;
+
+	if (!parent || !child) {
+		return 0;
+	}
+	child->parent = parent;
+	if (!parent->child) {
+		parent->child = child;
+		return 1;
+	}
+	cursor = parent->child;
+	while (cursor->next) {
+		cursor = cursor->next;
+	}
+	cursor->next = child;
+	child->prev = cursor;
+	return 1;
+}
+
+static void generatedModeldefFreePayloads(generated_modeldef_t *owner)
+{
+	if (!owner || !owner->dynamic_payloads) {
+		return;
+	}
+	for (s32 i = 0; i < owner->dynamic_payload_count; i++) {
+		free(owner->dynamic_payloads[i].baseaddr);
+		free(owner->dynamic_payloads[i].vertices);
+		free(owner->dynamic_payloads[i].gdl);
+	}
+	free(owner->dynamic_payloads);
+	owner->dynamic_payloads = NULL;
+	owner->dynamic_payload_count = 0;
+}
+
+static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
+                                                   const char *source_path,
+                                                   obj_mesh_t *mesh,
+                                                   struct modeldef **out_modeldef)
+{
+	generated_hierarchy_t hierarchy;
+	generated_modeldef_t *owner = NULL;
+	generated_part_entry_t *parts = NULL;
+	generated_render_stream_t render_stream;
+	s32 part_count = 0;
+	s32 max_mtx = -1;
+	s32 payload_count = 0;
+	struct skeleton *skeleton;
+	s32 read_rc;
+	s32 render_stream_rc;
+
+	if (out_modeldef) {
+		*out_modeldef = NULL;
+	}
+	read_rc = generatedModeldefReadHierarchy(source_path, &hierarchy);
+	if (read_rc <= 0) {
+		return read_rc;
+	}
+	if (!mesh || !out_modeldef || hierarchy.row_count <= 0) {
+		generatedHierarchyFree(&hierarchy);
+		return -1;
+	}
+	if (generatedModeldefReadFaces(source_path, mesh) <= 0) {
+		generatedHierarchyFree(&hierarchy);
+		return -1;
+	}
+	render_stream_rc = generatedModeldefReadRenderStream(source_path, mesh,
+		&render_stream);
+	if (render_stream_rc <= 0) {
+		generatedHierarchyFree(&hierarchy);
+		return -1;
+	}
+
+	owner = calloc(1, sizeof(*owner));
+	if (!owner) {
+		generatedRenderStreamFree(&render_stream);
+		generatedHierarchyFree(&hierarchy);
+		return -1;
+	}
+	owner->dynamic_nodes = calloc((size_t)hierarchy.row_count,
+		sizeof(*owner->dynamic_nodes));
+	owner->dynamic_rodatas = calloc((size_t)hierarchy.row_count,
+		sizeof(*owner->dynamic_rodatas));
+	owner->dynamic_payloads = calloc((size_t)hierarchy.row_count,
+		sizeof(*owner->dynamic_payloads));
+	if (!owner->dynamic_nodes || !owner->dynamic_rodatas ||
+			!owner->dynamic_payloads) {
+		generatedRenderStreamFree(&render_stream);
+		generatedHierarchyFree(&hierarchy);
+		modAssetCompilerFreeModeldef(&owner->def);
+		return -1;
+	}
+	owner->dynamic_payload_count = hierarchy.row_count;
+	skeleton = generatedModeldefSkeletonFromMetadata(source_path);
+
+	if (entry && entry->id[0]) {
+		strncpy(owner->catalog_id, entry->id, sizeof(owner->catalog_id) - 1);
+		owner->catalog_id[sizeof(owner->catalog_id) - 1] = '\0';
+	}
+	if (source_path && source_path[0]) {
+		strncpy(owner->source_path, source_path,
+			sizeof(owner->source_path) - 1);
+		owner->source_path[sizeof(owner->source_path) - 1] = '\0';
+	}
+
+	for (s32 i = 0; i < hierarchy.row_count; i++) {
+		generated_hierarchy_row_t *row = &hierarchy.rows[i];
+		struct modelnode *node = &owner->dynamic_nodes[i];
+		union modelrodata *rodata = &owner->dynamic_rodatas[i];
+		s32 node_type = row->type;
+
+		if (row->id != i) {
+			free(parts);
+			generatedRenderStreamFree(&render_stream);
+			generatedHierarchyFree(&hierarchy);
+			modAssetCompilerFreeModeldef(&owner->def);
+			return -1;
+		}
+
+		if (node_type == MODELNODETYPE_GUNDL &&
+				!generatedModeldefPreserveGunDlType(skeleton)) {
+			node_type = MODELNODETYPE_DL;
+		}
+
+		if (generatedModeldefTypeIsRender(node_type)) {
+			s32 group_index = objMeshGroupIndexByName(mesh, row->group);
+			s32 payload_segment = node_type == MODELNODETYPE_GUNDL ?
+				SPSEGMENT_MODEL_COL1 : SPSEGMENT_MODEL_VTX;
+			row->payload_index = payload_count++;
+			if (!generatedModeldefBuildPayload(mesh, group_index,
+					row->group, row->render_mtx, payload_segment,
+					&render_stream,
+					&owner->dynamic_payloads[row->payload_index])) {
+				free(parts);
+				generatedRenderStreamFree(&render_stream);
+				generatedHierarchyFree(&hierarchy);
+				modAssetCompilerFreeModeldef(&owner->def);
+				return -1;
+			}
+			owner->triangle_count +=
+				owner->dynamic_payloads[row->payload_index].triangle_count;
+			owner->vertex_count +=
+				owner->dynamic_payloads[row->payload_index].vertex_count;
+			if (node_type == MODELNODETYPE_STARGUNFIRE) {
+				node_type = MODELNODETYPE_DL;
+			}
+		}
+
+		node->type = (u16)node_type;
+		node->rodata = rodata;
+
+		switch (node_type) {
+		case MODELNODETYPE_CHRINFO:
+			rodata->chrinfo.animpart = row->part >= 0 ? (u16)row->part : 0;
+			rodata->chrinfo.mtxindex = (s16)row->mtx0;
+			rodata->chrinfo.unk04 = 0.0f;
+			break;
+		case MODELNODETYPE_POSITION:
+			rodata->position.pos.x = row->pos_x;
+			rodata->position.pos.y = row->pos_y;
+			rodata->position.pos.z = row->pos_z;
+			rodata->position.part = row->part >= 0 ? (u16)row->part : 0xffff;
+			rodata->position.mtxindex0 = (s16)row->mtx0;
+			rodata->position.mtxindex1 = (s16)row->mtx1;
+			rodata->position.mtxindex2 = (s16)row->mtx2;
+			rodata->position.drawdist = row->drawdist;
+			break;
+		case MODELNODETYPE_POSITIONHELD:
+			rodata->positionheld.pos.x = row->pos_x;
+			rodata->positionheld.pos.y = row->pos_y;
+			rodata->positionheld.pos.z = row->pos_z;
+			rodata->positionheld.mtxindex = (s16)row->mtx0;
+			break;
+		case MODELNODETYPE_TOGGLE:
+			break;
+		case MODELNODETYPE_DISTANCE:
+			rodata->distance.near = row->distance_near;
+			rodata->distance.far = row->distance_far;
+			break;
+		case MODELNODETYPE_REORDER:
+			rodata->reorder.unk00 = row->reorder_x;
+			rodata->reorder.unk04 = row->reorder_y;
+			rodata->reorder.unk08 = row->reorder_z;
+			rodata->reorder.unk0c[0] = row->reorder_axis_x;
+			rodata->reorder.unk0c[1] = row->reorder_axis_y;
+			rodata->reorder.unk0c[2] = row->reorder_axis_z;
+			rodata->reorder.side = (s16)row->reorder_side;
+			break;
+		case MODELNODETYPE_HEADSPOT:
+			break;
+		case MODELNODETYPE_BBOX:
+			rodata->bbox.hitpart = row->hitpart;
+			rodata->bbox.xmin = row->xmin;
+			rodata->bbox.xmax = row->xmax;
+			rodata->bbox.ymin = row->ymin;
+			rodata->bbox.ymax = row->ymax;
+			rodata->bbox.zmin = row->zmin;
+			rodata->bbox.zmax = row->zmax;
+			break;
+		case MODELNODETYPE_DL:
+			if (row->payload_index >= 0) {
+				generated_dl_payload_t *payload =
+					&owner->dynamic_payloads[row->payload_index];
+				rodata->dl.opagdl = payload->gdl;
+				rodata->dl.xlugdl = NULL;
+				rodata->dl.colours = payload->colours;
+				rodata->dl.vertices = payload->vertices;
+				rodata->dl.numvertices = (s16)payload->vertex_count;
+				rodata->dl.mcount = row->mcount > 0 ? (s16)row->mcount : 1;
+				rodata->dl.numcolours = 1;
+			}
+			break;
+		case MODELNODETYPE_GUNDL:
+			if (row->payload_index >= 0) {
+				generated_dl_payload_t *payload =
+					&owner->dynamic_payloads[row->payload_index];
+				rodata->gundl.opagdl = payload->seg_gdl;
+				rodata->gundl.xlugdl = NULL;
+				rodata->gundl.baseaddr = payload->baseaddr;
+				rodata->gundl.vertices = (Vtx *)payload->baseaddr;
+				rodata->gundl.numvertices = (s16)payload->vertex_count;
+				rodata->gundl.unk12 = row->mcount > 0 ? (s16)row->mcount : 1;
+			}
+			break;
+		default:
+			break;
+		}
+
+		if (row->mtx0 > max_mtx) max_mtx = row->mtx0;
+		if (row->mtx1 > max_mtx) max_mtx = row->mtx1;
+		if (row->mtx2 > max_mtx) max_mtx = row->mtx2;
+		if (row->render_mtx > max_mtx) max_mtx = row->render_mtx;
+	}
+	for (s32 i = 0; i < mesh->triangle_count; i++) {
+		if (mesh->triangles[i].matrix_index > max_mtx) {
+			max_mtx = mesh->triangles[i].matrix_index;
+		}
+	}
+	for (s32 i = 0; i < render_stream.row_count; i++) {
+		if (render_stream.rows[i].matrix > max_mtx) {
+			max_mtx = render_stream.rows[i].matrix;
+		}
+	}
+	for (s32 i = 0; i < hierarchy.row_count; i++) {
+		generated_hierarchy_row_t *row = &hierarchy.rows[i];
+		if (row->parent >= 0 && row->parent < hierarchy.row_count) {
+			generatedModeldefAppendChild(&owner->dynamic_nodes[row->parent],
+				&owner->dynamic_nodes[i]);
+		}
+	}
+
+	for (s32 i = 0; i < hierarchy.row_count; i++) {
+		generated_hierarchy_row_t *row = &hierarchy.rows[i];
+		if (row->type == MODELNODETYPE_TOGGLE && row->target >= 0 &&
+				row->target < hierarchy.row_count) {
+			owner->dynamic_rodatas[i].toggle.target =
+				&owner->dynamic_nodes[row->target];
+		} else if (row->type == MODELNODETYPE_DISTANCE &&
+				row->target >= 0 && row->target < hierarchy.row_count) {
+			owner->dynamic_rodatas[i].distance.target =
+				&owner->dynamic_nodes[row->target];
+		} else if (row->type == MODELNODETYPE_REORDER) {
+			if (row->reorder_target_a >= 0 &&
+					row->reorder_target_a < hierarchy.row_count) {
+				owner->dynamic_rodatas[i].reorder.unk18 =
+					&owner->dynamic_nodes[row->reorder_target_a];
+			}
+			if (row->reorder_target_b >= 0 &&
+					row->reorder_target_b < hierarchy.row_count) {
+				owner->dynamic_rodatas[i].reorder.unk1c =
+					&owner->dynamic_nodes[row->reorder_target_b];
+			}
+		}
+	}
+
+	{
+		s32 parts_rc = generatedModeldefReadParts(source_path,
+			owner->dynamic_nodes, hierarchy.row_count, &parts, &part_count);
+		if (parts_rc <= 0) {
+			free(parts);
+			generatedRenderStreamFree(&render_stream);
+			generatedHierarchyFree(&hierarchy);
+			modAssetCompilerFreeModeldef(&owner->def);
+			return -1;
+		}
+	}
+
+	if (part_count > 0) {
+		size_t ptr_bytes = (size_t)part_count *
+			sizeof(struct modelnode *);
+		size_t num_bytes = (size_t)part_count * sizeof(s16);
+		struct modelnode **part_nodes;
+		s16 *part_nums;
+		qsort(parts, (size_t)part_count, sizeof(*parts),
+			generatedPartCompare);
+		owner->dynamic_parts = calloc(1, ptr_bytes + num_bytes);
+		if (!owner->dynamic_parts) {
+			free(parts);
+			generatedRenderStreamFree(&render_stream);
+			generatedHierarchyFree(&hierarchy);
+			modAssetCompilerFreeModeldef(&owner->def);
+			return -1;
+		}
+		part_nodes = (struct modelnode **)owner->dynamic_parts;
+		part_nums = (s16 *)((u8 *)owner->dynamic_parts + ptr_bytes);
+		for (s32 i = 0; i < part_count; i++) {
+			part_nodes[i] = parts[i].node;
+			part_nums[i] = (s16)parts[i].partnum;
+		}
+		owner->def.parts = part_nodes;
+		owner->def.numparts = (s16)part_count;
+	}
+
+	free(parts);
+	owner->def.rootnode = &owner->dynamic_nodes[0];
+	owner->def.skel = skeleton;
+	owner->def.nummatrices = (s16)(max_mtx >= 0 ? max_mtx + 1 : 1);
+	owner->def.scale = generatedModeldefScaleFromMetadata(source_path);
+	owner->def.numtexconfigs = 0;
+	owner->def.texconfigs = NULL;
+	owner->def.rwdatalen = modelCalculateRwDataIndexes(owner->def.rootnode);
+	generatedModeldefRegister(owner);
+	*out_modeldef = &owner->def;
+
+	sysLogPrintf(LOG_NOTE,
+		"MODASSET.COMPILER: built hierarchy modeldef '%s' source=%s nodes=%d parts=%d matrices=%d vertices=%d tris=%d rwdatalen=%d skeleton=%s",
+		entry ? entry->id : "(unknown)",
+		source_path ? source_path : "(null)",
+		hierarchy.row_count, part_count, owner->def.nummatrices,
+		owner->vertex_count, owner->triangle_count, owner->def.rwdatalen,
+		modAssetCompilerSkeletonSymbolForPointer(owner->def.skel) ?
+			modAssetCompilerSkeletonSymbolForPointer(owner->def.skel) : "(none)");
+
+	generatedRenderStreamFree(&render_stream);
+	generatedHierarchyFree(&hierarchy);
+	return 1;
+}
+
 static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
                                           const char *source_path,
                                           const obj_mesh_t *mesh,
@@ -4503,7 +6151,7 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	owner->def.parts = NULL;
 	owner->def.numparts = 0;
 	owner->def.nummatrices = 1;
-	owner->def.scale = entry && entry->model_scale > 0.0f ? entry->model_scale : 1.0f;
+	owner->def.scale = generatedModeldefScaleFromMetadata(source_path);
 	owner->def.numtexconfigs = 0;
 	owner->def.texconfigs = NULL;
 	owner->def.rwdatalen = modelCalculateRwDataIndexes(owner->def.rootnode);
@@ -4573,7 +6221,12 @@ s32 modAssetCompilerBuildModeldef(const asset_entry_t *entry,
 	}
 
 	generatedModeldefLoadMaterialMetadata(source_path, &mesh);
-	rc = buildGeneratedModeldefFromMesh(entry, source_path, &mesh, out_modeldef);
+	rc = buildGeneratedModeldefFromMeshHierarchy(entry, source_path, &mesh,
+		out_modeldef);
+	if (rc == 0) {
+		rc = buildGeneratedModeldefFromMesh(entry, source_path, &mesh,
+			out_modeldef);
+	}
 	objMeshFree(&mesh);
 	return rc;
 }
@@ -4588,6 +6241,10 @@ void modAssetCompilerFreeModeldef(struct modeldef *modeldef)
 
 	owner = (generated_modeldef_t *)modeldef;
 	generatedModeldefUnregister(owner);
+	generatedModeldefFreePayloads(owner);
+	free(owner->dynamic_nodes);
+	free(owner->dynamic_rodatas);
+	free(owner->dynamic_parts);
 	free(owner->vertices);
 	free(owner->gdl);
 	free(owner);

@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 6,
+  "asset_id": "base:model_chrskorpion",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chrskorpion.pdmesh::model.obj",
+  "source_size": 9757,
+  "source_sha256": "3a39d54405968ae32f0668990f6753c8501753c4fb18dbc9d23f2fe149d3c78f",
+  "validation": "format=obj vertices=150 triangles=50",
+  "normalized": "$S/mod-cache/base/base_model_chrskorpion/model-v6-3a39d54405968ae32f0668990f6753c8501753c4fb18dbc9d23f2fe149d3c78f.pdmodel.json",
+  "vertex_count": 150,
+  "triangle_count": 50,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

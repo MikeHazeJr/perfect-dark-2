@@ -1,3 +1,4 @@
+#include <float.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "system.h" /* sysLogPrintf for SURFACE_LOCO.RENDER_TILT diagnostic */
@@ -3294,6 +3295,11 @@ void modelRenderNodeGundl(struct modelrenderdata *renderdata, struct model *mode
 	}
 
 	if ((renderdata->flags & MODELRENDERFLAG_OPA) && rodata->opagdl) {
+		modAssetCompilerTraceGeneratedModeldefRender(model->definition, node);
+		modAssetCompilerTraceGeneratedModeldefRenderStep(model->definition,
+			node, "gundl-pre-opa", NULL, rodata->opagdl,
+			rodata->vertices, rodata->baseaddr,
+			rodata->numvertices, rodata->unk12);
 		gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->baseaddr));
 
 		if (renderdata->cullmode) {
@@ -3316,6 +3322,10 @@ void modelRenderNodeGundl(struct modelrenderdata *renderdata, struct model *mode
 		}
 
 		gSPDisplayList(renderdata->gdl++, rodata->opagdl);
+		modAssetCompilerTraceGeneratedModeldefRenderStep(model->definition,
+			node, "gundl-post-opa-displaylist", NULL, rodata->opagdl,
+			rodata->vertices, rodata->baseaddr,
+			rodata->numvertices, rodata->unk12);
 
 		if (rodata->unk12 == 3 && rodata->xlugdl) {
 			modelApplyRenderModeType3(renderdata, false);
@@ -3325,6 +3335,10 @@ void modelRenderNodeGundl(struct modelrenderdata *renderdata, struct model *mode
 	}
 
 	if ((renderdata->flags & MODELRENDERFLAG_XLU) && rodata->opagdl && rodata->unk12 == 4 && rodata->xlugdl) {
+		modAssetCompilerTraceGeneratedModeldefRenderStep(model->definition,
+			node, "gundl-pre-xlu", NULL, rodata->xlugdl,
+			rodata->vertices, rodata->baseaddr,
+			rodata->numvertices, rodata->unk12);
 		gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->baseaddr));
 
 		if (renderdata->cullmode) {
@@ -3334,6 +3348,10 @@ void modelRenderNodeGundl(struct modelrenderdata *renderdata, struct model *mode
 		modelApplyRenderModeType4(renderdata, false);
 
 		gSPDisplayList(renderdata->gdl++, rodata->xlugdl);
+		modAssetCompilerTraceGeneratedModeldefRenderStep(model->definition,
+			node, "gundl-post-xlu-displaylist", NULL, rodata->xlugdl,
+			rodata->vertices, rodata->baseaddr,
+			rodata->numvertices, rodata->unk12);
 	}
 }
 
@@ -3347,6 +3365,12 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 
 	if (renderdata->flags & MODELRENDERFLAG_OPA) {
 		union modelrwdata *rwdata = modelGetNodeRwData(model, node);
+
+		modAssetCompilerTraceGeneratedModeldefRenderStep(model->definition,
+			node, "dl-pre-opa", rwdata, rwdata ? rwdata->dl.gdl : NULL,
+			rwdata ? rwdata->dl.vertices : NULL,
+			rwdata ? rwdata->dl.colours : NULL,
+			rodata->dl.numvertices, rodata->dl.mcount);
 
 		if (rwdata->dl.gdl) {
 			modAssetCompilerTraceGeneratedModeldefRender(model->definition, node);
@@ -3375,6 +3399,10 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL2, osVirtualToPhysical(rwdata->dl.colours));
 
 			gSPDisplayList(renderdata->gdl++, rwdata->dl.gdl);
+			modAssetCompilerTraceGeneratedModeldefRenderStep(model->definition,
+				node, "dl-post-opa-displaylist", rwdata,
+				rwdata->dl.gdl, rwdata->dl.vertices, rwdata->dl.colours,
+				rodata->dl.numvertices, rodata->dl.mcount);
 
 			if (rodata->dl.mcount == 3 && rodata->dl.xlugdl) {
 				modelApplyRenderModeType3(renderdata, false);
@@ -3386,6 +3414,12 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 
 	if (renderdata->flags & MODELRENDERFLAG_XLU) {
 		union modelrwdata *rwdata = modelGetNodeRwData(model, node);
+
+		modAssetCompilerTraceGeneratedModeldefRenderStep(model->definition,
+			node, "dl-pre-xlu", rwdata, rwdata ? rwdata->dl.gdl : NULL,
+			rwdata ? rwdata->dl.vertices : NULL,
+			rwdata ? rwdata->dl.colours : NULL,
+			rodata->dl.numvertices, rodata->dl.mcount);
 
 		if (rwdata->dl.gdl && rodata->dl.mcount == 4 && rodata->dl.xlugdl) {
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->dl.colours));
@@ -3400,6 +3434,10 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 			modelApplyRenderModeType4(renderdata, false);
 
 			gSPDisplayList(renderdata->gdl++, rodata->dl.xlugdl);
+			modAssetCompilerTraceGeneratedModeldefRenderStep(model->definition,
+				node, "dl-post-xlu-displaylist", rwdata,
+				rodata->dl.xlugdl, rwdata->dl.vertices, rwdata->dl.colours,
+				rodata->dl.numvertices, rodata->dl.mcount);
 		}
 	}
 }
@@ -3640,6 +3678,83 @@ void modelRender(struct modelrenderdata *renderdata, struct model *model)
 	union modelrwdata *rwdata;
 	u32 type;
 	struct modelnode *node = model->definition->rootnode;
+
+	if (modAssetCompilerGeneratedModeldefRenderAuditEnabled() &&
+			modAssetCompilerModeldefIsGenerated(model->definition)) {
+		static const struct modeldef *s_logged_modeldefs[64];
+		static s32 s_logged_count = 0;
+		s32 already_logged = 0;
+
+		for (s32 i = 0; i < s_logged_count; i++) {
+			if (s_logged_modeldefs[i] == model->definition) {
+				already_logged = 1;
+				break;
+			}
+		}
+
+		if (!already_logged) {
+			s32 finite = 0;
+			s32 nonfinite = 0;
+			f32 min_x = 0.0f, min_y = 0.0f, min_z = 0.0f;
+			f32 max_x = 0.0f, max_y = 0.0f, max_z = 0.0f;
+
+			if (s_logged_count < ARRAYCOUNT(s_logged_modeldefs)) {
+				s_logged_modeldefs[s_logged_count++] = model->definition;
+			}
+
+			for (s32 i = 0; i < model->definition->nummatrices; i++) {
+				Mtxf *mtx = &model->matrices[i];
+				f32 x = mtx->m[3][0];
+				f32 y = mtx->m[3][1];
+				f32 z = mtx->m[3][2];
+
+				if (x == x && y == y && z == z &&
+						x > -FLT_MAX && x < FLT_MAX &&
+						y > -FLT_MAX && y < FLT_MAX &&
+						z > -FLT_MAX && z < FLT_MAX) {
+					if (finite == 0) {
+						min_x = max_x = x;
+						min_y = max_y = y;
+						min_z = max_z = z;
+					} else {
+						if (x < min_x) min_x = x;
+						if (x > max_x) max_x = x;
+						if (y < min_y) min_y = y;
+						if (y > max_y) max_y = y;
+						if (z < min_z) min_z = z;
+						if (z > max_z) max_z = z;
+					}
+					finite++;
+				} else {
+					nonfinite++;
+				}
+			}
+
+			sysLogPrintf(LOG_NOTE,
+				"MODASSET.RENDER.MTX: modeldef=%p matrices=%d finite=%d nonfinite=%d tx=[%f,%f] ty=[%f,%f] tz=[%f,%f]",
+				(void *)model->definition,
+				model->definition->nummatrices,
+				finite,
+				nonfinite,
+				min_x, max_x,
+				min_y, max_y,
+				min_z, max_z);
+
+			for (s32 i = 0; i < model->definition->nummatrices; i++) {
+				if (i < 4 || i == 33 || i == 34 || i == 38 || i == 46) {
+					Mtxf *mtx = &model->matrices[i];
+					sysLogPrintf(LOG_NOTE,
+						"MODASSET.RENDER.MTX.SAMPLE: modeldef=%p index=%d row0=(%f,%f,%f,%f) row1=(%f,%f,%f,%f) row2=(%f,%f,%f,%f) row3=(%f,%f,%f,%f)",
+						(void *)model->definition,
+						i,
+						mtx->m[0][0], mtx->m[0][1], mtx->m[0][2], mtx->m[0][3],
+						mtx->m[1][0], mtx->m[1][1], mtx->m[1][2], mtx->m[1][3],
+						mtx->m[2][0], mtx->m[2][1], mtx->m[2][2], mtx->m[2][3],
+						mtx->m[3][0], mtx->m[3][1], mtx->m[3][2], mtx->m[3][3]);
+				}
+			}
+		}
+	}
 
 	gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_MTX, osVirtualToPhysical(model->matrices));
 

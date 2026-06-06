@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 3,
+  "asset_id": "base:model_cartridge_rifle",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_cartridge_rifle.pdmesh::model.obj",
+  "source_size": 3361,
+  "source_sha256": "a719867a121332d884c46e039841b14bd7949e790cf849c2180a8826705d2bed",
+  "validation": "format=obj vertices=54 triangles=18",
+  "normalized": "$S/mod-cache/base/base_model_cartridge_rifle/model-v3-a719867a121332d884c46e039841b14bd7949e790cf849c2180a8826705d2bed.pdmodel.json",
+  "vertex_count": 54,
+  "triangle_count": 18,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}

@@ -11,6 +11,10 @@
  *   _meta/*.json        shared inventory/provenance/validation/source handles
  *   model.obj           Wavefront OBJ converted from model display lists
  *   model.mtl           material stub for OBJ tooling
+ *   model.nodes.tsv     original model node/matrix hierarchy
+ *   model.parts.tsv     original model part table
+ *   model.faces.tsv     original face-to-model-matrix bindings
+ *   model.render.tsv    original render command stream by render node/group
  *   _meta/*.sha256     public-file SHA-256 sidecars
  *
  * Reuses port/src/modarchive.c writer subset for ZIP atomic writes.
@@ -63,9 +67,9 @@
 #define ROMEXTRACT_PDMESH_MODEL_VMA 0x05000000u
 #define ROMEXTRACT_PDMESH_MTX_STACK_CAP 11
 #define ROMEXTRACT_PDMESH_NODE_DEPTH_CAP 2048
-#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v10_materials"
+#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v18_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_stream"
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "\n"
-#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v12_materials_allmodels_menuhud"
+#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v20_materials_hierarchy_parts_scale_faces_relations_raw_mtx_render_stream_allmodels_menuhud"
 extern u16 g_CartFileNums[];
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
@@ -220,8 +224,13 @@ typedef struct {
 	s32             static_gun_model;
 	pdmesh_textbuf_t *obj;
 	pdmesh_textbuf_t *mtl;
+	pdmesh_textbuf_t *nodes;
+	pdmesh_textbuf_t *parts;
+	pdmesh_textbuf_t *faces;
+	pdmesh_textbuf_t *render;
 	u32             next_index;
 	u32             triangle_count;
+	u32             render_cmd_count;
 	u32             gdl_count;
 	u32             vtx_cmd_count;
 	u32             vtx_slot_count;
@@ -236,13 +245,18 @@ typedef struct {
 	u32             transformed_vertex_count;
 	f32           (*model_matrices)[4][4];
 	s32             model_matrix_count;
+	const struct modelnode *node_ptrs[ROMEXTRACT_PDMESH_NODE_DEPTH_CAP];
+	s32             node_count;
+	s32             current_node_mtx_index;
 	f32             mtx_stack[ROMEXTRACT_PDMESH_MTX_STACK_CAP][4][4];
+	s32             mtx_stack_indices[ROMEXTRACT_PDMESH_MTX_STACK_CAP];
 	s32             mtx_stack_size;
 	pdmesh_obj_material_t *materials;
 	u32             material_count;
 	u32             material_cap;
 	s32             current_material;
 	s32             emitted_material;
+	char            current_group[64];
 	u32             material_switch_count;
 } pdmesh_obj_export_t;
 
@@ -254,6 +268,7 @@ typedef struct {
 	u32 tri_cmd_count;
 	u32 tri_attempt_count;
 	u32 tri_missing_slot_count;
+	u32 render_cmd_count;
 	u32 vtx_bad_addr_count;
 	u32 mtx_cmd_count;
 	u32 popmtx_cmd_count;
@@ -264,6 +279,9 @@ typedef struct {
 	u32 material_count;
 	u32 textured_material_count;
 	u32 material_switch_count;
+	u32 node_count;
+	u32 part_count;
+	f32 model_scale;
 } pdmesh_obj_stats_t;
 
 static s32 s_ptrInModel(const pdmesh_obj_export_t *ctx, const void *ptr,
@@ -342,6 +360,62 @@ static void s_objMtxTransformPoint(const f32 m[4][4],
 	out[2] = x * m[0][2] + y * m[1][2] + z * m[2][2] + m[3][2];
 }
 
+static s32 s_objMtxIndexValid(const pdmesh_obj_export_t *ctx, s32 idx);
+
+static s32 s_objMtxInverseTransformPoint(const f32 m[4][4],
+                                         const f32 in[3],
+                                         f32 out[3])
+{
+	f32 a00 = m[0][0], a01 = m[0][1], a02 = m[0][2];
+	f32 a10 = m[1][0], a11 = m[1][1], a12 = m[1][2];
+	f32 a20 = m[2][0], a21 = m[2][1], a22 = m[2][2];
+	f32 det =
+		a00 * (a11 * a22 - a12 * a21) -
+		a01 * (a10 * a22 - a12 * a20) +
+		a02 * (a10 * a21 - a11 * a20);
+
+	if (det > -0.000001f && det < 0.000001f) {
+		return 0;
+	}
+
+	f32 invdet = 1.0f / det;
+	f32 inv[3][3];
+	inv[0][0] =  (a11 * a22 - a12 * a21) * invdet;
+	inv[0][1] = -(a01 * a22 - a02 * a21) * invdet;
+	inv[0][2] =  (a01 * a12 - a02 * a11) * invdet;
+	inv[1][0] = -(a10 * a22 - a12 * a20) * invdet;
+	inv[1][1] =  (a00 * a22 - a02 * a20) * invdet;
+	inv[1][2] = -(a00 * a12 - a02 * a10) * invdet;
+	inv[2][0] =  (a10 * a21 - a11 * a20) * invdet;
+	inv[2][1] = -(a00 * a21 - a01 * a20) * invdet;
+	inv[2][2] =  (a00 * a11 - a01 * a10) * invdet;
+
+	f32 x = in[0] - m[3][0];
+	f32 y = in[1] - m[3][1];
+	f32 z = in[2] - m[3][2];
+	out[0] = x * inv[0][0] + y * inv[1][0] + z * inv[2][0];
+	out[1] = x * inv[0][1] + y * inv[1][1] + z * inv[2][1];
+	out[2] = x * inv[0][2] + y * inv[1][2] + z * inv[2][2];
+	return 1;
+}
+
+static void s_objMakeNodeLocalPoint(pdmesh_obj_export_t *ctx, f32 point[3])
+{
+	f32 local[3];
+
+	if (!ctx || !s_objMtxIndexValid(ctx, ctx->current_node_mtx_index)) {
+		return;
+	}
+
+	if (s_objMtxInverseTransformPoint(
+			ctx->model_matrices[ctx->current_node_mtx_index],
+			point, local)) {
+		point[0] = local[0];
+		point[1] = local[1];
+		point[2] = local[2];
+	}
+}
+
 static s32 s_objNodeMtxIndex(const pdmesh_obj_export_t *ctx,
                              const struct modelnode *node,
                              s32 which)
@@ -364,6 +438,40 @@ static s32 s_objNodeMtxIndex(const pdmesh_obj_export_t *ctx,
 		if (!s_ptrInModel(ctx, node->rodata,
 		                  sizeof(struct modelrodata_positionheld))) return -1;
 		return node->rodata->positionheld.mtxindex;
+	}
+	return -1;
+}
+
+static void s_objRegisterNodes(pdmesh_obj_export_t *ctx,
+                               const struct modelnode *node,
+                               s32 depth)
+{
+	if (!ctx || !node || depth > ROMEXTRACT_PDMESH_NODE_DEPTH_CAP ||
+			!s_ptrInModel(ctx, node, sizeof(*node)) ||
+			ctx->node_count >= ROMEXTRACT_PDMESH_NODE_DEPTH_CAP) {
+		return;
+	}
+
+	ctx->node_ptrs[ctx->node_count++] = node;
+
+	if (node->child) {
+		s_objRegisterNodes(ctx, node->child, depth + 1);
+	}
+	if (node->next) {
+		s_objRegisterNodes(ctx, node->next, depth + 1);
+	}
+}
+
+static s32 s_objNodeId(const pdmesh_obj_export_t *ctx,
+                       const struct modelnode *node)
+{
+	if (!ctx || !node) {
+		return -1;
+	}
+	for (s32 i = 0; i < ctx->node_count; i++) {
+		if (ctx->node_ptrs[i] == node) {
+			return i;
+		}
 	}
 	return -1;
 }
@@ -664,9 +772,11 @@ static s32 s_objDecodeFixedMtx(const s32 *addr, f32 out[4][4])
 }
 
 static s32 s_objResolveMtx(const pdmesh_obj_export_t *ctx, uintptr_t raw,
-                           f32 out[4][4], u32 *from_model_table)
+                           f32 out[4][4], u32 *from_model_table,
+                           s32 *model_matrix_index)
 {
 	if (from_model_table) *from_model_table = 0;
+	if (model_matrix_index) *model_matrix_index = -1;
 	if (!raw) return 0;
 
 	if (raw & 1u) {
@@ -677,12 +787,14 @@ static s32 s_objResolveMtx(const pdmesh_obj_export_t *ctx, uintptr_t raw,
 			if ((off % sizeof(Mtxf)) == 0 && s_objMtxIndexValid(ctx, idx)) {
 				s_objMtxCopy(out, ctx->model_matrices[idx]);
 				if (from_model_table) *from_model_table = 1;
+				if (model_matrix_index) *model_matrix_index = idx;
 				return 1;
 			}
 			idx = (s32)(off / sizeof(Mtx));
 			if ((off % sizeof(Mtx)) == 0 && s_objMtxIndexValid(ctx, idx)) {
 				s_objMtxCopy(out, ctx->model_matrices[idx]);
 				if (from_model_table) *from_model_table = 1;
+				if (model_matrix_index) *model_matrix_index = idx;
 				return 1;
 			}
 		}
@@ -699,37 +811,75 @@ static s32 s_objResolveMtx(const pdmesh_obj_export_t *ctx, uintptr_t raw,
 	return 0;
 }
 
-static void s_objApplyMtxCommand(pdmesh_obj_export_t *ctx,
-                                 u8 parameters,
-                                 uintptr_t raw)
+static const char *s_objCurrentGroup(const pdmesh_obj_export_t *ctx)
+{
+	return ctx && ctx->current_group[0] ? ctx->current_group : "default";
+}
+
+static s32 s_objAppendRenderRow(pdmesh_obj_export_t *ctx,
+                                const char *op,
+                                s32 face,
+                                s32 matrix,
+                                u8 parameters,
+                                s32 material)
+{
+	if (!ctx || !ctx->render || !op) {
+		return 0;
+	}
+	if (s_textbufAppendf(ctx->render, "%s\t%s\t%d\t%d\t0x%02x\t%d\n",
+			s_objCurrentGroup(ctx), op, face, matrix,
+			(unsigned)parameters, material) != 0) {
+		return -1;
+	}
+	ctx->render_cmd_count++;
+	return 0;
+}
+
+static s32 s_objApplyMtxCommand(pdmesh_obj_export_t *ctx,
+                                u8 parameters,
+                                uintptr_t raw,
+                                s32 *out_model_matrix_index)
 {
 	f32 matrix[4][4];
 	u32 from_model_table = 0;
+	s32 model_matrix_index = -1;
+	if (out_model_matrix_index) *out_model_matrix_index = -1;
 	ctx->mtx_cmd_count++;
-	if (!s_objResolveMtx(ctx, raw, matrix, &from_model_table)) {
+	if (!s_objResolveMtx(ctx, raw, matrix, &from_model_table,
+			&model_matrix_index)) {
 		ctx->mtx_bad_addr_count++;
-		return;
+		return 0;
 	}
 	if (from_model_table) ctx->mtx_model_ref_count++;
-	if (parameters & G_MTX_PROJECTION) return;
+	if (out_model_matrix_index) {
+		*out_model_matrix_index = model_matrix_index;
+	}
+	if (parameters & G_MTX_PROJECTION) return 1;
 
 	if (ctx->mtx_stack_size <= 0) {
 		ctx->mtx_stack_size = 1;
 		s_objMtxIdentity(ctx->mtx_stack[0]);
+		ctx->mtx_stack_indices[0] = ctx->current_node_mtx_index;
 	}
 	if ((parameters & G_MTX_PUSH) &&
 	    ctx->mtx_stack_size < ROMEXTRACT_PDMESH_MTX_STACK_CAP) {
 		s_objMtxCopy(ctx->mtx_stack[ctx->mtx_stack_size],
 		             ctx->mtx_stack[ctx->mtx_stack_size - 1]);
+		ctx->mtx_stack_indices[ctx->mtx_stack_size] =
+			ctx->mtx_stack_indices[ctx->mtx_stack_size - 1];
 		ctx->mtx_stack_size++;
 	}
 	if (parameters & G_MTX_LOAD) {
 		s_objMtxCopy(ctx->mtx_stack[ctx->mtx_stack_size - 1], matrix);
+		ctx->mtx_stack_indices[ctx->mtx_stack_size - 1] =
+			model_matrix_index;
 	} else {
 		s_objMtxMul(ctx->mtx_stack[ctx->mtx_stack_size - 1],
 		            matrix,
 		            ctx->mtx_stack[ctx->mtx_stack_size - 1]);
+		ctx->mtx_stack_indices[ctx->mtx_stack_size - 1] = -1;
 	}
+	return 1;
 }
 
 static void s_objMaterialNameFromCatalog(const char *catalog_id, u32 ordinal,
@@ -951,11 +1101,26 @@ static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
 	if (ctx->mtx_stack_size <= 0) {
 		ctx->mtx_stack_size = 1;
 		s_objMtxIdentity(ctx->mtx_stack[0]);
+		ctx->mtx_stack_indices[0] = ctx->current_node_mtx_index;
 	}
 	f32 va[3], vb[3], vc[3];
-	s_objMtxTransformPoint(ctx->mtx_stack[ctx->mtx_stack_size - 1], a, va);
-	s_objMtxTransformPoint(ctx->mtx_stack[ctx->mtx_stack_size - 1], b, vb);
-	s_objMtxTransformPoint(ctx->mtx_stack[ctx->mtx_stack_size - 1], c, vc);
+	s32 face_mtx = ctx->mtx_stack_indices[ctx->mtx_stack_size - 1];
+	if (s_objMtxIndexValid(ctx, face_mtx)) {
+		va[0] = a->x; va[1] = a->y; va[2] = a->z;
+		vb[0] = b->x; vb[1] = b->y; vb[2] = b->z;
+		vc[0] = c->x; vc[1] = c->y; vc[2] = c->z;
+	} else {
+		face_mtx = ctx->current_node_mtx_index;
+		s_objMtxTransformPoint(ctx->mtx_stack[ctx->mtx_stack_size - 1], a, va);
+		s_objMtxTransformPoint(ctx->mtx_stack[ctx->mtx_stack_size - 1], b, vb);
+		s_objMtxTransformPoint(ctx->mtx_stack[ctx->mtx_stack_size - 1], c, vc);
+		s_objMakeNodeLocalPoint(ctx, va);
+		s_objMakeNodeLocalPoint(ctx, vb);
+		s_objMakeNodeLocalPoint(ctx, vc);
+		if (!s_objMtxIndexValid(ctx, face_mtx)) {
+			face_mtx = 0;
+		}
+	}
 	u32 i0 = ctx->next_index++;
 	u32 i1 = ctx->next_index++;
 	u32 i2 = ctx->next_index++;
@@ -996,6 +1161,15 @@ static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
 		return -1;
 	}
 	ctx->triangle_count++;
+	if (ctx->faces &&
+			s_textbufAppendf(ctx->faces, "%u\t%d\n",
+				(unsigned)(ctx->triangle_count - 1u), face_mtx) != 0) {
+		return -1;
+	}
+	if (s_objAppendRenderRow(ctx, "tri", (s32)(ctx->triangle_count - 1u),
+			face_mtx, 0, material_index) != 0) {
+		return -1;
+	}
 	ctx->materials[material_index].triangle_count++;
 	ctx->transformed_vertex_count += 3;
 	return 0;
@@ -1035,6 +1209,10 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 					subcmd, w0, w1);
 				if (mat >= 0) {
 					ctx->current_material = mat;
+					if (s_objAppendRenderRow(ctx, "material", -1, -1,
+							0, mat) != 0) {
+						return -1;
+					}
 				}
 			}
 			continue;
@@ -1049,14 +1227,26 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 		}
 
 		if (cmd == (u8)G_MTX) {
-			s_objApplyMtxCommand(ctx, (u8)((w0 >> 16) & 0xffu),
-			                     (uintptr_t)w1);
+			u8 parameters = (u8)((w0 >> 16) & 0xffu);
+			s32 model_matrix_index = -1;
+			if (s_objApplyMtxCommand(ctx, parameters, (uintptr_t)w1,
+					&model_matrix_index) &&
+					!(parameters & G_MTX_PROJECTION)) {
+				if (s_objAppendRenderRow(ctx, "mtx", -1,
+						model_matrix_index, parameters, -1) != 0) {
+					return -1;
+				}
+			}
 			continue;
 		}
 
-		if (cmd == (u8)G_POPMTX && w1 != 0) {
+		if (cmd == (u8)G_POPMTX) {
 			ctx->popmtx_cmd_count++;
 			if (ctx->mtx_stack_size > 1) ctx->mtx_stack_size--;
+			if (s_objAppendRenderRow(ctx, "pop", -1, -1,
+					0, -1) != 0) {
+				return -1;
+			}
 			continue;
 		}
 
@@ -1157,37 +1347,103 @@ static s32 s_exportGunDlToObj(pdmesh_obj_export_t *ctx,
 		return 0;
 	}
 
+	s32 node_id = s_objNodeId(ctx, node);
+	char saved_group[sizeof(ctx->current_group)];
+	strncpy(saved_group, ctx->current_group, sizeof(saved_group));
+	saved_group[sizeof(saved_group) - 1] = '\0';
+	if (node_id < 0) {
+		node_id = ctx->node_count;
+	}
+	snprintf(ctx->current_group, sizeof(ctx->current_group),
+		"node_%d_gundl", node_id);
+
 	pdmesh_textbuf_t trial_buf = {0};
+	pdmesh_textbuf_t trial_faces = {0};
+	pdmesh_textbuf_t trial_render = {0};
 	pdmesh_obj_export_t trial = *ctx;
 	trial.obj = &trial_buf;
+	trial.faces = &trial_faces;
+	trial.render = &trial_render;
+	if (ctx->material_count > 0) {
+		trial.materials = malloc((size_t)ctx->material_count *
+			sizeof(*trial.materials));
+		if (!trial.materials) {
+			s_textbufFree(&trial_buf);
+			s_textbufFree(&trial_faces);
+			s_textbufFree(&trial_render);
+			strncpy(ctx->current_group, saved_group,
+				sizeof(ctx->current_group));
+			ctx->current_group[sizeof(ctx->current_group) - 1] = '\0';
+			return -1;
+		}
+		memcpy(trial.materials, ctx->materials,
+			(size_t)ctx->material_count * sizeof(*trial.materials));
+		trial.material_cap = ctx->material_count;
+	}
 
 	if (s_exportGdlToObj(&trial, gundl->opagdl, gundl->vertices,
 			gundl->numvertices, 0) != 0 ||
 	    s_exportGdlToObj(&trial, gundl->xlugdl, gundl->vertices,
 			gundl->numvertices, 0) != 0) {
 		s_textbufFree(&trial_buf);
+		s_textbufFree(&trial_faces);
+		s_textbufFree(&trial_render);
+		free(trial.materials);
+		strncpy(ctx->current_group, saved_group,
+			sizeof(ctx->current_group));
+		ctx->current_group[sizeof(ctx->current_group) - 1] = '\0';
 		return -1;
 	}
 
 	if (s_objMayCullDetachedGunEffects(ctx) &&
 	    s_objTextLooksDetachedGunEffect(&trial_buf)) {
 		s_textbufFree(&trial_buf);
+		s_textbufFree(&trial_faces);
+		s_textbufFree(&trial_render);
+		free(trial.materials);
+		strncpy(ctx->current_group, saved_group,
+			sizeof(ctx->current_group));
+		ctx->current_group[sizeof(ctx->current_group) - 1] = '\0';
 		return 0;
 	}
 
 	if (trial_buf.len > 0) {
 		pdmesh_textbuf_t *real_obj = ctx->obj;
-		if (s_textbufAppendf(real_obj, "g node_%p_gundl\n",
-				(void *)node) != 0 ||
-		    s_textbufAppend(real_obj, trial_buf.data) != 0) {
+		pdmesh_textbuf_t *real_faces = ctx->faces;
+		pdmesh_textbuf_t *real_render = ctx->render;
+		if (s_textbufAppendf(real_obj, "g %s\n",
+				ctx->current_group) != 0 ||
+		    s_textbufAppend(real_obj, trial_buf.data) != 0 ||
+		    s_textbufAppend(real_faces, trial_faces.data ?
+				trial_faces.data : "") != 0 ||
+		    s_textbufAppend(real_render, trial_render.data ?
+				trial_render.data : "") != 0) {
 			s_textbufFree(&trial_buf);
+			s_textbufFree(&trial_faces);
+			s_textbufFree(&trial_render);
+			free(trial.materials);
+			strncpy(ctx->current_group, saved_group,
+				sizeof(ctx->current_group));
+			ctx->current_group[sizeof(ctx->current_group) - 1] = '\0';
 			return -1;
 		}
+		free(ctx->materials);
 		*ctx = trial;
 		ctx->obj = real_obj;
+		ctx->faces = real_faces;
+		ctx->render = real_render;
+		strncpy(ctx->current_group, saved_group,
+			sizeof(ctx->current_group));
+		ctx->current_group[sizeof(ctx->current_group) - 1] = '\0';
+		trial.materials = NULL;
 	}
 
 	s_textbufFree(&trial_buf);
+	s_textbufFree(&trial_faces);
+	s_textbufFree(&trial_render);
+	free(trial.materials);
+	strncpy(ctx->current_group, saved_group, sizeof(ctx->current_group));
+	ctx->current_group[sizeof(ctx->current_group) - 1] = '\0';
 	return 0;
 }
 
@@ -1207,22 +1463,284 @@ static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node,
 	if (type == MODELNODETYPE_DL && node->rodata &&
 	    s_ptrInModel(ctx, node->rodata, sizeof(struct modelrodata_dl))) {
 		struct modelrodata_dl *dl = &node->rodata->dl;
-		(void)s_textbufAppendf(ctx->obj, "g node_%p_dl\n", (void *)node);
+		s32 saved_mtx = ctx->current_node_mtx_index;
+		s32 node_id = s_objNodeId(ctx, node);
+		char saved_group[sizeof(ctx->current_group)];
+		strncpy(saved_group, ctx->current_group, sizeof(saved_group));
+		saved_group[sizeof(saved_group) - 1] = '\0';
+		ctx->current_node_mtx_index = s_objParentMtxIndex(ctx, node);
+		if (ctx->mtx_stack_size > 0) {
+			ctx->mtx_stack_indices[ctx->mtx_stack_size - 1] =
+				ctx->current_node_mtx_index;
+		}
+		snprintf(ctx->current_group, sizeof(ctx->current_group),
+			"node_%d_dl", node_id);
+		(void)s_textbufAppendf(ctx->obj, "g %s\n", ctx->current_group);
 		if (s_exportGdlToObj(ctx, dl->opagdl, dl->vertices, dl->numvertices, 0) != 0) return -1;
 		if (s_exportGdlToObj(ctx, dl->xlugdl, dl->vertices, dl->numvertices, 0) != 0) return -1;
+		ctx->current_node_mtx_index = saved_mtx;
+		strncpy(ctx->current_group, saved_group,
+			sizeof(ctx->current_group));
+		ctx->current_group[sizeof(ctx->current_group) - 1] = '\0';
 	} else if (type == MODELNODETYPE_GUNDL && node->rodata &&
 	           s_ptrInModel(ctx, node->rodata, sizeof(struct modelrodata_gundl))) {
 		struct modelrodata_gundl *gundl = &node->rodata->gundl;
+		s32 saved_mtx = ctx->current_node_mtx_index;
+		ctx->current_node_mtx_index = s_objParentMtxIndex(ctx, node);
+		if (ctx->mtx_stack_size > 0) {
+			ctx->mtx_stack_indices[ctx->mtx_stack_size - 1] =
+				ctx->current_node_mtx_index;
+		}
 		if (s_exportGunDlToObj(ctx, node, gundl) != 0) return -1;
+		ctx->current_node_mtx_index = saved_mtx;
 	} else if (type == MODELNODETYPE_STARGUNFIRE && node->rodata &&
 	           s_ptrInModel(ctx, node->rodata, sizeof(struct modelrodata_stargunfire))) {
 		struct modelrodata_stargunfire *star = &node->rodata->stargunfire;
-		(void)s_textbufAppendf(ctx->obj, "g node_%p_stargunfire\n", (void *)node);
+		s32 saved_mtx = ctx->current_node_mtx_index;
+		s32 node_id = s_objNodeId(ctx, node);
+		char saved_group[sizeof(ctx->current_group)];
+		strncpy(saved_group, ctx->current_group, sizeof(saved_group));
+		saved_group[sizeof(saved_group) - 1] = '\0';
+		ctx->current_node_mtx_index = s_objParentMtxIndex(ctx, node);
+		if (ctx->mtx_stack_size > 0) {
+			ctx->mtx_stack_indices[ctx->mtx_stack_size - 1] =
+				ctx->current_node_mtx_index;
+		}
+		snprintf(ctx->current_group, sizeof(ctx->current_group),
+			"node_%d_stargunfire", node_id);
+		(void)s_textbufAppendf(ctx->obj, "g %s\n", ctx->current_group);
 		if (s_exportGdlToObj(ctx, star->gdl, star->vertices, 4, 0) != 0) return -1;
+		ctx->current_node_mtx_index = saved_mtx;
+		strncpy(ctx->current_group, saved_group,
+			sizeof(ctx->current_group));
+		ctx->current_group[sizeof(ctx->current_group) - 1] = '\0';
 	}
 
 	if (node->child && s_exportNodeObj(ctx, node->child, depth + 1) != 0) return -1;
 	if (node->next && s_exportNodeObj(ctx, node->next, depth + 1) != 0) return -1;
+	return 0;
+}
+
+static const char *s_objRenderGroupSuffix(u32 type)
+{
+	switch (type & 0xff) {
+	case MODELNODETYPE_DL:
+		return "dl";
+	case MODELNODETYPE_GUNDL:
+		return "gundl";
+	case MODELNODETYPE_STARGUNFIRE:
+		return "stargunfire";
+	default:
+		return "";
+	}
+}
+
+static s32 s_writeNodeHierarchyTsv(pdmesh_obj_export_t *ctx)
+{
+	if (!ctx || !ctx->nodes) {
+		return -1;
+	}
+
+	if (s_textbufAppend(ctx->nodes,
+			"id\tparent\ttype\tpartnum\tpart\tmtx0\tmtx1\tmtx2\tpos_x\tpos_y\tpos_z\tdrawdist\ttarget\tgroup\trender_mtx\tmcount\thitpart\txmin\txmax\tymin\tymax\tzmin\tzmax\tdistance_near\tdistance_far\treorder_x\treorder_y\treorder_z\treorder_axis_x\treorder_axis_y\treorder_axis_z\treorder_target_a\treorder_target_b\treorder_side\n") != 0) {
+		return -1;
+	}
+
+	for (s32 i = 0; i < ctx->node_count; i++) {
+		const struct modelnode *node = ctx->node_ptrs[i];
+		u32 type = node ? (node->type & 0xff) : 0;
+		s32 parent = node ? s_objNodeId(ctx, node->parent) : -1;
+		s32 partnum = s_objPartNumForNode(ctx, node);
+		s32 part = -1;
+		s32 mtx0 = -1;
+		s32 mtx1 = -1;
+		s32 mtx2 = -1;
+		f32 pos_x = 0.0f;
+		f32 pos_y = 0.0f;
+		f32 pos_z = 0.0f;
+		f32 drawdist = 0.0f;
+		s32 target = -1;
+		char group[64] = "-";
+		s32 render_mtx = -1;
+		s32 mcount = 1;
+		s32 hitpart = 0;
+		f32 xmin = 0.0f, xmax = 0.0f;
+		f32 ymin = 0.0f, ymax = 0.0f;
+		f32 zmin = 0.0f, zmax = 0.0f;
+		f32 distance_near = 0.0f, distance_far = 0.0f;
+		f32 reorder_x = 0.0f, reorder_y = 0.0f, reorder_z = 0.0f;
+		f32 reorder_axis_x = 0.0f, reorder_axis_y = 0.0f, reorder_axis_z = 0.0f;
+		s32 reorder_target_a = -1, reorder_target_b = -1, reorder_side = 0;
+
+		if (!node || !s_ptrInModel(ctx, node, sizeof(*node))) {
+			continue;
+		}
+
+		switch (type) {
+		case MODELNODETYPE_CHRINFO:
+			if (node->rodata &&
+					s_ptrInModel(ctx, node->rodata,
+						sizeof(struct modelrodata_chrinfo))) {
+				part = node->rodata->chrinfo.animpart;
+				mtx0 = node->rodata->chrinfo.mtxindex;
+			}
+			break;
+		case MODELNODETYPE_POSITION:
+			if (node->rodata &&
+					s_ptrInModel(ctx, node->rodata,
+						sizeof(struct modelrodata_position))) {
+				struct modelrodata_position *pos = &node->rodata->position;
+				part = pos->part;
+				mtx0 = pos->mtxindex0;
+				mtx1 = pos->mtxindex1;
+				mtx2 = pos->mtxindex2;
+				pos_x = pos->pos.x;
+				pos_y = pos->pos.y;
+				pos_z = pos->pos.z;
+				drawdist = pos->drawdist;
+			}
+			break;
+		case MODELNODETYPE_POSITIONHELD:
+			if (node->rodata &&
+					s_ptrInModel(ctx, node->rodata,
+						sizeof(struct modelrodata_positionheld))) {
+				struct modelrodata_positionheld *pos =
+					&node->rodata->positionheld;
+				mtx0 = pos->mtxindex;
+				pos_x = pos->pos.x;
+				pos_y = pos->pos.y;
+				pos_z = pos->pos.z;
+			}
+			break;
+		case MODELNODETYPE_TOGGLE:
+			if (node->rodata &&
+					s_ptrInModel(ctx, node->rodata,
+						sizeof(struct modelrodata_toggle))) {
+				target = s_objNodeId(ctx, node->rodata->toggle.target);
+			}
+			break;
+		case MODELNODETYPE_DISTANCE:
+			if (node->rodata &&
+					s_ptrInModel(ctx, node->rodata,
+						sizeof(struct modelrodata_distance))) {
+				struct modelrodata_distance *distance = &node->rodata->distance;
+				distance_near = distance->near;
+				distance_far = distance->far;
+				target = s_objNodeId(ctx, distance->target);
+			}
+			break;
+		case MODELNODETYPE_REORDER:
+			if (node->rodata &&
+					s_ptrInModel(ctx, node->rodata,
+						sizeof(struct modelrodata_reorder))) {
+				struct modelrodata_reorder *reorder = &node->rodata->reorder;
+				reorder_x = reorder->unk00;
+				reorder_y = reorder->unk04;
+				reorder_z = reorder->unk08;
+				reorder_axis_x = reorder->unk0c[0];
+				reorder_axis_y = reorder->unk0c[1];
+				reorder_axis_z = reorder->unk0c[2];
+				reorder_target_a = s_objNodeId(ctx, reorder->unk18);
+				reorder_target_b = s_objNodeId(ctx, reorder->unk1c);
+				reorder_side = reorder->side;
+			}
+			break;
+		case MODELNODETYPE_BBOX:
+			if (node->rodata &&
+					s_ptrInModel(ctx, node->rodata,
+						sizeof(struct modelrodata_bbox))) {
+				struct modelrodata_bbox *bbox = &node->rodata->bbox;
+				hitpart = bbox->hitpart;
+				xmin = bbox->xmin;
+				xmax = bbox->xmax;
+				ymin = bbox->ymin;
+				ymax = bbox->ymax;
+				zmin = bbox->zmin;
+				zmax = bbox->zmax;
+			}
+			break;
+		case MODELNODETYPE_DL:
+			if (node->rodata &&
+					s_ptrInModel(ctx, node->rodata,
+						sizeof(struct modelrodata_dl))) {
+				mcount = node->rodata->dl.mcount;
+			}
+			/* fall through */
+		case MODELNODETYPE_GUNDL:
+			if (type == MODELNODETYPE_GUNDL && node->rodata &&
+					s_ptrInModel(ctx, node->rodata,
+						sizeof(struct modelrodata_gundl))) {
+				mcount = node->rodata->gundl.unk12;
+			}
+			/* fall through */
+		case MODELNODETYPE_STARGUNFIRE:
+			if (s_objRenderGroupSuffix(type)[0]) {
+				snprintf(group, sizeof(group), "node_%d_%s", i,
+					s_objRenderGroupSuffix(type));
+				render_mtx = s_objParentMtxIndex(ctx, node);
+			}
+			break;
+		default:
+			break;
+		}
+
+		if (s_textbufAppendf(ctx->nodes,
+				"%d\t%d\t%u\t%d\t%d\t%d\t%d\t%d\t%.6f\t%.6f\t%.6f\t%.6f\t%d\t%s\t%d\t%d\t%d\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%d\t%d\t%d\n",
+				i, parent, (unsigned)type, partnum, part, mtx0, mtx1, mtx2,
+				(double)pos_x, (double)pos_y, (double)pos_z,
+				(double)drawdist, target, group, render_mtx, mcount,
+				hitpart, (double)xmin, (double)xmax, (double)ymin,
+				(double)ymax, (double)zmin, (double)zmax,
+				(double)distance_near, (double)distance_far,
+				(double)reorder_x, (double)reorder_y, (double)reorder_z,
+				(double)reorder_axis_x, (double)reorder_axis_y,
+				(double)reorder_axis_z, reorder_target_a,
+				reorder_target_b, reorder_side) != 0) {
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+static s32 s_writePartTableTsv(pdmesh_obj_export_t *ctx)
+{
+	if (!ctx || !ctx->parts || !ctx->modeldef ||
+			ctx->modeldef->numparts <= 0) {
+		if (ctx && ctx->parts) {
+			return s_textbufAppend(ctx->parts, "partnum\tnode\n");
+		}
+		return -1;
+	}
+
+	size_t parts_bytes = (size_t)ctx->modeldef->numparts *
+		sizeof(*ctx->modeldef->parts);
+	if (!s_ptrInModel(ctx, ctx->modeldef->parts, parts_bytes)) {
+		return -1;
+	}
+
+	s16 *partnums = (s16 *)&ctx->modeldef->parts[ctx->modeldef->numparts];
+	size_t partnums_bytes = (size_t)ctx->modeldef->numparts *
+		sizeof(*partnums);
+	if (!s_ptrInModel(ctx, partnums, partnums_bytes)) {
+		return -1;
+	}
+
+	if (s_textbufAppend(ctx->parts, "partnum\tnode\n") != 0) {
+		return -1;
+	}
+
+	for (s32 i = 0; i < ctx->modeldef->numparts; i++) {
+		s32 node_id = s_objNodeId(ctx, ctx->modeldef->parts[i]);
+		if (node_id < 0) {
+			return -1;
+		}
+		if (s_textbufAppendf(ctx->parts, "%d\t%d\n",
+				(s32)partnums[i], node_id) != 0) {
+			return -1;
+		}
+	}
+
 	return 0;
 }
 
@@ -1267,9 +1785,14 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
                            u32 loadtype, u16 source_filenum,
                            pdmesh_textbuf_t *obj,
                            pdmesh_textbuf_t *mtl,
+                           pdmesh_textbuf_t *nodes,
+                           pdmesh_textbuf_t *parts,
+                           pdmesh_textbuf_t *faces,
+                           pdmesh_textbuf_t *render,
                            pdmesh_obj_stats_t *out_stats)
 {
-	if (!src || src_size < sizeof(struct modeldef) || !obj || !mtl) return -1;
+	if (!src || src_size < sizeof(struct modeldef) || !obj || !mtl ||
+			!nodes || !parts || !faces || !render) return -1;
 
 	u8 *copy = (u8 *)malloc(src_size);
 	if (!copy) return -1;
@@ -1304,7 +1827,12 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 	ctx.static_gun_model = loadtype == LOADTYPE_GUN;
 	ctx.obj = obj;
 	ctx.mtl = mtl;
+	ctx.nodes = nodes;
+	ctx.parts = parts;
+	ctx.faces = faces;
+	ctx.render = render;
 	ctx.next_index = 1;
+	ctx.current_node_mtx_index = -1;
 	ctx.current_material = s_objEnsureDefaultMaterial(&ctx);
 	ctx.emitted_material = -1;
 	if (ctx.current_material < 0) {
@@ -1313,6 +1841,18 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 	}
 	ctx.mtx_stack_size = 1;
 	s_objMtxIdentity(ctx.mtx_stack[0]);
+	ctx.mtx_stack_indices[0] = -1;
+	if (s_textbufAppend(ctx.faces, "face\tmatrix\n") != 0) {
+		free(ctx.materials);
+		free(copy);
+		return -1;
+	}
+	if (s_textbufAppend(ctx.render,
+			"group\top\tface\tmatrix\tparams\tmaterial\n") != 0) {
+		free(ctx.materials);
+		free(copy);
+		return -1;
+	}
 	if (modeldef->nummatrices > 0) {
 		size_t matrix_bytes = (size_t)modeldef->nummatrices *
 			sizeof(*ctx.model_matrices);
@@ -1328,6 +1868,21 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 		}
 		if (modeldef->rootnode) {
 			s_objBuildDefaultModelMatrices(&ctx, modeldef->rootnode, 0);
+		}
+	}
+	if (modeldef->rootnode) {
+		s_objRegisterNodes(&ctx, modeldef->rootnode, 0);
+		if (s_writeNodeHierarchyTsv(&ctx) != 0) {
+			if (ctx.model_matrices) free(ctx.model_matrices);
+			free(ctx.materials);
+			free(copy);
+			return -1;
+		}
+		if (s_writePartTableTsv(&ctx) != 0) {
+			if (ctx.model_matrices) free(ctx.model_matrices);
+			free(ctx.materials);
+			free(copy);
+			return -1;
 		}
 	}
 	if (modeldef->rootnode &&
@@ -1353,6 +1908,7 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 		out_stats->tri_cmd_count = ctx.tri_cmd_count;
 		out_stats->tri_attempt_count = ctx.tri_attempt_count;
 		out_stats->tri_missing_slot_count = ctx.tri_missing_slot_count;
+		out_stats->render_cmd_count = ctx.render_cmd_count;
 		out_stats->vtx_bad_addr_count = ctx.vtx_bad_addr_count;
 		out_stats->mtx_cmd_count = ctx.mtx_cmd_count;
 		out_stats->popmtx_cmd_count = ctx.popmtx_cmd_count;
@@ -1361,6 +1917,9 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 		out_stats->transformed_vertex_count = ctx.transformed_vertex_count;
 		out_stats->material_count = ctx.material_count;
 		out_stats->material_switch_count = ctx.material_switch_count;
+		out_stats->node_count = (u32)ctx.node_count;
+		out_stats->part_count = (u32)modeldef->numparts;
+		out_stats->model_scale = modeldef->scale;
 		for (u32 i = 0; i < ctx.material_count; i++) {
 			if (ctx.materials[i].texture_catalog_id[0]) {
 				out_stats->textured_material_count++;
@@ -1580,16 +2139,29 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 
 	pdmesh_textbuf_t obj_buf;
 	pdmesh_textbuf_t mtl_buf;
+	pdmesh_textbuf_t nodes_buf;
+	pdmesh_textbuf_t parts_buf;
+	pdmesh_textbuf_t faces_buf;
+	pdmesh_textbuf_t render_buf;
 	memset(&obj_buf, 0, sizeof(obj_buf));
 	memset(&mtl_buf, 0, sizeof(mtl_buf));
+	memset(&nodes_buf, 0, sizeof(nodes_buf));
+	memset(&parts_buf, 0, sizeof(parts_buf));
+	memset(&faces_buf, 0, sizeof(faces_buf));
+	memset(&render_buf, 0, sizeof(render_buf));
 	pdmesh_obj_stats_t stats;
 	memset(&stats, 0, sizeof(stats));
 	if (s_buildModelObj((const u8 *)model_bytes, model_size, loadtype,
-	                    filenum, &obj_buf, &mtl_buf, &stats) != 0 ||
+	                    filenum, &obj_buf, &mtl_buf, &nodes_buf, &parts_buf,
+	                    &faces_buf, &render_buf, &stats) != 0 ||
 	    stats.triangle_count == 0) {
 		sysMemFree(model_bytes);
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
 		sysLogPrintf(LOG_WARNING,
 			"romextract pdmesh: OBJ export produced no triangles for filenum=0x%04x (rel=\"%s\", gdls=%u vtxcmds=%u vtxslots=%u mtxcmds=%u mtxrefs=%u tricmds=%u triattempts=%u trimiss=%u badvtxaddr=%u badmtxaddr=%u)",
 			(unsigned)filenum, src_rel, (unsigned)stats.gdl_count,
@@ -1616,7 +2188,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	const char *sym_for_provenance = loaderEnumNameForFileEnum(filenum);
 
 	/* Build _meta/manifest.json text in memory. */
-	char manifest_buf[1536];
+	char manifest_buf[1792];
 	int manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
 		"{\n"
 		"  \"pd_kind\": \"mesh\",\n"
@@ -1629,11 +2201,19 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"  \"obj_export_version\": \"%s\",\n"
 		"  \"geometry\": \"model.obj\",\n"
 		"  \"material\": \"model.mtl\",\n"
+		"  \"hierarchy\": \"model.nodes.tsv\",\n"
+		"  \"parts\": \"model.parts.tsv\",\n"
+		"  \"faces\": \"model.faces.tsv\",\n"
+		"  \"render_stream\": \"model.render.tsv\",\n"
+		"  \"model_scale\": %.9g,\n"
 		"  \"triangle_count\": %u,\n"
+		"  \"node_count\": %u,\n"
+		"  \"part_count\": %u,\n"
 		"  \"material_count\": %u,\n"
 		"  \"textured_material_count\": %u,\n"
 		"  \"material_switch_count\": %u,\n"
 		"  \"display_list_count\": %u,\n"
+		"  \"render_command_count\": %u,\n"
 		"  \"matrix_command_count\": %u,\n"
 		"  \"model_matrix_reference_count\": %u\n"
 		"}\n",
@@ -1641,23 +2221,31 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		sym_for_provenance ? sym_for_provenance : "",
 		stats.skeleton_symbol,
 		ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL,
+		(double)stats.model_scale,
 		(unsigned)stats.triangle_count,
+		(unsigned)stats.node_count,
+		(unsigned)stats.part_count,
 		(unsigned)stats.material_count,
 		(unsigned)stats.textured_material_count,
 		(unsigned)stats.material_switch_count,
 		(unsigned)stats.gdl_count,
+		(unsigned)stats.render_cmd_count,
 		(unsigned)stats.mtx_cmd_count,
 		(unsigned)stats.mtx_model_ref_count);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
 		sysLoudFailf("EXTRACT.PDMESH",
 			"manifest.json snprintf truncated for filenum=0x%04x",
 			(unsigned)filenum);
 		return -1;
 	}
 
-	char ini_buf[1024];
+	char ini_buf[1200];
 	int ini_len = snprintf(ini_buf, sizeof(ini_buf),
 		"[model]\n"
 		"catalog_id = %s\n"
@@ -1667,29 +2255,45 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"obj_export_version = %s\n"
 		"geometry_file = model.obj\n"
 		"material_file = model.mtl\n"
+		"hierarchy_file = model.nodes.tsv\n"
+		"parts_file = model.parts.tsv\n"
+		"faces_file = model.faces.tsv\n"
+		"render_stream_file = model.render.tsv\n"
+		"model_scale = %.9g\n"
 		"skeleton_symbol = %s\n"
 		"triangle_count = %u\n"
+		"node_count = %u\n"
+		"part_count = %u\n"
 		"material_count = %u\n"
 		"textured_material_count = %u\n"
 		"material_switch_count = %u\n"
 		"display_list_count = %u\n"
+		"render_command_count = %u\n"
 		"matrix_command_count = %u\n"
 		"model_matrix_reference_count = %u\n"
 		"source_filenum_symbol = %s\n",
 		catalog_id,
 		ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL,
+		(double)stats.model_scale,
 		stats.skeleton_symbol,
 		(unsigned)stats.triangle_count,
+		(unsigned)stats.node_count,
+		(unsigned)stats.part_count,
 		(unsigned)stats.material_count,
 		(unsigned)stats.textured_material_count,
 		(unsigned)stats.material_switch_count,
 		(unsigned)stats.gdl_count,
+		(unsigned)stats.render_cmd_count,
 		(unsigned)stats.mtx_cmd_count,
 		(unsigned)stats.mtx_model_ref_count,
 		sym_for_provenance ? sym_for_provenance : "");
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
 		sysLoudFailf("EXTRACT.PDMESH",
 			"mesh.ini snprintf truncated for filenum=0x%04x",
 			(unsigned)filenum);
@@ -1702,6 +2306,10 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	if (!dst_full || !dst_full[0]) {
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
 		sysLoudFailf("EXTRACT.PDMESH",
 			"fsFullPath failed for \"%s\"", dst_rel);
 		return -1;
@@ -1710,6 +2318,10 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	if (!aw) {
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
 		sysLoudFailf("EXTRACT.PDMESH",
 			"modArchiveBegin failed for \"%s\"", dst_full);
 		return -1;
@@ -1723,6 +2335,10 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
 		return -1;
 	}
 	assetArchiveWriterSetProvenance(&asset_writer, "romextract_pdmesh",
@@ -1735,6 +2351,10 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
 		return -1;
 	}
 	if (assetArchiveWriterAddManifestJson(&asset_writer,
@@ -1744,6 +2364,10 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
 		return -1;
 	}
 
@@ -1756,6 +2380,10 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
 		return -1;
 	}
 
@@ -1766,6 +2394,10 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
 		return -1;
 	}
 
@@ -1776,6 +2408,67 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
+		return -1;
+	}
+
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "model.nodes.tsv",
+			nodes_buf.data, nodes_buf.len, "hierarchy") != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDMESH",
+			"AddFileMem model.nodes.tsv failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
+		return -1;
+	}
+
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "model.parts.tsv",
+			parts_buf.data, parts_buf.len, "parts") != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDMESH",
+			"AddFileMem model.parts.tsv failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
+		return -1;
+	}
+
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "model.faces.tsv",
+			faces_buf.data, faces_buf.len, "faces") != MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDMESH",
+			"AddFileMem model.faces.tsv failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
+		return -1;
+	}
+
+	if (assetArchiveWriterAddPublicMem(&asset_writer, "model.render.tsv",
+			render_buf.data, render_buf.len, "render_stream") !=
+			MODARCHIVE_OK) {
+		sysLoudFailf("EXTRACT.PDMESH",
+			"AddFileMem model.render.tsv failed for \"%s\"", dst_full);
+		modArchiveAbort(aw);
+		s_textbufFree(&obj_buf);
+		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
 		return -1;
 	}
 
@@ -1785,18 +2478,30 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		modArchiveAbort(aw);
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
 		return -1;
 	}
 
 	if (modArchiveFinish(aw) != 0) {
 		s_textbufFree(&obj_buf);
 		s_textbufFree(&mtl_buf);
+		s_textbufFree(&nodes_buf);
+		s_textbufFree(&parts_buf);
+		s_textbufFree(&faces_buf);
+		s_textbufFree(&render_buf);
 		sysLoudFailf("EXTRACT.PDMESH",
 			"modArchiveFinish failed for \"%s\"", dst_full);
 		return -1;
 	}
 	s_textbufFree(&obj_buf);
 	s_textbufFree(&mtl_buf);
+	s_textbufFree(&nodes_buf);
+	s_textbufFree(&parts_buf);
+	s_textbufFree(&faces_buf);
+	s_textbufFree(&render_buf);
 	return 1;
 }
 

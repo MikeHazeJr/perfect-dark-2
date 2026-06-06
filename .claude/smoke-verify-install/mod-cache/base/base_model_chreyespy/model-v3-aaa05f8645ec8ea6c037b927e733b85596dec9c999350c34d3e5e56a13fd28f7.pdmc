@@ -1,0 +1,16 @@
+{
+  "schema": "pd2.modasset.cache.v1",
+  "compiler_version": 3,
+  "asset_id": "base:model_chreyespy",
+  "mod_id": "base",
+  "kind": "model",
+  "source": "data/ntsc-final/meshes/base_model_chreyespy.pdmesh::model.obj",
+  "source_size": 33191,
+  "source_sha256": "aaa05f8645ec8ea6c037b927e733b85596dec9c999350c34d3e5e56a13fd28f7",
+  "validation": "format=obj vertices=537 triangles=179",
+  "normalized": "$S/mod-cache/base/base_model_chreyespy/model-v3-aaa05f8645ec8ea6c037b927e733b85596dec9c999350c34d3e5e56a13fd28f7.pdmodel.json",
+  "vertex_count": 537,
+  "triangle_count": 179,
+  "runtime_payload": "readable-generated-cache",
+  "note": "External source verified; generated cache is readable, rebuildable, and never authored archive content."
+}
